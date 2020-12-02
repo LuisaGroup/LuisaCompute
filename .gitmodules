@@ -1,0 +1,6 @@
+[submodule "src/LuisaCore"]
+	path = src/core
+	url = https://github.com/Mike-Leo-Smith/LuisaCore.git
+[submodule "src/core"]
+	path = src/core
+	url = https://github.com/Mike-Leo-Smith/LuisaCore.git

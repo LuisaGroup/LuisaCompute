@@ -6,4 +6,4 @@ set(LUISA_COMPUTE_AST_SOURCES
     statement.cpp statement.h)
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
-target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-include)
+target_link_libraries(luisa-compute-ast PUBLIC luisa-core luisa-compute-include)
