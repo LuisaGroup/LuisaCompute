@@ -10,7 +10,7 @@ jobs:
       - name: "Install Dependencies"
         run: |
           sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build openimageio opencv
+          sudo apt-get -y install build-essential cmake ninja-build libopenimageio-dev libopencv-dev
       - name: "Configure and Build"
         run: |
           rm -rf build && mkdir build && cd build
