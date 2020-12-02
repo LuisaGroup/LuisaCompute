@@ -1,0 +1,30 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: "Install Dependencies"
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install build-essential cmake ninja-build libopenimageio-dev libopencv-dev
+      - name: "Configure and Build"
+        run: |
+          rm -rf build && mkdir build && cd build
+          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release
+          cmake --build .
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: "Install Dependencies"
+        run: |
+          brew install cmake ninja openimageio opencv
+      - name: "Configure and Build"
+        run: |
+          rm -rf build && mkdir build && cd build
+          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release
+          cmake --build .
