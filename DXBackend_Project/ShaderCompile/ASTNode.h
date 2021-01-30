@@ -6,23 +6,10 @@ struct IDisposable {
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };
 ////////////////////////////////////////////////////////////////////////////////////////// Enums
-enum class GPUResourceType : uint32_t {
-	Buffer,			  //StructuredBuffer<float> buffer;
-	Texture,		  //Texture2D<float> tex;
-	BufferSparseArray,//StructuredBuffer<float> buffer[];
-	TextureSparseArray//Texture2D<float> tex[];
-};
 enum class TextureDimension : uint32_t {
 	Tex2D,
 	Tex2DArray,
 	Tex3D
-};
-////////////////////////////////////////////////////////////////////////////////////////// Global
-struct VarType : public IDisposable {
-	virtual ~VarType() noexcept = default;
-
-protected:
-	VarType() {}
 };
 enum class NumOpType : uint32_t {
 	Add,
@@ -31,14 +18,25 @@ enum class NumOpType : uint32_t {
 	Div,
 	And,
 	Or,
+	Xor,
 	Left,
-	Right
+	Right,
+	LogicAnd,
+	LogicOr
 };
 enum class NumVarType : uint32_t {
 	Int,
 	UInt,
 	Float,
 	Bool
+};
+
+////////////////////////////////////////////////////////////////////////////////////////// Global
+struct VarType : public IDisposable {
+	virtual ~VarType() noexcept = default;
+
+protected:
+	VarType() {}
 };
 
 struct NumVar final : public VarType {
@@ -85,6 +83,7 @@ struct TextureType final : public VarType {
 	vengine::string texName;
 	NumVar type;
 	TextureDimension dimension;
+	bool isSparseArray;
 };
 ////////////////////////////////////////////////////////////////////////////////////////// Logic
 
@@ -127,10 +126,21 @@ struct OperationNode final : public LogicASTNode {
 	LogicASTNode const* rightValue;
 	NumOpType opType;
 };
+
+
 struct FunctionDefine final : public IDisposable {
+	enum class ArgType : uint32_t {
+		In,
+		Inout
+	};
+	struct Arg {
+		VarType const* varType;
+		vengine::string argName;
+		ArgType argType;
+	};
 	vengine::string funcName;
 	VarType const* ret;
-	vengine::vector<std::pair<VarType const*, vengine::string>> args;
+	vengine::vector<Arg> args;
 	vengine::vector<LogicASTNode const*> logics;
 };
 struct FunctionCallNode final : public LogicASTNode {

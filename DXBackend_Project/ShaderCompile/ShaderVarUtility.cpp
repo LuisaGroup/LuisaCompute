@@ -50,6 +50,9 @@ void ShaderVarUtility::GetOperatorName(NumOpType type, vengine::string& result) 
 		case NumOpType::And:
 			result = "AND";
 			break;
+		case NumOpType::Xor:
+			result = "XOR";
+			break;
 		case NumOpType::Or:
 			result = "OR";
 			break;
@@ -71,6 +74,12 @@ void ShaderVarUtility::GetOperatorName(NumOpType type, vengine::string& result) 
 		case NumOpType::Mul:
 			result = "MUL";
 			break;
+		case NumOpType::LogicAnd:
+			result = "LOGICAND";
+			break;
+		case NumOpType::LogicOr:
+			result = "LOGICOR";
+			break;
 	}
 }
 bool ShaderVarUtility::GetVarFunc(Posture const& pos, vengine::string& result, NumVar& resultVarType) {
@@ -85,13 +94,22 @@ bool ShaderVarUtility::GetVarFunc(Posture const& pos, vengine::string& result, N
 	switch (opType) {
 		case NumOpType::And:
 		case NumOpType::Or:
+		case NumOpType::Xor:
 		case NumOpType::Left:
 		case NumOpType::Right:
 			if (v0.varType == NumVarType::Float || v1.varType == NumVarType::Float) {
-				result = "Can not use float format!\n";
+				result = "Can not use float format!";
 				return false;
 			}
 			break;
+		case NumOpType::LogicAnd:
+		case NumOpType::LogicOr:
+			if (v0.varType != NumVarType::Bool || v1.varType != NumVarType::Bool) {
+				result = "Can not use non-bool format!";
+				return false;
+			}
+			break;
+
 	}
 	if (!(v0IsSingle || v1IsSingle)) {
 		switch (opType) {
@@ -117,14 +135,18 @@ bool ShaderVarUtility::GetVarFunc(Posture const& pos, vengine::string& result, N
 			case NumOpType::Sub:
 			case NumOpType::Div:
 			case NumOpType::And:
+			case NumOpType::Xor:
 			case NumOpType::Or:
 			case NumOpType::Left:
 			case NumOpType::Right:
+			case NumOpType::LogicAnd:
+			case NumOpType::LogicOr:
 				if (v0 != v1) {
 					result = "Wrong Format!";
 					return false;
 				}
 				break;
+			
 		}
 	}
 	//////// Result Type
@@ -154,8 +176,11 @@ bool ShaderVarUtility::GetVarFunc(Posture const& pos, vengine::string& result, N
 			case NumOpType::Div:
 			case NumOpType::And:
 			case NumOpType::Or:
+			case NumOpType::Xor:
 			case NumOpType::Left:
 			case NumOpType::Right:
+			case NumOpType::LogicAnd:
+			case NumOpType::LogicOr:
 				resultVarType = v0;
 				break;
 		}
@@ -165,26 +190,7 @@ bool ShaderVarUtility::GetVarFunc(Posture const& pos, vengine::string& result, N
 	}
 	result.clear();
 
-	if (v0.IsDefaultType() && v1.IsDefaultType()) {
-		switch (opType) {
-			case NumOpType::Add:
-				result = "return v0+v1;";
-				break;
-			case NumOpType::Sub:
-				result = "return v0-v1;";
-				break;
-			case NumOpType::Mul:
-				if (v0.IsVector() && v1.IsVector()) {
-					result = "return v0*v1;";
-				} else {
-					result = "return mul(v0,v1);";
-				}
-				break;
-			case NumOpType::Div:
-				result = "return v0/v1;";
-				break;
-		}
-	} else {
+	if (!(v0.IsDefaultType() && v1.IsDefaultType())) {
 
 		auto IndexString = [](uint2 ind, bool isVector, bool isSingle) -> vengine::string {
 			if (isSingle) {
@@ -265,6 +271,9 @@ bool ShaderVarUtility::GetVarFunc(Posture const& pos, vengine::string& result, N
 			case NumOpType::And:
 				IterateAllElements("&");
 				break;
+			case NumOpType::Xor:
+				IterateAllElements("^");
+				break;
 			case NumOpType::Or:
 				IterateAllElements("|");
 				break;
@@ -295,6 +304,7 @@ bool ShaderVarUtility::GeneratePosturesString(HashMap<Posture, bool> const& post
 			results = fomula;
 			return false;
 		}
+		if (fomula.empty()) return true;
 		GetVarName(resultVar, resultVarName);
 		GetVarName(pos.v0, v0TypeName);
 		GetVarName(pos.v1, v1TypeName);
@@ -380,7 +390,7 @@ bool ShaderVarUtility::GenerateCBuffer(vengine::vector<VarNode const*> const& in
 			errorMessage = "Uniform variable wrong format!";
 			return false;
 		}
-		
+
 		if (nv->IsVector()) {
 			switch (nv->rowLength) {
 				case 1:
@@ -396,7 +406,7 @@ bool ShaderVarUtility::GenerateCBuffer(vengine::vector<VarNode const*> const& in
 					outVarNode.push_back(i);
 					break;
 			}
-			
+
 		} else {
 			if (nv->rowLength != 4 || nv->columeLength != 4) {
 				errorMessage = "Uniform variable wrong format!";
