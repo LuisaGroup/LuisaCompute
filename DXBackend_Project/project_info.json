@@ -32,7 +32,7 @@
   },
   "Filter": {
     "Path": [
-      "LC_DXBackend.vcxproj.filters"
+      "LC_DXBackend.vcxproj"
     ],
     "Descriptors": [
       "ClInclude",

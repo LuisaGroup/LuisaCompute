@@ -104,13 +104,13 @@ public:
 		return value;
 	}
 
-	virtual void Delete(void* pp) {
+	void Delete(void* pp) {
 		T* ptr = (T*)pp;
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			ptr->~T();
 		allPtrs.push_back(ptr);
 	}
-	virtual void Delete_Lock(std::mutex& mtx, void* pp) {
+	void Delete_Lock(std::mutex& mtx, void* pp) {
 		T* ptr = (T*)pp;
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			ptr->~T();
@@ -231,14 +231,14 @@ public:
 		return value;
 	}
 
-	virtual void Delete(void* pp) {
+	void Delete(void* pp) {
 		T* ptr = (T*)pp;
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			ptr->~T();
 		RemoveAllocatedObject(ptr);
 		allPtrs.push_back(ptr);
 	}
-	virtual void Delete_Lock(std::mutex& mtx, void* pp) {
+	void Delete_Lock(std::mutex& mtx, void* pp) {
 		T* ptr = (T*)pp;
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			ptr->~T();

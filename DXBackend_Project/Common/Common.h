@@ -18,3 +18,4 @@
 #include "MCollection.h"
 #include "Log.h"
 #include "DXMath/DXMath.h"
+#include "MathHelper.h"
