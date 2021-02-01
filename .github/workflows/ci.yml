@@ -38,7 +38,7 @@ jobs:
           git submodule update --init --recursive
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja openimageio opencv
+          brew install cmake ninja openimageio opencv pybind11
       - name: "Configure and Build"
         run: |
           rm -rf build && mkdir build && cd build

@@ -12,6 +12,8 @@
 #include <OpenImageIO/imagebuf.h>
 #include <OpenImageIO/ustring.h>
 
+#include <pybind11/pybind11.h>
+
 class Resource {
 
 };
@@ -34,6 +36,12 @@ class ResourceSlot {
 public:
 
 };
+
+PYBIND11_MODULE(test, m) {
+    m.def("add", [](int a, int b) {
+        return a + b;
+    });
+}
 
 int main() {
     
