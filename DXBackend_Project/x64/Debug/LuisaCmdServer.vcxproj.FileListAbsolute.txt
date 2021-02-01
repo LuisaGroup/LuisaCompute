@@ -1,0 +1,2 @@
+D:\LuisaCompute\CmdServer_Project\x64\Debug\LuisaCmdServer.exe
+D:\LuisaCompute\CmdServer_Project\x64\Debug\LuisaCmdServer.pdb

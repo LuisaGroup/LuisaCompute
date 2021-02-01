@@ -1,0 +1,2 @@
+D:\LuisaCompute\DXBackend_Project\x64\Debug\LC_DXBackend.exe
+D:\LuisaCompute\DXBackend_Project\x64\Debug\LC_DXBackend.pdb

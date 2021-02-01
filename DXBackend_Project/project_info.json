@@ -1,0 +1,45 @@
+{
+  "VCXProj": {
+    "RootVcxproj": "LC_DXBackend.vcxproj",
+    "FileTypes": [
+      {
+        ".c": "ClCompile"
+      },
+      {
+        ".cpp": "ClCompile"
+      },
+      {
+        ".h": "ClInclude"
+      },
+      {
+        ".hpp": "ClInclude"
+      },
+      {
+        ".dll": "None"
+      },
+      {
+        ".lib": "Library"
+      }
+    ],
+    "IgnoreFolder": [
+      "x64",
+      "x86",
+      ".vs",
+      "Build"
+    ],
+    "IgnoreFile": [
+    ]
+  },
+  "Filter": {
+    "Path": [
+      "LC_DXBackend.vcxproj"
+    ],
+    "Descriptors": [
+      "ClInclude",
+      "ClCompile",
+      "None",
+      "Library"
+    ],
+    "RootPath": ""
+  }
+}

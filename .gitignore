@@ -153,7 +153,7 @@ DerivedData/
 *.ilk
 *.map
 *.exp
-
+Temp/
 # Precompiled Headers
 
 # Libraries
@@ -171,6 +171,10 @@ DerivedData/
 *.su
 *.idb
 *.pdb
+*.ipdb
+*.iobj
+.vs/
+x64/
 
 # Kernel Module Compile Results
 *.mod*
