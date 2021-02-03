@@ -70,5 +70,6 @@ int main() {
     Arena arena;
     
     Arena another{std::move(arena)};
-    
+    auto p = another.allocate<int, 1024>(1);
+    LUISA_INFO("{}", fmt::ptr(p.data()));
 }
