@@ -13,7 +13,7 @@ jobs:
       - name: "Install Dependencies"
         run: |
           sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build git file spdlog
+          sudo apt-get -y install build-essential cmake ninja-build git file
       - name: "Install Homebrew"
         run: |
           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -23,7 +23,7 @@ jobs:
           echo "eval \$($(brew --prefix)/bin/brew shellenv)" >>~/.profile
       - name: "Install Dependencies with Homebrew"
         run: |
-          brew install cmake ninja openimageio opencv
+          brew install cmake ninja openimageio opencv spdlog
       - name: "Configure and Build"
         run: |
           rm -rf build && mkdir build && cd build

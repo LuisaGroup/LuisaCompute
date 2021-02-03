@@ -24,7 +24,6 @@ private:
     uint64_t _ptr{0ul};
 
 public:
-    
     Arena() noexcept = default;
     Arena(Arena &&) noexcept = default;
     Arena &operator=(Arena &&) noexcept = default;
