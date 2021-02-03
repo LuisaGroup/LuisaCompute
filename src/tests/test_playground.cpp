@@ -5,6 +5,7 @@
 #include <string>
 #include <fstream>
 #include <memory>
+#include <variant>
 
 #include <cereal/cereal.hpp>
 #include <cereal/archives/binary.hpp>
@@ -13,6 +14,7 @@
 #include <fmt/format.h>
 
 #include <core/logging.h>
+#include <core/arena.h>
 
 struct Test {
     
@@ -24,6 +26,15 @@ struct Test {
         ar(s, a);
     }
     
+};
+
+struct alignas(128) AA {
+    float a;
+};
+
+struct BB {
+    AA a;
+    float b;
 };
 
 int main() {
@@ -42,6 +53,8 @@ int main() {
     
     ar(test, luisa);
     
+    std::variant<float, int> x;
+    
     
     LUISA_VERBOSE("verbose...");
     LUISA_VERBOSE_WITH_LOCATION("verbose with {}...", "location");
@@ -49,4 +62,13 @@ int main() {
     LUISA_INFO_WITH_LOCATION("info with location...");
     LUISA_WARNING("warning...");
     LUISA_WARNING_WITH_LOCATION("warning with location...");
+    
+    LUISA_INFO("size = {}, alignment = {}", sizeof(AA), alignof(AA));
+    LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
+    
+    using namespace luisa;
+    Arena arena;
+    
+    Arena another{std::move(arena)};
+    
 }
