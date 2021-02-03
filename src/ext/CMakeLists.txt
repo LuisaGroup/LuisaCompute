@@ -1,7 +1,15 @@
+add_library(luisa-compute-ext INTERFACE)
+
 find_package(OpenImageIO REQUIRED)
-add_library(luisa-ext-oiio INTERFACE)
-target_link_libraries(luisa-ext-oiio INTERFACE OpenImageIO::OpenImageIO)
+target_link_libraries(luisa-compute-ext INTERFACE OpenImageIO::OpenImageIO)
 
 find_package(OpenCV REQUIRED)
-add_library(luisa-ext-opencv INTERFACE)
-target_link_libraries(luisa-ext-opencv INTERFACE ${OpenCV_LIBS})
+target_link_libraries(luisa-compute-ext INTERFACE ${OpenCV_LIBS})
+
+add_subdirectory(cereal)
+target_link_libraries(luisa-compute-ext INTERFACE cereal::cereal)
+
+find_package(spdlog REQUIRED)
+target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog)
+
+
