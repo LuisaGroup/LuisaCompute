@@ -13,7 +13,7 @@ jobs:
       - name: "Install Dependencies"
         run: |
           sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build git file
+          sudo apt-get -y install build-essential cmake ninja-build git file spdlog
       - name: "Install Homebrew"
         run: |
           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -38,7 +38,7 @@ jobs:
           git submodule update --init --recursive
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja openimageio opencv pybind11
+          brew install cmake ninja openimageio opencv pybind11 spdlog
       - name: "Configure and Build"
         run: |
           rm -rf build && mkdir build && cd build
