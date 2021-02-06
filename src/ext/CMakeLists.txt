@@ -16,3 +16,6 @@ target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog)
 
 find_package(Threads REQUIRED)
 target_link_libraries(luisa-compute-ext INTERFACE Threads::Threads)
+
+add_subdirectory(xxHash/cmake_unofficial)
+target_link_libraries(luisa-compute-ext INTERFACE xxHash::xxhash)

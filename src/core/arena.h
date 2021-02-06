@@ -13,7 +13,7 @@
 
 namespace luisa {
 
-class Arena : Noncopyable {
+class Arena : public Noncopyable {
 
 public:
     static constexpr auto block_size = static_cast<size_t>(256ul * 1024ul);
@@ -52,6 +52,15 @@ public:
         _ptr = reinterpret_cast<uint64_t>(aligned_p + byte_size);
         return {reinterpret_cast<T *>(aligned_p), n};
     }
+};
+
+template<typename T, size_t max_size>
+class SmallVector {
+
+};
+
+class FixedString {
+
 };
 
 }

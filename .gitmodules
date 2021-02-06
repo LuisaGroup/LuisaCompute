@@ -1,3 +1,6 @@
 [submodule "src/ext/cereal"]
 	path = src/ext/cereal
 	url = https://github.com/USCiLab/cereal.git
+[submodule "src/ext/xxHash"]
+	path = src/ext/xxHash
+	url = https://github.com/Cyan4973/xxHash.git

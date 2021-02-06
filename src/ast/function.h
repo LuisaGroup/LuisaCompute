@@ -4,16 +4,22 @@
 
 #pragma once
 
+#include <core/arena.h>
+
 namespace luisa {
 
+struct Statement;
+struct Expression;
+
 template<typename Impl>
-class BasicFunction {
+class BasicFunction : public Noncopyable {
 
-
-
+private:
+    Arena _arena;
+    
 };
 
-class Function {
+class GlobalFunction : public BasicFunction<GlobalFunction> {
 
 };
 

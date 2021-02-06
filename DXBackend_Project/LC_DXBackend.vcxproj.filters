@@ -49,7 +49,7 @@
     <Filter Include="PipelineComponent\CameraData">
       <UniqueIdentifier>{8CD19724-2A2F-4E3D-AE36-EC2E0557990A}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Struct">
+    <Filter Include="Type">
       <UniqueIdentifier>{22AEB34A-E521-40D4-9EF4-F35E1086A7B9}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
@@ -558,29 +558,29 @@
     <ClInclude Include="Singleton\ShaderID.h">
       <Filter>Singleton</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\CameraRenderPath.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\CameraRenderPath.h">
+      <Filter>Type</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\CopyBufferCommand.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\CopyBufferCommand.h">
+      <Filter>Type</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\CullResult.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\CullResult.h">
+      <Filter>Type</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\DrawCommand.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\DrawCommand.h">
+      <Filter>Type</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\ObjectCBufferParam.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\ObjectCBufferParam.h">
+      <Filter>Type</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\RenderPackage.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\RenderPackage.h">
+      <Filter>Type</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\RenderTarget.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\RenderTarget.h">
+      <Filter>Type</Filter>
     </ClInclude>
-    <ClInclude Include="Struct\ShaderVariableType.h">
-      <Filter>Struct</Filter>
+    <ClInclude Include="Type\ShaderVariableType.h">
+      <Filter>Type</Filter>
     </ClInclude>
     <ClInclude Include="Utility\Actor.h">
       <Filter>Utility</Filter>

@@ -15,6 +15,8 @@
 
 #include <core/logging.h>
 #include <core/arena.h>
+#include <core/hash.h>
+#include <core/type.h>
 
 struct Test {
     
@@ -28,6 +30,8 @@ struct Test {
     
 };
 
+struct BB;
+
 struct alignas(128) AA {
     float a;
 };
@@ -35,6 +39,17 @@ struct alignas(128) AA {
 struct BB {
     AA a;
     float b;
+};
+
+LUISA_MAKE_STRUCTURE_TYPE_SPECIALIZATION(AA, a)
+LUISA_MAKE_STRUCTURE_TYPE_SPECIALIZATION(BB, a, b)
+
+struct Interface {
+    ~Interface() noexcept = default;
+};
+
+struct Impl : public Interface {
+
 };
 
 int main() {
@@ -55,7 +70,6 @@ int main() {
     
     std::variant<float, int> x;
     
-    
     LUISA_VERBOSE("verbose...");
     LUISA_VERBOSE_WITH_LOCATION("verbose with {}...", "location");
     LUISA_INFO("info...");
@@ -72,4 +86,17 @@ int main() {
     Arena another{std::move(arena)};
     auto p = another.allocate<int, 1024>(1);
     LUISA_INFO("{}", fmt::ptr(p.data()));
+    
+    auto &&type_aa = typeid(AA);
+    auto &&type_bb = typeid(BB);
+    LUISA_INFO("{}", type_aa.before(type_bb));
+    
+    LUISA_INFO("trivially destructible: {}", std::is_trivially_destructible_v<Impl>);
+    
+    auto hash_aa = luisa::xxh32_hash32(type_aa.name(), std::strlen(type_aa.name()), 0);
+    auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
+    LUISA_INFO("{} {}", hash_aa, hash_bb);
+    
+    using StructBB = luisa::Type<BB>;
+    LUISA_INFO("{} {}", StructBB::alignment, typeid(typename StructBB::Members).name());
 }
