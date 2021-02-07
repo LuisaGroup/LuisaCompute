@@ -31,7 +31,7 @@ jobs:
       - name: "Configure and Build"
         run: |
           rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++11
+          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++10
           cmake --build .
   build-macos:
     runs-on: macos-latest
