@@ -30,7 +30,7 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
         auto p = s.cbegin();
         for (; p != s.cend() && std::isalpha(*p); p++) {}
         if (p == s.cbegin()) {
-            LUISA_ERROR_WITH_LOCATION("Failed to parse type identifier from '{}'", s);
+            LUISA_ERROR_WITH_LOCATION("Failed to parse type identifier from '{}'.", s);
         }
         auto identifier = s.substr(0, p - s.cbegin());
         s = s.substr(p - s.cbegin());
@@ -41,10 +41,15 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
         size_t number;
         auto[p, ec] = std::from_chars(s.cbegin(), s.cend(), number);
         if (ec != std::errc{}) {
-            LUISA_ERROR_WITH_LOCATION("Failed to parse number from '{}'", s);
+            LUISA_ERROR_WITH_LOCATION("Failed to parse number from '{}'.", s);
         }
         s = s.substr(p - s.cbegin());
         return number;
+    };
+    
+    auto match = [&s](char c) {
+        if (!s.starts_with(c)) { LUISA_ERROR_WITH_LOCATION("Expected '{}' from '{}'.", c, s); }
+        s = s.substr(1);
     };
     
     auto type_identifier = read_identifier();
@@ -66,16 +71,13 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
     // TODO: array, vector, matrix, atomic
     else if (type_identifier == "struct"sv) {
         info._tag = TypeTag::STRUCTURE;
-        assert(s.starts_with('<'));
-        s = s.substr(1);
+        match('<');
         info._alignment = read_number();
-        assert(s.starts_with(','));
         while (s.starts_with(',')) {
             s = s.substr(1);
             info._members.emplace_back(_from_description_impl(s));
         }
-        assert(s.ends_with('>'));
-        s = s.substr(1);
+        match('>');
         info._size = 0u;
         for (auto member : info._members) {
             auto ma = member->alignment();

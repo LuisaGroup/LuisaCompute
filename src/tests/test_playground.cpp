@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/2/2.
 //
 
+#include <cstddef>
 #include <string>
 #include <fstream>
 #include <memory>
@@ -118,6 +119,5 @@ int main() {
     
     using StructBB = luisa::detail::Type<BB>;
     LUISA_INFO("{} {} {}", StructBB::alignment, typeid(typename StructBB::Members).name(), StructBB::description);
-    
-    print(luisa::type_info<BB>());
+    print(luisa::TypeInfo::of<BB>());
 }

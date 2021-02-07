@@ -72,6 +72,9 @@ private:
     [[nodiscard]] static const TypeInfo *_from_description_impl(std::string_view &s) noexcept;
 
 public:
+    template<typename T>
+    [[nodiscard]] static const TypeInfo *of() noexcept;
+    
     [[nodiscard]] static const TypeInfo *from_description(std::string_view description) noexcept;
     
     [[nodiscard]] bool operator==(const TypeInfo &rhs) const noexcept { return _hash == rhs._hash; }
@@ -178,10 +181,15 @@ namespace luisa::detail {                                                       
 }
 
 template<typename T>
-[[nodiscard]] inline const TypeInfo *type_info() noexcept {
+const TypeInfo *TypeInfo::of() noexcept {
     using Type = detail::Type<T>;
     static thread_local auto info = TypeInfo::from_description(Type::description);
     return info;
+}
+
+template<typename T>
+[[nodiscard]] inline const TypeInfo *type_info() noexcept {
+    return TypeInfo::of<T>();
 }
 
 }
