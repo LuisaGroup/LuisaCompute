@@ -62,9 +62,6 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
 }
 
 template<typename T, size_t N>
-struct Vector;
-
-template<typename T, size_t N>
 struct Vector : public detail::VectorStorage<T, N> {
     
     using Storage = detail::VectorStorage<T, N>;
@@ -97,9 +94,7 @@ struct Vector : public detail::VectorStorage<T, N> {
     }
 
 #define LUISA_MAKE_VECTOR_ASSIGNMENT_OPERATOR(op, ...)                                                    \
-    template<typename U, std::enable_if_t<std::conjunction_v<                                             \
-        std::is_same<T, U>,                                                                               \
-        __VA_ARGS__>, int> = 0>                                                                           \
+    template<typename U, std::enable_if_t<std::conjunction_v<std::is_same<T, U>, __VA_ARGS__>, int> = 0>  \
     Vector &operator op(Vector<U, N> rhs) noexcept {                                                      \
         if constexpr (N == 2) {                                                                           \
             this->x op rhs.x;                                                                             \
@@ -147,11 +142,11 @@ struct Vector : public detail::VectorStorage<T, N> {
     
     template<typename U, std::enable_if_t<std::conjunction_v<
         std::is_same<T, std::decay_t<U>>, std::negation<std::is_same<T, bool>>>, int> = 0>
-    Vector &operator*(U rhs) noexcept { return this->operator*(Vector{rhs}); }
+    [[nodiscard]] constexpr auto operator*(U rhs) noexcept { return this->operator*(Vector{rhs}); }
     
     template<typename U, std::enable_if_t<std::conjunction_v<
         std::is_same<T, std::decay_t<U>>, std::negation<std::is_same<T, bool>>>, int> = 0>
-    Vector &operator/(U rhs) noexcept { return this->operator/(Vector{rhs}); }
+    [[nodiscard]] constexpr auto operator/(U rhs) noexcept { return this->operator/(Vector{rhs}); }
     
     template<typename U, std::enable_if_t<std::conjunction_v<
         std::is_same<T, std::decay_t<U>>, std::negation<std::is_same<T, bool>>>, int> = 0>
