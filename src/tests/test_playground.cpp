@@ -137,7 +137,10 @@ int main() {
     auto u = float2(1.0f, 2.0f);
     auto v = float3(1.0f, 2.0f, 3.0f);
     auto w = float3(u, 1.0f);
-
-
-
+    
+    auto vv = v + w;
+    auto bvv = v == w;
+    static_assert(std::is_same_v<decltype(bvv), bool3>);
+    v += w;
+    
 }

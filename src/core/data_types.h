@@ -21,13 +21,14 @@ namespace detail {
 
 template<typename T, size_t N>
 struct VectorStorage {
-    static_assert(always_false < T > , "Invalid vector storage");
+    static_assert(always_false<T> , "Invalid vector storage");
 };
 
 template<typename T>
 struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     T x, y;
     constexpr VectorStorage() noexcept: x{}, y{} {}
+    constexpr VectorStorage(const VectorStorage &v) noexcept: x{v.x}, y{v.y} {}
     explicit constexpr VectorStorage(T s) noexcept: x{s}, y{s} {}
     explicit constexpr VectorStorage(T x, T y) noexcept: x{x}, y{y} {}
 };
@@ -36,6 +37,7 @@ template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     T x, y, z;
     constexpr VectorStorage() noexcept: x{}, y{}, z{} {}
+    constexpr VectorStorage(const VectorStorage &v) noexcept: x{v.x}, y{v.y}, z{v.z} {}
     explicit constexpr VectorStorage(T s) noexcept: x{s}, y{s}, z{s} {}
     explicit constexpr VectorStorage(T x, T y, T z) noexcept: x{x}, y{y}, z{z} {}
     explicit constexpr VectorStorage(VectorStorage<T, 2> xy, T z) noexcept: x{xy.x}, y{xy.y}, z{z} {}
@@ -46,6 +48,7 @@ template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     T x, y, z, w;
     constexpr VectorStorage() noexcept: x{}, y{}, z{}, w{} {}
+    constexpr VectorStorage(const VectorStorage &v) noexcept: x{v.x}, y{v.y}, z{v.z}, w{v.w} {}
     explicit constexpr VectorStorage(T s) noexcept: x{s}, y{s}, z{s}, w{s} {}
     explicit constexpr VectorStorage(T x, T y, T z, T w) noexcept: x{x}, y{y}, z{z}, w{w} {}
     explicit constexpr VectorStorage(VectorStorage<T, 2> xy, T z, T w) noexcept: x{xy.x}, y{xy.y}, z{z}, w{w} {}
@@ -62,10 +65,80 @@ template<typename T, size_t N>
 struct Vector : public detail::VectorStorage<T, N> {
     
     using Storage = detail::VectorStorage<T, N>;
+    static_assert(std::disjunction_v<
+                      std::is_same<T, bool>,
+                      std::is_same<T, float>,
+                      std::is_same<T, char>, std::is_same<T, uchar>,
+                      std::is_same<T, short>, std::is_same<T, ushort>,
+                      std::is_same<T, int>, std::is_same<T, uint>> &&
+                  (N == 2 || N == 3 || N == 4),
+                  "Invalid vector type");
     
     template<typename ...Args>
     explicit constexpr Vector(Args ...args) noexcept : Storage{args...} {}
     
+    constexpr Vector(const Vector &v) noexcept: Storage{v} {}
+    
+    [[nodiscard]] T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
+    [[nodiscard]] const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
+
+#define LUISA_MAKE_VECTOR_BINARY_OPERATOR(op, ...)                                                        \
+    template<typename U, std::enable_if_t<std::conjunction_v<std::is_same<T, U>, __VA_ARGS__>, int> = 0>  \
+    [[nodiscard]] constexpr auto operator op(const Vector<U, N> rhs) const noexcept {                     \
+        using R = Vector<std::decay_t<decltype(static_cast<T>(0) op static_cast<T>(0))>, N>;              \
+        if constexpr (N == 2) { return R{this->x op rhs.x, this->y op rhs.y}; }                           \
+        else if constexpr (N == 3) { return R{this->x op rhs.x, this->y op rhs.y, this->z op rhs.z}; }    \
+        else { return R{this->x op rhs.x, this->y op rhs.y, this->z op rhs.z, this->w op rhs.w}; }        \
+    }
+
+#define LUISA_MAKE_VECTOR_ASSIGNMENT_OPERATOR(op, ...)                                                    \
+    template<typename U, std::enable_if_t<std::conjunction_v<std::is_same<T, U>, __VA_ARGS__>, int> = 0>  \
+    Vector &operator op(const Vector<U, N> rhs) noexcept {                                                \
+        if constexpr (N == 2) {                                                                           \
+            this->x op rhs.x;                                                                             \
+            this->y op rhs.y;                                                                             \
+        } else if constexpr (N == 3) {                                                                    \
+            this->x op rhs.x;                                                                             \
+            this->y op rhs.y;                                                                             \
+            this->z op rhs.z;                                                                             \
+        } else {                                                                                          \
+            this->x op rhs.x;                                                                             \
+            this->y op rhs.y;                                                                             \
+            this->z op rhs.z;                                                                             \
+            this->w op rhs.w;                                                                             \
+        }                                                                                                 \
+        return *this;                                                                                     \
+    }
+
+#define LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(op, ...)  \
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(op, __VA_ARGS__)              \
+    LUISA_MAKE_VECTOR_ASSIGNMENT_OPERATOR(op##=, __VA_ARGS__)
+    
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(+, std::negation<std::is_same<T, bool>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(-, std::negation<std::is_same<T, bool>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(*, std::negation<std::is_same<T, bool>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(/, std::negation<std::is_same<T, bool>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(%, std::negation<std::disjunction<std::is_same<T, bool>, std::is_same<T, float>>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(<<, std::negation<std::disjunction<std::is_same<T, bool>, std::is_same<T, float>>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(>>, std::negation<std::disjunction<std::is_same<T, bool>, std::is_same<T, float>>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(|, std::negation<std::is_same<T, float>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(&, std::negation<std::is_same<T, float>>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(^, std::negation<std::is_same<T, float>>)
+    
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(||, std::is_same<T, bool>)
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(&&, std::is_same<T, bool>)
+    
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(==, std::true_type)
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(!=, std::true_type)
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(<, std::true_type)
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(>, std::true_type)
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(<=, std::true_type)
+    LUISA_MAKE_VECTOR_BINARY_OPERATOR(>=, std::true_type)
+
+#undef LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS
+#undef LUISA_MAKE_VECTOR_ASSIGNMENT_OPERATOR
+#undef LUISA_MAKE_VECTOR_BINARY_OPERATOR
+
 };
 
 #define LUISA_MAKE_VECTOR_TYPES(T)  \
@@ -85,7 +158,15 @@ LUISA_MAKE_VECTOR_TYPES(uint)
 #undef LUISA_MAKE_VECTOR_TYPES
 
 template<size_t N>
-struct Matrix {};
+struct Matrix {
+    static_assert(always_false<std::index_sequence<N>>, "Invalid matrix type");
+};
+
+template<>
+struct Matrix<3> {};
+
+template<>
+struct Matrix<4> {};
 
 using float3x3 = Matrix<3>;
 using float4x4 = Matrix<4>;
