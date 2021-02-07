@@ -142,5 +142,7 @@ int main() {
     auto bvv = v == w;
     static_assert(std::is_same_v<decltype(bvv), bool3>);
     v += w;
+    v *= 10.0f;
     
+    v = 2.0f * v;
 }
