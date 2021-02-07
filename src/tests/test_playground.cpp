@@ -16,7 +16,7 @@
 #include <core/logging.h>
 #include <core/arena.h>
 #include <core/hash.h>
-#include <core/type.h>
+#include <core/type_info.h>
 
 struct Test {
     
@@ -39,10 +39,11 @@ struct alignas(128) AA {
 struct BB {
     AA a;
     float b;
+    luisa::uchar c;
 };
 
 LUISA_MAKE_STRUCTURE_TYPE_SPECIALIZATION(AA, a)
-LUISA_MAKE_STRUCTURE_TYPE_SPECIALIZATION(BB, a, b)
+LUISA_MAKE_STRUCTURE_TYPE_SPECIALIZATION(BB, a, b, c)
 
 struct Interface {
     ~Interface() noexcept = default;
@@ -51,6 +52,24 @@ struct Interface {
 struct Impl : public Interface {
 
 };
+
+void print(const luisa::TypeInfo *info, int indent = 0) {
+    std::string indent_string;
+    for (auto i = 0; i < indent; i++) { indent_string.append("  "); }
+    
+    std::cout << indent_string << type_tag_name(info->tag()) << ": {\n"
+              << indent_string << "  index:       " << info->index() << "\n"
+              << indent_string << "  size:        " << info->size() << "\n"
+              << indent_string << "  alignment:   " << info->alignment() << "\n"
+              << indent_string << "  hash:        " << info->hash() << "\n"
+              << indent_string << "  description: " << info->description() << "\n";
+    
+    if (info->is_structure()) {
+        std::cout << indent_string << "  members:\n";
+        for (auto m : info->members()) { print(m, indent + 2); }
+    }
+    std::cout << indent_string << "}\n";
+}
 
 int main() {
     
@@ -97,6 +116,8 @@ int main() {
     auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
     LUISA_INFO("{} {}", hash_aa, hash_bb);
     
-    using StructBB = luisa::Type<BB>;
-    LUISA_INFO("{} {}", StructBB::alignment, typeid(typename StructBB::Members).name());
+    using StructBB = luisa::detail::Type<BB>;
+    LUISA_INFO("{} {} {}", StructBB::alignment, typeid(typename StructBB::Members).name(), StructBB::description);
+    
+    print(luisa::type_info<BB>());
 }
