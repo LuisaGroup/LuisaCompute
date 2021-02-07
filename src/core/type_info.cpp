@@ -82,7 +82,12 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
         match(',');
         info._element_count = read_number();
         match('>');
-        info._size = info._alignment = info._members.front()->size() * (info._element_count == 3 ? 4 : info._element_count);
+        auto elem = info._members.front();
+        if (!elem->is_scalar()) { LUISA_ERROR_WITH_LOCATION("Invalid vector element: {}.", elem->description()); }
+        if (info._element_count != 2 && info._element_count != 3 && info._element_count != 4) {
+            LUISA_ERROR_WITH_LOCATION("Invalid vector dimension: {}.", info.element_count());
+        }
+        info._size = info._alignment = elem->size() * (info._element_count == 3 ? 4 : info._element_count);
     } else if (type_identifier == "matrix"sv) {
         info._tag = TypeTag::MATRIX;
         match('<');

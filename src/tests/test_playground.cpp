@@ -31,8 +31,10 @@ struct Test {
     
 };
 
+using namespace luisa;
+
 struct alignas(32) AA {
-    luisa::float4 x;
+    float4 x;
     float ba[16];
     float a;
 };
@@ -40,8 +42,8 @@ struct alignas(32) AA {
 struct BB {
     AA a;
     float b;
-    luisa::uchar c;
-    luisa::float3x3 m;
+    uchar c;
+    float3x3 m;
 };
 
 LUISA_STRUCT(AA, x, ba, a)
@@ -70,9 +72,9 @@ void print(const luisa::TypeInfo *info, int indent = 0) {
         std::cout << indent_string << "  members:\n";
         for (auto m : info->members()) { print(m, indent + 2); }
     } else if (info->is_vector() || info->is_array()) {
+        std::cout << indent_string << "  dimension:   " << info->element_count() << "\n";
         std::cout << indent_string << "  element:\n";
         print(info->element(), indent + 2);
-        std::cout << indent_string << "  element_count: " << info->element_count() << "\n";
     }
     std::cout << indent_string << "}\n";
 }
@@ -117,6 +119,8 @@ int main() {
     LUISA_INFO("{}", type_aa.before(type_bb));
     
     LUISA_INFO("trivially destructible: {}", std::is_trivially_destructible_v<Impl>);
+    
+    print(TypeInfo::from_description("array<array<vector<float,3>,5>,9>"));
     
     auto hash_aa = luisa::xxh32_hash32(type_aa.name(), std::strlen(type_aa.name()), 0);
     auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
