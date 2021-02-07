@@ -1,7 +1,10 @@
 add_library(luisa-compute-ext INTERFACE)
 
 find_package(OpenImageIO)  # TODO
-target_link_libraries(luisa-compute-ext INTERFACE OpenImageIO::OpenImageIO)
+if (OpenImageIO_FOUND)
+    message(STATUS "Building with OpenImageIO")
+    target_link_libraries(luisa-compute-ext INTERFACE OpenImageIO::OpenImageIO)
+endif()
 
 find_package(OpenCV REQUIRED)
 target_link_libraries(luisa-compute-ext INTERFACE ${OpenCV_LIBS})

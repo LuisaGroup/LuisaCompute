@@ -89,19 +89,19 @@ public:
     [[nodiscard]] constexpr auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto alignment() const noexcept { return _alignment; }
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
-    [[nodiscard]] constexpr std::string_view description() const noexcept { return _description; }
+    [[nodiscard]] std::string_view description() const noexcept { return _description; }
     
     [[nodiscard]] constexpr size_t element_count() const noexcept {
         assert(is_array() || is_vector() || is_matrix());
         return _element_count;
     }
     
-    [[nodiscard]] constexpr const auto &members() const noexcept {
+    [[nodiscard]] const auto &members() const noexcept {
         assert(is_structure());
         return _members;
     }
     
-    [[nodiscard]] constexpr auto element() const noexcept {
+    [[nodiscard]] auto element() const noexcept {
         assert(is_array() || is_atomic() || is_vector() || is_matrix());
         return _members.front();
     }

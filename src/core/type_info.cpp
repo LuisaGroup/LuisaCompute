@@ -4,6 +4,7 @@
 
 #include <charconv>
 #include <mutex>
+#include <string>
 
 #include <fmt/format.h>
 
