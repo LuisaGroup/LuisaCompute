@@ -223,20 +223,20 @@ struct TypeDesc<float4x4> {
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_DESC(m) TypeDesc<decltype(std::declval<This>().m)>::description()
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_FMT(m) ",{}"
 
-#define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...)                                           \
-namespace luisa::detail {                                                                               \
-    static_assert(std::is_standard_layout_v<S>);                                                        \
-    template<>                                                                                          \
-    struct TypeDesc<S> {                                                                                \
-        using This = S;                                                                                 \
-        static std::string_view description() noexcept {                                                \
-            static auto s = fmt::format(                                                                \
-                FMT_STRING("struct<{}" LUISA_MAP(LUISA_STRUCTURE_MAP_MEMBER_TO_FMT, __VA_ARGS__) ">"),  \
-                alignof(S),                                                                             \
-                LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_DESC, __VA_ARGS__));                       \
-            return s;                                                                                   \
-        }                                                                                               \
-    };                                                                                                  \
+#define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...)                                                        \
+namespace luisa::detail {                                                                                            \
+    static_assert(std::is_standard_layout_v<S>);                                                                     \
+    template<>                                                                                                       \
+    struct TypeDesc<S> {                                                                                             \
+        using This = S;                                                                                              \
+        static std::string_view description() noexcept {                                                             \
+            static auto s = fmt::format(                                                                             \
+                FMT_STRING("struct<{}" LUISA_MAP(LUISA_STRUCTURE_MAP_MEMBER_TO_FMT __VA_OPT__(,) __VA_ARGS__) ">"),  \
+                alignof(S),                                                                                          \
+                LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_DESC __VA_OPT__(,) __VA_ARGS__));                       \
+            return s;                                                                                                \
+        }                                                                                                            \
+    };                                                                                                               \
 }
 
 template<typename T>
@@ -251,3 +251,5 @@ template<typename T>
 }
 
 }
+
+#define LUISA_STRUCT(...) LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(__VA_ARGS__)

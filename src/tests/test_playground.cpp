@@ -31,8 +31,6 @@ struct Test {
     
 };
 
-struct BB;
-
 struct alignas(32) AA {
     luisa::float4 x;
     float ba[16];
@@ -46,8 +44,8 @@ struct BB {
     luisa::float3x3 m;
 };
 
-LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(AA, x, ba, a)
-LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(BB, a, b, c, m)
+LUISA_STRUCT(AA, x, ba, a)
+LUISA_STRUCT(BB, a, b, c, m)
 
 struct Interface {
     ~Interface() noexcept = default;
@@ -129,9 +127,7 @@ int main() {
     using StructBB = luisa::detail::TypeDesc<BB>;
     LUISA_INFO("{}", StructBB::description);
     print(luisa::TypeInfo::of<BB>());
-
-    using float2 = luisa::Vector<float, 2>;
-    using float3 = luisa::Vector<float, 3>;
+    
     static_assert(alignof(float3) == 16);
 
     auto u = float2(1.0f, 2.0f);
