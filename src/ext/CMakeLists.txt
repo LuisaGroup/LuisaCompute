@@ -1,6 +1,6 @@
 add_library(luisa-compute-ext INTERFACE)
 
-find_package(OpenImageIO)
+find_package(OpenImageIO)  # TODO
 target_link_libraries(luisa-compute-ext INTERFACE OpenImageIO::OpenImageIO)
 
 find_package(OpenCV REQUIRED)

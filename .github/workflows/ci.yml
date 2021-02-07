@@ -15,8 +15,9 @@ jobs:
           sudo apt-get purge --auto-remove cmake
           wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null
           sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build git file libopenimageio-dev libspdlog-dev libopencv-dev
+          sudo apt-get -y install gcc-10 g++-10 build-essential cmake ninja-build git file libopenimageio-dev libspdlog-dev libopencv-dev
 #      - name: "Install Homebrew"
 #        run: |
 #          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -30,7 +31,7 @@ jobs:
       - name: "Configure and Build"
         run: |
           rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release
+          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++11
           cmake --build .
   build-macos:
     runs-on: macos-latest
