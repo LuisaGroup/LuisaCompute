@@ -68,8 +68,46 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
     else TRY_PARSE_SCALAR_TYPE(ushort, UINT16)
     else TRY_PARSE_SCALAR_TYPE(int, INT32)
     else TRY_PARSE_SCALAR_TYPE(uint, UINT32)
-    // TODO: array, vector, matrix, atomic
-    else if (type_identifier == "struct"sv) {
+    else if (type_identifier == "atomic"sv) {
+        info._tag = TypeTag::ATOMIC;
+        match('<');
+        info._members.emplace_back(_from_description_impl(s));
+        match('>');
+        info._alignment = info._members.front()->alignment();
+        info._size = info._members.front()->size();
+    } else if (type_identifier == "vector"sv) {
+        info._tag = TypeTag::VECTOR;
+        match('<');
+        info._members.emplace_back(_from_description_impl(s));
+        match(',');
+        info._element_count = read_number();
+        match('>');
+        info._size = info._alignment = info._members.front()->size() * (info._element_count == 3 ? 4 : info._element_count);
+    } else if (type_identifier == "matrix"sv) {
+        info._tag = TypeTag::MATRIX;
+        match('<');
+        info._members.emplace_back(from_description("float"));
+        info._element_count = read_number();
+        match('>');
+        if (info._element_count == 3) {
+            info._size = sizeof(float3x3);
+            info._alignment = alignof(float3x3);
+        } else if (info._element_count == 4) {
+            info._size = sizeof(float4x4);
+            info._alignment = alignof(float4x4);
+        } else {
+            LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension: {}.", info._element_count);
+        }
+    } else if (type_identifier == "array"sv) {
+        info._tag = TypeTag::ARRAY;
+        match('<');
+        info._members.emplace_back(_from_description_impl(s));
+        match(',');
+        info._element_count = read_number();
+        match('>');
+        info._alignment = info._members.front()->alignment();
+        info._size = info._members.front()->size() * info._element_count;
+    } else if (type_identifier == "struct"sv) {
         info._tag = TypeTag::STRUCTURE;
         match('<');
         info._alignment = read_number();

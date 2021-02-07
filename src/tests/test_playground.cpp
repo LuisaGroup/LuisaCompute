@@ -33,7 +33,9 @@ struct Test {
 
 struct BB;
 
-struct alignas(128) AA {
+struct alignas(32) AA {
+    luisa::float4 x;
+    float ba[16];
     float a;
 };
 
@@ -41,10 +43,11 @@ struct BB {
     AA a;
     float b;
     luisa::uchar c;
+    luisa::float3x3 m;
 };
 
-LUISA_MAKE_STRUCTURE_TYPE_SPECIALIZATION(AA, a)
-LUISA_MAKE_STRUCTURE_TYPE_SPECIALIZATION(BB, a, b, c)
+LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(AA, x, ba, a)
+LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(BB, a, b, c, m)
 
 struct Interface {
     ~Interface() noexcept = default;
@@ -68,6 +71,10 @@ void print(const luisa::TypeInfo *info, int indent = 0) {
     if (info->is_structure()) {
         std::cout << indent_string << "  members:\n";
         for (auto m : info->members()) { print(m, indent + 2); }
+    } else if (info->is_vector() || info->is_array()) {
+        std::cout << indent_string << "  element:\n";
+        print(info->element(), indent + 2);
+        std::cout << indent_string << "  element_count: " << info->element_count() << "\n";
     }
     std::cout << indent_string << "}\n";
 }
@@ -116,8 +123,21 @@ int main() {
     auto hash_aa = luisa::xxh32_hash32(type_aa.name(), std::strlen(type_aa.name()), 0);
     auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
     LUISA_INFO("{} {}", hash_aa, hash_bb);
+
+    LUISA_INFO("{}", type_info<std::array<float, 5>>()->description());
     
-    using StructBB = luisa::detail::Type<BB>;
-    LUISA_INFO("{} {} {}", StructBB::alignment, typeid(typename StructBB::Members).name(), StructBB::description);
+    using StructBB = luisa::detail::TypeDesc<BB>;
+    LUISA_INFO("{}", StructBB::description);
     print(luisa::TypeInfo::of<BB>());
+
+    using float2 = luisa::Vector<float, 2>;
+    using float3 = luisa::Vector<float, 3>;
+    static_assert(alignof(float3) == 16);
+
+    auto u = float2(1.0f, 2.0f);
+    auto v = float3(1.0f, 2.0f, 3.0f);
+    auto w = float3(u, 1.0f);
+
+
+
 }
