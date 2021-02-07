@@ -14,7 +14,13 @@ set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
 add_subdirectory(cereal)
 target_link_libraries(luisa-compute-ext INTERFACE cereal::cereal)
 
-find_package(spdlog REQUIRED)
+add_subdirectory(fmt)
+target_link_libraries(luisa-compute-ext INTERFACE fmt::fmt)
+
+set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
+set(SPDLOG_ENABLE_PCH ON CACHE BOOL "" FORCE)
+set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
+add_subdirectory(spdlog)
 target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog)
 
 find_package(Threads REQUIRED)

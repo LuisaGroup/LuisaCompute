@@ -129,7 +129,7 @@ int main() {
     LUISA_INFO("{}", type_info<std::array<float, 5>>()->description());
     
     using StructBB = luisa::detail::TypeDesc<BB>;
-    LUISA_INFO("{}", StructBB::description);
+    LUISA_INFO("{}", StructBB::description());
     print(luisa::TypeInfo::of<BB>());
     
     static_assert(alignof(float3) == 16);
