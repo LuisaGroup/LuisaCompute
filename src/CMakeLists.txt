@@ -10,7 +10,7 @@ add_subdirectory(ext)
 add_subdirectory(core)
 add_subdirectory(ast)
 add_subdirectory(runtime)
-add_subdirectory(syntax)
+add_subdirectory(dsl)
 add_subdirectory(api)
 add_subdirectory(tests)
 
@@ -21,6 +21,6 @@ target_link_libraries(luisa-compute INTERFACE
                       luisa-compute-api
                       luisa-compute-ast
                       luisa-compute-runtime
-                      luisa-compute-syntax)
+                      luisa-compute-dsl)
 
 add_library(luisa::compute ALIAS luisa-compute)

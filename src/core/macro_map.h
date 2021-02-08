@@ -15,9 +15,9 @@
 #ifdef _MSC_VER
 // MSVC needs more evaluations
 #define LUISA_MAP_EVAL6(...) LUISA_MAP_EVAL5(LUISA_MAP_EVAL5(LUISA_MAP_EVAL5(__VA_ARGS__)))
-#define LUISA_MAP_EVAL(...)  LUISA_MAP_EVAL6(LUISA_MAP_EVAL6(__VA_ARGS__))
+#define LUISA_MAP_EVAL(...) LUISA_MAP_EVAL6(LUISA_MAP_EVAL6(__VA_ARGS__))
 #else
-#define LUISA_MAP_EVAL(...)  LUISA_MAP_EVAL5(__VA_ARGS__)
+#define LUISA_MAP_EVAL(...) LUISA_MAP_EVAL5(__VA_ARGS__)
 #endif
 
 #define LUISA_MAP_END(...)
@@ -30,15 +30,17 @@
 #define LUISA_MAP_GET_END1(...) LUISA_MAP_GET_END2
 #define LUISA_MAP_GET_END(...) LUISA_MAP_GET_END1
 #define LUISA_MAP_NEXT0(test, next, ...) next LUISA_MAP_OUT
-#define LUISA_MAP_NEXT1(test, next) LUISA_MAP_DEFER ( LUISA_MAP_NEXT0 ) ( test, next, 0)
-#define LUISA_MAP_NEXT(test, next)  LUISA_MAP_NEXT1(LUISA_MAP_GET_END test, next)
+#define LUISA_MAP_NEXT1(test, next)  \
+    LUISA_MAP_DEFER(LUISA_MAP_NEXT0) \
+    (test, next, 0)
+#define LUISA_MAP_NEXT(test, next) LUISA_MAP_NEXT1(LUISA_MAP_GET_END test, next)
 
-#define LUISA_MAP0(f, x, peek, ...) f(x) LUISA_MAP_DEFER ( LUISA_MAP_NEXT(peek, LUISA_MAP1) ) ( f, peek, __VA_ARGS__ )
-#define LUISA_MAP1(f, x, peek, ...) f(x) LUISA_MAP_DEFER ( LUISA_MAP_NEXT(peek, LUISA_MAP0) ) ( f, peek, __VA_ARGS__ )
+#define LUISA_MAP0(f, x, peek, ...) f(x) LUISA_MAP_DEFER(LUISA_MAP_NEXT(peek, LUISA_MAP1))(f, peek, __VA_ARGS__)
+#define LUISA_MAP1(f, x, peek, ...) f(x) LUISA_MAP_DEFER(LUISA_MAP_NEXT(peek, LUISA_MAP0))(f, peek, __VA_ARGS__)
 
-#define LUISA_MAP_LIST0(f, x, peek, ...) , f(x) LUISA_MAP_DEFER ( LUISA_MAP_NEXT(peek, LUISA_MAP_LIST1) ) ( f, peek, __VA_ARGS__ )
-#define LUISA_MAP_LIST1(f, x, peek, ...) , f(x) LUISA_MAP_DEFER ( LUISA_MAP_NEXT(peek, LUISA_MAP_LIST0) ) ( f, peek, __VA_ARGS__ )
-#define LUISA_MAP_LIST2(f, x, peek, ...)   f(x) LUISA_MAP_DEFER ( LUISA_MAP_NEXT(peek, LUISA_MAP_LIST1) ) ( f, peek, __VA_ARGS__ )
+#define LUISA_MAP_LIST0(f, x, peek, ...) , f(x) LUISA_MAP_DEFER(LUISA_MAP_NEXT(peek, LUISA_MAP_LIST1))(f, peek, __VA_ARGS__)
+#define LUISA_MAP_LIST1(f, x, peek, ...) , f(x) LUISA_MAP_DEFER(LUISA_MAP_NEXT(peek, LUISA_MAP_LIST0))(f, peek, __VA_ARGS__)
+#define LUISA_MAP_LIST2(f, x, peek, ...) f(x) LUISA_MAP_DEFER(LUISA_MAP_NEXT(peek, LUISA_MAP_LIST1))(f, peek, __VA_ARGS__)
 
 // Applies the function macro `f` to each of the remaining parameters.
 #define LUISA_MAP(f, ...) LUISA_MAP_EVAL(LUISA_MAP1(f, __VA_ARGS__, ()()(), ()()(), ()()(), 0))

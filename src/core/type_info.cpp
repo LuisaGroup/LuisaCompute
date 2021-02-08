@@ -14,7 +14,10 @@
 
 namespace luisa {
 
-const TypeInfo *TypeInfo::from_description(std::string_view description) noexcept {
+std::mutex TypeInfo::_register_mutex;
+std::vector<std::unique_ptr<TypeInfo>> TypeInfo::_registered_types;
+
+const TypeInfo *TypeInfo::from(std::string_view description) noexcept {
     auto info = _from_description_impl(description);
     assert(description.empty());
     return info;
@@ -92,7 +95,7 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
     } else if (type_identifier == "matrix"sv) {
         info._tag = TypeTag::MATRIX;
         match('<');
-        info._members.emplace_back(from_description("float"));
+        info._members.emplace_back(from("float"));
         info._element_count = read_number();
         match('>');
         if (info._element_count == 3) {
@@ -130,20 +133,18 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
         info._size = (info._size + info._alignment - 1u) / info._alignment * info._alignment;
     }
     
-    std::string description{s_copy.substr(0, s_copy.size() - s.size())};
+    auto description = s_copy.substr(0, s_copy.size() - s.size());
+    auto hash = xxh3_hash64(description.data(), description.size());
     
-    static std::unordered_map<std::string, std::unique_ptr<TypeInfo>> description_to_info;
+    std::scoped_lock lock{_register_mutex};
+    if (auto iter = std::find_if(_registered_types.cbegin(), _registered_types.cend(), [hash](auto &&ptr) noexcept {
+            return ptr->hash() == hash;
+        }); iter != _registered_types.cend()) { return iter->get(); }
     
-    static std::mutex mutex;
-    std::scoped_lock lock{mutex};
-    auto iter = description_to_info.find(description);
-    if (iter == description_to_info.cend()) {
-        info._hash = xxh3_hash64(description.data(), description.size());
-        info._index = description_to_info.size();
-        info._description = description;
-        iter = description_to_info.emplace(std::move(description), std::make_unique<TypeInfo>(info)).first;
-    }
-    return iter->second.get();
+    info._hash = hash;
+    info._index = _registered_types.size();
+    info._description = description;
+    return _registered_types.emplace_back(std::make_unique<TypeInfo>(info)).get();
 }
 
 }

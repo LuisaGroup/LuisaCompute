@@ -26,20 +26,22 @@ public:
     Arena() noexcept = default;
     Arena(Arena &&) noexcept = default;
     Arena &operator=(Arena &&) noexcept = default;
-    ~Arena() noexcept { for (auto p : _blocks) { free(p); }}
-    
-    template<typename T, typename ...Args>
+    ~Arena() noexcept {
+        for (auto p : _blocks) { free(p); }
+    }
+
+    template<typename T, typename... Args>
     [[nodiscard]] T *create(Args &&...args) {
         auto memory = allocate<T>(1u);
-        return new(memory.data()) T(std::forward<Args>(args)...);
+        return new (memory.data()) T(std::forward<Args>(args)...);
     }
-    
+
     template<typename T = std::byte, size_t alignment = alignof(T)>
     [[nodiscard]] std::span<T> allocate(size_t n) {
-        
+
         static_assert(std::is_trivially_destructible_v<T>);
         static constexpr auto size = sizeof(T);
-        
+
         auto byte_size = n * size;
         auto aligned_p = reinterpret_cast<std::byte *>((_ptr + alignment - 1u) / alignment * alignment);
         if (_blocks.empty() || aligned_p + byte_size > _blocks.back() + block_size) {
@@ -55,12 +57,8 @@ public:
 };
 
 template<typename T, size_t max_size>
-class SmallVector {
+class SmallVector {};
 
-};
+class FixedString {};
 
-class FixedString {
-
-};
-
-}
+}// namespace luisa

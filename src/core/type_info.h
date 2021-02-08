@@ -8,7 +8,7 @@
 #include <string>
 #include <array>
 #include <vector>
-#include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <string_view>
 #include <sstream>
@@ -72,13 +72,18 @@ private:
     std::string _description;
     std::vector<const TypeInfo *> _members;
     
+    static std::mutex _register_mutex;
+    static std::vector<std::unique_ptr<TypeInfo>> _registered_types;
     [[nodiscard]] static const TypeInfo *_from_description_impl(std::string_view &s) noexcept;
 
 public:
     template<typename T>
     [[nodiscard]] static const TypeInfo *of() noexcept;
     
-    [[nodiscard]] static const TypeInfo *from_description(std::string_view description) noexcept;
+    template<typename T>
+    [[nodiscard]] static auto of(T &&) noexcept { return of<std::remove_cvref_t<T>>(); }
+    
+    [[nodiscard]] static const TypeInfo *from(std::string_view description) noexcept;
     
     [[nodiscard]] bool operator==(const TypeInfo &rhs) const noexcept { return _hash == rhs._hash; }
     [[nodiscard]] bool operator!=(const TypeInfo &rhs) const noexcept { return !(*this == rhs); }
@@ -116,6 +121,12 @@ public:
     [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == TypeTag::MATRIX; }
     [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == TypeTag::STRUCTURE; }
     [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == TypeTag::ATOMIC; }
+    
+    template<typename F, std::enable_if_t<std::is_invocable_v<F, const TypeInfo *>, int> = 0>
+    static void traverse(F &&f) noexcept {
+        std::scoped_lock lock{_register_mutex};
+        for (auto &&t : _registered_types) { f(t.get()); }
+    }
 };
 
 namespace detail {
@@ -241,7 +252,7 @@ namespace luisa::detail {                                                       
 
 template<typename T>
 const TypeInfo *TypeInfo::of() noexcept {
-    static thread_local auto info = TypeInfo::from_description(detail::TypeDesc<T>::description());
+    static thread_local auto info = TypeInfo::from(detail::TypeDesc<T>::description());
     return info;
 }
 

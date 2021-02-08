@@ -16,11 +16,9 @@ class BasicFunction : public Noncopyable {
 
 private:
     Arena _arena;
-    
 };
 
 class GlobalFunction : public BasicFunction<GlobalFunction> {
-
 };
 
-}
+}// namespace luisa

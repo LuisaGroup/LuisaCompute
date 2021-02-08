@@ -18,4 +18,4 @@ XXH128_hash_t xxh3_hash128(const void *data, size_t size, uint64_t seed) noexcep
     return XXH_INLINE_XXH3_128bits_withSeed(data, size, seed);
 }
 
-}
+}// namespace luisa
