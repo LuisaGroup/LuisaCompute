@@ -31,6 +31,8 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     constexpr VectorStorage(const VectorStorage &v) noexcept : x{v.x}, y{v.y} {}
     explicit constexpr VectorStorage(T s) noexcept : x{s}, y{s} {}
     explicit constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
+    explicit constexpr VectorStorage(VectorStorage<T, 3> v) noexcept : x{v.x}, y{v.y} {}
+    explicit constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y} {}
 };
 
 template<typename T>
@@ -42,6 +44,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     explicit constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
     explicit constexpr VectorStorage(VectorStorage<T, 2> xy, T z) noexcept : x{xy.x}, y{xy.y}, z{z} {}
     explicit constexpr VectorStorage(T x, VectorStorage<T, 2> yz) noexcept : x{x}, y{yz.x}, z{yz.y} {}
+    explicit constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y}, z{v.z} {}
 };
 
 template<typename T>
@@ -78,8 +81,8 @@ struct Vector : public detail::VectorStorage<T, N> {
 
     constexpr Vector(const Vector &v) noexcept : Storage{v} {}
 
-    [[nodiscard]] T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
-    [[nodiscard]] const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
+    [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
+    [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
 
 #define LUISA_MAKE_VECTOR_BINARY_OPERATOR(op, ...)                                            \
     template<typename U, std::enable_if_t<std::conjunction_v<                                 \
@@ -183,10 +186,67 @@ struct Matrix {
 };
 
 template<>
-struct Matrix<3> {};
+struct Matrix<3> {
+
+    float3 cols[3];
+
+    explicit constexpr Matrix(float s = 1.0f) noexcept
+        : cols{float3{s, 0.0f, 0.0f}, float3{0.0f, s, 0.0f}, float3{0.0f, 0.0f, s}} {}
+
+    explicit constexpr Matrix(const float3 c0, const float3 c1, const float3 c2) noexcept
+        : cols{c0, c1, c2} {}
+
+    explicit constexpr Matrix(float m00, float m01, float m02,
+                              float m10, float m11, float m12,
+                              float m20, float m21, float m22) noexcept
+        : cols{float3{m00, m01, m02}, float3{m10, m11, m12}, float3{m20, m21, m22}} {}
+
+    template<size_t N, std::enable_if_t<N == 4, int> = 0>
+    explicit constexpr Matrix(Matrix<N> m) noexcept
+        : cols{float3{m[0]}, float3{m[1]}, float3{m[2]}} {}
+
+    template<typename Index>
+    [[nodiscard]] constexpr float3 &operator[](Index i) noexcept { return cols[i]; }
+
+    template<typename Index>
+    [[nodiscard]] constexpr const float3 &operator[](Index i) const noexcept { return cols[i]; }
+};
 
 template<>
-struct Matrix<4> {};
+struct Matrix<4> {
+
+    float4 cols[4];
+
+    explicit constexpr Matrix(float s = 1.0f) noexcept
+        : cols{float4{s, 0.0f, 0.0f, 0.0f},
+               float4{0.0f, s, 0.0f, 0.0f},
+               float4{0.0f, 0.0f, s, 0.0f},
+               float4{0.0f, 0.0f, 0.0f, s}} {}
+
+    explicit constexpr Matrix(const float4 c0, const float4 c1, const float4 c2, const float4 c3) noexcept
+        : cols{c0, c1, c2, c3} {}
+
+    explicit constexpr Matrix(float m00, float m01, float m02, float m03,
+                              float m10, float m11, float m12, float m13,
+                              float m20, float m21, float m22, float m23,
+                              float m30, float m31, float m32, float m33) noexcept
+        : cols{float4{m00, m01, m02, m03},
+               float4{m10, m11, m12, m13},
+               float4{m20, m21, m22, m23},
+               float4{m30, m31, m32, m33}} {}
+
+    explicit constexpr Matrix(Matrix<3> m) noexcept
+        : cols{float4{m[0], 0.0f},
+               float4{m[1], 0.0f},
+               float4{m[2], 0.0f},
+               float4{0.0f, 0.0f, 0.0f, 1.0f}} {}
+
+    template<typename Index>
+    [[nodiscard]] constexpr float4 &operator[](Index i) noexcept { return cols[i]; }
+
+    template<typename Index>
+    [[nodiscard]] constexpr const float4 &operator[](Index i) const noexcept { return cols[i]; }
+};
 
 using float3x3 = Matrix<3>;
 using float4x4 = Matrix<4>;
@@ -228,4 +288,20 @@ template<typename T, size_t N,
     } else {
         return R{~v.x, ~v.y, ~v.z, ~v.w};
     }
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float3x3 m, luisa::float3 v) noexcept {
+    return v.x * m[0] + v.y * m[1] + v.z * m[2];
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float3x3 lhs, const luisa::float3x3 rhs) noexcept {
+    return luisa::float3x3{lhs * rhs[0], lhs * rhs[1], lhs * rhs[2]};
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float4x4 m, luisa::float4 v) noexcept {
+    return v.x * m[0] + v.y * m[1] + v.z * m[2] + v.w * m[3];
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
+    return luisa::float4x4{lhs * rhs[0], lhs * rhs[1], lhs * rhs[2], lhs * rhs[3]};
 }
