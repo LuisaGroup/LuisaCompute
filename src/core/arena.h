@@ -46,6 +46,7 @@ public:
         auto aligned_p = reinterpret_cast<std::byte *>((_ptr + alignment - 1u) / alignment * alignment);
         if (_blocks.empty() || aligned_p + byte_size > _blocks.back() + block_size) {
             static constexpr auto alloc_alignment = std::max(alignment, sizeof(void *));
+            static_assert((alloc_alignment & (alloc_alignment - 1u)) == 0, "Alignment should be power of two.");
             auto alloc_size = (std::max(block_size, byte_size) + alloc_alignment - 1u) / alloc_alignment * alloc_alignment;
             aligned_p = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size));
             if (aligned_p == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to allocate memory: size = {}, alignment = {}, count = {}", size, alignment, n); }
@@ -56,9 +57,57 @@ public:
     }
 };
 
-template<typename T, size_t max_size>
-class SmallVector {};
+template<typename T, size_t capacity>
+class ArenaVector : public Noncopyable {
 
-class FixedString {};
+    static_assert(std::is_trivially_destructible_v<T>);
+
+private:
+    T *_data{nullptr};
+    size_t _size{0u};
+
+public:
+    explicit ArenaVector(Arena &arena) noexcept : _data{arena.allocate<T>(capacity).data()} {}
+    ArenaVector(ArenaVector &&) noexcept = default;
+    ArenaVector &operator=(ArenaVector &&) noexcept = default;
+
+    [[nodiscard]] auto empty() const noexcept { return _size == 0u; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+
+    [[nodiscard]] T *data() noexcept { return _data; }
+    [[nodiscard]] const T *data() const noexcept { return _data; }
+
+    [[nodiscard]] T &operator[](size_t i) noexcept { return _data[i]; }
+    [[nodiscard]] const T &operator[](size_t i) const noexcept { return _data[i]; }
+
+    template<typename... Args>
+    T &emplace_back(Args &&...args) noexcept {
+        if (_size == capacity) {
+            LUISA_ERROR_WITH_LOCATION("Capacity of FixedVector exceeded: {}.", capacity);
+        }
+        return new (_data + _size++) T{std::forward<Args>(args)...};
+    }
+
+    T &push_back(T v) noexcept { return emplace_back(std::move(v)); }
+    void pop_back() noexcept { _size--; /* trivially destructible */ }
+
+    [[nodiscard]] T &front() noexcept { return _data[0]; }
+    [[nodiscard]] const T &front() const noexcept { return _data[0]; }
+    [[nodiscard]] T &back() noexcept { return _data[_size - 1u]; }
+    [[nodiscard]] const T &back() const noexcept { return _data[_size - 1u]; }
+
+    [[nodiscard]] T *begin() noexcept { return _data; }
+    [[nodiscard]] T *end() noexcept { return _data + _size; }
+    [[nodiscard]] const T *cbegin() const noexcept { return _data; }
+    [[nodiscard]] const T *cend() const noexcept { return _data + _size; }
+};
+
+struct ArenaString : public std::string_view {
+
+    ArenaString(Arena &arena, std::string_view s) noexcept
+        : std::string_view{std::strncpy(arena.allocate<char>(s.size() + 1).data(), s.data(), s.size()), s.size()} {}
+
+    [[nodiscard]] const char *c_str() const noexcept { return data(); }
+};
 
 }// namespace luisa

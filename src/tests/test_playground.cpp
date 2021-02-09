@@ -18,6 +18,7 @@
 #include <core/arena.h>
 #include <core/hash.h>
 #include <core/type_info.h>
+#include <core/union.h>
 
 struct Test {
 
@@ -88,20 +89,6 @@ void print(const luisa::TypeInfo *info, int level = 0) {
 
 int main() {
 
-    Test test{"Hello", 123};
-    Test luisa{"world", 233};
-    std::ofstream of{"hello.json", std::ios::binary};
-    cereal::JSONOutputArchive ar{of};
-
-    spdlog::debug("Debugging...");
-    spdlog::info("Hello!!!");
-
-    char buffer[128];
-    fmt::format_to_n(buffer, 128, FMT_STRING("{:a}f"), 5.5);
-    spdlog::critical(buffer);
-
-    ar(test, luisa);
-
     std::variant<float, int> x;
 
     LUISA_VERBOSE("verbose...");
@@ -115,7 +102,28 @@ int main() {
     LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
 
     using namespace luisa;
+
+    Union<int, float, void *> un{5};
+    LUISA_INFO("is-int: {}", un.is<int>());
+    un.emplace(1.5f);
+    un([](auto x) noexcept {
+        using T = std::remove_cvref_t<decltype(x)>;
+        if constexpr (std::is_same_v<T, int>) {
+            LUISA_INFO("int: {}", x);
+        } else if constexpr (std::is_same_v<T, float>) {
+            LUISA_INFO("float: {}", x);
+        } else {
+            LUISA_INFO("unknown...");
+        }
+    });
+
     Arena arena;
+
+    ArenaString s{arena, "hello, world"};
+    LUISA_INFO("{}", s);
+
+    int a[5]{1, 2, 3, 4, 5};
+    auto hh = Hash{}(a);
 
     Arena another{std::move(arena)};
     auto p = another.allocate<int, 1024>(1);
@@ -138,8 +146,8 @@ int main() {
     using StructBB = luisa::detail::TypeDesc<BB>;
     LUISA_INFO("{}", StructBB::description());
 
-    int a[1024];
-    print(luisa::TypeInfo::of(a));
+    int aa[1024];
+    print(luisa::TypeInfo::of(aa));
 
     BB bb;
     print(luisa::TypeInfo::of(bb));

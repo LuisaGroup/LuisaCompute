@@ -4,8 +4,10 @@
 
 #pragma once
 
+namespace luisa::compute {
+
 class Context {
 
 };
 
-
+}
