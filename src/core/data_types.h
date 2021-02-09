@@ -7,9 +7,10 @@
 #include <cstdint>
 #include <type_traits>
 
-#include <core/concepts.h>
-
 namespace luisa {
+
+template<typename U>
+constexpr auto always_false = false;
 
 // scalars
 using uchar = uint8_t;
@@ -85,10 +86,8 @@ struct Vector : public detail::VectorStorage<T, N> {
     [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
 
 #define LUISA_MAKE_VECTOR_BINARY_OPERATOR(op, ...)                                            \
-    template<typename U, std::enable_if_t<std::conjunction_v<                                 \
-                                              std::is_same<T, U>,                             \
-                                              __VA_ARGS__>,                                   \
-                                          int> = 0>                                           \
+    template<typename U, std::enable_if_t<                                                    \
+                             std::conjunction_v<std::is_same<T, U>, __VA_ARGS__>, int> = 0>   \
     [[nodiscard]] constexpr auto operator op(Vector<U, N> rhs) const noexcept {               \
         using R = Vector<std::decay_t<decltype(static_cast<T>(0) op static_cast<T>(0))>, N>;  \
         if constexpr (N == 2) {                                                               \

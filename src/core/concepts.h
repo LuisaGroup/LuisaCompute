@@ -14,10 +14,4 @@ struct Noncopyable {
     Noncopyable &operator=(Noncopyable &&) noexcept = default;
 };
 
-template<typename U>
-constexpr auto always_false = false;
-
-template<typename U>
-constexpr auto always_true = true;
-
 }// namespace luisa

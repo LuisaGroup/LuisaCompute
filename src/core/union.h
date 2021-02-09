@@ -17,6 +17,10 @@ namespace detail {
 
 template<typename Tuple, typename U, int index>
 struct IndexOfImpl {
+    
+    template<typename T>
+    static constexpr auto always_false = false;
+    
     static_assert(always_false<U>);
 };
 
@@ -106,7 +110,6 @@ public:
     void visit(F &&f) const noexcept {
         if (!empty()) { _visit_impl<0>(std::forward<F>(f)); }
     }
-    
 };
 
 }// namespace luisa
