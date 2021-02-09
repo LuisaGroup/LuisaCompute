@@ -9,6 +9,7 @@
 
 #include <core/concepts.h>
 #include <core/data_types.h>
+#include <core/type_info.h>
 #include <core/arena.h>
 #include <core/union.h>
 
