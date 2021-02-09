@@ -40,21 +40,22 @@ struct IndexOfImpl<std::tuple<U, Others...>, U, index> {
 template<typename... T>
 class Union {
 
+public:
     static_assert(std::conjunction_v<std::is_trivially_destructible<T>...>);
-    static constexpr auto alignment = std::max({alignof(T)...});
-    static constexpr auto size = std::max(alignment, std::max({sizeof(T)...}));
+    static constexpr auto alignment_bytes = std::max({alignof(T)...});
+    static constexpr auto size_bytes = std::max(alignment_bytes, std::max({sizeof(T)...}));
     static constexpr auto type_count = sizeof...(T);
 
     using Types = std::tuple<T...>;
 
-    template<typename Tuple, typename U>
-    static constexpr int index_of = detail::IndexOfImpl<Tuple, U, 0>::value;
+    template<typename U>
+    static constexpr int index_of = detail::IndexOfImpl<Types, U, 0>::value;
 
-    template<typename Tuple, typename U>
-    static constexpr bool contains = (index_of<Tuple, U> != -1);
+    template<typename U>
+    static constexpr bool contains = (index_of<U> != -1);
 
 private:
-    std::aligned_storage_t<size, alignment> _storage;
+    std::aligned_storage_t<size_bytes, alignment_bytes> _storage;
     int _index{-1};
 
     template<int current, typename F>
@@ -75,13 +76,13 @@ public:
     Union &operator=(Union &&) noexcept = default;
     Union &operator=(const Union &u) noexcept = default;
 
-    template<typename U, std::enable_if_t<contains<Types, U>, int> = 0>
+    template<typename U, std::enable_if_t<contains<U>, int> = 0>
     explicit Union(U u) noexcept { emplace(std::move(u)); }
 
-    template<typename U, std::enable_if_t<contains<Types, std::remove_cvref_t<U>>, int> = 0>
+    template<typename U, std::enable_if_t<contains<std::remove_cvref_t<U>>, int> = 0>
     void emplace(U &&u) noexcept {
         using UU = std::remove_cvref_t<U>;
-        _index = index_of<Types, UU>;
+        _index = index_of<UU>;
         new (&_storage) UU{std::forward<U>(u)};
     }
 
@@ -90,21 +91,22 @@ public:
     [[nodiscard]] auto empty() const noexcept { return _index == -1; }
     [[nodiscard]] auto index() const noexcept { return _index; }
 
-    template<typename U, std::enable_if_t<contains<Types, U>, int> = 0>
+    template<typename U, std::enable_if_t<contains<U>, int> = 0>
     [[nodiscard]] const U &as() const noexcept {
-        if (auto required_index = index_of<Types, U>; _index != required_index) {
+        if (auto required_index = index_of<U>; _index != required_index) {
             LUISA_ERROR_WITH_LOCATION("Invalid type #{} required from union holding type #{}.", required_index, _index);
         }
         return *reinterpret_cast<const U *>(&_storage);
     }
 
-    template<typename U, std::enable_if_t<contains<Types, U>, int> = 0>
-    [[nodiscard]] bool is() const noexcept { return index_of<Types, U> == _index; }
+    template<typename U, std::enable_if_t<contains<U>, int> = 0>
+    [[nodiscard]] bool is() const noexcept { return index_of<U> == _index; }
 
     template<typename F>
-    void operator()(F &&f) const noexcept {
+    void visit(F &&f) const noexcept {
         if (!empty()) { _visit_impl<0>(std::forward<F>(f)); }
     }
+    
 };
 
 }// namespace luisa

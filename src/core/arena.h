@@ -68,6 +68,21 @@ private:
 
 public:
     explicit ArenaVector(Arena &arena) noexcept : _data{arena.allocate<T>(capacity).data()} {}
+    
+    ArenaVector(Arena &arena, std::span<T> span) noexcept {
+        if (span.size() > capacity) {
+            LUISA_ERROR_WITH_LOCATION("Capacity of ArenaVector exceeded: {} out of {} required.", span.size(), capacity);
+        }
+        std::copy(span.begin(), span.end(), _data);
+    }
+    
+    explicit ArenaVector(Arena &arena, std::initializer_list<T> init) noexcept {
+        if (init.size() > capacity) {
+            LUISA_ERROR_WITH_LOCATION("Capacity of ArenaVector exceeded: {} out of {} required.", init.size(), capacity);
+        }
+        std::copy(init.begin(), init.end(), _data);
+    }
+
     ArenaVector(ArenaVector &&) noexcept = default;
     ArenaVector &operator=(ArenaVector &&) noexcept = default;
 
@@ -83,7 +98,7 @@ public:
     template<typename... Args>
     T &emplace_back(Args &&...args) noexcept {
         if (_size == capacity) {
-            LUISA_ERROR_WITH_LOCATION("Capacity of FixedVector exceeded: {}.", capacity);
+            LUISA_ERROR_WITH_LOCATION("Capacity of ArenaVector exceeded: {}.", capacity);
         }
         return new (_data + _size++) T{std::forward<Args>(args)...};
     }

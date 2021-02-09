@@ -10,6 +10,7 @@
 #include <core/concepts.h>
 #include <core/data_types.h>
 #include <core/arena.h>
+#include <core/union.h>
 
 namespace luisa::compute {
 
@@ -109,6 +110,21 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+class AccessExpr : public Expression {
+
+private:
+    const Variable *_range;
+    const Variable *_index;
+
+public:
+    AccessExpr(const Variable *range, const Variable *index) noexcept
+        : _range{range}, _index{index} {}
+
+    [[nodiscard]] auto range() const noexcept { return _range; }
+    [[nodiscard]] auto index() const noexcept { return _index; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+};
+
 class MemberExpr : public Expression {
 
 private:
@@ -122,23 +138,65 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
-class LiteralExpr : public Expression {};
+class LiteralExpr : public Expression {
+
+public:
+    using Value = Union<
+        bool, float, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t,
+        bool2, float2, char2, uchar2, short2, ushort2, int2, uint2,
+        bool3, float3, char3, uchar3, short3, ushort3, int3, uint3,
+        bool4, float4, char4, uchar4, short4, ushort4, int4, uint4,
+        float3x3, float4x4>;
+
+private:
+    Value _value;
+
+public:
+    template<typename T, std::enable_if_t<Value::contains<T>, int> = 0>
+    explicit LiteralExpr(T value) noexcept : _value{value} {}
+
+    [[nodiscard]] const Value &value() const noexcept { return _value; }
+
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+};
 
 class CallExpr : public Expression {
 
 private:
-    std::string _name;
-    std::vector<const Variable *> _arguments;
+    ArenaString _name;
+    ArenaVector<const Variable *, 32> _arguments;
 
 public:
-    CallExpr(std::string name, std::vector<const Variable *> args) noexcept
-        : _name{std::move(name)}, _arguments{std::move(args)} {}
-    
-    [[nodiscard]] const std::string &name() const noexcept { return _name; }
-    [[nodiscard]] const std::vector<const Variable *> &arguments() const noexcept { return _arguments; }
+    CallExpr(Arena &arena, std::string_view name, std::initializer_list<const Variable *> args) noexcept
+        : _name{arena, name}, _arguments{arena, args} {}
+
+    [[nodiscard]] std::string_view name() const noexcept { return _name; }
+    [[nodiscard]] const auto &arguments() const noexcept { return _arguments; }
+
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+enum struct CastOp {
+    STATIC,
+    REINTERPRET,
+    BITWISE
+};
+
+class CastExpr : public Expression {
+
+private:
+    const Variable *_source;
+    const TypeInfo *_dest_type;
+    CastOp _op;
+
+public:
+    CastExpr(CastOp op, const Variable *src, const TypeInfo *dest) noexcept
+        : _source{src}, _dest_type{dest}, _op{op} {}
+    [[nodiscard]] CastOp op() const noexcept { return _op; }
+    [[nodiscard]] auto source() const noexcept { return _source; }
+    [[nodiscard]] auto dest_type() const noexcept { return _dest_type; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+};
 
 #undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
 

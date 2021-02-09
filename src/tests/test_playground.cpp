@@ -20,6 +20,9 @@
 #include <core/type_info.h>
 #include <core/union.h>
 
+#include <ast/variable.h>
+#include <ast/expression.h>
+
 struct Test {
 
     std::string s;
@@ -106,7 +109,7 @@ int main() {
     Union<int, float, void *> un{5};
     LUISA_INFO("is-int: {}", un.is<int>());
     un.emplace(1.5f);
-    un([](auto x) noexcept {
+    un.visit([](auto x) noexcept {
         using T = std::remove_cvref_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int>) {
             LUISA_INFO("int: {}", x);
@@ -118,6 +121,7 @@ int main() {
     });
 
     Arena arena;
+    ArenaVector<int, 5> vec{arena, {1, 2, 3}};
 
     ArenaString s{arena, "hello, world"};
     LUISA_INFO("{}", s);
