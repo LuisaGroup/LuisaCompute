@@ -200,4 +200,13 @@ public:
 
 #undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
 
+// make sure we can allocate them using arena...
+static_assert(std::is_trivially_destructible_v<UnaryExpr>);
+static_assert(std::is_trivially_destructible_v<BinaryExpr>);
+static_assert(std::is_trivially_destructible_v<MemberExpr>);
+static_assert(std::is_trivially_destructible_v<AccessExpr>);
+static_assert(std::is_trivially_destructible_v<LiteralExpr>);
+static_assert(std::is_trivially_destructible_v<CallExpr>);
+static_assert(std::is_trivially_destructible_v<CastExpr>);
+
 }// namespace luisa::compute
