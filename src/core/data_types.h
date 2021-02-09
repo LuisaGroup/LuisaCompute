@@ -149,11 +149,11 @@ struct Vector : public detail::VectorStorage<T, N> {
 
     template<typename U, std::enable_if_t<
                              std::conjunction_v<std::is_same<T, std::decay_t<U>>, std::negation<std::is_same<T, bool>>>, int> = 0>
-    [[nodiscard]] constexpr auto operator*(U rhs) noexcept { return this->operator*(Vector{rhs}); }
+    [[nodiscard]] constexpr auto operator*(U rhs) const noexcept { return this->operator*(Vector{rhs}); }
 
     template<typename U, std::enable_if_t<
                              std::conjunction_v<std::is_same<T, std::decay_t<U>>, std::negation<std::is_same<T, bool>>>, int> = 0>
-    [[nodiscard]] constexpr auto operator/(U rhs) noexcept { return this->operator/(Vector{rhs}); }
+    [[nodiscard]] constexpr auto operator/(U rhs) const noexcept { return this->operator/(Vector{rhs}); }
 
     template<typename U, std::enable_if_t<
                              std::conjunction_v<std::is_same<T, std::decay_t<U>>, std::negation<std::is_same<T, bool>>>, int> = 0>
@@ -205,11 +205,8 @@ struct Matrix<3> {
     explicit constexpr Matrix(Matrix<N> m) noexcept
         : cols{float3{m[0]}, float3{m[1]}, float3{m[2]}} {}
 
-    template<typename Index>
-    [[nodiscard]] constexpr float3 &operator[](Index i) noexcept { return cols[i]; }
-
-    template<typename Index>
-    [[nodiscard]] constexpr const float3 &operator[](Index i) const noexcept { return cols[i]; }
+    [[nodiscard]] constexpr float3 &operator[](size_t i) noexcept { return cols[i]; }
+    [[nodiscard]] constexpr const float3 &operator[](size_t i) const noexcept { return cols[i]; }
 };
 
 template<>
@@ -241,11 +238,8 @@ struct Matrix<4> {
                float4{m[2], 0.0f},
                float4{0.0f, 0.0f, 0.0f, 1.0f}} {}
 
-    template<typename Index>
-    [[nodiscard]] constexpr float4 &operator[](Index i) noexcept { return cols[i]; }
-
-    template<typename Index>
-    [[nodiscard]] constexpr const float4 &operator[](Index i) const noexcept { return cols[i]; }
+    [[nodiscard]] constexpr float4 &operator[](size_t i) noexcept { return cols[i]; }
+    [[nodiscard]] constexpr const float4 &operator[](size_t i) const noexcept { return cols[i]; }
 };
 
 using float3x3 = Matrix<3>;
@@ -254,15 +248,15 @@ using float4x4 = Matrix<4>;
 }// namespace luisa
 
 template<typename T, size_t N, std::enable_if_t<std::negation_v<std::is_same<T, bool>>, int> = 0>
-[[nodiscard]] constexpr auto operator*(T lhs, luisa::Vector<T, N> rhs) noexcept {
+[[nodiscard]] constexpr auto operator*(T lhs, const luisa::Vector<T, N> rhs) noexcept {
     return luisa::Vector<T, N>{lhs} * rhs;
 }
 
 template<typename T, size_t N, std::enable_if_t<std::negation_v<std::is_same<T, bool>>, int> = 0>
-[[nodiscard]] constexpr auto operator+(luisa::Vector<T, N> v) noexcept { return v; }
+[[nodiscard]] constexpr auto operator+(const luisa::Vector<T, N> v) noexcept { return v; }
 
 template<typename T, size_t N, std::enable_if_t<std::negation_v<std::is_same<T, bool>>, int> = 0>
-[[nodiscard]] constexpr auto operator-(luisa::Vector<T, N> v) noexcept {
+[[nodiscard]] constexpr auto operator-(const luisa::Vector<T, N> v) noexcept {
     using R = luisa::Vector<T, N>;
     if constexpr (N == 2) {
         return R{-v.x, -v.y};
@@ -273,13 +267,13 @@ template<typename T, size_t N, std::enable_if_t<std::negation_v<std::is_same<T, 
     }
 }
 
-[[nodiscard]] constexpr auto operator!(luisa::bool2 v) noexcept { return luisa::bool2{!v.x, !v.y}; }
-[[nodiscard]] constexpr auto operator!(luisa::bool3 v) noexcept { return luisa::bool3{!v.x, !v.y, !v.z}; }
-[[nodiscard]] constexpr auto operator!(luisa::bool4 v) noexcept { return luisa::bool4{!v.x, !v.y, !v.z, !v.w}; }
+[[nodiscard]] constexpr auto operator!(const luisa::bool2 v) noexcept { return luisa::bool2{!v.x, !v.y}; }
+[[nodiscard]] constexpr auto operator!(const luisa::bool3 v) noexcept { return luisa::bool3{!v.x, !v.y, !v.z}; }
+[[nodiscard]] constexpr auto operator!(const luisa::bool4 v) noexcept { return luisa::bool4{!v.x, !v.y, !v.z, !v.w}; }
 
 template<typename T, size_t N,
          std::enable_if_t<std::negation_v<std::disjunction<std::is_same<T, bool>, std::is_same<T, float>>>, int> = 0>
-[[nodiscard]] constexpr auto operator~(luisa::Vector<T, N> v) noexcept {
+[[nodiscard]] constexpr auto operator~(const luisa::Vector<T, N> v) noexcept {
     using R = luisa::Vector<T, N>;
     if constexpr (N == 2) {
         return R{~v.x, ~v.y};
@@ -290,7 +284,20 @@ template<typename T, size_t N,
     }
 }
 
-[[nodiscard]] constexpr auto operator*(const luisa::float3x3 m, luisa::float3 v) noexcept {
+// float3x3
+[[nodiscard]] constexpr auto operator*(const luisa::float3x3 m, float s) noexcept {
+    return luisa::float3x3{m[0] * s, m[1] * s, m[2] * s};
+}
+
+[[nodiscard]] constexpr auto operator*(float s, const luisa::float3x3 m) noexcept {
+    return m * s;
+}
+
+[[nodiscard]] constexpr auto operator/(const luisa::float3x3 m, float s) noexcept {
+    return m * (1.0f / s);
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float3x3 m, const luisa::float3 v) noexcept {
     return v.x * m[0] + v.y * m[1] + v.z * m[2];
 }
 
@@ -298,10 +305,39 @@ template<typename T, size_t N,
     return luisa::float3x3{lhs * rhs[0], lhs * rhs[1], lhs * rhs[2]};
 }
 
-[[nodiscard]] constexpr auto operator*(const luisa::float4x4 m, luisa::float4 v) noexcept {
+[[nodiscard]] constexpr auto operator+(const luisa::float3x3 lhs, const luisa::float3x3 rhs) noexcept {
+    return luisa::float3x3{lhs[0] + rhs[0], lhs[1] + rhs[1], lhs[2] + rhs[2]};
+}
+
+[[nodiscard]] constexpr auto operator-(const luisa::float3x3 lhs, const luisa::float3x3 rhs) noexcept {
+    return luisa::float3x3{lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2]};
+}
+
+// float4x4
+[[nodiscard]] constexpr auto operator*(const luisa::float4x4 m, float s) noexcept {
+    return luisa::float4x4{m[0] * s, m[1] * s, m[2] * s, m[3] * s};
+}
+
+[[nodiscard]] constexpr auto operator*(float s, const luisa::float4x4 m) noexcept {
+    return m * s;
+}
+
+[[nodiscard]] constexpr auto operator/(const luisa::float4x4 m, float s) noexcept {
+    return m * (1.0f / s);
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float4x4 m, const luisa::float4 v) noexcept {
     return v.x * m[0] + v.y * m[1] + v.z * m[2] + v.w * m[3];
 }
 
 [[nodiscard]] constexpr auto operator*(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
     return luisa::float4x4{lhs * rhs[0], lhs * rhs[1], lhs * rhs[2], lhs * rhs[3]};
+}
+
+[[nodiscard]] constexpr auto operator+(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
+    return luisa::float4x4{lhs[0] + rhs[0], lhs[1] + rhs[1], lhs[2] + rhs[2], lhs[3] + rhs[3]};
+}
+
+[[nodiscard]] constexpr auto operator-(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
+    return luisa::float4x4{lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2], lhs[3] - rhs[3]};
 }

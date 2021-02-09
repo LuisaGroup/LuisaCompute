@@ -159,6 +159,7 @@ int main() {
     v = 2.0f * v;
     auto ff = v[2];
     ff = 1.0f;
+    auto tt = float2{v};
 
     LUISA_INFO("All registered types:");
     TypeInfo::traverse([](auto t) noexcept { print<0>(t); });
