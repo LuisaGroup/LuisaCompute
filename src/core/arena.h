@@ -14,9 +14,21 @@
 namespace luisa {
 
 #ifdef _MSC_VER
+
 [[nodiscard]] inline auto aligned_alloc(size_t alignment, size_t size) noexcept {
     return _aligned_malloc(size, alignment);
 }
+
+inline void aligned_free(void *p) noexcept {
+    _aligned_free(p);
+}
+
+#else
+
+inline void aligned_free(void *p) noexcept {
+    free(p);
+}
+
 #endif
 
 class Arena : public Noncopyable {
@@ -33,11 +45,11 @@ public:
     Arena(Arena &&) noexcept = default;
     Arena &operator=(Arena &&) noexcept = default;
     ~Arena() noexcept {
-        for (auto p : _blocks) { free(p); }
+        for (auto p : _blocks) { aligned_free(p); }
     }
 
     template<typename T, typename... Args>
-    [[nodiscard]] T *create(Args &&...args) {
+    [[nodiscard]] T *create(Args &&... args) {
         auto memory = allocate<T>(1u);
         return new (memory.data()) T(std::forward<Args>(args)...);
     }
@@ -102,7 +114,7 @@ public:
     [[nodiscard]] const T &operator[](size_t i) const noexcept { return _data[i]; }
 
     template<typename... Args>
-    T &emplace_back(Args &&...args) noexcept {
+    T &emplace_back(Args &&... args) noexcept {
         if (_size == capacity) {
             LUISA_ERROR_WITH_LOCATION("Capacity of ArenaVector exceeded: {}.", capacity);
         }

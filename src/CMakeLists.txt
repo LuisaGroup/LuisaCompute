@@ -6,6 +6,8 @@ if (MSVC)
     target_compile_options(luisa-compute-include INTERFACE -Zc:preprocessor)
 endif()
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 add_subdirectory(ext)
 add_subdirectory(core)
 add_subdirectory(ast)
