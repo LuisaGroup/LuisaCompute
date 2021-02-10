@@ -12,13 +12,13 @@
 #define LUISA_MAP_EVAL4(...) LUISA_MAP_EVAL3(LUISA_MAP_EVAL3(LUISA_MAP_EVAL3(__VA_ARGS__)))
 #define LUISA_MAP_EVAL5(...) LUISA_MAP_EVAL4(LUISA_MAP_EVAL4(LUISA_MAP_EVAL4(__VA_ARGS__)))
 
-#ifdef _MSC_VER
-// MSVC needs more evaluations
-#define LUISA_MAP_EVAL6(...) LUISA_MAP_EVAL5(LUISA_MAP_EVAL5(LUISA_MAP_EVAL5(__VA_ARGS__)))
-#define LUISA_MAP_EVAL(...) LUISA_MAP_EVAL6(LUISA_MAP_EVAL6(__VA_ARGS__))
-#else
-#define LUISA_MAP_EVAL(...) LUISA_MAP_EVAL5(__VA_ARGS__)
-#endif
+// #ifdef _MSC_VER
+// // MSVC needs more evaluations
+// #define LUISA_MAP_EVAL6(...) LUISA_MAP_EVAL5(LUISA_MAP_EVAL5(LUISA_MAP_EVAL5(__VA_ARGS__)))
+// #define LUISA_MAP_EVAL(...) LUISA_MAP_EVAL6(LUISA_MAP_EVAL6(__VA_ARGS__))
+// #else
+#define LUISA_MAP_EVAL(...) LUISA_MAP_EVAL5(__VA_ARGS__)// MSVC >= 16.5 is standard conforming...
+// #endif
 
 #define LUISA_MAP_END(...)
 #define LUISA_MAP_OUT

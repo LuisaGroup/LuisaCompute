@@ -18,21 +18,10 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install gcc-10 g++-10 build-essential cmake ninja-build git file libopenimageio-dev libopencv-dev
-#      - name: "Install Homebrew"
-#        run: |
-#          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-#          test -d ~/.linuxbrew && eval $(~/.linuxbrew/bin/brew shellenv)
-#          test -d /home/linuxbrew/.linuxbrew && eval $(/home/linuxbrew/.linuxbrew/bin/brew shellenv)
-#          test -r ~/.bash_profile && echo "eval \$($(brew --prefix)/bin/brew shellenv)" >>~/.bash_profile
-#          echo "eval \$($(brew --prefix)/bin/brew shellenv)" >>~/.profile
-#      - name: "Install Dependencies with Homebrew"
-#        run: |
-#          brew install cmake ninja openimageio opencv spdlog
       - name: "Configure and Build"
         run: |
-          rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++-10
-          cmake --build . --target test_playground
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++-10
+          cmake --build build
   build-macos:
     runs-on: macos-latest
     steps:
@@ -45,6 +34,5 @@ jobs:
           brew install cmake ninja openimageio opencv pybind11 spdlog
       - name: "Configure and Build"
         run: |
-          rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -D CMAKE_BUILD_TYPE=Release
-          cmake --build .
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
+          cmake --build build
