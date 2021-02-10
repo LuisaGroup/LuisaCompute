@@ -64,7 +64,7 @@ public:
 };
 
 template<typename T, size_t capacity>
-class ArenaVector : public Noncopyable {
+class FixedVector : public Noncopyable {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
@@ -73,24 +73,24 @@ private:
     size_t _size{0u};
 
 public:
-    explicit ArenaVector(Arena &arena) noexcept : _data{arena.allocate<T>(capacity).data()} {}
-    
-    ArenaVector(Arena &arena, std::span<T> span) noexcept {
+    explicit FixedVector(Arena &arena) noexcept : _data{arena.allocate<T>(capacity).data()} {}
+
+    FixedVector(Arena &arena, std::span<T> span) noexcept : FixedVector{arena} {
         if (span.size() > capacity) {
             LUISA_ERROR_WITH_LOCATION("Capacity of ArenaVector exceeded: {} out of {} required.", span.size(), capacity);
         }
         std::copy(span.begin(), span.end(), _data);
     }
-    
-    explicit ArenaVector(Arena &arena, std::initializer_list<T> init) noexcept {
+
+    explicit FixedVector(Arena &arena, std::initializer_list<T> init) noexcept : FixedVector{arena} {
         if (init.size() > capacity) {
             LUISA_ERROR_WITH_LOCATION("Capacity of ArenaVector exceeded: {} out of {} required.", init.size(), capacity);
         }
         std::copy(init.begin(), init.end(), _data);
     }
 
-    ArenaVector(ArenaVector &&) noexcept = default;
-    ArenaVector &operator=(ArenaVector &&) noexcept = default;
+    FixedVector(FixedVector &&) noexcept = default;
+    FixedVector &operator=(FixedVector &&) noexcept = default;
 
     [[nodiscard]] auto empty() const noexcept { return _size == 0u; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -123,9 +123,9 @@ public:
     [[nodiscard]] const T *cend() const noexcept { return _data + _size; }
 };
 
-struct ArenaString : public std::string_view {
+struct FixedString : public std::string_view {
 
-    ArenaString(Arena &arena, std::string_view s) noexcept
+    FixedString(Arena &arena, std::string_view s) noexcept
         : std::string_view{std::strncpy(arena.allocate<char>(s.size() + 1).data(), s.data(), s.size()), s.size()} {}
 
     [[nodiscard]] const char *c_str() const noexcept { return data(); }

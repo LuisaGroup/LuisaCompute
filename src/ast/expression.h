@@ -163,13 +163,17 @@ public:
 
 class CallExpr : public Expression {
 
+public:
+    static constexpr auto max_argument_count = static_cast<size_t>(32);
+    using ArgumentList = FixedVector<const Variable *, max_argument_count>;
+
 private:
-    ArenaString _name;
-    ArenaVector<const Variable *, 32> _arguments;
+    FixedString _name;
+    ArgumentList _arguments;
 
 public:
-    CallExpr(Arena &arena, std::string_view name, std::initializer_list<const Variable *> args) noexcept
-        : _name{arena, name}, _arguments{arena, args} {}
+    CallExpr(FixedString name, ArgumentList args) noexcept
+        : _name{name}, _arguments{std::move(args)} {}
 
     [[nodiscard]] std::string_view name() const noexcept { return _name; }
     [[nodiscard]] const auto &arguments() const noexcept { return _arguments; }

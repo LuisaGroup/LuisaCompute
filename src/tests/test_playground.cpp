@@ -119,9 +119,9 @@ int main() {
     });
 
     Arena arena;
-    ArenaVector<int, 5> vec{arena, {1, 2, 3}};
+    FixedVector<int, 5> vec{arena, {1, 2, 3}};
 
-    ArenaString s{arena, "hello, world"};
+    FixedString s{arena, "hello, world"};
     LUISA_INFO("{}", s);
 
     int a[5]{1, 2, 3, 4, 5};
