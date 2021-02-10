@@ -63,7 +63,7 @@ private:
     int _index{-1};
 
     template<int current, typename F>
-    [[using gnu: const, always_inline, hot]] inline void _dispatch_impl(F &&f) const noexcept {
+    [[using gnu: always_inline, hot]] inline void _dispatch_impl(F &&f) const noexcept {
         if constexpr (current != type_count) {
             if (current == _index) {
                 using U = std::tuple_element_t<current, Types>;

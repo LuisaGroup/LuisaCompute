@@ -13,6 +13,7 @@
 #include <string_view>
 #include <sstream>
 #include <atomic>
+#include <mutex>
 
 #include <fmt/format.h>
 #include <core/macro_map.h>
