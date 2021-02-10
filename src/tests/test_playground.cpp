@@ -7,10 +7,8 @@
 #include <memory>
 #include <variant>
 #include <atomic>
+#include <iostream>
 
-#include <cereal/cereal.hpp>
-#include <cereal/archives/binary.hpp>
-#include <cereal/archives/json.hpp>
 #include <spdlog/spdlog.h>
 #include <fmt/format.h>
 
@@ -145,7 +143,7 @@ int main() {
     auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
     LUISA_INFO("{} {}", hash_aa, hash_bb);
 
-    LUISA_INFO("{}", type_info<std::array<float, 5>>()->description());
+    LUISA_INFO("{}", luisa::type_info<std::array<float, 5>>()->description());
 
     using StructBB = luisa::detail::TypeDesc<BB>;
     LUISA_INFO("{}", StructBB::description());

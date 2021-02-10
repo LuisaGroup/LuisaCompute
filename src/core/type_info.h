@@ -243,9 +243,9 @@ namespace luisa::detail {                                                       
         using This = S;                                                                                              \
         static std::string_view description() noexcept {                                                             \
             static auto s = fmt::format(                                                                             \
-                FMT_STRING("struct<{}" LUISA_MAP(LUISA_STRUCTURE_MAP_MEMBER_TO_FMT __VA_OPT__(,) __VA_ARGS__) ">"),  \
+                FMT_STRING("struct<{}" LUISA_MAP(LUISA_STRUCTURE_MAP_MEMBER_TO_FMT, ##__VA_ARGS__) ">"),  \
                 alignof(S),                                                                                          \
-                LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_DESC __VA_OPT__(,) __VA_ARGS__));                       \
+                LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_DESC, ##__VA_ARGS__));                       \
             return s;                                                                                                \
         }                                                                                                            \
     };                                                                                                               \

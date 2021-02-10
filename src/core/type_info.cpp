@@ -43,11 +43,11 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
     
     auto read_number = [&s] {
         size_t number;
-        auto[p, ec] = std::from_chars(s.cbegin(), s.cend(), number);
+        auto[p, ec] = std::from_chars(s.data(), s.data() + s.size(), number);
         if (ec != std::errc{}) {
             LUISA_ERROR_WITH_LOCATION("Failed to parse number from '{}'.", s);
         }
-        s = s.substr(p - s.cbegin());
+        s = s.substr(p - s.data());
         return number;
     };
     

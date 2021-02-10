@@ -52,7 +52,7 @@ using CPU = T;
 template<typename T>
 using DSL = DSLVar<T>;
 
-#define LUISA_XPU_TEMPLATE(...) template<template<typename> typename Var __VA_OPT__(, ) __VA_ARGS__>
+#define LUISA_XPU_TEMPLATE(...) template<template<typename> typename Var __VA_OPT__(,) __VA_ARGS__>
 #define LUISA_XPU LUISA_XPU_TEMPLATE()
 
 #define LUISA_DEVICE_FUNCTION(f)                                                            \

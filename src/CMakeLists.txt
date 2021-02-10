@@ -1,9 +1,10 @@
 add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
-target_compile_definitions(luisa-compute-include INTERFACE NOMINMAX)
-target_compile_options(luisa-compute-include INTERFACE $<$<CXX_COMPILER_ID:MSVC>:"/Zc:preprocessor">)
-set_target_properties(luisa-compute-include PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+target_compile_definitions(luisa-compute-include INTERFACE NOMINMAX _ENABLE_EXTENDED_ALIGNED_STORAGE)
+if (MSVC)
+    target_compile_options(luisa-compute-include INTERFACE -Zc:preprocessor)
+endif()
 
 add_subdirectory(ext)
 add_subdirectory(core)
