@@ -4,7 +4,7 @@
 
 #pragma once
 
-class Var {
+class DSLVar {
 
 };
 

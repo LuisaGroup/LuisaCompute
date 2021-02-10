@@ -17,10 +17,10 @@ namespace detail {
 
 template<typename Tuple, typename U, int index>
 struct IndexOfImpl {
-    
+
     template<typename T>
     static constexpr auto always_false = false;
-    
+
     static_assert(always_false<U>);
 };
 
@@ -63,12 +63,13 @@ private:
     int _index{-1};
 
     template<int current, typename F>
-    void _visit_impl(F &&f) const noexcept {
+    [[using gnu: const, always_inline, hot]] inline void _dispatch_impl(F &&f) const noexcept {
         if constexpr (current != type_count) {
             if (current == _index) {
-                f(*reinterpret_cast<const std::tuple_element_t<current, Types> *>(&_storage));
+                using U = std::tuple_element_t<current, Types>;
+                f(*reinterpret_cast<const U *>(&_storage));
             } else {
-                _visit_impl<current + 1>(std::forward<F>(f));
+                _dispatch_impl<current + 1>(std::forward<F>(f));
             }
         }
     }
@@ -106,9 +107,9 @@ public:
     template<typename U, std::enable_if_t<contains<U>, int> = 0>
     [[nodiscard]] bool is() const noexcept { return index_of<U> == _index; }
 
-    template<typename F>
-    void visit(F &&f) const noexcept {
-        if (!empty()) { _visit_impl<0>(std::forward<F>(f)); }
+    template<typename F, std::enable_if_t<std::conjunction_v<std::is_invocable<F, const T &>...>, int> = 0>
+    inline void dispatch(F &&f) const noexcept {
+        if (!empty()) { _dispatch_impl<0>(std::forward<F>(f)); }
     }
 };
 

@@ -4,8 +4,12 @@
 
 #pragma once
 
+namespace luisa {
+
 class Statement {
+
+
 
 };
 
-
+}

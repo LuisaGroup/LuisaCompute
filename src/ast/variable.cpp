@@ -3,3 +3,10 @@
 //
 
 #include "variable.h"
+
+namespace luisa::compute {
+
+
+
+
+}
