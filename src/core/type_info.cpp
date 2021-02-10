@@ -14,8 +14,15 @@
 
 namespace luisa {
 
-std::mutex TypeInfo::_register_mutex;
-std::vector<std::unique_ptr<TypeInfo>> TypeInfo::_registered_types;
+std::mutex& TypeInfo::_register_mutex() noexcept {
+    static std::mutex register_mutex;
+    return register_mutex;
+}
+
+std::vector<std::unique_ptr<TypeInfo>>& TypeInfo::_registered_types() noexcept {
+    static std::vector<std::unique_ptr<TypeInfo>> registered_types;
+    return registered_types;
+}
 
 const TypeInfo *TypeInfo::from(std::string_view description) noexcept {
     auto info = _from_description_impl(description);
@@ -136,15 +143,15 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
     auto description = s_copy.substr(0, s_copy.size() - s.size());
     auto hash = xxh3_hash64(description.data(), description.size());
     
-    std::scoped_lock lock{_register_mutex};
-    if (auto iter = std::find_if(_registered_types.cbegin(), _registered_types.cend(), [hash](auto &&ptr) noexcept {
+    std::scoped_lock lock{_register_mutex()};
+    if (auto iter = std::find_if(_registered_types().cbegin(), _registered_types().cend(), [hash](auto &&ptr) noexcept {
             return ptr->hash() == hash;
-        }); iter != _registered_types.cend()) { return iter->get(); }
+        }); iter != _registered_types().cend()) { return iter->get(); }
     
     info._hash = hash;
-    info._index = _registered_types.size();
+    info._index = _registered_types().size();
     info._description = description;
-    return _registered_types.emplace_back(std::make_unique<TypeInfo>(info)).get();
+    return _registered_types().emplace_back(std::make_unique<TypeInfo>(info)).get();
 }
 
 }

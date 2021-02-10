@@ -13,6 +13,12 @@
 
 namespace luisa {
 
+#ifdef _MSC_VER
+[[nodiscard]] inline auto aligned_alloc(size_t alignment, size_t size) noexcept {
+    return _aligned_malloc(size, alignment);
+}
+#endif
+
 class Arena : public Noncopyable {
 
 public:

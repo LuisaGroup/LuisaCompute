@@ -73,8 +73,8 @@ private:
     std::string _description;
     std::vector<const TypeInfo *> _members;
     
-    static std::mutex _register_mutex;
-    static std::vector<std::unique_ptr<TypeInfo>> _registered_types;
+    [[nodiscard]] static std::mutex &_register_mutex() noexcept;
+    [[nodiscard]] static std::vector<std::unique_ptr<TypeInfo>> &_registered_types() noexcept;
     [[nodiscard]] static const TypeInfo *_from_description_impl(std::string_view &s) noexcept;
 
 public:
@@ -125,8 +125,8 @@ public:
     
     template<typename F, std::enable_if_t<std::is_invocable_v<F, const TypeInfo *>, int> = 0>
     static void traverse(F &&f) noexcept {
-        std::scoped_lock lock{_register_mutex};
-        for (auto &&t : _registered_types) { f(t.get()); }
+        std::scoped_lock lock{_register_mutex()};
+        for (auto &&t : _registered_types()) { f(t.get()); }
     }
 };
 
