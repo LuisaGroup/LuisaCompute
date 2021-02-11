@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <algorithm>
 
+#include <core/platform.h>
 #include <core/concepts.h>
 #include <core/logging.h>
 
@@ -63,11 +64,11 @@ private:
     int _index{-1};
 
     template<int current, typename F>
-    [[using gnu: always_inline, hot]] inline void _dispatch_impl(F &&f) const noexcept {
+    LUISA_FORCE_INLINE void _dispatch_impl(F &&f) const noexcept {
         if constexpr (current != type_count) {
             if (current == _index) {
                 using U = std::tuple_element_t<current, Types>;
-                f(*reinterpret_cast<const U *>(&_storage));
+                f(*std::launder(reinterpret_cast<const U *>(&_storage)));
             } else {
                 _dispatch_impl<current + 1>(std::forward<F>(f));
             }
@@ -101,7 +102,7 @@ public:
         if (auto required_index = index_of<U>; _index != required_index) {
             LUISA_ERROR_WITH_LOCATION("Invalid type #{} required from union holding type #{}.", required_index, _index);
         }
-        return *reinterpret_cast<const U *>(&_storage);
+        return *std::launder(reinterpret_cast<const U *>(&_storage));
     }
 
     template<typename U, std::enable_if_t<contains<U>, int> = 0>

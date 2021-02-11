@@ -13,6 +13,7 @@ target_link_libraries(luisa-compute-ext INTERFACE ${OpenCV_LIBS})
 #set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
 #add_subdirectory(cereal)
 #target_link_libraries(luisa-compute-ext INTERFACE cereal::cereal)
+target_include_directories(luisa-compute-ext INTERFACE cereal/include)
 
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
 set(SPDLOG_ENABLE_PCH ON CACHE BOOL "" FORCE)

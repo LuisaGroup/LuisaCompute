@@ -8,28 +8,11 @@
 #include <vector>
 #include <memory>
 
+#include <core/platform.h>
 #include <core/concepts.h>
 #include <core/logging.h>
 
 namespace luisa {
-
-#ifdef _MSC_VER
-
-[[nodiscard]] inline auto aligned_alloc(size_t alignment, size_t size) noexcept {
-    return _aligned_malloc(size, alignment);
-}
-
-inline void aligned_free(void *p) noexcept {
-    _aligned_free(p);
-}
-
-#else
-
-inline void aligned_free(void *p) noexcept {
-    free(p);
-}
-
-#endif
 
 class Arena : public Noncopyable {
 

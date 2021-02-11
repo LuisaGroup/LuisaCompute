@@ -7,20 +7,20 @@ if (MSVC)
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 add_subdirectory(ext)
 add_subdirectory(core)
 add_subdirectory(ast)
 add_subdirectory(runtime)
 add_subdirectory(dsl)
-add_subdirectory(tests)
 
 add_library(luisa-compute INTERFACE)
 target_link_libraries(luisa-compute INTERFACE
-                      luisa-compute-ext
                       luisa-compute-core
                       luisa-compute-ast
                       luisa-compute-runtime
                       luisa-compute-dsl)
-
 add_library(luisa::compute ALIAS luisa-compute)
+
+add_subdirectory(tests)

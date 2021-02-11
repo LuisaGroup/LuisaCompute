@@ -83,7 +83,7 @@ int main() {
     DSLVar another = 1.5f;
     std::cout << foo(another) << std::endl;
 
-    auto b = 2.0f;
+    CPUVar b = 2.0f;
     std::cout << foo(b) << std::endl;
 
     auto c = luisa::float3{1.5f};
