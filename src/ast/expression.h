@@ -4,14 +4,13 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
+#include <variant>
 
 #include <core/concepts.h>
 #include <core/data_types.h>
-#include <ast/type.h>
 #include <core/arena.h>
 #include <core/union.h>
+#include <ast/type.h>
 
 namespace luisa::compute {
 
@@ -19,10 +18,15 @@ struct ExprVisitor;
 
 class Expression : public Noncopyable {
 
+private:
+    const Type *_type;
+
 protected:
     ~Expression() noexcept = default;
 
 public:
+    explicit Expression(const Type *type) noexcept : _type{type} {}
+    [[nodiscard]] auto type() const noexcept { return _type; }
     virtual void accept(ExprVisitor &) const = 0;
 };
 
@@ -63,7 +67,7 @@ private:
     UnaryOp _op;
 
 public:
-    UnaryExpr(UnaryOp op, const Expression *operand) noexcept : _operand{operand}, _op{op} {}
+    UnaryExpr(const Type *type, UnaryOp op, const Expression *operand) noexcept : Expression{type}, _operand{operand}, _op{op} {}
     [[nodiscard]] auto operand() const noexcept { return _operand; }
     [[nodiscard]] auto op() const noexcept { return _op; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
@@ -102,8 +106,8 @@ private:
     BinaryOp _op;
 
 public:
-    BinaryExpr(BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
-        : _op{op}, _lhs{lhs}, _rhs{rhs} {}
+    BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
+        : Expression{type}, _op{op}, _lhs{lhs}, _rhs{rhs} {}
 
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
     [[nodiscard]] auto rhs() const noexcept { return _rhs; }
@@ -118,8 +122,8 @@ private:
     const Expression *_index;
 
 public:
-    AccessExpr(const Expression *range, const Expression *index) noexcept
-        : _range{range}, _index{index} {}
+    AccessExpr(const Type *type, const Expression *range, const Expression *index) noexcept
+        : Expression{type}, _range{range}, _index{index} {}
 
     [[nodiscard]] auto range() const noexcept { return _range; }
     [[nodiscard]] auto index() const noexcept { return _index; }
@@ -133,7 +137,8 @@ private:
     size_t _member;
 
 public:
-    MemberExpr(const Expression *self, size_t member_index) noexcept : _self{self}, _member{member_index} {}
+    MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
+        : Expression{type}, _self{self}, _member{member_index} {}
     [[nodiscard]] auto self() const noexcept { return _self; }
     [[nodiscard]] auto member_index() const noexcept { return _member; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
@@ -142,7 +147,7 @@ public:
 class ValueExpr : public Expression {
 
 public:
-    using Value = Union<
+    using Value = std::variant<
         const Variable *,
         bool, float, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t,
         bool2, float2, char2, uchar2, short2, ushort2, int2, uint2,
@@ -154,7 +159,8 @@ private:
     Value _value;
 
 public:
-    explicit ValueExpr(Value v) noexcept : _value{v} {}
+    ValueExpr(const Type *type, Value v) noexcept
+        : Expression{type}, _value{std::move(v)} {}
     [[nodiscard]] const Value &value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
@@ -169,12 +175,10 @@ private:
     ArgumentList _arguments;
 
 public:
-    CallExpr(ArenaString name, ArgumentList args) noexcept
-        : _name{name}, _arguments{std::move(args)} {}
-
+    CallExpr(const Type *type, ArenaString name, ArgumentList args) noexcept
+        : Expression{type}, _name{name}, _arguments{std::move(args)} {}
     [[nodiscard]] std::string_view name() const noexcept { return _name; }
     [[nodiscard]] const auto &arguments() const noexcept { return _arguments; }
-
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
@@ -188,15 +192,13 @@ class CastExpr : public Expression {
 
 private:
     const Expression *_source;
-    const Type *_dest_type;
     CastOp _op;
 
 public:
-    CastExpr(CastOp op, const Expression *src, const Type *dest) noexcept
-        : _source{src}, _dest_type{dest}, _op{op} {}
+    CastExpr(const Type *type, CastOp op, const Expression *src) noexcept
+        : Expression{type}, _source{src}, _op{op} {}
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto expression() const noexcept { return _source; }
-    [[nodiscard]] auto dest_type() const noexcept { return _dest_type; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 

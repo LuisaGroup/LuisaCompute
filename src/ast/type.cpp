@@ -67,7 +67,7 @@ const Type *Type::_from_description_impl(std::string_view &s) noexcept {
 
 #define TRY_PARSE_SCALAR_TYPE_CASE(T, TAG) \
     if (type_identifier == #T##sv) {       \
-        info._tag = TypeTag::TAG;          \
+        info._tag = Tag::TAG;              \
         info._size = sizeof(T);            \
         info._alignment = alignof(T);      \
     } else
@@ -87,14 +87,14 @@ const Type *Type::_from_description_impl(std::string_view &s) noexcept {
 #undef TRY_PARSE_SCALAR_TYPE_CASE
 
     if (type_identifier == "atomic"sv) {
-        info._tag = TypeTag::ATOMIC;
+        info._tag = Tag::ATOMIC;
         match('<');
         info._members.emplace_back(_from_description_impl(s));
         match('>');
         info._alignment = info._members.front()->alignment();
         info._size = info._members.front()->size();
     } else if (type_identifier == "vector"sv) {
-        info._tag = TypeTag::VECTOR;
+        info._tag = Tag::VECTOR;
         match('<');
         info._members.emplace_back(_from_description_impl(s));
         match(',');
@@ -107,7 +107,7 @@ const Type *Type::_from_description_impl(std::string_view &s) noexcept {
         }
         info._size = info._alignment = elem->size() * (info._element_count == 3 ? 4 : info._element_count);
     } else if (type_identifier == "matrix"sv) {
-        info._tag = TypeTag::MATRIX;
+        info._tag = Tag::MATRIX;
         match('<');
         info._members.emplace_back(from("float"));
         info._element_count = read_number();
@@ -122,7 +122,7 @@ const Type *Type::_from_description_impl(std::string_view &s) noexcept {
             LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension: {}.", info._element_count);
         }
     } else if (type_identifier == "array"sv) {
-        info._tag = TypeTag::ARRAY;
+        info._tag = Tag::ARRAY;
         match('<');
         info._members.emplace_back(_from_description_impl(s));
         match(',');
@@ -131,7 +131,7 @@ const Type *Type::_from_description_impl(std::string_view &s) noexcept {
         info._alignment = info._members.front()->alignment();
         info._size = info._members.front()->size() * info._element_count;
     } else if (type_identifier == "struct"sv) {
-        info._tag = TypeTag::STRUCTURE;
+        info._tag = Tag::STRUCTURE;
         match('<');
         info._alignment = read_number();
         while (s.starts_with(',')) {

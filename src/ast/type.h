@@ -8,7 +8,6 @@
 #include <string>
 #include <array>
 #include <vector>
-#include <unordered_set>
 #include <string>
 #include <string_view>
 #include <sstream>
@@ -22,53 +21,54 @@
 
 namespace luisa::compute {
 
-enum struct TypeTag : uint32_t {
-
-    BOOL,
-
-    FLOAT,
-    INT8,
-    UINT8,
-    INT16,
-    UINT16,
-    INT32,
-    UINT32,
-
-    VECTOR,
-    MATRIX,
-
-    ARRAY,
-
-    ATOMIC,
-    STRUCTURE
-};
-
-[[nodiscard]] constexpr std::string_view type_tag_name(TypeTag tag) noexcept {
-    using namespace std::string_view_literals;
-    if (tag == TypeTag::BOOL) { return "bool"sv; }
-    if (tag == TypeTag::FLOAT) { return "float"sv; }
-    if (tag == TypeTag::INT8) { return "char"sv; }
-    if (tag == TypeTag::UINT8) { return "uchar"sv; }
-    if (tag == TypeTag::INT16) { return "short"sv; }
-    if (tag == TypeTag::UINT16) { return "ushort"sv; }
-    if (tag == TypeTag::INT32) { return "int"sv; }
-    if (tag == TypeTag::UINT32) { return "uint"sv; }
-    if (tag == TypeTag::VECTOR) { return "vector"sv; }
-    if (tag == TypeTag::MATRIX) { return "matrix"sv; }
-    if (tag == TypeTag::ARRAY) { return "array"sv; }
-    if (tag == TypeTag::ATOMIC) { return "atomic"sv; }
-    if (tag == TypeTag::STRUCTURE) { return "struct"sv; }
-    return "unknown"sv;
-}
-
 class Type {
+
+public:
+    enum struct Tag : uint32_t {
+        
+        BOOL,
+        
+        FLOAT,
+        INT8,
+        UINT8,
+        INT16,
+        UINT16,
+        INT32,
+        UINT32,
+        
+        VECTOR,
+        MATRIX,
+        
+        ARRAY,
+        
+        ATOMIC,
+        STRUCTURE
+    };
+    
+    [[nodiscard]] static constexpr std::string_view tag_name(Tag tag) noexcept {
+        using namespace std::string_view_literals;
+        if (tag == Tag::BOOL) { return "bool"sv; }
+        if (tag == Tag::FLOAT) { return "float"sv; }
+        if (tag == Tag::INT8) { return "char"sv; }
+        if (tag == Tag::UINT8) { return "uchar"sv; }
+        if (tag == Tag::INT16) { return "short"sv; }
+        if (tag == Tag::UINT16) { return "ushort"sv; }
+        if (tag == Tag::INT32) { return "int"sv; }
+        if (tag == Tag::UINT32) { return "uint"sv; }
+        if (tag == Tag::VECTOR) { return "vector"sv; }
+        if (tag == Tag::MATRIX) { return "matrix"sv; }
+        if (tag == Tag::ARRAY) { return "array"sv; }
+        if (tag == Tag::ATOMIC) { return "atomic"sv; }
+        if (tag == Tag::STRUCTURE) { return "struct"sv; }
+        return "unknown"sv;
+    }
 
 private:
     uint64_t _hash;
     size_t _size;
     size_t _index;
     size_t _alignment;
-    TypeTag _tag;
+    Tag _tag;
     uint32_t _element_count;
     std::string _description;
     std::vector<const Type *> _members;
@@ -113,14 +113,14 @@ public:
     }
 
     [[nodiscard]] constexpr bool is_scalar() const noexcept {
-        return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(TypeTag::BOOL) && static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(TypeTag::UINT32);
+        return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(Tag::BOOL) && static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(Tag::UINT32);
     }
 
-    [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == TypeTag::ARRAY; }
-    [[nodiscard]] constexpr bool is_vector() const noexcept { return _tag == TypeTag::VECTOR; }
-    [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == TypeTag::MATRIX; }
-    [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == TypeTag::STRUCTURE; }
-    [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == TypeTag::ATOMIC; }
+    [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == Tag::ARRAY; }
+    [[nodiscard]] constexpr bool is_vector() const noexcept { return _tag == Tag::VECTOR; }
+    [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }
+    [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
+    [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == Tag::ATOMIC; }
 
     template<typename F, std::enable_if_t<std::is_invocable_v<F, const Type *>, int> = 0>
     static void for_each(F &&f) noexcept {

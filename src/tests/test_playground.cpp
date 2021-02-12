@@ -53,7 +53,10 @@ struct BB {
 LUISA_STRUCT(AA, x, ba, a, atomic)
 LUISA_STRUCT(BB, a, b, c, m)
 
-struct Interface {
+struct Interface : public Noncopyable {
+    Interface() noexcept = default;
+    Interface(Interface &&) noexcept = default;
+    Interface &operator=(Interface &&) noexcept = default;
     ~Interface() noexcept = default;
 };
 
@@ -69,7 +72,7 @@ void print(const Type *info, int level = 0) {
         return;
     }
 
-    std::cout << indent_string << type_tag_name(info->tag()) << ": {\n"
+    std::cout << indent_string << Type::tag_name(info->tag()) << ": {\n"
               << indent_string << "  index:       " << info->index() << "\n"
               << indent_string << "  size:        " << info->size() << "\n"
               << indent_string << "  alignment:   " << info->alignment() << "\n"
@@ -91,7 +94,7 @@ void print(const Type *info, int level = 0) {
 }
 
 int main() {
-    
+
     using namespace luisa;
     log_level_verbose();
 
@@ -105,11 +108,11 @@ int main() {
     LUISA_INFO("size = {}, alignment = {}", sizeof(AA), alignof(AA));
     LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
 
-    Union<int, float, void *> un{5};
-    LUISA_INFO("is-int: {}", un.is<int>());
-    decltype(auto) new_v = un.emplace<float>(2);
-    static_assert(std::is_reference_v<decltype(new_v)>);
-    un.dispatch([](auto x) noexcept {
+    Union<int, float, void *, Interface> un{5};
+    Union<int, float, void *, Interface> un2{Interface{}};
+    LUISA_INFO("holds-float: {}, as-int: {}", un.holds<float>(), un.as<int>());
+    un.emplace(2.0f);
+    un.dispatch([](auto &&x) noexcept {
         using T = std::remove_cvref_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int>) {
             LUISA_INFO("int: {}", x);
@@ -119,6 +122,10 @@ int main() {
             LUISA_INFO("unknown...");
         }
     });
+
+    un.emplace<Interface>();
+    auto another_un = std::move(un);
+    another_un.assign(std::move(un2));
 
     Arena arena;
     ArenaVector<int> vec{arena, {1, 2, 3}};

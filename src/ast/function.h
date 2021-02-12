@@ -6,7 +6,7 @@
 
 #include <core/arena.h>
 
-namespace luisa {
+namespace luisa::compute {
 
 struct Statement;
 struct Expression;

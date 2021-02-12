@@ -4,8 +4,20 @@
 
 #pragma once
 
+namespace luisa::runtime {
+
+class BufferStorage {
+
+};
+
+template<typename T>
 class Buffer {
 
 };
 
+template<typename T>
+class BufferView {
 
+};
+
+}
