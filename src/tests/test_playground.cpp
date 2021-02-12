@@ -20,6 +20,7 @@
 
 #include <ast/variable.h>
 #include <ast/expression.h>
+#include <ast/statement.h>
 
 struct Test {
 
@@ -89,8 +90,9 @@ void print(const luisa::TypeInfo *info, int level = 0) {
 }
 
 int main() {
-
-    std::variant<float, int> x;
+    
+    using namespace luisa;
+    log_level_verbose();
 
     LUISA_VERBOSE("verbose...");
     LUISA_VERBOSE_WITH_LOCATION("verbose with {}...", "location");
@@ -102,11 +104,10 @@ int main() {
     LUISA_INFO("size = {}, alignment = {}", sizeof(AA), alignof(AA));
     LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
 
-    using namespace luisa;
-
     Union<int, float, void *> un{5};
     LUISA_INFO("is-int: {}", un.is<int>());
-    un.emplace(1.5f);
+    decltype(auto) new_v = un.emplace<float>(2);
+    static_assert(std::is_reference_v<decltype(new_v)>);
     un.dispatch([](auto x) noexcept {
         using T = std::remove_cvref_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int>) {
@@ -119,9 +120,10 @@ int main() {
     });
 
     Arena arena;
-    FixedVector<int, 5> vec{arena, {1, 2, 3}};
+    ArenaVector<int> vec{arena, {1, 2, 3}};
+    vec.emplace_back(4);
 
-    FixedString s{arena, "hello, world"};
+    ArenaString s{arena, "hello, world"};
     LUISA_INFO("{}", s);
 
     int a[5]{1, 2, 3, 4, 5};

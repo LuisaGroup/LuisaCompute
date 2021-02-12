@@ -19,6 +19,7 @@ private:
 };
 
 class GlobalFunction : public BasicFunction<GlobalFunction> {
+
 };
 
 }// namespace luisa

@@ -86,10 +86,16 @@ public:
     explicit Union(U u) noexcept { emplace(std::move(u)); }
 
     template<typename U, std::enable_if_t<contains<std::remove_cvref_t<U>>, int> = 0>
-    void emplace(U &&u) noexcept {
+    decltype(auto) emplace(U &&u) noexcept {
         using UU = std::remove_cvref_t<U>;
         _index = index_of<UU>;
-        new (&_storage) UU{std::forward<U>(u)};
+        return *construct_at(reinterpret_cast<UU *>(&_storage), std::forward<U>(u));
+    }
+
+    template<typename U, typename... Args, std::enable_if_t<contains<std::remove_cvref_t<U>>, int> = 0>
+    U &emplace(Args &&...args) noexcept {
+        _index = index_of<U>;
+        return *construct_at(reinterpret_cast<U *>(&_storage), std::forward<Args>(args)...);
     }
 
     void clear() noexcept { _index = -1; }

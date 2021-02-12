@@ -3,7 +3,6 @@
 //
 
 #include <iostream>
-#include <sstream>
 
 struct Var;
 
