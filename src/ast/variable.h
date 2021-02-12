@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <core/type_info.h>
+#include <ast/type.h>
 #include <core/union.h>
 
 namespace luisa::compute {
@@ -16,7 +16,7 @@ class Variable {
     using Binding = Union<const Expression *>;
 
 private:
-    const TypeInfo *_type;
+    const Type *_type;
     Binding _binding;
 
 public:

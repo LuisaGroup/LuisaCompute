@@ -19,7 +19,7 @@ protected:
     ~Statement() noexcept = default;
 
 public:
-    virtual void accept(StmtVisitor &visitor) const = 0;
+    virtual void accept(StmtVisitor &) const = 0;
 };
 
 struct EmptyStmt;
@@ -43,15 +43,15 @@ struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
     virtual void visit(const ContinueStmt *) = 0;
     virtual void visit(const ReturnStmt *) = 0;
-    virtual void visit(const ScopeStmt *scope_stmt) = 0;
-    virtual void visit(const DeclareStmt *declare_stmt) = 0;
-    virtual void visit(const IfStmt *if_stmt) = 0;
-    virtual void visit(const WhileStmt *while_stmt) = 0;
-    virtual void visit(const ExprStmt *expr_stmt) = 0;
-    virtual void visit(const SwitchStmt *switch_stmt) = 0;
-    virtual void visit(const SwitchCaseStmt *case_stmt) = 0;
-    virtual void visit(const SwitchDefaultStmt *default_stmt) = 0;
-    virtual void visit(const AssignStmt *assign_stmt) = 0;
+    virtual void visit(const ScopeStmt *) = 0;
+    virtual void visit(const DeclareStmt *) = 0;
+    virtual void visit(const IfStmt *) = 0;
+    virtual void visit(const WhileStmt *) = 0;
+    virtual void visit(const ExprStmt *) = 0;
+    virtual void visit(const SwitchStmt *) = 0;
+    virtual void visit(const SwitchCaseStmt *) = 0;
+    virtual void visit(const SwitchDefaultStmt *) = 0;
+    virtual void visit(const AssignStmt *) = 0;
 };
 
 #define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \

@@ -2,7 +2,6 @@ set(LUISA_COMPUTE_CORE_SOURCES
     logging.cpp logging.h
     arena.h
     concepts.h
-    type_info.cpp type_info.h
     hash.cpp hash.h
     macro_map.h
     union.h

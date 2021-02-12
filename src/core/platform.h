@@ -57,7 +57,7 @@ template<typename T, std::enable_if_t<std::is_unsigned_v<T> && (sizeof(T) == 4u 
     v |= v >> 4u;
     v |= v >> 8u;
     v |= v >> 16u;
-    if constexpr (sizeof(T) == 64u) { v |= v >> 32u; }
+    if constexpr (sizeof(T) == 8u) { v |= v >> 32u; }
     return v + 1u;
 }
 

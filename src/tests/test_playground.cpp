@@ -15,12 +15,12 @@
 #include <core/logging.h>
 #include <core/arena.h>
 #include <core/hash.h>
-#include <core/type_info.h>
+#include <ast/type.h>
 #include <core/union.h>
 
-#include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
+#include <ast/variable.h>
 
 struct Test {
 
@@ -34,6 +34,7 @@ struct Test {
 };
 
 using namespace luisa;
+using namespace luisa::compute;
 
 struct alignas(32) AA {
     float4 x;
@@ -59,7 +60,7 @@ struct Interface {
 struct Impl : public Interface {};
 
 template<int max_level = -1>
-void print(const luisa::TypeInfo *info, int level = 0) {
+void print(const Type *info, int level = 0) {
 
     std::string indent_string;
     for (auto i = 0; i < level; i++) { indent_string.append("  "); }
@@ -139,22 +140,19 @@ int main() {
 
     LUISA_INFO("trivially destructible: {}", std::is_trivially_destructible_v<Impl>);
 
-    print(TypeInfo::from("array<array<vector<float,3>,5>,9>"));
+    print(Type::from("array<array<vector<float,3>,5>,9>"));
 
     auto hash_aa = luisa::xxh32_hash32(type_aa.name(), std::strlen(type_aa.name()), 0);
     auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
     LUISA_INFO("{} {}", hash_aa, hash_bb);
 
-    LUISA_INFO("{}", luisa::type_info<std::array<float, 5>>()->description());
-
-    using StructBB = luisa::detail::TypeDesc<BB>;
-    LUISA_INFO("{}", StructBB::description());
+    LUISA_INFO("{}", Type::of<std::array<float, 5>>()->description());
 
     int aa[1024];
-    print(luisa::TypeInfo::of(aa));
+    print(Type::of(aa));
 
     BB bb;
-    print(luisa::TypeInfo::of(bb));
+    print(Type::of(bb));
 
     static_assert(alignof(float3) == 16);
 
@@ -174,5 +172,5 @@ int main() {
     auto tt = float2{v};
 
     LUISA_INFO("All registered types:");
-    TypeInfo::traverse([](auto t) noexcept { print<0>(t); });
+    Type::for_each([](auto t) noexcept { print<0>(t); });
 }

@@ -20,12 +20,12 @@
 #include <core/data_types.h>
 #include <core/concepts.h>
 
-namespace luisa {
+namespace luisa::compute {
 
 enum struct TypeTag : uint32_t {
-    
+
     BOOL,
-    
+
     FLOAT,
     INT8,
     UINT8,
@@ -33,12 +33,12 @@ enum struct TypeTag : uint32_t {
     UINT16,
     INT32,
     UINT32,
-    
+
     VECTOR,
     MATRIX,
-    
+
     ARRAY,
-    
+
     ATOMIC,
     STRUCTURE
 };
@@ -61,7 +61,7 @@ enum struct TypeTag : uint32_t {
     return "unknown"sv;
 }
 
-class TypeInfo {
+class Type {
 
 private:
     uint64_t _hash;
@@ -71,60 +71,59 @@ private:
     TypeTag _tag;
     uint32_t _element_count;
     std::string _description;
-    std::vector<const TypeInfo *> _members;
-    
+    std::vector<const Type *> _members;
+
     [[nodiscard]] static std::mutex &_register_mutex() noexcept;
-    [[nodiscard]] static std::vector<std::unique_ptr<TypeInfo>> &_registered_types() noexcept;
-    [[nodiscard]] static const TypeInfo *_from_description_impl(std::string_view &s) noexcept;
+    [[nodiscard]] static std::vector<std::unique_ptr<Type>> &_registered_types() noexcept;
+    [[nodiscard]] static const Type *_from_description_impl(std::string_view &s) noexcept;
 
 public:
     template<typename T>
-    [[nodiscard]] static const TypeInfo *of() noexcept;
-    
+    [[nodiscard]] static const Type *of() noexcept;
+
     template<typename T>
     [[nodiscard]] static auto of(T &&) noexcept { return of<std::remove_cvref_t<T>>(); }
-    
-    [[nodiscard]] static const TypeInfo *from(std::string_view description) noexcept;
-    
-    [[nodiscard]] bool operator==(const TypeInfo &rhs) const noexcept { return _hash == rhs._hash; }
-    [[nodiscard]] bool operator!=(const TypeInfo &rhs) const noexcept { return !(*this == rhs); }
-    [[nodiscard]] bool operator<(const TypeInfo &rhs) const noexcept { return _index < rhs._index; }
-    
+
+    [[nodiscard]] static const Type *from(std::string_view description) noexcept;
+
+    [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }
+    [[nodiscard]] bool operator!=(const Type &rhs) const noexcept { return !(*this == rhs); }
+    [[nodiscard]] bool operator<(const Type &rhs) const noexcept { return _index < rhs._index; }
+
     [[nodiscard]] constexpr auto hash() const noexcept { return _hash; }
     [[nodiscard]] constexpr auto index() const noexcept { return _index; }
     [[nodiscard]] constexpr auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto alignment() const noexcept { return _alignment; }
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
     [[nodiscard]] std::string_view description() const noexcept { return _description; }
-    
+
     [[nodiscard]] constexpr size_t element_count() const noexcept {
         assert(is_array() || is_vector() || is_matrix());
         return _element_count;
     }
-    
+
     [[nodiscard]] const auto &members() const noexcept {
         assert(is_structure());
         return _members;
     }
-    
+
     [[nodiscard]] auto element() const noexcept {
         assert(is_array() || is_atomic() || is_vector() || is_matrix());
         return _members.front();
     }
-    
+
     [[nodiscard]] constexpr bool is_scalar() const noexcept {
-        return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(TypeTag::BOOL) &&
-               static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(TypeTag::UINT32);
+        return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(TypeTag::BOOL) && static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(TypeTag::UINT32);
     }
-    
+
     [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == TypeTag::ARRAY; }
     [[nodiscard]] constexpr bool is_vector() const noexcept { return _tag == TypeTag::VECTOR; }
     [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == TypeTag::MATRIX; }
     [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == TypeTag::STRUCTURE; }
     [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == TypeTag::ATOMIC; }
-    
-    template<typename F, std::enable_if_t<std::is_invocable_v<F, const TypeInfo *>, int> = 0>
-    static void traverse(F &&f) noexcept {
+
+    template<typename F, std::enable_if_t<std::is_invocable_v<F, const Type *>, int> = 0>
+    static void for_each(F &&f) noexcept {
         std::scoped_lock lock{_register_mutex()};
         for (auto &&t : _registered_types()) { f(t.get()); }
     }
@@ -138,35 +137,35 @@ struct TypeDesc {
 };
 
 // scalar
-#define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, tag)    \
-template<>                                                               \
-struct TypeDesc<S> {                                                     \
-    static constexpr std::string_view description() noexcept {           \
-        using namespace std::string_view_literals;                       \
-        return #S ## sv;                                                 \
-    }                                                                    \
-};                                                                       \
-template<>                                                               \
-struct TypeDesc<Vector<S, 2>> {                                          \
-    static constexpr std::string_view description() noexcept {           \
-        using namespace std::string_view_literals;                       \
-        return "vector<" #S ",2>"sv;                                     \
-    }                                                                    \
-};                                                                       \
-template<>                                                               \
-struct TypeDesc<Vector<S, 3>> {                                          \
-    static constexpr std::string_view description() noexcept {           \
-        using namespace std::string_view_literals;                       \
-        return "vector<" #S ",3>"sv;                                     \
-    }                                                                    \
-};                                                                       \
-template<>                                                               \
-struct TypeDesc<Vector<S, 4>> {                                          \
-    static constexpr std::string_view description() noexcept {           \
-        using namespace std::string_view_literals;                       \
-        return "vector<" #S ",4>"sv;                                     \
-    }                                                                    \
-};
+#define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, tag) \
+    template<>                                                        \
+    struct TypeDesc<S> {                                              \
+        static constexpr std::string_view description() noexcept {    \
+            using namespace std::string_view_literals;                \
+            return #S##sv;                                            \
+        }                                                             \
+    };                                                                \
+    template<>                                                        \
+    struct TypeDesc<Vector<S, 2>> {                                   \
+        static constexpr std::string_view description() noexcept {    \
+            using namespace std::string_view_literals;                \
+            return "vector<" #S ",2>"sv;                              \
+        }                                                             \
+    };                                                                \
+    template<>                                                        \
+    struct TypeDesc<Vector<S, 3>> {                                   \
+        static constexpr std::string_view description() noexcept {    \
+            using namespace std::string_view_literals;                \
+            return "vector<" #S ",3>"sv;                              \
+        }                                                             \
+    };                                                                \
+    template<>                                                        \
+    struct TypeDesc<Vector<S, 4>> {                                   \
+        static constexpr std::string_view description() noexcept {    \
+            using namespace std::string_view_literals;                \
+            return "vector<" #S ",4>"sv;                              \
+        }                                                             \
+    };
 
 LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(bool, BOOL)
 LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(float, FLOAT)
@@ -229,39 +228,34 @@ struct TypeDesc<float4x4> {
     }
 };
 
-}
+}// namespace detail
 
 // struct
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_DESC(m) TypeDesc<decltype(std::declval<This>().m)>::description()
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_FMT(m) ",{}"
 
-#define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...)                                                        \
-namespace luisa::detail {                                                                                            \
-    static_assert(std::is_standard_layout_v<S>);                                                                     \
-    template<>                                                                                                       \
-    struct TypeDesc<S> {                                                                                             \
-        using This = S;                                                                                              \
-        static std::string_view description() noexcept {                                                             \
-            static auto s = fmt::format(                                                                             \
-                FMT_STRING("struct<{}" LUISA_MAP(LUISA_STRUCTURE_MAP_MEMBER_TO_FMT, ##__VA_ARGS__) ">"),  \
-                alignof(S),                                                                                          \
-                LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_DESC, ##__VA_ARGS__));                       \
-            return s;                                                                                                \
-        }                                                                                                            \
-    };                                                                                                               \
-}
+#define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...)                                            \
+    namespace luisa::compute::detail {                                                                   \
+    static_assert(std::is_standard_layout_v<S>);                                                         \
+    template<>                                                                                           \
+    struct TypeDesc<S> {                                                                                 \
+        using This = S;                                                                                  \
+        static std::string_view description() noexcept {                                                 \
+            static auto s = fmt::format(                                                                 \
+                FMT_STRING("struct<{}" LUISA_MAP(LUISA_STRUCTURE_MAP_MEMBER_TO_FMT, ##__VA_ARGS__) ">"), \
+                alignof(S),                                                                              \
+                LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_DESC, ##__VA_ARGS__));                      \
+            return s;                                                                                    \
+        }                                                                                                \
+    };                                                                                                   \
+    }
 
 template<typename T>
-const TypeInfo *TypeInfo::of() noexcept {
-    static thread_local auto info = TypeInfo::from(detail::TypeDesc<T>::description());
+const Type *Type::of() noexcept {
+    static thread_local auto info = Type::from(detail::TypeDesc<T>::description());
     return info;
 }
 
-template<typename T>
-[[nodiscard]] inline const TypeInfo *type_info() noexcept {
-    return TypeInfo::of<T>();
-}
-
-}
+}// namespace luisa::compute
 
 #define LUISA_STRUCT(...) LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(__VA_ARGS__)

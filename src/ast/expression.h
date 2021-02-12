@@ -9,7 +9,7 @@
 
 #include <core/concepts.h>
 #include <core/data_types.h>
-#include <core/type_info.h>
+#include <ast/type.h>
 #include <core/arena.h>
 #include <core/union.h>
 
@@ -26,28 +26,28 @@ public:
     virtual void accept(ExprVisitor &) const = 0;
 };
 
+class Variable;
+
 class UnaryExpr;
 class BinaryExpr;
 class MemberExpr;
 class AccessExpr;
-class LiteralExpr;
+class ValueExpr;
 class CallExpr;
 class CastExpr;
 
 struct ExprVisitor {
-    virtual void visit(const UnaryExpr *unary_expr) = 0;
-    virtual void visit(const BinaryExpr *binary_expr) = 0;
-    virtual void visit(const MemberExpr *member_expr) = 0;
-    virtual void visit(const AccessExpr *access_expr) = 0;
-    virtual void visit(const LiteralExpr *literal_expr) = 0;
-    virtual void visit(const CallExpr *func_expr) = 0;
-    virtual void visit(const CastExpr *cast_expr) = 0;
+    virtual void visit(const UnaryExpr *) = 0;
+    virtual void visit(const BinaryExpr *) = 0;
+    virtual void visit(const MemberExpr *) = 0;
+    virtual void visit(const AccessExpr *) = 0;
+    virtual void visit(const ValueExpr *) = 0;
+    virtual void visit(const CallExpr *) = 0;
+    virtual void visit(const CastExpr *) = 0;
 };
 
 #define LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR() \
     void accept(ExprVisitor &visitor) const override { visitor.visit(this); }
-
-class Variable;
 
 enum struct UnaryOp {
     PLUS,
@@ -59,13 +59,13 @@ enum struct UnaryOp {
 
 class UnaryExpr : public Expression {
 private:
-    const Variable *_operand;
+    const Expression *_operand;
     UnaryOp _op;
 
 public:
-    UnaryExpr(UnaryOp op, const Variable *operand) noexcept : _operand{operand}, _op{op} {}
-    [[nodiscard]] const Variable *operand() const noexcept { return _operand; }
-    [[nodiscard]] UnaryOp op() const noexcept { return _op; }
+    UnaryExpr(UnaryOp op, const Expression *operand) noexcept : _operand{operand}, _op{op} {}
+    [[nodiscard]] auto operand() const noexcept { return _operand; }
+    [[nodiscard]] auto op() const noexcept { return _op; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
@@ -97,28 +97,28 @@ enum struct BinaryOp {
 class BinaryExpr : public Expression {
 
 private:
-    const Variable *_lhs;
-    const Variable *_rhs;
+    const Expression *_lhs;
+    const Expression *_rhs;
     BinaryOp _op;
 
 public:
-    BinaryExpr(BinaryOp op, const Variable *lhs, const Variable *rhs) noexcept
+    BinaryExpr(BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
         : _op{op}, _lhs{lhs}, _rhs{rhs} {}
 
-    [[nodiscard]] const Variable *lhs() const noexcept { return _lhs; }
-    [[nodiscard]] const Variable *rhs() const noexcept { return _rhs; }
-    [[nodiscard]] BinaryOp op() const noexcept { return _op; }
+    [[nodiscard]] auto lhs() const noexcept { return _lhs; }
+    [[nodiscard]] auto rhs() const noexcept { return _rhs; }
+    [[nodiscard]] auto op() const noexcept { return _op; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 class AccessExpr : public Expression {
 
 private:
-    const Variable *_range;
-    const Variable *_index;
+    const Expression *_range;
+    const Expression *_index;
 
 public:
-    AccessExpr(const Variable *range, const Variable *index) noexcept
+    AccessExpr(const Expression *range, const Expression *index) noexcept
         : _range{range}, _index{index} {}
 
     [[nodiscard]] auto range() const noexcept { return _range; }
@@ -129,20 +129,21 @@ public:
 class MemberExpr : public Expression {
 
 private:
-    const Variable *_self;
+    const Expression *_self;
     size_t _member;
 
 public:
-    MemberExpr(const Variable *self, size_t member_index) noexcept : _self{self}, _member{member_index} {}
-    [[nodiscard]] const Variable *self() const noexcept { return _self; }
-    [[nodiscard]] size_t member_index() const noexcept { return _member; }
+    MemberExpr(const Expression *self, size_t member_index) noexcept : _self{self}, _member{member_index} {}
+    [[nodiscard]] auto self() const noexcept { return _self; }
+    [[nodiscard]] auto member_index() const noexcept { return _member; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
-class LiteralExpr : public Expression {
+class ValueExpr : public Expression {
 
 public:
     using Value = Union<
+        const Variable *,
         bool, float, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t,
         bool2, float2, char2, uchar2, short2, ushort2, int2, uint2,
         bool3, float3, char3, uchar3, short3, ushort3, int3, uint3,
@@ -153,18 +154,15 @@ private:
     Value _value;
 
 public:
-    template<typename T, std::enable_if_t<Value::contains<T>, int> = 0>
-    explicit LiteralExpr(T value) noexcept : _value{value} {}
-
+    explicit ValueExpr(Value v) noexcept : _value{v} {}
     [[nodiscard]] const Value &value() const noexcept { return _value; }
-
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 class CallExpr : public Expression {
 
 public:
-    using ArgumentList = ArenaVector<const Variable *>;
+    using ArgumentList = ArenaVector<const Expression *>;
 
 private:
     ArenaString _name;
@@ -189,15 +187,15 @@ enum struct CastOp {
 class CastExpr : public Expression {
 
 private:
-    const Variable *_source;
-    const TypeInfo *_dest_type;
+    const Expression *_source;
+    const Type *_dest_type;
     CastOp _op;
 
 public:
-    CastExpr(CastOp op, const Variable *src, const TypeInfo *dest) noexcept
+    CastExpr(CastOp op, const Expression *src, const Type *dest) noexcept
         : _source{src}, _dest_type{dest}, _op{op} {}
-    [[nodiscard]] CastOp op() const noexcept { return _op; }
-    [[nodiscard]] auto source() const noexcept { return _source; }
+    [[nodiscard]] auto op() const noexcept { return _op; }
+    [[nodiscard]] auto expression() const noexcept { return _source; }
     [[nodiscard]] auto dest_type() const noexcept { return _dest_type; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
@@ -209,7 +207,7 @@ static_assert(std::is_trivially_destructible_v<UnaryExpr>);
 static_assert(std::is_trivially_destructible_v<BinaryExpr>);
 static_assert(std::is_trivially_destructible_v<MemberExpr>);
 static_assert(std::is_trivially_destructible_v<AccessExpr>);
-static_assert(std::is_trivially_destructible_v<LiteralExpr>);
+static_assert(std::is_trivially_destructible_v<ValueExpr>);
 static_assert(std::is_trivially_destructible_v<CallExpr>);
 static_assert(std::is_trivially_destructible_v<CastExpr>);
 

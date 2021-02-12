@@ -10,33 +10,33 @@
 
 #include <core/logging.h>
 #include <core/hash.h>
-#include <core/type_info.h>
+#include <ast/type.h>
 
-namespace luisa {
+namespace luisa::compute {
 
-std::mutex& TypeInfo::_register_mutex() noexcept {
+std::mutex &Type::_register_mutex() noexcept {
     static std::mutex register_mutex;
     return register_mutex;
 }
 
-std::vector<std::unique_ptr<TypeInfo>>& TypeInfo::_registered_types() noexcept {
-    static std::vector<std::unique_ptr<TypeInfo>> registered_types;
+std::vector<std::unique_ptr<Type>> &Type::_registered_types() noexcept {
+    static std::vector<std::unique_ptr<Type>> registered_types;
     return registered_types;
 }
 
-const TypeInfo *TypeInfo::from(std::string_view description) noexcept {
+const Type *Type::from(std::string_view description) noexcept {
     auto info = _from_description_impl(description);
     assert(description.empty());
     return info;
 }
 
-const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
-    
-    TypeInfo info;
+const Type *Type::_from_description_impl(std::string_view &s) noexcept {
+
+    Type info;
     auto s_copy = s;
-    
+
     using namespace std::string_view_literals;
-    
+
     auto read_identifier = [&s] {
         auto p = s.cbegin();
         for (; p != s.cend() && std::isalpha(*p); p++) {}
@@ -47,39 +47,46 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
         s = s.substr(p - s.cbegin());
         return identifier;
     };
-    
+
     auto read_number = [&s] {
         size_t number;
-        auto[p, ec] = std::from_chars(s.data(), s.data() + s.size(), number);
+        auto [p, ec] = std::from_chars(s.data(), s.data() + s.size(), number);
         if (ec != std::errc{}) {
             LUISA_ERROR_WITH_LOCATION("Failed to parse number from '{}'.", s);
         }
         s = s.substr(p - s.data());
         return number;
     };
-    
+
     auto match = [&s](char c) {
         if (!s.starts_with(c)) { LUISA_ERROR_WITH_LOCATION("Expected '{}' from '{}'.", c, s); }
         s = s.substr(1);
     };
-    
+
     auto type_identifier = read_identifier();
 
-#define TRY_PARSE_SCALAR_TYPE(T, TAG)                         \
-    if (type_identifier == #T ## sv) {                        \
-        info._tag = TypeTag::TAG;                             \
-        info._size = sizeof(T);                               \
-        info._alignment = alignof(T);                         \
-    }
-    TRY_PARSE_SCALAR_TYPE(bool, BOOL)
-    else TRY_PARSE_SCALAR_TYPE(float, FLOAT)
-    else TRY_PARSE_SCALAR_TYPE(char, INT8)
-    else TRY_PARSE_SCALAR_TYPE(uchar, UINT8)
-    else TRY_PARSE_SCALAR_TYPE(short, INT16)
-    else TRY_PARSE_SCALAR_TYPE(ushort, UINT16)
-    else TRY_PARSE_SCALAR_TYPE(int, INT32)
-    else TRY_PARSE_SCALAR_TYPE(uint, UINT32)
-    else if (type_identifier == "atomic"sv) {
+#define TRY_PARSE_SCALAR_TYPE_CASE(T, TAG) \
+    if (type_identifier == #T##sv) {       \
+        info._tag = TypeTag::TAG;          \
+        info._size = sizeof(T);            \
+        info._alignment = alignof(T);      \
+    } else
+
+#define TRY_PARSE_SCALAR_TYPE(CASE) TRY_PARSE_SCALAR_TYPE_CASE CASE
+
+    LUISA_MAP(TRY_PARSE_SCALAR_TYPE,
+              (bool, BOOL),
+              (float, FLOAT),
+              (char, INT8),
+              (uchar, UINT8),
+              (short, INT16),
+              (int, INT32),
+              (uint, UINT32))
+
+#undef TRY_PARSE_SCALAR_TYPE
+#undef TRY_PARSE_SCALAR_TYPE_CASE
+
+    if (type_identifier == "atomic"sv) {
         info._tag = TypeTag::ATOMIC;
         match('<');
         info._members.emplace_back(_from_description_impl(s));
@@ -139,19 +146,20 @@ const TypeInfo *TypeInfo::_from_description_impl(std::string_view &s) noexcept {
         }
         info._size = (info._size + info._alignment - 1u) / info._alignment * info._alignment;
     }
-    
+
     auto description = s_copy.substr(0, s_copy.size() - s.size());
     auto hash = xxh3_hash64(description.data(), description.size());
-    
+
     std::scoped_lock lock{_register_mutex()};
-    if (auto iter = std::find_if(_registered_types().cbegin(), _registered_types().cend(), [hash](auto &&ptr) noexcept {
-            return ptr->hash() == hash;
-        }); iter != _registered_types().cend()) { return iter->get(); }
-    
+    auto &&types = _registered_types();
+    if (auto iter = std::find_if(
+            types.cbegin(), types.cend(), [hash](auto &&ptr) noexcept { return ptr->hash() == hash; });
+        iter != types.cend()) { return iter->get(); }
+
     info._hash = hash;
-    info._index = _registered_types().size();
+    info._index = types.size();
     info._description = description;
-    return _registered_types().emplace_back(std::make_unique<TypeInfo>(info)).get();
+    return types.emplace_back(std::make_unique<Type>(info)).get();
 }
 
-}
+}// namespace luisa::compute
