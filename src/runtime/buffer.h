@@ -103,12 +103,12 @@ public:
 template<typename T>
 struct ConstBufferView : public detail::BufferViewInterface<const Buffer, T, ConstBufferView> {
     using detail::BufferViewInterface<const Buffer, T, ConstBufferView>::BufferViewInterface;
+    ConstBufferView(BufferView<T> view) noexcept;
 };
 
 template<typename T>
-class BufferView : public detail::BufferViewInterface<Buffer, T, BufferView> {
+struct BufferView : public detail::BufferViewInterface<Buffer, T, BufferView> {
 
-public:
     using detail::BufferViewInterface<Buffer, T, BufferView>::BufferViewInterface;
 
     [[nodiscard]] auto const_view() const noexcept {
@@ -119,5 +119,19 @@ public:
         this->buffer()->upload(stream, data, this->offset_bytes(), this->size_bytes());
     }
 };
+
+template<typename T>
+ConstBufferView<T>::ConstBufferView(BufferView<T> view) noexcept
+    : ConstBufferView{view.buffer(), view.offset_bytes(), view.size_bytes()} {}
+
+// deduction guides
+template<typename T>
+BufferView(BufferView<T>) -> BufferView<T>;
+
+template<typename T>
+ConstBufferView(BufferView<T>) -> ConstBufferView<T>;
+
+template<typename T>
+ConstBufferView(ConstBufferView<T>) -> ConstBufferView<T>;
 
 }// namespace luisa::compute

@@ -34,7 +34,8 @@ int main() {
     view.upload(nullptr, nullptr);
     
     auto subview = view.subview(1, 16);
-    
+    ConstBufferView cbv = subview;
+    BufferView bv = view;
 
     static_assert(std::is_same_v<decltype(view.const_view()), decltype(const_view)>);
 }
