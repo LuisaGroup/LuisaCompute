@@ -112,12 +112,14 @@ int main() {
     Union<int, float, void *, Interface> un2{Interface{}};
     LUISA_INFO("holds-float: {}, as-int: {}", un.holds<float>(), un.as<int>());
     un.emplace(2.0f);
-    un.dispatch([](auto &&x) noexcept {
+    un.dispatch([](auto &x) noexcept {
         using T = std::remove_cvref_t<decltype(x)>;
         if constexpr (std::is_same_v<T, int>) {
             LUISA_INFO("int: {}", x);
+            x = 3;
         } else if constexpr (std::is_same_v<T, float>) {
             LUISA_INFO("float: {}", x);
+            x = 1.5f;
         } else {
             LUISA_INFO("unknown...");
         }

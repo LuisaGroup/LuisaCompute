@@ -11,8 +11,11 @@ target_link_libraries(test PRIVATE luisa::compute)
 #target_link_libraries(test_pybind_embed PRIVATE pybind11::pybind11 ${PYTHON_LIBRARIES})
 #add_dependencies(test_pybind_embed test_pybind)
 
-add_executable(test_playground test_playground.cpp)
-target_link_libraries(test_playground PRIVATE luisa::compute)
+add_executable(test_ast test_ast.cpp)
+target_link_libraries(test_ast PRIVATE luisa::compute)
+
+add_executable(test_runtime test_runtime.cpp)
+target_link_libraries(test_runtime PRIVATE luisa::compute)
 
 add_executable(test_interpreter test_interpreter.cpp)
 target_link_libraries(test_interpreter PRIVATE luisa::compute)

@@ -4,8 +4,9 @@
 
 #pragma once
 
-class Kernel {
+namespace luisa::compute {
 
+class Kernel {
 };
 
-
+}

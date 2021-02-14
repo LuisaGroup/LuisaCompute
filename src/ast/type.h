@@ -15,9 +15,13 @@
 #include <mutex>
 
 #include <fmt/format.h>
+
 #include <core/macro_map.h>
 #include <core/data_types.h>
 #include <core/concepts.h>
+
+#include <runtime/buffer.h>
+#include <runtime/texture.h>
 
 namespace luisa::compute {
 

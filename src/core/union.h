@@ -83,7 +83,7 @@ private:
     void _copy_or_move(Union<A...> &&rhs) noexcept {
         static_assert(std::is_same_v<Union<A...>, Union>);
         if (!rhs.empty()) {
-            rhs.template _dispatch_impl<0>([p = &_storage](auto &v) mutable noexcept {
+            rhs.dispatch([p = &_storage](auto &v) mutable noexcept {
                 using U = std::remove_cvref_t<decltype(v)>;
                 construct_at(reinterpret_cast<U *>(p), std::move(v));
             });
@@ -110,10 +110,10 @@ public:
 
     template<typename U, std::enable_if_t<contains<U>, int> = 0>
     explicit Union(U u) { emplace(std::move(u)); }
-    
+
     Union &operator=(Union &&) noexcept = delete;
     Union &operator=(const Union &) noexcept = delete;
-    
+
     template<typename U>
     void assign(U &&rhs) noexcept { _copy_or_move(std::forward<U>(rhs)); }
 
@@ -149,7 +149,16 @@ public:
         return false;
     }
 
-    template<typename F, std::enable_if_t<std::conjunction_v<std::is_invocable<F, const T &>...>, int> = 0>
+    template<typename F, std::enable_if_t<std::conjunction_v<std::is_invocable<F, T &>...>, int> = 0>
+    inline void dispatch(F &&f) noexcept {
+        if (!empty()) { _dispatch_impl<0>(std::forward<F>(f)); }
+    }
+
+    template<typename F,
+             std::enable_if_t<
+                 std::conjunction_v<std::negation<std::conjunction<std::is_invocable<F, T &>...>>,
+                                    std::is_invocable<F, const T &>...>,
+                 int> = 0>
     inline void dispatch(F &&f) const noexcept {
         if (!empty()) { _dispatch_implconst<0>(std::forward<F>(f)); }
     }
