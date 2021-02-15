@@ -36,9 +36,12 @@ private:
     Tag _tag;
     uint32_t _uid;
 
-public:
+private:
+    friend class Function;
     constexpr Variable(const Type *type, Tag tag, uint32_t uid) noexcept
         : _type{type}, _tag{tag}, _uid{uid} {}
+
+public:
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }

@@ -141,7 +141,7 @@ int main() {
 
     Arena another{std::move(arena)};
     auto p = another.allocate<int, 1024>(1);
-    LUISA_INFO("{}", fmt::ptr(p.object()));
+    LUISA_INFO("{}", fmt::ptr(p));
 
     auto &&type_aa = typeid(AA);
     auto &&type_bb = typeid(BB);

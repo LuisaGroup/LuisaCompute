@@ -7,6 +7,26 @@
 
 namespace luisa::compute {
 
+struct Index {};
+
+namespace detail {
+
+template<>
+struct BufferAccess<Index> {
+    
+    template<typename T>
+    [[nodiscard]] auto operator()(BufferView<T>, Index) const noexcept {
+        return 0ul;
+    }
+    
+    template<typename T>
+    [[nodiscard]] auto operator()(ConstBufferView<T>, Index) const noexcept {
+        return 1.0f;
+    }
+};
+
+}
+
 class FakeDevice : public Device {
     
     void _dispose_buffer(uint64_t handle) noexcept override {}
@@ -31,9 +51,11 @@ int main() {
     
     Buffer<float4> buffer{&device, 1024u};
     auto view = buffer.view();
+    auto x = view[Index{}];
     
     const auto &const_buffer = buffer;
     auto const_view = const_buffer.view();
+    auto y = const_view[Index{}];
     
     auto subview = view.subview(1, 16);
     ConstBufferView cbv = subview;

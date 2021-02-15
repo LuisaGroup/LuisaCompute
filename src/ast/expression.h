@@ -11,6 +11,7 @@
 #include <core/memory.h>
 #include <core/union.h>
 #include <ast/type.h>
+#include <ast/variable.h>
 
 namespace luisa::compute {
 
@@ -29,8 +30,6 @@ public:
     [[nodiscard]] auto type() const noexcept { return _type; }
     virtual void accept(ExprVisitor &) const = 0;
 };
-
-class Variable;
 
 class UnaryExpr;
 class BinaryExpr;
@@ -148,7 +147,7 @@ class ValueExpr : public Expression {
 
 public:
     using Value = std::variant<
-        const Variable *,
+        Variable,
         bool, float, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t,
         bool2, float2, char2, uchar2, short2, ushort2, int2, uint2,
         bool3, float3, char3, uchar3, short3, ushort3, int3, uint3,

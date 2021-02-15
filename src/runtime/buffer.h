@@ -70,6 +70,12 @@ public:
     [[nodiscard]] auto view() noexcept { return BufferView<T>{_device, _handle, 0u, _size}; }
     [[nodiscard]] auto view() const noexcept { return ConstBufferView<T>{_device, _handle, 0u, _size}; }
     [[nodiscard]] auto const_view() const noexcept { return view<T>(); }
+    
+    template<typename Index>
+    [[nodiscard]] decltype(auto) operator[](Index &&index) noexcept { return view()[std::forward<Index>(index)]; }
+    
+    template<typename Index>
+    [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept { return view()[std::forward<Index>(index)]; }
 };
 
 namespace detail {
@@ -146,9 +152,14 @@ public:
 
 namespace detail {
 
+template<typename Index>
+struct BufferAccess {
+    static_assert(always_false<Index>, "Invalid BufferAccess");
+};
+
 template<typename BV>
 class BufferViewInterface {
-    static_assert(always_false<BV>);
+    static_assert(always_false<BV>, "Invalid BufferViewInterface");
 };
 
 template<template<typename> typename View, typename T>
@@ -204,6 +215,11 @@ public:
                 sizeof(U), byte_size);
         }
         return View<U>{this->device(), this->handle(), this->offset_bytes(), byte_size / sizeof(U)};
+    }
+    
+    template<typename Index>
+    [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept {
+        return detail::BufferAccess<std::remove_cvref_t<Index>>{}(*static_cast<const View<T> *>(this), std::forward<Index>(index));
     }
 };
 

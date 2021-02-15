@@ -11,15 +11,20 @@ namespace luisa::compute {
 struct Statement;
 struct Expression;
 
-template<typename Impl>
-class BasicFunction : public Noncopyable {
+class Function {
+
+public:
+    enum struct Tag {
+        KERNEL,
+        DEVICE
+    };
 
 private:
     Arena _arena;
-};
 
-class GlobalFunction : public BasicFunction<GlobalFunction> {
+public:
 
+    
 };
 
 }// namespace luisa
