@@ -28,7 +28,7 @@ namespace luisa::compute {
 class Type {
 
 public:
-    enum struct Tag : uint32_t {
+    enum struct Tag : uint16_t {
         
         BOOL,
         
@@ -46,7 +46,10 @@ public:
         ARRAY,
         
         ATOMIC,
-        STRUCTURE
+        STRUCTURE,
+        
+        BUFFER,
+        TEXTURE
     };
     
     [[nodiscard]] static constexpr std::string_view tag_name(Tag tag) noexcept {
@@ -72,8 +75,9 @@ private:
     size_t _size;
     size_t _index;
     size_t _alignment;
-    Tag _tag;
     uint32_t _element_count;
+    Tag _tag;
+    bool _readonly;
     std::string _description;
     std::vector<const Type *> _members;
 
@@ -99,6 +103,7 @@ public:
     [[nodiscard]] constexpr auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto alignment() const noexcept { return _alignment; }
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
+    [[nodiscard]] constexpr auto readonly() const noexcept { return _readonly; }
     [[nodiscard]] std::string_view description() const noexcept { return _description; }
 
     [[nodiscard]] constexpr size_t element_count() const noexcept {

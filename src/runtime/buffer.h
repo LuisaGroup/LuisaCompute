@@ -15,6 +15,7 @@
 namespace luisa::compute {
 
 class Stream;
+class Device;
 
 template<typename T>
 class BufferView;
@@ -66,7 +67,7 @@ public:
         static constexpr auto element_size = sizeof(Element);
         if (_offset_bytes % element_alignment != 0u) {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid offset {} for element with alignment {}.", _offset_bytes, element_alignment);
+                "Invalid offset {} for elements with alignment {}.", _offset_bytes, element_alignment);
         }
         if (_size_bytes % element_size != 0u) {
             auto fit_size = _size_bytes / element_size * element_size;
@@ -86,7 +87,11 @@ public:
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
 
-    void download(Stream *stream, Element *data) { _buffer->download(stream, data, offset_bytes(), size_bytes()); }
+    [[nodiscard]] auto download(Element *data) {
+        return [buffer = this->buffer(), data, offset = this->offset_bytes(), size = this->size_bytes()](Stream *stream) {
+            buffer->download(stream, data, offset, size);
+        };
+    }
 
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
         auto sub_offset = offset_elements * sizeof(Element);
@@ -115,8 +120,10 @@ struct BufferView : public detail::BufferViewInterface<Buffer, T, BufferView> {
         return ConstBufferView<T>{this->buffer(), this->offset_bytes(), this->size_bytes()};
     }
 
-    void upload(Stream *stream, const T *data) {
-        this->buffer()->upload(stream, data, this->offset_bytes(), this->size_bytes());
+    [[nodiscard]] auto upload(const T *data) {
+        return [buffer = this->buffer(), data, offset = this->offset_bytes(), size = this->size_bytes()](Stream *stream) {
+            buffer->upload(stream, data, offset, size);
+        };
     }
 };
 

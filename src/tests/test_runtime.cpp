@@ -30,8 +30,8 @@ int main() {
     const auto &const_buffer = buffer;
     auto const_view = const_buffer.view<float4>();
     
-    const_view.download(nullptr, nullptr);
-    view.upload(nullptr, nullptr);
+    const_view.download(nullptr)(nullptr);
+    view.upload(nullptr)(nullptr);
     
     auto subview = view.subview(1, 16);
     ConstBufferView cbv = subview;
