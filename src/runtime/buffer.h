@@ -5,17 +5,20 @@
 #pragma once
 
 #include <cstddef>
-#include <span>
 #include <numeric>
 #include <limits>
+#include <span>
+#include <utility>
+#include <type_traits>
 
 #include <core/logging.h>
 #include <core/concepts.h>
+#include <core/data_types.h>
+
+#include <runtime/device.h>
+#include <runtime/command.h>
 
 namespace luisa::compute {
-
-class Stream;
-class Device;
 
 template<typename T>
 class BufferView;
@@ -23,117 +26,183 @@ class BufferView;
 template<typename T>
 class ConstBufferView;
 
+template<typename T>
 class Buffer : public Noncopyable {
 
+    static_assert(alignof(T) <= 16u);
+    static_assert(std::is_same_v<T, std::remove_cvref_t<T>>);
+
 private:
-    size_t _size_bytes;
+    Device *_device;
+    uint64_t _handle;
+    size_t _size;
 
 public:
-    explicit Buffer(size_t size_bytes) noexcept : _size_bytes{size_bytes} {}
-    virtual ~Buffer() noexcept = default;
+    Buffer(Device *device, size_t size) noexcept
+        : _device{device},
+          _handle{device->_create_buffer(size * sizeof(T))},
+          _size{size} {}
 
-    Buffer(Buffer &&) noexcept = default;
-    Buffer &operator=(Buffer &&) noexcept = default;
+    Buffer(Device *device, std::span<T> span) noexcept
+        : _device{device},
+          _handle{device->_create_buffer_with_data(span.size_bytes(), span.data())},
+          _size{span.size()} {}
 
-    virtual void upload(Stream *stream, const void *data, size_t offset, size_t size) = 0;
-    virtual void download(Stream *stream, void *data, size_t offset, size_t size) const = 0;
+    Buffer(Buffer &&another) noexcept
+        : _device{another._device},
+          _handle{another._handle},
+          _size{another._handle} { another._device = nullptr; }
 
-    [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
+    Buffer &operator=(Buffer &&rhs) noexcept {
+        if (&rhs != this) {
+            _device->_dispose_buffer(_handle);
+            _device = rhs._device;
+            _handle = rhs._handle;
+            _size = rhs._handle;
+            rhs._device = nullptr;
+        }
+        return *this;
+    }
 
-    template<typename T>
-    [[nodiscard]] auto view() noexcept { return BufferView<T>{this, 0u, _size_bytes}; }
+    ~Buffer() noexcept {
+        if (_device != nullptr /* not moved */) { _device->_dispose_buffer(_handle); }
+    }
 
-    template<typename T>
-    [[nodiscard]] auto view() const noexcept { return ConstBufferView<T>{this, 0u, _size_bytes}; }
-
-    template<typename T>
+    [[nodiscard]] auto view() noexcept { return BufferView<T>{_device, _handle, 0u, _size}; }
+    [[nodiscard]] auto view() const noexcept { return ConstBufferView<T>{_device, _handle, 0u, _size}; }
     [[nodiscard]] auto const_view() const noexcept { return view<T>(); }
 };
 
 namespace detail {
 
-template<typename Buffer, typename Element, template<typename> typename View>
+template<typename T>
+constexpr auto span_element_impl(T &&x) noexcept { return std::span{std::forward<T>(x)}; }
+
+template<typename T>
+using SpanElement = typename decltype(span_element_impl(std::declval<T>()))::value_type;
+
+}// namespace detail
+
+template<typename T>
+Buffer(Device *, T &&) -> Buffer<detail::SpanElement<T>>;
+
+namespace detail {
+
+template<typename BV>
 class BufferViewInterface {
+    static_assert(always_false<BV>);
+};
+
+template<template<typename> typename View, typename T>
+class BufferViewInterface<View<T>> {
 
 private:
-    Buffer *_buffer;
+    Device *_device;
+    uint64_t _handle;
     size_t _offset_bytes;
-    size_t _size_bytes;
+    size_t _size;
 
-public:
-    BufferViewInterface(Buffer *buffer, size_t offset_bytes, size_t size_bytes) noexcept
-        : _buffer{buffer}, _offset_bytes{offset_bytes}, _size_bytes{size_bytes} {
-        static constexpr auto element_alignment = alignof(Element);
-        static constexpr auto element_size = sizeof(Element);
-        if (_offset_bytes % element_alignment != 0u) {
+protected:
+    BufferViewInterface(Device *device, uint64_t handle, size_t offset_bytes, size_t size) noexcept
+        : _device{device}, _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {
+        if (_offset_bytes % alignof(T) != 0u) {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid offset {} for elements with alignment {}.", _offset_bytes, element_alignment);
-        }
-        if (_size_bytes % element_size != 0u) {
-            auto fit_size = _size_bytes / element_size * element_size;
-            LUISA_WARNING_WITH_LOCATION(
-                "Rounding buffer view size {} to {} to fit elements with size {}.", _size_bytes, fit_size, element_size);
-            _size_bytes = fit_size;
-        }
-        if (_offset_bytes + _size_bytes > buffer->size_bytes()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Buffer view (with offset = {}, size = {}) overflows buffer with size {}.",
-                _offset_bytes, _size_bytes, buffer->size_bytes());
+                "Invalid buffer view offset {} for elements with alignment {}.",
+                _offset_bytes, alignof(T));
         }
     }
 
-    [[nodiscard]] auto buffer() const noexcept { return _buffer; }
-    [[nodiscard]] auto size() const noexcept { return _size_bytes / sizeof(Element); }
+public:
+    [[nodiscard]] auto device() const noexcept { return _device; }
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
-    [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
+    [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
 
-    [[nodiscard]] auto download(Element *data) {
-        return [buffer = this->buffer(), data, offset = this->offset_bytes(), size = this->size_bytes()](Stream *stream) {
-            buffer->download(stream, data, offset, size);
-        };
+    [[nodiscard]] auto download(T *data) const {
+        if (reinterpret_cast<size_t>(data) % alignof(T) != 0u) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid host pointer {} for elements with alignment {}.",
+                fmt::ptr(data), alignof(T));
+        }
+        BufferDownloadCommand::create(_device, _handle, offset_bytes(), size_bytes(), data);
     }
 
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
-        auto sub_offset = offset_elements * sizeof(Element);
-        auto sub_size = size_elements * sizeof(Element);
-        return View<Element>{_buffer, _offset_bytes + sub_offset, sub_size};
+        if (size_elements * sizeof(T) + offset_elements > _size) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Subview (with offset_elements = {}, size_elements = {}) overflows buffer view (with size_elements = {}).",
+                offset_elements, size_elements, _size);
+        }
+        return View<T>{_device, _handle, _offset_bytes + offset_elements * sizeof(T), size_elements};
     }
 
-    template<typename T>
-    [[nodiscard]] auto as() const noexcept { return View<T>{_buffer, _offset_bytes, _size_bytes}; }
+    template<typename U>
+    [[nodiscard]] auto as() const noexcept {
+        auto byte_size = this->size() * sizeof(T);
+        if (byte_size < sizeof(U)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Unable to hold any element (with size = {}) in buffer view (with size = {}).",
+                sizeof(U), byte_size);
+        }
+        return View<U>{this->device(), this->handle(), this->offset_bytes(), byte_size / sizeof(U)};
+    }
 };
 
 }// namespace detail
 
 template<typename T>
-struct ConstBufferView : public detail::BufferViewInterface<const Buffer, T, ConstBufferView> {
-    using detail::BufferViewInterface<const Buffer, T, ConstBufferView>::BufferViewInterface;
-    ConstBufferView(BufferView<T> view) noexcept;
-};
+class BufferView : public detail::BufferViewInterface<BufferView<T>> {
 
-template<typename T>
-struct BufferView : public detail::BufferViewInterface<Buffer, T, BufferView> {
+protected:
+    friend class Buffer<T>;
 
-    using detail::BufferViewInterface<Buffer, T, BufferView>::BufferViewInterface;
+    template<typename>
+    friend class detail::BufferViewInterface;
 
-    [[nodiscard]] auto const_view() const noexcept {
-        return ConstBufferView<T>{this->buffer(), this->offset_bytes(), this->size_bytes()};
-    }
+    using detail::BufferViewInterface<BufferView<T>>::BufferViewInterface;
+
+public:
+    [[nodiscard]] auto const_view() const noexcept { return ConstBufferView{*this}; }
 
     [[nodiscard]] auto upload(const T *data) {
-        return [buffer = this->buffer(), data, offset = this->offset_bytes(), size = this->size_bytes()](Stream *stream) {
-            buffer->upload(stream, data, offset, size);
-        };
+        return BufferUploadCommand::create(
+            this->device(), this->handle(),
+            this->offset_bytes(), this->size_bytes(), data);
+    }
+
+    [[nodiscard]] auto copy(ConstBufferView<T> source) {
+        if (source.device() != this->device()) {
+            LUISA_ERROR_WITH_LOCATION("Incompatible buffer views created on different devices.");
+        }
+        if (source.size() != this->size()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Incompatible buffer views with different element counts (src = {}, dst = {}).",
+                source.size(), this->size());
+        }
+        return BufferCopyCommand::create(
+            this->device(), source.handle(), this->handle(),
+            source.offset_bytes(), this->offset_bytes(),
+            this->size_bytes());
     }
 };
 
 template<typename T>
-ConstBufferView<T>::ConstBufferView(BufferView<T> view) noexcept
-    : ConstBufferView{view.buffer(), view.offset_bytes(), view.size_bytes()} {}
+class ConstBufferView : public detail::BufferViewInterface<ConstBufferView<T>> {
 
-// deduction guides
-template<typename T>
-BufferView(BufferView<T>) -> BufferView<T>;
+protected:
+    friend class Buffer<T>;
+    friend class BufferView<T>;
+
+    template<typename>
+    friend class detail::BufferViewInterface;
+
+    using detail::BufferViewInterface<ConstBufferView<T>>::BufferViewInterface;
+
+public:
+    ConstBufferView(BufferView<T> view) noexcept
+        : ConstBufferView{view.device(), view.handle(), view.offset_bytes(), view.size()} {}
+};
 
 template<typename T>
 ConstBufferView(BufferView<T>) -> ConstBufferView<T>;

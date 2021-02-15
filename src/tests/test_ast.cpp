@@ -13,7 +13,7 @@
 #include <fmt/format.h>
 
 #include <core/logging.h>
-#include <core/arena.h>
+#include <core/memory.h>
 #include <core/hash.h>
 #include <ast/type.h>
 #include <core/union.h>
@@ -141,7 +141,7 @@ int main() {
 
     Arena another{std::move(arena)};
     auto p = another.allocate<int, 1024>(1);
-    LUISA_INFO("{}", fmt::ptr(p.data()));
+    LUISA_INFO("{}", fmt::ptr(p.object()));
 
     auto &&type_aa = typeid(AA);
     auto &&type_bb = typeid(BB);

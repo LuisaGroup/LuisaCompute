@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <core/arena.h>
+#include <core/memory.h>
 
 namespace luisa {
 

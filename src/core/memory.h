@@ -36,11 +36,11 @@ public:
 
     template<typename T, typename... Args>
     [[nodiscard]] T *create(Args &&...args) {
-        return construct_at(allocate<T>(1u).data(), std::forward<Args>(args)...);
+        return construct_at(allocate<T>(1u).object(), std::forward<Args>(args)...);
     }
 
     template<typename T = std::byte, size_t alignment = alignof(T)>
-    [[nodiscard]] std::span<T> allocate(size_t n) {
+    [[nodiscard]] auto allocate(size_t n = 1u) {
 
         static_assert(std::is_trivially_destructible_v<T>);
         static constexpr auto size = sizeof(T);
@@ -57,7 +57,7 @@ public:
             _total += alloc_size;
         }
         _ptr = reinterpret_cast<uint64_t>(aligned_p + byte_size);
-        return {reinterpret_cast<T *>(aligned_p), n};
+        return reinterpret_cast<T *>(aligned_p);
     }
 };
 
@@ -75,9 +75,9 @@ private:
 public:
     explicit ArenaVector(Arena &arena, size_t capacity = 16u) noexcept
         : _arena{arena},
-          _data{arena.allocate<T>(capacity).data()},
+          _data{arena.allocate<T>(capacity)},
           _capacity{capacity} {}
-    
+
     template<typename U, std::enable_if_t<std::is_constructible_v<T, U>, int> = 0>
     ArenaVector(Arena &arena, std::span<U> span, size_t capacity = 0u)
         : ArenaVector{arena, std::max(span.size(), capacity)} {
@@ -110,13 +110,13 @@ public:
         if (_size == _capacity) {
             _capacity = next_pow2(_capacity * 2u);
             LUISA_VERBOSE_WITH_LOCATION("Capacity of ArenaVector exceeded, reallocating for {}.", _capacity);
-            auto new_data = _arena.allocate<T>(_capacity).data();
+            auto new_data = _arena.allocate<T>(_capacity);
             std::uninitialized_move_n(_data, _size, new_data);
             _data = new_data;
         }
         return *construct_at(_data + _size++, std::forward<Args>(args)...);
     }
-    
+
     void pop_back() noexcept { _size--; /* trivially destructible */ }
 
     [[nodiscard]] T &front() noexcept { return _data[0]; }
@@ -133,9 +133,74 @@ public:
 struct ArenaString : public std::string_view {
 
     ArenaString(Arena &arena, std::string_view s) noexcept
-        : std::string_view{std::strncpy(arena.allocate<char>(s.size() + 1).data(), s.data(), s.size()), s.size()} {}
+        : std::string_view{std::strncpy(arena.allocate<char>(s.size() + 1), s.data(), s.size()), s.size()} {}
 
     [[nodiscard]] const char *c_str() const noexcept { return data(); }
+};
+
+namespace detail {
+
+template<bool thread_safe = false>
+class PoolThreadSafety {
+
+public:
+    template<typename F>
+    decltype(auto) with_thread_safety(F &&f) { return f(); }
+};
+
+template<>
+class PoolThreadSafety<true> {
+
+private:
+    std::mutex _mutex;
+
+public:
+    template<typename F>
+    decltype(auto) with_thread_safety(F &&f) {
+        std::scoped_lock lock{_mutex};
+        return f();
+    }
+};
+
+}// namespace detail
+
+template<typename T, bool thread_safe = true>
+class Pool : detail::PoolThreadSafety<thread_safe> {
+
+    struct Node {
+        T object;
+        Node *next;
+        [[nodiscard]] static auto of(T *data) noexcept {
+            return reinterpret_cast<Node *>(data);
+        }
+    };
+
+private:
+    static_assert(std::is_trivially_destructible_v<T>);
+    Arena _arena;
+    Node *_head{nullptr};
+
+public:
+    template<typename... Args>
+    [[nodiscard]] auto obtain(Args &&...args) {
+        auto node = this->with_thread_safety([this] {
+            if (_head == nullptr) {// empty pool
+                return _arena.allocate<Node>();
+            }
+            auto node = _head;
+            _head = _head->next;
+            return node;
+        });
+        return construct_at(&node->object, std::forward<Args>(args)...);
+    }
+
+    void recycle(T *object) noexcept {
+        this->with_thread_safety([&] {
+            auto node = Node::of(object);
+            node->next = _head;
+            _head = node;
+        });
+    }
 };
 
 }// namespace luisa
