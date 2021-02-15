@@ -221,6 +221,7 @@ protected:
     using detail::BufferViewInterface<BufferView<T>>::BufferViewInterface;
 
 public:
+    BufferView(Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
     [[nodiscard]] auto const_view() const noexcept { return ConstBufferView{*this}; }
 
     [[nodiscard]] auto upload(const T *data) {
@@ -258,7 +259,15 @@ protected:
 public:
     ConstBufferView(BufferView<T> view) noexcept
         : ConstBufferView{view.device(), view.handle(), view.offset_bytes(), view.size()} {}
+    ConstBufferView(const Buffer<T> &buffer) noexcept
+        : ConstBufferView{buffer.view()} {}
 };
+
+template<typename T>
+BufferView(Buffer<T> &) -> BufferView<T>;
+
+template<typename T>
+ConstBufferView(const Buffer<T> &) -> ConstBufferView<T>;
 
 template<typename T>
 ConstBufferView(BufferView<T>) -> ConstBufferView<T>;
