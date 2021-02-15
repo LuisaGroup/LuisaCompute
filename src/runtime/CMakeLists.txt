@@ -4,7 +4,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
     kernel.cpp kernel.h
     buffer.cpp buffer.h
     texture.cpp texture.h
-    command.cpp command.h
     stream.cpp stream.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})

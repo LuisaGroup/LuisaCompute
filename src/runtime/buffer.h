@@ -16,7 +16,6 @@
 #include <core/data_types.h>
 
 #include <runtime/device.h>
-#include <runtime/command.h>
 
 namespace luisa::compute {
 
@@ -86,6 +85,65 @@ using SpanElement = typename decltype(span_element_impl(std::declval<T>()))::val
 template<typename T>
 Buffer(Device *, T &&) -> Buffer<detail::SpanElement<T>>;
 
+class BufferUploadCommand {
+
+private:
+    uint64_t _handle;
+    size_t _offset;
+    size_t _size;
+    const void *_data;
+
+private:
+    BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
+        : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
+
+public:
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto data() const noexcept { return _data; }
+};
+
+class BufferDownloadCommand {
+
+private:
+    uint64_t _handle;
+    size_t _offset;
+    size_t _size;
+    void *_data;
+
+private:
+    BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
+        : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
+
+public:
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto data() const noexcept { return _data; }
+};
+
+class BufferCopyCommand {
+
+private:
+    uint64_t _src_handle;
+    uint64_t _dst_handle;
+    size_t _src_offset;
+    size_t _dst_offset;
+    size_t _size;
+
+private:
+    BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
+        : _src_handle{src}, _dst_handle{dst}, _src_offset{src_offset}, _dst_offset{dst_offset}, _size{size} {}
+
+public:
+    [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
+    [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
+    [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
+    [[nodiscard]] auto dst_offset() const noexcept { return _dst_offset; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+};
+
 namespace detail {
 
 template<typename BV>
@@ -125,7 +183,7 @@ public:
                 "Invalid host pointer {} for elements with alignment {}.",
                 fmt::ptr(data), alignof(T));
         }
-        BufferDownloadCommand::create(_device, _handle, offset_bytes(), size_bytes(), data);
+        BufferDownloadCommand{_handle, offset_bytes(), size_bytes(), data};
     }
 
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
@@ -166,9 +224,7 @@ public:
     [[nodiscard]] auto const_view() const noexcept { return ConstBufferView{*this}; }
 
     [[nodiscard]] auto upload(const T *data) {
-        return BufferUploadCommand::create(
-            this->device(), this->handle(),
-            this->offset_bytes(), this->size_bytes(), data);
+        return BufferUploadCommand{this->handle(), this->offset_bytes(), this->size_bytes(), data};
     }
 
     [[nodiscard]] auto copy(ConstBufferView<T> source) {
@@ -180,10 +236,10 @@ public:
                 "Incompatible buffer views with different element counts (src = {}, dst = {}).",
                 source.size(), this->size());
         }
-        return BufferCopyCommand::create(
-            this->device(), source.handle(), this->handle(),
+        return BufferCopyCommand{
+            source.handle(), this->handle(),
             source.offset_bytes(), this->offset_bytes(),
-            this->size_bytes());
+            this->size_bytes()};
     }
 };
 
