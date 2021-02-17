@@ -13,15 +13,9 @@ namespace detail {
 
 template<>
 struct BufferAccess<Index> {
-    
     template<typename T>
     [[nodiscard]] auto operator()(BufferView<T>, Index) const noexcept {
         return 0ul;
-    }
-    
-    template<typename T>
-    [[nodiscard]] auto operator()(ConstBufferView<T>, Index) const noexcept {
-        return 1.0f;
     }
 };
 
@@ -52,7 +46,6 @@ int main() {
     Buffer<float4> buffer{&device, 1024u};
     auto a = buffer[Index{}];
     BufferView av = buffer;
-    ConstBufferView acv = buffer;
     
     auto view = buffer.view();
     auto x = view[Index{}];
@@ -62,7 +55,6 @@ int main() {
     auto y = const_view[Index{}];
     
     auto subview = view.subview(1, 16);
-    ConstBufferView cbv = subview;
     BufferView bv = view;
     
     auto v = bv.as<float2>();
@@ -71,5 +63,4 @@ int main() {
     std::span s{vector};
     Buffer another_buffer{&device, vector};
     static_assert(std::is_same_v<decltype(another_buffer), Buffer<float2>>);
-    static_assert(std::is_same_v<decltype(view.const_view()), decltype(const_view)>);
 }

@@ -152,7 +152,17 @@ public:
         bool2, float2, char2, uchar2, short2, ushort2, int2, uint2,
         bool3, float3, char3, uchar3, short3, ushort3, int3, uint3,
         bool4, float4, char4, uchar4, short4, ushort4, int4, uint4,
-        float3x3, float4x4>;
+        float3x3, float4x4,
+        std::span<const Expression *>,
+        std::span<bool>, std::span<float>, std::span<int8_t>, std::span<uint8_t>,
+        std::span<int16_t>, std::span<uint16_t>, std::span<int32_t>, std::span<uint32_t>,
+        std::span<bool2>, std::span<float2>, std::span<char2>, std::span<uchar2>,
+        std::span<short2>, std::span<ushort2>, std::span<int2>, std::span<uint2>,
+        std::span<bool3>, std::span<float3>, std::span<char3>, std::span<uchar3>,
+        std::span<short3>, std::span<ushort3>, std::span<int3>, std::span<uint3>,
+        std::span<bool4>, std::span<float4>, std::span<char4>, std::span<uchar4>,
+        std::span<short4>, std::span<ushort4>, std::span<int4>, std::span<uint4>,
+        std::span<float3x3>, std::span<float4x4>>;
 
 private:
     Value _value;

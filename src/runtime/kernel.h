@@ -6,7 +6,15 @@
 
 namespace luisa::compute {
 
+template<typename... Args>
 class Kernel {
+
+private:
+
+
+public:
+
+
 };
 
-}
+}// namespace luisa::compute

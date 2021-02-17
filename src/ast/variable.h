@@ -17,13 +17,14 @@ public:
         // data
         LOCAL,
         SHARED,
-        UNIFORM,
         CONSTANT,
+        
+        UNIFORM,
 
         // resources
         BUFFER,
         TEXTURE,
-        TEXTURE_HEAP,
+        // TODO: Bindless Texture
 
         // builtins
         THREAD_ID,

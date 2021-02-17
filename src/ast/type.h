@@ -49,7 +49,7 @@ public:
         STRUCTURE,
         
         BUFFER,
-        TEXTURE
+        // TODO: TEXTURE
     };
     
     [[nodiscard]] static constexpr std::string_view tag_name(Tag tag) noexcept {
@@ -67,6 +67,7 @@ public:
         if (tag == Tag::ARRAY) { return "array"sv; }
         if (tag == Tag::ATOMIC) { return "atomic"sv; }
         if (tag == Tag::STRUCTURE) { return "struct"sv; }
+        if (tag == Tag::BUFFER) { return "buffer"sv; }
         return "unknown"sv;
     }
 
@@ -130,6 +131,7 @@ public:
     [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }
     [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
     [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == Tag::ATOMIC; }
+    [[nodiscard]] constexpr bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
 
     template<typename F, std::enable_if_t<std::is_invocable_v<F, const Type *>, int> = 0>
     static void for_each(F &&f) noexcept {
@@ -221,6 +223,7 @@ struct TypeDesc<std::atomic<uint>> {
     }
 };
 
+// matrices
 template<>
 struct TypeDesc<float3x3> {
     static constexpr std::string_view description() noexcept {
@@ -234,6 +237,23 @@ struct TypeDesc<float4x4> {
     static constexpr std::string_view description() noexcept {
         using namespace std::string_view_literals;
         return "matrix<4>";
+    }
+};
+
+// buffers
+template<typename T>
+struct TypeDesc<Buffer<T>> {
+    static std::string_view description() noexcept {
+        static auto s = fmt::format(FMT_STRING("buffer<{}>"), TypeDesc<T>::description());
+        return s;
+    }
+};
+
+template<typename T>
+struct TypeDesc<BufferView<T>> {
+    static std::string_view description() noexcept {
+        static auto s = fmt::format(FMT_STRING("buffer<{}>"), TypeDesc<T>::description());
+        return s;
     }
 };
 

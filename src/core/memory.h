@@ -35,11 +35,6 @@ public:
 
     [[nodiscard]] auto total_size() const noexcept { return _total; }
 
-    template<typename T, typename... Args>
-    [[nodiscard]] T *create(Args &&...args) {
-        return construct_at(allocate<T>(1u).object(), std::forward<Args>(args)...);
-    }
-
     template<typename T = std::byte, size_t alignment = alignof(T)>
     [[nodiscard]] auto allocate(size_t n = 1u) {
 
@@ -59,6 +54,11 @@ public:
         }
         _ptr = reinterpret_cast<uint64_t>(aligned_p + byte_size);
         return reinterpret_cast<T *>(aligned_p);
+    }
+    
+    template<typename T, typename... Args>
+    [[nodiscard]] T *create(Args &&...args) {
+        return construct_at(allocate<T>(1u), std::forward<Args>(args)...);
     }
 };
 
