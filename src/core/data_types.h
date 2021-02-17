@@ -341,3 +341,29 @@ template<typename T, size_t N,
 [[nodiscard]] constexpr auto operator-(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
     return luisa::float4x4{lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2], lhs[3] - rhs[3]};
 }
+
+namespace luisa {
+
+namespace detail {
+
+template<typename T>
+struct IsVector : std::false_type {};
+
+template<typename T, size_t N>
+struct IsVector<Vector<T, N>> : std::true_type {};
+
+}// namespace detail
+
+template<typename T>
+using is_scalar = std::is_arithmetic<T>;
+
+template<typename T>
+constexpr auto is_scalar_v = is_scalar<T>::value;
+
+template<typename T>
+using is_vector = detail::IsVector<T>;
+
+template<typename T>
+constexpr auto is_vector_v = is_vector<T>::value;
+
+}// namespace luisa

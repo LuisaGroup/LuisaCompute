@@ -50,6 +50,10 @@ int main() {
     FakeDevice device;
     
     Buffer<float4> buffer{&device, 1024u};
+    auto a = buffer[Index{}];
+    BufferView av = buffer;
+    ConstBufferView acv = buffer;
+    
     auto view = buffer.view();
     auto x = view[Index{}];
     

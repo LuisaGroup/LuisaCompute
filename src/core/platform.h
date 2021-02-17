@@ -49,16 +49,4 @@ constexpr T *construct_at(T *p, Args &&...args) {
         T(std::forward<Args>(args)...);
 }
 
-template<typename T, std::enable_if_t<std::is_unsigned_v<T> && (sizeof(T) == 4u || sizeof(T) == 8u), int> = 0>
-[[nodiscard]] constexpr auto next_pow2(T v) noexcept {
-    v--;
-    v |= v >> 1u;
-    v |= v >> 2u;
-    v |= v >> 4u;
-    v |= v >> 8u;
-    v |= v >> 16u;
-    if constexpr (sizeof(T) == 8u) { v |= v >> 32u; }
-    return v + 1u;
-}
-
 }// namespace luisa
