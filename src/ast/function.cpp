@@ -26,15 +26,6 @@ Function *Function::current() noexcept {
     return _function_stack().back();
 }
 
-const Statement *Function::scope(const std::function<void()> &body) noexcept {
-    auto s = _arena.create<ScopeStmt>(ArenaVector<const Statement *>{_arena});
-    _scope_stack.emplace_back(s);
-    body();
-    if (_scope_stack.empty() || _scope_stack.back() != s) { LUISA_ERROR_WITH_LOCATION("Invalid scope when pop."); }
-    _scope_stack.pop_back();
-    return s;
-}
-
 ScopeStmt *Function::_current_scope() noexcept {
     if (_scope_stack.empty()) { LUISA_ERROR_WITH_LOCATION("Scope stack is empty."); }
     return _scope_stack.back();
@@ -84,12 +75,13 @@ void Function::assign(AssignOp op, const Expression *lhs, const Expression *rhs)
     _current_scope()->statements().emplace_back(_arena.create<AssignStmt>(op, lhs, rhs));
 }
 
-void Function::define(const std::function<void()> &def) noexcept {
-    if (_defined) { LUISA_ERROR_WITH_LOCATION("Multiple definition."); }
-    _push(this);
-    def();
-    if (_pop() != this) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
-    _defined = true;
+const Expression *Function::_value(const Type *type, ValueExpr::Value value) noexcept {
+//    return _arena.create<ValueExpr>(type, std::move(value));
+    return nullptr;  // TODO...
+}
+
+Variable Function::_constant(const Type *type, const void *data) noexcept {
+    return Variable(nullptr, Variable::Tag::DISPATCH_ID, 0);
 }
 
 }// namespace luisa::compute

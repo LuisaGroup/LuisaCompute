@@ -83,7 +83,7 @@ private:
     StmtList _statements;
 
 public:
-    explicit ScopeStmt(StmtList stmts) noexcept : _statements{std::move(stmts)} {}
+    explicit ScopeStmt(Arena &arena) noexcept : _statements{arena} {}
     [[nodiscard]] auto &statements() noexcept { return _statements; }
     [[nodiscard]] const auto &statements() const noexcept { return _statements; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -93,11 +93,11 @@ class DeclareStmt : public Statement {
 
 private:
     Variable _var;
-    const Expression *_initializer;
+    ArenaVector<const Expression *> _initializer;
 
 public:
-    DeclareStmt(Variable var, const Expression *init) noexcept
-        : _var{var}, _initializer{init} {}
+    DeclareStmt(Variable var, ArenaVector<const Expression *> init) noexcept
+        : _var{var}, _initializer{std::move(init)} {}
     [[nodiscard]] auto variable() const noexcept { return _var; }
     [[nodiscard]] const auto &initializer() const noexcept { return _initializer; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()

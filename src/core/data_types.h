@@ -352,6 +352,12 @@ struct IsVector : std::false_type {};
 template<typename T, size_t N>
 struct IsVector<Vector<T, N>> : std::true_type {};
 
+template<typename T>
+struct IsMatrix : std::false_type {};
+
+template<size_t N>
+struct IsMatrix<Matrix<N>> : std::true_type {};
+
 }// namespace detail
 
 template<typename T>
@@ -365,5 +371,11 @@ using is_vector = detail::IsVector<T>;
 
 template<typename T>
 constexpr auto is_vector_v = is_vector<T>::value;
+
+template<typename T>
+using is_matrix = detail::IsMatrix<T>;
+
+template<typename T>
+constexpr auto is_matrix_v = is_matrix<T>::value;
 
 }// namespace luisa
