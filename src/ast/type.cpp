@@ -160,7 +160,7 @@ const Type *Type::from(std::string_view description) noexcept {
                 info._description = ArenaString{arena, description};
                 if (!members.empty()) {
                     ArenaVector m{arena, std::span{members}};
-                    info._members = std::span{m};
+                    info._members = {m.data(), m.size()};
                 }
                 return types.emplace_back(arena.create<Type>(info));
             });
