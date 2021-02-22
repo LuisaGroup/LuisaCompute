@@ -3,7 +3,6 @@
 //
 
 #pragma once
-
 #include <cassert>
 #include <string>
 #include <array>
@@ -22,10 +21,11 @@
 
 #include <runtime/buffer.h>
 #include <runtime/texture.h>
+#include "interface/itype.h"
 
 namespace luisa::compute {
 
-class Type {
+class Type : public IType{
 
 public:
     enum struct Tag : uint16_t {

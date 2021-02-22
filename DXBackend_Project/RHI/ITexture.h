@@ -1,11 +1,11 @@
 #pragma once
-#include <stdint.h>
+#include "IGpuResource.h"
 namespace lc_rhi {
-enum class TextureDimension : uint32_t {
+enum class TextureDimension : uint {
 	Tex2D,
 	Tex3D
 };
-enum class TextureFormat : uint32_t {
+enum class TextureFormat : uint {
 	RGBA_Float,
 	RG_Float,
 	R_Float,
@@ -22,19 +22,19 @@ enum class TextureFormat : uint32_t {
 	RG_SNorm,
 	R_SNorm
 };
-class ITexture {
+class ITexture : public IGpuResource{
 protected:
-	uint32_t width;
-	uint32_t height;
-	uint32_t volumeDepth;
-	uint32_t mipCount;
+	uint width;
+	uint height;
+	uint volumeDepth;
+	uint mipCount;
 	TextureDimension dimension;
 	TextureFormat format;
 	ITexture(
-		uint32_t width,
-		uint32_t height,
-		uint32_t volumeDepth,
-		uint32_t mipCount,
+		uint width,
+		uint height,
+		uint volumeDepth,
+		uint mipCount,
 		TextureDimension dimension,
 		TextureFormat format)
 		: width(width),
@@ -47,11 +47,11 @@ protected:
 
 public:
 	virtual ~ITexture() {}
-	uint32_t GetWidth() const { return width; }
-	uint32_t GetHeight() const { return height; }
-	uint32_t GetVolumeDepth() const { return volumeDepth; }
-	uint32_t GetMipCount() const { return mipCount; }
-	uint32_t GetMipCount() const { return mipCount; }
+	uint GetWidth() const { return width; }
+	uint GetHeight() const { return height; }
+	uint GetVolumeDepth() const { return volumeDepth; }
+	uint GetMipCount() const { return mipCount; }
+	uint GetMipCount() const { return mipCount; }
 	TextureFormat GetFormat() const { return format; }
 	TextureDimension GetDimension() const { return dimension; }
 };
