@@ -5,7 +5,6 @@
 #pragma once
 
 #include <ast/type.h>
-#include <core/union.h>
 #include "interface/ivariable.h"
 
 namespace luisa::compute {

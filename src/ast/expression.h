@@ -9,7 +9,6 @@
 #include <core/concepts.h>
 #include <core/data_types.h>
 #include <core/memory.h>
-#include <core/union.h>
 #include <ast/type.h>
 #include <ast/variable.h>
 
