@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <core/memory.h>
+#include <core/concepts.h>
 #include <ast/variable.h>
 
 namespace luisa::compute {
@@ -13,7 +13,7 @@ class Expression;
 
 struct StmtVisitor;
 
-class Statement {
+class Statement : public Noncopyable {
 
 protected:
     ~Statement() noexcept = default;
@@ -76,16 +76,12 @@ public:
 
 class ScopeStmt : public Statement {
 
-public:
-    using StmtList = ArenaVector<const Statement *>;
-
 private:
-    StmtList _statements;
+    std::span<const Statement *> _statements;
 
 public:
-    explicit ScopeStmt(Arena &arena) noexcept : _statements{arena} {}
-    [[nodiscard]] auto &statements() noexcept { return _statements; }
-    [[nodiscard]] const auto &statements() const noexcept { return _statements; }
+    explicit ScopeStmt(std::span<const Statement *> stmts) noexcept : _statements{stmts} {}
+    [[nodiscard]] auto statements() noexcept { return _statements; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
@@ -93,11 +89,11 @@ class DeclareStmt : public Statement {
 
 private:
     Variable _var;
-    ArenaVector<const Expression *> _initializer;
+    std::span<const Expression *> _initializer;
 
 public:
-    DeclareStmt(Variable var, ArenaVector<const Expression *> init) noexcept
-        : _var{var}, _initializer{std::move(init)} {}
+    DeclareStmt(Variable var, std::span<const Expression *> init) noexcept
+        : _var{var}, _initializer{init} {}
     [[nodiscard]] auto variable() const noexcept { return _var; }
     [[nodiscard]] const auto &initializer() const noexcept { return _initializer; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()

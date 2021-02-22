@@ -9,9 +9,11 @@
 #include <fmt/format.h>
 
 #include <core/memory.h>
+#include <runtime/buffer.h>
 #include <ast/statement.h>
 #include <ast/variable.h>
 #include <ast/expression.h>
+#include <ast/type_registry.h>
 
 namespace luisa::compute {
 
@@ -43,7 +45,7 @@ public:
 private:
     Arena _arena;
     ScopeStmt *_body;
-    ArenaVector<ScopeStmt *> _scope_stack;
+    ArenaVector<ArenaVector<const Statement *>> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
     ArenaVector<Variable> _shared_variables;
     ArenaVector<ConstantData> _constant_variables;
@@ -152,12 +154,11 @@ public:
 
     template<typename Body>
     const Statement *scope(Body &&body) noexcept {
-        auto s = _arena.create<ScopeStmt>(_arena);
-        _scope_stack.emplace_back(s);
+        _scope_stack.emplace_back(ArenaVector<const Statement *>(_arena));
         body();
-        if (_scope_stack.empty() || _scope_stack.back() != s) { LUISA_ERROR_WITH_LOCATION("Invalid scope when pop."); }
+        auto stmt = _arena.create<ScopeStmt>(_scope_stack.back());
         _scope_stack.pop_back();
-        return s;
+        return stmt;
     }
 
     void if_(const Expression *cond, const Statement *true_branch) noexcept;

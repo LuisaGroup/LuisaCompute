@@ -16,6 +16,7 @@
 #include <core/memory.h>
 #include <core/hash.h>
 #include <ast/type.h>
+#include <ast/type_registry.h>
 #include <core/union.h>
 
 #include <ast/expression.h>
@@ -62,6 +63,25 @@ struct Interface : public Noncopyable {
 
 struct Impl : public Interface {};
 
+std::string_view tag_name(Type::Tag tag) noexcept {
+    using namespace std::string_view_literals;
+    if (tag == Type::Tag::BOOL) { return "bool"sv; }
+    if (tag == Type::Tag::FLOAT) { return "float"sv; }
+    if (tag == Type::Tag::INT8) { return "char"sv; }
+    if (tag == Type::Tag::UINT8) { return "uchar"sv; }
+    if (tag == Type::Tag::INT16) { return "short"sv; }
+    if (tag == Type::Tag::UINT16) { return "ushort"sv; }
+    if (tag == Type::Tag::INT32) { return "int"sv; }
+    if (tag == Type::Tag::UINT32) { return "uint"sv; }
+    if (tag == Type::Tag::VECTOR) { return "vector"sv; }
+    if (tag == Type::Tag::MATRIX) { return "matrix"sv; }
+    if (tag == Type::Tag::ARRAY) { return "array"sv; }
+    if (tag == Type::Tag::ATOMIC) { return "atomic"sv; }
+    if (tag == Type::Tag::STRUCTURE) { return "struct"sv; }
+    if (tag == Type::Tag::BUFFER) { return "buffer"sv; }
+    return "unknown"sv;
+}
+
 template<int max_level = -1>
 void print(const Type *info, int level = 0) {
 
@@ -72,7 +92,7 @@ void print(const Type *info, int level = 0) {
         return;
     }
 
-    std::cout << indent_string << Type::tag_name(info->tag()) << ": {\n"
+    std::cout << indent_string << tag_name(info->tag()) << ": {\n"
               << indent_string << "  index:       " << info->index() << "\n"
               << indent_string << "  size:        " << info->size() << "\n"
               << indent_string << "  alignment:   " << info->alignment() << "\n"
@@ -179,7 +199,4 @@ int main() {
     auto ff = v[2];
     ff = 1.0f;
     auto tt = float2{v};
-
-    LUISA_INFO("All registered types:");
-    Type::for_each([](auto t) noexcept { print<0>(t); });
 }

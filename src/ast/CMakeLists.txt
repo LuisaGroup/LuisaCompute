@@ -1,12 +1,12 @@
 set(LUISA_COMPUTE_AST_SOURCES
     interface/ifunction.h
     interface/interface_common.h
-    interface/itype.h
     function.cpp function.h
     expression.h
     variable.h
     statement.h
-    type.cpp type.h)
+    type.cpp type.h
+    type_registry.h api.h)
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-runtime)

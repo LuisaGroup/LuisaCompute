@@ -5,36 +5,26 @@
 #pragma once
 
 #include <variant>
-#ifndef LC_BACKEND
+
 #include <core/concepts.h>
 #include <core/data_types.h>
-#include <core/memory.h>
-#include <ast/type.h>
 #include <ast/variable.h>
-#else
-#include "variable.h"
-#include "../core/concepts.h"
-#include "../core/data_types.h"
-#endif
 
 namespace luisa::compute {
-class IType;
+
 struct ExprVisitor;
 
 class Expression : public Noncopyable {
 
 private:
-    const IType *_type;
+    const Type *_type;
 
 protected:
     ~Expression() noexcept = default;
 
 public:
-    explicit Expression(const IType *type) noexcept : _type{type} {}
-#ifndef LC_BACKEND
-    [[nodiscard]] auto type() const noexcept { return static_cast<Type const *>(_type); }
-#endif
-    [[nodiscard]] auto itype() const noexcept { return _type; }
+    explicit Expression(const Type *type) noexcept : _type{type} {}
+    [[nodiscard]] auto type() const noexcept { return _type; }
     virtual void accept(ExprVisitor &) const = 0;
 };
 
@@ -73,7 +63,7 @@ private:
     UnaryOp _op;
 
 public:
-    UnaryExpr(const IType *type, UnaryOp op, const Expression *operand) noexcept : Expression{type}, _operand{operand}, _op{op} {}
+    UnaryExpr(const Type *type, UnaryOp op, const Expression *operand) noexcept : Expression{type}, _operand{operand}, _op{op} {}
     [[nodiscard]] auto operand() const noexcept { return _operand; }
     [[nodiscard]] auto op() const noexcept { return _op; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
@@ -112,7 +102,7 @@ private:
     BinaryOp _op;
 
 public:
-    BinaryExpr(const IType *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
+    BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
         : Expression{type}, _op{op}, _lhs{lhs}, _rhs{rhs} {}
 
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
@@ -128,7 +118,7 @@ private:
     const Expression *_index;
 
 public:
-    AccessExpr(const IType *type, const Expression *range, const Expression *index) noexcept
+    AccessExpr(const Type *type, const Expression *range, const Expression *index) noexcept
         : Expression{type}, _range{range}, _index{index} {}
 
     [[nodiscard]] auto range() const noexcept { return _range; }
@@ -143,7 +133,7 @@ private:
     size_t _member;
 
 public:
-    MemberExpr(const IType *type, const Expression *self, size_t member_index) noexcept
+    MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
         : Expression{type}, _self{self}, _member{member_index} {}
     [[nodiscard]] auto self() const noexcept { return _self; }
     [[nodiscard]] auto member_index() const noexcept { return _member; }
@@ -165,42 +155,28 @@ private:
     Value _value;
 
 public:
-    // TODO...
-    ValueExpr(const IType *type, Value v) noexcept
+    ValueExpr(const Type *type, Value v) noexcept
         : Expression{type}, _value{std::move(v)} {}
     [[nodiscard]] const Value &value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
-class CallExpr {
-public:
-    virtual std::string_view name() const noexcept = 0;
-    virtual Expression const *const *arguments_ptr() const noexcept = 0;
-    virtual size_t arguments_count() const noexcept = 0;
-};
-#ifndef LC_BACKEND
-class CallExpr_Impl : public CallExpr, public Expression {
+
+class CallExpr : public Expression {
 
 public:
-    using ArgumentList = ArenaVector<const Expression *>;
+    using ArgumentList = std::span<const Expression *>;
 
 private:
-    ArenaString _name;
+    std::string_view _name;
     ArgumentList _arguments;
 
 public:
-    CallExpr_Impl(const IType *type, ArenaString name, ArgumentList args) noexcept
-        : Expression{type}, _name{name}, _arguments{std::move(args)} {}
-    [[nodiscard]] std::string_view name() const noexcept override { return _name; }
-    [[nodiscard]] const auto &arguments() const noexcept { return _arguments; }
-    [[nodiscard]] Expression const *const *arguments_ptr() const noexcept override {
-        return _arguments.data();
-    }
-    [[nodiscard]] size_t arguments_count() const noexcept {
-        return _arguments.size();
-    }
+    CallExpr(const Type *type, ArenaString name, ArgumentList args) noexcept
+        : Expression{type}, _name{name}, _arguments{args} {}
+    [[nodiscard]] std::string_view name() const noexcept { return _name; }
+    [[nodiscard]] auto arguments() const noexcept { return _arguments; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
-#endif
 enum struct CastOp {
     STATIC,
     REINTERPRET,
@@ -214,7 +190,7 @@ private:
     CastOp _op;
 
 public:
-    CastExpr(const IType *type, CastOp op, const Expression *src) noexcept
+    CastExpr(const Type *type, CastOp op, const Expression *src) noexcept
         : Expression{type}, _source{src}, _op{op} {}
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto expression() const noexcept { return _source; }
@@ -229,9 +205,7 @@ static_assert(std::is_trivially_destructible_v<BinaryExpr>);
 static_assert(std::is_trivially_destructible_v<MemberExpr>);
 static_assert(std::is_trivially_destructible_v<AccessExpr>);
 static_assert(std::is_trivially_destructible_v<ValueExpr>);
-#ifndef LC_BACKEND
-static_assert(std::is_trivially_destructible_v<CallExpr_Impl>);
-#endif
+static_assert(std::is_trivially_destructible_v<CallExpr>);
 static_assert(std::is_trivially_destructible_v<CastExpr>);
 
 }// namespace luisa::compute

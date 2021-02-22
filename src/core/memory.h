@@ -131,6 +131,12 @@ public:
     [[nodiscard]] const T *cend() const noexcept { return _data + _size; }
 };
 
+template<typename T>
+ArenaVector(Arena &, std::span<T>) -> ArenaVector<T>;
+
+template<typename T>
+ArenaVector(Arena &, std::initializer_list<T>) -> ArenaVector<T>;
+
 struct ArenaString : public std::string_view {
 
     ArenaString(Arena &arena, std::string_view s) noexcept

@@ -28,7 +28,7 @@ Function *Function::current() noexcept {
 
 void Function::_add(const Statement *statement) noexcept {
     if (_scope_stack.empty()) { LUISA_ERROR_WITH_LOCATION("Scope stack is empty."); }
-    _scope_stack.back()->statements().emplace_back(statement);
+    _scope_stack.back().emplace_back(statement);
 }
 
 void Function::break_() noexcept {
@@ -87,13 +87,15 @@ Variable Function::_constant(const Type *type, const void *data) noexcept {
 
 Variable Function::local(const Type *type, std::span<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    _add(_arena.create<DeclareStmt>(v, ArenaVector<const Expression *>(_arena, init)));
+    ArenaVector initializer{_arena, init};
+    _add(_arena.create<DeclareStmt>(v, initializer));
     return v;
 }
 
 Variable Function::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    _add(_arena.create<DeclareStmt>(v, ArenaVector<const Expression *>(_arena, init)));
+    ArenaVector initializer{_arena, init};
+    _add(_arena.create<DeclareStmt>(v, initializer));
     return v;
 }
 
