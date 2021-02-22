@@ -20,11 +20,7 @@ struct Expression;
 class Function : public IFunction{
 
 public:
-    enum struct Tag {
-        KERNEL,
-        DEVICE,
-        // TODO: Ray-tracing functions...
-    };
+
 
     struct ArgumentBinding {
         Variable variable;
