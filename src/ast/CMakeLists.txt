@@ -2,7 +2,6 @@ set(LUISA_COMPUTE_AST_SOURCES
     interface/ifunction.h
     interface/interface_common.h
     interface/itype.h
-    interface/ivariable.h
     function.cpp function.h
     expression.h
     variable.h
