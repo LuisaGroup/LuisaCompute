@@ -1,6 +1,9 @@
 #pragma once
+
 #include "interface_common.h"
+
 namespace luisa::compute {
+
 class IVariable {
 public:
     enum struct Tag : uint32_t {
@@ -23,4 +26,5 @@ public:
         DISPATCH_ID
     };
 };
+
 }// namespace luisa::compute

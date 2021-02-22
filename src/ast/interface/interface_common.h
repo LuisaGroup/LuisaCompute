@@ -1,5 +1,7 @@
 #pragma once
-#include <stdint.h>
+
+#include <cstdint>
+
 //TODO: Not needed
 /*
 #ifdef _WINDOWS

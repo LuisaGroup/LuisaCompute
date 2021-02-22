@@ -1,6 +1,9 @@
 #pragma once
+
 #include "interface_common.h"
+
 namespace luisa::compute {
+
 class IType {
 public:
     enum struct Tag : uint16_t {
@@ -27,4 +30,5 @@ public:
         // TODO: TEXTURE
     };
 };
+
 }// namespace luisa::compute

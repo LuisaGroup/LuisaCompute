@@ -1,6 +1,9 @@
 #pragma once
+
 #include "interface_common.h"
+
 namespace luisa::compute {
+
 class IFunction {
 public:
     enum struct Tag {
@@ -9,4 +12,5 @@ public:
         // TODO: Ray-tracing functions...
     };
 };
+
 }// namespace luisa::compute

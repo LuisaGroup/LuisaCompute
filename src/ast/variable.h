@@ -7,12 +7,10 @@
 #include <ast/type.h>
 #include <core/union.h>
 #include "interface/ivariable.h"
+
 namespace luisa::compute {
 
-class Variable : public IVariable{
-
-public:
-
+class Variable : public IVariable {
 
 private:
     const Type *_type;

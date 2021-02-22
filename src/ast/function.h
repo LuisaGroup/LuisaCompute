@@ -17,11 +17,9 @@ namespace luisa::compute {
 struct Statement;
 struct Expression;
 
-class Function : public IFunction{
+class Function : public IFunction {
 
 public:
-
-
     struct BufferBinding {
         Variable variable;
         uint64_t handle;
@@ -55,14 +53,15 @@ private:
     Tag _tag;
     uint32_t _variable_counter{0u};
 
+private:
     [[nodiscard]] static std::vector<Function *> &_function_stack() noexcept;
-    [[nodiscard]] void _add(const Statement *statement) noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
     static void _push(Function *func) noexcept;
     static Function *_pop() noexcept;
 
-protected:
+    void _add(const Statement *statement) noexcept;
+
     [[nodiscard]] const Expression *_value(const Type *type, ValueExpr::Value value) noexcept;
     [[nodiscard]] Variable _constant(const Type *type, const void *data) noexcept;
     [[nodiscard]] Variable _builtin(Variable::Tag tag) noexcept;

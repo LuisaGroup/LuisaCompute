@@ -3,6 +3,7 @@
 //
 
 #pragma once
+
 #include <cassert>
 #include <string>
 #include <array>
@@ -25,11 +26,9 @@
 
 namespace luisa::compute {
 
-class Type : public IType{
+class Type : public IType {
 
 public:
-
-    
     [[nodiscard]] static constexpr std::string_view tag_name(Tag tag) noexcept {
         using namespace std::string_view_literals;
         if (tag == Tag::BOOL) { return "bool"sv; }
