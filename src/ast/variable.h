@@ -6,31 +6,13 @@
 
 #include <ast/type.h>
 #include <core/union.h>
-
+#include "interface/ivariable.h"
 namespace luisa::compute {
 
-class Variable {
+class Variable : public IVariable{
 
 public:
-    enum struct Tag : uint32_t {
 
-        // data
-        LOCAL,
-        SHARED,
-        CONSTANT,
-        
-        UNIFORM,
-
-        // resources
-        BUFFER,
-        TEXTURE,
-        // TODO: Bindless Texture
-
-        // builtins
-        THREAD_ID,
-        BLOCK_ID,
-        DISPATCH_ID
-    };
 
 private:
     const Type *_type;

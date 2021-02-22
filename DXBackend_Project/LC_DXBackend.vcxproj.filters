@@ -1,643 +1,670 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8" ?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <ItemGroup>
-    <Filter Include="CJsonObject">
-      <UniqueIdentifier>{46C079DF-2D0A-4029-A87A-E22F103D3CD1}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Common">
-      <UniqueIdentifier>{50365310-69B5-4069-A5D2-B95A91089104}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="JobSystem">
-      <UniqueIdentifier>{32DF5756-A824-4384-95D0-881AF10797A3}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="LogicComponent">
-      <UniqueIdentifier>{9F20A308-7F1B-4CCE-8AE1-60C85D402C77}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="PipelineComponent">
-      <UniqueIdentifier>{9DC77FAD-4AB7-4C0F-8878-50DEE38C8918}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="PipelineComponent\RayTracing">
-      <UniqueIdentifier>{7ECFE4A6-8EA0-499D-BF61-3DE0339A7628}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderComponent">
-      <UniqueIdentifier>{52A7F41F-C78B-4B0B-AD13-C9F1FAA7D6FB}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderComponent\Utility">
-      <UniqueIdentifier>{4BB59037-3116-45E9-A88C-7C8633C3EC73}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderComponent\Utility\D3D12MemoryAllocator">
-      <UniqueIdentifier>{2C06FDC6-1782-40A4-BAC2-83A676738016}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RenderComponent\Voxel">
-      <UniqueIdentifier>{3893C69A-917F-435F-ABB6-9E02260FCC58}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="ShaderCompile">
-      <UniqueIdentifier>{9B2D7228-5627-4377-B8FC-71386AA92AE7}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Singleton">
-      <UniqueIdentifier>{19BA0AEA-4379-433C-BB88-ED6095BB3216}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Utility">
-      <UniqueIdentifier>{1955C493-3D3C-4CF3-9811-229AA2E5C115}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="WorldManagement">
-      <UniqueIdentifier>{67E25662-B0C6-4938-9D0E-5D54E2B487D8}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Common\DXMath">
-      <UniqueIdentifier>{9E1578DE-26C3-4B9B-AA81-DFB272F57270}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="PipelineComponent\CameraData">
-      <UniqueIdentifier>{E3D5A4D9-8433-48F7-BB2C-EE6CA85AD4A6}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="RHI">
-      <UniqueIdentifier>{645C0243-F3DA-49C5-915D-19C28F8372BE}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Struct">
-      <UniqueIdentifier>{1521E567-2E84-4F73-B984-EC51CE646DD1}</UniqueIdentifier>
-    </Filter>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="CJsonObject\cJSON.cpp">
-      <Filter>CJsonObject</Filter>
-    </ClCompile>
-    <ClCompile Include="CJsonObject\CJsonObject.cpp">
-      <Filter>CJsonObject</Filter>
-    </ClCompile>
-    <ClCompile Include="CJsonObject\JsonCompiler.cpp">
-      <Filter>CJsonObject</Filter>
-    </ClCompile>
-    <ClCompile Include="CJsonObject\SerializedObject.cpp">
-      <Filter>CJsonObject</Filter>
-    </ClCompile>
-    <ClCompile Include="Common\Camera.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="Common\Common.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="Common\GFXUtil.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="Common\Log.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="Common\MathHelper.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="Common\vengine_library.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="Common\VObject.cpp">
-      <Filter>Common</Filter>
-    </ClCompile>
-    <ClCompile Include="JobSystem\JobBucket.cpp">
-      <Filter>JobSystem</Filter>
-    </ClCompile>
-    <ClCompile Include="JobSystem\JobNode.cpp">
-      <Filter>JobSystem</Filter>
-    </ClCompile>
-    <ClCompile Include="JobSystem\JobSystem.cpp">
-      <Filter>JobSystem</Filter>
-    </ClCompile>
-    <ClCompile Include="LogicComponent\Component.cpp">
-      <Filter>LogicComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="LogicComponent\RayRenderer.cpp">
-      <Filter>LogicComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="LogicComponent\RendererBase.cpp">
-      <Filter>LogicComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="LogicComponent\Transform.cpp">
-      <Filter>LogicComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="PipelineComponent\CommandAllocator.cpp">
-      <Filter>PipelineComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="PipelineComponent\CommandBuffer.cpp">
-      <Filter>PipelineComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="PipelineComponent\RayTracing\RayTracingManager.cpp">
-      <Filter>PipelineComponent\RayTracing</Filter>
-    </ClCompile>
-    <ClCompile Include="PipelineComponent\ThreadCommand.cpp">
-      <Filter>PipelineComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\BackBuffer.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\CBufferAllocator.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\CBufferPool.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\ComputeShader.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\DescriptorHeap.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\DescriptorHeapRoot.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\GPUResourceBase.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Mesh.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\PSOContainer.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\RayShader.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\ReadbackBuffer.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\RenderCommand.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\RenderTexture.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Shader.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Skybox.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\StructuredBuffer.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Texture.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\TextureBase.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\TextureHeap.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\UploadBuffer.cpp">
-      <Filter>RenderComponent</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Utility\CommandSignature.cpp">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Utility\D3D12MemoryAllocator\D3D12MemAlloc.cpp">
-      <Filter>RenderComponent\Utility\D3D12MemoryAllocator</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Utility\DefaultBufferAllocator.cpp">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Utility\DefaultTextureAllocator.cpp">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Utility\ShaderIO.cpp">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="RenderComponent\Voxel\VirtualVoxelMap.cpp">
-      <Filter>RenderComponent\Voxel</Filter>
-    </ClCompile>
-    <ClCompile Include="ShaderCompile\ShaderVarUtility.cpp">
-      <Filter>ShaderCompile</Filter>
-    </ClCompile>
-    <ClCompile Include="Singleton\ColorUtility.cpp">
-      <Filter>Singleton</Filter>
-    </ClCompile>
-    <ClCompile Include="Singleton\Graphics.cpp">
-      <Filter>Singleton</Filter>
-    </ClCompile>
-    <ClCompile Include="Singleton\MathLib.cpp">
-      <Filter>Singleton</Filter>
-    </ClCompile>
-    <ClCompile Include="Singleton\MeshLayout.cpp">
-      <Filter>Singleton</Filter>
-    </ClCompile>
-    <ClCompile Include="Singleton\ShaderCompiler.cpp">
-      <Filter>Singleton</Filter>
-    </ClCompile>
-    <ClCompile Include="Singleton\ShaderID.cpp">
-      <Filter>Singleton</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\Actor.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\BinaryReader.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\BuddyAllocator.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\ElementAllocator.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\IEnumerator.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\Random.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\StringUtility.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\TaskThread.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="Utility\ThreadResetEvent.cpp">
-      <Filter>Utility</Filter>
-    </ClCompile>
-    <ClCompile Include="WorldManagement\World.cpp">
-      <Filter>WorldManagement</Filter>
-    </ClCompile>
-    <ClCompile Include="TestMain.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="CJsonObject\cJSON.h">
-      <Filter>CJsonObject</Filter>
-    </ClInclude>
-    <ClInclude Include="CJsonObject\JsonCompiler.h">
-      <Filter>CJsonObject</Filter>
-    </ClInclude>
-    <ClInclude Include="CJsonObject\SerializedObject.h">
-      <Filter>CJsonObject</Filter>
-    </ClInclude>
-    <ClInclude Include="CJsonObject\SerializeStruct.h">
-      <Filter>CJsonObject</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\BitArray.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\BitVector.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Camera.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Common.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\d3dx12.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DLL.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DXMath\Common.h">
-      <Filter>Common\DXMath</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DXMath\DXMath.h">
-      <Filter>Common\DXMath</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DXMath\Matrix3.h">
-      <Filter>Common\DXMath</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DXMath\Matrix4.h">
-      <Filter>Common\DXMath</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DXMath\Quaternion.h">
-      <Filter>Common\DXMath</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DXMath\Scalar.h">
-      <Filter>Common\DXMath</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DXMath\Vector.h">
-      <Filter>Common\DXMath</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\DynamicDLL.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\GFXUtil.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Hash.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\HashMap.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\IObjectReference.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\LinkedList.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\LockFreeArrayQueue.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Log.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\MathHelper.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\MCollection.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Memory.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\MetaLib.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Pool.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\PoolAllocator.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\RandomVector.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Runnable.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\string_chunk.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\Tuple.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\TypeWiper.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\vector.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\VObject.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="Common\vstring.h">
-      <Filter>Common</Filter>
-    </ClInclude>
-    <ClInclude Include="JobSystem\JobBucket.h">
-      <Filter>JobSystem</Filter>
-    </ClInclude>
-    <ClInclude Include="JobSystem\JobHandle.h">
-      <Filter>JobSystem</Filter>
-    </ClInclude>
-    <ClInclude Include="JobSystem\JobInclude.h">
-      <Filter>JobSystem</Filter>
-    </ClInclude>
-    <ClInclude Include="JobSystem\JobNode.h">
-      <Filter>JobSystem</Filter>
-    </ClInclude>
-    <ClInclude Include="JobSystem\JobSystem.h">
-      <Filter>JobSystem</Filter>
-    </ClInclude>
-    <ClInclude Include="LogicComponent\Component.h">
-      <Filter>LogicComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="LogicComponent\RayRenderer.h">
-      <Filter>LogicComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="LogicComponent\RendererBase.h">
-      <Filter>LogicComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="LogicComponent\Transform.h">
-      <Filter>LogicComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\CameraData\CameraTransformData.h">
-      <Filter>PipelineComponent\CameraData</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\CameraData\LightCBuffer.h">
-      <Filter>PipelineComponent\CameraData</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\CameraData\LightMacro.h">
-      <Filter>PipelineComponent\CameraData</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\CommandAllocator.h">
-      <Filter>PipelineComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\CommandBuffer.h">
-      <Filter>PipelineComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\CommandListType.h">
-      <Filter>PipelineComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\IPipelineResource.h">
-      <Filter>PipelineComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\RayTracing\RayTracingManager.h">
-      <Filter>PipelineComponent\RayTracing</Filter>
-    </ClInclude>
-    <ClInclude Include="PipelineComponent\ThreadCommand.h">
-      <Filter>PipelineComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\BackBuffer.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\CBufferAllocator.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\CBufferPool.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\ComputeShader.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\DescriptorHeap.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\DescriptorHeapRoot.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\GPUResourceBase.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\IBackBuffer.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\IBuffer.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\IMesh.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\IShader.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Mesh.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\PSOContainer.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\RayRendererData.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\RayShader.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\ReadbackBuffer.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\RenderCommand.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\RenderComponentInclude.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\RenderTexture.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Shader.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Skybox.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\StructuredBuffer.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Texture.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\TextureBase.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\TextureHeap.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\UploadBuffer.h">
-      <Filter>RenderComponent</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\CommandSignature.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\CullingMask.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\D3D12MemoryAllocator\D3D12MemAlloc.h">
-      <Filter>RenderComponent\Utility\D3D12MemoryAllocator</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\DefaultBufferAllocator.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\DefaultTextureAllocator.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\IBufferAllocator.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\ITextureAllocator.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\RendererCull.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Utility\ShaderIO.h">
-      <Filter>RenderComponent\Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="RenderComponent\Voxel\VirtualVoxelMap.h">
-      <Filter>RenderComponent\Voxel</Filter>
-    </ClInclude>
-    <ClInclude Include="RHI\ICommandBuffer.h">
-      <Filter>RHI</Filter>
-    </ClInclude>
-    <ClInclude Include="RHI\IComputeShader.h">
-      <Filter>RHI</Filter>
-    </ClInclude>
-    <ClInclude Include="RHI\IGFXDevice.h">
-      <Filter>RHI</Filter>
-    </ClInclude>
-    <ClInclude Include="RHI\IRayTracingShader.h">
-      <Filter>RHI</Filter>
-    </ClInclude>
-    <ClInclude Include="ShaderCompile\ASTNode.h">
-      <Filter>ShaderCompile</Filter>
-    </ClInclude>
-    <ClInclude Include="ShaderCompile\ShaderVar.h">
-      <Filter>ShaderCompile</Filter>
-    </ClInclude>
-    <ClInclude Include="ShaderCompile\ShaderVarUtility.h">
-      <Filter>ShaderCompile</Filter>
-    </ClInclude>
-    <ClInclude Include="Singleton\ColorUtility.h">
-      <Filter>Singleton</Filter>
-    </ClInclude>
-    <ClInclude Include="Singleton\Graphics.h">
-      <Filter>Singleton</Filter>
-    </ClInclude>
-    <ClInclude Include="Singleton\MathLib.h">
-      <Filter>Singleton</Filter>
-    </ClInclude>
-    <ClInclude Include="Singleton\MeshLayout.h">
-      <Filter>Singleton</Filter>
-    </ClInclude>
-    <ClInclude Include="Singleton\ShaderCompiler.h">
-      <Filter>Singleton</Filter>
-    </ClInclude>
-    <ClInclude Include="Singleton\ShaderID.h">
-      <Filter>Singleton</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\CameraRenderPath.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\CopyBufferCommand.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\CullResult.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\DrawCommand.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\ObjectCBufferParam.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\RenderPackage.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\RenderTarget.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Struct\ShaderVariableType.h">
-      <Filter>Struct</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\Actor.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\BinaryReader.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\BuddyAllocator.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\ElementAllocator.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\IEnumerator.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\PassConstants.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\QuickSort.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\Random.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\StringUtility.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\TaskThread.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="Utility\ThreadResetEvent.h">
-      <Filter>Utility</Filter>
-    </ClInclude>
-    <ClInclude Include="WorldManagement\World.h">
-      <Filter>WorldManagement</Filter>
-    </ClInclude>
-    <ClInclude Include="CJsonObject\CJsonObject.hpp">
-      <Filter>CJsonObject</Filter>
-    </ClInclude>
-    <ClInclude Include="RHI\IShader.h" />
-    <ClInclude Include="RHI\IBuffer.h" />
-    <ClInclude Include="RHI\ITexture.h" />
-  </ItemGroup>
+    <ItemGroup>
+        <Filter Include="CJsonObject">
+            <UniqueIdentifier>{BD952BC4-27CE-4026-8EAC-0B4E76744BA5}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Common">
+            <UniqueIdentifier>{7BABB9B1-C006-444F-880F-4A71950F45CF}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="JobSystem">
+            <UniqueIdentifier>{18AC1E6F-854D-4904-B5CB-0713E738B85D}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="LogicComponent">
+            <UniqueIdentifier>{566F0E89-7686-4A98-A440-5F97F17CF137}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="PipelineComponent">
+            <UniqueIdentifier>{FBD962A3-B890-43F3-B55E-6C9AB52762D5}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="PipelineComponent\RayTracing">
+            <UniqueIdentifier>{8F794F8C-52C2-456A-8638-452E9FEEFF51}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="RenderComponent">
+            <UniqueIdentifier>{F794F806-DC6C-43E2-BEC5-D1CFA6787909}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="RenderComponent\Utility">
+            <UniqueIdentifier>{091F69A0-D88A-4189-8228-67AD9232614C}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="RenderComponent\Utility\D3D12MemoryAllocator">
+            <UniqueIdentifier>{C46C26CA-7BD9-4A09-A3CA-6940C78C7917}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="RenderComponent\Voxel">
+            <UniqueIdentifier>{FEDCB6B4-1631-43A5-8978-7797BE1B1D68}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="ShaderCompile">
+            <UniqueIdentifier>{2C556552-FB25-4AEF-B418-F15BACEB201C}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Singleton">
+            <UniqueIdentifier>{2ABD490D-C080-4948-96D9-D08E3969AF95}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Utility">
+            <UniqueIdentifier>{1A683FF1-8157-424E-910C-A2FB358ADEE5}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="WorldManagement">
+            <UniqueIdentifier>{ACF1E3B6-6E13-4D2C-9ED3-9C9BA2154EA9}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Common\DXMath">
+            <UniqueIdentifier>{56BF0DC5-0B31-4394-9601-15A656302A34}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="PipelineComponent\CameraData">
+            <UniqueIdentifier>{B985CDF8-A1D5-48A9-87CB-F59D0ADB3FDB}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="RHI">
+            <UniqueIdentifier>{EAC3C977-5F80-4F7B-8CD2-E06853540C1E}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Struct">
+            <UniqueIdentifier>{720C178B-8EB0-4851-BFAB-36A79A1BC9BD}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="Build">
+            <UniqueIdentifier>{F9BA69B9-A4F6-4E6A-A46C-34D7330673B3}</UniqueIdentifier>
+        </Filter>
+    </ItemGroup>
+    <ItemGroup>
+        <ClCompile Include="CJsonObject\cJSON.cpp">
+            <Filter>CJsonObject</Filter>
+        </ClCompile>
+        <ClCompile Include="CJsonObject\CJsonObject.cpp">
+            <Filter>CJsonObject</Filter>
+        </ClCompile>
+        <ClCompile Include="CJsonObject\JsonCompiler.cpp">
+            <Filter>CJsonObject</Filter>
+        </ClCompile>
+        <ClCompile Include="CJsonObject\SerializedObject.cpp">
+            <Filter>CJsonObject</Filter>
+        </ClCompile>
+        <ClCompile Include="Common\Camera.cpp">
+            <Filter>Common</Filter>
+        </ClCompile>
+        <ClCompile Include="Common\Common.cpp">
+            <Filter>Common</Filter>
+        </ClCompile>
+        <ClCompile Include="Common\GFXUtil.cpp">
+            <Filter>Common</Filter>
+        </ClCompile>
+        <ClCompile Include="Common\Log.cpp">
+            <Filter>Common</Filter>
+        </ClCompile>
+        <ClCompile Include="Common\MathHelper.cpp">
+            <Filter>Common</Filter>
+        </ClCompile>
+        <ClCompile Include="Common\vengine_library.cpp">
+            <Filter>Common</Filter>
+        </ClCompile>
+        <ClCompile Include="Common\VObject.cpp">
+            <Filter>Common</Filter>
+        </ClCompile>
+        <ClCompile Include="JobSystem\JobBucket.cpp">
+            <Filter>JobSystem</Filter>
+        </ClCompile>
+        <ClCompile Include="JobSystem\JobNode.cpp">
+            <Filter>JobSystem</Filter>
+        </ClCompile>
+        <ClCompile Include="JobSystem\JobSystem.cpp">
+            <Filter>JobSystem</Filter>
+        </ClCompile>
+        <ClCompile Include="LogicComponent\Component.cpp">
+            <Filter>LogicComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="LogicComponent\RayRenderer.cpp">
+            <Filter>LogicComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="LogicComponent\RendererBase.cpp">
+            <Filter>LogicComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="LogicComponent\Transform.cpp">
+            <Filter>LogicComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="PipelineComponent\CommandAllocator.cpp">
+            <Filter>PipelineComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="PipelineComponent\CommandBuffer.cpp">
+            <Filter>PipelineComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="PipelineComponent\RayTracing\RayTracingManager.cpp">
+            <Filter>PipelineComponent\RayTracing</Filter>
+        </ClCompile>
+        <ClCompile Include="PipelineComponent\ThreadCommand.cpp">
+            <Filter>PipelineComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\BackBuffer.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\CBufferAllocator.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\CBufferPool.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\ComputeShader.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\DescriptorHeap.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\DescriptorHeapRoot.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\GPUResourceBase.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Mesh.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\PSOContainer.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\RayShader.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\ReadbackBuffer.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\RenderCommand.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\RenderTexture.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Shader.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Skybox.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\StructuredBuffer.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Texture.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\TextureBase.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\TextureHeap.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\UploadBuffer.cpp">
+            <Filter>RenderComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Utility\CommandSignature.cpp">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Utility\D3D12MemoryAllocator\D3D12MemAlloc.cpp">
+            <Filter>RenderComponent\Utility\D3D12MemoryAllocator</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Utility\DefaultBufferAllocator.cpp">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Utility\DefaultTextureAllocator.cpp">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Utility\ShaderIO.cpp">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="RenderComponent\Voxel\VirtualVoxelMap.cpp">
+            <Filter>RenderComponent\Voxel</Filter>
+        </ClCompile>
+        <ClCompile Include="ShaderCompile\ShaderVarUtility.cpp">
+            <Filter>ShaderCompile</Filter>
+        </ClCompile>
+        <ClCompile Include="Singleton\ColorUtility.cpp">
+            <Filter>Singleton</Filter>
+        </ClCompile>
+        <ClCompile Include="Singleton\Graphics.cpp">
+            <Filter>Singleton</Filter>
+        </ClCompile>
+        <ClCompile Include="Singleton\MathLib.cpp">
+            <Filter>Singleton</Filter>
+        </ClCompile>
+        <ClCompile Include="Singleton\MeshLayout.cpp">
+            <Filter>Singleton</Filter>
+        </ClCompile>
+        <ClCompile Include="Singleton\ShaderCompiler.cpp">
+            <Filter>Singleton</Filter>
+        </ClCompile>
+        <ClCompile Include="Singleton\ShaderID.cpp">
+            <Filter>Singleton</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\Actor.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\BinaryReader.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\BuddyAllocator.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\ElementAllocator.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\IEnumerator.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\Random.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\StringUtility.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\TaskThread.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="Utility\ThreadResetEvent.cpp">
+            <Filter>Utility</Filter>
+        </ClCompile>
+        <ClCompile Include="WorldManagement\World.cpp">
+            <Filter>WorldManagement</Filter>
+        </ClCompile>
+    </ItemGroup>
+    <ItemGroup>
+        <ClInclude Include="CJsonObject\cJSON.h">
+            <Filter>CJsonObject</Filter>
+        </ClInclude>
+        <ClInclude Include="CJsonObject\JsonCompiler.h">
+            <Filter>CJsonObject</Filter>
+        </ClInclude>
+        <ClInclude Include="CJsonObject\SerializedObject.h">
+            <Filter>CJsonObject</Filter>
+        </ClInclude>
+        <ClInclude Include="CJsonObject\SerializeStruct.h">
+            <Filter>CJsonObject</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\BitArray.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\BitVector.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Camera.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Common.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\d3dx12.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DLL.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DXMath\Common.h">
+            <Filter>Common\DXMath</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DXMath\DXMath.h">
+            <Filter>Common\DXMath</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DXMath\Matrix3.h">
+            <Filter>Common\DXMath</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DXMath\Matrix4.h">
+            <Filter>Common\DXMath</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DXMath\Quaternion.h">
+            <Filter>Common\DXMath</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DXMath\Scalar.h">
+            <Filter>Common\DXMath</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DXMath\Vector.h">
+            <Filter>Common\DXMath</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\DynamicDLL.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\GFXUtil.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Hash.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\HashMap.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\IObjectReference.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\LinkedList.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\LockFreeArrayQueue.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Log.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\MathHelper.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\MCollection.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Memory.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\MetaLib.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Pool.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\PoolAllocator.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\RandomVector.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Runnable.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\string_chunk.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\Tuple.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\TypeWiper.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\vector.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\VObject.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="Common\vstring.h">
+            <Filter>Common</Filter>
+        </ClInclude>
+        <ClInclude Include="JobSystem\JobBucket.h">
+            <Filter>JobSystem</Filter>
+        </ClInclude>
+        <ClInclude Include="JobSystem\JobHandle.h">
+            <Filter>JobSystem</Filter>
+        </ClInclude>
+        <ClInclude Include="JobSystem\JobInclude.h">
+            <Filter>JobSystem</Filter>
+        </ClInclude>
+        <ClInclude Include="JobSystem\JobNode.h">
+            <Filter>JobSystem</Filter>
+        </ClInclude>
+        <ClInclude Include="JobSystem\JobSystem.h">
+            <Filter>JobSystem</Filter>
+        </ClInclude>
+        <ClInclude Include="LogicComponent\Component.h">
+            <Filter>LogicComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="LogicComponent\RayRenderer.h">
+            <Filter>LogicComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="LogicComponent\RendererBase.h">
+            <Filter>LogicComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="LogicComponent\Transform.h">
+            <Filter>LogicComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\CameraData\CameraTransformData.h">
+            <Filter>PipelineComponent\CameraData</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\CameraData\LightCBuffer.h">
+            <Filter>PipelineComponent\CameraData</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\CameraData\LightMacro.h">
+            <Filter>PipelineComponent\CameraData</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\CommandAllocator.h">
+            <Filter>PipelineComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\CommandBuffer.h">
+            <Filter>PipelineComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\CommandListType.h">
+            <Filter>PipelineComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\IPipelineResource.h">
+            <Filter>PipelineComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\RayTracing\RayTracingManager.h">
+            <Filter>PipelineComponent\RayTracing</Filter>
+        </ClInclude>
+        <ClInclude Include="PipelineComponent\ThreadCommand.h">
+            <Filter>PipelineComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\BackBuffer.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\CBufferAllocator.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\CBufferPool.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\ComputeShader.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\DescriptorHeap.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\DescriptorHeapRoot.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\GPUResourceBase.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\IBackBuffer.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\IBuffer.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\IMesh.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\IShader.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Mesh.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\PSOContainer.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\RayRendererData.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\RayShader.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\ReadbackBuffer.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\RenderCommand.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\RenderComponentInclude.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\RenderTexture.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Shader.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Skybox.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\StructuredBuffer.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Texture.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\TextureBase.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\TextureHeap.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\UploadBuffer.h">
+            <Filter>RenderComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\CommandSignature.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\CullingMask.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\D3D12MemoryAllocator\D3D12MemAlloc.h">
+            <Filter>RenderComponent\Utility\D3D12MemoryAllocator</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\DefaultBufferAllocator.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\DefaultTextureAllocator.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\IBufferAllocator.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\ITextureAllocator.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\RendererCull.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Utility\ShaderIO.h">
+            <Filter>RenderComponent\Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="RenderComponent\Voxel\VirtualVoxelMap.h">
+            <Filter>RenderComponent\Voxel</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\IBuffer.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\ICommandBuffer.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\IComputeShader.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\IGFXDevice.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\IGpuResource.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\IMesh.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\IRayTracingShader.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\IShader.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\ITexture.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="RHI\Transform.h">
+            <Filter>RHI</Filter>
+        </ClInclude>
+        <ClInclude Include="ShaderCompile\ASTNode.h">
+            <Filter>ShaderCompile</Filter>
+        </ClInclude>
+        <ClInclude Include="ShaderCompile\ShaderVar.h">
+            <Filter>ShaderCompile</Filter>
+        </ClInclude>
+        <ClInclude Include="ShaderCompile\ShaderVarUtility.h">
+            <Filter>ShaderCompile</Filter>
+        </ClInclude>
+        <ClInclude Include="Singleton\ColorUtility.h">
+            <Filter>Singleton</Filter>
+        </ClInclude>
+        <ClInclude Include="Singleton\Graphics.h">
+            <Filter>Singleton</Filter>
+        </ClInclude>
+        <ClInclude Include="Singleton\MathLib.h">
+            <Filter>Singleton</Filter>
+        </ClInclude>
+        <ClInclude Include="Singleton\MeshLayout.h">
+            <Filter>Singleton</Filter>
+        </ClInclude>
+        <ClInclude Include="Singleton\ShaderCompiler.h">
+            <Filter>Singleton</Filter>
+        </ClInclude>
+        <ClInclude Include="Singleton\ShaderID.h">
+            <Filter>Singleton</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\CameraRenderPath.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\CopyBufferCommand.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\CullResult.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\DrawCommand.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\ObjectCBufferParam.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\RenderPackage.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\RenderTarget.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Struct\ShaderVariableType.h">
+            <Filter>Struct</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\Actor.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\BinaryReader.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\BuddyAllocator.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\ElementAllocator.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\IEnumerator.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\PassConstants.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\QuickSort.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\Random.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\StringUtility.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\TaskThread.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="Utility\ThreadResetEvent.h">
+            <Filter>Utility</Filter>
+        </ClInclude>
+        <ClInclude Include="WorldManagement\World.h">
+            <Filter>WorldManagement</Filter>
+        </ClInclude>
+        <ClInclude Include="CJsonObject\CJsonObject.hpp">
+            <Filter>CJsonObject</Filter>
+        </ClInclude>
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="Build\luisa-compute-ast.dll">
+            <Filter>Build</Filter>
+        </None>
+    </ItemGroup>
+    <ItemGroup>
+        <Library Include="Build\luisa-compute-ast.lib">
+            <Filter>Build</Filter>
+        </Library>
+    </ItemGroup>
 </Project>

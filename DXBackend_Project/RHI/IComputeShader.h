@@ -6,8 +6,8 @@ public:
 	virtual ~IComputeShader() = 0;
 	virtual void Dispatch(
 		ICommandBuffer* commandBuffer,
-		uint32_t groupWidth,
-		uint32_t groupHeight,
-		uint32_t groupDepth) const = 0;
+		uint groupWidth,
+		uint groupHeight,
+		uint groupDepth) const = 0;
 };
 }// namespace lc_rhi

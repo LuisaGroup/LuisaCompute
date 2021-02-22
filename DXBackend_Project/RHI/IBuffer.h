@@ -1,8 +1,8 @@
 #pragma once
-#include <stdint.h>
+#include "IGpuResource.h"
 namespace lc_rhi {
 class ICommandBuffer;
-class IBuffer {
+class IBuffer : public IGpuResource {
 protected:
 	size_t stride;
 	size_t elementCount;

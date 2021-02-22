@@ -1,4 +1,8 @@
 {
+  "FilesCopy": [
+    {"../bin/Release/luisa-compute-ast.dll": "Build/luisa-compute-ast.dll"},
+    {"../src/ast/Release/luisa-compute-ast.lib": "Build/luisa-compute-ast.lib"}
+  ],
   "VCXProj": {
     "RootVcxproj": "LC_DXBackend.vcxproj",
     "FileTypes": [
@@ -24,10 +28,12 @@
     "IgnoreFolder": [
       "x64",
       "x86",
-      ".vs",
-      "Build"
+      ".vs"
     ],
     "IgnoreFile": [
+      "LuisaCmdServer.dll",
+      "mimalloc-override.dll",
+      "mimalloc-redirect.dll"
     ]
   },
   "Filter": {

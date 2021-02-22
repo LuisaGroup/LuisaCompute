@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#include "interface/ifunction.h"
 #include <vector>
 #include <fmt/format.h>
 
@@ -17,14 +17,10 @@ namespace luisa::compute {
 struct Statement;
 struct Expression;
 
-class Function {
+class Function : public IFunction{
 
 public:
-    enum struct Tag {
-        KERNEL,
-        DEVICE,
-        // TODO: Ray-tracing functions...
-    };
+
 
     struct BufferBinding {
         Variable variable;

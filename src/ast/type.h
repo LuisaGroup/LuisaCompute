@@ -3,7 +3,6 @@
 //
 
 #pragma once
-
 #include <cassert>
 #include <string>
 #include <array>
@@ -22,35 +21,14 @@
 
 #include <runtime/buffer.h>
 #include <runtime/texture.h>
+#include "interface/itype.h"
 
 namespace luisa::compute {
 
-class Type {
+class Type : public IType{
 
 public:
-    enum struct Tag : uint16_t {
-        
-        BOOL,
-        
-        FLOAT,
-        INT8,
-        UINT8,
-        INT16,
-        UINT16,
-        INT32,
-        UINT32,
-        
-        VECTOR,
-        MATRIX,
-        
-        ARRAY,
-        
-        ATOMIC,
-        STRUCTURE,
-        
-        BUFFER,
-        // TODO: TEXTURE
-    };
+
     
     [[nodiscard]] static constexpr std::string_view tag_name(Tag tag) noexcept {
         using namespace std::string_view_literals;
