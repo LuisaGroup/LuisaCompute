@@ -5,7 +5,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
     hash.cpp hash.h
     macro_map.h
     union.h
-    platform.h math.h)
+    platform.h
+    mathematics.h)
 
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
 target_link_libraries(luisa-compute-core PUBLIC luisa-compute-include luisa-compute-ext)

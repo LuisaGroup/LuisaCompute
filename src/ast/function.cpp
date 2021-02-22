@@ -26,53 +26,53 @@ Function *Function::current() noexcept {
     return _function_stack().back();
 }
 
-ScopeStmt *Function::_current_scope() noexcept {
+void Function::_add(const Statement *statement) noexcept {
     if (_scope_stack.empty()) { LUISA_ERROR_WITH_LOCATION("Scope stack is empty."); }
-    return _scope_stack.back();
+    _scope_stack.back()->statements().emplace_back(statement);
 }
 
 void Function::break_() noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<BreakStmt>());
+    _add(_arena.create<BreakStmt>());
 }
 
 void Function::continue_() noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<ContinueStmt>());
+    _add(_arena.create<ContinueStmt>());
 }
 
 void Function::return_(const Expression *expr) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<ReturnStmt>(expr));
+    _add(_arena.create<ReturnStmt>(expr));
 }
 
 void Function::if_(const Expression *cond, const Statement *true_branch) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<IfStmt>(cond, true_branch));
+    _add(_arena.create<IfStmt>(cond, true_branch));
 }
 
 void Function::if_(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<IfStmt>(cond, true_branch, false_branch));
+    _add(_arena.create<IfStmt>(cond, true_branch, false_branch));
 }
 
 void Function::while_(const Expression *cond, const Statement *body) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<WhileStmt>(cond, body));
+    _add(_arena.create<WhileStmt>(cond, body));
 }
 
 void Function::void_(const Expression *expr) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<ExprStmt>(expr));
+    _add(_arena.create<ExprStmt>(expr));
 }
 
 void Function::switch_(const Expression *expr, const Statement *body) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<SwitchStmt>(expr, body));
+    _add(_arena.create<SwitchStmt>(expr, body));
 }
 
 void Function::case_(const Expression *expr, const Statement *body) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<SwitchCaseStmt>(expr, body));
+    _add(_arena.create<SwitchCaseStmt>(expr, body));
 }
 
 void Function::default_(const Statement *body) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<SwitchDefaultStmt>(body));
+    _add(_arena.create<SwitchDefaultStmt>(body));
 }
 
 void Function::assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept {
-    _current_scope()->statements().emplace_back(_arena.create<AssignStmt>(op, lhs, rhs));
+    _add(_arena.create<AssignStmt>(op, lhs, rhs));
 }
 
 const Expression *Function::_value(const Type *type, ValueExpr::Value value) noexcept {
@@ -80,7 +80,100 @@ const Expression *Function::_value(const Type *type, ValueExpr::Value value) noe
 }
 
 Variable Function::_constant(const Type *type, const void *data) noexcept {
-    return Variable(nullptr, Variable::Tag::DISPATCH_ID, 0);
+    Variable v{type, Variable::Tag::CONSTANT, _next_variable_uid()};
+    _constant_variables.emplace_back(ConstantData{v, data});
+    return v;
+}
+
+Variable Function::local(const Type *type, std::span<const Expression *> init) noexcept {
+    Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
+    _add(_arena.create<DeclareStmt>(v, ArenaVector<const Expression *>(_arena, init)));
+    return v;
+}
+
+Variable Function::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
+    Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
+    _add(_arena.create<DeclareStmt>(v, ArenaVector<const Expression *>(_arena, init)));
+    return v;
+}
+
+Variable Function::shared(const Type *type) noexcept {
+    return _shared_variables.emplace_back(
+        Variable{type, Variable::Tag::SHARED, _next_variable_uid()});
+}
+
+uint32_t Function::_next_variable_uid() noexcept { return ++_variable_counter; }
+
+Variable Function::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
+Variable Function::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
+Variable Function::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
+
+Variable Function::_builtin(Variable::Tag tag) noexcept {
+    if (auto iter = std::find_if(
+            _builtin_variables.cbegin(),
+            _builtin_variables.cend(),
+            [tag](auto &&v) noexcept { return v.tag() == tag; });
+        iter != _builtin_variables.cend()) {
+        return *iter;
+    }
+    Variable v{Type::of<uint3>(), tag, _next_variable_uid()};
+    _builtin_variables.emplace_back(v);
+    return v;
+}
+
+Variable Function::uniform(const Type *type) noexcept {
+    Variable v{type, Variable::Tag::UNIFORM, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return v;
+}
+
+Variable Function::buffer(const Type *type) noexcept {
+    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return v;
+}
+
+Variable Function::_uniform_binding(const Type *type, const void *data) noexcept {
+    if (auto iter = std::find_if(
+            _captured_uniforms.cbegin(),
+            _captured_uniforms.cend(),
+            [data](auto &&binding) { return binding.data == data; });
+        iter != _captured_uniforms.cend()) {
+        auto v = iter->variable;
+        if (*v.type() != *type) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Pointer aliasing in implicitly captured uniform data (original type = {}, requested type = {}).",
+                v.type()->description(), type->description());
+        }
+        return v;
+    }
+    Variable v{type, Variable::Tag::UNIFORM, _next_variable_uid()};
+    _captured_uniforms.emplace_back(UniformBinding{v, data});
+    return v;
+}
+
+Variable Function::_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
+    if (auto iter = std::find_if(
+            _captured_buffers.cbegin(),
+            _captured_buffers.cend(),
+            [handle](auto &&binding) { return binding.handle == handle; });
+        iter != _captured_buffers.cend()) {
+        if (iter->offset_bytes != offset_bytes) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Aliasing in implicitly captured buffer (handle = {}, original offset = {}, requested offset = {}).",
+                handle, iter->offset_bytes, offset_bytes);
+        }
+        auto v = iter->variable;
+        if (*v.type() != *type) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Aliasing in implicitly captured buffer (handle = {}, original type = {}, requested type = {}).",
+                handle, v.type()->description(), type->description());
+        }
+        return v;
+    }
+    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
+    _captured_buffers.emplace_back(BufferBinding{v, handle, offset_bytes});
+    return v;
 }
 
 }// namespace luisa::compute

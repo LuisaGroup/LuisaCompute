@@ -26,14 +26,23 @@ public:
         // TODO: Ray-tracing functions...
     };
 
-    struct ArgumentBinding {
+    struct BufferBinding {
         Variable variable;
-        union {
-            uint64_t buffer;
-            uint64_t texture;
-            const void *uniform;
-            const void *constant;
-        } binding;
+        uint64_t handle;
+        size_t offset_bytes;
+    };
+
+    struct TextureBinding {// TODO...
+    };
+
+    struct UniformBinding {
+        Variable variable;
+        const void *data;
+    };
+
+    struct ConstantData {
+        Variable variable;
+        const void *data;
     };
 
 private:
@@ -41,12 +50,18 @@ private:
     ScopeStmt *_body;
     ArenaVector<ScopeStmt *> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
-    ArenaVector<Variable> _explicit_arguments;
-    ArenaVector<ArgumentBinding> _implicit_arguments;
+    ArenaVector<Variable> _shared_variables;
+    ArenaVector<ConstantData> _constant_variables;
+    ArenaVector<BufferBinding> _captured_buffers;
+    ArenaVector<TextureBinding> _captured_textures;
+    ArenaVector<UniformBinding> _captured_uniforms;
+    ArenaVector<Variable> _arguments;
+    Tag _tag;
     uint32_t _variable_counter{0u};
 
     [[nodiscard]] static std::vector<Function *> &_function_stack() noexcept;
-    [[nodiscard]] ScopeStmt *_current_scope() noexcept;
+    [[nodiscard]] void _add(const Statement *statement) noexcept;
+    [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
     static void _push(Function *func) noexcept;
     static Function *_pop() noexcept;
@@ -54,14 +69,23 @@ private:
 protected:
     [[nodiscard]] const Expression *_value(const Type *type, ValueExpr::Value value) noexcept;
     [[nodiscard]] Variable _constant(const Type *type, const void *data) noexcept;
+    [[nodiscard]] Variable _builtin(Variable::Tag tag) noexcept;
+    [[nodiscard]] Variable _uniform_binding(const Type *type, const void *data) noexcept;
+    [[nodiscard]] Variable _buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept;
+    [[nodiscard]] Variable _texture_binding(const Type *type, uint64_t handle) noexcept;
 
 public:
-    Function() noexcept
+    explicit Function(Tag tag) noexcept
         : _body{nullptr},
           _scope_stack{_arena},
           _builtin_variables{_arena},
-          _explicit_arguments{_arena},
-          _implicit_arguments{_arena} {}
+          _shared_variables{_arena},
+          _constant_variables{_arena},
+          _captured_buffers{_arena},
+          _captured_textures{_arena},
+          _captured_uniforms{_arena},
+          _arguments{_arena},
+          _tag{tag} {}
 
     [[nodiscard]] static Function *current() noexcept;
 
@@ -73,8 +97,13 @@ public:
         if (_pop() != this) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
     }
 
+    [[nodiscard]] Variable thread_id() noexcept;
+    [[nodiscard]] Variable block_id() noexcept;
+    [[nodiscard]] Variable dispatch_id() noexcept;
+
     // variables
     [[nodiscard]] Variable local(const Type *type, std::span<const Expression *> init) noexcept;
+    [[nodiscard]] Variable local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
     [[nodiscard]] Variable shared(const Type *type) noexcept;
 
     template<typename T, std::enable_if_t<std::disjunction_v<is_scalar<T>, is_vector<T>, is_matrix<T>>, int> = 0>
@@ -86,9 +115,21 @@ public:
     }
 
     // implicit arguments
-    [[nodiscard]] Variable uniform(const Type *type, const void *data) noexcept;
-    [[nodiscard]] Variable buffer(const Type *type, uint64_t handle) noexcept;
-    [[nodiscard]] Variable texture(const Type *type, uint64_t handle) noexcept;
+    template<typename T>
+    [[nodiscard]] Variable uniform_binding(std::span<T> u) noexcept {
+        auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), u.size()));
+        return _uniform_binding(type, u.data());
+    }
+
+    template<typename T>
+    [[nodiscard]] Variable uniform_binding(const T *data) noexcept { return _uniform_binding(Type::of<T>(), data); }
+
+    template<typename T>
+    [[nodiscard]] Variable buffer_binding(BufferView<T> bv) noexcept {
+        return _buffer_binding(Type::of<BufferView<T>>(), bv.handle(), bv.offset_bytes());
+    }
+
+    [[nodiscard]] Variable texture_binding(const Type *type, uint64_t handle) noexcept;
 
     // explicit arguments
     [[nodiscard]] Variable uniform(const Type *type) noexcept;
@@ -99,6 +140,7 @@ public:
     template<typename T, std::enable_if_t<std::disjunction_v<is_scalar<T>, is_vector<T>, is_matrix<T>>, int> = 0>
     [[nodiscard]] auto value(T value) noexcept { return _value(Type::of<T>(), value); }
     [[nodiscard]] auto value(Variable v) noexcept { return _value(v.type(), v); }
+
     [[nodiscard]] const Expression *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
     [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const Expression *member(const Type *type, const Expression *self, size_t member_index) noexcept;
