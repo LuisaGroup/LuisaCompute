@@ -58,7 +58,7 @@ public:
     
     template<typename T, typename... Args>
     [[nodiscard]] T *create(Args &&...args) {
-        return construct_at(allocate<T>(1u), std::forward<Args>(args)...);
+        return luisa::construct_at(allocate<T>(1u), std::forward<Args>(args)...);
     }
 };
 
@@ -115,7 +115,7 @@ public:
             std::uninitialized_move_n(_data, _size, new_data);
             _data = new_data;
         }
-        return *construct_at(_data + _size++, std::forward<Args>(args)...);
+        return *luisa::construct_at(_data + _size++, std::forward<Args>(args)...);
     }
 
     void pop_back() noexcept { _size--; /* trivially destructible */ }
@@ -192,7 +192,7 @@ public:
             _head = _head->next;
             return node;
         });
-        return construct_at(&node->object, std::forward<Args>(args)...);
+        return luisa::construct_at(&node->object, std::forward<Args>(args)...);
     }
 
     void recycle(T *object) noexcept {

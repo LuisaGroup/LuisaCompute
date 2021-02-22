@@ -76,8 +76,7 @@ void Function::assign(AssignOp op, const Expression *lhs, const Expression *rhs)
 }
 
 const Expression *Function::_value(const Type *type, ValueExpr::Value value) noexcept {
-//    return _arena.create<ValueExpr>(type, std::move(value));
-    return nullptr;  // TODO...
+    return _arena.create<ValueExpr>(type, std::move(value));
 }
 
 Variable Function::_constant(const Type *type, const void *data) noexcept {

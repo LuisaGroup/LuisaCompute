@@ -85,7 +85,7 @@ private:
         if (!rhs.empty()) {
             rhs.dispatch([p = &_storage](auto &v) mutable noexcept {
                 using U = std::remove_cvref_t<decltype(v)>;
-                construct_at(reinterpret_cast<U *>(p), std::move(v));
+                luisa::construct_at(reinterpret_cast<U *>(p), std::move(v));
             });
         }
         _index = rhs._index;
@@ -97,7 +97,7 @@ private:
         static_assert(std::is_same_v<Union<A...>, Union>);
         rhs.dispatch([this](auto &v) noexcept {
             using U = std::remove_cvref_t<decltype(v)>;
-            construct_at(reinterpret_cast<U *>(&_storage), v);
+            luisa::construct_at(reinterpret_cast<U *>(&_storage), v);
         });
         _index = rhs._index;
     }
@@ -121,13 +121,13 @@ public:
     decltype(auto) emplace(U &&u) {
         using UU = std::remove_cvref_t<U>;
         _index = index_of<UU>;
-        return *construct_at(reinterpret_cast<UU *>(&_storage), std::forward<U>(u));
+        return *luisa::construct_at(reinterpret_cast<UU *>(&_storage), std::forward<U>(u));
     }
 
     template<typename U, typename... Args, std::enable_if_t<contains<std::remove_cvref_t<U>>, int> = 0>
     U &emplace(Args &&...args) {
         _index = index_of<U>;
-        return *construct_at(reinterpret_cast<U *>(&_storage), std::forward<Args>(args)...);
+        return *luisa::construct_at(reinterpret_cast<U *>(&_storage), std::forward<Args>(args)...);
     }
 
     void clear() noexcept { _index = -1; /* trivially destructible */ }
