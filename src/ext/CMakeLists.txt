@@ -1,14 +1,5 @@
 add_library(luisa-compute-ext INTERFACE)
 
-find_package(OpenImageIO)  # TODO
-if (OpenImageIO_FOUND)
-    message(STATUS "Building with OpenImageIO")
-    target_link_libraries(luisa-compute-ext INTERFACE OpenImageIO::OpenImageIO)
-endif()
-
-find_package(OpenCV REQUIRED)
-target_link_libraries(luisa-compute-ext INTERFACE ${OpenCV_LIBS})
-
 #set(WITH_WERROR OFF CACHE BOOL "" FORCE)
 #set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
 #add_subdirectory(cereal)

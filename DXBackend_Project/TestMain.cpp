@@ -1,5 +1,6 @@
 #include <iostream>
 #include "ShaderCompile/ShaderVarUtility.h"
+#include "../src/ast/expression.h"
 int main() {
 	using namespace LCShader;
 	vengine::vengine_init_malloc();
