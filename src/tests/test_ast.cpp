@@ -61,6 +61,9 @@ struct Interface : public Noncopyable {
     ~Interface() noexcept = default;
 };
 
+template<typename T>
+requires container<T> void foo(T &&) noexcept {}
+
 struct Impl : public Interface {};
 
 std::string_view tag_name(Type::Tag tag) noexcept {
@@ -103,7 +106,7 @@ void print(const Type *info, int level = 0) {
         std::cout << indent_string << "  members:\n";
         for (auto m : info->members()) { print<max_level>(m, level + 2); }
     } else if (info->is_vector() || info->is_array() || info->is_matrix()) {
-        std::cout << indent_string << "  dimension:   " << info->element_count() << "\n";
+        std::cout << indent_string << "  dimension:   " << info->dimension() << "\n";
         std::cout << indent_string << "  element:\n";
         print<max_level>(info->element(), level + 2);
     } else if (info->is_atomic()) {
@@ -199,4 +202,8 @@ int main() {
     auto ff = v[2];
     ff = 1.0f;
     auto tt = float2{v};
+
+    print(Type::of<float3x3>());
+
+    foo<std::initializer_list<int>>({1, 2, 3, 4});
 }

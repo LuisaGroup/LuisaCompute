@@ -55,7 +55,7 @@ public:
         _ptr = reinterpret_cast<uint64_t>(aligned_p + byte_size);
         return reinterpret_cast<T *>(aligned_p);
     }
-    
+
     template<typename T, typename... Args>
     [[nodiscard]] T *create(Args &&...args) {
         return luisa::construct_at(allocate<T>(1u), std::forward<Args>(args)...);
@@ -79,15 +79,16 @@ public:
           _data{arena.allocate<T>(capacity)},
           _capacity{capacity} {}
 
-    template<typename U, std::enable_if_t<std::is_constructible_v<T, U>, int> = 0>
-    ArenaVector(Arena &arena, std::span<U> span, size_t capacity = 0u)
+    template<typename U>
+    requires container<U> &&constructable<T, typename std::remove_cvref_t<U>::value_type>
+    ArenaVector(Arena &arena, U &&span, size_t capacity = 0u)
         : ArenaVector{arena, std::max(span.size(), capacity)} {
         std::uninitialized_copy_n(span.begin(), span.size(), _data);
         _size = span.size();
     }
 
-    template<typename U, std::enable_if_t<std::is_constructible_v<T, U>, int> = 0>
-    explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
+    template<typename U>
+    requires constructable<T, U> explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
         : ArenaVector{arena, std::max(init.size(), capacity)} {
         std::uninitialized_copy_n(init.begin(), init.size(), _data);
         _size = init.size();
@@ -132,7 +133,8 @@ public:
 };
 
 template<typename T>
-ArenaVector(Arena &, std::span<T>) -> ArenaVector<T>;
+requires convertible_to_span<T>
+ArenaVector(Arena &, T &&) -> ArenaVector<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>
 ArenaVector(Arena &, std::initializer_list<T>) -> ArenaVector<T>;

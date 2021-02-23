@@ -15,15 +15,20 @@
 
 namespace luisa::compute {
 
+struct TypeData {
+    std::string description;
+    std::vector<const Type *> members;
+};
+
 const Type *Type::from(std::string_view description) noexcept {
 
     static TypeRegistry registry;
-    
+
     static constexpr const Type *(*from_desc_impl)(std::string_view &) = [](std::string_view &s) noexcept -> const Type * {
-        
         Type info;
+        TypeData data;
         auto s_copy = s;
-        
+
         using namespace std::string_view_literals;
         auto read_identifier = [&s] {
             auto p = s.cbegin();
@@ -77,27 +82,27 @@ const Type *Type::from(std::string_view description) noexcept {
         if (type_identifier == "atomic"sv) {
             info._tag = Tag::ATOMIC;
             match('<');
-            info._members.emplace_back(from_desc_impl(s));
+            data.members.emplace_back(from_desc_impl(s));
             match('>');
-            info._alignment = info._members.front()->alignment();
-            info._size = info._members.front()->size();
+            info._alignment = data.members.front()->alignment();
+            info._size = data.members.front()->size();
         } else if (type_identifier == "vector"sv) {
             info._tag = Tag::VECTOR;
             match('<');
-            info._members.emplace_back(from_desc_impl(s));
+            data.members.emplace_back(from_desc_impl(s));
             match(',');
             info._element_count = read_number();
             match('>');
-            auto elem = info._members.front();
+            auto elem = data.members.front();
             if (!elem->is_scalar()) { LUISA_ERROR_WITH_LOCATION("Invalid vector element: {}.", elem->description()); }
             if (info._element_count != 2 && info._element_count != 3 && info._element_count != 4) {
-                LUISA_ERROR_WITH_LOCATION("Invalid vector dimension: {}.", info.element_count());
+                LUISA_ERROR_WITH_LOCATION("Invalid vector dimension: {}.", info.dimension());
             }
             info._size = info._alignment = elem->size() * (info._element_count == 3 ? 4 : info._element_count);
         } else if (type_identifier == "matrix"sv) {
             info._tag = Tag::MATRIX;
             match('<');
-            info._members.emplace_back(Type::of<float>());
+            data.members.emplace_back(Type::of<float>());
             info._element_count = read_number();
             match('>');
             if (info._element_count == 3) {
@@ -112,23 +117,23 @@ const Type *Type::from(std::string_view description) noexcept {
         } else if (type_identifier == "array"sv) {
             info._tag = Tag::ARRAY;
             match('<');
-            info._members.emplace_back(from_desc_impl(s));
+            data.members.emplace_back(from_desc_impl(s));
             match(',');
             info._element_count = read_number();
             match('>');
-            info._alignment = info._members.front()->alignment();
-            info._size = info._members.front()->size() * info._element_count;
+            info._alignment = data.members.front()->alignment();
+            info._size = data.members.front()->size() * info._element_count;
         } else if (type_identifier == "struct"sv) {
             info._tag = Tag::STRUCTURE;
             match('<');
             info._alignment = read_number();
             while (s.starts_with(',')) {
                 s = s.substr(1);
-                info._members.emplace_back(from_desc_impl(s));
+                data.members.emplace_back(from_desc_impl(s));
             }
             match('>');
             info._size = 0u;
-            for (auto member : info._members) {
+            for (auto member : data.members) {
                 auto ma = member->alignment();
                 info._size = (info._size + ma - 1u) / ma * ma + member->size();
             }
@@ -136,7 +141,7 @@ const Type *Type::from(std::string_view description) noexcept {
         } else if (type_identifier == "buffer"sv) {
             info._tag = Tag::BUFFER;
             match('<');
-            info._members.emplace_back(from_desc_impl(s));
+            data.members.emplace_back(from_desc_impl(s));
             match('>');
             info._alignment = 8;// same as pointer...
             info._size = 8;
@@ -146,20 +151,34 @@ const Type *Type::from(std::string_view description) noexcept {
         auto hash = xxh3_hash64(description.data(), description.size());
 
         return registry.with_types(
-            [&info, hash, description](auto &&types) noexcept {
+            [info = std::move(info), data = std::move(data), hash, description](auto &&types) mutable noexcept {
                 if (auto iter = std::find_if(
-                        types.cbegin(), types.cend(), [hash](auto &&ptr) noexcept { return ptr->hash() == hash; });
+                        types.cbegin(), types.cend(),
+                        [hash](auto &&ptr) noexcept { return ptr->hash() == hash; });
                     iter != types.cend()) { return iter->get(); }
                 info._hash = hash;
                 info._index = types.size();
-                info._description = description;
-                return types.emplace_back(std::make_unique<Type>(info)).get();
+                data.description = description;
+                info._data = std::make_unique<TypeData>(std::move(data));
+                return types.emplace_back(std::make_unique<Type>(std::move(info))).get();
             });
     };
 
     auto info = from_desc_impl(description);
     assert(description.empty());
     return info;
+}
+
+std::string_view Type::description() const noexcept { return _data->description; }
+
+std::span<const Type *const> Type::members() const noexcept {
+    assert(is_structure());
+    return _data->members;
+}
+
+const Type *Type::element() const noexcept {
+    assert(is_array() || is_atomic() || is_vector() || is_matrix());
+    return _data->members.front();
 }
 
 }// namespace luisa::compute

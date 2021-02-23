@@ -5,22 +5,22 @@
 #pragma once
 
 #include <cassert>
-#include <string>
 #include <string_view>
-#include <vector>
 #include <span>
+#include <memory>
 
 namespace luisa::compute {
 
 class TypeRegistry;
+struct TypeData;
 
 class Type {
 
 public:
     enum struct Tag : uint32_t {
-        
+
         BOOL,
-        
+
         FLOAT,
         INT8,
         UINT8,
@@ -28,15 +28,15 @@ public:
         UINT16,
         INT32,
         UINT32,
-        
+
         VECTOR,
         MATRIX,
-        
+
         ARRAY,
-        
+
         ATOMIC,
         STRUCTURE,
-        
+
         BUFFER,
         // TODO: TEXTURE
     };
@@ -48,8 +48,7 @@ private:
     size_t _alignment;
     uint32_t _element_count;
     Tag _tag;
-    std::string _description;
-    std::vector<const Type *> _members;
+    std::unique_ptr<TypeData> _data;
 
 public:
     template<typename T>
@@ -67,22 +66,14 @@ public:
     [[nodiscard]] constexpr auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto alignment() const noexcept { return _alignment; }
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
-    [[nodiscard]] auto description() const noexcept { return std::string_view{_description}; }
-
-    [[nodiscard]] constexpr size_t element_count() const noexcept {
+    [[nodiscard]] std::string_view description() const noexcept;
+    [[nodiscard]] constexpr size_t dimension() const noexcept {
         assert(is_array() || is_vector() || is_matrix());
         return _element_count;
     }
 
-    [[nodiscard]] auto members() const noexcept {
-        assert(is_structure());
-        return std::span{_members};
-    }
-
-    [[nodiscard]] auto element() const noexcept {
-        assert(is_array() || is_atomic() || is_vector() || is_matrix());
-        return _members.front();
-    }
+    [[nodiscard]] std::span<const Type *const> members() const noexcept;
+    [[nodiscard]] const Type *element() const noexcept;
 
     [[nodiscard]] constexpr bool is_scalar() const noexcept {
         return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(Tag::BOOL) && static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(Tag::UINT32);

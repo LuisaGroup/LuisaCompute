@@ -72,18 +72,8 @@ public:
     [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept { return view()[std::forward<Index>(index)]; }
 };
 
-namespace detail {
-
-template<typename T>
-constexpr auto span_element_impl(T &&x) noexcept { return std::span{std::forward<T>(x)}; }
-
-template<typename T>
-using SpanElement = typename decltype(span_element_impl(std::declval<T>()))::value_type;
-
-}// namespace detail
-
-template<typename T>
-Buffer(Device *, T &&) -> Buffer<detail::SpanElement<T>>;
+template<typename T> requires convertible_to_span<T>
+Buffer(Device *, T &&) -> Buffer<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>
 Buffer(Buffer<T> &&) -> Buffer<T>;

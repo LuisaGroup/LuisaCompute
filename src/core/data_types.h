@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <array>
 #include <type_traits>
 
 namespace luisa {
@@ -379,3 +380,67 @@ template<typename T>
 constexpr auto is_matrix_v = is_matrix<T>::value;
 
 }// namespace luisa
+
+template<size_t N>
+constexpr auto operator*(std::array<float, N> a, float s) noexcept {
+    std::array<float, N> r;
+    for (auto i = 0u; i < N; i++) { r[i] = a[i] * s; }
+    return a;
+}
+
+template<size_t N>
+constexpr auto operator*(float s, std::array<float, N> a) noexcept {
+    return a * s;
+}
+
+template<size_t N>
+constexpr auto operator+(std::array<float, N> lhs, std::array<float, N> rhs) noexcept {
+    std::array<float, N> r;
+    for (auto i = 0u; i < N; i++) { r[i] = lhs[i] + rhs[i]; }
+    return r;
+}
+
+template<size_t N>
+constexpr auto operator-(std::array<float, N> lhs, std::array<float, N> rhs) noexcept {
+    std::array<float, N> r;
+    for (auto i = 0u; i < N; i++) { r[i] = lhs[i] - rhs[i]; }
+    return r;
+}
+
+template<size_t M, size_t N>
+constexpr auto operator*(std::array<std::array<float, M>, N> m, float s) noexcept {
+    std::array<std::array<float, M>, N> r;
+    for (auto i = 0u; i < N; i++) { r[i] = m[i] * s; }
+}
+
+template<size_t M, size_t N>
+constexpr auto operator*(float s, std::array<std::array<float, M>, N> m) noexcept {
+    return m * s;
+}
+
+template<size_t M, size_t N>
+constexpr auto operator*(std::array<std::array<float, M>, N> m, std::array<float, N> v) noexcept {
+    std::array<float, N> r{};
+    for (auto i = 0u; i < N; i++) { r = r + m[i] * v[i]; }
+}
+
+template<size_t M, size_t N, size_t P>
+constexpr auto operator*(std::array<std::array<float, M>, N> lhs, std::array<std::array<float, N>, P> rhs) noexcept {
+    std::array<std::array<float, M>, P> r;
+    for (auto i = 0u; i < P; i++) { r[i] = lhs * rhs[i]; }
+    return r;
+}
+
+template<size_t M, size_t N>
+constexpr auto operator+(std::array<std::array<float, M>, N> lhs, std::array<std::array<float, M>, N> rhs) noexcept {
+    std::array<std::array<float, M>, N> r;
+    for (auto i = 0u; i < N; i++) { r[i] = lhs + rhs[i]; }
+    return r;
+}
+
+template<size_t M, size_t N>
+constexpr auto operator-(std::array<std::array<float, M>, N> lhs, std::array<std::array<float, M>, N> rhs) noexcept {
+    std::array<std::array<float, M>, N> r;
+    for (auto i = 0u; i < N; i++) { r[i] = lhs - rhs[i]; }
+    return r;
+}
