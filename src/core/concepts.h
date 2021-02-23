@@ -5,8 +5,6 @@
 #pragma once
 
 #include <type_traits>
-#include <concepts>
-
 #include <core/data_types.h>
 
 namespace luisa {
