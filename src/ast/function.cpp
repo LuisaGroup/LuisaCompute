@@ -39,4 +39,8 @@ Function::Tag Function::tag() const noexcept {
     return _builder->tag();
 }
 
+const ScopeStmt *Function::body() const noexcept {
+    return _builder->body();
+}
+
 }

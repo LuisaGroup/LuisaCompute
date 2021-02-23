@@ -90,6 +90,7 @@ public:
     [[nodiscard]] auto captured_uniforms() const noexcept { return std::span{_captured_uniforms.data(), _captured_uniforms.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
+    [[nodiscard]] auto body() const noexcept { return _body; }
 
     [[nodiscard]] Variable thread_id() noexcept;
     [[nodiscard]] Variable block_id() noexcept;

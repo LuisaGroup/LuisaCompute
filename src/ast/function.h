@@ -6,6 +6,7 @@
 namespace luisa::compute {
 
 class FunctionBuilder;
+class ScopeStmt;
 
 class Function {
 
@@ -50,6 +51,7 @@ public:
     [[nodiscard]] std::span<const UniformBinding> captured_uniforms() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
+    [[nodiscard]] const ScopeStmt *body() const noexcept;
 };
 
 }// namespace luisa::compute
