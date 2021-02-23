@@ -20,7 +20,7 @@ namespace luisa::compute {
 class TypeRegistry {
 
 private:
-    std::vector<const Type *> _types;
+    std::vector<std::unique_ptr<Type>> _types;
     std::mutex _types_mutex;
 
 public:

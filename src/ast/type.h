@@ -5,7 +5,9 @@
 #pragma once
 
 #include <cassert>
+#include <string>
 #include <string_view>
+#include <vector>
 #include <span>
 
 namespace luisa::compute {
@@ -46,8 +48,8 @@ private:
     size_t _alignment;
     uint32_t _element_count;
     Tag _tag;
-    std::string_view _description;
-    std::span<const Type *> _members;
+    std::string _description;
+    std::vector<const Type *> _members;
 
 public:
     template<typename T>
@@ -65,16 +67,16 @@ public:
     [[nodiscard]] constexpr auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto alignment() const noexcept { return _alignment; }
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
-    [[nodiscard]] std::string_view description() const noexcept { return _description; }
+    [[nodiscard]] auto description() const noexcept { return std::string_view{_description}; }
 
     [[nodiscard]] constexpr size_t element_count() const noexcept {
         assert(is_array() || is_vector() || is_matrix());
         return _element_count;
     }
 
-    [[nodiscard]] const auto &members() const noexcept {
+    [[nodiscard]] auto members() const noexcept {
         assert(is_structure());
-        return _members;
+        return std::span{_members};
     }
 
     [[nodiscard]] auto element() const noexcept {
