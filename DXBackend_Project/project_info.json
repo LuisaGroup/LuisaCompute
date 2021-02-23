@@ -1,7 +1,13 @@
 {
   "FilesCopy": [
     {"../bin/Release/luisa-compute-ast.dll": "Build/luisa-compute-ast.dll"},
-    {"../src/ast/Release/luisa-compute-ast.lib": "Build/luisa-compute-ast.lib"}
+    {"../bin/Release/luisa-compute-core.dll": "Build/luisa-compute-core.dll"},
+    {"../bin/Release/spdlog.dll": "Build/spdlog.dll"},
+    {"../bin/Release/fmt.dll": "Build/fmt.dll"},
+    {"../src/ast/Release/luisa-compute-ast.lib": "Build/luisa-compute-ast.lib"},
+    {"../src/core/Release/luisa-compute-core.lib": "Build/luisa-compute-core.lib"},
+    {"../src/ext/fmt/Release/fmt.lib": "Build/fmt.lib"},
+    {"../src/ext/spdlog/Release/spdlog.lib": "Build/spdlog.lib"}
   ],
   "VCXProj": {
     "RootVcxproj": "LC_DXBackend.vcxproj",

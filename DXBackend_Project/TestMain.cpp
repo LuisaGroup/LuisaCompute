@@ -1,7 +1,11 @@
 #include <iostream>
 #include "ShaderCompile/ShaderVarUtility.h"
-#include <ast/expression.h>
+#include <ast/statement.h>
 int main() {
+	using namespace luisa::compute;
+	DeclareStmt* dec = nullptr;
+	std::cout << sizeof(DeclareStmt) << std::endl;
+
 	using namespace LCShader;
 	vengine::vengine_init_malloc();
 	/*
