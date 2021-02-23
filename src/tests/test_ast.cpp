@@ -206,4 +206,6 @@ int main() {
     print(Type::of<float3x3>());
 
     foo<std::initializer_list<int>>({1, 2, 3, 4});
+
+    auto [m, n] = std::array{1, 2};
 }

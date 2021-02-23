@@ -31,8 +31,9 @@ jobs:
           git submodule update --init --recursive
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja openimageio opencv pybind11 spdlog
+          brew install cmake ninja openimageio opencv pybind11 spdlog llvm
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
+          export PATH=$PATH:/usr/local/opt/llvm/bin
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
           cmake --build build
