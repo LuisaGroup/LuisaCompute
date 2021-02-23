@@ -7,6 +7,10 @@ VObject::~VObject() noexcept {
 		(*ite)(this);
 	}
 }
+vengine::string_view VObject::ToString() const {
+	Type type = GetType();
+	return type.GetType().name();
+}
 void VObject::AddEventBeforeDispose(Runnable<void(VObject*)>&& func) noexcept {
 	disposeFuncs.emplace_back(std::move(func));
 }

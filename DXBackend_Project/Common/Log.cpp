@@ -5,7 +5,7 @@ namespace LogGlobal {
 static bool isInitialized = false;
 static std::mutex mtx;
 }// namespace LogGlobal
-void VEngine_Log(string_chunk const& chunk) {
+void VEngine_Log(vengine::string_view const& chunk) {
 	using namespace LogGlobal;
 	std::lock_guard<decltype(mtx)> lck(mtx);
 	FILE* file = nullptr;
@@ -13,7 +13,7 @@ void VEngine_Log(string_chunk const& chunk) {
 		isInitialized = true;
 		file = fopen("LoggerFile.log", "w");
 		if (file) {
-			string_chunk chunk = "This is a log file from last run: \n";
+			vengine::string_view chunk = "This is a log file from last run: \n";
 			fwrite(chunk.c_str(), chunk.size(), 1, file);
 		}
 	} else {
@@ -24,7 +24,7 @@ void VEngine_Log(string_chunk const& chunk) {
 		fclose(file);
 	}
 }
-void VEngine_Log(string_chunk const* chunk, size_t chunkCount) {
+void VEngine_Log(vengine::string_view const* chunk, size_t chunkCount) {
 	using namespace LogGlobal;
 	std::lock_guard<decltype(mtx)> lck(mtx);
 	FILE* file = nullptr;
@@ -32,7 +32,7 @@ void VEngine_Log(string_chunk const* chunk, size_t chunkCount) {
 		isInitialized = true;
 		file = fopen("LoggerFile.log", "w");
 		if (file) {
-			string_chunk chunk = "This is a log file from last run: \n";
+			vengine::string_view chunk = "This is a log file from last run: \n";
 			fwrite(chunk.c_str(), chunk.size(), 1, file);
 		}
 	} else {
@@ -44,6 +44,6 @@ void VEngine_Log(string_chunk const* chunk, size_t chunkCount) {
 		fclose(file);
 	}
 }
-void VEngine_Log(std::initializer_list<string_chunk> const& initList) {
+void VEngine_Log(std::initializer_list<vengine::string_view> const& initList) {
 	VEngine_Log(initList.begin(), initList.size());
 }

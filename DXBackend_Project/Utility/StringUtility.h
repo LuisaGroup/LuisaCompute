@@ -3,7 +3,7 @@
 #include <fstream>
 #include "../Common/vstring.h"
 #include "../Common/Memory.h"
-#include "../Common/string_chunk.h"
+#include "../Common/string_view.h"
 typedef uint32_t uint;
 class  StringUtil
 {
@@ -24,8 +24,8 @@ public:
 	static void GetDataFromBrackets(vengine::string const& str, vengine::string& result);
 	static int32_t StringToInteger(vengine::string const& str);
 	static double StringToFloat(vengine::string const& str);
-	static int32_t StringToInteger(string_chunk str);
-	static double StringToFloat(string_chunk str);
+	static int32_t StringToInteger(vengine::string_view str);
+	static double StringToFloat(vengine::string_view str);
 	static void ToLower(vengine::string& str);
 	static void ToUpper(vengine::string& str);
 };

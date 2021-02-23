@@ -6,6 +6,7 @@
 #include <assert.h>
 #include "vector.h"
 #include "Memory.h"
+#include "string_view.h"
 class PtrLink;
 
 class VObject {
@@ -28,6 +29,7 @@ public:
 	void AddEventBeforeDispose(Runnable<void(VObject*)>&& func) noexcept;
 	uint64_t GetInstanceID() const noexcept { return instanceID; }
 	virtual ~VObject() noexcept;
+	virtual vengine::string_view ToString() const;
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	KILL_COPY_CONSTRUCT(VObject)
 };

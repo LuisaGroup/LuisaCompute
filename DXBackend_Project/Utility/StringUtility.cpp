@@ -211,7 +211,7 @@ double StringUtil::StringToFloat(vengine::string const& str) {
 	}
 	return value * rate;
 }
-int32_t StringUtil::StringToInteger(string_chunk str) {
+int32_t StringUtil::StringToInteger(vengine::string_view str) {
 	if (str.size() == 0) return 0;
 	uint i;
 	int32_t value = 0;
@@ -229,7 +229,7 @@ int32_t StringUtil::StringToInteger(string_chunk str) {
 	}
 	return value * rate;
 }
-double StringUtil::StringToFloat(string_chunk str) {
+double StringUtil::StringToFloat(vengine::string_view str) {
 	if (str.size() == 0) return 0;
 	uint i;
 	double value = 0;
