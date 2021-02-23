@@ -25,6 +25,9 @@
         ".lib": "Library"
       }
     ],
+    "IncludePaths" : [
+      "../src"
+    ],
     "IgnoreFolder": [
       "x64",
       "x86",
