@@ -8,39 +8,39 @@
 namespace luisa::compute {
 
 std::span<const Variable> Function::builtin_variables() const noexcept {
-    return _builder->builtin_variables();
+    return _builder.builtin_variables();
 }
 
 std::span<const Variable> Function::shared_variables() const noexcept {
-    return _builder->shared_variables();
+    return _builder.shared_variables();
 }
 
 std::span<const Function::ConstantData> Function::constant_variables() const noexcept {
-    return _builder->constant_variables();
+    return _builder.constant_variables();
 }
 
 std::span<const Function::BufferBinding> Function::captured_buffers() const noexcept {
-    return _builder->captured_buffers();
+    return _builder.captured_buffers();
 }
 
 std::span<const Function::TextureBinding> Function::captured_textures() const noexcept {
-    return _builder->captured_textures();
+    return _builder.captured_textures();
 }
 
 std::span<const Function::UniformBinding> Function::captured_uniforms() const noexcept {
-    return _builder->captured_uniforms();
+    return _builder.captured_uniforms();
 }
 
 std::span<const Variable> Function::arguments() const noexcept {
-    return _builder->arguments();
+    return _builder.arguments();
 }
 
 Function::Tag Function::tag() const noexcept {
-    return _builder->tag();
+    return _builder.tag();
 }
 
 const ScopeStmt *Function::body() const noexcept {
-    return _builder->body();
+    return _builder.body();
 }
 
 }
