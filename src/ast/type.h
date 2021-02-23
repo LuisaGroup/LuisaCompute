@@ -4,8 +4,9 @@
 
 #pragma once
 
-#include <span>
+#include <cassert>
 #include <string_view>
+#include <span>
 
 namespace luisa::compute {
 

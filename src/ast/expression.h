@@ -171,12 +171,13 @@ private:
     ArgumentList _arguments;
 
 public:
-    CallExpr(const Type *type, ArenaString name, ArgumentList args) noexcept
+    CallExpr(const Type *type, std::string_view name, ArgumentList args) noexcept
         : Expression{type}, _name{name}, _arguments{args} {}
-    [[nodiscard]] std::string_view name() const noexcept { return _name; }
+    [[nodiscard]] auto name() const noexcept { return _name; }
     [[nodiscard]] auto arguments() const noexcept { return _arguments; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
+
 enum struct CastOp {
     STATIC,
     REINTERPRET,

@@ -7,5 +7,4 @@
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
-
-// TODO: function...
+#include <ast/function.h>

@@ -37,7 +37,7 @@ private:
     uint32_t _uid;
     
 private:
-    friend class Function;
+    friend class FunctionBuilder;
     constexpr Variable(const Type *type, Tag tag, uint32_t uid) noexcept
         : _type{type}, _tag{tag}, _uid{uid} {}
 
