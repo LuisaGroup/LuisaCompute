@@ -1,6 +1,8 @@
 #include "ShaderVarUtility.h"
 #include "../Common/Common.h"
 #include "../Utility/QuickSort.h"
+#include <ast/type.h>
+#include <ast/expression.h>
 namespace LCShader {
 
 void ShaderVarUtility::GetVarName(NumVar const& v, vengine::string& varTypeName) {

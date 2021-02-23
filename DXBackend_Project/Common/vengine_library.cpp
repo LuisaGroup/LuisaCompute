@@ -10,6 +10,7 @@
 #include "MetaLib.h"
 //#include "BinaryLinkedAllocator.h"
 #include "LinkedList.h"
+#include "string_view.h"
 namespace v_mimalloc {
 funcPtr_t<void*(size_t)> Alloc::mallocFunc = nullptr;
 funcPtr_t<void(void*)> Alloc::freeFunc = nullptr;
