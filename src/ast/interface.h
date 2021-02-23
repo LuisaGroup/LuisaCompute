@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ast/type.h>
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/statement.h>

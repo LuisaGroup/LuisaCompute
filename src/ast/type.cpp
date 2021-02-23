@@ -18,16 +18,14 @@ namespace luisa::compute {
 const Type *Type::from(std::string_view description) noexcept {
 
     static TypeRegistry registry;
-    
-    static thread_local Arena arena;
-    static thread_local std::vector<const Type *> members;
-    
-    static constexpr const Type *(*from_desc_impl)(std::string_view &) = [](std::string_view &s) noexcept -> const Type * {
 
+    static thread_local Arena arena;
+
+    static constexpr const Type *(*from_desc_impl)(std::string_view &) = [](std::string_view &s) noexcept -> const Type * {
         Type info;
         auto s_copy = s;
-        members.clear();
 
+        std::vector<const Type *> members;
         using namespace std::string_view_literals;
 
         auto read_identifier = [&s] {
@@ -60,9 +58,9 @@ const Type *Type::from(std::string_view description) noexcept {
 
 #define TRY_PARSE_SCALAR_TYPE_CASE(T, TAG) \
     if (type_identifier == #T##sv) {       \
-        info._tag = Tag::TAG;             \
-        info._size = sizeof(T);           \
-        info._alignment = alignof(T);     \
+        info._tag = Tag::TAG;              \
+        info._size = sizeof(T);            \
+        info._alignment = alignof(T);      \
     } else
 
 #define TRY_PARSE_SCALAR_TYPE(CASE) TRY_PARSE_SCALAR_TYPE_CASE CASE
@@ -151,7 +149,7 @@ const Type *Type::from(std::string_view description) noexcept {
         auto hash = xxh3_hash64(description.data(), description.size());
 
         return registry.with_types(
-            [&info, hash, description](auto &&types) noexcept {
+            [&info, &members, hash, description](auto &&types) noexcept {
                 if (auto iter = std::find_if(
                         types.cbegin(), types.cend(), [hash](auto &&ptr) noexcept { return ptr->hash() == hash; });
                     iter != types.cend()) { return *iter; }
