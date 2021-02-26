@@ -4,8 +4,19 @@
 
 #pragma once
 
+#include <ast/function_builder.h>
+
 namespace luisa::compute::dsl {
 
+template<typename T>
+class Var {
 
+private:
+    Variable _variable;
+
+public:
+
+
+};
 
 }
