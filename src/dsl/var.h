@@ -4,8 +4,8 @@
 
 #pragma once
 
-class DSLVar {
-
-};
+namespace luisa::compute::dsl {
 
 
+
+}

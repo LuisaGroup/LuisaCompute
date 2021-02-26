@@ -11,7 +11,7 @@
 #include <fmt/format.h>
 
 #include <core/memory.h>
-#include <core/macro_map.h>
+#include <core/macro.h>
 #include <runtime/buffer.h>
 #include <ast/type.h>
 

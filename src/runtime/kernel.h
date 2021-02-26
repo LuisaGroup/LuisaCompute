@@ -17,4 +17,9 @@ public:
 
 };
 
+template<typename Ret, typename... Args>
+class Callable {
+
+};
+
 }// namespace luisa::compute

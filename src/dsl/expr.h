@@ -4,8 +4,11 @@
 
 #pragma once
 
-class Expr {
+#include <ast/variable.h>
 
-};
+namespace luisa::compute::dsl {
 
 
+
+
+}

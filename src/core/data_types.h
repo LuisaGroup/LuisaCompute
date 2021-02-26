@@ -9,6 +9,8 @@
 #include <array>
 #include <type_traits>
 
+#include <core/macro.h>
+
 namespace luisa {
 
 template<typename U>
@@ -391,6 +393,13 @@ constexpr auto operator*(std::array<float, N> a, float s) noexcept {
 template<size_t N>
 constexpr auto operator*(float s, std::array<float, N> a) noexcept {
     return a * s;
+}
+
+template<size_t N>
+constexpr auto operator*(std::array<float, N> lhs, std::array<float, N> rhs) noexcept {
+    std::array<float, N> r;
+    for (auto i = 0u; i < N; i++) { r[i] = lhs[i] * rhs[i]; }
+    return r;
 }
 
 template<size_t N>

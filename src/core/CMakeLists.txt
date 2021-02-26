@@ -3,7 +3,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
     memory.h
     concepts.h
     hash.cpp hash.h
-    macro_map.h
+    macro.h
     union.h
     platform.h
     mathematics.h)

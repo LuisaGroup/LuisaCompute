@@ -9,7 +9,7 @@
 
 #include <core/logging.h>
 #include <core/hash.h>
-#include <core/macro_map.h>
+#include <core/macro.h>
 #include <ast/type.h>
 #include <ast/type_registry.h>
 
@@ -32,9 +32,12 @@ const Type *Type::from(std::string_view description) noexcept {
         using namespace std::string_view_literals;
         auto read_identifier = [&s] {
             auto p = s.cbegin();
-            for (; p != s.cend() && std::isalpha(*p); p++) {}
+            if (p == s.cend() || (*p != '_' && !std::isalpha(*p))) {
+                LUISA_ERROR_WITH_LOCATION("Failed to parse identifier from '{}'.", s);
+            }
+            for (; p != s.cend() && (std::isalpha(*p) || std::isdigit(*p) || *p == '_'); p++) {}
             if (p == s.cbegin()) {
-                LUISA_ERROR_WITH_LOCATION("Failed to parse type identifier from '{}'.", s);
+                LUISA_ERROR_WITH_LOCATION("Failed to parse identifier from '{}'.", s);
             }
             auto identifier = s.substr(0, p - s.cbegin());
             s = s.substr(p - s.cbegin());
