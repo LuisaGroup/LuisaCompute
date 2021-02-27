@@ -31,7 +31,7 @@ public:
 
 private:
     Arena _arena;
-    ScopeStmt *_body;
+    const ScopeStmt *_body;
     ArenaVector<ArenaVector<const Statement *>> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
     ArenaVector<Variable> _shared_variables;
@@ -153,7 +153,7 @@ public:
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
 
     template<typename Body>
-    const Statement *scope(Body &&body) noexcept {
+    const ScopeStmt *scope(Body &&body) noexcept {
         _scope_stack.emplace_back(ArenaVector<const Statement *>(_arena));
         body();
         auto stmt = _arena.create<ScopeStmt>(_scope_stack.back());

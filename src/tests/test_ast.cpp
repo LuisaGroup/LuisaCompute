@@ -233,5 +233,4 @@ int main() {
     
     auto fuck = 0;
     auto shit = 1;
-    
 }

@@ -9,15 +9,15 @@
 namespace luisa::compute::dsl {
 
 template<typename T>
-class Var {
+class VarBase {
 
 private:
     Variable _variable;
 
 public:
-    Var(Var &&) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    
+    VarBase(VarBase &&) noexcept = default;
+    VarBase &operator=(VarBase &&) noexcept = default;
+    [[nodiscard]] constexpr auto variable() const noexcept { return _variable; }
 };
 
 }
