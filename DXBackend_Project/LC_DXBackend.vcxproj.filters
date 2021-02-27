@@ -2,61 +2,73 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <ItemGroup>
         <Filter Include="CJsonObject">
-            <UniqueIdentifier>{BD952BC4-27CE-4026-8EAC-0B4E76744BA5}</UniqueIdentifier>
+            <UniqueIdentifier>{C41D33A8-D272-4699-BCF9-F26B8ED52F6B}</UniqueIdentifier>
         </Filter>
         <Filter Include="Common">
-            <UniqueIdentifier>{7BABB9B1-C006-444F-880F-4A71950F45CF}</UniqueIdentifier>
+            <UniqueIdentifier>{BE7B2A6A-AEC5-49E0-9966-7B4079D672FE}</UniqueIdentifier>
         </Filter>
         <Filter Include="JobSystem">
-            <UniqueIdentifier>{18AC1E6F-854D-4904-B5CB-0713E738B85D}</UniqueIdentifier>
+            <UniqueIdentifier>{D78933C7-66C3-4026-BFF3-F064FC3C40A8}</UniqueIdentifier>
         </Filter>
         <Filter Include="LogicComponent">
-            <UniqueIdentifier>{566F0E89-7686-4A98-A440-5F97F17CF137}</UniqueIdentifier>
+            <UniqueIdentifier>{EDB1CCB4-F7B3-4F1E-9111-BD4AD940A4E0}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="mono">
+            <UniqueIdentifier>{8CCFD151-8E4F-4E62-A929-7C539FDF9324}</UniqueIdentifier>
         </Filter>
         <Filter Include="PipelineComponent">
-            <UniqueIdentifier>{FBD962A3-B890-43F3-B55E-6C9AB52762D5}</UniqueIdentifier>
+            <UniqueIdentifier>{174BED3C-4E0C-433F-8756-E26915A03A73}</UniqueIdentifier>
         </Filter>
         <Filter Include="PipelineComponent\RayTracing">
-            <UniqueIdentifier>{8F794F8C-52C2-456A-8638-452E9FEEFF51}</UniqueIdentifier>
+            <UniqueIdentifier>{A8C353F1-F6DC-4B6F-B310-A96368714219}</UniqueIdentifier>
         </Filter>
         <Filter Include="RenderComponent">
-            <UniqueIdentifier>{F794F806-DC6C-43E2-BEC5-D1CFA6787909}</UniqueIdentifier>
+            <UniqueIdentifier>{560AE267-0AA1-441E-82C8-A853C4F1D6A5}</UniqueIdentifier>
         </Filter>
         <Filter Include="RenderComponent\Utility">
-            <UniqueIdentifier>{091F69A0-D88A-4189-8228-67AD9232614C}</UniqueIdentifier>
+            <UniqueIdentifier>{D764665C-7ABE-48C9-A401-AEEED8C4D82C}</UniqueIdentifier>
         </Filter>
         <Filter Include="RenderComponent\Utility\D3D12MemoryAllocator">
-            <UniqueIdentifier>{C46C26CA-7BD9-4A09-A3CA-6940C78C7917}</UniqueIdentifier>
+            <UniqueIdentifier>{1177E639-A728-4839-B03B-89F60E22EDB4}</UniqueIdentifier>
         </Filter>
         <Filter Include="RenderComponent\Voxel">
-            <UniqueIdentifier>{FEDCB6B4-1631-43A5-8978-7797BE1B1D68}</UniqueIdentifier>
+            <UniqueIdentifier>{EADC2066-9BB4-4CF5-AD11-ADD773B8E781}</UniqueIdentifier>
         </Filter>
         <Filter Include="ShaderCompile">
-            <UniqueIdentifier>{2C556552-FB25-4AEF-B418-F15BACEB201C}</UniqueIdentifier>
+            <UniqueIdentifier>{08D3B8E7-6426-4710-BAB9-5B665DCF416F}</UniqueIdentifier>
         </Filter>
         <Filter Include="Singleton">
-            <UniqueIdentifier>{2ABD490D-C080-4948-96D9-D08E3969AF95}</UniqueIdentifier>
+            <UniqueIdentifier>{7817693E-5290-4C52-9D16-673CA1F8812F}</UniqueIdentifier>
         </Filter>
         <Filter Include="Utility">
-            <UniqueIdentifier>{1A683FF1-8157-424E-910C-A2FB358ADEE5}</UniqueIdentifier>
+            <UniqueIdentifier>{C2ABCFCC-050A-4B7F-A76B-367BA67F697B}</UniqueIdentifier>
         </Filter>
         <Filter Include="WorldManagement">
-            <UniqueIdentifier>{ACF1E3B6-6E13-4D2C-9ED3-9C9BA2154EA9}</UniqueIdentifier>
+            <UniqueIdentifier>{FC04C2F8-99E2-4656-B27A-60D0B8642266}</UniqueIdentifier>
         </Filter>
         <Filter Include="Common\DXMath">
-            <UniqueIdentifier>{56BF0DC5-0B31-4394-9601-15A656302A34}</UniqueIdentifier>
+            <UniqueIdentifier>{DA0470CD-4421-46C7-89F6-7D81AF6A2412}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="mono\jit">
+            <UniqueIdentifier>{A8E2E31E-FFB1-4546-AA7D-D94176659956}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="mono\metadata">
+            <UniqueIdentifier>{E8A0270B-2FE4-4028-98F4-B1F7D1546439}</UniqueIdentifier>
+        </Filter>
+        <Filter Include="mono\utils">
+            <UniqueIdentifier>{A59C7894-AE48-4B8D-9869-DDE992B3CAAE}</UniqueIdentifier>
         </Filter>
         <Filter Include="PipelineComponent\CameraData">
-            <UniqueIdentifier>{B985CDF8-A1D5-48A9-87CB-F59D0ADB3FDB}</UniqueIdentifier>
+            <UniqueIdentifier>{C5AAB1D2-3782-4E71-A78E-E46FAEFCEBCA}</UniqueIdentifier>
         </Filter>
         <Filter Include="RHI">
-            <UniqueIdentifier>{EAC3C977-5F80-4F7B-8CD2-E06853540C1E}</UniqueIdentifier>
+            <UniqueIdentifier>{B20BAF07-EFF6-4685-974C-22F7A10945E7}</UniqueIdentifier>
         </Filter>
         <Filter Include="Struct">
-            <UniqueIdentifier>{720C178B-8EB0-4851-BFAB-36A79A1BC9BD}</UniqueIdentifier>
+            <UniqueIdentifier>{FBEF4EF9-C533-4109-BD0D-97CE42EFCA3A}</UniqueIdentifier>
         </Filter>
         <Filter Include="Build">
-            <UniqueIdentifier>{F9BA69B9-A4F6-4E6A-A46C-34D7330673B3}</UniqueIdentifier>
+            <UniqueIdentifier>{FD2EEB54-D295-487B-A4FA-F5253331D16D}</UniqueIdentifier>
         </Filter>
     </ItemGroup>
     <ItemGroup>
@@ -113,6 +125,9 @@
         </ClCompile>
         <ClCompile Include="LogicComponent\Transform.cpp">
             <Filter>LogicComponent</Filter>
+        </ClCompile>
+        <ClCompile Include="mono\CSharpDLL.cpp">
+            <Filter>mono</Filter>
         </ClCompile>
         <ClCompile Include="PipelineComponent\CommandAllocator.cpp">
             <Filter>PipelineComponent</Filter>
@@ -203,6 +218,9 @@
         </ClCompile>
         <ClCompile Include="RenderComponent\Voxel\VirtualVoxelMap.cpp">
             <Filter>RenderComponent\Voxel</Filter>
+        </ClCompile>
+        <ClCompile Include="ShaderCompile\LuisaASTTranslator.cpp">
+            <Filter>ShaderCompile</Filter>
         </ClCompile>
         <ClCompile Include="ShaderCompile\ShaderVarUtility.cpp">
             <Filter>ShaderCompile</Filter>
@@ -356,7 +374,7 @@
         <ClInclude Include="Common\Runnable.h">
             <Filter>Common</Filter>
         </ClInclude>
-        <ClInclude Include="Common\string_chunk.h">
+        <ClInclude Include="Common\string_view.h">
             <Filter>Common</Filter>
         </ClInclude>
         <ClInclude Include="Common\Tuple.h">
@@ -400,6 +418,111 @@
         </ClInclude>
         <ClInclude Include="LogicComponent\Transform.h">
             <Filter>LogicComponent</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\CSharpDLL.h">
+            <Filter>mono</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\jit\jit.h">
+            <Filter>mono\jit</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\appdomain.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\assembly.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\attrdefs.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\blob.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\class.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\debug-helpers.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\debug-mono-symfile.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\environment.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\exception.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\image.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\loader.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\metadata.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\mono-config.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\mono-debug.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\mono-gc.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\object-forward.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\object.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\opcodes.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\profiler-events.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\profiler.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\reflection.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\row-indexes.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\sgen-bridge.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\threads.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\tokentype.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\metadata\verify.h">
+            <Filter>mono\metadata</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\utils\mono-counters.h">
+            <Filter>mono\utils</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\utils\mono-dl-fallback.h">
+            <Filter>mono\utils</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\utils\mono-error.h">
+            <Filter>mono\utils</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\utils\mono-forward.h">
+            <Filter>mono\utils</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\utils\mono-jemalloc.h">
+            <Filter>mono\utils</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\utils\mono-logger.h">
+            <Filter>mono\utils</Filter>
+        </ClInclude>
+        <ClInclude Include="mono\utils\mono-publib.h">
+            <Filter>mono\utils</Filter>
         </ClInclude>
         <ClInclude Include="PipelineComponent\CameraData\CameraTransformData.h">
             <Filter>PipelineComponent\CameraData</Filter>
@@ -569,6 +692,9 @@
         <ClInclude Include="ShaderCompile\ASTNode.h">
             <Filter>ShaderCompile</Filter>
         </ClInclude>
+        <ClInclude Include="ShaderCompile\LuisaASTTranslator.h">
+            <Filter>ShaderCompile</Filter>
+        </ClInclude>
         <ClInclude Include="ShaderCompile\ShaderVar.h">
             <Filter>ShaderCompile</Filter>
         </ClInclude>
@@ -658,12 +784,36 @@
         </ClInclude>
     </ItemGroup>
     <ItemGroup>
+        <None Include="Build\fmt.dll">
+            <Filter>Build</Filter>
+        </None>
         <None Include="Build\luisa-compute-ast.dll">
+            <Filter>Build</Filter>
+        </None>
+        <None Include="Build\luisa-compute-core.dll">
+            <Filter>Build</Filter>
+        </None>
+        <None Include="Build\mono-2.0-sgen.dll">
+            <Filter>Build</Filter>
+        </None>
+        <None Include="Build\spdlog.dll">
             <Filter>Build</Filter>
         </None>
     </ItemGroup>
     <ItemGroup>
+        <Library Include="Build\fmt.lib">
+            <Filter>Build</Filter>
+        </Library>
         <Library Include="Build\luisa-compute-ast.lib">
+            <Filter>Build</Filter>
+        </Library>
+        <Library Include="Build\luisa-compute-core.lib">
+            <Filter>Build</Filter>
+        </Library>
+        <Library Include="Build\mono-2.0-sgen.lib">
+            <Filter>Build</Filter>
+        </Library>
+        <Library Include="Build\spdlog.lib">
             <Filter>Build</Filter>
         </Library>
     </ItemGroup>

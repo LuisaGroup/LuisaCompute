@@ -39,10 +39,10 @@ public:
 		StringExprVisitor vis;
 		if (IsMulFuncCall()) {
 			str = "mul(";
-			expr->lhs()->accept(vis);
+			expr->rhs()->accept(vis);//Reverse matrix
 			str += vis.ToString();
 			str += ',';
-			expr->rhs()->accept(vis);
+			expr->lhs()->accept(vis);
 			str += vis.ToString();
 			str += ')';
 
@@ -112,12 +112,12 @@ public:
 		}
 	}
 	void visit(const MemberExpr* expr) override {
-		expr->accept(*this);
+		expr->self()->accept(*this);
 		str += ".v";
 		str += vengine::to_string(expr->member_index());
 	}
 	void visit(const AccessExpr* expr) override {
-		expr->accept(*this);
+		expr->range()->accept(*this);
 		str += '[';
 		StringExprVisitor vis;
 		expr->index()->accept(vis);
@@ -126,112 +126,261 @@ public:
 	}
 	void visit(const ValueExpr* expr) override {
 		ValueExpr::Value const& value = expr->value();
-		//TODO: After finish type system
 		switch (value.index()) {
 			case 0: {
 				Variable const& v = std::get<0>(value);
+				vengine::string varName = "v" + vengine::to_string(v.uid());
+				if (v.type()->tag() == Type::Tag::VECTOR) {
+					
+				} else {
+					str = std::move(varName);
+
+				}
 			} break;
 			case 1: {
 				bool const& v = std::get<1>(value);
+				str = v ? "true" : "false";
 			} break;
 			case 2: {
 				float const& v = std::get<2>(value);
+				str = vengine::to_string(v);
 			} break;
 			case 3: {
 				int8_t const& v = std::get<3>(value);
+				str = vengine::to_string(v);
 			} break;
 			case 4: {
 				uint8_t const& v = std::get<4>(value);
+				str = vengine::to_string(v);
 			} break;
 			case 5: {
 				int16_t const& v = std::get<5>(value);
+				str = vengine::to_string(v);
 			} break;
 			case 6: {
 				uint16_t const& v = std::get<6>(value);
+				str = vengine::to_string(v);
 			} break;
 			case 7: {
 				int32_t const& v = std::get<7>(value);
+				str = vengine::to_string(v);
 			} break;
 			case 8: {
 				uint32_t const& v = std::get<8>(value);
+				str = vengine::to_string(v);
 			} break;
 			case 9: {
-				bool2 const& v = std::get<9>(value);
+				auto const& v = std::get<9>(value);
+				str = "bool2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 10: {
-				float2 const& v = std::get<10>(value);
+				auto const& v = std::get<10>(value);
+				str = "float2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 11: {
-				char2 const& v = std::get<11>(value);
+				auto const& v = std::get<11>(value);
+				str = "int2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 12: {
-				uchar2 const& v = std::get<12>(value);
+				auto const& v = std::get<12>(value);
+				str = "uint2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 13: {
-				short2 const& v = std::get<13>(value);
+				auto const& v = std::get<13>(value);
+				str = "int2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 14: {
-				ushort2 const& v = std::get<14>(value);
+				auto const& v = std::get<14>(value);
+				str = "uint2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 15: {
-				int2 const& v = std::get<15>(value);
+				auto const& v = std::get<15>(value);
+				str = "int2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 16: {
-				uint2 const& v = std::get<16>(value);
+				auto const& v = std::get<16>(value);
+				str = "uint2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 17: {
-				bool3 const& v = std::get<17>(value);
+				auto const& v = std::get<17>(value);
+				str = "bool3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 18: {
-				float3 const& v = std::get<18>(value);
+				auto const& v = std::get<18>(value);
+				str = "float3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 19: {
-				char3 const& v = std::get<19>(value);
+				auto const& v = std::get<19>(value);
+				str = "int3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 20: {
-				uchar3 const& v = std::get<20>(value);
+				auto const& v = std::get<20>(value);
+				str = "uint3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 21: {
-				short3 const& v = std::get<21>(value);
+				auto const& v = std::get<21>(value);
+				str = "int3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 22: {
-				ushort3 const& v = std::get<22>(value);
+				auto const& v = std::get<22>(value);
+				str = "uint3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 23: {
-				int3 const& v = std::get<23>(value);
+				auto const& v = std::get<23>(value);
+				str = "int3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 24: {
-				uint3 const& v = std::get<24>(value);
+				auto const& v = std::get<24>(value);
+				str = "uint3(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += ')';
 			} break;
 			case 25: {
-				bool4 const& v = std::get<25>(value);
+				auto const& v = std::get<25>(value);
+				str = "bool4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 26: {
-				float4 const& v = std::get<26>(value);
+				auto const& v = std::get<26>(value);
+				str = "float4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 27: {
-				char4 const& v = std::get<27>(value);
+				auto const& v = std::get<27>(value);
+				str = "int4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 28: {
-				uchar4 const& v = std::get<28>(value);
+				auto const& v = std::get<28>(value);
+				str = "uint4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 29: {
-				short4 const& v = std::get<29>(value);
+				auto const& v = std::get<29>(value);
+				str = "int4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 30: {
-				ushort4 const& v = std::get<30>(value);
+				auto const& v = std::get<30>(value);
+				str = "uint4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 31: {
-				int4 const& v = std::get<31>(value);
+				auto const& v = std::get<31>(value);
+				str = "int4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 32: {
-				uint4 const& v = std::get<32>(value);
+				auto const& v = std::get<32>(value);
+				str = "uint4(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
+				str += ')';
 			} break;
 			case 33: {
 				float3x3 const& v = std::get<33>(value);
+				str = "float3x3(";
+				float3 c0 = v[0];
+				float3 c1 = v[1];
+				float3 c2 = v[2];
+				str += vengine::to_string(c0.x) + ',' + vengine::to_string(c1.x) + ',' + vengine::to_string(c2.x) + ',';
+				str += vengine::to_string(c0.y) + ',' + vengine::to_string(c1.y) + ',' + vengine::to_string(c2.y) + ',';
+				str += vengine::to_string(c0.z) + ',' + vengine::to_string(c1.z) + ',' + vengine::to_string(c2.z) + ')';
 			} break;
 			case 34: {
 				float4x4 const& v = std::get<34>(value);
+				str = "float4x4(";
+				float4 c0 = v[0];
+				float4 c1 = v[1];
+				float4 c2 = v[2];
+				float4 c3 = v[3];
+				str += vengine::to_string(c0.x) + ',' + vengine::to_string(c1.x) + ',' + vengine::to_string(c2.x) + ',' + vengine::to_string(c3.x) + ',';
+				str += vengine::to_string(c0.y) + ',' + vengine::to_string(c1.y) + ',' + vengine::to_string(c2.y) + ',' + vengine::to_string(c3.y) + ',';
+				str += vengine::to_string(c0.z) + ',' + vengine::to_string(c1.z) + ',' + vengine::to_string(c2.z) + ',' + vengine::to_string(c3.z) + ')';
 			} break;
 		}
 	}
