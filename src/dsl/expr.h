@@ -25,7 +25,7 @@ private:
 public:
     explicit constexpr ExprBase(const Expression *expr) noexcept : _expression{expr} {}
     constexpr ExprBase(const Var<T> &variable) noexcept
-        : _expression{FunctionBuilder::current()->value(variable.variable())} {}
+        : _expression{FunctionBuilder::current()->ref(variable.variable())} {}
     constexpr ExprBase(ExprBase &&) noexcept = default;
     constexpr ExprBase(const ExprBase &) noexcept = default;
     [[nodiscard]] constexpr auto expression() const noexcept { return _expression; }

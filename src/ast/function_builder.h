@@ -52,7 +52,7 @@ private:
 
     void _add(const Statement *statement) noexcept;
 
-    [[nodiscard]] const Expression *_value(const Type *type, ValueExpr::Value value) noexcept;
+    [[nodiscard]] const Expression *_literal(const Type *type, LiteralExpr::Value value) noexcept;
     [[nodiscard]] Variable _constant(const Type *type, const void *data) noexcept;
     [[nodiscard]] Variable _builtin(Variable::Tag tag) noexcept;
     [[nodiscard]] Variable _uniform_binding(const Type *type, const void *data) noexcept;
@@ -137,10 +137,8 @@ public:
 
     // expressions
     template<typename T>
-    requires concepts::core_data_type<T> [[nodiscard]] auto value(T value) noexcept { return _value(Type::of<T>(), value); }
-
-    [[nodiscard]] auto value(Variable v) noexcept { return _value(v.type(), v); }
-
+    requires concepts::core_data_type<T> [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
+    [[nodiscard]] const Expression *ref(Variable v) noexcept;
     [[nodiscard]] const Expression *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
     [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const Expression *member(const Type *type, const Expression *self, size_t member_index) noexcept;

@@ -75,8 +75,8 @@ void FunctionBuilder::assign(AssignOp op, const Expression *lhs, const Expressio
     _add(_arena.create<AssignStmt>(op, lhs, rhs));
 }
 
-const Expression *FunctionBuilder::_value(const Type *type, ValueExpr::Value value) noexcept {
-    return _arena.create<ValueExpr>(type, std::move(value));
+const Expression *FunctionBuilder::_literal(const Type *type, LiteralExpr::Value value) noexcept {
+    return _arena.create<LiteralExpr>(type, std::move(value));
 }
 
 Variable FunctionBuilder::_constant(const Type *type, const void *data) noexcept {
@@ -208,6 +208,10 @@ const Expression *FunctionBuilder::call(const Type *type, std::string_view func,
 
 const Expression *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
     return _arena.create<CastExpr>(type, op, expr);
+}
+
+const Expression *FunctionBuilder::ref(Variable v) noexcept {
+    return _arena.create<RefExpr>(v);
 }
 
 }// namespace luisa::compute

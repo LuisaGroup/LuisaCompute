@@ -32,7 +32,8 @@ class UnaryExpr;
 class BinaryExpr;
 class MemberExpr;
 class AccessExpr;
-class ValueExpr;
+class LiteralExpr;
+class RefExpr;
 class CallExpr;
 class CastExpr;
 
@@ -41,7 +42,8 @@ struct ExprVisitor {
     virtual void visit(const BinaryExpr *) = 0;
     virtual void visit(const MemberExpr *) = 0;
     virtual void visit(const AccessExpr *) = 0;
-    virtual void visit(const ValueExpr *) = 0;
+    virtual void visit(const LiteralExpr *) = 0;
+    virtual void visit(const RefExpr *) = 0;
     virtual void visit(const CallExpr *) = 0;
     virtual void visit(const CastExpr *) = 0;
 };
@@ -140,11 +142,10 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
-class ValueExpr : public Expression {
+class LiteralExpr : public Expression {
 
 public:
     using Value = std::variant<
-        Variable,
         bool, float, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t,
         bool2, float2, char2, uchar2, short2, ushort2, int2, uint2,
         bool3, float3, char3, uchar3, short3, ushort3, int3, uint3,
@@ -155,9 +156,21 @@ private:
     Value _value;
 
 public:
-    ValueExpr(const Type *type, Value v) noexcept
+    LiteralExpr(const Type *type, Value v) noexcept
         : Expression{type}, _value{std::move(v)} {}
     [[nodiscard]] const Value &value() const noexcept { return _value; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+};
+
+class RefExpr : public Expression {
+
+private:
+    Variable _variable;
+
+public:
+    explicit RefExpr(Variable v) noexcept
+        : Expression{v.type()}, _variable{v} {}
+    [[nodiscard]] auto variable() const noexcept { return _variable; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
@@ -205,7 +218,8 @@ static_assert(std::is_trivially_destructible_v<UnaryExpr>);
 static_assert(std::is_trivially_destructible_v<BinaryExpr>);
 static_assert(std::is_trivially_destructible_v<MemberExpr>);
 static_assert(std::is_trivially_destructible_v<AccessExpr>);
-static_assert(std::is_trivially_destructible_v<ValueExpr>);
+static_assert(std::is_trivially_destructible_v<LiteralExpr>);
+static_assert(std::is_trivially_destructible_v<RefExpr>);
 static_assert(std::is_trivially_destructible_v<CallExpr>);
 static_assert(std::is_trivially_destructible_v<CastExpr>);
 
