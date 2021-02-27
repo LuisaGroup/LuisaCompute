@@ -34,7 +34,7 @@ struct DeductionGuideBase {
     template<typename U>
     void operator+(Something<U> &&) const noexcept { LUISA_INFO("operator+(Something &&)"); }
     
-    template<concepts::core_data_type U>
+    template<concepts::Native U>
     void operator+(U &&) const noexcept { LUISA_INFO("operator+(U)"); }
 };
 

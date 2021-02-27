@@ -72,7 +72,7 @@ public:
     [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept { return view()[std::forward<Index>(index)]; }
 };
 
-template<typename T> requires concepts::span_convertible<T>
+template<typename T> requires concepts::SpanConvertible<T>
 Buffer(Device *, T &&) -> Buffer<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>

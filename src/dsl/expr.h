@@ -32,36 +32,36 @@ public:
 
 #define LUISA_MAKE_EXPR_BINARY_OP(op, op_concept_name, op_tag_name)                                                  \
     template<typename U>                                                                                             \
-    requires concepts::operator_##op_concept_name<T, U> [[nodiscard]] auto operator op(Expr<U> rhs) const noexcept { \
+    requires concepts::op_concept_name<T, U> [[nodiscard]] auto operator op(Expr<U> rhs) const noexcept { \
         return Expr{FunctionBuilder::current()->binary(                                                              \
             Type::of(std::declval<T>() op std::declval<U>()),                                                        \
             BinaryOp::op_tag_name, this->expression(), rhs.expression())};                                           \
     }
 #define LUISA_MAKE_EXPR_BINARY_OP_FROM_TUPLE(op) LUISA_MAKE_EXPR_BINARY_OP op
     LUISA_MAP(LUISA_MAKE_EXPR_BINARY_OP_FROM_TUPLE,
-              (+, add, ADD),
-              (-, sub, SUB),
-              (*, mul, MUL),
-              (/, div, DIV),
-              (%, mod, MOD),
-              (&, bit_and, BIT_AND),
-              (|, bit_or, BIT_OR),
-              (^, bit_xor, BIT_XOR),
-              (>>, shr, SHR),
-              (<<, shl, SHL),
-              (&&, and, AND),
-              (||, or, OR),
-              (==, equal, EQUAL),
-              (!=, not_equal, NOT_EQUAL),
-              (<, less, LESS),
-              (<=, less_equal, LESS_EQUAL),
-              (>, greater, GREATER),
-              (>=, greater_equal, GREATER_EQUAL))
+              (+, Add, ADD),
+              (-, Sub, SUB),
+              (*, Mul, MUL),
+              (/, Div, DIV),
+              (%, Mod, MOD),
+              (&, BitAnd, BIT_AND),
+              (|, BitOr, BIT_OR),
+              (^, BitXor, BIT_XOR),
+              (<<, ShiftLeft, SHL),
+              (>>, ShiftRight, SHR),
+              (&&, And, AND),
+              (||, Or, OR),
+              (==, Equal, EQUAL),
+              (!=, NotEqual, NOT_EQUAL),
+              (<, Less, LESS),
+              (<=, LessEqual, LESS_EQUAL),
+              (>, Greater, GREATER),
+              (>=, GreaterEqual, GREATER_EQUAL))
 #undef LUISA_MAKE_EXPR_BINARY_OP
 #undef LUISA_MAKE_EXPR_BINARY_OP_FROM_TUPLE
 
     template<typename U>
-    requires concepts::operator_access<T, U> [[nodiscard]] auto operator[](Expr<U> index) const noexcept {
+    requires concepts::Access<T, U> [[nodiscard]] auto operator[](Expr<U> index) const noexcept {
         return Expr{FunctionBuilder::current()->access(
             Type::of(std::declval<T>()[std::declval<U>()]),
             this->expression(), index.expression())};
@@ -77,22 +77,22 @@ public:
 
 #define LUISA_MAKE_EXPR_ASSIGN_OP(op, op_concept_name, op_tag_name)                                      \
     template<typename U>                                                                                 \
-    requires concepts::operator_##op_concept_name<T, U> void operator op(Expr<U> rhs) const noexcept {   \
+    requires concepts::op_concept_name<T, U> void operator op(Expr<U> rhs) const noexcept {   \
         FunctionBuilder::current()->assign(AssignOp::op_tag_name, this->expression(), rhs.expression()); \
     }
 #define LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TUPLE(op) LUISA_MAKE_EXPR_ASSIGN_OP op
     LUISA_MAP(LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TUPLE,
-              (=, assign, ASSIGN),
-              (+=, add_assign, ADD_ASSIGN),
-              (-=, sub_assign, SUB_ASSIGN),
-              (*=, mul_assign, MUL_ASSIGN),
-              (/=, div_assign, DIV_ASSIGN),
-              (%=, mod_assign, MOD_ASSIGN),
-              (&=, bit_and_assign, BIT_AND_ASSIGN),
-              (|=, bit_or_assign, BIT_OR_ASSIGN),
-              (^=, bit_xor_assign, BIT_XOR_ASSIGN),
-              (>>=, shr_assign, SHR_ASSIGN),
-              (<<=, shl_assign, SHL_ASSIGN))
+              (=, Assign, ASSIGN),
+              (+=, AddAssign, ADD_ASSIGN),
+              (-=, SubAssign, SUB_ASSIGN),
+              (*=, MulAssign, MUL_ASSIGN),
+              (/=, DivAssign, DIV_ASSIGN),
+              (%=, ModAssign, MOD_ASSIGN),
+              (&=, BitAndAssign, BIT_AND_ASSIGN),
+              (|=, BitOrAssign, BIT_OR_ASSIGN),
+              (^=, BitXorAssign, BIT_XOR_ASSIGN),
+              (<<=, ShiftLeftAssign, SHL_ASSIGN),
+              (>>=, ShiftRightAssign, SHR_ASSIGN))
 #undef LUISA_MAKE_EXPR_ASSIGN_OP
 #undef LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TUPLE
 };
@@ -116,7 +116,7 @@ Expr(const Var<T> &) -> Expr<T>;
 template<typename T>
 Expr(Var<T> &&) -> Expr<T>;
 
-template<concepts::core_data_type T>
+template<concepts::Native T>
 Expr(T &&) -> Expr<std::remove_cvref_t<T>>;
 
 }// namespace luisa::compute::dsl
