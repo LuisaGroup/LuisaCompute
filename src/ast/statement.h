@@ -13,7 +13,7 @@ class Expression;
 
 struct StmtVisitor;
 
-class Statement : public Noncopyable {
+class Statement : public concepts::Noncopyable {
 
 protected:
     ~Statement() noexcept = default;

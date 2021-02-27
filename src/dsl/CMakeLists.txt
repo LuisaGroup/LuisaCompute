@@ -1,6 +1,6 @@
 set(LUISA_COMPUTE_DSL_SOURCES
     var.cpp var.h
-    expr.cpp expr.h)
+    expr.cpp expr.h syntax.h)
 
 add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
 target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-core)

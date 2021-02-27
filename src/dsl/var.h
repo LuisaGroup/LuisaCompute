@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <ast/function_builder.h>
+#include <dsl/expr.h>
 
 namespace luisa::compute::dsl {
 
@@ -15,8 +15,9 @@ private:
     Variable _variable;
 
 public:
-
-
+    Var(Var &&) noexcept = delete;
+    Var &operator=(Var &&) noexcept = delete;
+    
 };
 
 }

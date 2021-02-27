@@ -23,6 +23,28 @@
 #include <ast/statement.h>
 #include <ast/variable.h>
 
+struct S1 {
+    float x;
+};
+
+struct S2 {
+    float x;
+    float y;
+};
+
+struct S3 {
+    float x;
+    float y;
+    float z;
+};
+
+struct S4 {
+    float x;
+    float y;
+    float z;
+    float w;
+};
+
 struct Test {
 
     std::string s;
@@ -54,7 +76,7 @@ struct BB {
 LUISA_STRUCT(AA, x, ba, a, atomic)
 LUISA_STRUCT(BB, a, b, c, m)
 
-struct Interface : public Noncopyable {
+struct Interface : public concepts::Noncopyable {
     Interface() noexcept = default;
     Interface(Interface &&) noexcept = default;
     Interface &operator=(Interface &&) noexcept = default;
@@ -62,7 +84,7 @@ struct Interface : public Noncopyable {
 };
 
 template<typename T>
-requires container<T> void foo(T &&) noexcept {}
+requires concepts::container_type<T> void foo(T &&) noexcept {}
 
 struct Impl : public Interface {};
 
@@ -208,4 +230,8 @@ int main() {
     foo<std::initializer_list<int>>({1, 2, 3, 4});
 
     auto [m, n] = std::array{1, 2};
+    
+    auto fuck = 0;
+    auto shit = 1;
+    
 }

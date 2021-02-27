@@ -14,7 +14,7 @@ namespace luisa::compute {
 
 struct ExprVisitor;
 
-class Expression : public Noncopyable {
+class Expression : public concepts::Noncopyable {
 
 private:
     const Type *_type;

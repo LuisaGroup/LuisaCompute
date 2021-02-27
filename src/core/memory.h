@@ -15,7 +15,7 @@
 
 namespace luisa {
 
-class Arena : public Noncopyable {
+class Arena : public concepts::Noncopyable {
 
 public:
     static constexpr auto block_size = static_cast<size_t>(256ul * 1024ul);
@@ -63,7 +63,7 @@ public:
 };
 
 template<typename T>
-class ArenaVector : public Noncopyable {
+class ArenaVector : public concepts::Noncopyable {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
@@ -80,7 +80,7 @@ public:
           _capacity{capacity} {}
 
     template<typename U>
-    requires container<U> &&constructable<T, typename std::remove_cvref_t<U>::value_type>
+    requires concepts::container_type<U> && concepts::constructable<T, typename std::remove_cvref_t<U>::value_type>
     ArenaVector(Arena &arena, U &&span, size_t capacity = 0u)
         : ArenaVector{arena, std::max(span.size(), capacity)} {
         std::uninitialized_copy_n(span.begin(), span.size(), _data);
@@ -88,7 +88,7 @@ public:
     }
 
     template<typename U>
-    requires constructable<T, U> explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
+    requires concepts::constructable<T, U> explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
         : ArenaVector{arena, std::max(init.size(), capacity)} {
         std::uninitialized_copy_n(init.begin(), init.size(), _data);
         _size = init.size();
@@ -133,7 +133,7 @@ public:
 };
 
 template<typename T>
-requires convertible_to_span<T>
+requires concepts::span_convertible<T>
 ArenaVector(Arena &, T &&) -> ArenaVector<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>
