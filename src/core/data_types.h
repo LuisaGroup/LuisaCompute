@@ -14,7 +14,7 @@
 namespace luisa {
 
 template<typename U>
-constexpr auto always_false = false;
+constexpr auto always_false_v = false;
 
 // scalars
 using uchar = uint8_t;
@@ -26,7 +26,7 @@ namespace detail {
 
 template<typename T, size_t N>
 struct VectorStorage {
-    static_assert(always_false<T>, "Invalid vector storage");
+    static_assert(always_false_v<T>, "Invalid vector storage");
 };
 
 template<typename T>
@@ -185,7 +185,7 @@ LUISA_MAKE_VECTOR_TYPES(uint)
 
 template<size_t N>
 struct Matrix {
-    static_assert(always_false<std::integral_constant<size_t, N>>, "Invalid matrix type");
+    static_assert(always_false_v<std::integral_constant<size_t, N>>, "Invalid matrix type");
 };
 
 template<>

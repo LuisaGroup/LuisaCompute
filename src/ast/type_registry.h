@@ -35,7 +35,7 @@ namespace detail {
 
 template<typename T>
 struct TypeDesc {
-    static_assert(always_false<T>, "Invalid type.");
+    static_assert(always_false_v<T>, "Invalid type.");
 };
 
 // scalar

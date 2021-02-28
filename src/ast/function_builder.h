@@ -42,6 +42,8 @@ private:
     ArenaVector<Variable> _arguments;
     Tag _tag;
     uint32_t _variable_counter{0u};
+    
+    // TODO: device function registry...
 
 private:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;

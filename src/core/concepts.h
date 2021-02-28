@@ -27,6 +27,12 @@ concept Constructible = requires(Args ...args) {
     T{args...};
 };
 
+template<typename F, typename... Args>
+concept Invocable = std::is_invocable_v<F, Args...>;
+
+template<typename Ret, typename F, typename... Args>
+concept InvocableRet = std::is_invocable_r_v<Ret, F, Args...>;
+
 template<typename T>
 concept Container = requires(T a) {
     a.begin();
