@@ -9,15 +9,28 @@
 namespace luisa::compute::dsl {
 
 template<typename T>
-class VarBase {
+struct Var : public detail::Expr<T> {
 
-private:
-    Variable _variable;
+    explicit Var(Variable v) noexcept
+        : detail::Expr<T>{FunctionBuilder::current()->ref(v)} {}
 
-public:
-    VarBase(VarBase &&) noexcept = default;
-    VarBase &operator=(VarBase &&) noexcept = default;
-    [[nodiscard]] constexpr auto variable() const noexcept { return _variable; }
+    template<typename... Args>
+    requires concepts::Constructible<T, detail::expr_value_t<Args>...>
+    Var(Args &&...args) noexcept
+        : Var{FunctionBuilder::current()->local(
+            Type::of<T>(),
+            {detail::extract_expression(std::forward<Args>(args))...})} {}
+
+    Var(Var &&) noexcept = default;
+    Var(const Var &another) noexcept : Var{detail::Expr{another}} {}
+    void operator=(Var &&rhs) const noexcept { detail::ExprBase<T>::operator=(rhs); }
+    void operator=(const Var &rhs) const noexcept { detail::ExprBase<T>::operator=(rhs); }
 };
 
-}
+template<typename T>
+Var(detail::Expr<T>) -> Var<T>;
+
+template<concepts::Native T>
+Var(T) -> Var<T>;
+
+}// namespace luisa::compute::dsl

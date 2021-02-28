@@ -6,27 +6,22 @@
 
 #include <ast/function_builder.h>
 
-namespace luisa::compute::dsl {
-
-template<typename T>
-class Var;
-
-}
-
 namespace luisa::compute::dsl::detail {
 
 template<typename T>
-class Expr;
+struct Expr;
 
 template<typename T>
 class ExprBase {
+
+public:
+    using ValueType = T;
 
 private:
     const Expression *_expression;
 
 public:
     explicit constexpr ExprBase(const Expression *expr) noexcept : _expression{expr} {}
-    ExprBase(const Var<T> &variable) noexcept : ExprBase{FunctionBuilder::current()->ref(variable.variable())} {}
     ExprBase(T literal) noexcept : ExprBase{FunctionBuilder::current()->literal(literal)} {}
     constexpr ExprBase(ExprBase &&) noexcept = default;
     constexpr ExprBase(const ExprBase &) noexcept = default;
@@ -113,24 +108,29 @@ public:
 };
 
 template<typename T>
-class Expr : public ExprBase<T> {
-public:
-    using Type = T;
-    using detail::ExprBase<T>::ExprBase;
+struct Expr : public ExprBase<T> {
+    using ExprBase<T>::ExprBase;
+    Expr(Expr &&another) noexcept = default;
+    Expr(const Expr &another) noexcept = default;
+    void operator=(Expr &&rhs) const noexcept { ExprBase<T>::operator=(rhs); }
+    void operator=(const Expr &rhs) const noexcept { ExprBase<T>::operator=(rhs); }
 };
 
 // deduction guides
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;
 
-template<typename T>
-Expr(const Var<T> &) -> Expr<T>;
-
-template<typename T>
-Expr(Var<T> &&) -> Expr<T>;
-
 template<concepts::Native T>
-Expr(T) -> Expr<std::remove_cvref_t<T>>;
+Expr(T) -> Expr<T>;
+
+template<typename T>
+[[nodiscard]] const Expression *extract_expression(T &&v) noexcept {
+    Expr expr{std::forward<T>(v)};
+    return expr.expression();
+}
+
+template<typename T>
+using expr_value_t = typename std::remove_cvref_t<decltype(Expr{std::declval<T>()})>::ValueType;
 
 }// namespace luisa::compute::dsl::detail
 

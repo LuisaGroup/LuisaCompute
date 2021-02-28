@@ -81,7 +81,7 @@ struct Vector : public detail::VectorStorage<T, N> {
                       std::is_same<T, int>, std::is_same<T, uint>> && (N == 2 || N == 3 || N == 4),
                   "Invalid vector type");
 
-    template<typename... Args>
+    template<typename... Args, std::enable_if_t<std::is_constructible_v<Storage, Args...>, int> = 0>
     explicit constexpr Vector(Args... args) noexcept : Storage{args...} {}
 
     constexpr Vector(const Vector &v) noexcept : Storage{v} {}

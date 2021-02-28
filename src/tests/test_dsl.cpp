@@ -36,8 +36,8 @@ struct DeductionGuideBase {
     template<typename U>
     void operator+(const Something<U> &) const noexcept { LUISA_INFO("operator+(const Something &)"); }
 
-//    template<typename U>
-//    void operator+(Something<U> &&) const noexcept { LUISA_INFO("operator+(Something &&)"); }
+    //    template<typename U>
+    //    void operator+(Something<U> &&) const noexcept { LUISA_INFO("operator+(Something &&)"); }
 
     template<concepts::Native U>
     void operator+(U &&) const noexcept { LUISA_INFO("operator+(U)"); }
@@ -64,14 +64,15 @@ DeductionGuide(DeductionGuide<T>) -> DeductionGuide<T>;
 template<typename T>
 DeductionGuide(T &&) -> DeductionGuide<std::remove_cvref_t<T>>;
 
-}
+}// namespace internal
 
 int main() {
+
     internal::DeductionGuide g1 = 1.5f;
     internal::DeductionGuide g2{internal::Something<int>{}};
     internal::DeductionGuide g3{g1};
     internal::DeductionGuide g4{internal::DeductionGuide{float2{1.0f}}};
-    
+
     internal::Something<float> f;
     g3 = f;
     g3 = 1.2f;
@@ -81,26 +82,24 @@ int main() {
     g3 + 1.0f;
     1.0f + g3;
     g3 += 1;
-    
-    using namespace luisa::compute::dsl::detail;
-    
-    FunctionBuilder func{Function::Tag::KERNEL};
-    
-    func.define([] {
-        Expr x = 1.0f;
-        Expr y = 2.0f;
-        x = 2.1f * 1 / x + y * 2;
-        Expr z = x * y;
-        auto b = !(x < y);
-        Expr c = false;
-        auto result = b + c;
 
-        Expr i = 10u;
-        LUISA_INFO("bad");
-        i += 12;
+    using namespace luisa::compute::dsl;
+
+    FunctionBuilder{Function::Tag::KERNEL}.define([] {
         
-        Expr v_int = 1;
-        Expr v_float = v_int * 1.5f;
-        static_assert(std::is_same_v<decltype(v_float), Expr<float>>);
+        Var v_int = 10;
+        Var v_float = 1.0f;
+        Var v_float_copy = v_float;
+
+        Var z = -1 + v_int * v_float + 1.0f;
+        z += 1;
+        static_assert(std::is_same_v<decltype(z), Var<float>>);
+
+        Var v_vec = float3{1.0f};
+        Var v2 = float3{2.0f} - v_vec * 2.0f;
+        v2 *= 5.0f + v_float;
+        
+        Var<float2> w{v_int, v_float};
+        w *= float2{1.2f};
     });
 }
