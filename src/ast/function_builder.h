@@ -50,14 +50,15 @@ private:
     static void _push(FunctionBuilder *func) noexcept;
     static FunctionBuilder *_pop() noexcept;
 
-    void _add(const Statement *statement) noexcept;
+    void _append(const Statement *statement) noexcept;
 
     [[nodiscard]] const Expression *_literal(const Type *type, LiteralExpr::Value value) noexcept;
-    [[nodiscard]] Variable _constant(const Type *type, const void *data) noexcept;
-    [[nodiscard]] Variable _builtin(Variable::Tag tag) noexcept;
-    [[nodiscard]] Variable _uniform_binding(const Type *type, const void *data) noexcept;
-    [[nodiscard]] Variable _buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept;
-    [[nodiscard]] Variable _texture_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const Expression *_constant(const Type *type, const void *data) noexcept;
+    [[nodiscard]] const Expression *_builtin(Variable::Tag tag) noexcept;
+    [[nodiscard]] const Expression *_uniform_binding(const Type *type, const void *data) noexcept;
+    [[nodiscard]] const Expression *_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept;
+    [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const Expression *_ref(Variable v) noexcept;
 
 public:
     explicit FunctionBuilder(Tag tag) noexcept
@@ -92,17 +93,17 @@ public:
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() const noexcept { return _body; }
 
-    [[nodiscard]] Variable thread_id() noexcept;
-    [[nodiscard]] Variable block_id() noexcept;
-    [[nodiscard]] Variable dispatch_id() noexcept;
+    [[nodiscard]] const Expression *thread_id() noexcept;
+    [[nodiscard]] const Expression *block_id() noexcept;
+    [[nodiscard]] const Expression *dispatch_id() noexcept;
 
     // variables
-    [[nodiscard]] Variable local(const Type *type, std::span<const Expression *> init) noexcept;
-    [[nodiscard]] Variable local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
-    [[nodiscard]] Variable shared(const Type *type) noexcept;
+    [[nodiscard]] const Expression *local(const Type *type, std::span<const Expression *> init) noexcept;
+    [[nodiscard]] const Expression *local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
+    [[nodiscard]] const Expression *shared(const Type *type) noexcept;
 
-    template<typename U>
-    requires concepts::Container<U> &&concepts::Native<typename std::remove_cvref_t<U>::value_type> [[nodiscard]] auto constant(U &&data) noexcept {
+    template<concepts::Container U>
+    requires concepts::Native<typename std::remove_cvref_t<U>::value_type> [[nodiscard]] auto constant(U &&data) noexcept {
         using T = typename std::remove_cvref_t<U>::value_type;
         auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()));
         auto bytes = _arena.allocate<T>(data.size());
@@ -115,30 +116,29 @@ public:
 
     // implicit arguments
     template<typename T>
-    [[nodiscard]] Variable uniform_binding(std::span<T> u) noexcept {
+    [[nodiscard]] auto uniform_binding(std::span<T> u) noexcept {
         auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), u.size()));
         return _uniform_binding(type, u.data());
     }
 
     template<typename T>
-    [[nodiscard]] Variable uniform_binding(const T *data) noexcept { return _uniform_binding(Type::of<T>(), data); }
+    [[nodiscard]] auto uniform_binding(const T *data) noexcept { return _uniform_binding(Type::of<T>(), data); }
 
     template<typename T>
-    [[nodiscard]] Variable buffer_binding(BufferView<T> bv) noexcept {
+    [[nodiscard]] auto buffer_binding(BufferView<T> bv) noexcept {
         return _buffer_binding(Type::of<BufferView<T>>(), bv.handle(), bv.offset_bytes());
     }
 
-    [[nodiscard]] Variable texture_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const Expression *texture_binding(const Type *type, uint64_t handle) noexcept;
 
     // explicit arguments
-    [[nodiscard]] Variable uniform(const Type *type) noexcept;
-    [[nodiscard]] Variable buffer(const Type *type) noexcept;
-    [[nodiscard]] Variable texture(const Type *type) noexcept;
+    [[nodiscard]] const Expression *uniform(const Type *type) noexcept;
+    [[nodiscard]] const Expression *buffer(const Type *type) noexcept;
+    [[nodiscard]] const Expression *texture(const Type *type) noexcept;
 
     // expressions
     template<typename T>
     requires concepts::Native<T> [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
-    [[nodiscard]] const Expression *ref(Variable v) noexcept;
     [[nodiscard]] const Expression *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
     [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const Expression *member(const Type *type, const Expression *self, size_t member_index) noexcept;

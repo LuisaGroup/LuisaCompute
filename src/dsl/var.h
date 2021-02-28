@@ -11,13 +11,10 @@ namespace luisa::compute::dsl {
 template<typename T>
 struct Var : public detail::Expr<T> {
 
-    explicit Var(Variable v) noexcept
-        : detail::Expr<T>{FunctionBuilder::current()->ref(v)} {}
-
     template<typename... Args>
     requires concepts::Constructible<T, detail::expr_value_t<Args>...>
     Var(Args &&...args) noexcept
-        : Var{FunctionBuilder::current()->local(
+        : detail::Expr<T>{FunctionBuilder::current()->local(
             Type::of<T>(),
             {detail::extract_expression(std::forward<Args>(args))...})} {}
 

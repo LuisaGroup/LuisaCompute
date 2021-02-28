@@ -26,116 +26,116 @@ FunctionBuilder *FunctionBuilder::current() noexcept {
     return _function_stack().back();
 }
 
-void FunctionBuilder::_add(const Statement *statement) noexcept {
+void FunctionBuilder::_append(const Statement *statement) noexcept {
     if (_scope_stack.empty()) { LUISA_ERROR_WITH_LOCATION("Scope stack is empty."); }
     _scope_stack.back().emplace_back(statement);
 }
 
 void FunctionBuilder::break_() noexcept {
-    _add(_arena.create<BreakStmt>());
+    _append(_arena.create<BreakStmt>());
 }
 
 void FunctionBuilder::continue_() noexcept {
-    _add(_arena.create<ContinueStmt>());
+    _append(_arena.create<ContinueStmt>());
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
-    _add(_arena.create<ReturnStmt>(expr));
+    _append(_arena.create<ReturnStmt>(expr));
 }
 
 void FunctionBuilder::if_(const Expression *cond, const Statement *true_branch) noexcept {
-    _add(_arena.create<IfStmt>(cond, true_branch));
+    _append(_arena.create<IfStmt>(cond, true_branch));
 }
 
 void FunctionBuilder::if_(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept {
-    _add(_arena.create<IfStmt>(cond, true_branch, false_branch));
+    _append(_arena.create<IfStmt>(cond, true_branch, false_branch));
 }
 
 void FunctionBuilder::while_(const Expression *cond, const Statement *body) noexcept {
-    _add(_arena.create<WhileStmt>(cond, body));
+    _append(_arena.create<WhileStmt>(cond, body));
 }
 
 void FunctionBuilder::void_(const Expression *expr) noexcept {
-    _add(_arena.create<ExprStmt>(expr));
+    _append(_arena.create<ExprStmt>(expr));
 }
 
 void FunctionBuilder::switch_(const Expression *expr, const Statement *body) noexcept {
-    _add(_arena.create<SwitchStmt>(expr, body));
+    _append(_arena.create<SwitchStmt>(expr, body));
 }
 
 void FunctionBuilder::case_(const Expression *expr, const Statement *body) noexcept {
-    _add(_arena.create<SwitchCaseStmt>(expr, body));
+    _append(_arena.create<SwitchCaseStmt>(expr, body));
 }
 
 void FunctionBuilder::default_(const Statement *body) noexcept {
-    _add(_arena.create<SwitchDefaultStmt>(body));
+    _append(_arena.create<SwitchDefaultStmt>(body));
 }
 
 void FunctionBuilder::assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept {
-    _add(_arena.create<AssignStmt>(op, lhs, rhs));
+    _append(_arena.create<AssignStmt>(op, lhs, rhs));
 }
 
 const Expression *FunctionBuilder::_literal(const Type *type, LiteralExpr::Value value) noexcept {
     return _arena.create<LiteralExpr>(type, std::move(value));
 }
 
-Variable FunctionBuilder::_constant(const Type *type, const void *data) noexcept {
+const Expression *FunctionBuilder::_constant(const Type *type, const void *data) noexcept {
     Variable v{type, Variable::Tag::CONSTANT, _next_variable_uid()};
     _constant_variables.emplace_back(ConstantData{v, data});
-    return v;
+    return _ref(v);
 }
 
-Variable FunctionBuilder::local(const Type *type, std::span<const Expression *> init) noexcept {
+const Expression *FunctionBuilder::local(const Type *type, std::span<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     ArenaVector initializer{_arena, init};
-    _add(_arena.create<DeclareStmt>(v, initializer));
-    return v;
+    _append(_arena.create<DeclareStmt>(v, initializer));
+    return _ref(v);
 }
 
-Variable FunctionBuilder::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
+const Expression *FunctionBuilder::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     ArenaVector initializer{_arena, init};
-    _add(_arena.create<DeclareStmt>(v, initializer));
-    return v;
+    _append(_arena.create<DeclareStmt>(v, initializer));
+    return _ref(v);
 }
 
-Variable FunctionBuilder::shared(const Type *type) noexcept {
-    return _shared_variables.emplace_back(
-        Variable{type, Variable::Tag::SHARED, _next_variable_uid()});
+const Expression *FunctionBuilder::shared(const Type *type) noexcept {
+    return _ref(_shared_variables.emplace_back(
+        Variable{type, Variable::Tag::SHARED, _next_variable_uid()}));
 }
 
 uint32_t FunctionBuilder::_next_variable_uid() noexcept { return ++_variable_counter; }
 
-Variable FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
-Variable FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
-Variable FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
+const Expression *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
+const Expression *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
+const Expression *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
 
-Variable FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
+const Expression *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
             _builtin_variables.cbegin(),
             _builtin_variables.cend(),
             [tag](auto &&v) noexcept { return v.tag() == tag; });
         iter != _builtin_variables.cend()) {
-        return *iter;
+        return _ref(*iter);
     }
     Variable v{Type::of<uint3>(), tag, _next_variable_uid()};
     _builtin_variables.emplace_back(v);
-    return v;
+    return _ref(v);
 }
 
-Variable FunctionBuilder::uniform(const Type *type) noexcept {
+const Expression *FunctionBuilder::uniform(const Type *type) noexcept {
     Variable v{type, Variable::Tag::UNIFORM, _next_variable_uid()};
     _arguments.emplace_back(v);
-    return v;
+    return _ref(v);
 }
 
-Variable FunctionBuilder::buffer(const Type *type) noexcept {
+const Expression *FunctionBuilder::buffer(const Type *type) noexcept {
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _arguments.emplace_back(v);
-    return v;
+    return _ref(v);
 }
 
-Variable FunctionBuilder::_uniform_binding(const Type *type, const void *data) noexcept {
+const Expression *FunctionBuilder::_uniform_binding(const Type *type, const void *data) noexcept {
     if (auto iter = std::find_if(
             _captured_uniforms.cbegin(),
             _captured_uniforms.cend(),
@@ -147,14 +147,14 @@ Variable FunctionBuilder::_uniform_binding(const Type *type, const void *data) n
                 "Pointer aliasing in implicitly captured uniform data (original type = {}, requested type = {}).",
                 v.type()->description(), type->description());
         }
-        return v;
+        return _ref(v);
     }
     Variable v{type, Variable::Tag::UNIFORM, _next_variable_uid()};
     _captured_uniforms.emplace_back(UniformBinding{v, data});
-    return v;
+    return _ref(v);
 }
 
-Variable FunctionBuilder::_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
+const Expression *FunctionBuilder::_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
     if (auto iter = std::find_if(
             _captured_buffers.cbegin(),
             _captured_buffers.cend(),
@@ -171,11 +171,11 @@ Variable FunctionBuilder::_buffer_binding(const Type *type, uint64_t handle, siz
                 "Aliasing in implicitly captured buffer (handle = {}, original type = {}, requested type = {}).",
                 handle, v.type()->description(), type->description());
         }
-        return v;
+        return _ref(v);
     }
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _captured_buffers.emplace_back(BufferBinding{v, handle, offset_bytes});
-    return v;
+    return _ref(v);
 }
 
 const Expression *FunctionBuilder::unary(const Type *type, UnaryOp op, const Expression *expr) noexcept {
@@ -210,7 +210,7 @@ const Expression *FunctionBuilder::cast(const Type *type, CastOp op, const Expre
     return _arena.create<CastExpr>(type, op, expr);
 }
 
-const Expression *FunctionBuilder::ref(Variable v) noexcept {
+const Expression *FunctionBuilder::_ref(Variable v) noexcept {
     return _arena.create<RefExpr>(v);
 }
 

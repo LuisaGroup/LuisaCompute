@@ -150,6 +150,14 @@ struct TypeDesc<BufferView<T>> {
 
 }// namespace detail
 
+template<typename T>
+const Type *Type::of() noexcept {
+    static thread_local auto info = Type::from(detail::TypeDesc<std::remove_cvref_t<T>>::description());
+    return info;
+}
+
+}// namespace luisa::compute
+
 // struct
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_DESC(m) TypeDesc<std::remove_cvref_t<decltype(std::declval<This>().m)>>::description()
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_FMT(m) ",{}"
@@ -169,13 +177,5 @@ struct TypeDesc<BufferView<T>> {
         }                                                                                                \
     };                                                                                                   \
     }
-
-template<typename T>
-const Type *Type::of() noexcept {
-    static thread_local auto info = Type::from(detail::TypeDesc<std::remove_cvref_t<T>>::description());
-    return info;
-}
-
-}// namespace luisa::compute
-
-#define LUISA_STRUCT(...) LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(__VA_ARGS__)
+#define LUISA_STRUCT(S, ...) \
+    LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)

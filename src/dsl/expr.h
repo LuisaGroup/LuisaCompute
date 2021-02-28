@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <array>
+#include <string_view>
 #include <ast/function_builder.h>
 
 namespace luisa::compute::dsl::detail {
@@ -17,7 +19,7 @@ class ExprBase {
 public:
     using ValueType = T;
 
-private:
+protected:
     const Expression *_expression;
 
 public:
@@ -116,6 +118,42 @@ struct Expr : public ExprBase<T> {
     void operator=(const Expr &rhs) const noexcept { ExprBase<T>::operator=(rhs); }
 };
 
+template<typename T>
+struct Expr<Vector<T, 2>> : public ExprBase<Vector<T, 2>> {
+    using ExprBase<Vector<T, 2>>::ExprBase;
+    Expr(Expr &&another) noexcept = default;
+    Expr(const Expr &another) noexcept = default;
+    void operator=(Expr &&rhs) const noexcept { ExprBase<Vector<T, 2>>::operator=(rhs); }
+    void operator=(const Expr &rhs) const noexcept { ExprBase<Vector<T, 2>>::operator=(rhs); }
+    Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 0)};
+    Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 1)};
+};
+
+template<typename T>
+struct Expr<Vector<T, 3>> : public ExprBase<Vector<T, 3>> {
+    using ExprBase<Vector<T, 3>>::ExprBase;
+    Expr(Expr &&another) noexcept = default;
+    Expr(const Expr &another) noexcept = default;
+    void operator=(Expr &&rhs) const noexcept { ExprBase<Vector<T, 3>>::operator=(rhs); }
+    void operator=(const Expr &rhs) const noexcept { ExprBase<Vector<T, 3>>::operator=(rhs); }
+    Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 0)};
+    Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 1)};
+    Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 2)};
+};
+
+template<typename T>
+struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
+    using ExprBase<Vector<T, 4>>::ExprBase;
+    Expr(Expr &&another) noexcept = default;
+    Expr(const Expr &another) noexcept = default;
+    void operator=(Expr &&rhs) const noexcept { ExprBase<Vector<T, 4>>::operator=(rhs); }
+    void operator=(const Expr &rhs) const noexcept { ExprBase<Vector<T, 4>>::operator=(rhs); }
+    Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 0)};
+    Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 1)};
+    Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 2)};
+    Expr<T> w{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 3)};
+};
+
 // deduction guides
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;
@@ -178,3 +216,38 @@ LUISA_MAP(LUISA_MAKE_GLOBAL_EXPR_BINARY_OP_FROM_PAIR,
           (>=, GreaterEqual))
 #undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP
 #undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP_FROM_PAIR
+
+// for custom structs
+#undef LUISA_STRUCT// to extend it...
+
+#define LUISA_STRUCT_MAKE_MEMBER_EXPR(m)                                    \
+private:                                                                    \
+    using Type_##m = std::remove_cvref_t<decltype(std::declval<This>().m)>; \
+                                                                            \
+public:                                                                     \
+    Expr<Type_##m> m{FunctionBuilder::current()->member(                    \
+        Type::of<Type_##m>(),                                               \
+        ExprBase<This>::_expression,                                        \
+        _member_index(#m))};
+
+#define LUISA_STRUCT(S, ...)                                                                                     \
+    LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)                                                \
+    namespace luisa::compute::dsl::detail {                                                                      \
+    template<>                                                                                                   \
+    struct Expr<S> : public ExprBase<S> {                                                                        \
+    private:                                                                                                     \
+        using This = S;                                                                                          \
+        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                    \
+            constexpr const std::string_view member_names[]{LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};       \
+            return std::find(std::begin(member_names), std::end(member_names), name) - std::begin(member_names); \
+        }                                                                                                        \
+                                                                                                                 \
+    public:                                                                                                      \
+        using ExprBase<S>::ExprBase;                                                                             \
+        Expr(Expr &&another) noexcept = default;                                                                 \
+        Expr(const Expr &another) noexcept = default;                                                            \
+        void operator=(Expr &&rhs) const noexcept { ExprBase<S>::operator=(rhs); }                               \
+        void operator=(const Expr &rhs) const noexcept { ExprBase<S>::operator=(rhs); }                          \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR, __VA_ARGS__)                                                    \
+    };                                                                                                           \
+    }

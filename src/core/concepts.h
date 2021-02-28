@@ -23,7 +23,9 @@ concept SpanConvertible = requires(T v) {
 };
 
 template<typename T, typename... Args>
-concept Constructible = std::is_constructible_v<T, Args...>;
+concept Constructible = requires(Args ...args) {
+    T{args...};
+};
 
 template<typename T>
 concept Container = requires(T a) {

@@ -9,6 +9,13 @@ using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::dsl;
 
+struct Test {
+    int3 something;
+    float a;
+};
+
+LUISA_STRUCT(Test, something, a)
+
 int main() {
     
     FunctionBuilder{Function::Tag::KERNEL}.define([] {
@@ -27,5 +34,10 @@ int main() {
         
         Var<float2> w{v_int, v_float};
         w *= float2{1.2f};
+        
+        Var x = w.x;
+        Var<int3> s;
+        Var<Test> vt{s, v_float_copy};
+        Var c = 0.5f + vt.a * 1.0f;
     });
 }
