@@ -30,4 +30,6 @@ Var(detail::Expr<T>) -> Var<T>;
 template<concepts::Native T>
 Var(T) -> Var<T>;
 
+// TODO: support buffer etc.
+
 }// namespace luisa::compute::dsl

@@ -16,9 +16,26 @@ struct Test {
 
 LUISA_STRUCT(Test, something, a)
 
+class FakeDevice : public Device {
+    
+    void _dispose_buffer(uint64_t handle) noexcept override {}
+    
+    uint64_t _create_buffer(size_t byte_size) noexcept override {
+        return 0;
+    }
+    
+    uint64_t _create_buffer_with_data(size_t size_bytes, const void *data) noexcept override {
+        return 0;
+    }
+};
+
 int main() {
     
-    FunctionBuilder{Function::Tag::KERNEL}.define([] {
+    FakeDevice device;
+    Buffer<float4> buffer{&device, 1024u};
+    
+    FunctionBuilder f{Function::Tag::KERNEL};
+    f.define([&buffer] {
         
         Var v_int = 10;
         Var v_float = 1.0f;
@@ -38,6 +55,12 @@ int main() {
         Var x = w.x;
         Var<int3> s;
         Var<Test> vt{s, v_float_copy};
+        Var vt_copy = vt;
         Var c = 0.5f + vt.a * 1.0f;
+        
+        Var vec4 = buffer[10];
+        Var another_vec4 = buffer[v_int];
     });
+    LUISA_INFO("MemoryUsage: {}", f.arena().total_size());
+    
 }

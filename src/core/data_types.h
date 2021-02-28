@@ -364,7 +364,13 @@ struct IsMatrix<Matrix<N>> : std::true_type {};
 }// namespace detail
 
 template<typename T>
-using is_scalar = std::is_arithmetic<T>;
+using is_integral = std::is_integral<T>;
+
+template<typename T>
+constexpr auto is_integral_v = is_integral<T>::value;
+
+template<typename T>
+using is_scalar = std::disjunction<is_integral<T>, std::is_same<T, float>>;
 
 template<typename T>
 constexpr auto is_scalar_v = is_scalar<T>::value;

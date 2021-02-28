@@ -92,6 +92,7 @@ public:
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() const noexcept { return _body; }
+    [[nodiscard]] const auto &arena() const noexcept { return _arena; }
 
     [[nodiscard]] const Expression *thread_id() noexcept;
     [[nodiscard]] const Expression *block_id() noexcept;

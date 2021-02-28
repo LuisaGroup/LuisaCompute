@@ -13,6 +13,26 @@ namespace luisa::compute::dsl::detail {
 template<typename T>
 struct Expr;
 
+}
+
+// for buffer
+namespace luisa::compute::detail {
+
+template<typename Index>
+struct BufferAccess {
+    template<typename T>
+    [[nodiscard]] auto operator()(BufferView<T> buffer, const Index &index) const noexcept {
+        using luisa::compute::dsl::detail::Expr;
+        Expr<Buffer<T>> buffer_expr{buffer};
+        Expr index_expr{index};
+        return buffer_expr[index_expr];
+    }
+};
+
+}// namespace luisa::compute::detail
+
+namespace luisa::compute::dsl::detail {
+
 template<typename T>
 class ExprBase {
 
@@ -169,6 +189,30 @@ template<typename T>
 
 template<typename T>
 using expr_value_t = typename std::remove_cvref_t<decltype(Expr{std::declval<T>()})>::ValueType;
+
+template<typename T>
+struct Expr<Buffer<T>> : public ExprBase<Buffer<T>> {
+    
+    explicit Expr(BufferView<T> buffer) noexcept
+        : ExprBase<Buffer<T>>{FunctionBuilder::current()->buffer_binding(buffer)} {}
+    
+    Expr(Expr &&another) noexcept = default;
+    Expr(const Expr &another) noexcept = default;
+    void operator=(Expr &&rhs) const noexcept { ExprBase<Buffer<T>>::operator=(rhs); }
+    void operator=(const Expr &rhs) const noexcept { ExprBase<Buffer<T>>::operator=(rhs); }
+    
+    [[nodiscard]] auto operator[](uint32_t i) const noexcept {
+        Expr<uint32_t> index{static_cast<uint32_t>(i)};
+        return Expr<T>{FunctionBuilder::current()->access(
+            Type::of<T>(), this->expression(), index.expression())};
+    }
+    
+    template<concepts::Integral U>
+    [[nodiscard]] auto operator[](Expr<U> i) const noexcept {
+        return Expr<T>{FunctionBuilder::current()->access(
+            Type::of<T>(), this->expression(), i.expression())};
+    }
+};
 
 }// namespace luisa::compute::dsl::detail
 

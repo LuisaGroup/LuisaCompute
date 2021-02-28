@@ -140,9 +140,7 @@ public:
 namespace detail {
 
 template<typename Index>
-struct BufferAccess {
-    static_assert(always_false<Index>, "Invalid BufferAccess");
-};
+struct BufferAccess;
 
 }// namespace detail
 
@@ -225,7 +223,7 @@ public:
 
     template<typename Index>
     [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept {
-        return detail::BufferAccess<std::remove_cvref_t<Index>>{}(*static_cast<const BufferView *>(this), std::forward<Index>(index));
+        return detail::BufferAccess<std::remove_cvref_t<Index>>{}(*this, std::forward<Index>(index));
     }
 };
 

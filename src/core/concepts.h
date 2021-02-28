@@ -34,6 +34,9 @@ concept Container = requires(T a) {
 };
 
 template<typename T>
+concept Integral = is_integral_v<T>;
+
+template<typename T>
 concept Scalar = is_scalar_v<T>;
 
 template<typename T>
