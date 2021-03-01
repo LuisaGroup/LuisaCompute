@@ -57,10 +57,11 @@ public:
 
     auto operator()(detail::Expr<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
-            FunctionBuilder::current()->call(
+            auto expr = FunctionBuilder::current()->call(
                 nullptr,
                 fmt::format("custom_{}", _function.uid()),
                 {args.expression()...});
+            FunctionBuilder::current()->void_(expr);
         } else {
             return detail::Expr<Ret>{FunctionBuilder::current()->call(
                 Type::of<Ret>(),
