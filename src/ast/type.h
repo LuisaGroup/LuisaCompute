@@ -49,6 +49,8 @@ private:
     uint32_t _element_count;
     Tag _tag;
     std::unique_ptr<TypeData> _data;
+    
+    [[nodiscard]] static TypeRegistry &_registry() noexcept;
 
 public:
     template<typename T>
@@ -56,6 +58,8 @@ public:
     template<typename T>
     [[nodiscard]] static auto of(T &&) noexcept { return of<std::remove_cvref_t<T>>(); }
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
+    [[nodiscard]] static const Type *at(uint32_t uid) noexcept;
+    [[nodiscard]] static size_t count() noexcept;
 
     [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }
     [[nodiscard]] bool operator!=(const Type &rhs) const noexcept { return !(*this == rhs); }

@@ -13,7 +13,7 @@ class Function {
 public:
     enum struct Tag {
         KERNEL,
-        DEVICE,
+        CALLABLE,
         // TODO: Ray-tracing functions...
     };
 
@@ -49,8 +49,12 @@ public:
     [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
     [[nodiscard]] std::span<const UniformBinding> captured_uniforms() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
+    [[nodiscard]] std::span<const uint32_t> custom_callables() const noexcept;
+    [[nodiscard]] std::span<const std::string_view> builtin_callables() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
+    [[nodiscard]] uint32_t uid() const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
+    [[nodiscard]] static Function custom_callable(size_t uid) noexcept;
 };
 
 }// namespace luisa::compute

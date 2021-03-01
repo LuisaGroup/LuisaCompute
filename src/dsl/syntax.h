@@ -15,6 +15,12 @@ struct KernelFuncBuilder {
     [[nodiscard]] auto operator<<(F &&def) const noexcept { return KernelFunc{std::forward<F>(def)}; }
 };
 
-}
+struct CallableFuncBuilder {
+    template<typename F>
+    [[nodiscard]] auto operator<<(F &&def) const noexcept { return CallableFunc{std::forward<F>(def)}; }
+};
+
+}// namespace luisa::compute::dsl::detail
 
 #define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelFuncBuilder{} << [&]
+#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableFuncBuilder{} << []

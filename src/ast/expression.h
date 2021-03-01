@@ -5,6 +5,7 @@
 #pragma once
 
 #include <variant>
+#include <charconv>
 
 #include <core/concepts.h>
 #include <core/data_types.h>
@@ -178,16 +179,29 @@ class CallExpr : public Expression {
 
 public:
     using ArgumentList = std::span<const Expression *>;
+    static constexpr auto uid_npos = std::numeric_limits<uint32_t>::max();
 
 private:
     std::string_view _name;
     ArgumentList _arguments;
+    uint32_t _uid{uid_npos};
 
 public:
     CallExpr(const Type *type, std::string_view name, ArgumentList args) noexcept
-        : Expression{type}, _name{name}, _arguments{args} {}
+        : Expression{type}, _name{name}, _arguments{args} {
+        using namespace std::string_view_literals;
+        if (auto prefix = "custom_"sv; _name.starts_with(prefix)) {
+            auto uid_str = _name.substr(prefix.size());
+            if (auto [p, ec] = std::from_chars(uid_str.data(), uid_str.data() + uid_str.size(), _uid);
+                ec != std::errc{}) {
+                LUISA_ERROR_WITH_LOCATION("Invalid custom callable function: {}.", _name);
+            }
+        }
+    }
     [[nodiscard]] auto name() const noexcept { return _name; }
     [[nodiscard]] auto arguments() const noexcept { return _arguments; }
+    [[nodiscard]] auto is_builtin() const noexcept { return _uid == uid_npos; }
+    [[nodiscard]] auto uid() const noexcept { return _uid; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 

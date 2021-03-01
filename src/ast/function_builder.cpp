@@ -197,13 +197,25 @@ const Expression *FunctionBuilder::access(const Type *type, const Expression *ra
 const Expression *FunctionBuilder::call(const Type *type, std::string_view func, std::span<const Expression *> args) noexcept {
     ArenaString func_name{_arena, func};
     ArenaVector func_args{_arena, args};
-    return _arena.create<CallExpr>(type, func_name, func_args);
+    auto expr = _arena.create<CallExpr>(type, func_name, func_args);
+    if (expr->is_builtin()) {
+        _used_builtin_callables.emplace_back(func_name);
+    } else {
+        _used_custom_callables.emplace_back(expr->uid());
+    }
+    return expr;
 }
 
 const Expression *FunctionBuilder::call(const Type *type, std::string_view func, std::initializer_list<const Expression *> args) noexcept {
     ArenaString func_name{_arena, func};
     ArenaVector func_args{_arena, args};
-    return _arena.create<CallExpr>(type, func_name, func_args);
+    auto expr = _arena.create<CallExpr>(type, func_name, func_args);
+    if (expr->is_builtin()) {
+        _used_builtin_callables.emplace_back(func_name);
+    } else {
+        _used_custom_callables.emplace_back(expr->uid());
+    }
+    return expr;
 }
 
 const Expression *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
@@ -212,6 +224,19 @@ const Expression *FunctionBuilder::cast(const Type *type, CastOp op, const Expre
 
 const Expression *FunctionBuilder::_ref(Variable v) noexcept {
     return _arena.create<RefExpr>(v);
+}
+
+std::vector<std::unique_ptr<FunctionBuilder>> &FunctionBuilder::_function_registry() noexcept {
+    static std::vector<std::unique_ptr<FunctionBuilder>> registry;
+    return registry;
+}
+
+Function FunctionBuilder::custom_callable(size_t uid) noexcept {
+    auto &&registry = _function_registry();
+    if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid callable function with uid {}.", uid); }
+    auto &&f = *registry[uid];
+    if (f.tag() != Function::Tag::CALLABLE) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a callable function.", uid); }
+    return f;
 }
 
 }// namespace luisa::compute

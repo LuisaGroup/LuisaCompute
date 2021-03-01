@@ -40,13 +40,15 @@ private:
     ArenaVector<TextureBinding> _captured_textures;
     ArenaVector<UniformBinding> _captured_uniforms;
     ArenaVector<Variable> _arguments;
+    ArenaVector<uint32_t> _used_custom_callables;
+    ArenaVector<std::string_view> _used_builtin_callables;
     Tag _tag;
+    uint32_t _uid;
     uint32_t _variable_counter{0u};
-    
-    // TODO: device function registry...
 
 private:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
+    [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
     static void _push(FunctionBuilder *func) noexcept;
@@ -62,8 +64,8 @@ private:
     [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const Expression *_ref(Variable v) noexcept;
 
-public:
-    explicit FunctionBuilder(Tag tag) noexcept
+private:
+    explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept
         : _body{nullptr},
           _scope_stack{_arena},
           _builtin_variables{_arena},
@@ -73,18 +75,25 @@ public:
           _captured_textures{_arena},
           _captured_uniforms{_arena},
           _arguments{_arena},
-          _tag{tag} {}
-
-    [[nodiscard]] static FunctionBuilder *current() noexcept;
+          _used_custom_callables{_arena},
+          _used_builtin_callables{_arena},
+          _tag{tag},
+          _uid{uid} {}
 
     template<typename Def>
-    void define(Def &&def) noexcept {
-        if (_body != nullptr) { LUISA_ERROR_WITH_LOCATION("Multiple definition."); }
-        _push(this);
-        _body = scope(std::forward<Def>(def));
-        if (_pop() != this) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
+    static auto _define(Function::Tag tag, Def &&def) noexcept {
+        auto f_uid = static_cast<uint32_t>(_function_registry().size());
+        auto f = _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
+        _push(f);
+        f->_body = f->scope(std::forward<Def>(def));
+        if (_pop() != f) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
+        return Function{*f};
     }
 
+public:
+    [[nodiscard]] static FunctionBuilder *current() noexcept;
+
+    // interfaces for class Function
     [[nodiscard]] auto builtin_variables() const noexcept { return std::span{_builtin_variables.data(), _builtin_variables.size()}; }
     [[nodiscard]] auto shared_variables() const noexcept { return std::span{_shared_variables.data(), _shared_variables.size()}; }
     [[nodiscard]] auto constant_variables() const noexcept { return std::span{_constant_variables.data(), _constant_variables.size()}; }
@@ -92,9 +101,19 @@ public:
     [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
     [[nodiscard]] auto captured_uniforms() const noexcept { return std::span{_captured_uniforms.data(), _captured_uniforms.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
+    [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
+    [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() const noexcept { return _body; }
-    [[nodiscard]] const auto &arena() const noexcept { return _arena; }
+    [[nodiscard]] auto uid() const noexcept { return _uid; }
+    [[nodiscard]] static Function custom_callable(size_t uid) noexcept;
+
+    // build primitives
+    template<typename Def>
+    static auto define_kernel(Def &&def) noexcept { return _define(Function::Tag::KERNEL, std::forward<Def>(def)); }
+
+    template<typename Def>
+    static auto define_callable(Def &&def) noexcept { return _define(Function::Tag::CALLABLE, std::forward<Def>(def)); }
 
     [[nodiscard]] const Expression *thread_id() noexcept;
     [[nodiscard]] const Expression *block_id() noexcept;

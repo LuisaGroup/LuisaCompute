@@ -22,7 +22,6 @@ struct TypeData {
 
 const Type *Type::from(std::string_view description) noexcept {
 
-    static TypeRegistry registry;
 
     static constexpr const Type *(*from_desc_impl)(std::string_view &) = [](std::string_view &s) noexcept -> const Type * {
         Type info;
@@ -153,7 +152,7 @@ const Type *Type::from(std::string_view description) noexcept {
         auto description = s_copy.substr(0, s_copy.size() - s.size());
         auto hash = xxh3_hash64(description.data(), description.size());
 
-        return registry.with_types(
+        return _registry().with_types(
             [info = std::move(info), data = std::move(data), hash, description](auto &&types) mutable noexcept {
                 if (auto iter = std::find_if(
                         types.cbegin(), types.cend(),
@@ -182,6 +181,24 @@ std::span<const Type *const> Type::members() const noexcept {
 const Type *Type::element() const noexcept {
     assert(is_array() || is_atomic() || is_vector() || is_matrix());
     return _data->members.front();
+}
+
+const Type *Type::at(uint32_t uid) noexcept {
+    return _registry().with_types([uid](auto &&types) {
+        if (uid >= types.size()) { LUISA_ERROR_WITH_LOCATION("Invalid type uid {}.", uid); }
+        return types[uid].get();
+    });
+}
+
+TypeRegistry &Type::_registry() noexcept {
+    static TypeRegistry r;
+    return r;
+}
+
+size_t Type::count() noexcept {
+    return _registry().with_types([](auto &&types) noexcept {
+        return types.size();
+    });
 }
 
 }// namespace luisa::compute

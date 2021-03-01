@@ -33,11 +33,17 @@ int main() {
 
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};
+    
+    auto callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
+      return a + b * c;
+    };
 
     auto kernel = LUISA_KERNEL(Var<Buffer<float>> buffer_float, Var<uint> count) noexcept {
 
         Var v_int = 10;
         Var v_float = buffer_float[count];
+        Var call_ret = callable(10, v_int, v_float);
+
         Var v_float_copy = v_float;
 
         Var z = -1 + v_int * v_float + 1.0f;

@@ -9,14 +9,7 @@
 namespace luisa::compute::dsl {
 
 namespace detail {
-
 struct ArgumentCreation {};
-
-template<typename T>
-[[nodiscard]] inline auto create_argument() noexcept {
-    return T{ArgumentCreation{}};
-}
-
 }// namespace detail
 
 template<typename T>
@@ -70,5 +63,32 @@ struct is_var<Var<T>> : std::true_type {};
 
 template<typename T>
 constexpr auto is_var_v = is_var<T>::value;
+
+template<typename T>
+struct var_value {
+    static_assert(always_false_v<T>);
+};
+
+template<typename T>
+struct var_value<Var<T>> {
+    using type = T;
+};
+
+template<>
+struct var_value<void> {
+    using type = void;
+};
+
+template<typename T>
+using var_value_t = typename var_value<T>::type;
+
+namespace detail {
+
+template<typename T>
+[[nodiscard]] inline auto create_argument() noexcept {
+    return Var<T>{ArgumentCreation{}};
+}
+
+}// namespace detail
 
 }// namespace luisa::compute::dsl

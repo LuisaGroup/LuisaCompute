@@ -16,42 +16,58 @@ class KernelFunc {
 template<typename... Args>
 class KernelFunc<void(Args...)> {
 
-    static_assert(std::conjunction_v<is_var<Args>...>);
-
 private:
-    FunctionBuilder _builder;
+    Function _function;
 
 public:
     template<typename Def>
-    requires concepts::InvocableRet<void, Def, Args...>
-    KernelFunc(Def &&def) noexcept : _builder{Function::Tag::KERNEL} {
-        _builder.define([&def] {
-            def(detail::create_argument<Args>()...);
-        });
-    }
-
-    KernelFunc(KernelFunc &&) noexcept = default;
-    KernelFunc &operator=(KernelFunc &&) noexcept = delete;
+    requires concepts::InvocableRet<void, Def, Var<Args>...>
+    KernelFunc(Def &&def) noexcept
+        : _function{FunctionBuilder::define_kernel([&def] {
+              def(detail::create_argument<Args>()...);
+          })} {}
 
     // TODO: integration into runtime...
-    [[nodiscard]] auto function() const noexcept { return Function{_builder}; }
+    [[nodiscard]] auto function() const noexcept { return _function; }
 };
 
 template<typename T>
-class DeviceFunc {
+class CallableFunc {
     static_assert(always_false_v<T>);
 };
 
 template<typename Ret, typename... Args>
-class DeviceFunc<Ret(Args...)> {
-    
-    static_assert(std::conjunction_v<is_var<Ret>, is_var<Args>...>);
+class CallableFunc<Ret(Args...)> {
 
 private:
-
+    Function _function;
 
 public:
+    template<typename Def>
+    requires concepts::Invocable<Def, Var<Args>...>
+    CallableFunc(Def &&def) noexcept
+        : _function{FunctionBuilder::define_callable([&def] {
+              if constexpr (std::is_same_v<Ret, void>) {
+                  def(detail::create_argument<Args>()...);
+              } else {
+                  Var<Ret> ret = def(detail::create_argument<Args>()...);
+                  FunctionBuilder::current()->return_(ret.expression());
+              }
+          })} {}
 
+    auto operator()(detail::Expr<Args>... args) const noexcept {
+        if constexpr (std::is_same_v<Ret, void>) {
+            FunctionBuilder::current()->call(
+                nullptr,
+                fmt::format("custom_{}", _function.uid()),
+                {args.expression()...});
+        } else {
+            return detail::Expr<Ret>{FunctionBuilder::current()->call(
+                Type::of<Ret>(),
+                fmt::format("custom_{}", _function.uid()),
+                {args.expression()...})};
+        }
+    }
 };
 
 namespace detail {
@@ -62,9 +78,22 @@ struct function {
         std::remove_cvref_t<decltype(std::function{std::declval<T>()})>>::type;
 };
 
+template<typename R, typename... A>
+using function_declaration_t = R(A...);
+
+template<typename... Args>
+struct function<std::function<void(Args...)>> {
+    using type = function_declaration_t<void, var_value_t<Args>...>;
+};
+
 template<typename Ret, typename... Args>
-struct function<std::function<Ret(Args...)>> {
-    using type = Ret(Args...);
+struct function<std::function<Var<Ret>(Args...)>> {
+    using type = function_declaration_t<Ret, var_value_t<Args>...>;
+};
+
+template<typename Ret, typename... Args>
+struct function<std::function<Expr<Ret>(Args...)>> {
+    using type = function_declaration_t<Ret, var_value_t<Args>...>;
 };
 
 template<typename T>
@@ -76,6 +105,6 @@ template<typename T>
 KernelFunc(T &&) -> KernelFunc<detail::function_t<T>>;
 
 template<typename T>
-DeviceFunc(T &&) -> DeviceFunc<detail::function_t<T>>;
+CallableFunc(T &&) -> CallableFunc<detail::function_t<T>>;
 
 }// namespace luisa::compute::dsl
