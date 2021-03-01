@@ -39,8 +39,8 @@ const ScopeStmt *Function::body() const noexcept {
     return _builder.body();
 }
 
-Function Function::custom_callable(size_t uid) noexcept {
-    return FunctionBuilder::custom_callable(uid);
+Function Function::callable(uint32_t uid) noexcept {
+    return FunctionBuilder::callable(uid);
 }
 
 uint32_t Function::uid() const noexcept {
@@ -53,6 +53,10 @@ std::span<const uint32_t> Function::custom_callables() const noexcept {
 
 std::span<const std::string_view> Function::builtin_callables() const noexcept {
     return _builder.builtin_callables();
+}
+
+Function Function::kernel(uint32_t uid) noexcept {
+    return FunctionBuilder::kernel(uid);
 }
 
 }

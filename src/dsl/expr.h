@@ -109,7 +109,7 @@ public:
         FunctionBuilder::current()->assign(AssignOp::op_tag_name, this->expression(), rhs.expression()); \
     }                                                                                                    \
     template<typename U>                                                                                 \
-    void operator op(U &&rhs) const noexcept {                                                           \
+    void operator op(U &&rhs) noexcept {                                                                 \
         return this->operator op(Expr{std::forward<U>(rhs)});                                            \
     }
 #define LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TRIPLET(op) LUISA_MAKE_EXPR_ASSIGN_OP op

@@ -4,13 +4,15 @@
 
 #pragma once
 
-#include "function.h"
 #include <vector>
+#include <mutex>
+
 #include <fmt/format.h>
 
 #include <core/memory.h>
 #include <runtime/buffer.h>
 #include <ast/statement.h>
+#include <ast/function.h>
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/type_registry.h>
@@ -46,6 +48,7 @@ private:
 
 private:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
+    [[nodiscard]] static std::recursive_mutex &_function_registry_mutex() noexcept;
     [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
@@ -78,6 +81,7 @@ private:
 
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) noexcept {
+        std::scoped_lock lock{_function_registry_mutex()};
         auto f_uid = static_cast<uint32_t>(_function_registry().size());
         auto f = _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
         _push(f);
@@ -101,7 +105,8 @@ public:
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
-    [[nodiscard]] static Function custom_callable(size_t uid) noexcept;
+    [[nodiscard]] static Function callable(uint32_t uid) noexcept;
+    [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
 
     // build primitives
     template<typename Def>
@@ -184,6 +189,7 @@ public:
     void switch_(const Expression *expr, const Statement *body) noexcept;
     void case_(const Expression *expr, const Statement *body) noexcept;
     void default_(const Statement *body) noexcept;
+    
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
 };
 

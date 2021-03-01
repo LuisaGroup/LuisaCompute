@@ -48,7 +48,8 @@ public:
     [[nodiscard]] Tag tag() const noexcept;
     [[nodiscard]] uint32_t uid() const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
-    [[nodiscard]] static Function custom_callable(size_t uid) noexcept;
+    [[nodiscard]] static Function callable(uint32_t uid) noexcept;
+    [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
 };
 
 }// namespace luisa::compute
