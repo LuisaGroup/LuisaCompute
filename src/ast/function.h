@@ -27,11 +27,6 @@ public:
         // TODO...
     };
 
-    struct UniformBinding {
-        Variable variable;
-        const void *data;
-    };
-
     struct ConstantData {
         Variable variable;
         const void *data;
@@ -47,7 +42,6 @@ public:
     [[nodiscard]] std::span<const ConstantData> constant_variables() const noexcept;
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
     [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
-    [[nodiscard]] std::span<const UniformBinding> captured_uniforms() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const uint32_t> custom_callables() const noexcept;
     [[nodiscard]] std::span<const std::string_view> builtin_callables() const noexcept;

@@ -135,25 +135,6 @@ const Expression *FunctionBuilder::buffer(const Type *type) noexcept {
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::_uniform_binding(const Type *type, const void *data) noexcept {
-    if (auto iter = std::find_if(
-            _captured_uniforms.cbegin(),
-            _captured_uniforms.cend(),
-            [data](auto &&binding) { return binding.data == data; });
-        iter != _captured_uniforms.cend()) {
-        auto v = iter->variable;
-        if (*v.type() != *type) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Pointer aliasing in implicitly captured uniform data (original type = {}, requested type = {}).",
-                v.type()->description(), type->description());
-        }
-        return _ref(v);
-    }
-    Variable v{type, Variable::Tag::UNIFORM, _next_variable_uid()};
-    _captured_uniforms.emplace_back(UniformBinding{v, data});
-    return _ref(v);
-}
-
 const Expression *FunctionBuilder::_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
     if (auto iter = std::find_if(
             _captured_buffers.cbegin(),

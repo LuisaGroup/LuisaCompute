@@ -27,10 +27,6 @@ std::span<const Function::TextureBinding> Function::captured_textures() const no
     return _builder.captured_textures();
 }
 
-std::span<const Function::UniformBinding> Function::captured_uniforms() const noexcept {
-    return _builder.captured_uniforms();
-}
-
 std::span<const Variable> Function::arguments() const noexcept {
     return _builder.arguments();
 }

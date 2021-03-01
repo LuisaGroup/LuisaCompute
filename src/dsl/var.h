@@ -29,8 +29,8 @@ struct Var : public detail::Expr<T> {
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{detail::Expr{another}} {}
-    void operator=(Var &&rhs) const noexcept { detail::ExprBase<T>::operator=(rhs); }
-    void operator=(const Var &rhs) const noexcept { detail::ExprBase<T>::operator=(rhs); }
+    void operator=(Var &&rhs) noexcept { detail::ExprBase<T>::operator=(rhs); }
+    void operator=(const Var &rhs) noexcept { detail::ExprBase<T>::operator=(rhs); }
 };
 
 template<typename T>
@@ -39,6 +39,8 @@ struct Var<Buffer<T>> : public detail::Expr<Buffer<T>> {
         : detail::Expr<Buffer<T>>{
             FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&another) noexcept = default;
+    Var &operator=(Var &&) noexcept = delete;
+    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<typename T>
@@ -46,14 +48,6 @@ Var(detail::Expr<T>) -> Var<T>;
 
 template<concepts::Native T>
 Var(T) -> Var<T>;
-
-template<typename T>
-struct Shared : public detail::Expr<std::array<T, 1>> {
-};
-
-template<typename T>
-struct Constant : public detail::Expr<std::array<T, 1>> {
-};
 
 template<typename T>
 struct is_var : std::false_type {};

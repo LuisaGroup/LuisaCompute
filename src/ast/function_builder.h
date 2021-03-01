@@ -27,7 +27,6 @@ public:
     using ConstantData = Function::ConstantData;
     using BufferBinding = Function::BufferBinding;
     using TextureBinding = Function::TextureBinding;
-    using UniformBinding = Function::UniformBinding;
 
 private:
     Arena _arena;
@@ -38,7 +37,6 @@ private:
     ArenaVector<ConstantData> _constant_variables;
     ArenaVector<BufferBinding> _captured_buffers;
     ArenaVector<TextureBinding> _captured_textures;
-    ArenaVector<UniformBinding> _captured_uniforms;
     ArenaVector<Variable> _arguments;
     ArenaVector<uint32_t> _used_custom_callables;
     ArenaVector<std::string_view> _used_builtin_callables;
@@ -59,7 +57,6 @@ private:
     [[nodiscard]] const Expression *_literal(const Type *type, LiteralExpr::Value value) noexcept;
     [[nodiscard]] const Expression *_constant(const Type *type, const void *data) noexcept;
     [[nodiscard]] const Expression *_builtin(Variable::Tag tag) noexcept;
-    [[nodiscard]] const Expression *_uniform_binding(const Type *type, const void *data) noexcept;
     [[nodiscard]] const Expression *_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const Expression *_ref(Variable v) noexcept;
@@ -73,7 +70,6 @@ private:
           _constant_variables{_arena},
           _captured_buffers{_arena},
           _captured_textures{_arena},
-          _captured_uniforms{_arena},
           _arguments{_arena},
           _used_custom_callables{_arena},
           _used_builtin_callables{_arena},
@@ -99,7 +95,6 @@ public:
     [[nodiscard]] auto constant_variables() const noexcept { return std::span{_constant_variables.data(), _constant_variables.size()}; }
     [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
     [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
-    [[nodiscard]] auto captured_uniforms() const noexcept { return std::span{_captured_uniforms.data(), _captured_uniforms.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
@@ -118,8 +113,7 @@ public:
         if (!f.builtin_variables().empty() ||
             !f.shared_variables().empty() ||
             !f.captured_buffers().empty() ||
-            !f.captured_textures().empty() ||
-            !f.captured_uniforms().empty()) {
+            !f.captured_textures().empty()) {
             LUISA_ERROR_WITH_LOCATION("Custom callables may not have builtin, shared or captured variables.");
         }
         return f;
@@ -145,17 +139,7 @@ public:
 
     template<typename T>
     [[nodiscard]] auto constant(std::initializer_list<T> data) noexcept { return constant<std::initializer_list<T>>(data); }
-
-    // implicit arguments
-    template<typename T>
-    [[nodiscard]] auto uniform_binding(std::span<T> u) noexcept {
-        auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), u.size()));
-        return _uniform_binding(type, u.data());
-    }
-
-    template<typename T>
-    [[nodiscard]] auto uniform_binding(const T *data) noexcept { return _uniform_binding(Type::of<T>(), data); }
-
+    
     template<typename T>
     [[nodiscard]] auto buffer_binding(BufferView<T> bv) noexcept {
         return _buffer_binding(Type::of<BufferView<T>>(), bv.handle(), bv.offset_bytes());

@@ -33,10 +33,18 @@ int main() {
 
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};
-    
+
     auto callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
-      return a + b * c;
+        return a + b * c;
     };
+
+    Callable cb = [](Var<int> a, Var<float> b) {
+        return a * b;
+    };
+    
+    float float_array[10];
+    std::array<float, 10> float_std_array;
+    std::vector<float> float_vector;
 
     auto kernel = LUISA_KERNEL(Var<Buffer<float>> buffer_float, Var<uint> count) noexcept {
 
