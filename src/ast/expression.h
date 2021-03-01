@@ -10,6 +10,7 @@
 #include <core/concepts.h>
 #include <core/data_types.h>
 #include <ast/variable.h>
+#include <core/logging.h>
 
 namespace luisa::compute {
 
