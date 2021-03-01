@@ -124,110 +124,117 @@ public:
 		str += vis.ToString();
 		str += ']';
 	}
-	void visit(const ValueExpr* expr) override {
-		ValueExpr::Value const& value = expr->value();
+	void visit(const RefExpr* expr) override {
+		Variable v = expr->variable();
+		if (v.type()->is_vector() && v.type()->element()->size() < 4) {
+
+		} else {
+			str = 'v';
+			str += vengine::to_string(v.uid());
+		}
+	}
+	void visit(const LiteralExpr* expr) override {
+		LiteralExpr::Value const& value = expr->value();
 		switch (value.index()) {
 			case 0: {
-				Variable const& v = std::get<0>(value);
-				vengine::string varName = "v" + vengine::to_string(v.uid());
-				if (v.type()->tag() == Type::Tag::VECTOR) {
-					
-				} else {
-					str = std::move(varName);
-
-				}
-			} break;
-			case 1: {
-				bool const& v = std::get<1>(value);
+				bool const& v = std::get<0>(value);
 				str = v ? "true" : "false";
 			} break;
+			case 1: {
+				float const& v = std::get<1>(value);
+				str = vengine::to_string(v);
+			} break;
 			case 2: {
-				float const& v = std::get<2>(value);
+				int8_t const& v = std::get<2>(value);
 				str = vengine::to_string(v);
 			} break;
 			case 3: {
-				int8_t const& v = std::get<3>(value);
+				uint8_t const& v = std::get<3>(value);
 				str = vengine::to_string(v);
 			} break;
 			case 4: {
-				uint8_t const& v = std::get<4>(value);
+				int16_t const& v = std::get<4>(value);
 				str = vengine::to_string(v);
 			} break;
 			case 5: {
-				int16_t const& v = std::get<5>(value);
+				uint16_t const& v = std::get<5>(value);
 				str = vengine::to_string(v);
 			} break;
 			case 6: {
-				uint16_t const& v = std::get<6>(value);
+				int32_t const& v = std::get<6>(value);
 				str = vengine::to_string(v);
 			} break;
 			case 7: {
-				int32_t const& v = std::get<7>(value);
+				uint32_t const& v = std::get<7>(value);
 				str = vengine::to_string(v);
 			} break;
 			case 8: {
-				uint32_t const& v = std::get<8>(value);
-				str = vengine::to_string(v);
+				auto const& v = std::get<8>(value);
+				str = "bool2(";
+				str += vengine::to_string(v.x);
+				str += vengine::to_string(v.y);
+				str += ')';
 			} break;
 			case 9: {
 				auto const& v = std::get<9>(value);
-				str = "bool2(";
+				str = "float2(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += ')';
 			} break;
 			case 10: {
 				auto const& v = std::get<10>(value);
-				str = "float2(";
+				str = "int2(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += ')';
 			} break;
 			case 11: {
 				auto const& v = std::get<11>(value);
-				str = "int2(";
+				str = "uint2(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += ')';
 			} break;
 			case 12: {
 				auto const& v = std::get<12>(value);
-				str = "uint2(";
+				str = "int2(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += ')';
 			} break;
 			case 13: {
 				auto const& v = std::get<13>(value);
-				str = "int2(";
+				str = "uint2(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += ')';
 			} break;
 			case 14: {
 				auto const& v = std::get<14>(value);
-				str = "uint2(";
+				str = "int2(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += ')';
 			} break;
 			case 15: {
 				auto const& v = std::get<15>(value);
-				str = "int2(";
+				str = "uint2(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += ')';
 			} break;
 			case 16: {
 				auto const& v = std::get<16>(value);
-				str = "uint2(";
+				str = "bool3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
+				str += vengine::to_string(v.z);
 				str += ')';
 			} break;
 			case 17: {
 				auto const& v = std::get<17>(value);
-				str = "bool3(";
+				str = "float3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -235,7 +242,7 @@ public:
 			} break;
 			case 18: {
 				auto const& v = std::get<18>(value);
-				str = "float3(";
+				str = "int3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -243,7 +250,7 @@ public:
 			} break;
 			case 19: {
 				auto const& v = std::get<19>(value);
-				str = "int3(";
+				str = "uint3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -251,7 +258,7 @@ public:
 			} break;
 			case 20: {
 				auto const& v = std::get<20>(value);
-				str = "uint3(";
+				str = "int3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -259,7 +266,7 @@ public:
 			} break;
 			case 21: {
 				auto const& v = std::get<21>(value);
-				str = "int3(";
+				str = "uint3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -267,7 +274,7 @@ public:
 			} break;
 			case 22: {
 				auto const& v = std::get<22>(value);
-				str = "uint3(";
+				str = "int3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -275,7 +282,7 @@ public:
 			} break;
 			case 23: {
 				auto const& v = std::get<23>(value);
-				str = "int3(";
+				str = "uint3(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -283,15 +290,16 @@ public:
 			} break;
 			case 24: {
 				auto const& v = std::get<24>(value);
-				str = "uint3(";
+				str = "bool4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
+				str += vengine::to_string(v.w);
 				str += ')';
 			} break;
 			case 25: {
 				auto const& v = std::get<25>(value);
-				str = "bool4(";
+				str = "float4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -300,7 +308,7 @@ public:
 			} break;
 			case 26: {
 				auto const& v = std::get<26>(value);
-				str = "float4(";
+				str = "int4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -309,7 +317,7 @@ public:
 			} break;
 			case 27: {
 				auto const& v = std::get<27>(value);
-				str = "int4(";
+				str = "uint4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -318,7 +326,7 @@ public:
 			} break;
 			case 28: {
 				auto const& v = std::get<28>(value);
-				str = "uint4(";
+				str = "int4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -327,7 +335,7 @@ public:
 			} break;
 			case 29: {
 				auto const& v = std::get<29>(value);
-				str = "int4(";
+				str = "uint4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -336,7 +344,7 @@ public:
 			} break;
 			case 30: {
 				auto const& v = std::get<30>(value);
-				str = "uint4(";
+				str = "int4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
 				str += vengine::to_string(v.z);
@@ -345,15 +353,6 @@ public:
 			} break;
 			case 31: {
 				auto const& v = std::get<31>(value);
-				str = "int4(";
-				str += vengine::to_string(v.x);
-				str += vengine::to_string(v.y);
-				str += vengine::to_string(v.z);
-				str += vengine::to_string(v.w);
-				str += ')';
-			} break;
-			case 32: {
-				auto const& v = std::get<32>(value);
 				str = "uint4(";
 				str += vengine::to_string(v.x);
 				str += vengine::to_string(v.y);
@@ -361,8 +360,8 @@ public:
 				str += vengine::to_string(v.w);
 				str += ')';
 			} break;
-			case 33: {
-				float3x3 const& v = std::get<33>(value);
+			case 32: {
+				float3x3 const& v = std::get<32>(value);
 				str = "float3x3(";
 				float3 c0 = v[0];
 				float3 c1 = v[1];
@@ -371,8 +370,8 @@ public:
 				str += vengine::to_string(c0.y) + ',' + vengine::to_string(c1.y) + ',' + vengine::to_string(c2.y) + ',';
 				str += vengine::to_string(c0.z) + ',' + vengine::to_string(c1.z) + ',' + vengine::to_string(c2.z) + ')';
 			} break;
-			case 34: {
-				float4x4 const& v = std::get<34>(value);
+			case 33: {
+				float4x4 const& v = std::get<33>(value);
 				str = "float4x4(";
 				float4 c0 = v[0];
 				float4 c1 = v[1];
@@ -381,7 +380,7 @@ public:
 				str += vengine::to_string(c0.x) + ',' + vengine::to_string(c1.x) + ',' + vengine::to_string(c2.x) + ',' + vengine::to_string(c3.x) + ',';
 				str += vengine::to_string(c0.y) + ',' + vengine::to_string(c1.y) + ',' + vengine::to_string(c2.y) + ',' + vengine::to_string(c3.y) + ',';
 				str += vengine::to_string(c0.z) + ',' + vengine::to_string(c1.z) + ',' + vengine::to_string(c2.z) + ',' + vengine::to_string(c3.z) + ')';
-			} break;
+			} break;       
 		}
 	}
 	void visit(const CallExpr* expr) override {

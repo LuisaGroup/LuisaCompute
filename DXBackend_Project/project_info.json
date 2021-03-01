@@ -33,6 +33,7 @@
     ],
     "IncludePaths" : [
       "../src",
+      "../src/ext/spdlog/include",
       "."
     ],
     "IncludeLibs": [
