@@ -113,7 +113,17 @@ public:
     static auto define_kernel(Def &&def) noexcept { return _define(Function::Tag::KERNEL, std::forward<Def>(def)); }
 
     template<typename Def>
-    static auto define_callable(Def &&def) noexcept { return _define(Function::Tag::CALLABLE, std::forward<Def>(def)); }
+    static auto define_callable(Def &&def) noexcept {
+        auto f = _define(Function::Tag::CALLABLE, std::forward<Def>(def));
+        if (!f.builtin_variables().empty() ||
+            !f.shared_variables().empty() ||
+            !f.captured_buffers().empty() ||
+            !f.captured_textures().empty() ||
+            !f.captured_uniforms().empty()) {
+            LUISA_ERROR_WITH_LOCATION("Custom callables may not have builtin, shared or captured variables.");
+        }
+        return f;
+    }
 
     [[nodiscard]] const Expression *thread_id() noexcept;
     [[nodiscard]] const Expression *block_id() noexcept;

@@ -23,4 +23,4 @@ struct CallableBuilder {
 }// namespace luisa::compute::dsl::detail
 
 #define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelBuilder{} << [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} << []
+#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} << [&]
