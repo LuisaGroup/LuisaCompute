@@ -10,17 +10,17 @@
 
 namespace luisa::compute::dsl::detail {
 
-struct KernelFuncBuilder {
+struct KernelBuilder {
     template<typename F>
-    [[nodiscard]] auto operator<<(F &&def) const noexcept { return KernelFunc{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator<<(F &&def) const noexcept { return Kernel{std::forward<F>(def)}; }
 };
 
-struct CallableFuncBuilder {
+struct CallableBuilder {
     template<typename F>
-    [[nodiscard]] auto operator<<(F &&def) const noexcept { return CallableFunc{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator<<(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
 };
 
 }// namespace luisa::compute::dsl::detail
 
-#define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelFuncBuilder{} << [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableFuncBuilder{} << []
+#define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelBuilder{} << [&]
+#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} << []

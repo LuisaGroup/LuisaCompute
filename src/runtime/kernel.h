@@ -6,20 +6,6 @@
 
 namespace luisa::compute {
 
-template<typename... Args>
-class Kernel {
 
-private:
-
-
-public:
-
-
-};
-
-template<typename Ret, typename... Args>
-class Callable {
-
-};
 
 }// namespace luisa::compute

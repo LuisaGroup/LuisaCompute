@@ -9,12 +9,12 @@
 namespace luisa::compute::dsl {
 
 template<typename T>
-class KernelFunc {
+class Kernel {
     static_assert(always_false_v<T>);
 };
 
 template<typename... Args>
-class KernelFunc<void(Args...)> {
+class Kernel<void(Args...)> {
 
 private:
     Function _function;
@@ -22,7 +22,7 @@ private:
 public:
     template<typename Def>
     requires concepts::InvocableRet<void, Def, Var<Args>...>
-    KernelFunc(Def &&def) noexcept
+    Kernel(Def &&def) noexcept
         : _function{FunctionBuilder::define_kernel([&def] {
               def(detail::create_argument<Args>()...);
           })} {}
@@ -32,12 +32,12 @@ public:
 };
 
 template<typename T>
-class CallableFunc {
+class Callable {
     static_assert(always_false_v<T>);
 };
 
 template<typename Ret, typename... Args>
-class CallableFunc<Ret(Args...)> {
+class Callable<Ret(Args...)> {
 
 private:
     Function _function;
@@ -45,7 +45,7 @@ private:
 public:
     template<typename Def>
     requires concepts::Invocable<Def, Var<Args>...>
-    CallableFunc(Def &&def) noexcept
+    Callable(Def &&def) noexcept
         : _function{FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
                   def(detail::create_argument<Args>()...);
@@ -103,9 +103,9 @@ using function_t = typename function<T>::type;
 }// namespace detail
 
 template<typename T>
-KernelFunc(T &&) -> KernelFunc<detail::function_t<T>>;
+Kernel(T &&) -> Kernel<detail::function_t<T>>;
 
 template<typename T>
-CallableFunc(T &&) -> CallableFunc<detail::function_t<T>>;
+Callable(T &&) -> Callable<detail::function_t<T>>;
 
 }// namespace luisa::compute::dsl
