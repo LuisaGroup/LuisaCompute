@@ -52,6 +52,7 @@ PtrLink::PtrLink(PtrLink&& p) noexcept
 	p.heapPtr = nullptr;
 }
 void PtrLink::operator=(const PtrLink& p) noexcept {
+	if (&p == this) return;
 	if (p.heapPtr && p.heapPtr->ptr) {
 		++p.heapPtr->refCount;
 		++p.heapPtr->looseRefCount;
@@ -63,6 +64,7 @@ void PtrLink::operator=(const PtrLink& p) noexcept {
 	offset = p.offset;
 }
 void PtrLink::operator=(PtrLink&& p) noexcept {
+	if (&p == this) return;
 	Dispose();
 	heapPtr = p.heapPtr;
 	offset = p.offset;
@@ -164,6 +166,7 @@ void PtrWeakLink::operator=(const PtrLink& p) noexcept {
 	offset = p.offset;
 }
 void PtrWeakLink::operator=(const PtrWeakLink& p) noexcept {
+	if (&p == this) return;
 	if (p.heapPtr && p.heapPtr->ptr) {
 		++p.heapPtr->looseRefCount;
 		Dispose();
@@ -174,6 +177,7 @@ void PtrWeakLink::operator=(const PtrWeakLink& p) noexcept {
 	offset = p.offset;
 }
 void PtrWeakLink::operator=(PtrWeakLink&& p) noexcept {
+	if (&p == this) return;
 	Dispose();
 	heapPtr = p.heapPtr;
 	offset = p.offset;
