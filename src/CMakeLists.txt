@@ -11,8 +11,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 add_subdirectory(ext)
 add_subdirectory(core)
-add_subdirectory(ast)
 add_subdirectory(runtime)
+add_subdirectory(ast)
 add_subdirectory(dsl)
 
 add_library(luisa-compute INTERFACE)

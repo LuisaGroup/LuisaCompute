@@ -138,6 +138,7 @@ public:
 	}
 
 	void operator=(const Runnable<_Ret(_Types...)>& f) noexcept {
+		if (&f == this) return;
 		if (disposeFunc) disposeFunc(placePtr);
 		AllocateFunctor(f.allocatedSize);
 		funcPtr = f.funcPtr;
@@ -148,9 +149,11 @@ public:
 		}
 	}
 	void operator=(Runnable<_Ret(_Types...)>& f) noexcept {
+		if (&f == this) return;
 		operator()(static_cast<Runnable<_Ret(_Types...)> const&>(f));
 	}
 	void operator=(Runnable<_Ret(_Types...)>&& f) noexcept {
+		if (&f == this) return;
 		if (disposeFunc) disposeFunc(placePtr);
 		FreeFunctor();
 		allocatedSize = f.allocatedSize;

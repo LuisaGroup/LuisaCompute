@@ -171,6 +171,7 @@ public:
 		another.mCapacity = 0;
 	}
 	void operator=(const vector<T, useVEngineAlloc, forceTrivial>& another) noexcept {
+		if (&another == this) return;
 		clear();
 		reserve(another.mSize);
 		mSize = another.mSize;
@@ -183,6 +184,7 @@ public:
 		}
 	}
 	void operator=(vector<T, useVEngineAlloc, forceTrivial>&& another) noexcept {
+		if (&another == this) return;
 		clear();
 		if (arr)
 			Free(arr);
