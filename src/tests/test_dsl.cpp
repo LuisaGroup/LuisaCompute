@@ -18,7 +18,7 @@ struct Test {
 
 LUISA_STRUCT(Test, something, a)
 
-class FakeDevice : public Device {
+struct FakeDevice : public Device {
     
     void dispose_buffer(uint64_t handle) noexcept override {}
     
@@ -35,6 +35,7 @@ int main() {
 
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};
+    Buffer<float> float_buffer{&device, 1024u};
 
     auto callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
         return a + b * c;
@@ -68,4 +69,7 @@ int main() {
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
+    
+    auto command = kernel(float_buffer, 12u).parallelize(1024u);
+    LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
 }

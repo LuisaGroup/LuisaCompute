@@ -12,22 +12,40 @@ namespace luisa::compute::dsl {
 namespace detail {
 
 template<typename T>
-struct function_invoke_argument {
+struct callable_invoke_argument {
     static_assert(always_false_v<T>);
 };
 
 template<typename T>
-struct function_invoke_argument<Var<T>> {
+struct callable_invoke_argument<Var<T>> {
     using type = Expr<T>;
 };
 
 template<typename T>
-struct function_invoke_argument<BufferView<T>> {
+struct callable_invoke_argument<BufferView<T>> {
     using type = BufferView<T>;
 };
 
 template<typename T>
-using function_invoke_argument_t = typename function_invoke_argument<T>::type;
+using callable_invoke_argument_t = typename callable_invoke_argument<T>::type;
+
+template<typename T>
+struct kernel_invoke_argument {
+    static_assert(always_false_v<T>);
+};
+
+template<typename T>
+struct kernel_invoke_argument<Var<T>> {
+    using type = const T &;
+};
+
+template<typename T>
+struct kernel_invoke_argument<BufferView<T>> {
+    using type = BufferView<T>;
+};
+
+template<typename T>
+using kernel_invoke_argument_t = typename kernel_invoke_argument<T>::type;
 
 template<typename T>
 struct is_argument : std::false_type {};
@@ -51,6 +69,48 @@ class Kernel {
     static_assert(always_false_v<T>);
 };
 
+namespace detail {
+
+struct KernelInvoke : public concepts::Noncopyable {
+
+    using BufferArgument = KernelLaunchCommand::BufferArgument;
+    using TextureArgument = KernelLaunchCommand::TextureArgument;
+    using UniformArgument = KernelLaunchCommand::UniformArgument;
+    using Argument = KernelLaunchCommand::Argument;
+
+    uint32_t fid;
+    std::vector<Argument> arguments;
+
+    KernelInvoke(uint32_t function_uid, std::vector<Argument> args) noexcept
+        : fid{function_uid}, arguments{std::move(args)} {}
+    KernelInvoke(KernelInvoke &&) noexcept = default;
+    KernelInvoke &operator=(KernelInvoke &&) noexcept = delete;
+
+    template<typename T>
+    [[nodiscard]] static auto make_argument(const T &arg) noexcept -> Argument {
+        return UniformArgument{&arg};
+    }
+
+    template<typename T>
+    [[nodiscard]] static auto make_argument(BufferView<T> arg) noexcept -> Argument {
+        return BufferArgument{arg.handle(), arg.offset_bytes()};
+    }
+
+    [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) &&noexcept {
+        return KernelLaunchCommand{fid, dispatch_size, block_size, std::move(arguments)};
+    }
+
+    [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) &&noexcept {
+        return KernelLaunchCommand{fid, uint3{dispatch_size, 1u}, uint3{block_size, 1u}, std::move(arguments)};
+    }
+
+    [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) &&noexcept {
+        return KernelLaunchCommand{fid, uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u}, std::move(arguments)};
+    }
+};
+
+}// namespace detail
+
 template<typename... Args>
 class Kernel<void(Args...)> {
 
@@ -60,14 +120,19 @@ private:
     Function _function;
 
 public:
+    Kernel(Kernel &&) noexcept = default;
+    Kernel(const Kernel &) noexcept = default;
+    
     template<typename Def>
     requires concepts::InvocableRet<void, Def, Args...>
     Kernel(Def &&def) noexcept
         : _function{FunctionBuilder::define_kernel([&def] {
               def(Args{detail::ArgumentCreation{}}...);
           })} {}
-    // TODO: integration into runtime...
-    [[nodiscard]] auto function() const noexcept { return _function; }
+
+    [[nodiscard]] auto operator()(detail::kernel_invoke_argument_t<Args>... args) const noexcept {
+        return detail::KernelInvoke{_function.uid(), {detail::KernelInvoke::make_argument(args)...}};
+    }
 };
 
 template<typename T>
@@ -82,6 +147,9 @@ private:
     Function _function;
 
 public:
+    Callable(Callable &&) noexcept = default;
+    Callable(const Callable &) noexcept = default;
+    
     template<typename Def>
     requires concepts::Invocable<Def, Args...>
     Callable(Def &&def) noexcept
@@ -94,7 +162,7 @@ public:
               }
           })} {}
 
-    auto operator()(detail::function_invoke_argument_t<Args>... args) const noexcept {
+    auto operator()(detail::callable_invoke_argument_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
             auto expr = FunctionBuilder::current()->call(
                 nullptr,
@@ -135,6 +203,16 @@ struct function<std::function<Var<Ret>(Args...)>> {
 template<typename Ret, typename... Args>
 struct function<std::function<Expr<Ret>(Args...)>> {
     using type = function_declaration_t<Var<Ret>, Args...>;
+};
+
+template<typename T>
+struct function<Kernel<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct function<Callable<T>> {
+    using type = T;
 };
 
 template<typename T>

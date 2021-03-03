@@ -78,7 +78,7 @@ class KernelLaunchCommand {
 public:
     struct BufferArgument {
         uint64_t handle;
-        size_t offset;
+        size_t offset_bytes;
     };
     
     struct TextureArgument {
@@ -86,23 +86,23 @@ public:
     };
     
     struct UniformArgument {
-        std::span<uint8_t> data;
+        const void *data;
     };
     
     using Argument = std::variant<BufferArgument, TextureArgument, UniformArgument>;
 
 private:
+    uint3 _dispatch_size;
     uint3 _block_size;
-    uint3 _grid_size;
     uint32_t _kernel_uid;
     std::vector<Argument> _arguments;
 
 public:
-    KernelLaunchCommand(uint32_t kernel_uid, uint3 block_size, uint3 grid_size, std::vector<Argument> args) noexcept
-        : _block_size{block_size}, _grid_size{grid_size}, _kernel_uid{kernel_uid}, _arguments{std::move(args)} {}
+    KernelLaunchCommand(uint32_t kernel_uid, uint3 dispatch_size, uint3 block_size, std::vector<Argument> args) noexcept
+        : _dispatch_size{dispatch_size}, _block_size{block_size}, _kernel_uid{kernel_uid}, _arguments{std::move(args)} {}
     [[nodiscard]] auto kernel_uid() const noexcept { return _kernel_uid; }
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
-    [[nodiscard]] auto grid_size() const noexcept { return _grid_size; }
+    [[nodiscard]] auto dispatch_size() const noexcept { return _dispatch_size; }
     [[nodiscard]] std::span<const Argument> arguments() const noexcept;
 };
 

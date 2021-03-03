@@ -12,14 +12,10 @@
 
 namespace luisa::compute {
 
-class Device {
-
-public:
-    virtual void dispose_buffer(uint64_t handle) noexcept = 0;
+struct Device {
     [[nodiscard]] virtual uint64_t create_buffer(size_t size_bytes) noexcept = 0;
     [[nodiscard]] virtual uint64_t create_buffer_with_data(size_t size_bytes, const void *data) noexcept = 0;
-
-
+    virtual void dispose_buffer(uint64_t handle) noexcept = 0;
 };
 
 }
