@@ -71,38 +71,43 @@ class Kernel {
 
 namespace detail {
 
-struct KernelInvoke : public concepts::Noncopyable {
+class KernelInvoke {
 
-    uint32_t fid;
-    KernelArgumentEncoder encoder;
+private:
+    uint32_t _function_uid;
+    KernelArgumentEncoder _encoder;
 
-    explicit KernelInvoke(uint32_t function_uid) noexcept
-        : fid{function_uid} {}
-    KernelInvoke(KernelInvoke &&) noexcept = default;
-    KernelInvoke &operator=(KernelInvoke &&) noexcept = delete;
-    
+public:
+    explicit KernelInvoke(uint32_t function_uid) noexcept : _function_uid{function_uid} {}
+
     template<typename T>
-    KernelInvoke &operator <<(BufferView<T> buffer) noexcept {
-        encoder.encode_buffer(buffer.handle(), buffer.offset_bytes());
+    KernelInvoke &operator<<(BufferView<T> buffer) noexcept {
+        _encoder.encode_buffer(buffer.handle(), buffer.offset_bytes());
         return *this;
     }
-    
+
     template<typename T>
-    KernelInvoke &operator <<(T data) noexcept {
-        encoder.encode_uniform(&data, sizeof(T), alignof(T));
+    KernelInvoke &operator<<(T data) noexcept {
+        _encoder.encode_uniform(&data, sizeof(T), alignof(T));
         return *this;
     }
 
     [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) &&noexcept {
-        return KernelLaunchCommand{fid, std::move(encoder), dispatch_size, block_size};
+        return KernelLaunchCommand{
+            _function_uid, std::move(_encoder),
+            dispatch_size, block_size};
     }
 
     [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) &&noexcept {
-        return KernelLaunchCommand{fid, std::move(encoder), uint3{dispatch_size, 1u}, uint3{block_size, 1u}};
+        return KernelLaunchCommand{
+            _function_uid, std::move(_encoder),
+            uint3{dispatch_size, 1u}, uint3{block_size, 1u}};
     }
 
     [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) &&noexcept {
-        return KernelLaunchCommand{fid, std::move(encoder), uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u}};
+        return KernelLaunchCommand{
+            _function_uid, std::move(_encoder),
+            uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u}};
     }
 };
 
@@ -119,7 +124,7 @@ private:
 public:
     Kernel(Kernel &&) noexcept = default;
     Kernel(const Kernel &) noexcept = default;
-    
+
     template<typename Def>
     requires concepts::InvocableRet<void, Def, Args...>
     Kernel(Def &&def) noexcept
@@ -148,7 +153,7 @@ private:
 public:
     Callable(Callable &&) noexcept = default;
     Callable(const Callable &) noexcept = default;
-    
+
     template<typename Def>
     requires concepts::Invocable<Def, Args...>
     Callable(Def &&def) noexcept
