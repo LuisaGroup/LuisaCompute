@@ -5,20 +5,25 @@
 #pragma once
 
 #include <dsl/expr.h>
+#include <dsl/argument.h>
 
 namespace luisa::compute::dsl {
 
-namespace detail {
-struct ArgumentCreation {};
-}// namespace detail
-
 template<typename T>
-struct Var : public detail::Expr<T> {
+class Var : public detail::Expr<T> {
 
+private:
     // for making function arguments...
+    template<typename U>
+    friend class Kernel;
+    
+    template<typename U>
+    friend class Callable;
+    
     explicit Var(detail::ArgumentCreation) noexcept
         : detail::Expr<T>{FunctionBuilder::current()->uniform(Type::of<T>())} {}
 
+public:
     // for local variables
     template<typename... Args>
     requires concepts::Constructible<T, detail::expr_value_t<Args>...>
@@ -34,55 +39,9 @@ struct Var : public detail::Expr<T> {
 };
 
 template<typename T>
-struct Var<Buffer<T>> : public detail::Expr<Buffer<T>> {
-    explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Buffer<T>>{
-            FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
-    Var(Var &&another) noexcept = default;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
-};
-
-template<typename T>
 Var(detail::Expr<T>) -> Var<T>;
 
-template<concepts::Native T>
-Var(T) -> Var<T>;
-
 template<typename T>
-struct is_var : std::false_type {};
-
-template<typename T>
-struct is_var<Var<T>> : std::true_type {};
-
-template<typename T>
-constexpr auto is_var_v = is_var<T>::value;
-
-template<typename T>
-struct var_value {
-    static_assert(always_false_v<T>);
-};
-
-template<typename T>
-struct var_value<Var<T>> {
-    using type = T;
-};
-
-template<>
-struct var_value<void> {
-    using type = void;
-};
-
-template<typename T>
-using var_value_t = typename var_value<T>::type;
-
-namespace detail {
-
-template<typename T>
-[[nodiscard]] inline auto create_argument() noexcept {
-    return Var<T>{ArgumentCreation{}};
-}
-
-}// namespace detail
+Var(T &&) -> Var<T>;
 
 }// namespace luisa::compute::dsl

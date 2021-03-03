@@ -6,6 +6,7 @@
 
 #include <dsl/var.h>
 #include <dsl/expr.h>
+#include <dsl/buffer.h>
 #include <dsl/func.h>
 
 // for custom structs

@@ -135,7 +135,7 @@ const Expression *FunctionBuilder::buffer(const Type *type) noexcept {
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
+const Expression *FunctionBuilder::buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept {
     if (auto iter = std::find_if(
             _captured_buffers.cbegin(),
             _captured_buffers.cend(),
@@ -147,14 +147,14 @@ const Expression *FunctionBuilder::_buffer_binding(const Type *type, uint64_t ha
                 handle, iter->offset_bytes, offset_bytes);
         }
         auto v = iter->variable;
-        if (*v.type() != *type) {
+        if (*v.type() != *element_type) {
             LUISA_ERROR_WITH_LOCATION(
                 "Aliasing in implicitly captured buffer (handle = {}, original type = {}, requested type = {}).",
-                handle, v.type()->description(), type->description());
+                handle, v.type()->description(), element_type->description());
         }
         return _ref(v);
     }
-    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
+    Variable v{element_type, Variable::Tag::BUFFER, _next_variable_uid()};
     _captured_buffers.emplace_back(BufferBinding{v, handle, offset_bytes});
     return _ref(v);
 }

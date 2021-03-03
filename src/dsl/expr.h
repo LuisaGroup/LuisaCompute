@@ -13,26 +13,6 @@ namespace luisa::compute::dsl::detail {
 template<typename T>
 struct Expr;
 
-}
-
-// for buffer
-namespace luisa::compute::detail {
-
-template<typename Index>
-struct BufferAccess {
-    template<typename T>
-    [[nodiscard]] auto operator()(BufferView<T> buffer, const Index &index) const noexcept {
-        using luisa::compute::dsl::detail::Expr;
-        Expr<Buffer<T>> buffer_expr{FunctionBuilder::current()->buffer_binding(buffer)};
-        Expr index_expr{index};
-        return buffer_expr[index_expr];
-    }
-};
-
-}// namespace luisa::compute::detail
-
-namespace luisa::compute::dsl::detail {
-
 template<typename T>
 class ExprBase {
 
@@ -44,7 +24,10 @@ protected:
 
 public:
     explicit constexpr ExprBase(const Expression *expr) noexcept : _expression{expr} {}
-    ExprBase(T literal) noexcept : ExprBase{FunctionBuilder::current()->literal(literal)} {}
+    
+    template<typename U> requires concepts::Constructible<T, U>
+    ExprBase(U literal) noexcept : ExprBase{FunctionBuilder::current()->literal(literal)} {}
+    
     constexpr ExprBase(ExprBase &&) noexcept = default;
     constexpr ExprBase(const ExprBase &) noexcept = default;
     [[nodiscard]] constexpr auto expression() const noexcept { return _expression; }
@@ -172,30 +155,6 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
     Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 1)};
     Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 2)};
     Expr<T> w{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 3)};
-};
-
-template<typename T>
-struct Expr<Buffer<T>> : public ExprBase<Buffer<T>> {
-
-    explicit Expr(const Expression *buffer) noexcept
-        : ExprBase<Buffer<T>>{buffer} {}
-
-    Expr(Expr &&another) noexcept = default;
-    Expr(const Expr &another) noexcept = delete;
-    Expr &operator=(Expr &&rhs) noexcept = delete;
-    Expr &operator=(const Expr &rhs) noexcept = delete;
-
-    [[nodiscard]] auto operator[](uint32_t i) const noexcept {
-        Expr<uint32_t> index{static_cast<uint32_t>(i)};
-        return Expr<T>{FunctionBuilder::current()->access(
-            Type::of<T>(), this->expression(), index.expression())};
-    }
-
-    template<concepts::Integral U>
-    [[nodiscard]] auto operator[](Expr<U> i) const noexcept {
-        return Expr<T>{FunctionBuilder::current()->access(
-            Type::of<T>(), this->expression(), i.expression())};
-    }
 };
 
 // deduction guides

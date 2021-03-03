@@ -10,7 +10,6 @@
 #include <fmt/format.h>
 
 #include <core/memory.h>
-#include <runtime/buffer.h>
 #include <ast/statement.h>
 #include <ast/function.h>
 #include <ast/variable.h>
@@ -60,7 +59,6 @@ private:
     [[nodiscard]] const Expression *_literal(const Type *type, LiteralExpr::Value value) noexcept;
     [[nodiscard]] const Expression *_constant(const Type *type, const void *data) noexcept;
     [[nodiscard]] const Expression *_builtin(Variable::Tag tag) noexcept;
-    [[nodiscard]] const Expression *_buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const Expression *_ref(Variable v) noexcept;
 
@@ -145,11 +143,7 @@ public:
     template<typename T>
     [[nodiscard]] auto constant(std::initializer_list<T> data) noexcept { return constant<std::initializer_list<T>>(data); }
     
-    template<typename T>
-    [[nodiscard]] auto buffer_binding(BufferView<T> bv) noexcept {
-        return _buffer_binding(Type::of<BufferView<T>>(), bv.handle(), bv.offset_bytes());
-    }
-
+    [[nodiscard]] const Expression *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const Expression *texture_binding(const Type *type, uint64_t handle) noexcept;
 
     // explicit arguments

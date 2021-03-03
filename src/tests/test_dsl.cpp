@@ -3,6 +3,8 @@
 //
 
 #include <iostream>
+
+#include <runtime/device.h>
 #include <dsl/syntax.h>
 
 using namespace luisa;
@@ -17,14 +19,14 @@ struct Test {
 LUISA_STRUCT(Test, something, a)
 
 class FakeDevice : public Device {
-
-    void _dispose_buffer(uint64_t handle) noexcept override {}
-
-    uint64_t _create_buffer(size_t byte_size) noexcept override {
+    
+    void dispose_buffer(uint64_t handle) noexcept override {}
+    
+    uint64_t create_buffer(size_t byte_size) noexcept override {
         return 0;
     }
-
-    uint64_t _create_buffer_with_data(size_t size_bytes, const void *data) noexcept override {
+    
+    uint64_t create_buffer_with_data(size_t size_bytes, const void *data) noexcept override {
         return 0;
     }
 };
@@ -38,15 +40,7 @@ int main() {
         return a + b * c;
     };
 
-    Callable cb = [](Var<int> a, Var<float> b) {
-        return a * b;
-    };
-    
-    float float_array[10];
-    std::array<float, 10> float_std_array;
-    std::vector<float> float_vector;
-
-    auto kernel = LUISA_KERNEL(Var<Buffer<float>> buffer_float, Var<uint> count) noexcept {
+    auto kernel = LUISA_KERNEL(BufferView<float> buffer_float, Var<uint> count) noexcept {
 
         Var v_int = 10;
         Var v_float = buffer_float[count];
@@ -73,8 +67,5 @@ int main() {
 
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
-
-        Var<Buffer<int>> b{dsl::detail::ArgumentCreation{}};
-        Var bb = b[12];
     };
 }

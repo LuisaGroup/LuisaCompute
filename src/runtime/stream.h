@@ -5,16 +5,17 @@
 #pragma once
 
 #include <utility>
+#include <runtime/command.h>
 
 namespace luisa::compute {
 
 class Stream {
 
 private:
-    virtual void _dispatch(const class BufferCopyCommand &) = 0;
-    virtual void _dispatch(const class BufferUploadCommand &) = 0;
-    virtual void _dispatch(const class BufferDownloadCommand &) = 0;
-    virtual void _dispatch(const class KernelLaunchCommand &) = 0;
+    virtual void _dispatch(const BufferCopyCommand &) = 0;
+    virtual void _dispatch(const BufferUploadCommand &) = 0;
+    virtual void _dispatch(const BufferDownloadCommand &) = 0;
+    virtual void _dispatch(const KernelLaunchCommand &) = 0;
 
 public:
     template<typename Cmd>

@@ -139,13 +139,6 @@ const Type *Type::from(std::string_view description) noexcept {
                 info._size = (info._size + ma - 1u) / ma * ma + member->size();
             }
             info._size = (info._size + info._alignment - 1u) / info._alignment * info._alignment;
-        } else if (type_identifier == "buffer"sv) {
-            info._tag = Tag::BUFFER;
-            match('<');
-            data.members.emplace_back(from_desc_impl(s));
-            match('>');
-            info._alignment = 8;// same as pointer...
-            info._size = 8;
         }
 
         auto description = s_copy.substr(0, s_copy.size() - s.size());

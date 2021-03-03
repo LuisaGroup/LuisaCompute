@@ -1,10 +1,8 @@
 set(LUISA_COMPUTE_RUNTIME_SOURCES
     context.cpp context.h
     device.cpp device.h
-    kernel.cpp kernel.h
-    buffer.h
-    texture.cpp texture.h
-    stream.cpp stream.h)
+    stream.cpp stream.h
+    command.h command.cpp)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-core)

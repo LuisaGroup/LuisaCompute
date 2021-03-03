@@ -1,23 +1,16 @@
 //
-// Created by Mike Smith on 2021/2/3.
+// Created by Mike Smith on 2021/3/2.
 //
 
 #pragma once
 
-#include <cstddef>
-#include <numeric>
-#include <limits>
-#include <span>
-#include <utility>
-#include <type_traits>
-
-#include <core/logging.h>
-#include <core/concepts.h>
-#include <core/data_types.h>
-
+#include <runtime/command.h>
 #include <runtime/device.h>
 
-namespace luisa::compute {
+#include <dsl/expr.h>
+#include <dsl/argument.h>
+
+namespace luisa::compute::dsl {
 
 template<typename T>
 class BufferView;
@@ -30,18 +23,18 @@ class alignas(8) Buffer : public concepts::Noncopyable {
 
 private:
     Device *_device;
-    uint64_t _handle;
     size_t _size;
+    uint64_t _handle;
 
 public:
     Buffer(Device *device, size_t size) noexcept
         : _device{device},
-          _handle{device->_create_buffer(size * sizeof(T))},
+          _handle{device->create_buffer(size * sizeof(T))},
           _size{size} {}
 
     Buffer(Device *device, std::span<T> span) noexcept
         : _device{device},
-          _handle{device->_create_buffer_with_data(span.size_bytes(), span.data())},
+          _handle{device->create_buffer_with_data(span.size_bytes(), span.data())},
           _size{span.size()} {}
 
     Buffer(Buffer &&another) noexcept
@@ -51,7 +44,7 @@ public:
 
     Buffer &operator=(Buffer &&rhs) noexcept {
         if (&rhs != this) {
-            _device->_dispose_buffer(_handle);
+            _device->dispose_buffer(_handle);
             _device = rhs._device;
             _handle = rhs._handle;
             _size = rhs._handle;
@@ -62,7 +55,7 @@ public:
 
     ~Buffer() noexcept {
         if (_device != nullptr /* not moved */) {
-            _device->_dispose_buffer(_handle);
+            _device->dispose_buffer(_handle);
         }
     }
 
@@ -72,86 +65,22 @@ public:
     [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept { return view()[std::forward<Index>(index)]; }
 };
 
-template<typename T> requires concepts::SpanConvertible<T>
+template<typename T>
+requires concepts::SpanConvertible<T>
 Buffer(Device *, T &&) -> Buffer<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>
 Buffer(Buffer<T> &&) -> Buffer<T>;
 
-class BufferUploadCommand {
-
-private:
-    uint64_t _handle;
-    size_t _offset;
-    size_t _size;
-    const void *_data;
-
-private:
-    BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
-        : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
-
-public:
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto data() const noexcept { return _data; }
-};
-
-class BufferDownloadCommand {
-
-private:
-    uint64_t _handle;
-    size_t _offset;
-    size_t _size;
-    void *_data;
-
-private:
-    BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
-        : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
-
-public:
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto data() const noexcept { return _data; }
-};
-
-class BufferCopyCommand {
-
-private:
-    uint64_t _src_handle;
-    uint64_t _dst_handle;
-    size_t _src_offset;
-    size_t _dst_offset;
-    size_t _size;
-
-private:
-    BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
-        : _src_handle{src}, _dst_handle{dst}, _src_offset{src_offset}, _dst_offset{dst_offset}, _size{size} {}
-
-public:
-    [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
-    [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
-    [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
-    [[nodiscard]] auto dst_offset() const noexcept { return _dst_offset; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-};
-
-namespace detail {
-
-template<typename Index>
-struct BufferAccess;
-
-}// namespace detail
-
 template<typename T>
 class alignas(8) BufferView {
 
 private:
-    Device *_device;
-    uint64_t _handle;
-    size_t _offset_bytes;
-    size_t _size;
+    Device *_device{nullptr};
+    uint64_t _handle{0u};
+    size_t _offset_bytes{0u};
+    size_t _size{0u};
+    const Expression *_expression{nullptr};
 
 protected:
     friend class Buffer<T>;
@@ -164,8 +93,19 @@ protected:
         }
     }
 
+    // for creating function args
+    template<typename U>
+    friend class Kernel;
+
+    template<typename U>
+    friend class Callable;
+
+    explicit BufferView(detail::ArgumentCreation) noexcept
+        : _expression{FunctionBuilder::current()->buffer(Type::of<T>())} {}
+    [[nodiscard]] auto expression() const noexcept { return _expression; }
+
 public:
-    BufferView(Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
+    BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
 
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -221,16 +161,21 @@ public:
             this->size_bytes()};
     }
 
-    template<typename Index>
-    [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept {
-        return detail::BufferAccess<std::remove_cvref_t<Index>>{}(*this, std::forward<Index>(index));
+    template<concepts::Integral I>
+    [[nodiscard]] auto operator[](I i) const noexcept { return this->operator[](detail::Expr{i}); }
+
+    template<concepts::Integral I>
+    [[nodiscard]] auto operator[](detail::Expr<I> i) const noexcept {
+        auto self = _expression ? _expression : FunctionBuilder::current()->buffer_binding(Type::of<T>(), _handle, _offset_bytes);
+        auto expr = FunctionBuilder::current()->access(Type::of<T>(), self, i.expression());
+        return detail::Expr<T>{expr};
     }
 };
 
 template<typename T>
-BufferView(Buffer<T> &) -> BufferView<T>;
+BufferView(const Buffer<T> &) -> BufferView<T>;
 
 template<typename T>
-BufferView(BufferView<T> &) -> BufferView<T>;
+BufferView(BufferView<T>) -> BufferView<T>;
 
-}// namespace luisa::compute
+}// namespace luisa::compute::dsl

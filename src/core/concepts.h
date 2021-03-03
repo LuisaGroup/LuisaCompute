@@ -43,6 +43,9 @@ template<typename T>
 concept Integral = is_integral_v<T>;
 
 template<typename T>
+concept Unsigned = std::conjunction_v<is_integral<T>, std::is_unsigned<T>>;
+
+template<typename T>
 concept Scalar = is_scalar_v<T>;
 
 template<typename T>

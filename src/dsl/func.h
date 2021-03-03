@@ -4,9 +4,47 @@
 
 #pragma once
 
+#include <runtime/command.h>
 #include <dsl/var.h>
 
 namespace luisa::compute::dsl {
+
+namespace detail {
+
+template<typename T>
+struct function_invoke_argument {
+    static_assert(always_false_v<T>);
+};
+
+template<typename T>
+struct function_invoke_argument<Var<T>> {
+    using type = Expr<T>;
+};
+
+template<typename T>
+struct function_invoke_argument<BufferView<T>> {
+    using type = BufferView<T>;
+};
+
+template<typename T>
+using function_invoke_argument_t = typename function_invoke_argument<T>::type;
+
+template<typename T>
+struct is_argument : std::false_type {};
+
+template<typename T>
+struct is_argument<Var<T>> : std::true_type {};
+
+template<typename T>
+struct is_argument<BufferView<T>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_argument_v = is_argument<T>::value;
+
+template<typename... T>
+concept Arguments = std::conjunction_v<is_argument<T>...>;
+
+}// namespace detail
 
 template<typename T>
 class Kernel {
@@ -16,17 +54,18 @@ class Kernel {
 template<typename... Args>
 class Kernel<void(Args...)> {
 
+    static_assert(std::conjunction_v<detail::is_argument<Args>...>);
+
 private:
     Function _function;
 
 public:
     template<typename Def>
-    requires concepts::InvocableRet<void, Def, Var<Args>...>
+    requires concepts::InvocableRet<void, Def, Args...>
     Kernel(Def &&def) noexcept
         : _function{FunctionBuilder::define_kernel([&def] {
-              def(detail::create_argument<Args>()...);
+              def(Args{detail::ArgumentCreation{}}...);
           })} {}
-
     // TODO: integration into runtime...
     [[nodiscard]] auto function() const noexcept { return _function; }
 };
@@ -44,18 +83,18 @@ private:
 
 public:
     template<typename Def>
-    requires concepts::Invocable<Def, Var<Args>...>
+    requires concepts::Invocable<Def, Args...>
     Callable(Def &&def) noexcept
         : _function{FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
-                  def(detail::create_argument<Args>()...);
+                  def(Args{detail::ArgumentCreation{}}...);
               } else {
-                  Var<Ret> ret = def(detail::create_argument<Args>()...);
+                  Var ret{def(Args{detail::ArgumentCreation{}}...)};
                   FunctionBuilder::current()->return_(ret.expression());
               }
           })} {}
 
-    auto operator()(detail::Expr<Args>... args) const noexcept {
+    auto operator()(detail::function_invoke_argument_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
             auto expr = FunctionBuilder::current()->call(
                 nullptr,
@@ -63,8 +102,9 @@ public:
                 {args.expression()...});
             FunctionBuilder::current()->void_(expr);
         } else {
-            return detail::Expr<Ret>{FunctionBuilder::current()->call(
-                Type::of<Ret>(),
+            using RetT = typename Ret::ValueType;
+            return detail::Expr<RetT>{FunctionBuilder::current()->call(
+                Type::of<RetT>(),
                 fmt::format("custom_{}", _function.uid()),
                 {args.expression()...})};
         }
@@ -84,17 +124,17 @@ using function_declaration_t = R(A...);
 
 template<typename... Args>
 struct function<std::function<void(Args...)>> {
-    using type = function_declaration_t<void, var_value_t<Args>...>;
+    using type = function_declaration_t<void, Args...>;
 };
 
 template<typename Ret, typename... Args>
 struct function<std::function<Var<Ret>(Args...)>> {
-    using type = function_declaration_t<Ret, var_value_t<Args>...>;
+    using type = function_declaration_t<Ret, Args...>;
 };
 
 template<typename Ret, typename... Args>
 struct function<std::function<Expr<Ret>(Args...)>> {
-    using type = function_declaration_t<Ret, var_value_t<Args>...>;
+    using type = function_declaration_t<Var<Ret>, Args...>;
 };
 
 template<typename T>

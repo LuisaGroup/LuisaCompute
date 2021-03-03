@@ -12,7 +12,6 @@
 
 #include <core/memory.h>
 #include <core/macro.h>
-#include <runtime/buffer.h>
 #include <ast/type.h>
 
 namespace luisa::compute {
@@ -128,23 +127,6 @@ struct TypeDesc<float4x4> {
     static constexpr std::string_view description() noexcept {
         using namespace std::string_view_literals;
         return "matrix<4>";
-    }
-};
-
-// buffers
-template<typename T>
-struct TypeDesc<Buffer<T>> {
-    static std::string_view description() noexcept {
-        static auto s = fmt::format(FMT_STRING("buffer<{}>"), TypeDesc<T>::description());
-        return s;
-    }
-};
-
-template<typename T>
-struct TypeDesc<BufferView<T>> {
-    static std::string_view description() noexcept {
-        static auto s = fmt::format(FMT_STRING("buffer<{}>"), TypeDesc<T>::description());
-        return s;
     }
 };
 

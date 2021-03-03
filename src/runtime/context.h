@@ -8,6 +8,11 @@ namespace luisa::compute {
 
 class Context {
 
+private:
+
+
+public:
+
 };
 
 }
