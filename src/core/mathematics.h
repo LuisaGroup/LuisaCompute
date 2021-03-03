@@ -205,7 +205,7 @@ template<typename T>
 }
 
 [[nodiscard]] constexpr auto lerp(float a, float b, float t) noexcept {
-    return std::lerp(a, b, t);
+    return a + t * (b - a);
 }
 
 [[nodiscard]] constexpr auto lerp(float2 a, float2 b, float t) noexcept {

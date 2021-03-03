@@ -9,5 +9,5 @@ set(LUISA_COMPUTE_AST_SOURCES
     interface.h)
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
-target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-runtime)
+target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core)
 set_target_properties(luisa-compute-ast PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
