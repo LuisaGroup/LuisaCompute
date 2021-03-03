@@ -17,7 +17,7 @@ template<typename T>
 class ExprBase {
 
 public:
-    using ValueType = T;
+    using Type = T;
 
 protected:
     const Expression *_expression;
@@ -171,7 +171,7 @@ template<typename T>
 }
 
 template<typename T>
-using expr_value_t = typename std::remove_cvref_t<decltype(Expr{std::declval<T>()})>::ValueType;
+using expr_value_t = typename std::remove_cvref_t<decltype(Expr{std::declval<T>()})>::Type;
 
 }// namespace luisa::compute::dsl::detail
 

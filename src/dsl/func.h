@@ -169,7 +169,7 @@ public:
                 {args.expression()...});
             FunctionBuilder::current()->void_(expr);
         } else {
-            using RetT = typename Ret::ValueType;
+            using RetT = typename Ret::Type;
             return detail::Expr<RetT>{FunctionBuilder::current()->call(
                 Type::of<RetT>(),
                 fmt::format("custom_{}", _function.uid()),

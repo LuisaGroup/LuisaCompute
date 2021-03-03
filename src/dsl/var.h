@@ -12,9 +12,7 @@ namespace luisa::compute::dsl {
 template<typename T>
 class Var : public detail::Expr<T> {
 
-    static_assert(std::conjunction_v<
-                  std::is_trivially_copyable<T>,
-                  std::is_trivially_destructible<T>>);
+    static_assert(std::is_trivially_destructible_v<T>);
 
 private:
     // for making function arguments...
