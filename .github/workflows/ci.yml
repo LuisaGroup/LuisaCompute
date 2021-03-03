@@ -17,10 +17,10 @@ jobs:
           sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get -y install gcc-11 g++-11 build-essential cmake ninja-build git file libopenimageio-dev libopencv-dev
+          sudo apt-get -y install gcc-10 g++-10 build-essential cmake ninja-build git file libopenimageio-dev libopencv-dev
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++-10
           cmake --build build
   build-macos:
     runs-on: macos-latest
