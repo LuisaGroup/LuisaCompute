@@ -24,10 +24,11 @@ protected:
 
 public:
     explicit constexpr ExprBase(const Expression *expr) noexcept : _expression{expr} {}
-    
-    template<typename U> requires concepts::Constructible<T, U>
+
+    template<typename U>
+    requires concepts::Constructible<T, U>
     ExprBase(U literal) noexcept : ExprBase{FunctionBuilder::current()->literal(literal)} {}
-    
+
     constexpr ExprBase(ExprBase &&) noexcept = default;
     constexpr ExprBase(const ExprBase &) noexcept = default;
     [[nodiscard]] constexpr auto expression() const noexcept { return _expression; }
@@ -161,7 +162,7 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;
 
-template<concepts::Native T>
+template<concepts::Basic T>
 Expr(T) -> Expr<T>;
 
 template<typename T>
@@ -192,7 +193,7 @@ LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(~, BitNot, BIT_NOT)
 #undef LUISA_MAKE_GLOBAL_EXPR_UNARY_OP
 
 #define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept)                        \
-    template<luisa::concepts::Native Lhs, typename Rhs>                         \
+    template<luisa::concepts::Basic Lhs, typename Rhs>                          \
     requires luisa::concepts::op_concept<Lhs, Rhs> [[nodiscard]] inline auto    \
     operator op(Lhs lhs, luisa::compute::dsl::detail::Expr<Rhs> rhs) noexcept { \
         return luisa::compute::dsl::detail::Expr{lhs} op rhs;                   \

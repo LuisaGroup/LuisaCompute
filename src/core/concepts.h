@@ -23,7 +23,7 @@ concept SpanConvertible = requires(T v) {
 };
 
 template<typename T, typename... Args>
-concept Constructible = requires(Args ...args) {
+concept Constructible = requires(Args... args) {
     T{args...};
 };
 
@@ -55,7 +55,7 @@ template<typename T>
 concept Matrix = is_matrix_v<T>;
 
 template<typename T>
-concept Native = Scalar<T> || Vector<T> || Matrix<T>;
+concept Basic = Scalar<T> || Vector<T> || Matrix<T>;
 
 // operator traits
 #define LUISA_MAKE_UNARY_OP_CONCEPT(op, op_name) \
@@ -65,7 +65,7 @@ concept Native = Scalar<T> || Vector<T> || Matrix<T>;
 LUISA_MAP(LUISA_MAKE_UNARY_OP_CONCEPT_FROM_PAIR,
           (+, Plus),
           (-, Minus),
-          (!, Not ),
+          (!, Not),
           (~, BitNot))
 #undef LUISA_MAKE_UNARY_OP_CONCEPT
 #undef LUISA_MAKE_UNARY_OP_CONCEPT_FROM_PAIR

@@ -132,7 +132,7 @@ public:
     [[nodiscard]] const Expression *shared(const Type *type) noexcept;
 
     template<concepts::Container U>
-    requires concepts::Native<typename std::remove_cvref_t<U>::value_type> [[nodiscard]] auto constant(U &&data) noexcept {
+    requires concepts::Basic<typename std::remove_cvref_t<U>::value_type> [[nodiscard]] auto constant(U &&data) noexcept {
         using T = typename std::remove_cvref_t<U>::value_type;
         auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()));
         auto bytes = _arena.allocate<T>(data.size());
@@ -152,8 +152,7 @@ public:
     [[nodiscard]] const Expression *texture(const Type *type) noexcept;
 
     // expressions
-    template<typename T>
-    requires concepts::Native<T> [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
+    template<concepts::Basic T> [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
     [[nodiscard]] const Expression *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
     [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const Expression *member(const Type *type, const Expression *self, size_t member_index) noexcept;
