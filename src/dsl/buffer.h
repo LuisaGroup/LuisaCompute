@@ -12,14 +12,19 @@
 
 namespace luisa::compute::dsl {
 
+#define LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)                    \
+    static_assert(alignof(T) <= 16u);                         \
+    static_assert(std::is_same_v<T, std::remove_cvref_t<T>>); \
+    static_assert(std::is_trivially_copyable_v<T>);           \
+    static_assert(std::is_trivially_destructible_v<T>);
+
 template<typename T>
 class BufferView;
 
 template<typename T>
 class alignas(8) Buffer : public concepts::Noncopyable {
-
-    static_assert(alignof(T) <= 16u);
-    static_assert(std::is_same_v<T, std::remove_cvref_t<T>>);
+    
+    LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
     Device *_device;
@@ -74,6 +79,8 @@ Buffer(Buffer<T> &&) -> Buffer<T>;
 
 template<typename T>
 class alignas(8) BufferView {
+    
+    LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
     Device *_device{nullptr};
@@ -177,5 +184,7 @@ BufferView(const Buffer<T> &) -> BufferView<T>;
 
 template<typename T>
 BufferView(BufferView<T>) -> BufferView<T>;
+
+#undef LUISA_CHECK_BUFFER_ELEMENT_TYPE
 
 }// namespace luisa::compute::dsl

@@ -12,14 +12,18 @@ namespace luisa::compute::dsl {
 template<typename T>
 class Var : public detail::Expr<T> {
 
+    static_assert(std::conjunction_v<
+                  std::is_trivially_copyable<T>,
+                  std::is_trivially_destructible<T>>);
+
 private:
     // for making function arguments...
     template<typename U>
     friend class Kernel;
-    
+
     template<typename U>
     friend class Callable;
-    
+
     explicit Var(detail::ArgumentCreation) noexcept
         : detail::Expr<T>{FunctionBuilder::current()->uniform(Type::of<T>())} {}
 

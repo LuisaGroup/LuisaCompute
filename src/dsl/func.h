@@ -73,39 +73,36 @@ namespace detail {
 
 struct KernelInvoke : public concepts::Noncopyable {
 
-    using BufferArgument = KernelLaunchCommand::BufferArgument;
-    using TextureArgument = KernelLaunchCommand::TextureArgument;
-    using UniformArgument = KernelLaunchCommand::UniformArgument;
-    using Argument = KernelLaunchCommand::Argument;
-
     uint32_t fid;
-    std::vector<Argument> arguments;
+    KernelArgumentEncoder encoder;
 
-    KernelInvoke(uint32_t function_uid, std::vector<Argument> args) noexcept
-        : fid{function_uid}, arguments{std::move(args)} {}
+    explicit KernelInvoke(uint32_t function_uid) noexcept
+        : fid{function_uid} {}
     KernelInvoke(KernelInvoke &&) noexcept = default;
     KernelInvoke &operator=(KernelInvoke &&) noexcept = delete;
-
+    
     template<typename T>
-    [[nodiscard]] static auto make_argument(const T &arg) noexcept -> Argument {
-        return UniformArgument{&arg};
+    KernelInvoke &operator <<(BufferView<T> buffer) noexcept {
+        encoder.encode_buffer(buffer.handle(), buffer.offset_bytes());
+        return *this;
     }
-
+    
     template<typename T>
-    [[nodiscard]] static auto make_argument(BufferView<T> arg) noexcept -> Argument {
-        return BufferArgument{arg.handle(), arg.offset_bytes()};
+    KernelInvoke &operator <<(T data) noexcept {
+        encoder.encode_uniform(&data, sizeof(T), alignof(T));
+        return *this;
     }
 
     [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) &&noexcept {
-        return KernelLaunchCommand{fid, dispatch_size, block_size, std::move(arguments)};
+        return KernelLaunchCommand{fid, std::move(encoder), dispatch_size, block_size};
     }
 
     [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) &&noexcept {
-        return KernelLaunchCommand{fid, uint3{dispatch_size, 1u}, uint3{block_size, 1u}, std::move(arguments)};
+        return KernelLaunchCommand{fid, std::move(encoder), uint3{dispatch_size, 1u}, uint3{block_size, 1u}};
     }
 
     [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) &&noexcept {
-        return KernelLaunchCommand{fid, uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u}, std::move(arguments)};
+        return KernelLaunchCommand{fid, std::move(encoder), uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u}};
     }
 };
 
@@ -131,7 +128,9 @@ public:
           })} {}
 
     [[nodiscard]] auto operator()(detail::kernel_invoke_argument_t<Args>... args) const noexcept {
-        return detail::KernelInvoke{_function.uid(), {detail::KernelInvoke::make_argument(args)...}};
+        detail::KernelInvoke invoke{_function.uid()};
+        (invoke << ... << args);
+        return invoke;
     }
 };
 

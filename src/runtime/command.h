@@ -7,9 +7,11 @@
 #include <cstdint>
 #include <cstddef>
 #include <variant>
+#include <memory>
 #include <vector>
 #include <span>
 
+#include <core/logging.h>
 #include <core/data_types.h>
 
 namespace luisa::compute {
@@ -73,37 +75,60 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 };
 
-class KernelLaunchCommand {
+class KernelArgumentEncoder {
 
 public:
+    using Data = std::array<std::byte, 4096u>;
+    struct Deleter {
+        void operator()(Data *ptr) const noexcept;
+    };
+    using Storage = std::unique_ptr<Data, Deleter>;
+
     struct BufferArgument {
         uint64_t handle;
         size_t offset_bytes;
     };
-    
+
     struct TextureArgument {
         uint64_t handle;
     };
-    
+
     struct UniformArgument {
-        const void *data;
+        std::span<const std::byte> data;
     };
-    
+
     using Argument = std::variant<BufferArgument, TextureArgument, UniformArgument>;
 
 private:
-    uint3 _dispatch_size;
-    uint3 _block_size;
-    uint32_t _kernel_uid;
     std::vector<Argument> _arguments;
+    Storage _storage;
+    std::byte *_ptr;
+    [[nodiscard]] static std::vector<std::unique_ptr<Data>> &_available_blocks() noexcept;
+    [[nodiscard]] static Storage _allocate() noexcept;
+    static void _recycle(Data *storage) noexcept;
 
 public:
-    KernelLaunchCommand(uint32_t kernel_uid, uint3 dispatch_size, uint3 block_size, std::vector<Argument> args) noexcept
-        : _dispatch_size{dispatch_size}, _block_size{block_size}, _kernel_uid{kernel_uid}, _arguments{std::move(args)} {}
-    [[nodiscard]] auto kernel_uid() const noexcept { return _kernel_uid; }
-    [[nodiscard]] auto block_size() const noexcept { return _block_size; }
-    [[nodiscard]] auto dispatch_size() const noexcept { return _dispatch_size; }
+    KernelArgumentEncoder() noexcept : _storage{_allocate()}, _ptr{_storage->data()} {}
+    void encode_buffer(uint64_t handle, size_t offset_bytes) noexcept;
+    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
     [[nodiscard]] std::span<const Argument> arguments() const noexcept;
 };
 
-}
+class KernelLaunchCommand {
+
+private:
+    KernelArgumentEncoder _encoder;
+    uint3 _dispatch_size;
+    uint3 _block_size;
+    uint32_t _kernel_uid;
+
+public:
+    KernelLaunchCommand(uint32_t kernel_uid, KernelArgumentEncoder encoder, uint3 dispatch_size, uint3 block_size) noexcept
+        : _encoder{std::move(encoder)}, _dispatch_size{dispatch_size}, _block_size{block_size}, _kernel_uid{kernel_uid} {}
+    [[nodiscard]] auto kernel_uid() const noexcept { return _kernel_uid; }
+    [[nodiscard]] auto block_size() const noexcept { return _block_size; }
+    [[nodiscard]] auto dispatch_size() const noexcept { return _dispatch_size; }
+    [[nodiscard]] auto arguments() const noexcept { return _encoder.arguments(); }
+};
+
+}// namespace luisa::compute

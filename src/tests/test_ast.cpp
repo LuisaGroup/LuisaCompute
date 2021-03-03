@@ -103,7 +103,6 @@ std::string_view tag_name(Type::Tag tag) noexcept {
     if (tag == Type::Tag::ARRAY) { return "array"sv; }
     if (tag == Type::Tag::ATOMIC) { return "atomic"sv; }
     if (tag == Type::Tag::STRUCTURE) { return "struct"sv; }
-    if (tag == Type::Tag::BUFFER) { return "buffer"sv; }
     return "unknown"sv;
 }
 
