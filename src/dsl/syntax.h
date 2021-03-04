@@ -14,60 +14,43 @@
 
 #ifndef LUISA_DISABLE_SYNTAX_SUGAR
 
-namespace luisa::compute::dsl::detail {
+#define $ ::luisa::compute::dsl::Var
 
-struct KernelBuilder {
-    template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel{std::forward<F>(def)}; }
-};
+#define $char $<char>
+#define $uchar $<uchar>
+#define $short $<short>
+#define $ushort $<ushort>
+#define $int $<int>
+#define $uint $<uint>
+#define $float $<float>
+#define $bool $<bool>
 
-struct CallableBuilder {
-    template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
-};
+#define $char2 $<char2>
+#define $uchar2 $<uchar2>
+#define $short2 $<short2>
+#define $ushort2 $<ushort2>
+#define $int2 $<int2>
+#define $uint2 $<uint2>
+#define $float2 $<float2>
+#define $bool2 $<bool2>
 
-}// namespace luisa::compute::dsl::detail
+#define $char3 $<char3>
+#define $uchar3 $<uchar3>
+#define $short3 $<short3>
+#define $ushort3 $<ushort3>
+#define $int3 $<int3>
+#define $uint3 $<uint3>
+#define $float3 $<float3>
+#define $bool3 $<bool3>
 
-#define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelBuilder{} % [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} % [&]
-
-#define $var ::luisa::compute::dsl::Var
-
-#define $char $var<char>
-#define $uchar $var<uchar>
-#define $short $var<short>
-#define $ushort $var<ushort>
-#define $int $var<int>
-#define $uint $var<uint>
-#define $float $var<float>
-#define $bool $var<bool>
-
-#define $char2 $var<char2>
-#define $uchar2 $var<uchar2>
-#define $short2 $var<short2>
-#define $ushort2 $var<ushort2>
-#define $int2 $var<int2>
-#define $uint2 $var<uint2>
-#define $float2 $var<float2>
-#define $bool2 $var<bool2>
-
-#define $char3 $var<char3>
-#define $uchar3 $var<uchar3>
-#define $short3 $var<short3>
-#define $ushort3 $var<ushort3>
-#define $int3 $var<int3>
-#define $uint3 $var<uint3>
-#define $float3 $var<float3>
-#define $bool3 $var<bool3>
-
-#define $char4 $var<char4>
-#define $uchar4 $var<uchar4>
-#define $short4 $var<short4>
-#define $ushort4 $var<ushort4>
-#define $int4 $var<int4>
-#define $uint4 $var<uint4>
-#define $float4 $var<float4>
-#define $bool4 $var<bool4>
+#define $char4 $<char4>
+#define $uchar4 $<uchar4>
+#define $short4 $<short4>
+#define $ushort4 $<ushort4>
+#define $int4 $<int4>
+#define $uint4 $<uint4>
+#define $float4 $<float4>
+#define $bool4 $<bool4>
 
 #define $array ::luisa::compute::dsl::VarArray
 #define $constant ::luisa::compute::dsl::Constant

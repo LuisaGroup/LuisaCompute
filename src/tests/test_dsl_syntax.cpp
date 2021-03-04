@@ -25,10 +25,6 @@ struct FakeDevice : public Device {
     uint64_t create_buffer(size_t byte_size) noexcept override {
         return 0;
     }
-
-    uint64_t create_buffer_with_data(size_t size_bytes, const void *data) noexcept override {
-        return 0;
-    }
 };
 
 int main() {
@@ -51,18 +47,20 @@ int main() {
 
         $shared<float4> shared_floats{16};
 
-        $var v_int = 10;
-        $var v_float = buffer_float[count];
-        $var call_ret = callable(10, v_int, v_float);
+        $array<float, 5> array;
 
-        $var v_float_copy = v_float;
+        $ v_int = 10;
+        $ v_float = buffer_float[count];
+        $ call_ret = callable(10, v_int, v_float);
 
-        $var z = -1 + v_int * v_float + 1.0f;
+        $ v_float_copy = v_float;
+
+        $ z = -1 + v_int * v_float + 1.0f;
         z += 1;
         static_assert(std::is_same_v<decltype(z), $float>);
 
-        $var v_vec = float3{1.0f};
-        $var v2 = float3{2.0f} - v_vec * 2.0f;
+        $ v_vec = float3{1.0f};
+        $ v2 = float3{2.0f} - v_vec * 2.0f;
         v2 *= 5.0f + v_float;
 
         $float2 w{v_int, v_float};
@@ -88,20 +86,20 @@ int main() {
 
             };
         };
-        
+
         $int x = cast<int>(w.x);
         $int3 s{x, x, x};
-        
+
         $Test vvt{s, v_float_copy};
         $Test vt{vvt};
-        
-        $var xx = 1.0f;
-        
-        $var vt_copy = vt;
-        $var c = 0.5f + vt.a * 1.0f;
 
-        $var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        $var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
+        $ xx = 1.0f;
+
+        $ vt_copy = vt;
+        $ c = 0.5f + vt.a * 1.0f;
+
+        $ vec4 = buffer[10];           // indexing into captured buffer (with literal)
+        $ another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
 
     auto command = kernel(float_buffer, 12u).parallelize(1024u);

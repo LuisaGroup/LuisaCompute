@@ -27,10 +27,6 @@ struct FakeDevice : public Device {
     uint64_t create_buffer(size_t byte_size) noexcept override {
         return 0;
     }
-
-    uint64_t create_buffer_with_data(size_t size_bytes, const void *data) noexcept override {
-        return 0;
-    }
 };
 
 int main() {
@@ -47,7 +43,6 @@ int main() {
     };
 
     Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
-
         Constant float_consts = {1.0f, 2.0f};
         Constant int_consts = const_vector;
 
@@ -69,7 +64,7 @@ int main() {
 
         Var<float2> w{v_int, v_float};
         w *= float2{1.2f};
-
+        
         if_(1 + 1 == 2, [] {
 
         }).elif (1 + 2 == 3, [] {
@@ -95,10 +90,10 @@ int main() {
 
         Var x = w.x;
         Var<int3> s;
-        
+
         Var<Test> vvt{s, v_float_copy};
         Var<Test> vt{vvt};
-        
+
         Var vt_copy = vt;
         Var c = 0.5f + vt.a * 1.0f;
 

@@ -5,7 +5,7 @@
 #pragma once
 
 #include <dsl/expr.h>
-#include <dsl/argument.h>
+#include <dsl/arg.h>
 
 namespace luisa::compute::dsl {
 

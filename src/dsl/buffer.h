@@ -8,7 +8,7 @@
 #include <runtime/device.h>
 
 #include <dsl/expr.h>
-#include <dsl/argument.h>
+#include <dsl/arg.h>
 
 namespace luisa::compute::dsl {
 
@@ -37,11 +37,6 @@ public:
           _handle{device->create_buffer(size * sizeof(T))},
           _size{size} {}
 
-    Buffer(Device *device, std::span<T> span) noexcept
-        : _device{device},
-          _handle{device->create_buffer_with_data(span.size_bytes(), span.data())},
-          _size{span.size()} {}
-
     Buffer(Buffer &&another) noexcept
         : _device{another._device},
           _handle{another._handle},
@@ -69,13 +64,6 @@ public:
     template<typename Index>
     [[nodiscard]] decltype(auto) operator[](Index &&index) const noexcept { return view()[std::forward<Index>(index)]; }
 };
-
-template<typename T>
-requires concepts::SpanConvertible<T>
-Buffer(Device *, T &&) -> Buffer<typename std::remove_cvref_t<T>::value_type>;
-
-template<typename T>
-Buffer(Buffer<T> &&) -> Buffer<T>;
 
 template<typename T>
 class alignas(8) BufferView {
