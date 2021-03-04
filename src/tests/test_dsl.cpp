@@ -19,13 +19,13 @@ struct Test {
 LUISA_STRUCT(Test, something, a)
 
 struct FakeDevice : public Device {
-    
+
     void dispose_buffer(uint64_t handle) noexcept override {}
-    
+
     uint64_t create_buffer(size_t byte_size) noexcept override {
         return 0;
     }
-    
+
     uint64_t create_buffer_with_data(size_t size_bytes, const void *data) noexcept override {
         return 0;
     }
@@ -36,12 +36,20 @@ int main() {
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};
     Buffer<float> float_buffer{&device, 1024u};
+    
+    std::vector<int> const_vector{1, 2, 3, 4};
 
     auto callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
+        Constant int_consts = const_vector;
         return a + b * c;
     };
 
     auto kernel = LUISA_KERNEL(BufferView<float> buffer_float, Var<uint> count) noexcept {
+
+        Constant float_consts = {1.0f, 2.0f};
+        Constant int_consts = const_vector;
+
+        Shared<float4> shared_floats{16};
 
         Var v_int = 10;
         Var v_float = buffer_float[count];
@@ -69,7 +77,7 @@ int main() {
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
-    
+
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
     LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
 }

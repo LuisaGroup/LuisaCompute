@@ -8,6 +8,8 @@
 #include <dsl/expr.h>
 #include <dsl/buffer.h>
 #include <dsl/func.h>
+#include <dsl/constant.h>
+#include <dsl/shared.h>
 
 // for custom structs
 #undef LUISA_STRUCT// to extend it...

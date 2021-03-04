@@ -131,17 +131,21 @@ public:
     [[nodiscard]] const Expression *local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
     [[nodiscard]] const Expression *shared(const Type *type) noexcept;
 
-    template<concepts::Container U>
-    requires concepts::Basic<typename std::remove_cvref_t<U>::value_type> [[nodiscard]] auto constant(U &&data) noexcept {
-        using T = typename std::remove_cvref_t<U>::value_type;
-        auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()));
-        auto bytes = _arena.allocate<T>(data.size());
-        std::uninitialized_copy_n(data.cbegin(), data.size(), bytes);
+    template<concepts::Basic T>
+    [[nodiscard]] auto constant(const T *data, size_t n) noexcept {
+        auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), n));
+        auto bytes = _arena.allocate<T>(n);
+        std::uninitialized_copy_n(data, n, bytes);
         return _constant(type, bytes);
     }
 
-    template<typename T>
-    [[nodiscard]] auto constant(std::initializer_list<T> data) noexcept { return constant<std::initializer_list<T>>(data); }
+    template<concepts::Basic T>
+    [[nodiscard]] auto constant(std::initializer_list<T> data) noexcept {
+        auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()));
+        auto bytes = _arena.allocate<T>(data.size());
+        std::uninitialized_copy_n(data.begin(), data.size(), bytes);
+        return _constant(type, bytes);
+    }
     
     [[nodiscard]] const Expression *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const Expression *texture_binding(const Type *type, uint64_t handle) noexcept;

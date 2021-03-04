@@ -139,6 +139,8 @@ const Type *Type::from(std::string_view description) noexcept {
                 info._size = (info._size + ma - 1u) / ma * ma + member->size();
             }
             info._size = (info._size + info._alignment - 1u) / info._alignment * info._alignment;
+        } else {
+            LUISA_ERROR_WITH_LOCATION("Unknown type identifier: {}.", type_identifier);
         }
 
         auto description = s_copy.substr(0, s_copy.size() - s.size());

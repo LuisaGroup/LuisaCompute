@@ -46,7 +46,7 @@ private:
     uint32_t _element_count;
     Tag _tag;
     std::unique_ptr<TypeData> _data;
-    
+
     [[nodiscard]] static TypeRegistry &_registry() noexcept;
 
 public:
@@ -77,7 +77,8 @@ public:
     [[nodiscard]] const Type *element() const noexcept;
 
     [[nodiscard]] constexpr bool is_scalar() const noexcept {
-        return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(Tag::BOOL) && static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(Tag::UINT32);
+        return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(Tag::BOOL)
+               && static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(Tag::UINT32);
     }
 
     [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == Tag::ARRAY; }
