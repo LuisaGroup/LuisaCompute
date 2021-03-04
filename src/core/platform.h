@@ -13,7 +13,7 @@
 
 #include <intrin.h>
 
-#define LUISA_FORCE_INLINE __forceinline inline
+#define LUISA_FORCE_INLINE __forceinline
 
 namespace luisa {
 
