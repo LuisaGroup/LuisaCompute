@@ -27,6 +27,19 @@ concept Constructible = requires(Args... args) {
     T{args...};
 };
 
+template<typename Src, typename Dest>
+concept StaticConvertible = requires(Src s) {
+    static_cast<Dest>(s);
+};
+
+template<typename Src, typename Dest>
+concept BitwiseConvertible = sizeof(Src) >= sizeof(Dest);
+
+template<typename Src, typename Dest>
+concept ReinterpretConvertible = requires(Src s) {
+    reinterpret_cast<Dest *>(&s);
+};
+
 template<typename F, typename... Args>
 concept Invocable = std::is_invocable_v<F, Args...>;
 

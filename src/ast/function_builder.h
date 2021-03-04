@@ -76,6 +76,15 @@ private:
           _used_builtin_callables{_arena},
           _tag{tag},
           _uid{uid} {}
+    
+    template<typename Body>
+    const ScopeStmt *_scope(Body &&body) noexcept {
+        _scope_stack.emplace_back(ArenaVector<const Statement *>(_arena));
+        body();
+        auto stmt = _arena.create<ScopeStmt>(_scope_stack.back());
+        _scope_stack.pop_back();
+        return stmt;
+    }
 
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) noexcept {
@@ -83,7 +92,7 @@ private:
         auto f_uid = static_cast<uint32_t>(_function_registry().size());
         auto f = _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
         _push(f);
-        f->_body = f->scope(std::forward<Def>(def));
+        f->_body = f->_scope(std::forward<Def>(def));
         if (_pop() != f) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
         return Function{*f};
     }
@@ -169,15 +178,6 @@ public:
     void break_() noexcept;
     void continue_() noexcept;
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
-
-    template<typename Body>
-    const ScopeStmt *scope(Body &&body) noexcept {
-        _scope_stack.emplace_back(ArenaVector<const Statement *>(_arena));
-        body();
-        auto stmt = _arena.create<ScopeStmt>(_scope_stack.back());
-        _scope_stack.pop_back();
-        return stmt;
-    }
 
     void if_(const Expression *cond, const Statement *true_branch) noexcept;
     void if_(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept;

@@ -63,23 +63,12 @@ struct CallableBuilder {
 #define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelBuilder{} % [&]
 #define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} % [&]
 
-namespace luisa::compute::dsl {
+namespace luisa::compute::dsl::detail {
 
-// TODO: disable operators...
-template<typename T>
-[[nodiscard]] inline auto shared(size_t n) noexcept {
-    return detail::Expr<T[1]>{FunctionBuilder::current()->shared(
-        fmt::format("array<{},{}>", Type::of<T>()->description(), n))};
-}
+// statements
 
-template<typename T>
-[[nodiscard]] inline auto constant(std::span<T> data) noexcept {
-    return detail::Expr<T[1]>{FunctionBuilder::current()->constant(data)};
-}
-
-template<typename T>
-[[nodiscard]] inline auto constant(std::initializer_list<T> data) noexcept {
-    return detail::Expr<T[1]>{FunctionBuilder::current()->constant(data)};
-}
+struct IfStmtBuilder {
+    
+};
 
 }

@@ -111,6 +111,22 @@ public:
               (>>=, ShiftRightAssign, SHR_ASSIGN))
 #undef LUISA_MAKE_EXPR_ASSIGN_OP
 #undef LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TRIPLET
+    
+    // casts
+    template<typename Dest> requires concepts::StaticConvertible<T, Dest>
+    [[nodiscard]] auto cast() const noexcept {
+        return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::STATIC, _expression)};
+    }
+    
+    template<typename Dest> requires concepts::BitwiseConvertible<T, Dest>
+    [[nodiscard]] auto bitwise_cast() const noexcept {
+        return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::BITWISE, _expression)};
+    }
+    
+    template<typename Dest> requires concepts::ReinterpretConvertible<T, Dest>
+    [[nodiscard]] auto reinterpret() const noexcept {
+        return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::REINTERPRET, _expression)};
+    }
 };
 
 template<typename T>
