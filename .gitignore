@@ -313,3 +313,5 @@ CTestTestfile.cmake
 _deps
 
 .cache
+
+CMakeSettings.json
