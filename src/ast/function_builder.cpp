@@ -28,7 +28,7 @@ FunctionBuilder *FunctionBuilder::current() noexcept {
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {
     if (_scope_stack.empty()) { LUISA_ERROR_WITH_LOCATION("Scope stack is empty."); }
-    _scope_stack.back().emplace_back(statement);
+    _scope_stack.back()->append(statement);
 }
 
 void FunctionBuilder::break_() noexcept {
@@ -41,10 +41,6 @@ void FunctionBuilder::continue_() noexcept {
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
     _append(_arena.create<ReturnStmt>(expr));
-}
-
-void FunctionBuilder::if_(const Expression *cond, const Statement *true_branch) noexcept {
-    _append(_arena.create<IfStmt>(cond, true_branch));
 }
 
 void FunctionBuilder::if_(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept {
@@ -233,6 +229,10 @@ Function FunctionBuilder::kernel(uint32_t uid) noexcept {
 std::recursive_mutex &FunctionBuilder::_function_registry_mutex() noexcept {
     static std::recursive_mutex mutex;
     return mutex;
+}
+
+ScopeStmt *FunctionBuilder::scope() noexcept {
+    return _arena.create<ScopeStmt>(ArenaVector<const Statement *>(_arena));
 }
 
 }// namespace luisa::compute

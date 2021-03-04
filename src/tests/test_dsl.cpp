@@ -36,12 +36,12 @@ int main() {
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};
     Buffer<float> float_buffer{&device, 1024u};
-    
+
     std::vector<int> const_vector{1, 2, 3, 4};
 
     auto callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
-        return a + b * c;
+        return cast<float>(a) + b.cast<float>() * c;
     };
 
     auto kernel = LUISA_KERNEL(BufferView<float> buffer_float, Var<uint> count) noexcept {
@@ -67,6 +67,50 @@ int main() {
 
         Var<float2> w{v_int, v_float};
         w *= float2{1.2f};
+
+        $if(w.x < 5) {
+        }
+        $elif(w.x > 0) {
+        }
+        $else{
+
+        };
+
+        $while(true){
+
+        };
+
+        $switch(123) {
+            $case(1){
+
+            };
+            $default{
+
+            };
+        };
+
+        if_(1 + 1 == 2, [] {
+
+        }).elif (1 + 2 == 3, [] {
+
+          }).else_([] {
+
+        });
+
+        while_(true, [] {
+
+        });
+
+        switch_(123)
+            .case_(1, [] {
+
+            })
+            .case_(2, [] {
+
+            })
+            .default_([] {
+
+            });
 
         Var x = w.x;
         Var<int3> s;

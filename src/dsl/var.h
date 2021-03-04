@@ -9,6 +9,7 @@
 
 namespace luisa::compute::dsl {
 
+// TODO: support Var<tuple> for multiple-return device functions?
 template<typename T>
 class Var : public detail::Expr<T> {
 

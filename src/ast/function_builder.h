@@ -23,6 +23,28 @@ struct Expression;
 
 class FunctionBuilder {
 
+private:
+    class ScopeGuard {
+
+    public:
+        using Stack = ArenaVector<ScopeStmt *>;
+
+    private:
+        Stack *_stack;
+        ScopeStmt *_scope;
+
+    public:
+        explicit ScopeGuard(Stack &stack, ScopeStmt *scope) noexcept
+            : _stack{&stack}, _scope{scope} { _stack->emplace_back(_scope); }
+        
+        ~ScopeGuard() noexcept {
+            if (_stack->empty() || _stack->back() != _scope) {
+                LUISA_ERROR_WITH_LOCATION("Unpaired scope push/pop.");
+            }
+            _stack->pop_back();
+        }
+    };
+
 public:
     using Tag = Function::Tag;
     using ConstantData = Function::ConstantData;
@@ -31,8 +53,8 @@ public:
 
 private:
     Arena _arena;
-    const ScopeStmt *_body;
-    ArenaVector<ArenaVector<const Statement *>> _scope_stack;
+    ScopeStmt *_body;
+    ArenaVector<ScopeStmt *> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
     ArenaVector<Variable> _shared_variables;
     ArenaVector<ConstantData> _constant_variables;
@@ -64,7 +86,7 @@ private:
 
 private:
     explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept
-        : _body{nullptr},
+        : _body{_arena.create<ScopeStmt>(ArenaVector<const Statement *>(_arena))},
           _scope_stack{_arena},
           _builtin_variables{_arena},
           _shared_variables{_arena},
@@ -76,15 +98,6 @@ private:
           _used_builtin_callables{_arena},
           _tag{tag},
           _uid{uid} {}
-    
-    template<typename Body>
-    const ScopeStmt *_scope(Body &&body) noexcept {
-        _scope_stack.emplace_back(ArenaVector<const Statement *>(_arena));
-        body();
-        auto stmt = _arena.create<ScopeStmt>(_scope_stack.back());
-        _scope_stack.pop_back();
-        return stmt;
-    }
 
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) noexcept {
@@ -92,7 +105,7 @@ private:
         auto f_uid = static_cast<uint32_t>(_function_registry().size());
         auto f = _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
         _push(f);
-        f->_body = f->_scope(std::forward<Def>(def));
+        f->with(f->_body, std::forward<Def>(def));
         if (_pop() != f) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
         return Function{*f};
     }
@@ -110,7 +123,7 @@ public:
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
-    [[nodiscard]] auto body() const noexcept { return _body; }
+    [[nodiscard]] const auto *body() const noexcept { return _body; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;
     [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
@@ -122,10 +135,7 @@ public:
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
         auto f = _define(Function::Tag::CALLABLE, std::forward<Def>(def));
-        if (!f.builtin_variables().empty() ||
-            !f.shared_variables().empty() ||
-            !f.captured_buffers().empty() ||
-            !f.captured_textures().empty()) {
+        if (!f.builtin_variables().empty() || !f.shared_variables().empty() || !f.captured_buffers().empty() || !f.captured_textures().empty()) {
             LUISA_ERROR_WITH_LOCATION("Custom callables may not have builtin, shared or captured variables.");
         }
         return f;
@@ -155,7 +165,7 @@ public:
         std::uninitialized_copy_n(data.begin(), data.size(), bytes);
         return _constant(type, bytes);
     }
-    
+
     [[nodiscard]] const Expression *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const Expression *texture_binding(const Type *type, uint64_t handle) noexcept;
 
@@ -165,7 +175,8 @@ public:
     [[nodiscard]] const Expression *texture(const Type *type) noexcept;
 
     // expressions
-    template<concepts::Basic T> [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
+    template<concepts::Basic T>
+    [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
     [[nodiscard]] const Expression *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
     [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const Expression *member(const Type *type, const Expression *self, size_t member_index) noexcept;
@@ -178,16 +189,21 @@ public:
     void break_() noexcept;
     void continue_() noexcept;
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
-
-    void if_(const Expression *cond, const Statement *true_branch) noexcept;
     void if_(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept;
     void while_(const Expression *cond, const Statement *body) noexcept;
     void void_(const Expression *expr) noexcept;
     void switch_(const Expression *expr, const Statement *body) noexcept;
     void case_(const Expression *expr, const Statement *body) noexcept;
     void default_(const Statement *body) noexcept;
-    
+
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
+    [[nodiscard]] ScopeStmt *scope() noexcept;
+
+    template<typename Body>
+    decltype(auto) with(ScopeStmt *s, Body &&body) noexcept {
+        ScopeGuard guard{_scope_stack, s};
+        return body();
+    }
 };
 
 }// namespace luisa::compute

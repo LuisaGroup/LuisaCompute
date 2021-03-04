@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/concepts.h>
+#include <core/memory.h>
 #include <ast/variable.h>
 
 namespace luisa::compute {
@@ -77,11 +78,12 @@ public:
 class ScopeStmt : public Statement {
 
 private:
-    std::span<const Statement *> _statements;
+    ArenaVector<const Statement *> _statements;
 
 public:
-    explicit ScopeStmt(std::span<const Statement *> stmts) noexcept : _statements{stmts} {}
-    [[nodiscard]] auto statements() noexcept { return _statements; }
+    explicit ScopeStmt(ArenaVector<const Statement *> stmts) noexcept : _statements{std::move(stmts)} {}
+    [[nodiscard]] auto statements() const noexcept { return std::span{_statements.data(), _statements.size()}; }
+    void append(const Statement *stmt) noexcept { _statements.emplace_back(stmt); }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
@@ -138,7 +140,7 @@ private:
     const Statement *_false_branch;
 
 public:
-    IfStmt(const Expression *cond, const Statement *true_branch, const Statement *false_branch = nullptr) noexcept
+    IfStmt(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept
         : _condition{cond}, _true_branch{true_branch}, _false_branch{false_branch} {}
 
     [[nodiscard]] auto condition() const noexcept { return _condition; }
