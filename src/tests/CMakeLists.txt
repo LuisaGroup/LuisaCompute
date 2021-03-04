@@ -19,3 +19,6 @@ target_link_libraries(test_interpreter PRIVATE luisa::compute)
 
 add_executable(test_dsl test_dsl.cpp)
 target_link_libraries(test_dsl PRIVATE luisa::compute)
+
+add_executable(test_dsl_syntax test_dsl_syntax.cpp)
+target_link_libraries(test_dsl_syntax PRIVATE luisa::compute)

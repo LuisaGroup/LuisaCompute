@@ -111,20 +111,20 @@ public:
               (>>=, ShiftRightAssign, SHR_ASSIGN))
 #undef LUISA_MAKE_EXPR_ASSIGN_OP
 #undef LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TRIPLET
-    
+
     // casts
-    template<typename Dest> requires concepts::StaticConvertible<T, Dest>
-    [[nodiscard]] auto cast() const noexcept {
+    template<typename Dest>
+    requires concepts::StaticConvertible<T, Dest> [[nodiscard]] auto cast() const noexcept {
         return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::STATIC, _expression)};
     }
-    
-    template<typename Dest> requires concepts::BitwiseConvertible<T, Dest>
-    [[nodiscard]] auto bitwise_cast() const noexcept {
+
+    template<typename Dest>
+    requires concepts::BitwiseConvertible<T, Dest> [[nodiscard]] auto bitwise_cast() const noexcept {
         return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::BITWISE, _expression)};
     }
-    
-    template<typename Dest> requires concepts::ReinterpretConvertible<T, Dest>
-    [[nodiscard]] auto reinterpret() const noexcept {
+
+    template<typename Dest>
+    requires concepts::ReinterpretConvertible<T, Dest> [[nodiscard]] auto reinterpret() const noexcept {
         return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::REINTERPRET, _expression)};
     }
 };
@@ -236,3 +236,16 @@ LUISA_MAP(LUISA_MAKE_GLOBAL_EXPR_BINARY_OP_FROM_PAIR,
           (>=, GreaterEqual))
 #undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP
 #undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP_FROM_PAIR
+
+namespace luisa::compute::dsl {
+
+template<typename Dest, typename Src>
+[[nodiscard]] inline auto cast(detail::Expr<Src> s) noexcept { return s.template cast<Dest>(); }
+
+template<typename Dest, typename Src>
+[[nodiscard]] inline auto bitwise_cast(detail::Expr<Src> s) noexcept { return s.template bitwise_cast<Dest>(); }
+
+template<typename Dest, typename Src>
+[[nodiscard]] inline auto reinterpret(detail::Expr<Src> s) noexcept { return s.template reinterpret<Dest>(); }
+
+}// namespace luisa::compute::dsl

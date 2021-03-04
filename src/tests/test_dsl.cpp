@@ -5,6 +5,8 @@
 #include <iostream>
 
 #include <runtime/device.h>
+
+#define LUISA_DISABLE_SYNTAX_SUGAR
 #include <dsl/syntax.h>
 
 using namespace luisa;
@@ -68,27 +70,6 @@ int main() {
         Var<float2> w{v_int, v_float};
         w *= float2{1.2f};
 
-        $if(w.x < 5) {
-        }
-        $elif(w.x > 0) {
-        }
-        $else{
-
-        };
-
-        $while(true){
-
-        };
-
-        $switch(123) {
-            $case(1){
-
-            };
-            $default{
-
-            };
-        };
-
         if_(1 + 1 == 2, [] {
 
         }).elif (1 + 2 == 3, [] {
@@ -114,7 +95,10 @@ int main() {
 
         Var x = w.x;
         Var<int3> s;
-        Var<Test> vt{s, v_float_copy};
+        
+        Var<Test> vvt{s, v_float_copy};
+        Var<Test> vt{vvt};
+        
         Var vt_copy = vt;
         Var c = 0.5f + vt.a * 1.0f;
 

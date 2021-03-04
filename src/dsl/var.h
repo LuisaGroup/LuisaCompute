@@ -47,4 +47,7 @@ Var(detail::Expr<T>) -> Var<T>;
 template<typename T>
 Var(T &&) -> Var<T>;
 
+template<typename T, size_t N>
+using VarArray = Var<std::array<T, N>>;
+
 }// namespace luisa::compute::dsl
