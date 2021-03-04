@@ -41,12 +41,12 @@ int main() {
 
     std::vector<int> const_vector{1, 2, 3, 4};
 
-    auto callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
+    Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
         return cast<float>(a) + b.cast<float>() * c;
     };
 
-    auto kernel = LUISA_KERNEL(BufferView<float> buffer_float, Var<uint> count) noexcept {
+    Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
 
         Constant float_consts = {1.0f, 2.0f};
         Constant int_consts = const_vector;
