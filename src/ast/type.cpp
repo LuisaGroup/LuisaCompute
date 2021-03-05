@@ -195,4 +195,16 @@ size_t Type::count() noexcept {
     });
 }
 
+void Type::traverse(const TypeVisitor &visitor) noexcept {
+    _registry().with_types([&visitor](auto &&types) noexcept {
+        for (auto &&t : types) { visitor.visit(t.get()); }
+    });
+}
+
+void Type::traverse(void (*visit)(const Type *)) noexcept {
+    _registry().with_types([visit](auto &&types) noexcept {
+        for (auto &&t : types) { visit(t.get()); }
+    });
+}
+
 }// namespace luisa::compute

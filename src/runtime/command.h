@@ -78,7 +78,7 @@ public:
 class KernelArgumentEncoder {
 
 public:
-    using Data = std::array<std::byte, 4096u>;
+    using Data = std::array<std::byte, 1024u>;
     struct Deleter {
         void operator()(Data *ptr) const noexcept;
     };
@@ -112,6 +112,7 @@ public:
     void encode_buffer(uint64_t handle, size_t offset_bytes) noexcept;
     void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
     [[nodiscard]] std::span<const Argument> arguments() const noexcept;
+    [[nodiscard]] std::span<const std::byte> uniform_data() const noexcept;
 };
 
 class KernelLaunchCommand {

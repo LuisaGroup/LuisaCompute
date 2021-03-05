@@ -11,8 +11,13 @@
 
 namespace luisa::compute {
 
-class TypeRegistry;
+class Type;
 struct TypeData;
+class TypeRegistry;
+
+struct TypeVisitor {
+    virtual void visit(const Type *) const noexcept = 0;
+};
 
 class Type {
 
@@ -57,6 +62,8 @@ public:
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
     [[nodiscard]] static const Type *at(uint32_t uid) noexcept;
     [[nodiscard]] static size_t count() noexcept;
+    static void traverse(const TypeVisitor &visitor) noexcept;
+    static void traverse(void (*visit)(const Type *)) noexcept;
 
     [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }
     [[nodiscard]] bool operator!=(const Type &rhs) const noexcept { return !(*this == rhs); }

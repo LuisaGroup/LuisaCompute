@@ -46,4 +46,8 @@ void KernelArgumentEncoder::encode_uniform(const void *data, size_t size, size_t
     _ptr = aligned_ptr + size;
 }
 
+std::span<const std::byte> KernelArgumentEncoder::uniform_data() const noexcept {
+    return {_storage->data(), _ptr};
+}
+
 }// namespace luisa::compute

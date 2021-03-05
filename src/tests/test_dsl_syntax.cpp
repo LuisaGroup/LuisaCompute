@@ -50,6 +50,8 @@ int main() {
         $array<float, 5> array;
 
         $ v_int = 10;
+        static_assert(std::is_same_v<decltype(v_int), $int>);
+        
         $ v_float = buffer_float[count];
         $ call_ret = callable(10, v_int, v_float);
 

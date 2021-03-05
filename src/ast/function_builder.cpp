@@ -176,9 +176,11 @@ const Expression *FunctionBuilder::call(const Type *type, std::string_view func,
     ArenaVector func_args{_arena, args};
     auto expr = _arena.create<CallExpr>(type, func_name, func_args);
     if (expr->is_builtin()) {
-        _used_builtin_callables.emplace_back(func_name);
+        if (auto iter = std::find(_used_builtin_callables.cbegin(), _used_builtin_callables.cend(), func_name);
+            iter == _used_builtin_callables.cend()) { _used_builtin_callables.emplace_back(func_name); }
     } else {
-        _used_custom_callables.emplace_back(expr->uid());
+        if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), expr->uid());
+            iter == _used_custom_callables.cend()) { _used_custom_callables.emplace_back(expr->uid()); }
     }
     return expr;
 }
@@ -188,9 +190,11 @@ const Expression *FunctionBuilder::call(const Type *type, std::string_view func,
     ArenaVector func_args{_arena, args};
     auto expr = _arena.create<CallExpr>(type, func_name, func_args);
     if (expr->is_builtin()) {
-        _used_builtin_callables.emplace_back(func_name);
+        if (auto iter = std::find(_used_builtin_callables.cbegin(), _used_builtin_callables.cend(), func_name);
+            iter == _used_builtin_callables.cend()) { _used_builtin_callables.emplace_back(func_name); }
     } else {
-        _used_custom_callables.emplace_back(expr->uid());
+        if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), expr->uid());
+            iter == _used_custom_callables.cend()) { _used_custom_callables.emplace_back(expr->uid()); }
     }
     return expr;
 }

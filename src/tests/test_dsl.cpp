@@ -3,8 +3,10 @@
 //
 
 #include <iostream>
+#include <chrono>
 
 #include <runtime/device.h>
+#include <ast/interface.h>
 
 #define LUISA_DISABLE_SYNTAX_SUGAR
 #include <dsl/syntax.h>
@@ -42,6 +44,7 @@ int main() {
         return cast<float>(a) + b.cast<float>() * c;
     };
 
+    auto t0 = std::chrono::high_resolution_clock::now();
     Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
         Constant float_consts = {1.0f, 2.0f};
         Constant int_consts = const_vector;
@@ -58,39 +61,41 @@ int main() {
         z += 1;
         static_assert(std::is_same_v<decltype(z), Var<float>>);
 
-        Var v_vec = float3{1.0f};
-        Var v2 = float3{2.0f} - v_vec * 2.0f;
-        v2 *= 5.0f + v_float;
+        for (auto i = 0u; i < 1000u; i++) {
+            Var v_vec = float3{1.0f};
+            Var v2 = float3{2.0f} - v_vec * 2.0f;
+            v2 *= 5.0f + v_float;
 
-        Var<float2> w{v_int, v_float};
-        w *= float2{1.2f};
-        
-        if_(1 + 1 == 2, [] {
+            Var<float2> w{v_int, v_float};
+            w *= float2{1.2f};
 
-        }).elif (1 + 2 == 3, [] {
+            if_(1 + 1 == 2, [] {
 
-          }).else_([] {
+            }).elif (1 + 2 == 3, [] {
 
-        });
-
-        while_(true, [] {
-
-        });
-
-        switch_(123)
-            .case_(1, [] {
-
-            })
-            .case_(2, [] {
-
-            })
-            .default_([] {
+              }).else_([] {
 
             });
 
-        Var x = w.x;
-        Var<int3> s;
+            while_(true, [] {
 
+            });
+
+            switch_(123)
+                .case_(1, [] {
+
+                })
+                .case_(2, [] {
+
+                })
+                .default_([] {
+
+                });
+
+            Var x = w.x;
+        }
+
+        Var<int3> s;
         Var<Test> vvt{s, v_float_copy};
         Var<Test> vt{vvt};
 
@@ -100,7 +105,20 @@ int main() {
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
-
+    auto t1 = std::chrono::high_resolution_clock::now();
+    
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
     LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
+    auto function = Function::kernel(command.kernel_uid());
+    
+    auto t2 = std::chrono::high_resolution_clock::now();
+    Codegen::Scratch scratch;
+    CppCodegen codegen{scratch};
+    codegen.emit(function);
+    auto t3 = std::chrono::high_resolution_clock::now();
+    
+    std::cout << scratch.view() << std::endl;
+    
+    using namespace std::chrono_literals;
+    LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
 }
