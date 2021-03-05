@@ -352,7 +352,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
     for (auto callable : f.custom_callables()) {
         _emit_function(Function::callable(callable));
     }
-    
+
     _function_uid = f.uid();
     _indent = 0u;
 
@@ -481,7 +481,7 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::ATOMIC:
-            _scratch << "atomic";
+            _scratch << "atomic<";
             _emit_type_name(type->element());
             _scratch << ">";
             break;
@@ -547,15 +547,16 @@ void CppCodegen::_emit_constant(Function::ConstantData c) noexcept {
     auto count = c.variable.type()->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
-    std::visit([count, this](auto ptr) {
-        detail::LiteralPrinter print{_scratch};
-        for (auto i = 0u; i < count; i++) {
-            if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
-            print(ptr[i]);
-            _scratch << ", ";
-        }
-    },
-               c.data);
+    std::visit(
+        [count, this](auto ptr) {
+            detail::LiteralPrinter print{_scratch};
+            for (auto i = 0u; i < count; i++) {
+                if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
+                print(ptr[i]);
+                _scratch << ", ";
+            }
+        },
+        c.data);
     if (count > 0u) {
         _scratch.pop_back();
         _scratch.pop_back();
