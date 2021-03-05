@@ -344,9 +344,6 @@ void CppCodegen::emit(Function f) {
 
 void CppCodegen::_emit_function(Function f) noexcept {
 
-    _function_uid = f.uid();
-    _indent = 0u;
-
     if (auto iter = std::find(
             _generated.cbegin(), _generated.cend(), f.uid());
         iter != _generated.cend()) { return; }
@@ -355,6 +352,9 @@ void CppCodegen::_emit_function(Function f) noexcept {
     for (auto callable : f.custom_callables()) {
         _emit_function(Function::callable(callable));
     }
+    
+    _function_uid = f.uid();
+    _indent = 0u;
 
     // constants
     if (!f.constant_variables().empty()) {
