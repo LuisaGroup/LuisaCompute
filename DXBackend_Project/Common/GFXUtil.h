@@ -313,6 +313,7 @@ public:
 #ifdef NDEBUG
 #define ThrowIfFailed(x) (x)
 #else
+
 #define ThrowIfFailed(x)                                                   \
 	{                                                                      \
 		HRESULT hr__ = (x);                                                \

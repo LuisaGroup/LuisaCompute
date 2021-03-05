@@ -106,19 +106,19 @@ int main() {
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
     auto t1 = std::chrono::high_resolution_clock::now();
-    
+
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
     LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
     auto function = Function::kernel(command.kernel_uid());
-    
+
     auto t2 = std::chrono::high_resolution_clock::now();
     Codegen::Scratch scratch;
     CppCodegen codegen{scratch};
     codegen.emit(function);
     auto t3 = std::chrono::high_resolution_clock::now();
-    
+
     std::cout << scratch.view() << std::endl;
-    
+
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
 }

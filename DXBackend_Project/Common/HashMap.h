@@ -209,8 +209,8 @@ public:
 	}
 	HashMap(HashMap&& map)
 		: allocatedNodes(std::move(map.allocatedNodes)),
-		  nodeVec(std::move(nodeVec)),
-		  pool (std::move(pool)){
+		  nodeVec(std::move(map.nodeVec)),
+		  pool (std::move(map.pool)){
 	}
 
 	~HashMap() noexcept {

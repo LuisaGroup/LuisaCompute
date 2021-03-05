@@ -44,11 +44,11 @@ const Type *Type::from(std::string_view description) noexcept {
 
         auto read_number = [&s] {
             size_t number;
-            auto [p, ec] = std::from_chars(s.data(), s.data() + s.size(), number);
-            if (ec != std::errc{}) {
+            auto result = std::from_chars(s.data(), s.data() + s.size(), number);
+            if (result.ec != std::errc{}) {
                 LUISA_ERROR_WITH_LOCATION("Failed to parse number from '{}'.", s);
             }
-            s = s.substr(p - s.data());
+            s = s.substr(result.ptr - s.data());
             return number;
         };
 
