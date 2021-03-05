@@ -94,7 +94,10 @@ public:
     
     template<typename Body>
     void operator%(Body &&body) noexcept {
-        FunctionBuilder::current()->with(_body, std::forward<Body>(body));
+        FunctionBuilder::current()->with(_body, [&body] {
+            body();
+            FunctionBuilder::current()->break_();
+        });
     }
 };
 
@@ -110,7 +113,10 @@ public:
     
     template<typename Body>
     void operator%(Body &&body) noexcept {
-        FunctionBuilder::current()->with(_body, std::forward<Body>(body));
+        FunctionBuilder::current()->with(_body, [&body] {
+            body();
+            FunctionBuilder::current()->break_();
+        });
     }
 };
 

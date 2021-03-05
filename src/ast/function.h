@@ -47,6 +47,7 @@ public:
     [[nodiscard]] std::span<const std::string_view> builtin_callables() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
     [[nodiscard]] uint32_t uid() const noexcept;
+    [[nodiscard]] const Type *return_type() const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;
     [[nodiscard]] static Function kernel(uint32_t uid) noexcept;

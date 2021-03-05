@@ -136,11 +136,11 @@ class IfStmt : public Statement {
 
 private:
     const Expression *_condition;
-    const Statement *_true_branch;
-    const Statement *_false_branch;
+    const ScopeStmt *_true_branch;
+    const ScopeStmt *_false_branch;
 
 public:
-    IfStmt(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept
+    IfStmt(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept
         : _condition{cond}, _true_branch{true_branch}, _false_branch{false_branch} {}
 
     [[nodiscard]] auto condition() const noexcept { return _condition; }
@@ -153,10 +153,10 @@ class WhileStmt : public Statement {
 
 private:
     const Expression *_condition;
-    const Statement *_body;
+    const ScopeStmt *_body;
 
 public:
-    WhileStmt(const Expression *cond, const Statement *body) : _condition{cond}, _body{body} {}
+    WhileStmt(const Expression *cond, const ScopeStmt *body) : _condition{cond}, _body{body} {}
     [[nodiscard]] auto condition() const noexcept { return _condition; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -177,10 +177,10 @@ class SwitchStmt : public Statement {
 
 private:
     const Expression *_expr;
-    const Statement *_body;
+    const ScopeStmt *_body;
 
 public:
-    SwitchStmt(const Expression *expr, const Statement *body) noexcept : _expr{expr}, _body{body} {}
+    SwitchStmt(const Expression *expr, const ScopeStmt *body) noexcept : _expr{expr}, _body{body} {}
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -190,10 +190,10 @@ class SwitchCaseStmt : public Statement {
 
 private:
     const Expression *_expr;
-    const Statement *_body;
+    const ScopeStmt *_body;
 
 public:
-    SwitchCaseStmt(const Expression *expr, const Statement *body) noexcept : _expr{expr}, _body{body} {}
+    SwitchCaseStmt(const Expression *expr, const ScopeStmt *body) noexcept : _expr{expr}, _body{body} {}
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -205,7 +205,7 @@ private:
     const Statement *_body;
 
 public:
-    explicit SwitchDefaultStmt(const Statement *body) noexcept : _body{body} {}
+    explicit SwitchDefaultStmt(const ScopeStmt *body) noexcept : _body{body} {}
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };

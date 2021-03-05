@@ -195,7 +195,7 @@ size_t Type::count() noexcept {
     });
 }
 
-void Type::traverse(const TypeVisitor &visitor) noexcept {
+void Type::traverse(TypeVisitor &visitor) noexcept {
     _registry().with_types([&visitor](auto &&types) noexcept {
         for (auto &&t : types) { visitor.visit(t.get()); }
     });

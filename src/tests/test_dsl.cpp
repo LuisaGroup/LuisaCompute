@@ -61,39 +61,39 @@ int main() {
         z += 1;
         static_assert(std::is_same_v<decltype(z), Var<float>>);
 
-        for (auto i = 0u; i < 1000u; i++) {
-            Var v_vec = float3{1.0f};
-            Var v2 = float3{2.0f} - v_vec * 2.0f;
-            v2 *= 5.0f + v_float;
+        //        for (auto i = 0u; i < 1000u; i++) {
+        Var v_vec = float3{1.0f};
+        Var v2 = float3{2.0f} - v_vec * 2.0f;
+        v2 *= 5.0f + v_float;
 
-            Var<float2> w{v_int, v_float};
-            w *= float2{1.2f};
+        Var<float2> w{v_int, v_float};
+        w *= float2{1.2f};
 
-            if_(1 + 1 == 2, [] {
+        if_(1 + 1 == 2, [] {
 
-            }).elif (1 + 2 == 3, [] {
+        }).elif (1 + 2 == 3, [] {
 
-              }).else_([] {
+          }).else_([] {
+
+        });
+
+        while_(true, [] {
+
+        });
+
+        switch_(123)
+            .case_(1, [] {
+
+            })
+            .case_(2, [] {
+
+            })
+            .default_([] {
 
             });
 
-            while_(true, [] {
-
-            });
-
-            switch_(123)
-                .case_(1, [] {
-
-                })
-                .case_(2, [] {
-
-                })
-                .default_([] {
-
-                });
-
-            Var x = w.x;
-        }
+        Var x = w.x;
+        //        }
 
         Var<int3> s;
         Var<Test> vvt{s, v_float_copy};

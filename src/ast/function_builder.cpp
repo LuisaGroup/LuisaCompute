@@ -40,14 +40,16 @@ void FunctionBuilder::continue_() noexcept {
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
+    if (_ret != nullptr) { LUISA_ERROR_WITH_LOCATION("Multiple non-void return statements are not allowed."); }
+    _ret = expr ? expr->type() : nullptr;
     _append(_arena.create<ReturnStmt>(expr));
 }
 
-void FunctionBuilder::if_(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept {
+void FunctionBuilder::if_(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept {
     _append(_arena.create<IfStmt>(cond, true_branch, false_branch));
 }
 
-void FunctionBuilder::while_(const Expression *cond, const Statement *body) noexcept {
+void FunctionBuilder::while_(const Expression *cond, const ScopeStmt *body) noexcept {
     _append(_arena.create<WhileStmt>(cond, body));
 }
 
@@ -55,15 +57,15 @@ void FunctionBuilder::void_(const Expression *expr) noexcept {
     _append(_arena.create<ExprStmt>(expr));
 }
 
-void FunctionBuilder::switch_(const Expression *expr, const Statement *body) noexcept {
+void FunctionBuilder::switch_(const Expression *expr, const ScopeStmt *body) noexcept {
     _append(_arena.create<SwitchStmt>(expr, body));
 }
 
-void FunctionBuilder::case_(const Expression *expr, const Statement *body) noexcept {
+void FunctionBuilder::case_(const Expression *expr, const ScopeStmt *body) noexcept {
     _append(_arena.create<SwitchCaseStmt>(expr, body));
 }
 
-void FunctionBuilder::default_(const Statement *body) noexcept {
+void FunctionBuilder::default_(const ScopeStmt *body) noexcept {
     _append(_arena.create<SwitchDefaultStmt>(body));
 }
 

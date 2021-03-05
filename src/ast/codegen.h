@@ -32,6 +32,9 @@ public:
         Scratch &operator<<(const char *s) noexcept;
         Scratch &operator<<(const std::string &s) noexcept;
         [[nodiscard]] std::string_view view() const noexcept;
+        [[nodiscard]] bool empty() const noexcept;
+        [[nodiscard]] size_t size() const noexcept;
+        void pop_back() noexcept;
         void clear() noexcept;
     };
 
@@ -44,6 +47,9 @@ public:
 };
 
 class CppCodegen : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
+
+private:
+    uint32_t _indent{0u};
 
 private:
     void visit(const UnaryExpr *expr) override;
@@ -61,7 +67,7 @@ private:
     void visit(const DeclareStmt *stmt) override;
     void visit(const IfStmt *stmt) override;
     void visit(const WhileStmt *stmt) override;
-    void visit(const Type *type) const noexcept override;
+    void visit(const Type *type) noexcept override;
     void visit(const ExprStmt *stmt) override;
     void visit(const SwitchStmt *stmt) override;
     void visit(const SwitchCaseStmt *stmt) override;
@@ -69,9 +75,12 @@ private:
     void visit(const AssignStmt *stmt) override;
     
 private:
-    virtual void _emit_type_declarations() noexcept;
+    virtual void _emit_type_decl() noexcept;
+    virtual void _emit_variable_decl(Variable v) noexcept;
+    virtual void _emit_type_name(const Type *type) noexcept;
     virtual void _emit_function(Function f) noexcept;
     virtual void _emit_variable_name(Variable v) noexcept;
+    virtual void _emit_indent() noexcept;
     
 public:
     explicit CppCodegen(Codegen::Scratch &scratch) noexcept

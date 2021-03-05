@@ -17,9 +17,9 @@ template<typename U>
 constexpr auto always_false_v = false;
 
 // scalars
-using uchar = uint8_t;
-using ushort = uint16_t;
-using uint = uint32_t;
+using uchar = unsigned char;
+using ushort = unsigned short;
+using uint = unsigned int;
 
 // vectors
 namespace detail {

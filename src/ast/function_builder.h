@@ -54,6 +54,7 @@ public:
 private:
     Arena _arena;
     ScopeStmt *_body;
+    const Type *_ret{nullptr};
     ArenaVector<ScopeStmt *> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
     ArenaVector<Variable> _shared_variables;
@@ -125,6 +126,7 @@ public:
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] const auto *body() const noexcept { return _body; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
+    [[nodiscard]] auto return_type() const noexcept { return _ret; }
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;
     [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
 
@@ -192,12 +194,12 @@ public:
     void break_() noexcept;
     void continue_() noexcept;
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
-    void if_(const Expression *cond, const Statement *true_branch, const Statement *false_branch) noexcept;
-    void while_(const Expression *cond, const Statement *body) noexcept;
+    void if_(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept;
+    void while_(const Expression *cond, const ScopeStmt *body) noexcept;
     void void_(const Expression *expr) noexcept;
-    void switch_(const Expression *expr, const Statement *body) noexcept;
-    void case_(const Expression *expr, const Statement *body) noexcept;
-    void default_(const Statement *body) noexcept;
+    void switch_(const Expression *expr, const ScopeStmt *body) noexcept;
+    void case_(const Expression *expr, const ScopeStmt *body) noexcept;
+    void default_(const ScopeStmt *body) noexcept;
 
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] ScopeStmt *scope() noexcept;

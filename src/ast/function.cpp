@@ -59,4 +59,8 @@ Function Function::kernel(uint32_t uid) noexcept {
     return FunctionBuilder::kernel(uid);
 }
 
+const Type *Function::return_type() const noexcept {
+    return _builder.return_type();
+}
+
 }
