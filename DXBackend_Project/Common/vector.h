@@ -354,66 +354,6 @@ public:
 #endif
 		return arr[index];
 	}
-	T& operator[](int64_t index) noexcept {
-		return operator[]((uint64_t)index);
-	}
-	const T& operator[](int64_t index) const noexcept {
-		return operator[]((uint64_t)index);
-	}
-	T& operator[](uint32_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
-		if (index >= mSize) throw "Out of Range!";
-#endif
-		return arr[index];
-	}
-	const T& operator[](uint32_t index) const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
-		if (index >= mSize) throw "Out of Range!";
-#endif
-		return arr[index];
-	}
-	T& operator[](int32_t index) noexcept {
-		return operator[]((uint32_t)index);
-	}
-	const T& operator[](int32_t index) const noexcept {
-		return operator[]((uint32_t)index);
-	}
-	T& operator[](uint16_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
-		if (index >= mSize) throw "Out of Range!";
-#endif
-		return arr[index];
-	}
-	const T& operator[](uint16_t index) const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
-		if (index >= mSize) throw "Out of Range!";
-#endif
-		return arr[index];
-	}
-	T& operator[](int16_t index) noexcept {
-		return operator[]((uint16_t)index);
-	}
-	const T& operator[](int16_t index) const noexcept {
-		return operator[]((uint16_t)index);
-	}
-	T& operator[](uint8_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
-		if (index >= mSize) throw "Out of Range!";
-#endif
-		return arr[index];
-	}
-	const T& operator[](uint8_t index) const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
-		if (index >= mSize) throw "Out of Range!";
-#endif
-		return arr[index];
-	}
-	T& operator[](int8_t index) noexcept {
-		return operator[]((uint8_t)index);
-	}
-	const T& operator[](int8_t index) const noexcept {
-		return operator[]((uint8_t)index);
-	}
 };
 }// namespace vengine
 template<typename T, bool useVEngineAlloc = true>
