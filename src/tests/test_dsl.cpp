@@ -70,15 +70,15 @@ int main() {
         w *= float2{1.2f};
 
         if_(1 + 1 == 2, [] {
-
+            Var a = 0.0f;
         }).elif (1 + 2 == 3, [] {
-
+              Var b = 1.0f;
           }).else_([] {
-
+            Var c = 2.0f;
         });
 
-        while_(true, [] {
-
+        while_(true, [&] {
+            z += 1;
         });
 
         switch_(123)
