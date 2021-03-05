@@ -48,6 +48,7 @@ private:
 public:
     using Tag = Function::Tag;
     using ConstantData = Function::ConstantData;
+    using ConstantPtr = ConstantData::Ptr;
     using BufferBinding = Function::BufferBinding;
     using TextureBinding = Function::TextureBinding;
 
@@ -80,7 +81,7 @@ private:
     void _append(const Statement *statement) noexcept;
 
     [[nodiscard]] const Expression *_literal(const Type *type, LiteralExpr::Value value) noexcept;
-    [[nodiscard]] const Expression *_constant(const Type *type, const void *data) noexcept;
+    [[nodiscard]] const Expression *_constant(const Type *type, ConstantPtr data) noexcept;
     [[nodiscard]] const Expression *_builtin(Variable::Tag tag) noexcept;
     [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const Expression *_ref(Variable v) noexcept;

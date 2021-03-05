@@ -16,6 +16,10 @@
 
 #define $ ::luisa::compute::dsl::Var
 
+#define $thread_id ::luisa::compute::dsl::thread_id()
+#define $block_id ::luisa::compute::dsl::block_id()
+#define $dispatch_id ::luisa::compute::dsl::dispatch_id()
+
 #define $char $<char>
 #define $uchar $<uchar>
 #define $short $<short>

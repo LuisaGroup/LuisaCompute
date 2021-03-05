@@ -248,4 +248,16 @@ template<typename Dest, typename Src>
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto reinterpret(detail::Expr<Src> s) noexcept { return s.template reinterpret<Dest>(); }
 
+[[nodiscard]] inline auto thread_id() noexcept {
+    return detail::Expr<uint3>{FunctionBuilder::current()->thread_id()};
+}
+
+[[nodiscard]] inline auto block_id() noexcept {
+    return detail::Expr<uint3>{FunctionBuilder::current()->block_id()};
+}
+
+[[nodiscard]] inline auto dispatch_id() noexcept {
+    return detail::Expr<uint3>{FunctionBuilder::current()->dispatch_id()};
+}
+
 }// namespace luisa::compute::dsl

@@ -110,7 +110,11 @@ void CppCodegen::visit(const BinaryExpr *expr) {
 
 void CppCodegen::visit(const MemberExpr *expr) {
     expr->self()->accept(*this);
-    _scratch << ".m" << expr->member_index();
+    if (expr->type()->is_vector()) {
+        _scratch << "xyzw"[expr->member_index()];
+    } else {
+        _scratch << ".m" << expr->member_index();
+    }
 }
 
 void CppCodegen::visit(const AccessExpr *expr) {
@@ -172,7 +176,7 @@ public:
     }
 
     void operator()(float4x4 m) const noexcept {
-        _s << "float3x3(";
+        _s << "float4x4(";
         for (auto col = 0u; col < 4u; col++) {
             for (auto row = 0u; row < 4u; row++) {
                 (*this)(m[col][row]);
@@ -247,17 +251,7 @@ void CppCodegen::visit(const ReturnStmt *stmt) {
 
 void CppCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
-    _indent++;
-    for (auto s : stmt->statements()) {
-        _scratch << "\n";
-        _emit_indent();
-        s->accept(*this);
-    }
-    _indent--;
-    if (!stmt->statements().empty()) {
-        _scratch << "\n";
-        _emit_indent();
-    }
+    _emit_statements(stmt->statements());
     _scratch << "}";
 }
 
@@ -344,16 +338,31 @@ void CppCodegen::visit(const AssignStmt *stmt) {
 
 void CppCodegen::emit(Function f) {
     _emit_type_decl();
+    _generated.clear();
     _emit_function(f);
 }
 
 void CppCodegen::_emit_function(Function f) noexcept {
+
+    _function_uid = f.uid();
+    _indent = 0u;
+
+    if (auto iter = std::find(
+            _generated.cbegin(), _generated.cend(), f.uid());
+        iter != _generated.cend()) { return; }
+    _generated.emplace_back(f.uid());
+
     for (auto callable : f.custom_callables()) {
         _emit_function(Function::callable(callable));
     }
 
-    _scratch << "#ifndef FUNCTION_" << f.uid() << "_DEFINED\n"
-             << "#define FUNCTION_" << f.uid() << "_DEFINED\n";
+    // constants
+    if (!f.constant_variables().empty()) {
+        for (auto c : f.constant_variables()) { _emit_constant(c); }
+        _scratch << "\n";
+    }
+
+    // signature
     if (f.tag() == Function::Tag::KERNEL) {
         _scratch << "__kernel__ void kernel_" << f.uid();
     } else if (f.tag() == Function::Tag::CALLABLE) {
@@ -398,17 +407,25 @@ void CppCodegen::_emit_function(Function f) noexcept {
         || !f.builtin_variables().empty()) {
         _scratch.pop_back();
     }
-    _scratch << ") ";
-    _indent = 0u;
-    f.body()->accept(*this);
-    _scratch << "\n#endif // FUNCTION_" << f.uid() << "_DEFINED\n\n";
+    _scratch << ") {";
+    if (!f.shared_variables().empty()) {
+        _scratch << "\n";
+        for (auto s : f.shared_variables()) {
+            _scratch << "\n  ";
+            _emit_variable_decl(s);
+            _scratch << ";";
+        }
+        _scratch << "\n";
+    }
+    _emit_statements(f.body()->statements());
+    _scratch << "}\n\n";
 }
 
 void CppCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
-        case Variable::Tag::CONSTANT: _scratch << "c" << v.uid(); break;
+        case Variable::Tag::CONSTANT: _scratch << "c" << _function_uid << "_" << v.uid(); break;
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "t" << v.uid(); break;
@@ -460,6 +477,7 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::ARRAY:
             _scratch << "array<";
             _emit_type_name(type->element());
+            _scratch << ", ";
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::ATOMIC:
@@ -507,6 +525,42 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
 
 void CppCodegen::_emit_indent() noexcept {
     for (auto i = 0u; i < _indent; i++) { _scratch << "  "; }
+}
+
+void CppCodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+    _indent++;
+    for (auto s : stmts) {
+        _scratch << "\n";
+        _emit_indent();
+        s->accept(*this);
+    }
+    _indent--;
+    if (!stmts.empty()) {
+        _scratch << "\n";
+        _emit_indent();
+    }
+}
+
+void CppCodegen::_emit_constant(Function::ConstantData c) noexcept {
+    _emit_variable_decl(c.variable);
+    _scratch << "{";
+    auto count = c.variable.type()->dimension();
+    static constexpr auto wrap = 16u;
+    using namespace std::string_view_literals;
+    std::visit([count, this](auto ptr) {
+        detail::LiteralPrinter print{_scratch};
+        for (auto i = 0u; i < count; i++) {
+            if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
+            print(ptr[i]);
+            _scratch << ", ";
+        }
+    },
+               c.data);
+    if (count > 0u) {
+        _scratch.pop_back();
+        _scratch.pop_back();
+    }
+    _scratch << "};\n";
 }
 
 }// namespace luisa::compute

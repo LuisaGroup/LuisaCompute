@@ -41,7 +41,7 @@ int main() {
 
     Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
-        return cast<float>(a) + b.cast<float>() * c;
+        return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
 
     auto t0 = std::chrono::high_resolution_clock::now();
@@ -52,7 +52,7 @@ int main() {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
-        Var v_float = buffer_float[count];
+        Var v_float = buffer_float[count + thread_id().x];
         Var call_ret = callable(10, v_int, v_float);
 
         Var v_float_copy = v_float;
@@ -61,39 +61,39 @@ int main() {
         z += 1;
         static_assert(std::is_same_v<decltype(z), Var<float>>);
 
-        //        for (auto i = 0u; i < 1000u; i++) {
-        Var v_vec = float3{1.0f};
-        Var v2 = float3{2.0f} - v_vec * 2.0f;
-        v2 *= 5.0f + v_float;
+        for (auto i = 0u; i < 3u; i++) {
+            Var v_vec = float3{1.0f};
+            Var v2 = float3{2.0f} - v_vec * 2.0f;
+            v2 *= 5.0f + v_float;
 
-        Var<float2> w{v_int, v_float};
-        w *= float2{1.2f};
+            Var<float2> w{v_int, v_float};
+            w *= float2{1.2f};
 
-        if_(1 + 1 == 2, [] {
-            Var a = 0.0f;
-        }).elif (1 + 2 == 3, [] {
-              Var b = 1.0f;
-          }).else_([] {
-            Var c = 2.0f;
-        });
-
-        while_(true, [&] {
-            z += 1;
-        });
-
-        switch_(123)
-            .case_(1, [] {
-
-            })
-            .case_(2, [] {
-
-            })
-            .default_([] {
-
+            if_(1 + 1 == 2, [] {
+                Var a = 0.0f;
+            }).elif (1 + 2 == 3, [] {
+                  Var b = 1.0f;
+              }).else_([] {
+                Var c = 2.0f;
             });
 
-        Var x = w.x;
-        //        }
+            while_(true, [&] {
+                z += 1;
+            });
+
+            switch_(123)
+                .case_(1, [] {
+
+                })
+                .case_(2, [] {
+
+                })
+                .default_([] {
+
+                });
+
+            Var x = w.x;
+        }
 
         Var<int3> s;
         Var<Test> vvt{s, v_float_copy};

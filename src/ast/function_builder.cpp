@@ -74,10 +74,10 @@ void FunctionBuilder::assign(AssignOp op, const Expression *lhs, const Expressio
 }
 
 const Expression *FunctionBuilder::_literal(const Type *type, LiteralExpr::Value value) noexcept {
-    return _arena.create<LiteralExpr>(type, std::move(value));
+    return _arena.create<LiteralExpr>(type, value);
 }
 
-const Expression *FunctionBuilder::_constant(const Type *type, const void *data) noexcept {
+const Expression *FunctionBuilder::_constant(const Type *type, FunctionBuilder::ConstantPtr data) noexcept {
     Variable v{type, Variable::Tag::CONSTANT, _next_variable_uid()};
     _constant_variables.emplace_back(ConstantData{v, data});
     return _ref(v);

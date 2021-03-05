@@ -49,6 +49,8 @@ public:
 class CppCodegen : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
+    std::vector<uint32_t> _generated;
+    uint32_t _function_uid{0u};
     uint32_t _indent{0u};
 
 private:
@@ -81,6 +83,8 @@ private:
     virtual void _emit_function(Function f) noexcept;
     virtual void _emit_variable_name(Variable v) noexcept;
     virtual void _emit_indent() noexcept;
+    virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
+    virtual void _emit_constant(Function::ConstantData c) noexcept;
     
 public:
     explicit CppCodegen(Codegen::Scratch &scratch) noexcept
