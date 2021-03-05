@@ -43,16 +43,16 @@ int main() {
     };
 
     Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
-        Constants<Float> float_consts = {1.0f, 2.0f};
-        Constants<Int> int_consts = const_vector;
+        Constant float_consts = {1.0f, 2.0f};
+        Constant int_consts = const_vector;
 
         Shared<float4> shared_floats{16};
 
-        Int v_int = 10;
-        Float v_float = buffer_float[count];
+        Var v_int = 10;
+        Var v_float = buffer_float[count];
         Var call_ret = callable(10, v_int, v_float);
 
-        Float v_float_copy = v_float;
+        Var v_float_copy = v_float;
 
         Var z = -1 + v_int * v_float + 1.0f;
         z += 1;
