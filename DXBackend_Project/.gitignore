@@ -1,4 +1,5 @@
-BuildTools
+BuildTools/
+Build/
 Generate.cmd
 LC_DXBackend.sln
 LC_DXBackend.vcxproj
