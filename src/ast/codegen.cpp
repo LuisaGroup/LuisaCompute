@@ -45,14 +45,6 @@ Codegen::Scratch &Codegen::Scratch::operator<<(std::string_view s) noexcept {
     return *this;
 }
 
-Codegen::Scratch &Codegen::Scratch::operator<<(int64_t x) noexcept {
-    return *this << detail::to_string(x);
-}
-
-Codegen::Scratch &Codegen::Scratch::operator<<(uint64_t x) noexcept {
-    return *this << detail::to_string(x);
-}
-
 Codegen::Scratch &Codegen::Scratch::operator<<(size_t x) noexcept {
     return *this << detail::to_string(x);
 }

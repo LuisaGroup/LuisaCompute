@@ -25,8 +25,6 @@ public:
         Scratch &operator<<(float x) noexcept;
         Scratch &operator<<(int x) noexcept;
         Scratch &operator<<(uint x) noexcept;
-        Scratch &operator<<(int64_t x) noexcept;
-        Scratch &operator<<(uint64_t x) noexcept;
         Scratch &operator<<(size_t x) noexcept;
         Scratch &operator<<(std::string_view s) noexcept;
         Scratch &operator<<(const char *s) noexcept;
