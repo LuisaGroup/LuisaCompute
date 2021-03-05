@@ -8,3 +8,4 @@ LoggerFile.log
 x64/
 x86/
 .vs/
+CMakeLists.txt
