@@ -8,6 +8,7 @@
 
 #include <runtime/device.h>
 #include <ast/interface.h>
+#include <compile/cpp_codegen.h>
 
 #define LUISA_DISABLE_SYNTAX_SUGAR
 #include <dsl/syntax.h>
