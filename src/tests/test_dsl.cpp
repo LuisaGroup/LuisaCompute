@@ -35,12 +35,6 @@ struct FakeDevice : public Device {
 };
 
 int main() {
-    
-    fmt::print("{:016X}\n", 1234);
-    
-    std::array<char, 5> temp{"hell"};
-    auto [iter, size] = fmt::format_to_n(temp.data(), 3, "{}", true);
-    LUISA_INFO("{}: {}, {}", temp.data(), size, iter - temp.cbegin());
 
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};

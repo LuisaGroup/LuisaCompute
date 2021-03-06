@@ -6,6 +6,7 @@
 #include <core/hash.h>
 
 #include <span>
+#include <array>
 
 namespace luisa {
 
