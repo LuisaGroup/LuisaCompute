@@ -1,7 +1,11 @@
+
 add_executable(test main.cpp)
 target_compile_features(test PRIVATE c_std_11 cxx_std_20)
 target_link_libraries(test PRIVATE luisa::compute)
+#Created By Maxwell, can delete
+target_compile_definitions(test PRIVATE HUSKY_WINDOWS)
 
+#Added by MaxwellGeng
 #find_package(pybind11 REQUIRED)
 #pybind11_add_module(test_pybind test_pybind.cpp)
 #
@@ -19,6 +23,7 @@ target_link_libraries(test_interpreter PRIVATE luisa::compute)
 
 add_executable(test_dsl test_dsl.cpp)
 target_link_libraries(test_dsl PRIVATE luisa::compute)
+
 
 add_executable(test_dsl_syntax test_dsl_syntax.cpp)
 target_link_libraries(test_dsl_syntax PRIVATE luisa::compute)

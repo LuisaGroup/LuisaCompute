@@ -6,6 +6,7 @@
 
 #include <core/data_types.h>
 #include <core/logging.h>
+#include <tests/test_husky.h>
 
 template<typename T>
 struct DSLVar {
