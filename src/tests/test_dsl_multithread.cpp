@@ -53,8 +53,8 @@ int main() {
     threads.reserve(8u);
 
     for (auto i = 0u; i < 8u; i++) {
-        auto t0 = std::chrono::high_resolution_clock::now();
         threads.emplace_back([&, worker = i] {
+            auto t0 = std::chrono::high_resolution_clock::now();
             Constant float_consts = {1.0f, 2.0f};
             Constant int_consts = const_vector;
             Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {

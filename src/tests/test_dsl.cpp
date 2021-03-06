@@ -116,7 +116,7 @@ int main() {
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
     LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
     auto function = Function::kernel(command.kernel_uid());
-
+    
     auto t2 = std::chrono::high_resolution_clock::now();
     Codegen::Scratch scratch;
     CppCodegen codegen{scratch};
