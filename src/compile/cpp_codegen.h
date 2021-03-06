@@ -9,7 +9,7 @@
 #include <ast/expression.h>
 #include <compile/codegen.h>
 
-namespace luisa::compute {
+namespace luisa::compute::compile {
 
 class CppCodegen : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
@@ -56,5 +56,4 @@ public:
     void emit(Function f) override;
 };
 
-
-}
+}// namespace luisa::compute::compile

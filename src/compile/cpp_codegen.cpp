@@ -5,7 +5,7 @@
 #include <ast/type_registry.h>
 #include <compile/cpp_codegen.h>
 
-namespace luisa::compute {
+namespace luisa::compute::compile {
 
 void CppCodegen::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
@@ -502,4 +502,4 @@ void CppCodegen::_emit_constant(Function::ConstantData c) noexcept {
     _scratch << "};\n";
 }
 
-}// namespace luisa::compute
+}// namespace luisa::compute::compile
