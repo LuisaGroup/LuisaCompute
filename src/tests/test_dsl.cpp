@@ -4,6 +4,7 @@
 
 #include <iostream>
 #include <chrono>
+#include <numeric>
 
 #include <runtime/device.h>
 #include <ast/interface.h>
@@ -37,7 +38,8 @@ int main() {
     Buffer<float4> buffer{&device, 1024u};
     Buffer<float> float_buffer{&device, 1024u};
 
-    std::vector const_vector{1, 2, 3, 4};
+    std::vector<int> const_vector(128u);
+    std::iota(const_vector.begin(), const_vector.end(), 0);
 
     Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;

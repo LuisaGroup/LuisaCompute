@@ -73,7 +73,7 @@ private:
     void visit(const SwitchCaseStmt *stmt) override;
     void visit(const SwitchDefaultStmt *stmt) override;
     void visit(const AssignStmt *stmt) override;
-    
+
 private:
     virtual void _emit_type_decl() noexcept;
     virtual void _emit_variable_decl(Variable v) noexcept;
@@ -83,11 +83,10 @@ private:
     virtual void _emit_indent() noexcept;
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
     virtual void _emit_constant(Function::ConstantData c) noexcept;
-    
+
 public:
-    explicit CppCodegen(Codegen::Scratch &scratch) noexcept
-        : Codegen{scratch} {}
+    explicit CppCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}
     void emit(Function f) override;
 };
 
-}// namespace luisa::compute::ast
+}// namespace luisa::compute

@@ -102,8 +102,9 @@ void CppCodegen::visit(const BinaryExpr *expr) {
 
 void CppCodegen::visit(const MemberExpr *expr) {
     expr->self()->accept(*this);
-    if (expr->type()->is_vector()) {
-        _scratch << "xyzw"[expr->member_index()];
+    if (expr->self()->type()->is_vector()) {
+        static constexpr std::string_view xyzw[]{".x", ".y", ".z", ".w"};
+        _scratch << xyzw[expr->member_index()];
     } else {
         _scratch << ".m" << expr->member_index();
     }
