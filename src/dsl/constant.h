@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ast/constant_data.h>
 #include <dsl/expr.h>
 
 namespace luisa::compute::dsl {
@@ -14,31 +15,35 @@ class Constant {
     static_assert(concepts::Basic<T>);
 
 private:
-    const Expression *_expression;
+    const Type *_type;
+    uint64_t _hash;
 
 public:
     Constant(std::span<const T> data) noexcept
-        : _expression{FunctionBuilder::current()->constant(data.data(), data.size())} {}
-    Constant(std::initializer_list<T> data) noexcept
-        : _expression{FunctionBuilder::current()->constant(data)} {}
+        : _type{Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
+          _hash{ConstantData::create(data)} {}
+
     Constant(const T *data, size_t size) noexcept
         : Constant{std::span{data, size}} {}
+
     template<typename U>
     Constant(U &&data) noexcept : Constant{std::span<const T>{std::forward<U>(data)}} {}
-    
+
+    Constant(std::initializer_list<T> init) noexcept : Constant{std::vector<T>{init}} {}
+
     Constant(Constant &&) noexcept = default;
     Constant(const Constant &) noexcept = delete;
     Constant &operator=(Constant &&) noexcept = delete;
     Constant &operator=(const Constant &) noexcept = delete;
-    
-    [[nodiscard]] auto expression() const noexcept { return _expression; }
-    
+
     template<concepts::Integral U>
     [[nodiscard]] auto operator[](detail::Expr<U> index) const noexcept {
         return detail::Expr<T>{FunctionBuilder::current()->access(
-            Type::of<T>(), _expression, index.expression())};
+            Type::of<T>(),
+            FunctionBuilder::current()->constant(_type, _hash),
+            index.expression())};
     }
-    
+
     template<concepts::Integral U>
     [[nodiscard]] auto operator[](U index) const noexcept { return (*this)[detail::Expr{index}]; }
 };

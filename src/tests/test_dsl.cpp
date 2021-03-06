@@ -35,6 +35,12 @@ struct FakeDevice : public Device {
 };
 
 int main() {
+    
+    fmt::print("{:016X}\n", 1234);
+    
+    std::array<char, 5> temp{"hell"};
+    auto [iter, size] = fmt::format_to_n(temp.data(), 3, "{}", true);
+    LUISA_INFO("{}: {}, {}", temp.data(), size, iter - temp.cbegin());
 
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};
@@ -49,14 +55,16 @@ int main() {
     };
 
     auto t0 = std::chrono::high_resolution_clock::now();
+    Constant float_consts = {1.0f, 2.0f};
+    Constant int_consts = const_vector;
     Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
-        Constant float_consts = {1.0f, 2.0f};
-        Constant int_consts = const_vector;
 
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
+        Var vv_int = int_consts[v_int];
         Var v_float = buffer_float[count + thread_id().x];
+        Var vv_float = float_consts[vv_int];
         Var call_ret = callable(10, v_int, v_float);
 
         Var v_float_copy = v_float;

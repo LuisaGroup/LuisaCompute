@@ -16,8 +16,6 @@ public:
         // data
         LOCAL,
         SHARED,
-        CONSTANT,
-
         UNIFORM,
 
         // resources

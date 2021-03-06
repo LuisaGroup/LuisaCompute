@@ -14,7 +14,8 @@ namespace luisa::compute::compile {
 class CppCodegen : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
-    std::vector<uint32_t> _generated;
+    std::vector<uint32_t> _generated_functions;
+    std::vector<uint64_t> _generated_constants;
     uint32_t _function_uid{0u};
     uint32_t _indent{0u};
 
@@ -49,7 +50,8 @@ private:
     virtual void _emit_variable_name(Variable v) noexcept;
     virtual void _emit_indent() noexcept;
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
-    virtual void _emit_constant(Function::ConstantData c) noexcept;
+    virtual void _emit_constant(Function::ConstantBinding c) noexcept;
+    void visit(const ConstantExpr *expr) override;
 
 public:
     explicit CppCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}

@@ -15,8 +15,8 @@ std::span<const Variable> Function::shared_variables() const noexcept {
     return _builder.shared_variables();
 }
 
-std::span<const Function::ConstantData> Function::constant_variables() const noexcept {
-    return _builder.constant_variables();
+std::span<const Function::ConstantBinding> Function::constants() const noexcept {
+    return _builder.constants();
 }
 
 std::span<const Function::BufferBinding> Function::captured_buffers() const noexcept {

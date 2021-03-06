@@ -10,6 +10,8 @@
 #include <fmt/format.h>
 
 #include <core/memory.h>
+#include <core/hash.h>
+
 #include <ast/statement.h>
 #include <ast/function.h>
 #include <ast/variable.h>
@@ -47,8 +49,7 @@ private:
 
 public:
     using Tag = Function::Tag;
-    using ConstantData = Function::ConstantData;
-    using ConstantPtr = ConstantData::Ptr;
+    using ConstantBinding = Function::ConstantBinding;
     using BufferBinding = Function::BufferBinding;
     using TextureBinding = Function::TextureBinding;
 
@@ -59,7 +60,7 @@ private:
     ArenaVector<ScopeStmt *> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
     ArenaVector<Variable> _shared_variables;
-    ArenaVector<ConstantData> _constant_variables;
+    ArenaVector<ConstantBinding> _captured_constants;
     ArenaVector<BufferBinding> _captured_buffers;
     ArenaVector<TextureBinding> _captured_textures;
     ArenaVector<Variable> _arguments;
@@ -81,7 +82,6 @@ private:
     void _append(const Statement *statement) noexcept;
 
     [[nodiscard]] const Expression *_literal(const Type *type, LiteralExpr::Value value) noexcept;
-    [[nodiscard]] const Expression *_constant(const Type *type, ConstantPtr data) noexcept;
     [[nodiscard]] const Expression *_builtin(Variable::Tag tag) noexcept;
     [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const Expression *_ref(Variable v) noexcept;
@@ -92,7 +92,7 @@ private:
           _scope_stack{_arena},
           _builtin_variables{_arena},
           _shared_variables{_arena},
-          _constant_variables{_arena},
+          _captured_constants{_arena},
           _captured_buffers{_arena},
           _captured_textures{_arena},
           _arguments{_arena},
@@ -118,7 +118,7 @@ public:
     // interfaces for class Function
     [[nodiscard]] auto builtin_variables() const noexcept { return std::span{_builtin_variables.data(), _builtin_variables.size()}; }
     [[nodiscard]] auto shared_variables() const noexcept { return std::span{_shared_variables.data(), _shared_variables.size()}; }
-    [[nodiscard]] auto constant_variables() const noexcept { return std::span{_constant_variables.data(), _constant_variables.size()}; }
+    [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants.data(), _captured_constants.size()}; }
     [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
     [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
@@ -156,22 +156,7 @@ public:
     [[nodiscard]] const Expression *local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
     [[nodiscard]] const Expression *shared(const Type *type) noexcept;
 
-    template<concepts::Basic T>
-    [[nodiscard]] auto constant(const T *data, size_t n) noexcept {
-        auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), n));
-        auto bytes = _arena.allocate<T>(n);
-        std::uninitialized_copy_n(data, n, bytes);
-        return _constant(type, bytes);
-    }
-
-    template<concepts::Basic T>
-    [[nodiscard]] auto constant(std::initializer_list<T> data) noexcept {
-        auto type = Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()));
-        auto bytes = _arena.allocate<T>(data.size());
-        std::uninitialized_copy_n(data.begin(), data.size(), bytes);
-        return _constant(type, bytes);
-    }
-
+    [[nodiscard]] const Expression *constant(const Type *type, uint64_t hash) noexcept;
     [[nodiscard]] const Expression *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const Expression *texture_binding(const Type *type, uint64_t handle) noexcept;
 
@@ -187,7 +172,6 @@ public:
     [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const Expression *member(const Type *type, const Expression *self, size_t member_index) noexcept;
     [[nodiscard]] const Expression *access(const Type *type, const Expression *range, const Expression *index) noexcept;
-    [[nodiscard]] const Expression *call(const Type *type /* nullptr for void */, std::string_view func, std::span<const Expression *> args) noexcept;
     [[nodiscard]] const Expression *call(const Type *type /* nullptr for void */, std::string_view func, std::initializer_list<const Expression *> args) noexcept;
     [[nodiscard]] const Expression *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
 

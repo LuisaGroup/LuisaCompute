@@ -15,7 +15,10 @@ namespace detail {
 template<typename T>
 [[nodiscard]] inline auto to_string(T x) noexcept {
     static thread_local std::array<char, 128u> s;
-    auto [_, size] = fmt::format_to_n(s.begin(), s.size(), FMT_STRING("{}"), x);
+    auto [iter, size] = fmt::format_to_n(s.begin(), s.size(), FMT_STRING("{}"), x);
+    if (iter - s.begin() != size) {
+        LUISA_ERROR_WITH_LOCATION("No enough storage converting {} to string.", x);
+    }
     return std::string_view{s.data(), size};
 }
 
