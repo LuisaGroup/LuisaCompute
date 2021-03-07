@@ -140,11 +140,8 @@ template<typename T>
 ArenaVector(Arena &, std::initializer_list<T>) -> ArenaVector<T>;
 
 struct ArenaString : public std::string_view {
-
     ArenaString(Arena &arena, std::string_view s) noexcept
-        : std::string_view{std::strncpy(arena.allocate<char>(s.size() + 1), s.data(), s.size()), s.size()} {}
-
-    [[nodiscard]] const char *c_str() const noexcept { return data(); }
+        : std::string_view{std::strncpy(arena.allocate<char>(s.size()), s.data(), s.size()), s.size()} {}
 };
 
 namespace detail {

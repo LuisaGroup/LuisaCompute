@@ -77,12 +77,6 @@ const Expression *FunctionBuilder::_literal(const Type *type, LiteralExpr::Value
     return _arena.create<LiteralExpr>(type, value);
 }
 
-const Expression *FunctionBuilder::_constant(const Type *type, FunctionBuilder::ConstantPtr data) noexcept {
-    Variable v{type, Variable::Tag::CONSTANT, _next_variable_uid()};
-    _constant_variables.emplace_back(ConstantData{v, data});
-    return _ref(v);
-}
-
 const Expression *FunctionBuilder::local(const Type *type, std::span<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     ArenaVector initializer{_arena, init};
@@ -173,20 +167,6 @@ const Expression *FunctionBuilder::access(const Type *type, const Expression *ra
     return _arena.create<AccessExpr>(type, range, index);
 }
 
-const Expression *FunctionBuilder::call(const Type *type, std::string_view func, std::span<const Expression *> args) noexcept {
-    ArenaString func_name{_arena, func};
-    ArenaVector func_args{_arena, args};
-    auto expr = _arena.create<CallExpr>(type, func_name, func_args);
-    if (expr->is_builtin()) {
-        if (auto iter = std::find(_used_builtin_callables.cbegin(), _used_builtin_callables.cend(), func_name);
-            iter == _used_builtin_callables.cend()) { _used_builtin_callables.emplace_back(func_name); }
-    } else {
-        if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), expr->uid());
-            iter == _used_custom_callables.cend()) { _used_custom_callables.emplace_back(expr->uid()); }
-    }
-    return expr;
-}
-
 const Expression *FunctionBuilder::call(const Type *type, std::string_view func, std::initializer_list<const Expression *> args) noexcept {
     ArenaString func_name{_arena, func};
     ArenaVector func_args{_arena, args};
@@ -239,6 +219,12 @@ std::recursive_mutex &FunctionBuilder::_function_registry_mutex() noexcept {
 
 ScopeStmt *FunctionBuilder::scope() noexcept {
     return _arena.create<ScopeStmt>(ArenaVector<const Statement *>(_arena));
+}
+
+const Expression *FunctionBuilder::constant(const Type *type, uint64_t hash) noexcept {
+    if (!type->is_array()) { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
+    _captured_constants.emplace_back(ConstantBinding{type, hash});
+    return _arena.create<ConstantExpr>(type, hash);
 }
 
 }// namespace luisa::compute

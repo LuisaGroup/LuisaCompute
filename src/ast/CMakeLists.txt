@@ -6,7 +6,7 @@ set(LUISA_COMPUTE_AST_SOURCES
     statement.h
     type.cpp type.h
     type_registry.h
-    interface.h)
+    interface.h constant_data.cpp constant_data.h)
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core)

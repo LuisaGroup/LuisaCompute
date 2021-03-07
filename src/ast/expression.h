@@ -36,6 +36,7 @@ class MemberExpr;
 class AccessExpr;
 class LiteralExpr;
 class RefExpr;
+class ConstantExpr;
 class CallExpr;
 class CastExpr;
 
@@ -46,6 +47,7 @@ struct ExprVisitor {
     virtual void visit(const AccessExpr *) = 0;
     virtual void visit(const LiteralExpr *) = 0;
     virtual void visit(const RefExpr *) = 0;
+    virtual void visit(const ConstantExpr *) = 0;
     virtual void visit(const CallExpr *) = 0;
     virtual void visit(const CastExpr *) = 0;
 };
@@ -159,7 +161,7 @@ private:
 
 public:
     LiteralExpr(const Type *type, Value v) noexcept
-        : Expression{type}, _value{std::move(v)} {}
+        : Expression{type}, _value{v} {}
     [[nodiscard]] const Value &value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
@@ -173,6 +175,18 @@ public:
     explicit RefExpr(Variable v) noexcept
         : Expression{v.type()}, _variable{v} {}
     [[nodiscard]] auto variable() const noexcept { return _variable; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+};
+
+class ConstantExpr : public Expression {
+
+private:
+    uint64_t _hash;
+
+public:
+    explicit ConstantExpr(const Type *type, uint64_t hash) noexcept
+        : Expression{type}, _hash{hash} {}
+    [[nodiscard]] auto hash() const noexcept { return _hash; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
@@ -227,15 +241,5 @@ public:
 };
 
 #undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
-
-// make sure we can allocate them using arena...
-static_assert(std::is_trivially_destructible_v<UnaryExpr>);
-static_assert(std::is_trivially_destructible_v<BinaryExpr>);
-static_assert(std::is_trivially_destructible_v<MemberExpr>);
-static_assert(std::is_trivially_destructible_v<AccessExpr>);
-static_assert(std::is_trivially_destructible_v<LiteralExpr>);
-static_assert(std::is_trivially_destructible_v<RefExpr>);
-static_assert(std::is_trivially_destructible_v<CallExpr>);
-static_assert(std::is_trivially_destructible_v<CastExpr>);
 
 }// namespace luisa::compute

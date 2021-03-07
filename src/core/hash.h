@@ -49,4 +49,8 @@ struct Hash {
     }
 };
 
+[[nodiscard]] std::string_view hash_to_string(uint64_t hash) noexcept;
+[[nodiscard]] std::string_view hash_to_string(uint32_t hash) noexcept;
+[[nodiscard]] std::string_view hash_to_string(XXH128_hash_t hash) noexcept;
+
 }// namespace luisa

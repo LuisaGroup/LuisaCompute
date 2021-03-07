@@ -2,7 +2,11 @@
 // Created by Mike Smith on 2021/3/6.
 //
 
+#include <string_view>
+
+#include <core/hash.h>
 #include <ast/type_registry.h>
+#include <ast/constant_data.h>
 #include <compile/cpp_codegen.h>
 
 namespace luisa::compute::compile {
@@ -276,16 +280,15 @@ void CppCodegen::visit(const AssignStmt *stmt) {
 
 void CppCodegen::emit(Function f) {
     _emit_type_decl();
-    _generated.clear();
     _emit_function(f);
 }
 
 void CppCodegen::_emit_function(Function f) noexcept {
 
     if (auto iter = std::find(
-            _generated.cbegin(), _generated.cend(), f.uid());
-        iter != _generated.cend()) { return; }
-    _generated.emplace_back(f.uid());
+            _generated_functions.cbegin(), _generated_functions.cend(), f.uid());
+        iter != _generated_functions.cend()) { return; }
+    _generated_functions.emplace_back(f.uid());
 
     for (auto callable : f.custom_callables()) {
         _emit_function(Function::callable(callable));
@@ -295,8 +298,8 @@ void CppCodegen::_emit_function(Function f) noexcept {
     _indent = 0u;
 
     // constants
-    if (!f.constant_variables().empty()) {
-        for (auto c : f.constant_variables()) { _emit_constant(c); }
+    if (!f.constants().empty()) {
+        for (auto c : f.constants()) { _emit_constant(c); }
         _scratch << "\n";
     }
 
@@ -363,7 +366,6 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
-        case Variable::Tag::CONSTANT: _scratch << "c" << _function_uid << "_" << v.uid(); break;
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "t" << v.uid(); break;
@@ -393,6 +395,7 @@ void CppCodegen::visit(const Type *type) noexcept {
 }
 
 void CppCodegen::_emit_type_name(const Type *type) noexcept {
+
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "bool"; break;
         case Type::Tag::FLOAT: _scratch << "float"; break;
@@ -423,9 +426,12 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
             _emit_type_name(type->element());
             _scratch << ">";
             break;
-        case Type::Tag::STRUCTURE:
-            _scratch << "S" << type->index();
+        case Type::Tag::STRUCTURE: {
+            static thread_local std::array<char, 17u> temp;
+            fmt::format_to_n(temp.data(), temp.size(), "S{:X}", type->hash());
+            _scratch << std::string_view{temp.data(), temp.size()};
             break;
+        }
     }
 }
 
@@ -452,11 +458,6 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_type_name(v.type());
             _scratch << " ";
             break;
-        case Variable::Tag::CONSTANT:
-            _scratch << "__constant__ ";
-            _emit_type_name(v.type());
-            _scratch << " ";
-            break;
     }
     _emit_variable_name(v);
 }
@@ -479,10 +480,17 @@ void CppCodegen::_emit_statements(std::span<const Statement *const> stmts) noexc
     }
 }
 
-void CppCodegen::_emit_constant(Function::ConstantData c) noexcept {
-    _emit_variable_decl(c.variable);
-    _scratch << "{";
-    auto count = c.variable.type()->dimension();
+void CppCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
+
+    if (std::find(_generated_constants.cbegin(),
+                  _generated_constants.cend(), c.hash)
+        != _generated_constants.cend()) { return; }
+    _generated_constants.emplace_back(c.hash);
+
+    _scratch << "__constant__ ";
+    _emit_type_name(c.type);
+    _scratch << " c" << hash_to_string(c.hash) << "{";
+    auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
     std::visit(
@@ -494,12 +502,16 @@ void CppCodegen::_emit_constant(Function::ConstantData c) noexcept {
                 _scratch << ", ";
             }
         },
-        c.data);
+        ConstantData::view(c.hash));
     if (count > 0u) {
         _scratch.pop_back();
         _scratch.pop_back();
     }
     _scratch << "};\n";
+}
+
+void CppCodegen::visit(const ConstantExpr *expr) {
+    _scratch << "c" << hash_to_string(expr->hash());
 }
 
 }// namespace luisa::compute::compile
