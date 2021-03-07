@@ -1,10 +1,24 @@
 #pragma once
+#include <ast/function.h>
 namespace luisa::compute {
 struct StmtVisitor;
+class Function;
 struct ExprVisitor;
 class StringStateVisitor;
 class Variable;
-vengine::string GetVariableName(Variable const& type);
+class Type;
+class TypeVisitor;
+class CodegenUtility {
+public:
+	static vengine::string GetVariableName(Variable const& type);
+	static vengine::string GetTypeName(Type const& type);
+	static vengine::string GetFunctionDecl(Function const* func);
+	static void PrintConstant(Function::ConstantBinding const& binding, vengine::string& result);
+	static void ClearStructType();
+	static void RegistStructType(Type const* type);
+	static void IterateStructType(TypeVisitor* visitor);
+	static void PrintStructType(vengine::string& str);
+};
 class StringExprVisitor final : public ExprVisitor {
 	friend class StringStateVisitor;
 
@@ -17,6 +31,7 @@ public:
 	void visit(const RefExpr* expr) override;
 	void visit(const CallExpr* expr) override;
 	void visit(const CastExpr* expr) override;
+	void visit(const ConstantExpr* expr) override;
 	vengine::string const& ToString() const;
 	StringExprVisitor();
 	StringExprVisitor(

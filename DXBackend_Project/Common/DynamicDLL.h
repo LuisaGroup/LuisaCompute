@@ -4,7 +4,7 @@
 #include "Memory.h"
 #include <Windows.h>
 #include "Log.h"
-class  DynamicDLL final
+class DynamicDLL final
 {
 	HINSTANCE inst;
 	template <typename T>

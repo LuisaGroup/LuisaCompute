@@ -10,6 +10,7 @@
 #include <ast/interface.h>
 #include <compile/cpp_codegen.h>
 #include <dsl/syntax.h>
+#include <tests/test_husky.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -50,7 +51,6 @@ int main() {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
     Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
-
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
@@ -64,8 +64,7 @@ int main() {
         Var z = -1 + v_int * v_float + 1.0f;
         z += 1;
         static_assert(std::is_same_v<decltype(z), Var<float>>);
-
-        for (auto i = 0u; i < 3u; i++) {
+        for (uint i = 0; i < 3; ++i) {
             Var v_vec = float3{1.0f};
             Var v2 = float3{2.0f} - v_vec * 2.0f;
             v2 *= 5.0f + v_float;
@@ -107,14 +106,14 @@ int main() {
         Var c = 0.5f + vt.a * 1.0f;
 
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
+        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
     };
     auto t1 = std::chrono::high_resolution_clock::now();
 
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
     LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
     auto function = Function::kernel(command.kernel_uid());
-    
+
     auto t2 = std::chrono::high_resolution_clock::now();
     Codegen::Scratch scratch;
     CppCodegen codegen{scratch};
@@ -122,6 +121,8 @@ int main() {
     auto t3 = std::chrono::high_resolution_clock::now();
 
     std::cout << scratch.view() << std::endl;
+    //    RunHLSLCodeGen(&function);
+    system("pause");
 
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);

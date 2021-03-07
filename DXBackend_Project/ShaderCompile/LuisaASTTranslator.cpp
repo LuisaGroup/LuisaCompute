@@ -1,9 +1,119 @@
 #include <ast/interface.h>
-#include "../Common/Common.h"
-#include "../Common/VObject.h"
+#include <ast/constant_data.h>
+#include <Common/Common.h>
+#include <Common/VObject.h>
 #include "LuisaASTTranslator.h"
-namespace luisa::compute {
 
+namespace luisa::compute {
+#ifdef NDEBUG
+DLL_EXPORT void CodegenBody(Function const* func) {
+	vengine::vengine_init_malloc();
+	std::cout << "Start Working" << std::endl;
+	CodegenUtility::ClearStructType();
+	StringStateVisitor vis;
+	func->body()->accept(vis);
+	{
+		vengine::string str;
+		CodegenUtility::PrintStructType(str);
+		std::cout << str << std::endl;
+	}
+	{
+		vengine::string str;
+		for (auto& i : func->constants()) {
+			CodegenUtility::PrintConstant(i, str);
+		}
+		std::cout << str << std::endl;
+	}
+	std::cout << CodegenUtility::GetFunctionDecl(func) << std::endl;
+	std::cout << vis.ToString() << std::endl;
+	std::cout << "Finished" << std::endl;
+}
+#endif
+template<typename T>
+struct GetSpanType;
+template<typename T>
+struct GetSpanType<std::span<T const>> {
+	using Type = T;
+};
+template<typename T>
+struct GetName {
+	static vengine::string Get() {
+		if constexpr (std::is_same_v<bool, T>) {
+			return "bool";
+		} else if constexpr (std::is_same_v<float, T>) {
+			return "float";
+		} else if constexpr (std::is_same_v<char, T>) {
+			return "int";
+		} else if constexpr (std::is_same_v<uchar, T>) {
+			return "uint";
+		} else if constexpr (std::is_same_v<short, T>) {
+			return "int";
+		} else if constexpr (std::is_same_v<ushort, T>) {
+			return "uint";
+		} else if constexpr (std::is_same_v<int, T>) {
+			return "int";
+		} else if constexpr (std::is_same_v<uint, T>) {
+			return "uint";
+		} else {
+			return "unknown";
+		}
+	}
+};
+template<typename EleType, size_t N>
+struct GetName<Vector<EleType, N>> {
+	static vengine::string Get() {
+		return GetName<EleType>::Get() + vengine::to_string(N);
+	}
+};
+template<size_t N>
+struct GetName<Matrix<N>> {
+	static vengine::string Get() {
+		auto num = vengine::to_string(N);
+		return GetName<float>::Get() + num + 'x' + num;
+	}
+};
+template<typename T>
+struct PrintValue {
+	void operator()(T const& v, vengine::string& str) {
+		str += vengine::to_string((int)v);
+	}
+};
+template<>
+struct PrintValue<float> {
+	void operator()(float const& v, vengine::string& str) {
+		str += vengine::to_string(v);
+	}
+};
+
+template<typename EleType, size_t N>
+struct PrintValue<Vector<EleType, N>> {
+	using T = typename Vector<EleType, N>;
+	void operator()(T const& v, vengine::string& varName) {
+		varName += GetName<T>::Get();
+		varName += '(';
+		for (size_t i = 0; i < N; ++i) {
+			varName += vengine::to_string(v[i]);
+			varName += ',';
+		}
+		varName[varName.size() - 1] = ')';
+	}
+};
+
+template<size_t N>
+struct PrintValue<Matrix<N>> {
+	using T = Matrix<N>;
+	using EleType = float;
+	void operator()(T const& v, vengine::string& varName) {
+		varName += GetName<T>::Get();
+		varName += "(";
+		PrintValue<Vector<EleType, N>> vecPrinter;
+		for (size_t i = 0; i < N; ++i) {
+			vecPrinter(v[i], varName);
+			varName += ',';
+		}
+		varName[varName.size() - 1] = ')';
+	}
+};
 void StringExprVisitor::visit(const UnaryExpr* expr) {
 	BeforeVisit();
 	switch (expr->op()) {
@@ -48,8 +158,6 @@ void StringExprVisitor::visit(const BinaryExpr* expr) {
 	} else {
 		BeforeVisit();
 		expr->lhs()->accept(vis);
-		str += vis.ToString();
-		expr->rhs()->accept(vis);
 		str += vis.ToString();
 		switch (expr->op()) {
 			case BinaryOp::ADD:
@@ -107,6 +215,8 @@ void StringExprVisitor::visit(const BinaryExpr* expr) {
 				str += "!=";
 				break;
 		}
+		expr->rhs()->accept(vis);
+		str += vis.ToString();
 		AfterVisit();
 	}
 }
@@ -125,261 +235,22 @@ void StringExprVisitor::visit(const AccessExpr* expr) {
 }
 void StringExprVisitor::visit(const RefExpr* expr) {
 	Variable v = expr->variable();
+	CodegenUtility::RegistStructType(v.type());
 	if (v.type()->is_vector() && v.type()->element()->size() < 4) {
 		//TODO
 	} else {
-		str = std::move(GetVariableName(v));
+		str = std::move(CodegenUtility::GetVariableName(v));
 	}
 }
 void StringExprVisitor::visit(const LiteralExpr* expr) {
 	LiteralExpr::Value const& value = expr->value();
-	switch (value.index()) {
-		case 0: {
-			bool const& v = std::get<0>(value);
-			str = v ? "true" : "false";
-		} break;
-		case 1: {
-			float const& v = std::get<1>(value);
-			str = vengine::to_string(v);
-		} break;
-		case 2: {
-			int8_t const& v = std::get<2>(value);
-			str = vengine::to_string(v);
-		} break;
-		case 3: {
-			uint8_t const& v = std::get<3>(value);
-			str = vengine::to_string(v);
-		} break;
-		case 4: {
-			int16_t const& v = std::get<4>(value);
-			str = vengine::to_string(v);
-		} break;
-		case 5: {
-			uint16_t const& v = std::get<5>(value);
-			str = vengine::to_string(v);
-		} break;
-		case 6: {
-			int32_t const& v = std::get<6>(value);
-			str = vengine::to_string(v);
-		} break;
-		case 7: {
-			uint32_t const& v = std::get<7>(value);
-			str = vengine::to_string(v);
-		} break;
-		case 8: {
-			auto const& v = std::get<8>(value);
-			str = "bool2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 9: {
-			auto const& v = std::get<9>(value);
-			str = "float2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 10: {
-			auto const& v = std::get<10>(value);
-			str = "int2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 11: {
-			auto const& v = std::get<11>(value);
-			str = "uint2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 12: {
-			auto const& v = std::get<12>(value);
-			str = "int2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 13: {
-			auto const& v = std::get<13>(value);
-			str = "uint2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 14: {
-			auto const& v = std::get<14>(value);
-			str = "int2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 15: {
-			auto const& v = std::get<15>(value);
-			str = "uint2(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += ')';
-		} break;
-		case 16: {
-			auto const& v = std::get<16>(value);
-			str = "bool3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 17: {
-			auto const& v = std::get<17>(value);
-			str = "float3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 18: {
-			auto const& v = std::get<18>(value);
-			str = "int3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 19: {
-			auto const& v = std::get<19>(value);
-			str = "uint3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 20: {
-			auto const& v = std::get<20>(value);
-			str = "int3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 21: {
-			auto const& v = std::get<21>(value);
-			str = "uint3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 22: {
-			auto const& v = std::get<22>(value);
-			str = "int3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 23: {
-			auto const& v = std::get<23>(value);
-			str = "uint3(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += ')';
-		} break;
-		case 24: {
-			auto const& v = std::get<24>(value);
-			str = "bool4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 25: {
-			auto const& v = std::get<25>(value);
-			str = "float4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 26: {
-			auto const& v = std::get<26>(value);
-			str = "int4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 27: {
-			auto const& v = std::get<27>(value);
-			str = "uint4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 28: {
-			auto const& v = std::get<28>(value);
-			str = "int4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 29: {
-			auto const& v = std::get<29>(value);
-			str = "uint4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 30: {
-			auto const& v = std::get<30>(value);
-			str = "int4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 31: {
-			auto const& v = std::get<31>(value);
-			str = "uint4(";
-			str += vengine::to_string(v.x);
-			str += vengine::to_string(v.y);
-			str += vengine::to_string(v.z);
-			str += vengine::to_string(v.w);
-			str += ')';
-		} break;
-		case 32: {
-			float3x3 const& v = std::get<32>(value);
-			str = "float3x3(";
-			float3 c0 = v[0];
-			float3 c1 = v[1];
-			float3 c2 = v[2];
-			str += vengine::to_string(c0.x) + ',' + vengine::to_string(c1.x) + ',' + vengine::to_string(c2.x) + ',';
-			str += vengine::to_string(c0.y) + ',' + vengine::to_string(c1.y) + ',' + vengine::to_string(c2.y) + ',';
-			str += vengine::to_string(c0.z) + ',' + vengine::to_string(c1.z) + ',' + vengine::to_string(c2.z) + ')';
-		} break;
-		case 33: {
-			float4x4 const& v = std::get<33>(value);
-			str = "float4x4(";
-			float4 c0 = v[0];
-			float4 c1 = v[1];
-			float4 c2 = v[2];
-			float4 c3 = v[3];
-			str += vengine::to_string(c0.x) + ',' + vengine::to_string(c1.x) + ',' + vengine::to_string(c2.x) + ',' + vengine::to_string(c3.x) + ',';
-			str += vengine::to_string(c0.y) + ',' + vengine::to_string(c1.y) + ',' + vengine::to_string(c2.y) + ',' + vengine::to_string(c3.y) + ',';
-			str += vengine::to_string(c0.z) + ',' + vengine::to_string(c1.z) + ',' + vengine::to_string(c2.z) + ',' + vengine::to_string(c3.z) + ')';
-		} break;
-	}
+	str.clear();
+	std::visit([&](auto&& value) -> void {
+		using T = std::remove_cvref_t<decltype(value)>;
+		PrintValue<T> prt;
+		prt(value, str);
+	},
+			   expr->value());
 }
 void StringExprVisitor::visit(const CallExpr* expr) {
 	str.clear();
@@ -395,7 +266,17 @@ void StringExprVisitor::visit(const CallExpr* expr) {
 	str[str.size() - 1] = ')';
 }
 void StringExprVisitor::visit(const CastExpr* expr) {
-	//TODO: After finish type system
+	BeforeVisit();
+	str += '(';
+	str += CodegenUtility::GetTypeName(*expr->type());
+	str += ')';
+	StringExprVisitor vis;
+	expr->expression()->accept(vis);
+	str += vis.str;
+	AfterVisit();
+}
+void StringExprVisitor::visit(const ConstantExpr* expr) {
+	str = "c" + vengine::to_string(expr->hash());
 }
 vengine::string const& StringExprVisitor::ToString() const {
 	return str;
@@ -448,11 +329,50 @@ void StringStateVisitor::visit(const ScopeStmt* state) {
 
 void StringStateVisitor::visit(const DeclareStmt* state) {
 	auto var = state->variable();
-	auto varName = var.type()->description();
+	CodegenUtility::RegistStructType(var.type());
+	auto varName = CodegenUtility::GetTypeName(*var.type());
 	str.clear();
 	str.push_back_all(varName.data(), varName.size());
 	str += ' ';
-	str += GetVariableName(var);
+	auto varTempName = CodegenUtility::GetVariableName(var);
+	str += varTempName;
+	if (!var.type()->is_structure()) {
+		StringExprVisitor vis;
+		if (var.type()->is_scalar()) {
+			if (!state->initializer().empty()) {
+				str += '=';
+				for (auto&& i : state->initializer()) {
+					i->accept(vis);
+					str += vis.str;
+				}
+			}
+		} else if (!state->initializer().empty()) {
+			str += '=';
+			str += CodegenUtility::GetTypeName(*var.type());
+			str += '(';
+			for (auto&& i : state->initializer()) {
+				i->accept(vis);
+				str += vis.str;
+				str += ',';
+			}
+			str[str.size() - 1] = ')';
+		}
+		str += ";\n";
+	} else {
+		str += ";\n";
+		StringExprVisitor vis;
+		size_t count = 0;
+		for (auto&& i : state->initializer()) {
+			i->accept(vis);
+			str += varTempName;
+			str += ".v";
+			str += vengine::to_string(count);
+			str += '=';
+			str += vis.str;
+			str += ";\n";
+			count++;
+		}
+	}
 	//TODO: Different Declare in Fxxking HLSL
 }
 
@@ -576,8 +496,148 @@ vengine::string const& StringStateVisitor::ToString() const {
 	return str;
 }
 
-vengine::string GetVariableName(Variable const& type) {
-	return "v" + type.uid();
+vengine::string CodegenUtility::GetVariableName(Variable const& type) {
+	return "v" + vengine::to_string(type.uid());
 }
 
+vengine::string CodegenUtility::GetTypeName(Type const& type) {
+	switch (type.tag()) {
+		case Type::Tag::ARRAY:
+			return CodegenUtility::GetTypeName(*type.element());
+		case Type::Tag::ATOMIC:
+			return CodegenUtility::GetTypeName(*type.element());
+		case Type::Tag::BOOL:
+			return "bool";
+		case Type::Tag::FLOAT:
+			return "float";
+		case Type::Tag::INT8:
+		case Type::Tag::INT16:
+		case Type::Tag::INT32:
+			return "int";
+		case Type::Tag::UINT8:
+		case Type::Tag::UINT16:
+		case Type::Tag::UINT32:
+			return "uint";
+		case Type::Tag::MATRIX: {
+			auto dim = vengine::to_string(type.dimension());
+			return CodegenUtility::GetTypeName(*type.element()) + dim + 'x' + dim;
+		}
+		case Type::Tag::VECTOR: {
+			auto dim = vengine::to_string(type.dimension());
+			return CodegenUtility::GetTypeName(*type.element()) + dim;
+		}
+		case Type::Tag::STRUCTURE:
+			return "T" + vengine::to_string(type.index());
+			break;
+	}
+}
+
+vengine::string CodegenUtility::GetFunctionDecl(Function const* func) {
+	vengine::string data;
+	if (func->return_type()) {
+		data = CodegenUtility::GetTypeName(*func->return_type());
+	} else {
+		data = "void";
+	}
+	switch (func->tag()) {
+		case Function::Tag::CALLABLE:
+			data += " custom_";
+			break;
+		default:
+			data += " kernel_";
+			//TODO: kernel specific declare
+			break;
+	}
+	data += vengine::to_string(func->uid());
+	if (func->arguments().empty()) {
+		data += "()";
+	} else {
+		data += '(';
+		for (auto&& i : func->arguments()) {
+			RegistStructType(i.type());
+			data += CodegenUtility::GetTypeName(*i.type());
+			data += " ";
+			data += CodegenUtility::GetVariableName(i);
+			data += ',';
+		}
+		data[data.size() - 1] = ')';
+	}
+	return data;
+}
+
+void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, vengine::string& result) {
+	result = "const ";
+	auto valueView = ConstantData::view(binding.hash);
+	std::visit([&](auto&& value) -> void {
+		using SpanT = std::remove_cvref_t<decltype(value)>;
+		using T = GetSpanType<SpanT>::Type;
+		PrintValue<T> prt;
+		result += GetName<T>::Get();
+		result += " c";
+		result += vengine::to_string(binding.hash);
+
+		if (binding.type->is_array()) {
+			result += "[]={";
+			for (auto&& i : value) {
+				prt(i, result);
+				result += ',';
+			}
+			if (result[result.size() - 1] == ',') {
+				result.erase(result.size() - 1);
+			}
+			result += "};\n";
+		} else {
+			result += '=';
+			prt(value[0], result);
+			result += ";\n";
+		}
+	},
+			   valueView);
+}
+static StackObject<HashMap<Type const*, bool>, true> codegenStructType;
+void CodegenUtility::ClearStructType() {
+	codegenStructType.New();
+	codegenStructType->Clear();
+}
+void CodegenUtility::RegistStructType(Type const* type) {
+	if (type->is_structure())
+		codegenStructType->Insert(type, true);
+}
+struct BuiltIn_RunTypeVisitor : public TypeVisitor {
+	TypeVisitor* vis;
+	void visit(const Type* t) noexcept override {
+		if (codegenStructType->Contains(t)) {
+			vis->visit(t);
+		}
+	}
+};
+struct Print_RunTypeVisitor : public TypeVisitor {
+	vengine::string* strPtr;
+	void visit(const Type* t) noexcept override {
+		if (!codegenStructType->Contains(t)) return;
+		auto&& str = *strPtr;
+		str += "struct T";
+		str += vengine::to_string(t->index());
+		str += "{\n";
+		size_t count = 0;
+		for (auto&& mem : t->members()) {
+			str += CodegenUtility::GetTypeName(*mem);
+			str += " v";
+			str += vengine::to_string(count);
+			count++;
+			str += ";\n";
+		}
+		str += "};\n";
+	}
+};
+void CodegenUtility::IterateStructType(TypeVisitor* visitor) {
+	BuiltIn_RunTypeVisitor vis;
+	vis.vis = visitor;
+	Type::traverse(vis);
+}
+void CodegenUtility::PrintStructType(vengine::string& str) {
+	Print_RunTypeVisitor vis;
+	vis.strPtr = &str;
+	Type::traverse(vis);
+}
 }// namespace luisa::compute
