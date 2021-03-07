@@ -142,6 +142,7 @@ string& string::operator=(const char* c) noexcept {
 }
 string& string::operator=(char data) noexcept {
 	lenSize = 1;
+	reserve(2);
 	ptr[0] = data;
 	ptr[1] = 0;
 	return *this;
@@ -415,6 +416,7 @@ wstring& wstring::operator=(const wchar_t* c) noexcept {
 }
 wstring& wstring::operator=(wchar_t data) noexcept {
 	lenSize = 1;
+	reserve(2);
 	ptr[0] = data;
 	ptr[1] = 0;
 	return *this;

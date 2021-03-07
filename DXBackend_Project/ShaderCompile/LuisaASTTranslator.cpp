@@ -3,7 +3,17 @@
 #include "../Common/VObject.h"
 #include "LuisaASTTranslator.h"
 namespace luisa::compute {
-
+#ifdef NDEBUG
+DLL_EXPORT void CodegenBody(ScopeStmt const* body) {
+	vengine::vengine_init_malloc();
+	std::cout << "Start Working" << std::endl;
+	if (!body) return;
+	StringStateVisitor vis;
+	body->accept(vis);
+	std::cout << vis.ToString() << std::endl;
+	std::cout << "Finished" << std::endl;
+}
+#endif
 void StringExprVisitor::visit(const UnaryExpr* expr) {
 	BeforeVisit();
 	switch (expr->op()) {
@@ -48,8 +58,6 @@ void StringExprVisitor::visit(const BinaryExpr* expr) {
 	} else {
 		BeforeVisit();
 		expr->lhs()->accept(vis);
-		str += vis.ToString();
-		expr->rhs()->accept(vis);
 		str += vis.ToString();
 		switch (expr->op()) {
 			case BinaryOp::ADD:
@@ -107,6 +115,8 @@ void StringExprVisitor::visit(const BinaryExpr* expr) {
 				str += "!=";
 				break;
 		}
+		expr->rhs()->accept(vis);
+		str += vis.ToString();
 		AfterVisit();
 	}
 }
@@ -170,6 +180,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<8>(value);
 			str = "bool2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -177,6 +188,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<9>(value);
 			str = "float2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -184,6 +196,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<10>(value);
 			str = "int2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -191,6 +204,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<11>(value);
 			str = "uint2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -198,6 +212,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<12>(value);
 			str = "int2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -205,6 +220,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<13>(value);
 			str = "uint2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -212,6 +228,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<14>(value);
 			str = "int2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -219,6 +236,7 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<15>(value);
 			str = "uint2(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
 			str += ')';
 		} break;
@@ -226,7 +244,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<16>(value);
 			str = "bool3(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
 			str += ')';
 		} break;
@@ -234,7 +254,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<17>(value);
 			str = "float3(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
 			str += ')';
 		} break;
@@ -242,7 +264,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<18>(value);
 			str = "int3(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
 			str += ')';
 		} break;
@@ -258,7 +282,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<20>(value);
 			str = "int3(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
 			str += ')';
 		} break;
@@ -266,7 +292,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<21>(value);
 			str = "uint3(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
 			str += ')';
 		} break;
@@ -274,7 +302,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<22>(value);
 			str = "int3(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
 			str += ')';
 		} break;
@@ -282,7 +312,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<23>(value);
 			str = "uint3(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
 			str += ')';
 		} break;
@@ -290,8 +322,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<24>(value);
 			str = "bool4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -299,8 +334,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<25>(value);
 			str = "float4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -308,8 +346,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<26>(value);
 			str = "int4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -317,8 +358,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<27>(value);
 			str = "uint4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -326,8 +370,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<28>(value);
 			str = "int4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -335,8 +382,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<29>(value);
 			str = "uint4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -344,8 +394,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<30>(value);
 			str = "int4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -353,8 +406,11 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			auto const& v = std::get<31>(value);
 			str = "uint4(";
 			str += vengine::to_string(v.x);
+			str += ',';
 			str += vengine::to_string(v.y);
+			str += ',';
 			str += vengine::to_string(v.z);
+			str += ',';
 			str += vengine::to_string(v.w);
 			str += ')';
 		} break;
@@ -448,11 +504,41 @@ void StringStateVisitor::visit(const ScopeStmt* state) {
 
 void StringStateVisitor::visit(const DeclareStmt* state) {
 	auto var = state->variable();
-	auto varName = var.type()->description();
+	auto varName = GetTypeName(*var.type());
 	str.clear();
 	str.push_back_all(varName.data(), varName.size());
 	str += ' ';
-	str += GetVariableName(var);
+	auto varTempName = GetVariableName(var);
+	str += varTempName;
+	if (!var.type()->is_structure()) {
+		if (!state->initializer().empty()) {
+			str += " = ";
+			str += GetTypeName(*var.type());
+			str += "(";
+			StringExprVisitor vis;
+			for (auto&& i : state->initializer()) {
+				i->accept(vis);
+				str += vis.str;
+				str += ',';
+			}
+			str[str.size() - 1] = ')';
+		}
+		str += ";\n";
+	} else {
+		str += ";\n";
+		StringExprVisitor vis;
+		size_t count = 0;
+		for (auto&& i : state->initializer()) {
+			i->accept(vis);
+			str += varTempName;
+			str += ".v";
+			str += vengine::to_string(count);
+			str += '=';
+			str += vis.str;
+			str += ";\n";
+			count++;
+		}
+	}
 	//TODO: Different Declare in Fxxking HLSL
 }
 
@@ -577,7 +663,39 @@ vengine::string const& StringStateVisitor::ToString() const {
 }
 
 vengine::string GetVariableName(Variable const& type) {
-	return "v" + type.uid();
+	return "v" + vengine::to_string(type.uid());
+}
+
+vengine::string GetTypeName(Type const& type) {
+	switch (type.tag()) {
+		case Type::Tag::ARRAY:
+			return GetTypeName(*type.element());
+		case Type::Tag::ATOMIC:
+			return GetTypeName(*type.element());
+		case Type::Tag::BOOL:
+			return "bool";
+		case Type::Tag::FLOAT:
+			return "float";
+		case Type::Tag::INT8:
+		case Type::Tag::INT16:
+		case Type::Tag::INT32:
+			return "int";
+		case Type::Tag::UINT8:
+		case Type::Tag::UINT16:
+		case Type::Tag::UINT32:
+			return "uint";
+		case Type::Tag::MATRIX: {
+			auto dim = vengine::to_string(type.dimension());
+			return GetTypeName(*type.element()) + dim + 'x' + dim;
+		}
+		case Type::Tag::VECTOR: {
+			auto dim = vengine::to_string(type.dimension());
+			return GetTypeName(*type.element()) + dim;
+		}
+		case Type::Tag::STRUCTURE:
+			return "T" + vengine::to_string(type.index());
+			break;
+	}
 }
 
 }// namespace luisa::compute

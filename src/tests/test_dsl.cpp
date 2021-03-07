@@ -12,6 +12,7 @@
 
 #define LUISA_DISABLE_SYNTAX_SUGAR
 #include <dsl/syntax.h>
+#include <tests/test_husky.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -55,6 +56,7 @@ int main() {
 
         Shared<float4> shared_floats{16};
 
+
         Var v_int = 10;
         Var v_float = buffer_float[count + thread_id().x];
         Var call_ret = callable(10, v_int, v_float);
@@ -65,7 +67,7 @@ int main() {
         z += 1;
         static_assert(std::is_same_v<decltype(z), Var<float>>);
 
-        for (auto i = 0u; i < 3u; i++) {
+        {
             Var v_vec = float3{1.0f};
             Var v2 = float3{2.0f} - v_vec * 2.0f;
             v2 *= 5.0f + v_float;
@@ -107,7 +109,7 @@ int main() {
         Var c = 0.5f + vt.a * 1.0f;
 
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
+        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
     };
     auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -118,10 +120,12 @@ int main() {
     auto t2 = std::chrono::high_resolution_clock::now();
     Codegen::Scratch scratch;
     CppCodegen codegen{scratch};
-    codegen.emit(function);
+    //codegen.emit(function);
     auto t3 = std::chrono::high_resolution_clock::now();
 
     std::cout << scratch.view() << std::endl;
+    RunHLSLCodeGen(&function);
+    system("pause");
 
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);

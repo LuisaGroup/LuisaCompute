@@ -4,7 +4,9 @@ struct StmtVisitor;
 struct ExprVisitor;
 class StringStateVisitor;
 class Variable;
+class Type;
 vengine::string GetVariableName(Variable const& type);
+vengine::string GetTypeName(Type const& type);
 class StringExprVisitor final : public ExprVisitor {
 	friend class StringStateVisitor;
 
