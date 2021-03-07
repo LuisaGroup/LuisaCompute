@@ -33,7 +33,9 @@ class DynamicDLL final {
 
 public:
     DynamicDLL(char const *name) {
+        std::cout << name << std::endl;
         inst = LoadLibraryA(name);
+        std::cout << inst << std::endl;
         if (inst == nullptr) {
             std::cout << "Can not find DLL " << name;
             throw 0;
@@ -51,19 +53,14 @@ public:
 };
 namespace luisa::compute {
 class Function;
-class ScopeStmt;
+class Function;
 void RunHLSLCodeGen(Function *func) {
-    static std::optional<DynamicDLL> dll;
-    static funcPtr_t<void(ScopeStmt const *)> codegenFunc;
-    std::cout << "Fuck!" << std::endl;
-    if (!dll.has_value()) {
-        dll.emplace("LC_DXBackend.dll");
-        codegenFunc = dll->GetDLLFunc<void(ScopeStmt const *)>("CodegenBody");
-        std::cout << "Fuck Start!" << std::endl;
-    }
+    DynamicDLL dll("LC_DXBackend.dll");
+    funcPtr_t<void(Function const *)> codegenFunc = dll.GetDLLFunc<void(Function const *)>("CodegenBody");
     std::cout << codegenFunc << std::endl;
     system("pause");
-    codegenFunc(func->body());
+    codegenFunc(func);
+
 }
 }// namespace luisa::compute
 #endif

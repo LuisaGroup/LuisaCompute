@@ -22,7 +22,7 @@ target_link_libraries(test_interpreter PRIVATE luisa::compute)
 add_executable(test_dsl test_dsl.cpp)
 target_link_libraries(test_dsl PRIVATE luisa::compute)
 #Created By Maxwell, can delete
-target_compile_definitions(test_dsl PRIVATE HUSKY_WINDOWS)
+#target_compile_definitions(test_dsl PRIVATE HUSKY_WINDOWS)
 
 add_executable(test_dsl_multithread test_dsl_multithread.cpp)
 target_link_libraries(test_dsl_multithread PRIVATE luisa::compute)
