@@ -10,8 +10,6 @@
 #include <runtime/device.h>
 #include <ast/interface.h>
 #include <compile/cpp_codegen.h>
-
-#define LUISA_DISABLE_SYNTAX_SUGAR
 #include <dsl/syntax.h>
 
 using namespace luisa;
@@ -128,7 +126,7 @@ int main() {
             auto t3 = std::chrono::high_resolution_clock::now();
 
             using namespace std::chrono_literals;
-            LUISA_INFO("Thread: {}, AST: {} ms, Codegen: {} ms",
+            LUISA_INFO("Thread: {}, AST: {:.3f} ms, Codegen: {:.3f} ms",
                        worker,
                        (t1 - t0) / 1ns * 1e-6,
                        (t3 - t2) / 1ns * 1e-6);
