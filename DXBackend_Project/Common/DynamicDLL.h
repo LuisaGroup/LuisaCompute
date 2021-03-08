@@ -34,6 +34,17 @@ public:
 	{
 		return GetFuncPtrFromDll<T>::Run(inst, str);
 	}
+	template<typename T>
+	void const* GetDLLFunc(T& funcPtr, char const* name) {
+		auto ptr = GetProcAddress(inst, name);
+		if (ptr == nullptr) {
+			VEngine_Log(
+				{"Can not find function ",
+				 name});
+			throw 0;
+		}
+		funcPtr = reinterpret_cast<T>(ptr);
+	}
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	KILL_COPY_CONSTRUCT(DynamicDLL)
 };
