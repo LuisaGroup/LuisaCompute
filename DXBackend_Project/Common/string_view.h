@@ -1,52 +1,53 @@
 #pragma once
 #include <stdint.h>
-#include "vstring.h"
 #include "MetaLib.h"
 #include <iostream>
+#include "DLL.h"
 namespace vengine {
-
-class string_view {
+class string;
+class wstring;
+class  string_view {
 	friend std::ostream& operator<<(std::ostream& out, const string_view& obj) noexcept;
 	char const* data;
 	size_t mSize;
 
 public:
-	constexpr char const* c_str() const {
+	char const* c_str() const {
 		return data;
 	}
-	constexpr size_t size() const {
+	size_t size() const {
 		return mSize;
 	}
-	constexpr char const* begin() const {
+	char const* begin() const {
 		return data;
 	}
-	constexpr char const* end() const {
+	char const* end() const {
 		return data + mSize;
 	}
-	constexpr void operator+(int64_t i) {
+	void operator+(int64_t i) {
 		mSize += i;
 	}
-	constexpr void operator-(int64_t i) {
+	void operator-(int64_t i) {
 		mSize -= i;
 	}
-	constexpr void operator++() {
+	void operator++() {
 		mSize++;
 	}
-	constexpr void operator--() {
+	void operator--() {
 		mSize--;
 	}
-	constexpr string_view() : data(nullptr), mSize(0) {}
-	constexpr string_view(std::nullptr_t) : data(nullptr), mSize(0) {}
+	string_view() : data(nullptr), mSize(0) {}
+	string_view(std::nullptr_t) : data(nullptr), mSize(0) {}
 	string_view(char const* data) : data(data), mSize(0) {
 		mSize = strlen(data);
 	}
 
-	constexpr string_view(char const* data, size_t mSize) : data(data), mSize(mSize) {}
+	string_view(char const* data, size_t mSize) : data(data), mSize(mSize) {}
 
-	constexpr string_view(char const* data, char const* end) : data(data), mSize(end - data) {}
-	string_view(vengine::string const& str) : data(str.data()), mSize(str.size()) {}
+	string_view(char const* data, char const* end) : data(data), mSize(end - data) {}
+	string_view(vengine::string const& str);
 
-	constexpr bool operator==(const string_view& chunk) const {
+	bool operator==(const string_view& chunk) const {
 		if (mSize != chunk.mSize) return false;
 		return BinaryEqualTo_Size(data, chunk.data, mSize);
 	}
@@ -55,17 +56,88 @@ public:
 		if (mSize != s) return false;
 		return BinaryEqualTo_Size(data, chunk, mSize);
 	}
-	constexpr bool operator==(char c) const {
+	bool operator==(char c) const {
 		if (mSize != 1) return false;
 		return *data == c;
 	}
-	constexpr bool operator!=(char c) const {
+	bool operator!=(char c) const {
 		return !operator==(c);
 	}
 	bool operator!=(char const* chunk) const {
 		return !operator==(chunk);
 	}
-	constexpr bool operator!=(const string_view& chunk) const {
+	bool operator!=(const string_view& chunk) const {
+		return !operator==(chunk);
+	}
+};
+class  wstring_view {
+	wchar_t const* data;
+	size_t mSize;
+	static size_t wstrlen(wchar_t const* ptr) {
+		size_t s = 0;
+		while (*ptr != 0) {
+			ptr++;
+			s++;
+		}
+		return s;
+	}
+
+public:
+	wchar_t const* c_str() const {
+		return data;
+	}
+	size_t size() const {
+		return mSize;
+	}
+	wchar_t const* begin() const {
+		return data;
+	}
+	wchar_t const* end() const {
+		return data + mSize;
+	}
+	void operator+(int64_t i) {
+		mSize += i;
+	}
+	void operator-(int64_t i) {
+		mSize -= i;
+	}
+	void operator++() {
+		mSize++;
+	}
+	void operator--() {
+		mSize--;
+	}
+	wstring_view() : data(nullptr), mSize(0) {}
+	wstring_view(std::nullptr_t) : data(nullptr), mSize(0) {}
+	wstring_view(wchar_t const* data) : data(data), mSize(0) {
+		mSize = wstrlen(data);
+	}
+
+	wstring_view(wchar_t const* data, size_t mSize) : data(data), mSize(mSize) {}
+
+	wstring_view(wchar_t const* data, wchar_t const* end) : data(data), mSize(end - data) {}
+	wstring_view(vengine::wstring const& str);
+
+	bool operator==(const wstring_view& chunk) const {
+		if (mSize != chunk.mSize) return false;
+		return BinaryEqualTo_Size(data, chunk.data, mSize);
+	}
+	bool operator==(wchar_t const* chunk) const {
+		size_t s = wstrlen(chunk);
+		if (mSize != s) return false;
+		return BinaryEqualTo_Size(data, chunk, mSize);
+	}
+	bool operator==(wchar_t c) const {
+		if (mSize != 1) return false;
+		return *data == c;
+	}
+	bool operator!=(wchar_t c) const {
+		return !operator==(c);
+	}
+	bool operator!=(wchar_t const* chunk) const {
+		return !operator==(chunk);
+	}
+	bool operator!=(const wstring_view& chunk) const {
 		return !operator==(chunk);
 	}
 };
@@ -76,14 +148,18 @@ struct hash<string_view> {
 		return Hash::CharArrayHash(str.c_str(), str.size());
 	}
 };
-}// namespace vengine
-inline std::ostream& operator << (std::ostream& out, const vengine::string_view& obj) noexcept
-{
+template<>
+struct hash<wstring_view> {
+	inline size_t operator()(const wstring_view& str) const noexcept {
+		return Hash::CharArrayHash(reinterpret_cast<char const*>(str.c_str()), str.size() * 2);
+	}
+};
+inline std::ostream& operator<<(std::ostream& out, const string_view& obj) noexcept {
 	if (!obj.c_str()) return out;
 	auto end = obj.c_str() + obj.size();
-	for (auto i = obj.c_str(); i < end; ++i)
-	{
+	for (auto i = obj.c_str(); i < end; ++i) {
 		out << *i;
 	}
 	return out;
 }
+}// namespace vengine

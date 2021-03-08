@@ -1,6 +1,4 @@
 #include "vstring.h"
-#include "vstring.h"
-#include "vstring.h"
 #include "Pool.h"
 #include <mutex>
 #include "Runnable.h"
@@ -10,24 +8,29 @@
 #include "MetaLib.h"
 //#include "BinaryLinkedAllocator.h"
 #include "LinkedList.h"
-#include "string_view.h"
 namespace v_mimalloc {
 funcPtr_t<void*(size_t)> Alloc::mallocFunc = nullptr;
 funcPtr_t<void(void*)> Alloc::freeFunc = nullptr;
-static std::atomic_bool isInited = false;
+static bool memoryInitialized = false;
 }// namespace v_mimalloc
 namespace vengine {
 void vengine_init_malloc() {
 	using namespace v_mimalloc;
-	if (isInited.exchange(true)) return;
 	static StackObject<DynamicDLL> vengine_malloc_dll;
+	if (memoryInitialized) return;
+	memoryInitialized = true;
 	vengine_malloc_dll.New("mimalloc-override.dll");
-	Alloc::mallocFunc = vengine_malloc_dll->GetDLLFunc<void*(size_t)>("mi_malloc");
-	Alloc::freeFunc = vengine_malloc_dll->GetDLLFunc<void(void*)>("mi_free");
+	/*vengine_malloc_dll->GetDLLFuncFromExample(Alloc::mallocFunc, "mi_malloc");
+	vengine_malloc_dll->GetDLLFuncFromExample(Alloc::freeFunc, "mi_free");*/
+	vengine_malloc_dll->GetDLLFunc(Alloc::mallocFunc, "mi_malloc");
+	vengine_malloc_dll->GetDLLFunc(Alloc::freeFunc, "mi_free");
 }
-void vengine_init_malloc(funcPtr_t<void*(size_t)> mallocFunc, funcPtr_t<void(void*)> freeFunc) {
+void vengine_init_malloc(
+	funcPtr_t<void*(size_t)> mallocFunc,
+	funcPtr_t<void(void*)> freeFunc) {
 	using namespace v_mimalloc;
-	if (isInited.exchange(true)) return;
+	if (memoryInitialized) return;
+	memoryInitialized = true;
 	Alloc::mallocFunc = mallocFunc;
 	Alloc::freeFunc = freeFunc;
 }
@@ -56,6 +59,15 @@ string::string(const char* chr, const char* chrEnd) noexcept {
 	reserve(size);
 	lenSize = newLenSize;
 	memcpy(ptr, chr, newLenSize);
+	ptr[lenSize] = 0;
+}
+string::string(string_view tempView) {
+	auto size = tempView.size();
+	uint64_t newLenSize = size;
+	size += 1;
+	reserve(size);
+	lenSize = newLenSize;
+	memcpy(ptr, tempView.c_str(), newLenSize);
 	ptr[lenSize] = 0;
 }
 void string::push_back_all(char const* c, uint64_t newStrLen) noexcept {
@@ -330,6 +342,26 @@ wstring::wstring(const char* chr, const char* wchrEnd) noexcept {
 	}
 	ptr[lenSize] = 0;
 }
+wstring::wstring(wstring_view chunk) {
+	size_t size = chunk.size();
+	uint64_t newLenSize = size;
+	size += 1;
+	reserve(size);
+	lenSize = newLenSize;
+	memcpy(ptr, chunk.c_str(), newLenSize * 2);
+	ptr[lenSize] = 0;
+}
+wstring::wstring(string_view chunk) {
+	size_t size = chunk.size();
+	uint64_t newLenSize = size;
+	size += 1;
+	reserve(size);
+	lenSize = newLenSize;
+	for (size_t i = 0; i < newLenSize; ++i) {
+		ptr[i] = chunk.c_str()[i];
+	}
+	ptr[lenSize] = 0;
+}
 void wstring::reserve(uint64_t targetCapacity) noexcept {
 	if (capacity >= targetCapacity) return;
 	targetCapacity *= 2;
@@ -503,6 +535,7 @@ wstring::wstring(wchar_t a, const wstring& b) noexcept {
 	ptr[0] = a;
 	ptr[newLenSize] = 0;
 }
+
 wchar_t& wstring::operator[](uint64_t index) noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 	if (index >= lenSize)
@@ -540,6 +573,9 @@ bool wstring::Equal(wchar_t const* str, uint64_t count) const noexcept {
 	}
 	return true;
 }
+string_view::string_view(vengine::string const& str) : data(str.data()), mSize(str.size()) {}
+wstring_view::wstring_view(vengine::wstring const& str) : data(str.data()), mSize(str.size()) {}
+
 #pragma endregion
 }// namespace vengine
 #include "Log.h"

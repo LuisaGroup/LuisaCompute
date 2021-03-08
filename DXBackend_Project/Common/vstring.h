@@ -5,8 +5,9 @@
 #include "DLL.h"
 #include "Hash.h"
 #include "Memory.h"
+#include "string_view.h"
 namespace vengine {
-class string {
+class  string {
 	friend std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
 	friend std::istream& operator>>(std::istream& in, string& obj) noexcept;
 
@@ -17,6 +18,7 @@ private:
 	bool Equal(char const* str, uint64_t count) const noexcept;
 
 public:
+
 	string(const string& a, const string& b) noexcept;
 	string(const string& a, const char* b) noexcept;
 	string(const char* a, const string& b) noexcept;
@@ -28,6 +30,7 @@ public:
 	string() noexcept;
 	string(const char* cstr) noexcept;
 	string(const char* cstrBegin, const char* cstrEnd) noexcept;
+	string(string_view tempView);
 	string(const string& data) noexcept;
 	string(string&& data) noexcept;
 	string(uint64_t size, char c) noexcept;
@@ -94,7 +97,7 @@ public:
 	void erase(uint64_t index) noexcept;
 	~string() noexcept;
 };
-class wstring {
+class  wstring {
 private:
 	wchar_t* ptr = nullptr;
 	uint64_t lenSize = 0;
@@ -122,6 +125,8 @@ public:
 	wstring(const wchar_t* wchr, const wchar_t* wchrEnd) noexcept;
 	wstring(const char* wchr) noexcept;
 	wstring(const char* wchr, const char* wchrEnd) noexcept;
+	wstring(wstring_view chunk);
+	wstring(string_view chunk);
 	wstring(const wstring& data) noexcept;
 	wstring(wstring&& data) noexcept;
 	wstring(uint64_t size, wchar_t c) noexcept;
@@ -188,13 +193,14 @@ public:
 	void erase(uint64_t index) noexcept;
 	~wstring() noexcept;
 };
+
 template<class _Elem, class _UTy>
 _Elem* UIntegral_to_buff(_Elem* _RNext, _UTy _UVal) noexcept {// format _UVal into buffer *ending at* _RNext
 	static_assert(std::is_unsigned_v<_UTy>, "_UTy must be unsigned");
 
 #ifdef _WIN64
 	auto _UVal_trunc = _UVal;
-#else // ^^^ _WIN64 ^^^ // vvv !_WIN64 vvv
+#else// ^^^ _WIN64 ^^^ // vvv !_WIN64 vvv
 
 	constexpr bool _Big_uty = sizeof(_UTy) > 4;
 	if _CONSTEXPR_IF (_Big_uty) {// For 64-bit numbers, work in chunks to avoid 64-bit divisions.
@@ -321,7 +327,15 @@ inline wstring to_wstring(int64_t _Val) noexcept {
 inline wstring to_wstring(uint64_t _Val) noexcept {
 	return IntegerToWString(_Val);
 }
+
 }// namespace vengine
+inline vengine::string_view operator"" vstr(char const* str, size_t sz) {
+	return vengine::string_view(str, sz);
+}
+
+inline vengine::wstring_view operator"" vwstr(wchar_t const* str, size_t sz) {
+	return vengine::wstring_view(str, sz);
+}
 
 inline vengine::string operator+(char c, const vengine::string& str) noexcept {
 	return vengine::string(c, str);
