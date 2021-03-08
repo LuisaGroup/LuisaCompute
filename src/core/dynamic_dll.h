@@ -1,5 +1,5 @@
 #pragma once
-#define _WINDOWS
+//#define _WINDOWS
 template<typename T>
 struct funcPtr;
 
