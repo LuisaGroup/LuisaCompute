@@ -25,14 +25,9 @@ public:
     enum struct Tag : uint32_t {
 
         BOOL,
-
         FLOAT,
-        INT8,
-        UINT8,
-        INT16,
-        UINT16,
-        INT32,
-        UINT32,
+        INT,
+        UINT,
 
         VECTOR,
         MATRIX,
@@ -84,8 +79,10 @@ public:
     [[nodiscard]] const Type *element() const noexcept;
 
     [[nodiscard]] constexpr bool is_scalar() const noexcept {
-        return static_cast<uint16_t>(_tag) >= static_cast<uint16_t>(Tag::BOOL)
-               && static_cast<uint16_t>(_tag) <= static_cast<uint16_t>(Tag::UINT32);
+        return _tag == Tag::BOOL
+               || _tag == Tag::FLOAT
+               || _tag == Tag::INT
+               || _tag == Tag::UINT;
     }
 
     [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == Tag::ARRAY; }

@@ -27,5 +27,5 @@ target_link_libraries(test_dsl PRIVATE luisa::compute)
 add_executable(test_dsl_multithread test_dsl_multithread.cpp)
 target_link_libraries(test_dsl_multithread PRIVATE luisa::compute)
 
-add_executable(test_dsl_syntax test_dsl_syntax.cpp)
-target_link_libraries(test_dsl_syntax PRIVATE luisa::compute)
+add_executable(test_dsl_sugar test_dsl_sugar.cpp)
+target_link_libraries(test_dsl_sugar PRIVATE luisa::compute)

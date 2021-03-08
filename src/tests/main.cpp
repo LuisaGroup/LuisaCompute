@@ -4,7 +4,7 @@
 
 #include <iostream>
 
-#include <core/data_types.h>
+#include <core/basic_types.h>
 #include <core/logging.h>
 
 template<typename T>
@@ -56,37 +56,36 @@ using DSL = DSLVar<T>;
 #define LUISA_XPU LUISA_XPU_TEMPLATE()
 
 #define LUISA_DEVICE_FUNCTION(f)                                                            \
-    template<typename... Args>                                                              \
-    decltype(auto) f(Args &&...args) noexcept {                                             \
+    []<typename... Args>(Args && ...args) noexcept->decltype(auto) {                        \
         static constexpr auto is_dsl = std::disjunction_v<IsDSLVar<std::decay_t<Args>>...>; \
         if constexpr (is_dsl) {                                                             \
             static std::once_flag flag;                                                     \
             std::call_once(flag, [] {                                                       \
                 LUISA_INFO("Compiling device function: {}", #f);                            \
             });                                                                             \
-            return f##_impl<DSL>(std::forward<Args>(args)...);                              \
+            return f<DSL>(std::forward<Args>(args)...);                                     \
         } else {                                                                            \
-            return f##_impl<CPU>(std::forward<Args>(args)...);                              \
+            return f<CPU>(std::forward<Args>(args)...);                                     \
         }                                                                                   \
     }
 
 LUISA_XPU_TEMPLATE(typename T)
-auto foo_impl(Var<T> f) { return f * f; }
-
-LUISA_DEVICE_FUNCTION(foo)
+auto foo(Var<T> f) { return f * f; }
 
 int main() {
 
+    auto f = LUISA_DEVICE_FUNCTION(foo);
+
     DSLVar a = 1.0f;
-    std::cout << foo(a) << std::endl;
+    std::cout << f(a) << std::endl;
 
     DSLVar another = 1.5f;
-    std::cout << foo(another) << std::endl;
+    std::cout << f(another) << std::endl;
 
     CPUVar b = 2.0f;
-    std::cout << foo(b) << std::endl;
+    std::cout << f(b) << std::endl;
 
     auto c = luisa::float3{1.5f};
-    auto d = foo(c);
+    auto d = f(c);
     std::cout << "(" << d.x << ", " << d.y << ", " << d.z << ")" << std::endl;
 }

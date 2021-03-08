@@ -42,14 +42,6 @@ struct GetName {
 			return "bool"vstr;
 		} else if constexpr (std::is_same_v<float, T>) {
 			return "float"vstr;
-		} else if constexpr (std::is_same_v<char, T>) {
-			return "int"vstr;
-		} else if constexpr (std::is_same_v<uchar, T>) {
-			return "uint"vstr;
-		} else if constexpr (std::is_same_v<short, T>) {
-			return "int"vstr;
-		} else if constexpr (std::is_same_v<ushort, T>) {
-			return "uint"vstr;
 		} else if constexpr (std::is_same_v<int, T>) {
 			return "int"vstr;
 		} else if constexpr (std::is_same_v<uint, T>) {
@@ -359,7 +351,7 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 		}
 		str += ";\n"vstr;
 	} else {
-		
+
 		StringExprVisitor vis;
 		size_t count = 0;
 		if (state->initializer().size() == 1) {
@@ -520,14 +512,11 @@ vengine::string CodegenUtility::GetTypeName(Type const& type) {
 			return "bool"vstr;
 		case Type::Tag::FLOAT:
 			return "float"vstr;
-		case Type::Tag::INT8:
-		case Type::Tag::INT16:
-		case Type::Tag::INT32:
+		case Type::Tag::INT:
 			return "int"vstr;
-		case Type::Tag::UINT8:
-		case Type::Tag::UINT16:
-		case Type::Tag::UINT32:
+		case Type::Tag::UINT:
 			return "uint"vstr;
+
 		case Type::Tag::MATRIX: {
 			auto dim = vengine::to_string(type.dimension());
 			return CodegenUtility::GetTypeName(*type.element()) + dim + 'x' + dim;

@@ -71,11 +71,8 @@ const Type *Type::from(std::string_view description) noexcept {
         LUISA_MAP(TRY_PARSE_SCALAR_TYPE,
                   (bool, BOOL),
                   (float, FLOAT),
-                  (char, INT8),
-                  (uchar, UINT8),
-                  (short, INT16),
-                  (int, INT32),
-                  (uint, UINT32))
+                  (int, INT),
+                  (uint, UINT))
 
 #undef TRY_PARSE_SCALAR_TYPE
 #undef TRY_PARSE_SCALAR_TYPE_CASE

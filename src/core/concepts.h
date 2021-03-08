@@ -5,7 +5,7 @@
 #pragma once
 
 #include <type_traits>
-#include <core/data_types.h>
+#include <core/basic_types.h>
 
 namespace luisa::concepts {
 

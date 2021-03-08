@@ -5,7 +5,7 @@
 #include <iostream>
 
 #include <runtime/device.h>
-#include <dsl/syntax.h>
+#include <dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;

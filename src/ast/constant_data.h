@@ -11,20 +11,29 @@
 #include <vector>
 #include <array>
 
-#include <core/data_types.h>
+#include <core/basic_types.h>
 #include <core/concepts.h>
 
 namespace luisa::compute {
 
+namespace detail {
+
+template<typename T>
+struct constant_data_view {
+    static_assert(always_false_v<T>);
+};
+
+template<typename... T>
+struct constant_data_view<std::tuple<T...>> {
+    using type = std::variant<std::span<const T>...>;
+};
+
+}
+
 class ConstantData {
 
 public:
-    using View = std::variant<
-        std::span<const bool>, std::span<const float>, std::span<const char>, std::span<const uchar>, std::span<const short>, std::span<const ushort>, std::span<const int>, std::span<const uint>,
-        std::span<const bool2>, std::span<const float2>, std::span<const char2>, std::span<const uchar2>, std::span<const short2>, std::span<const ushort2>, std::span<const int2>, std::span<const uint2>,
-        std::span<const bool3>, std::span<const float3>, std::span<const char3>, std::span<const uchar3>, std::span<const short3>, std::span<const ushort3>, std::span<const int3>, std::span<const uint3>,
-        std::span<const bool4>, std::span<const float4>, std::span<const char4>, std::span<const uchar4>, std::span<const short4>, std::span<const ushort4>, std::span<const int4>, std::span<const uint4>,
-        std::span<const float3x3>, std::span<const float4x4>>;
+    using View = typename detail::constant_data_view<basic_types>::type;
 
 private:
     std::unique_ptr<std::byte[]> _storage;

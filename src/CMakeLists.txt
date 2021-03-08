@@ -6,6 +6,7 @@ if (MSVC)
     target_compile_options(luisa-compute-include INTERFACE -Zc:preprocessor)
 endif()
 
+set(BUILD_SHARED_LIBS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
@@ -15,6 +16,7 @@ add_subdirectory(runtime)
 add_subdirectory(ast)
 add_subdirectory(compile)
 add_subdirectory(dsl)
+add_subdirectory(backends)
 
 add_library(luisa-compute INTERFACE)
 target_link_libraries(luisa-compute INTERFACE
@@ -22,7 +24,8 @@ target_link_libraries(luisa-compute INTERFACE
                       luisa-compute-ast
                       luisa-compute-compile
                       luisa-compute-runtime
-                      luisa-compute-dsl)
+                      luisa-compute-dsl
+                      luisa-compute-backends)
 add_library(luisa::compute ALIAS luisa-compute)
 
 add_subdirectory(tests)

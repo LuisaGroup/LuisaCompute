@@ -9,8 +9,6 @@
 #include <runtime/device.h>
 #include <ast/interface.h>
 #include <compile/cpp_codegen.h>
-
-#define LUISA_DISABLE_SYNTAX_SUGAR
 #include <dsl/syntax.h>
 #include <tests/test_husky.h>
 
@@ -48,14 +46,24 @@ int main() {
         Constant int_consts = const_vector;
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
+    
+    // binding to template lambdas
+    Callable<int(int, int)> add = [&]<typename T>(Var<T> a, Var<T> b) noexcept {
+        return a + b;
+    };
 
     auto t0 = std::chrono::high_resolution_clock::now();
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
-    Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
+    
+    // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
+    // >>> Kernel kernel = [&](...) { ... }
+    Kernel<void(Buffer<float>, uint)> kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
+        
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
+        Var v_int_add_one = add(v_int, 1);
         Var vv_int = int_consts[v_int];
         Var v_float = buffer_float[count + thread_id().x];
         Var vv_float = float_consts[vv_int];
@@ -123,8 +131,6 @@ int main() {
     auto t3 = std::chrono::high_resolution_clock::now();
 
     std::cout << scratch.view() << std::endl;
-    //    RunHLSLCodeGen(&function);
-    system("pause");
 
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
