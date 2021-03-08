@@ -28,23 +28,14 @@ class FunctionBuilder {
 private:
     class ScopeGuard {
 
-    public:
-        using Stack = ArenaVector<ScopeStmt *>;
-
     private:
-        Stack *_stack;
+        FunctionBuilder *_builder;
         ScopeStmt *_scope;
 
     public:
-        explicit ScopeGuard(Stack &stack, ScopeStmt *scope) noexcept
-            : _stack{&stack}, _scope{scope} { _stack->emplace_back(_scope); }
-
-        ~ScopeGuard() noexcept {
-            if (_stack->empty() || _stack->back() != _scope) {
-                LUISA_ERROR_WITH_LOCATION("Unpaired scope push/pop.");
-            }
-            _stack->pop_back();
-        }
+        explicit ScopeGuard(FunctionBuilder *builder, ScopeStmt *scope) noexcept
+            : _builder{builder}, _scope{scope} { _builder->push_scope(_scope); }
+        ~ScopeGuard() noexcept { _builder->pop_scope(_scope); }
     };
 
 public:
@@ -70,7 +61,7 @@ private:
     uint32_t _uid;
     uint32_t _variable_counter{0u};
 
-private:
+protected:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] static std::recursive_mutex &_function_registry_mutex() noexcept;
     [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
@@ -85,6 +76,8 @@ private:
     [[nodiscard]] const Expression *_builtin(Variable::Tag tag) noexcept;
     [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const Expression *_ref(Variable v) noexcept;
+
+    friend class ScopeGuard;
 
 private:
     explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept
@@ -185,15 +178,19 @@ public:
     void switch_(const Expression *expr, const ScopeStmt *body) noexcept;
     void case_(const Expression *expr, const ScopeStmt *body) noexcept;
     void default_(const ScopeStmt *body) noexcept;
+    void for_(const Statement *init, const Expression *condition, const Statement *update, const ScopeStmt *body) noexcept;
 
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] ScopeStmt *scope() noexcept;
 
     template<typename Body>
     decltype(auto) with(ScopeStmt *s, Body &&body) noexcept {
-        ScopeGuard guard{_scope_stack, s};
+        ScopeGuard guard{this, s};
         return body();
     }
+    
+    void push_scope(ScopeStmt *) noexcept;
+    void pop_scope(const ScopeStmt *) noexcept;
 };
 
 }// namespace luisa::compute

@@ -37,6 +37,7 @@ class SwitchStmt;
 class SwitchCaseStmt;
 class SwitchDefaultStmt;
 class AssignStmt;
+class ForStmt;
 
 struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -51,6 +52,7 @@ struct StmtVisitor {
     virtual void visit(const SwitchCaseStmt *) = 0;
     virtual void visit(const SwitchDefaultStmt *) = 0;
     virtual void visit(const AssignStmt *) = 0;
+    virtual void visit(const ForStmt *) = 0;
 };
 
 #define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \
@@ -202,10 +204,34 @@ public:
 class SwitchDefaultStmt : public Statement {
 
 private:
-    const Statement *_body;
+    const ScopeStmt *_body;
 
 public:
     explicit SwitchDefaultStmt(const ScopeStmt *body) noexcept : _body{body} {}
+    [[nodiscard]] auto body() const noexcept { return _body; }
+    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+};
+
+class ForStmt : public Statement {
+
+private:
+    const Statement *_initialization;
+    const Expression *_condition;
+    const Statement *_update;
+    const ScopeStmt *_body;
+
+public:
+    ForStmt(const Statement *initialization,
+            const Expression *condition,
+            const Statement *update,
+            const ScopeStmt *body) noexcept
+        : _initialization{initialization},
+          _condition{condition},
+          _update{update},
+          _body{body} {}
+    [[nodiscard]] auto initialization() const noexcept { return _initialization; }
+    [[nodiscard]] auto condition() const noexcept { return _condition; }
+    [[nodiscard]] auto update() const noexcept { return _update; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
@@ -225,5 +251,6 @@ static_assert(std::is_trivially_destructible_v<SwitchStmt>);
 static_assert(std::is_trivially_destructible_v<SwitchCaseStmt>);
 static_assert(std::is_trivially_destructible_v<SwitchDefaultStmt>);
 static_assert(std::is_trivially_destructible_v<AssignStmt>);
+static_assert(std::is_trivially_destructible_v<ForStmt>);
 
-}// namespace luisa
+}// namespace luisa::compute

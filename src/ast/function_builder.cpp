@@ -227,4 +227,19 @@ const Expression *FunctionBuilder::constant(const Type *type, uint64_t hash) noe
     return _arena.create<ConstantExpr>(type, hash);
 }
 
+void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {
+    _scope_stack.emplace_back(s);
+}
+
+void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
+    if (_scope_stack.empty() || _scope_stack.back() != s) {
+        LUISA_ERROR_WITH_LOCATION("Invalid scope stack pop.");
+    }
+    _scope_stack.pop_back();
+}
+
+void FunctionBuilder::for_(const Statement *init, const Expression *condition, const Statement *update, const ScopeStmt *body) noexcept {
+    _append(_arena.create<ForStmt>(init, condition, update, body));
+}
+
 }// namespace luisa::compute

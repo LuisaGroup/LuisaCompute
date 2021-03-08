@@ -506,4 +506,30 @@ void CppCodegen::visit(const ConstantExpr *expr) {
     _scratch << "c" << hash_to_string(expr->hash());
 }
 
+void CppCodegen::visit(const ForStmt *stmt) {
+
+    _scratch << "for (";
+
+    if (auto init = stmt->initialization(); init != nullptr) {
+        init->accept(*this);
+    } else {
+        _scratch << ";";
+    }
+
+    if (auto cond = stmt->condition(); cond != nullptr) {
+        _scratch << " ";
+        cond->accept(*this);
+    }
+    _scratch << ";";
+
+    if (auto update = stmt->update(); update != nullptr) {
+        _scratch << " ";
+        update->accept(*this);
+        if (_scratch.back() == ';') { _scratch.pop_back(); }
+    }
+
+    _scratch << ") ";
+    stmt->body()->accept(*this);
+}
+
 }// namespace luisa::compute::compile

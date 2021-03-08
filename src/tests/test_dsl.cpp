@@ -63,6 +63,11 @@ int main() {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
+        
+        for (auto v : range(v_int)) {
+            v_int += v;
+        }
+        
         Var v_int_add_one = add(v_int, 1);
         Var vv_int = int_consts[v_int];
         Var v_float = buffer_float[count + thread_id().x];

@@ -72,7 +72,38 @@ using DSL = DSLVar<T>;
 LUISA_XPU_TEMPLATE(typename T)
 auto foo(Var<T> f) { return f * f; }
 
+class OnceIter {
+
+private:
+    uint _time;
+
+public:
+    explicit OnceIter(uint time) noexcept : _time{time} {}
+    auto &operator++() noexcept {
+        _time++;
+        return *this;
+    }
+    [[nodiscard]] auto operator!=(OnceIter o) const noexcept {
+        if (_time == 2u) { std::cout << "===== END =====" << std::endl; }
+        return _time != o._time;
+    }
+
+    [[nodiscard]] auto operator*() const noexcept {
+        std::cout << "==== BEGIN ====" << std::endl;
+        return 0;
+    }
+};
+
+struct Once {
+    [[nodiscard]] auto begin() const noexcept { return OnceIter{1u}; }
+    [[nodiscard]] auto end() const noexcept { return OnceIter{2u}; }
+};
+
 int main() {
+
+    for (auto i : Once()) {
+        std::cout << "\nDo some AST construction here...\n" << std::endl;
+    }
 
     auto f = LUISA_DEVICE_FUNCTION(foo);
 

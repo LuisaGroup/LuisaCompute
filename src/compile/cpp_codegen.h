@@ -41,6 +41,7 @@ private:
     void visit(const SwitchCaseStmt *stmt) override;
     void visit(const SwitchDefaultStmt *stmt) override;
     void visit(const AssignStmt *stmt) override;
+    void visit(const ForStmt *stmt) override;
 
 private:
     virtual void _emit_type_decl() noexcept;

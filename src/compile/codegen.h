@@ -32,6 +32,7 @@ public:
         [[nodiscard]] size_t size() const noexcept;
         void pop_back() noexcept;
         void clear() noexcept;
+        [[nodiscard]] char back() const noexcept;
     };
 
 protected:
