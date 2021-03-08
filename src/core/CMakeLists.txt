@@ -9,6 +9,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
     platform.h
     mathematics.h
     atomic.h
+    dynamic_dll.h
+    dynamic_dll.cpp
     basic_types.h)
 
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
