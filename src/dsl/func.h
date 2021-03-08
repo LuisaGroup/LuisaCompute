@@ -42,17 +42,32 @@ struct prototype_to_creation<BufferView<T>> {
 };
 
 template<typename T>
-struct prototype_to_invocation {
+struct prototype_to_kernel_invocation {
     using type = T;
 };
 
 template<typename T>
-struct prototype_to_invocation<Buffer<T>> {
+struct prototype_to_kernel_invocation<Buffer<T>> {
     using type = BufferView<T>;
 };
 
 template<typename T>
-struct prototype_to_invocation<BufferView<T>> {
+struct prototype_to_kernel_invocation<BufferView<T>> {
+    using type = BufferView<T>;
+};
+
+template<typename T>
+struct prototype_to_callable_invocation {
+    using type = Expr<T>;
+};
+
+template<typename T>
+struct prototype_to_callable_invocation<Buffer<T>> {
+    using type = BufferView<T>;
+};
+
+template<typename T>
+struct prototype_to_callable_invocation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
@@ -63,7 +78,10 @@ template<typename T>
 using prototype_to_creation_t = typename prototype_to_creation<T>::type;
 
 template<typename T>
-using prototype_to_invocation_t = typename prototype_to_invocation<T>::type;
+using prototype_to_kernel_invocation_t = typename prototype_to_kernel_invocation<T>::type;
+
+template<typename T>
+using prototype_to_callable_invocation_t = typename prototype_to_callable_invocation<T>::type;
 
 }// namespace detail
 
@@ -133,7 +151,7 @@ public:
               def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
           })} {}
 
-    [[nodiscard]] auto operator()(detail::prototype_to_invocation_t<Args>... args) const noexcept {
+    [[nodiscard]] auto operator()(detail::prototype_to_kernel_invocation_t<Args>... args) const noexcept {
         detail::KernelInvoke invoke{_function.uid()};
         (invoke << ... << args);
         return invoke;
@@ -170,7 +188,7 @@ public:
               }
           })} {}
 
-    auto operator()(detail::prototype_to_creation_t<Args>... args) const noexcept {
+    auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
             auto expr = FunctionBuilder::current()->call(
                 nullptr,
