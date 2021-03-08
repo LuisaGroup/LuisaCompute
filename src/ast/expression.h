@@ -146,15 +146,24 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+namespace detail {
+
+template<typename T>
+struct make_literal_value {
+    static_assert(always_false_v<T>);
+};
+
+template<typename... T>
+struct make_literal_value<std::tuple<T...>> {
+    using type = std::variant<T...>;
+};
+
+}
+
 class LiteralExpr : public Expression {
 
 public:
-    using Value = std::variant<
-        bool, float, char, uchar, short, ushort, int, uint,
-        bool2, float2, char2, uchar2, short2, ushort2, int2, uint2,
-        bool3, float3, char3, uchar3, short3, ushort3, int3, uint3,
-        bool4, float4, char4, uchar4, short4, ushort4, int4, uint4,
-        float3x3, float4x4>;
+    using Value = typename detail::make_literal_value<basic_types>::type;
 
 private:
     Value _value;

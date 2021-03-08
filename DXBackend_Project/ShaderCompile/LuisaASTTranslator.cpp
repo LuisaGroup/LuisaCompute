@@ -510,13 +510,9 @@ vengine::string CodegenUtility::GetTypeName(Type const& type) {
 			return "bool";
 		case Type::Tag::FLOAT:
 			return "float";
-		case Type::Tag::INT8:
-		case Type::Tag::INT16:
-		case Type::Tag::INT32:
+		case Type::Tag::INT:
 			return "int";
-		case Type::Tag::UINT8:
-		case Type::Tag::UINT16:
-		case Type::Tag::UINT32:
+		case Type::Tag::UINT:
 			return "uint";
 		case Type::Tag::MATRIX: {
 			auto dim = vengine::to_string(type.dimension());

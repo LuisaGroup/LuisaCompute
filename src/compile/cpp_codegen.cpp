@@ -84,10 +84,6 @@ public:
             _s << v << "f";
         }
     }
-    void operator()(char v) const noexcept { _s << "char(" << v << ")"; }
-    void operator()(uchar v) const noexcept { _s << "uchar(" << v << "u)"; }
-    void operator()(short v) const noexcept { _s << "short(" << v << ")"; }
-    void operator()(ushort v) const noexcept { _s << "ushort(" << v << "u)"; }
     void operator()(int v) const noexcept { _s << v; }
     void operator()(uint v) const noexcept { _s << v << "u"; }
 
@@ -399,12 +395,8 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "bool"; break;
         case Type::Tag::FLOAT: _scratch << "float"; break;
-        case Type::Tag::INT8: _scratch << "char"; break;
-        case Type::Tag::UINT8: _scratch << "uchar"; break;
-        case Type::Tag::INT16: _scratch << "short"; break;
-        case Type::Tag::UINT16: _scratch << "ushort"; break;
-        case Type::Tag::INT32: _scratch << "int"; break;
-        case Type::Tag::UINT32: _scratch << "uint"; break;
+        case Type::Tag::INT: _scratch << "int"; break;
+        case Type::Tag::UINT: _scratch << "uint"; break;
         case Type::Tag::VECTOR:
             _emit_type_name(type->element());
             _scratch << type->dimension();

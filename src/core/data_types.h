@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <array>
+#include <tuple>
 #include <type_traits>
 
 #include <core/macro.h>
@@ -17,8 +18,6 @@ template<typename U>
 constexpr auto always_false_v = false;
 
 // scalars
-using uchar = unsigned char;
-using ushort = unsigned short;
 using uint = unsigned int;
 
 // vectors
@@ -73,9 +72,8 @@ struct Vector : public detail::VectorStorage<T, N> {
     static_assert(std::disjunction_v<
                       std::is_same<T, bool>,
                       std::is_same<T, float>,
-                      std::is_same<T, char>, std::is_same<T, uchar>,
-                      std::is_same<T, short>, std::is_same<T, ushort>,
-                      std::is_same<T, int>, std::is_same<T, uint>> && (N == 2 || N == 3 || N == 4),
+                      std::is_same<T, int>,
+                      std::is_same<T, uint>> && (N == 2 || N == 3 || N == 4),
                   "Invalid vector type");
 
     template<typename... Args, std::enable_if_t<std::is_constructible_v<Storage, Args...>, int> = 0>
@@ -169,10 +167,6 @@ struct Vector : public detail::VectorStorage<T, N> {
 
 LUISA_MAKE_VECTOR_TYPES(bool)
 LUISA_MAKE_VECTOR_TYPES(float)
-LUISA_MAKE_VECTOR_TYPES(char)
-LUISA_MAKE_VECTOR_TYPES(uchar)
-LUISA_MAKE_VECTOR_TYPES(short)
-LUISA_MAKE_VECTOR_TYPES(ushort)
 LUISA_MAKE_VECTOR_TYPES(int)
 LUISA_MAKE_VECTOR_TYPES(uint)
 
@@ -242,6 +236,13 @@ struct Matrix<4> {
 
 using float3x3 = Matrix<3>;
 using float4x4 = Matrix<4>;
+
+using basic_types = std::tuple<
+    bool, float, int, uint,
+    bool2, float2, int2, uint2,
+    bool3, float3, int3, uint3,
+    bool4, float4, int4, uint4,
+    float3x3, float4x4>;
 
 }// namespace luisa
 
@@ -359,13 +360,18 @@ struct IsMatrix<Matrix<N>> : std::true_type {};
 }// namespace detail
 
 template<typename T>
-using is_integral = std::is_integral<T>;
+using is_integral = std::disjunction<
+    std::is_same<T, int>,
+    std::is_same<T, uint>>;
 
 template<typename T>
 constexpr auto is_integral_v = is_integral<T>::value;
 
 template<typename T>
-using is_scalar = std::disjunction<is_integral<T>, std::is_same<T, float>>;
+using is_scalar = std::disjunction<
+    is_integral<T>,
+    std::is_same<T, bool>,
+    std::is_same<T, float>>;
 
 template<typename T>
 constexpr auto is_scalar_v = is_scalar<T>::value;

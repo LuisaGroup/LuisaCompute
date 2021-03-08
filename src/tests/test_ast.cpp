@@ -69,12 +69,11 @@ struct alignas(32) AA {
 struct BB {
     AA a;
     float b;
-    uchar c;
     float3x3 m;
 };
 
 LUISA_STRUCT(AA, x, ba, a, atomic)
-LUISA_STRUCT(BB, a, b, c, m)
+LUISA_STRUCT(BB, a, b, m)
 
 struct Interface : public concepts::Noncopyable {
     Interface() noexcept = default;
@@ -92,12 +91,8 @@ std::string_view tag_name(Type::Tag tag) noexcept {
     using namespace std::string_view_literals;
     if (tag == Type::Tag::BOOL) { return "bool"sv; }
     if (tag == Type::Tag::FLOAT) { return "float"sv; }
-    if (tag == Type::Tag::INT8) { return "char"sv; }
-    if (tag == Type::Tag::UINT8) { return "uchar"sv; }
-    if (tag == Type::Tag::INT16) { return "short"sv; }
-    if (tag == Type::Tag::UINT16) { return "ushort"sv; }
-    if (tag == Type::Tag::INT32) { return "int"sv; }
-    if (tag == Type::Tag::UINT32) { return "uint"sv; }
+    if (tag == Type::Tag::INT) { return "int"sv; }
+    if (tag == Type::Tag::UINT) { return "uint"sv; }
     if (tag == Type::Tag::VECTOR) { return "vector"sv; }
     if (tag == Type::Tag::MATRIX) { return "matrix"sv; }
     if (tag == Type::Tag::ARRAY) { return "array"sv; }
@@ -229,7 +224,7 @@ int main() {
     foo<std::initializer_list<int>>({1, 2, 3, 4});
 
     auto [m, n] = std::array{1, 2};
-    
+
     auto fuck = 0;
     auto shit = 1;
 }
