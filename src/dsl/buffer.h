@@ -175,4 +175,28 @@ BufferView(BufferView<T>) -> BufferView<T>;
 
 #undef LUISA_CHECK_BUFFER_ELEMENT_TYPE
 
+template<typename T>
+struct is_buffer : std::false_type {};
+
+template<typename T>
+struct is_buffer<Buffer<T>> : std::true_type {};
+
+template<typename T>
+struct is_buffer_view : std::false_type {};
+
+template<typename T>
+struct is_buffer_view<BufferView<T>> : std::true_type {};
+
+template<typename T>
+using is_buffer_or_view = std::disjunction<is_buffer<T>, is_buffer_view<T>>;
+
+template<typename T>
+constexpr auto is_buffer_v = is_buffer<T>::value;
+
+template<typename T>
+constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
+
+template<typename T>
+constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::view;
+
 }// namespace luisa::compute::dsl

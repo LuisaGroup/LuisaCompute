@@ -12,55 +12,58 @@ namespace luisa::compute::dsl {
 namespace detail {
 
 template<typename T>
-struct callable_invoke_argument {
-    static_assert(always_false_v<T>);
+struct definition_to_prototype {
+    static_assert(always_false_v<T>, "Invalid type in function definition.");
 };
 
 template<typename T>
-struct callable_invoke_argument<Var<T>> {
+struct definition_to_prototype<Var<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct definition_to_prototype<BufferView<T>> {
+    using type = Buffer<T>;
+};
+
+template<typename T>
+struct prototype_to_creation {
+    using type = Var<T>;
+};
+
+template<typename T>
+struct prototype_to_creation<Buffer<T>> {
+    using type = BufferView<T>;
+};
+
+template<typename T>
+struct prototype_to_creation<BufferView<T>> {
+    using type = BufferView<T>;
+};
+
+template<typename T>
+struct prototype_to_invocation {
     using type = Expr<T>;
 };
 
 template<typename T>
-struct callable_invoke_argument<BufferView<T>> {
+struct prototype_to_invocation<Buffer<T>> {
     using type = BufferView<T>;
 };
 
 template<typename T>
-using callable_invoke_argument_t = typename callable_invoke_argument<T>::type;
-
-template<typename T>
-struct kernel_invoke_argument {
-    static_assert(always_false_v<T>);
-};
-
-template<typename T>
-struct kernel_invoke_argument<Var<T>> {
-    using type = const T &;
-};
-
-template<typename T>
-struct kernel_invoke_argument<BufferView<T>> {
+struct prototype_to_invocation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
 template<typename T>
-using kernel_invoke_argument_t = typename kernel_invoke_argument<T>::type;
+using definition_to_prototype_t = typename definition_to_prototype<T>::type;
 
 template<typename T>
-struct is_argument : std::false_type {};
+using prototype_to_creation_t = typename prototype_to_creation<T>::type;
 
 template<typename T>
-struct is_argument<Var<T>> : std::true_type {};
-
-template<typename T>
-struct is_argument<BufferView<T>> : std::true_type {};
-
-template<typename T>
-constexpr auto is_argument_v = is_argument<T>::value;
-
-template<typename... T>
-concept Arguments = std::conjunction_v<is_argument<T>...>;
+using prototype_to_invocation_t = typename prototype_to_invocation<T>::type;
 
 }// namespace detail
 
@@ -116,8 +119,6 @@ public:
 template<typename... Args>
 class Kernel<void(Args...)> {
 
-    static_assert(std::conjunction_v<detail::is_argument<Args>...>);
-
 private:
     Function _function;
 
@@ -126,13 +127,13 @@ public:
     Kernel(const Kernel &) noexcept = default;
 
     template<typename Def>
-    requires concepts::InvocableRet<void, Def, Args...>
+    requires concepts::InvocableRet<void, Def, detail::prototype_to_creation_t<Args>...>
     Kernel(Def &&def) noexcept
         : _function{FunctionBuilder::define_kernel([&def] {
-              def(Args{detail::ArgumentCreation{}}...);
+              def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
           })} {}
 
-    [[nodiscard]] auto operator()(detail::kernel_invoke_argument_t<Args>... args) const noexcept {
+    [[nodiscard]] auto operator()(detail::prototype_to_invocation_t<Args>... args) const noexcept {
         detail::KernelInvoke invoke{_function.uid()};
         (invoke << ... << args);
         return invoke;
@@ -147,6 +148,9 @@ class Callable {
 template<typename Ret, typename... Args>
 class Callable<Ret(Args...)> {
 
+    static_assert(std::negation_v<is_buffer_or_view<Ret>>,
+                  "Callables may not return buffers (or their views).");
+
 private:
     Function _function;
 
@@ -155,18 +159,18 @@ public:
     Callable(const Callable &) noexcept = default;
 
     template<typename Def>
-    requires concepts::Invocable<Def, Args...>
+    requires concepts::Invocable<Def, detail::prototype_to_creation_t<Args>...>
     Callable(Def &&def) noexcept
         : _function{FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
-                  def(Args{detail::ArgumentCreation{}}...);
+                  def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
               } else {
-                  Var ret{def(Args{detail::ArgumentCreation{}}...)};
+                  Var<Ret> ret{def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...)};
                   FunctionBuilder::current()->return_(ret.expression());
               }
           })} {}
 
-    auto operator()(detail::callable_invoke_argument_t<Args>... args) const noexcept {
+    auto operator()(detail::prototype_to_creation_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
             auto expr = FunctionBuilder::current()->call(
                 nullptr,
@@ -174,9 +178,8 @@ public:
                 {args.expression()...});
             FunctionBuilder::current()->void_(expr);
         } else {
-            using RetT = typename Ret::ValueType;
-            return detail::Expr<RetT>{FunctionBuilder::current()->call(
-                Type::of<RetT>(),
+            return detail::Expr<Ret>{FunctionBuilder::current()->call(
+                Type::of<Ret>(),
                 fmt::format("custom_{}", _function.uid()),
                 {args.expression()...})};
         }
@@ -192,21 +195,21 @@ struct function {
 };
 
 template<typename R, typename... A>
-using function_declaration_t = R(A...);
+using function_signature_t = R(A...);
 
 template<typename... Args>
 struct function<std::function<void(Args...)>> {
-    using type = function_declaration_t<void, Args...>;
+    using type = function_signature_t<void, definition_to_prototype_t<Args>...>;
 };
 
 template<typename Ret, typename... Args>
 struct function<std::function<Var<Ret>(Args...)>> {
-    using type = function_declaration_t<Ret, Args...>;
+    using type = function_signature_t<Ret, definition_to_prototype_t<Args>...>;
 };
 
 template<typename Ret, typename... Args>
 struct function<std::function<Expr<Ret>(Args...)>> {
-    using type = function_declaration_t<Var<Ret>, Args...>;
+    using type = function_signature_t<Ret, definition_to_prototype_t<Args>...>;
 };
 
 template<typename T>

@@ -46,16 +46,24 @@ int main() {
         Constant int_consts = const_vector;
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
+    
+    // binding to template lambdas
+    Callable<int(int, int)> add = [&]<typename T>(Var<T> a, Var<T> b) noexcept {
+        return a + b;
+    };
 
     auto t0 = std::chrono::high_resolution_clock::now();
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
     
-    Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
+    // Omitting template arguments here is also supported,
+    // i.e., write Kernel kernel = [&](...) { ... }
+    Kernel<void(Buffer<float>, uint)> kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
         
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
+        Var v_int_add_one = add(v_int, 1);
         Var vv_int = int_consts[v_int];
         Var v_float = buffer_float[count + thread_id().x];
         Var vv_float = float_consts[vv_int];

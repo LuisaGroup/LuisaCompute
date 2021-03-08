@@ -368,10 +368,22 @@ template<typename T>
 constexpr auto is_integral_v = is_integral<T>::value;
 
 template<typename T>
+using is_boolean = std::is_same<T, bool>;
+
+template<typename T>
+constexpr auto is_boolean_v = is_boolean<T>::value;
+
+template<typename T>
+using is_floating_point = std::is_same<T, float>;
+
+template<typename T>
+constexpr auto is_floating_point_v = is_floating_point<T>::value;
+
+template<typename T>
 using is_scalar = std::disjunction<
     is_integral<T>,
-    std::is_same<T, bool>,
-    std::is_same<T, float>>;
+    is_boolean<T>,
+    is_floating_point<T>>;
 
 template<typename T>
 constexpr auto is_scalar_v = is_scalar<T>::value;
