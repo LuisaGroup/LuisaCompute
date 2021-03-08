@@ -43,7 +43,7 @@ struct prototype_to_creation<BufferView<T>> {
 
 template<typename T>
 struct prototype_to_invocation {
-    using type = Expr<T>;
+    using type = T;
 };
 
 template<typename T>
