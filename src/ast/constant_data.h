@@ -11,7 +11,7 @@
 #include <vector>
 #include <array>
 
-#include <core/data_types.h>
+#include <core/basic_types.h>
 #include <core/concepts.h>
 
 namespace luisa::compute {

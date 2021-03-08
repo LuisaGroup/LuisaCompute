@@ -8,7 +8,7 @@
 #include <charconv>
 
 #include <core/concepts.h>
-#include <core/data_types.h>
+#include <core/basic_types.h>
 #include <ast/variable.h>
 #include <core/logging.h>
 

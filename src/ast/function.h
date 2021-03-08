@@ -3,7 +3,7 @@
 #include <span>
 #include <variant>
 
-#include <core/data_types.h>
+#include <core/basic_types.h>
 #include <ast/variable.h>
 #include <ast/constant_data.h>
 

@@ -56,8 +56,8 @@ int main() {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
     
-    // Omitting template arguments here is also supported,
-    // i.e., write Kernel kernel = [&](...) { ... }
+    // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
+    // >>> Kernel kernel = [&](...) { ... }
     Kernel<void(Buffer<float>, uint)> kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
         
         Shared<float4> shared_floats{16};

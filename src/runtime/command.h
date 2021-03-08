@@ -12,7 +12,7 @@
 #include <span>
 
 #include <core/logging.h>
-#include <core/data_types.h>
+#include <core/basic_types.h>
 
 namespace luisa::compute {
 
