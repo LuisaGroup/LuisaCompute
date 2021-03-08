@@ -1,4 +1,4 @@
-find_package(LLVM REQUIRED)
+find_package(LLVM CONFIG)
 
 if (LLVM_FOUND)
     
@@ -17,4 +17,5 @@ if (LLVM_FOUND)
     target_link_libraries(luisa-compute-backend-llvm PRIVATE ${LLVM_LIBS})
     target_compile_definitions(luisa-compute-backend-llvm PRIVATE ${LLVM_DEFINITIONS})
     target_include_directories(luisa-compute-backend-llvm PRIVATE ${LLVM_INCLUDE_DIRS})
+    
 endif ()

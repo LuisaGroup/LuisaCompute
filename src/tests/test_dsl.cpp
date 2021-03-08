@@ -122,7 +122,7 @@ int main() {
 
     std::cout << scratch.view() << std::endl;
     //    RunHLSLCodeGen(&function);
-    system("pause");
+//    system("pause");
 
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
