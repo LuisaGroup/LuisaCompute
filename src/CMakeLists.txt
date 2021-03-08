@@ -6,6 +6,7 @@ if (MSVC)
     target_compile_options(luisa-compute-include INTERFACE -Zc:preprocessor)
 endif()
 
+set(BUILD_SHARED_LIBS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 

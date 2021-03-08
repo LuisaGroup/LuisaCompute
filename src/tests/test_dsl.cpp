@@ -50,7 +50,9 @@ int main() {
     auto t0 = std::chrono::high_resolution_clock::now();
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
+    
     Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
+        
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;

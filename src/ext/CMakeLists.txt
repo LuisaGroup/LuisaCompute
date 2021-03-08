@@ -6,7 +6,6 @@ add_library(luisa-compute-ext INTERFACE)
 #target_link_libraries(luisa-compute-ext INTERFACE cereal::cereal)
 target_include_directories(luisa-compute-ext INTERFACE cereal/include)
 
-set(BUILD_SHARED ON)
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
 set(SPDLOG_ENABLE_PCH ON CACHE BOOL "" FORCE)
 set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
