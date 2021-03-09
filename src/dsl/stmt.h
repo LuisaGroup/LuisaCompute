@@ -254,11 +254,29 @@ template<typename T>
 }
 
 template<concepts::Integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{0, end, 1}; }
+[[nodiscard]] inline auto range(T end) noexcept { return detail::ForRange<T, false>{0, end, 1}; }
 
 template<concepts::Integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, detail::Expr<T> step = 1) noexcept {
+[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{0, Var{end}, 1}; }
+
+template<concepts::Integral T>
+[[nodiscard]] inline auto range(detail::Expr<T> begin, T end, T step = 1) noexcept {
     return detail::ForRange<T, true>{begin, end, step};
+}
+
+template<concepts::Integral T>
+[[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, T step = 1) noexcept {
+    return detail::ForRange<T, true>{begin, Var{end}, step};
+}
+
+template<concepts::Integral T>
+[[nodiscard]] inline auto range(detail::Expr<T> begin, T end, detail::Expr<T> step) noexcept {
+    return detail::ForRange<T, true>{begin, end, Var{step}};
+}
+
+template<concepts::Integral T>
+[[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, detail::Expr<T> step) noexcept {
+    return detail::ForRange<T, true>{begin, Var{end}, Var{step}};
 }
 
 }// namespace luisa::compute::dsl

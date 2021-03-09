@@ -51,7 +51,11 @@ int main() {
 
         $ v_int = 10;
         static_assert(std::is_same_v<decltype(v_int), $int>);
-        
+
+        $for(x) : $range(v_int / 2) {
+            array[x] = v_int.cast<float>();
+        }
+
         $ v_float = buffer_float[count];
         $ call_ret = callable(10, v_int, v_float);
 

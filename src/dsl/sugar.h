@@ -49,3 +49,6 @@
 #define $switch(...) ::luisa::compute::dsl::detail::SwitchStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $case(...) ::luisa::compute::dsl::detail::SwitchCaseStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $default ::luisa::compute::dsl::detail::SwitchDefaultStmtBuilder{} % [&]() noexcept
+
+#define $for(...) for (auto __VA_ARGS__
+#define $range(...) ::luisa::compute::dsl::range(__VA_ARGS__))

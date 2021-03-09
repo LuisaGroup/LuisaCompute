@@ -140,7 +140,9 @@ public:
             || !f.shared_variables().empty()
             || !f.captured_buffers().empty()
             || !f.captured_textures().empty()) {
-            LUISA_ERROR_WITH_LOCATION("Custom callables may not have builtin, shared or captured variables.");
+            LUISA_ERROR_WITH_LOCATION(
+                "Custom callables may not have builtin, "
+                "shared or captured variables.");
         }
         return f;
     }
