@@ -126,7 +126,12 @@ public:
 
     // build primitives
     template<typename Def>
-    static auto define_kernel(Def &&def) noexcept { return _define(Function::Tag::KERNEL, std::forward<Def>(def)); }
+    static auto define_kernel(Def &&def) noexcept {
+        if (!_function_stack().empty()) {
+            LUISA_ERROR_WITH_LOCATION("Kernel definitions cannot be nested.");
+        }
+        return _define(Function::Tag::KERNEL, std::forward<Def>(def));
+    }
 
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
@@ -188,7 +193,7 @@ public:
         ScopeGuard guard{this, s};
         return body();
     }
-    
+
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
 };

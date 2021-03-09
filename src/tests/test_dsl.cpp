@@ -42,7 +42,7 @@ int main() {
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
-    Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
+    std::function callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };

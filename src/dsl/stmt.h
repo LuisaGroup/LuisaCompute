@@ -178,6 +178,8 @@ public:
             : _begin{begin}, _end{end}, _step{step} {}
 
         [[nodiscard]] auto operator*() noexcept {
+            if (_time != 0u) { LUISA_ERROR_WITH_LOCATION(
+                "Invalid RangeForIter state (with _time = {}).", _time); }
             auto f = FunctionBuilder::current();
             auto scope = f->scope();
             auto var = f->with(scope, [this] {
@@ -185,9 +187,8 @@ public:
                 return v;
             });
             _init = scope->statements().back();
-            
-            // TODO: reverse...
-            if (has_begin) {
+
+            if constexpr (has_begin) {
                 _cond = ((_step >= 0 && var < _end) || (_step < 0 && var > _end)).expression();
             } else {
                 _cond = (var < _end).expression();
