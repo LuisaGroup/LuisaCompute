@@ -1,5 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
+#include <Struct/ShaderVariableType.h>
 namespace SCompile {
 enum class ShaderType : uint8_t {
 	ComputeShader,
@@ -16,13 +17,6 @@ enum class ShaderFileType : uint8_t {
 	Shader,
 	ComputeShader,
 	DXRShader
-};
-enum class ShaderVariableType : uint8_t {
-	ConstantBuffer,
-	SRVDescriptorHeap,
-	UAVDescriptorHeap,
-	StructuredBuffer,
-	RWStructuredBuffer
 };
 struct Pass {
 	vengine::string vsShaderr;
@@ -44,29 +38,8 @@ enum class HitGroupFunctionType : uint8_t {
 	Intersect,
 	Num
 };
-struct DXRHitGroup {
-	vengine::string name;
-	uint shaderType;
-	vengine::string functionIndex[(uint8_t)HitGroupFunctionType::Num];
-};
-struct ShaderVariable {
-	vengine::string name;
-	ShaderVariableType type;
-	uint tableSize;
-	uint registerPos;
-	uint space;
-	ShaderVariable() {}
-	ShaderVariable(
-		const vengine::string& name,
-		ShaderVariableType type,
-		uint tableSize,
-		uint registerPos,
-		uint space) : name(name),
-					  type(type),
-					  tableSize(tableSize),
-					  registerPos(registerPos),
-					  space(space) {}
-};
+
+
 struct PassDescriptor {
 	vengine::string name;
 	vengine::string vertex;

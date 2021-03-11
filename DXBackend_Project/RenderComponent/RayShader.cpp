@@ -59,8 +59,11 @@ RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 		if (!hitGroups.functions[(uint8_t)HitGroupFunctionType::AnyHit].empty()) {
 			hitGroup->SetAnyHitShaderImport(vengine::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::AnyHit]).c_str());
 		}
+		if (!hitGroups.functions[(uint8_t)HitGroupFunctionType::Intersect].empty()) {
+			hitGroup->SetIntersectionShaderImport(vengine::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::Intersect]).c_str());
+		}
 		hitGroup->SetHitGroupExport(vengine::wstring(hitGroups.name).c_str());
-		hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
+		hitGroup->SetHitGroupType((D3D12_HIT_GROUP_TYPE)hitGroups.shaderType);
 	}
 	identifierBuffer.New(
 		device,

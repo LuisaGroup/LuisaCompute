@@ -22,6 +22,10 @@ public:
 		std::span<const Function::BufferBinding> buffers,
 		std::span<const Function::TextureBinding> texs,
 		vengine::string& result);
+
+	static size_t PrintGlobalVariables(
+		std::span<const Variable> values,
+		vengine::string& result);
 };
 class StringExprVisitor final : public ExprVisitor {
 	friend class StringStateVisitor;

@@ -22,7 +22,7 @@ public:
         BUFFER,
         TEXTURE,
         // TODO: Bindless Texture
-
+        // TODO: Writable Texture, Writable Buffer
         // builtins
         THREAD_ID,
         BLOCK_ID,
@@ -33,7 +33,7 @@ private:
     const Type *_type;
     Tag _tag;
     uint32_t _uid;
-    
+
 private:
     friend class FunctionBuilder;
     constexpr Variable(const Type *type, Tag tag, uint32_t uid) noexcept

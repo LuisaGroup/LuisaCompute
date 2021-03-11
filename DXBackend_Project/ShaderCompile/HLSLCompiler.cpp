@@ -15,7 +15,7 @@ struct ProcessorData {
 	_PROCESS_INFORMATION piProcInfo;
 	bool bSuccess;
 };
-void CreateChildProcess(const vengine::string& cmd, ProcessorData* data) {
+void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
 	if (g_needCommandOutput) {
 		std::cout << cmd << std::endl;
 		system(cmd.c_str());
@@ -185,16 +185,16 @@ struct CompileFunctionCommand {
 	ObjectPtr<vengine::vector<vengine::string>> macros;
 };
 void GenerateCompilerCommand(
-	const vengine::string& fileName,
-	const vengine::string& functionName,
-	const vengine::string& resultFileName,
+	vengine::string const& fileName,
+	vengine::string const& functionName,
+	vengine::string const& resultFileName,
 	const ObjectPtr<vengine::vector<vengine::string>>& macros,
 	ShaderType shaderType,
 	Compiler compiler,
 	vengine::string& cmdResult) {
-	const vengine::string* compilerPath = nullptr;
-	const vengine::string* compileShaderVersion = nullptr;
-	const vengine::string* start = nullptr;
+	vengine::string const* compilerPath = nullptr;
+	vengine::string const* compileShaderVersion = nullptr;
+	vengine::string const* start = nullptr;
 	switch (compiler) {
 		case Compiler::FXC:
 			compilerPath = &fxcpath;
@@ -271,7 +271,7 @@ void PutIn(vengine::vector<char>& c, void* data, uint64 dataSize) {
 	memcpy(c.data() + siz, data, dataSize);
 }
 template<>
-void PutIn<vengine::string>(vengine::vector<char>& c, const vengine::string& data) {
+void PutIn<vengine::string>(vengine::vector<char>& c, vengine::string const& data) {
 	PutIn<uint>(c, (uint)data.length());
 	uint64 siz = c.size();
 	c.resize(siz + data.length());
@@ -292,7 +292,7 @@ void DragData<vengine::string>(std::ifstream& ifs, vengine::string& str) {
 struct PassFunction {
 	vengine::string name;
 	ObjectPtr<vengine::vector<vengine::string>> macros;
-	PassFunction(const vengine::string& name,
+	PassFunction(vengine::string const& name,
 				 const ObjectPtr<vengine::vector<vengine::string>>& macros) : name(name),
 																			  macros(macros) {}
 	PassFunction() {}
@@ -346,11 +346,11 @@ void PutInSerializedObjectAndData(
 }
 
 void HLSLCompiler::CompileShader(
-	const vengine::string& fileName,
+	vengine::string const& fileName,
 	vengine::vector<ShaderVariable> const& vars,
 	vengine::vector<PassDescriptor> const& passDescs,
 	vengine::vector<char> const& customData,
-	const vengine::string& tempFilePath,
+	vengine::string const& tempFilePath,
 	vengine::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
@@ -379,7 +379,7 @@ void HLSLCompiler::CompileShader(
 	};
 	HashMap<PassFunction, std::pair<ShaderType, uint>, PassFunctionHash> passMap(passDescs.size() * 2);
 	for (auto i = passDescs.begin(); i != passDescs.end(); ++i) {
-		auto findFunc = [&](const vengine::string& namestr, const ObjectPtr<vengine::vector<vengine::string>>& macros, ShaderType type) -> void {
+		auto findFunc = [&](vengine::string const& namestr, const ObjectPtr<vengine::vector<vengine::string>>& macros, ShaderType type) -> void {
 			PassFunction name(namestr, macros);
 
 			if (name.name.empty()) return;
@@ -423,7 +423,7 @@ void HLSLCompiler::CompileShader(
 		PutIn(resultData, i->rasterizeState);
 		PutIn(resultData, i->depthStencilState);
 		PutIn(resultData, i->blendState);
-		auto PutInFunc = [&](const vengine::string& value, const ObjectPtr<vengine::vector<vengine::string>>& macros) -> void {
+		auto PutInFunc = [&](vengine::string const& value, const ObjectPtr<vengine::vector<vengine::string>>& macros) -> void {
 			PassFunction psf(value, macros);
 			if (value.empty() || !passMap.Contains(psf))
 				PutIn<int>(resultData, -1);
@@ -439,11 +439,11 @@ void HLSLCompiler::CompileShader(
 		remove(i->c_str());
 }
 void HLSLCompiler::CompileComputeShader(
-	const vengine::string& fileName,
+	vengine::string const& fileName,
 	vengine::vector<ShaderVariable> const& vars,
-	vengine::vector<PassDescriptor> const& passDescs,
+	vengine::vector<KernelDescriptor> const& passDescs,
 	vengine::vector<char> const& customData,
-	const vengine::string& tempFilePath,
+	vengine::string const& tempFilePath,
 	vengine::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
@@ -536,13 +536,13 @@ void HLSLCompiler::CompileComputeShader(
 		remove(i->second.c_str());
 }
 void HLSLCompiler::CompileDXRShader(
-	const vengine::string& fileName,
+	vengine::string const& fileName,
 	vengine::vector<ShaderVariable> const& vars,
-	DXRHitGroup const& passDescs,
+	CompileDXRHitGroup const& passDescs,
 	uint64 raypayloadMaxSize,
 	uint64 recursiveCount,
 	vengine::vector<char> const& customData,
-	const vengine::string& tempFilePath,
+	vengine::string const& tempFilePath,
 	vengine::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
@@ -561,7 +561,7 @@ void HLSLCompiler::CompileDXRShader(
 	PutIn<uint64>(resultData, raypayloadMaxSize);
 	PutIn<vengine::string>(resultData, passDescs.name);
 	PutIn<uint>(resultData, passDescs.shaderType);
-	for (auto& func : passDescs.functionIndex) {
+	for (auto& func : passDescs.functions) {
 		PutIn<vengine::string>(resultData, func);
 	}
 
@@ -597,4 +597,35 @@ void HLSLCompiler::CompileDXRShader(
 	remove(tempFilePath.c_str());
 }
 
+void HLSLCompiler::GetShaderVariables(
+	luisa::compute::Function const& func,
+	vengine::vector<ShaderVariable>& result) {
+
+	uint registPos = 0;
+	//CBuffer
+	result.emplace_back(
+		"Params"_sv,
+		ShaderVariableType::ConstantBuffer,
+		1,
+		0,
+		0
+	);
+	
+	//Buffer
+	for (auto& i : func.captured_buffers()) {
+		auto& buffer = i.variable;
+		vengine::string name = 'v' + vengine::to_string(buffer.uid());
+		auto& var = result.emplace_back(
+			std::move(name),
+			ShaderVariableType::StructuredBuffer,
+			1,
+			registPos,
+			0);
+		registPos++;
+	}
+	for (auto& i : func.captured_textures()) {
+		//TODO
+		registPos++;
+	}
+}
 }// namespace SCompile

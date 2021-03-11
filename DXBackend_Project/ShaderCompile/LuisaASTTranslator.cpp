@@ -670,4 +670,106 @@ void CodegenUtility::PrintUniform(
 	}
 	//TODO: Texture Binding
 }
+size_t CodegenUtility::PrintGlobalVariables(
+	std::span<const Variable> values,
+	vengine::string& result) {
+	vengine::vector<Variable const*> scalarArr;
+	vengine::vector<Variable const*> vec2Arr;
+	vengine::vector<Variable const*> vec3Arr;
+	vengine::vector<Variable const*> vec4Arr;
+	constexpr size_t ELE_SIZE = 4;
+	size_t cbufferSize = 0;
+	size_t alignCount = 0;
+	for (auto& var : values) {
+		auto&& type = *var.type();
+		switch (type.tag()) {
+			///////////// Invalid types
+			case Type::Tag::ARRAY:
+				VEngine_Log("Uniform Variable Cannot be array!\n"_sv);
+				throw 0;
+			case Type::Tag::BOOL:
+				VEngine_Log("Uniform Variable Cannot be bool!\n"_sv);
+				throw 0;
+			case Type::Tag::ATOMIC:
+				VEngine_Log("Uniform Variable Cannot be atomic!\n"_sv);
+				throw 0;
+			///////////// Valid Types
+			case Type::Tag::MATRIX:
+				if (type.dimension() != 4) {
+					VEngine_Log("Uniform Matrix Only Allow 4x4 Matrix!\n"_sv);
+					throw 0;
+				}
+				result += "float4x4 v"_sv;
+				result += vengine::to_string(var.uid());
+				result += ";\n"_sv;
+				cbufferSize += ELE_SIZE * 4 * 4;
+				break;
+			case Type::Tag::VECTOR:
+				switch (type.dimension()) {
+					case 2:
+						vec2Arr.push_back(&var);
+						break;
+					case 3:
+						vec3Arr.push_back(&var);
+						break;
+					case 4:
+						vec4Arr.push_back(&var);
+						break;
+				}
+				break;
+			case Type::Tag::UINT:
+			case Type::Tag::INT:
+			case Type::Tag::FLOAT:
+				scalarArr.push_back(&var);
+				break;
+		}
+	}
+	for (auto& vec4 : vec4Arr) {
+		cbufferSize += ELE_SIZE * 4;
+		result += GetTypeName(*vec4->type());
+		result += "4 v"_sv;
+		result += vengine::to_string(vec4->uid());
+		result += ";\n"_sv;
+	}
+	auto PrintScalar = [&](Variable const* var)->void {
+		result += GetTypeName(*var->type());
+		result += " v"_sv;
+		result += vengine::to_string(var->uid());
+		result += ";\n"_sv;
+	};
+	for (auto& vec3 : vec4Arr) {
+		cbufferSize += ELE_SIZE * 4;
+		result += GetTypeName(*vec3->type());
+		result += "3 v"_sv;
+		result += vengine::to_string(vec3->uid());
+		result += ";\n"_sv;
+		if (!scalarArr.empty()) {
+			auto v = scalarArr.erase_last();
+			PrintScalar(v);
+		}
+		else {
+			result += "float __a"_sv;
+			result += vengine::to_string(alignCount);
+			result += ";\n"_sv;
+			alignCount++;
+		}
+	}
+
+	for (auto& vec2 : vec2Arr) {
+		cbufferSize += ELE_SIZE * 2;
+		result += GetTypeName(*vec2->type());
+		result += "2 v"_sv;
+		result += vengine::to_string(vec2->uid());
+		result += ";\n"_sv;
+	}
+
+	for (auto& vec : scalarArr) {
+		cbufferSize += ELE_SIZE;
+		result += GetTypeName(*vec->type());
+		result += " v"_sv;
+		result += vengine::to_string(vec->uid());
+		result += ";\n"_sv;
+	}
+	return cbufferSize;
+}
 }// namespace luisa::compute

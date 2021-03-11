@@ -3,7 +3,7 @@
 #include "../Singleton/ShaderID.h"
 #include "UploadBuffer.h"
 #include "../RenderComponent/DescriptorHeap.h"
-#include "../Common/GFXUtil.h"
+#include <Common/GFXUtil.h>
 #include <fstream>
 #include "StructuredBuffer.h"
 #include "Mesh.h"
