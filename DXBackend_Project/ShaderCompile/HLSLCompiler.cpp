@@ -345,6 +345,17 @@ void PutInSerializedObjectAndData(
 	}
 }
 
+bool HLSLCompiler::ErrorHappened() {
+	return !errorMessage.empty();
+}
+
+void HLSLCompiler::PrintErrorMessages() {
+	for (auto& msg : errorMessage) {
+		std::cout << msg << '\n';
+	}
+	errorMessage.clear();
+}
+
 void HLSLCompiler::CompileShader(
 	vengine::string const& fileName,
 	vengine::vector<ShaderVariable> const& vars,
@@ -503,7 +514,7 @@ void HLSLCompiler::CompileComputeShader(
 		if (!func(i.second, &data)) {
 			std::lock_guard<spin_mutex> lck(outputMtx);
 			errorMessage.emplace_back(std::move(
-				"ComputeShader " + fileName + " Failed!"_sv));
+				vengine::string("ComputeShader "_sv) + fileName + " Failed!"_sv));
 
 			return;
 		}
@@ -608,9 +619,8 @@ void HLSLCompiler::GetShaderVariables(
 		ShaderVariableType::ConstantBuffer,
 		1,
 		0,
-		0
-	);
-	
+		0);
+
 	//Buffer
 	for (auto& i : func.captured_buffers()) {
 		auto& buffer = i.variable;

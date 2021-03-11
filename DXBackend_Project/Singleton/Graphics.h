@@ -41,7 +41,7 @@ private:
 	static spin_mutex mtx;
 	static StackObject<Mesh, true> fullScreenMesh;
 	static std::unique_ptr<DescriptorHeap> globalDescriptorHeap;
-	static BitArray usedDescs;
+	static StackObject<BitArray, true> usedDescs;
 	static ArrayList<uint, false> unusedDescs;
 	static ObjectPtr<Mesh> cubeMesh;
 	static bool enabled;

@@ -391,8 +391,8 @@ struct CharControl {
 		spaceChar[(uint8_t)'\\'] = 1;
 	}
 };
-static CharControl charControl;
 bool StringUtil::IsCharSpace(char c) {
+	static CharControl charControl;
 	return charControl.spaceChar[(uint8_t)c];
 }
 bool StringUtil::IsCharNumber(char c) {

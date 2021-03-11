@@ -19,6 +19,7 @@ DLL_EXPORT void CodegenBody(Function const* func) {
 			CodegenUtility::PrintConstant(i, str);
 		}
 		CodegenUtility::PrintUniform(func->captured_buffers(), func->captured_textures(), str);
+		CodegenUtility::PrintGlobalVariables(func->arguments(), str);
 		std::cout << str << std::endl;
 	}
 	std::cout << CodegenUtility::GetFunctionDecl(func) << std::endl;
@@ -484,7 +485,7 @@ void StringStateVisitor::visit(const AssignStmt* state) {
 void StringStateVisitor::visit(ForStmt const* expr) {
 	StringStateVisitor stmtVis;
 	StringExprVisitor expVis;
-	str = "[loop]\nfor(";
+	str = "[loop]\nfor("_sv;
 	expr->initialization()->accept(stmtVis);
 	str += stmtVis.ToString();
 	str += ';';
@@ -680,6 +681,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 	constexpr size_t ELE_SIZE = 4;
 	size_t cbufferSize = 0;
 	size_t alignCount = 0;
+	result += "cbuffer Params:register(b0){"_sv;
 	for (auto& var : values) {
 		auto&& type = *var.type();
 		switch (type.tag()) {
@@ -731,7 +733,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		result += vengine::to_string(vec4->uid());
 		result += ";\n"_sv;
 	}
-	auto PrintScalar = [&](Variable const* var)->void {
+	auto PrintScalar = [&](Variable const* var) -> void {
 		result += GetTypeName(*var->type());
 		result += " v"_sv;
 		result += vengine::to_string(var->uid());
@@ -746,8 +748,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		if (!scalarArr.empty()) {
 			auto v = scalarArr.erase_last();
 			PrintScalar(v);
-		}
-		else {
+		} else {
 			result += "float __a"_sv;
 			result += vengine::to_string(alignCount);
 			result += ";\n"_sv;
@@ -770,6 +771,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		result += vengine::to_string(vec->uid());
 		result += ";\n"_sv;
 	}
+	result += "}\n"_sv;//End cbuffer
 	return cbufferSize;
 }
 }// namespace luisa::compute

@@ -7,6 +7,8 @@
 namespace SCompile {
 class HLSLCompiler {
 public:
+	static bool ErrorHappened();
+	static void PrintErrorMessages();
 	static void CompileShader(
 		vengine::string const& fileName,
 		vengine::vector<ShaderVariable> const& vars,

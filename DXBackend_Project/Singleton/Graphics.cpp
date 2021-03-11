@@ -26,7 +26,7 @@ uint _WriteBuffer;
 }// namespace GraphicsGlobalN*/
 StackObject<Mesh, true> Graphics::fullScreenMesh;
 std::unique_ptr<DescriptorHeap> Graphics::globalDescriptorHeap;
-BitArray Graphics::usedDescs(MAXIMUM_HEAP_COUNT);
+StackObject<BitArray, true> Graphics::usedDescs;
 ArrayList<uint, false> Graphics::unusedDescs(MAXIMUM_HEAP_COUNT);
 spin_mutex Graphics::mtx;
 StackObject<ElementAllocator> Graphics::srvAllocator;
@@ -35,6 +35,7 @@ StackObject<ElementAllocator> Graphics::dsvAllocator;
 ObjectPtr<Mesh> Graphics::cubeMesh = nullptr;
 bool Graphics::enabled = false;
 void Graphics::Initialize(GFXDevice* device, ThreadCommand* commandList) {
+	usedDescs.New(MAXIMUM_HEAP_COUNT);
 	//using namespace GraphicsGlobalN;
 	/*_ReadBuffer_K = ShaderID::PropertyToID("_ReadBuffer_K");
 	_WriteBuffer_K = ShaderID::PropertyToID("_WriteBuffer_K");
@@ -110,7 +111,7 @@ uint Graphics::GetDescHeapIndexFromPool() {
 		throw 0;
 	}
 	uint value = unusedDescs.erase_last();
-	usedDescs[value] = true;
+	(*usedDescs)[value] = true;
 	return value;
 }
 void Graphics::CopyTexture(
@@ -275,7 +276,7 @@ void Graphics::Blit(
 void Graphics::ReturnDescHeapIndexToPool(uint target) {
 	if (!enabled) return;
 	std::lock_guard lck(mtx);
-	auto ite = usedDescs[target];
+	auto ite = (*usedDescs)[target];
 	if (ite) {
 		unusedDescs.push_back(target);
 		ite = false;
@@ -287,7 +288,7 @@ void Graphics::ForceCollectAllHeapIndex() {
 	for (uint i = 0; i < MAXIMUM_HEAP_COUNT; ++i) {
 		unusedDescs[i] = i;
 	}
-	usedDescs.Reset(false);
+	usedDescs->Reset(false);
 }
 void Graphics::DrawMesh(
 	GFXDevice* device,
