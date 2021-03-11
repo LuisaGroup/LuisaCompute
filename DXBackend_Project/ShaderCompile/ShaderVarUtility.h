@@ -1,6 +1,6 @@
 #pragma once
 #include "ShaderVar.h"
-#include "../Common/Common.h"
+#include <Common/Common.h>
 namespace vengine {
 template<>
 struct hash<LCShader::Posture> {

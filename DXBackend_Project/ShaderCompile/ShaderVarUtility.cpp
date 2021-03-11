@@ -1,6 +1,6 @@
 #include "ShaderVarUtility.h"
-#include "../Common/Common.h"
-#include "../Utility/QuickSort.h"
+#include <Common/Common.h>
+#include <Utility/QuickSort.h>
 #include <ast/type.h>
 #include <ast/expression.h>
 namespace LCShader {

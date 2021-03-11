@@ -40,20 +40,20 @@ bool CJsonObject::AddEmptySubObject(const vengine::string& strKey) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateObject();
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("create sub empty object error!"vstr);
+		m_strErrMsg = vengine::string("create sub empty object error!"_sv);
 		return (false);
 	}
 	cJSON_AddItemToObject(pFocusData, strKey.c_str(), pJsonStruct);
@@ -72,20 +72,20 @@ bool CJsonObject::AddEmptySubArray(const vengine::string& strKey) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateArray();
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("create sub empty array error!"vstr);
+		m_strErrMsg = vengine::string("create sub empty array error!"_sv);
 		return (false);
 	}
 	cJSON_AddItemToObject(pFocusData, strKey.c_str(), pJsonStruct);
@@ -189,7 +189,7 @@ vengine::string CJsonObject::operator()(const vengine::string& strKey) const {
 		}
 	}
 	if (pJsonStruct == NULL) {
-		return (vengine::string(""vstr));
+		return (vengine::string(""_sv));
 	}
 	if (pJsonStruct->type == cJSON_String) {
 		return (pJsonStruct->valuestring);
@@ -217,11 +217,11 @@ vengine::string CJsonObject::operator()(const vengine::string& strKey) const {
 			snprintf(szNumber, sizeof(szNumber), "%f", pJsonStruct->valuedouble);
 		}
 	} else if (pJsonStruct->type == cJSON_False) {
-		return (vengine::string("false"vstr));
+		return (vengine::string("false"_sv));
 	} else if (pJsonStruct->type == cJSON_True) {
-		return (vengine::string("true"vstr));
+		return (vengine::string("true"_sv));
 	}
-	return (vengine::string(""vstr));
+	return (vengine::string(""_sv));
 }
 vengine::string CJsonObject::operator()(uint32_t uiWhich) const {
 	cJSON* pJsonStruct = NULL;
@@ -235,7 +235,7 @@ vengine::string CJsonObject::operator()(uint32_t uiWhich) const {
 		}
 	}
 	if (pJsonStruct == NULL) {
-		return (vengine::string(""vstr));
+		return (vengine::string(""_sv));
 	}
 	if (pJsonStruct->type == cJSON_String) {
 		return (pJsonStruct->valuestring);
@@ -263,18 +263,18 @@ vengine::string CJsonObject::operator()(uint32_t uiWhich) const {
 			snprintf(szNumber, sizeof(szNumber), "%f", pJsonStruct->valuedouble);
 		}
 	} else if (pJsonStruct->type == cJSON_False) {
-		return (vengine::string("false"vstr));
+		return (vengine::string("false"_sv));
 	} else if (pJsonStruct->type == cJSON_True) {
-		return (vengine::string("true"vstr));
+		return (vengine::string("true"_sv));
 	}
-	return (vengine::string(""vstr));
+	return (vengine::string(""_sv));
 }
 bool CJsonObject::Parse(const vengine::string& strJson) {
 	Clear();
 	m_pJsonData = cJSON_Parse(strJson.c_str());
 	m_pKeyTravers = m_pJsonData;
 	if (m_pJsonData == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "vstr) + cJSON_GetErrorPtr();
+		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	return (true);
@@ -327,7 +327,7 @@ bool CJsonObject::IsArray() const {
 }
 vengine::string CJsonObject::ToString() const {
 	char* pJsonString = NULL;
-	vengine::string strJsonData = ""vstr;
+	vengine::string strJsonData = ""_sv;
 	if (m_pJsonData != NULL) {
 		pJsonString = cJSON_PrintUnformatted(m_pJsonData);
 	} else if (m_pExternJsonDataRef != NULL) {
@@ -341,7 +341,7 @@ vengine::string CJsonObject::ToString() const {
 }
 vengine::string CJsonObject::ToFormattedString() const {
 	char* pJsonString = NULL;
-	vengine::string strJsonData = ""vstr;
+	vengine::string strJsonData = ""_sv;
 	if (m_pJsonData != NULL) {
 		pJsonString = cJSON_Print(m_pJsonData);
 	} else if (m_pExternJsonDataRef != NULL) {
@@ -592,20 +592,20 @@ bool CJsonObject::Add(const vengine::string& strKey, const CJsonObject& oJsonObj
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "vstr) + cJSON_GetErrorPtr();
+		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	cJSON_AddItemToObject(pFocusData, strKey.c_str(), pJsonStruct);
@@ -635,15 +635,15 @@ bool CJsonObject::Add(const vengine::string& strKey, const vengine::string& strV
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateString(strValue.c_str());
@@ -669,15 +669,15 @@ bool CJsonObject::Add(const vengine::string& strKey, int32 iValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)iValue, -1);
@@ -703,15 +703,15 @@ bool CJsonObject::Add(const vengine::string& strKey, uint32_t uiValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)uiValue, 1);
@@ -737,15 +737,15 @@ bool CJsonObject::Add(const vengine::string& strKey, int64 llValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)llValue, -1);
@@ -771,15 +771,15 @@ bool CJsonObject::Add(const vengine::string& strKey, uint64 ullValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt(ullValue, 1);
@@ -805,15 +805,15 @@ bool CJsonObject::Add(const vengine::string& strKey, bool bValue, bool bValueAga
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateBool(bValue);
@@ -839,15 +839,15 @@ bool CJsonObject::Add(const vengine::string& strKey, float fValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)fValue, -1);
@@ -873,15 +873,15 @@ bool CJsonObject::Add(const vengine::string& strKey, double dValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)dValue, -1);
@@ -907,15 +907,15 @@ bool CJsonObject::AddNull(const vengine::string& strKey) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	if (cJSON_GetObjectItem(pFocusData, strKey.c_str()) != NULL) {
-		m_strErrMsg = "key exists!"vstr;
+		m_strErrMsg = "key exists!"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateNull();
@@ -937,11 +937,11 @@ bool CJsonObject::Delete(const vengine::string& strKey) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON_DeleteItemFromObject(pFocusData, strKey.c_str());
@@ -964,16 +964,16 @@ bool CJsonObject::Replace(const vengine::string& strKey, const CJsonObject& oJso
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "vstr) + cJSON_GetErrorPtr();
+		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	cJSON_ReplaceItemInObject(pFocusData, strKey.c_str(), pJsonStruct);
@@ -998,11 +998,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, const vengine::string& 
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateString(strValue.c_str());
@@ -1031,11 +1031,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, int32 iValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)iValue, -1);
@@ -1064,11 +1064,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, uint32_t uiValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)uiValue, 1);
@@ -1097,11 +1097,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, int64 llValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)llValue, -1);
@@ -1130,11 +1130,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, uint64 ullValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)ullValue, 1);
@@ -1163,11 +1163,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, bool bValue, bool bValu
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateBool(bValue);
@@ -1196,11 +1196,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, float fValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)fValue, -1);
@@ -1229,11 +1229,11 @@ bool CJsonObject::Replace(const vengine::string& strKey, double dValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)dValue, -1);
@@ -1262,11 +1262,11 @@ bool CJsonObject::ReplaceWithNull(const vengine::string& strKey) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Object) {
-		m_strErrMsg = "not a json object! json array?"vstr;
+		m_strErrMsg = "not a json object! json array?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateNull();
@@ -1538,16 +1538,16 @@ bool CJsonObject::Add(const CJsonObject& oJsonObject) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "vstr) + cJSON_GetErrorPtr();
+		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	int32_t iArraySizeBeforeAdd = cJSON_GetArraySize(pFocusData);
@@ -1584,11 +1584,11 @@ bool CJsonObject::Add(const vengine::string& strValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateString(strValue.c_str());
@@ -1614,11 +1614,11 @@ bool CJsonObject::Add(int32 iValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)iValue, -1);
@@ -1644,11 +1644,11 @@ bool CJsonObject::Add(uint32_t uiValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)uiValue, 1);
@@ -1674,11 +1674,11 @@ bool CJsonObject::Add(int64 llValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)llValue, -1);
@@ -1704,11 +1704,11 @@ bool CJsonObject::Add(uint64 ullValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)ullValue, 1);
@@ -1734,11 +1734,11 @@ bool CJsonObject::Add(int32_t iAnywhere, bool bValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateBool(bValue);
@@ -1764,11 +1764,11 @@ bool CJsonObject::Add(float fValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)fValue, -1);
@@ -1794,11 +1794,11 @@ bool CJsonObject::Add(double dValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)dValue, -1);
@@ -1824,11 +1824,11 @@ bool CJsonObject::AddNull() {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateNull();
@@ -1854,16 +1854,16 @@ bool CJsonObject::AddAsFirst(const CJsonObject& oJsonObject) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "vstr) + cJSON_GetErrorPtr();
+		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	int32_t iArraySizeBeforeAdd = cJSON_GetArraySize(pFocusData);
@@ -1897,11 +1897,11 @@ bool CJsonObject::AddAsFirst(const vengine::string& strValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateString(strValue.c_str());
@@ -1927,11 +1927,11 @@ bool CJsonObject::AddAsFirst(int32 iValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)iValue, -1);
@@ -1957,11 +1957,11 @@ bool CJsonObject::AddAsFirst(uint32_t uiValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)uiValue, -1);
@@ -1987,11 +1987,11 @@ bool CJsonObject::AddAsFirst(int64 llValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)llValue, -1);
@@ -2017,11 +2017,11 @@ bool CJsonObject::AddAsFirst(uint64 ullValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)ullValue, -1);
@@ -2047,11 +2047,11 @@ bool CJsonObject::AddAsFirst(int32_t iAnywhere, bool bValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateBool(bValue);
@@ -2077,11 +2077,11 @@ bool CJsonObject::AddAsFirst(float fValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)fValue, -1);
@@ -2107,11 +2107,11 @@ bool CJsonObject::AddAsFirst(double dValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)dValue, -1);
@@ -2137,11 +2137,11 @@ bool CJsonObject::AddNullAsFirst() {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateNull();
@@ -2164,11 +2164,11 @@ bool CJsonObject::Delete(int32_t iWhich) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON_DeleteItemFromArray(pFocusData, iWhich);
@@ -2196,16 +2196,16 @@ bool CJsonObject::Replace(int32_t iWhich, const CJsonObject& oJsonObject) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "vstr) + cJSON_GetErrorPtr();
+		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	cJSON_ReplaceItemInArray(pFocusData, iWhich, pJsonStruct);
@@ -2230,11 +2230,11 @@ bool CJsonObject::Replace(int32_t iWhich, const vengine::string& strValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateString(strValue.c_str());
@@ -2263,11 +2263,11 @@ bool CJsonObject::Replace(int32_t iWhich, int32 iValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)iValue, -1);
@@ -2296,11 +2296,11 @@ bool CJsonObject::Replace(int32_t iWhich, uint32_t uiValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)uiValue, 1);
@@ -2329,11 +2329,11 @@ bool CJsonObject::Replace(int32_t iWhich, int64 llValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)((uint64)llValue), -1);
@@ -2362,11 +2362,11 @@ bool CJsonObject::Replace(int32_t iWhich, uint64 ullValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateInt((uint64)ullValue, 1);
@@ -2395,11 +2395,11 @@ bool CJsonObject::Replace(int32_t iWhich, bool bValue, bool bValueAgain) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateBool(bValue);
@@ -2428,11 +2428,11 @@ bool CJsonObject::Replace(int32_t iWhich, float fValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)fValue, -1);
@@ -2461,11 +2461,11 @@ bool CJsonObject::Replace(int32_t iWhich, double dValue) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateDouble((double)dValue, -1);
@@ -2494,11 +2494,11 @@ bool CJsonObject::ReplaceWithNull(int32_t iWhich) {
 		pFocusData = m_pJsonData;
 	}
 	if (pFocusData == NULL) {
-		m_strErrMsg = "json data is null!"vstr;
+		m_strErrMsg = "json data is null!"_sv;
 		return (false);
 	}
 	if (pFocusData->type != cJSON_Array) {
-		m_strErrMsg = "not a json array! json object?"vstr;
+		m_strErrMsg = "not a json array! json object?"_sv;
 		return (false);
 	}
 	cJSON* pJsonStruct = cJSON_CreateNull();

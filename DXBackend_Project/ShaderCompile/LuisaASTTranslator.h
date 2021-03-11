@@ -18,6 +18,10 @@ public:
 	static void RegistStructType(Type const* type);
 	static void IterateStructType(TypeVisitor* visitor);
 	static void PrintStructType(vengine::string& str);
+	static void PrintUniform(
+		std::span<const Function::BufferBinding> buffers,
+		std::span<const Function::TextureBinding> texs,
+		vengine::string& result);
 };
 class StringExprVisitor final : public ExprVisitor {
 	friend class StringStateVisitor;
@@ -57,6 +61,7 @@ public:
 	void visit(const SwitchCaseStmt* state) override;
 	void visit(const SwitchDefaultStmt* state) override;
 	void visit(const AssignStmt* state) override;
+	void visit(const ForStmt*) override;
 	StringStateVisitor();
 	~StringStateVisitor();
 	StringStateVisitor(

@@ -7,7 +7,7 @@
 #include "Memory.h"
 #include "string_view.h"
 namespace vengine {
-class  string {
+class string {
 	friend std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
 	friend std::istream& operator>>(std::istream& in, string& obj) noexcept;
 
@@ -18,7 +18,6 @@ private:
 	bool Equal(char const* str, uint64_t count) const noexcept;
 
 public:
-
 	string(const string& a, const string& b) noexcept;
 	string(const string& a, const char* b) noexcept;
 	string(const char* a, const string& b) noexcept;
@@ -88,6 +87,10 @@ public:
 		if (sz != lenSize) return false;
 		return Equal(str, sz);
 	}
+	bool operator==(string_view v) const noexcept {
+		if (v.size() != lenSize) return false;
+		return Equal(v.c_str(), v.size());
+	}
 	bool operator!=(const string& str) const noexcept {
 		return !operator==(str);
 	}
@@ -97,7 +100,7 @@ public:
 	void erase(uint64_t index) noexcept;
 	~string() noexcept;
 };
-class  wstring {
+class wstring {
 private:
 	wchar_t* ptr = nullptr;
 	uint64_t lenSize = 0;
@@ -183,6 +186,10 @@ public:
 		auto sz = wstrLen(str);
 		if (sz != lenSize) return false;
 		return Equal(str, sz);
+	}
+	bool operator==(wstring_view v) const noexcept {
+		if (v.size() != lenSize) return false;
+		return Equal(v.c_str(), v.size());
 	}
 	bool operator!=(const string& str) const noexcept {
 		return !operator==(str);
@@ -329,11 +336,11 @@ inline wstring to_wstring(uint64_t _Val) noexcept {
 }
 
 }// namespace vengine
-inline vengine::string_view operator"" vstr(char const* str, size_t sz) {
+inline vengine::string_view operator"" _sv(char const* str, size_t sz) {
 	return vengine::string_view(str, sz);
 }
 
-inline vengine::wstring_view operator"" vwstr(wchar_t const* str, size_t sz) {
+inline vengine::wstring_view operator"" _sv(wchar_t const* str, size_t sz) {
 	return vengine::wstring_view(str, sz);
 }
 

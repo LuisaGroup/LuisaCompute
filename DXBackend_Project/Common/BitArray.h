@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <memory>
+#include "Memory.h"
 class BitArray {
 public:
 	struct Iterator {
@@ -88,7 +89,7 @@ public:
 	}
 	inline BitArray(size_t length) : length(length) {
 		const size_t capa = (length % 8 > 0) ? length / 8 + 1 : length / 8;
-		ptr = new uint8_t[capa];
+		ptr = (uint8_t*)vengine_malloc(capa);
 		memset(ptr, 0, sizeof(uint8_t) * capa);
 	}
 	inline void Reset(bool target) {
@@ -97,7 +98,7 @@ public:
 	}
 	inline ~BitArray() {
 		if (ptr) {
-			delete ptr;
+			vengine_free(ptr);
 		}
 	}
 };

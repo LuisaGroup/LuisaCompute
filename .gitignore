@@ -1,3 +1,5 @@
+
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Windows template
 # Windows thumbnail cache files
@@ -315,3 +317,6 @@ _deps
 .cache
 
 CMakeSettings.json
+
+#white list
+!DXBackend_Project/HLSLCompiler/*.*
