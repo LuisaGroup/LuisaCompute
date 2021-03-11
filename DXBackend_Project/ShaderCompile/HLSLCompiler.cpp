@@ -1,12 +1,11 @@
-#include <Common/GFXUtil.h>
-#include <d3d12.h>
+#include "HLSLCompiler.h"
 #include <CJsonObject/CJsonObject.hpp>
 #include <Windows.h>
-#include "Utility/StringUtility.h"
+#include <Utility/StringUtility.h>
 #include <fstream>
-#include <Common/VObject.h>
-#include <Common/Runnable.h>
+
 #include "ShaderUniforms.h"
+namespace SCompile {
 static bool g_needCommandOutput = true;
 static const HANDLE g_hChildStd_IN_Rd = NULL;
 static const HANDLE g_hChildStd_IN_Wr = NULL;
@@ -332,24 +331,24 @@ struct PassFunctionHash {
 void PutInSerializedObjectAndData(
 	vengine::vector<char> const& serializeObj,
 	vengine::vector<char>& resultData,
-	vengine::vector<SCompile::ShaderVariable> vars) {
+	vengine::vector<ShaderVariable> vars) {
 	PutIn<uint64_t>(resultData, serializeObj.size());
 	PutIn(resultData, serializeObj.data(), serializeObj.size());
 
 	PutIn<uint>(resultData, (uint)vars.size());
 	for (auto i = vars.begin(); i != vars.end(); ++i) {
 		PutIn<vengine::string>(resultData, i->name);
-		PutIn<SCompile::ShaderVariableType>(resultData, i->type);
+		PutIn<ShaderVariableType>(resultData, i->type);
 		PutIn<uint>(resultData, i->tableSize);
 		PutIn<uint>(resultData, i->registerPos);
 		PutIn<uint>(resultData, i->space);
 	}
 }
 
-void CompileShader(
+void HLSLCompiler::CompileShader(
 	const vengine::string& fileName,
-	vengine::vector<SCompile::ShaderVariable> const& vars,
-	vengine::vector<SCompile::PassDescriptor> const& passDescs,
+	vengine::vector<ShaderVariable> const& vars,
+	vengine::vector<PassDescriptor> const& passDescs,
 	vengine::vector<char> const& customData,
 	const vengine::string& tempFilePath,
 	vengine::vector<char>& resultData) {
@@ -439,10 +438,10 @@ void CompileShader(
 	for (auto i = strs.begin(); i != strs.end(); ++i)
 		remove(i->c_str());
 }
-void CompileComputeShader(
+void HLSLCompiler::CompileComputeShader(
 	const vengine::string& fileName,
-	vengine::vector<SCompile::ShaderVariable> const& vars,
-	vengine::vector<SCompile::PassDescriptor> const& passDescs,
+	vengine::vector<ShaderVariable> const& vars,
+	vengine::vector<PassDescriptor> const& passDescs,
 	vengine::vector<char> const& customData,
 	const vengine::string& tempFilePath,
 	vengine::vector<char>& resultData) {
@@ -536,10 +535,10 @@ void CompileComputeShader(
 	for (auto i = strs.begin(); i != strs.end(); ++i)
 		remove(i->second.c_str());
 }
-void CompileDXRShader(
+void HLSLCompiler::CompileDXRShader(
 	const vengine::string& fileName,
-	vengine::vector<SCompile::ShaderVariable> const& vars,
-	SCompile::DXRHitGroup const& passDescs,
+	vengine::vector<ShaderVariable> const& vars,
+	DXRHitGroup const& passDescs,
 	uint64 raypayloadMaxSize,
 	uint64 recursiveCount,
 	vengine::vector<char> const& customData,
@@ -597,3 +596,5 @@ void CompileDXRShader(
 	}
 	remove(tempFilePath.c_str());
 }
+
+}// namespace SCompile
