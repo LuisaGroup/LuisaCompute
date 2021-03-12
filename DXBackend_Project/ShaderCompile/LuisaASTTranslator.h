@@ -1,5 +1,8 @@
 #pragma once
 #include <ast/function.h>
+#include <ast/expression.h>
+#include <ast/statement.h>
+
 namespace luisa::compute {
 struct StmtVisitor;
 class Function;
@@ -26,6 +29,13 @@ public:
 	static size_t PrintGlobalVariables(
 		std::span<const Variable> values,
 		vengine::string& result);
+	static void SeparateVariables(
+		Function const& func,
+		vengine::vector<Variable const*>& buffers,
+		vengine::vector<Variable const*>& textures,
+		vengine::vector<Variable const*>& globalSRVValues,
+		vengine::vector<Variable const*>& globalUAVValues,
+		vengine::vector<Variable const*>& groupSharedValues);
 };
 class StringExprVisitor final : public ExprVisitor {
 	friend class StringStateVisitor;

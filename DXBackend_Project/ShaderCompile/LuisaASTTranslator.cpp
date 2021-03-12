@@ -774,4 +774,17 @@ size_t CodegenUtility::PrintGlobalVariables(
 	result += "}\n"_sv;//End cbuffer
 	return cbufferSize;
 }
+void CodegenUtility::SeparateVariables(
+	Function const& func,
+	vengine::vector<Variable const*>& buffers,
+	vengine::vector<Variable const*>& textures,
+	vengine::vector<Variable const*>& globalSRVValues,
+	vengine::vector<Variable const*>& globalUAVValues,
+	vengine::vector<Variable const*>& groupSharedValues) {
+	buffers.clear();
+	textures.clear();
+	globalSRVValues.clear();
+	globalUAVValues.clear();
+	groupSharedValues.clear();
+}
 }// namespace luisa::compute
