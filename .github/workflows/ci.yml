@@ -1,15 +1,14 @@
 name: CI
 
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: "Pull Submodules"
-        run: |
-          git submodule update --init --recursive
+        with:
+          submodules: true
       - name: "Install Dependencies"
         run: |
           sudo apt-get purge --auto-remove cmake
@@ -22,13 +21,13 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++-10
           cmake --build build
+
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2
-      - name: "Pull Submodules"
-        run: |
-          git submodule update --init --recursive
+        with:
+          submodules: true
       - name: "Install Dependencies"
         run: |
           brew install cmake ninja openimageio opencv pybind11 llvm
@@ -36,4 +35,15 @@ jobs:
         run: |
           export PATH=$PATH:/usr/local/opt/llvm/bin
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++
+          cmake --build build
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+          with:
+            submodules: true
+      - name: "Configure and Build"
+        run: |
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
           cmake --build build
