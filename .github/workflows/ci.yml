@@ -41,8 +41,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v2
-          with:
-            submodules: true
+        with:
+          submodules: true
       - name: "Configure and Build"
         run: |
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
