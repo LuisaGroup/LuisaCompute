@@ -4,18 +4,22 @@ on: [ push, pull_request ]
 
 jobs:
   build-linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
         with:
           submodules: true
       - name: "Install Dependencies"
         run: |
+          sudo apt-get purge --auto-remove cmake
+          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null
+          sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build git file libopenimageio-dev libopencv-dev
+          sudo apt-get -y install gcc-10 g++-10 build-essential cmake ninja-build git file libopenimageio-dev libopencv-dev
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc -D CMAKE_CXX_COMPILER=g++
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++-10
           cmake --build build
 
   build-macos:
@@ -39,7 +43,13 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
+      - name: "Setup Ninja"
+        uses: ashutoshvarma/setup-ninja@master
+        with:
+          version: 1.10.2
       - name: "Configure and Build"
+        shell: cmd
         run: |
-          cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
+          "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release
           cmake --build build
