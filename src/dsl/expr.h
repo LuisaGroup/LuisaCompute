@@ -119,13 +119,8 @@ public:
     }
 
     template<typename Dest>
-    requires concepts::BitwiseConvertible<T, Dest> [[nodiscard]] auto bitwise_cast() const noexcept {
+    requires concepts::BitwiseConvertible<T, Dest> [[nodiscard]] auto as() const noexcept {
         return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::BITWISE, _expression)};
-    }
-
-    template<typename Dest>
-    requires concepts::ReinterpretConvertible<T, Dest> [[nodiscard]] auto reinterpret() const noexcept {
-        return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::REINTERPRET, _expression)};
     }
 };
 
@@ -243,7 +238,7 @@ template<typename Dest, typename Src>
 [[nodiscard]] inline auto cast(detail::Expr<Src> s) noexcept { return s.template cast<Dest>(); }
 
 template<typename Dest, typename Src>
-[[nodiscard]] inline auto bitwise_cast(detail::Expr<Src> s) noexcept { return s.template bitwise_cast<Dest>(); }
+[[nodiscard]] inline auto as(detail::Expr<Src> s) noexcept { return s.template as<Dest>(); }
 
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto reinterpret(detail::Expr<Src> s) noexcept { return s.template reinterpret<Dest>(); }

@@ -231,7 +231,6 @@ public:
 
 enum struct CastOp {
     STATIC,
-    REINTERPRET,
     BITWISE
 };
 

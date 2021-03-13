@@ -154,11 +154,6 @@ void CppCodegen::visit(const CastExpr *expr) {
             _emit_type_name(expr->type());
             _scratch << ">(";
             break;
-        case CastOp::REINTERPRET:
-            _scratch << "*reinterpret_cast<";
-            _emit_type_name(expr->type());
-            _scratch << " *>(&";
-            break;
         case CastOp::BITWISE:
             _scratch << "as<";
             _emit_type_name(expr->type());
