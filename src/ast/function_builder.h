@@ -72,10 +72,10 @@ protected:
 
     void _append(const Statement *statement) noexcept;
 
-    [[nodiscard]] const Expression *_literal(const Type *type, LiteralExpr::Value value) noexcept;
-    [[nodiscard]] const Expression *_builtin(Variable::Tag tag) noexcept;
-    [[nodiscard]] const Expression *_texture_binding(const Type *type, uint64_t handle) noexcept;
-    [[nodiscard]] const Expression *_ref(Variable v) noexcept;
+    [[nodiscard]] const LiteralExpr *_literal(const Type *type, LiteralExpr::Value value) noexcept;
+    [[nodiscard]] const RefExpr *_builtin(Variable::Tag tag) noexcept;
+    [[nodiscard]] const RefExpr *_texture_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
 
     friend class ScopeGuard;
 
@@ -147,23 +147,23 @@ public:
         return f;
     }
 
-    [[nodiscard]] const Expression *thread_id() noexcept;
-    [[nodiscard]] const Expression *block_id() noexcept;
-    [[nodiscard]] const Expression *dispatch_id() noexcept;
+    [[nodiscard]] const RefExpr *thread_id() noexcept;
+    [[nodiscard]] const RefExpr *block_id() noexcept;
+    [[nodiscard]] const RefExpr *dispatch_id() noexcept;
 
     // variables
-    [[nodiscard]] const Expression *local(const Type *type, std::span<const Expression *> init) noexcept;
-    [[nodiscard]] const Expression *local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
-    [[nodiscard]] const Expression *shared(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *local(const Type *type, std::span<const Expression *> init) noexcept;
+    [[nodiscard]] const RefExpr *local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
+    [[nodiscard]] const RefExpr *shared(const Type *type) noexcept;
 
-    [[nodiscard]] const Expression *constant(const Type *type, uint64_t hash) noexcept;
-    [[nodiscard]] const Expression *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
-    [[nodiscard]] const Expression *texture_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const ConstantExpr *constant(const Type *type, uint64_t hash) noexcept;
+    [[nodiscard]] const RefExpr *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
+    [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle) noexcept;
 
     // explicit arguments
-    [[nodiscard]] const Expression *uniform(const Type *type) noexcept;
-    [[nodiscard]] const Expression *buffer(const Type *type) noexcept;
-    [[nodiscard]] const Expression *texture(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *uniform(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *buffer(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
 
     // expressions
     template<concepts::Basic T>

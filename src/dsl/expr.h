@@ -79,21 +79,21 @@ public:
     template<typename U>
     [[nodiscard]] auto operator[](U &&index) const noexcept { return this->operator[](Expr{std::forward<U>(index)}); }
 
-    void operator=(const ExprBase &rhs) noexcept {
+    void operator=(const ExprBase &rhs) &noexcept {
         FunctionBuilder::current()->assign(AssignOp::ASSIGN, this->expression(), rhs.expression());
     }
 
-    void operator=(ExprBase &&rhs) noexcept {
+    void operator=(ExprBase &&rhs) &noexcept {
         FunctionBuilder::current()->assign(AssignOp::ASSIGN, this->expression(), rhs.expression());
     }
 
 #define LUISA_MAKE_EXPR_ASSIGN_OP(op, op_concept_name, op_tag_name)                                      \
     template<typename U>                                                                                 \
-    requires concepts::op_concept_name<T, U> void operator op(Expr<U> rhs) noexcept {                    \
+    requires concepts::op_concept_name<T, U> void operator op(Expr<U> rhs) &noexcept {                   \
         FunctionBuilder::current()->assign(AssignOp::op_tag_name, this->expression(), rhs.expression()); \
     }                                                                                                    \
     template<typename U>                                                                                 \
-    void operator op(U &&rhs) noexcept {                                                                 \
+    void operator op(U &&rhs) &noexcept {                                                                \
         return this->operator op(Expr{std::forward<U>(rhs)});                                            \
     }
 #define LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TRIPLET(op) LUISA_MAKE_EXPR_ASSIGN_OP op

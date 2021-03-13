@@ -73,36 +73,36 @@ void FunctionBuilder::assign(AssignOp op, const Expression *lhs, const Expressio
     _append(_arena.create<AssignStmt>(op, lhs, rhs));
 }
 
-const Expression *FunctionBuilder::_literal(const Type *type, LiteralExpr::Value value) noexcept {
+const LiteralExpr *FunctionBuilder::_literal(const Type *type, LiteralExpr::Value value) noexcept {
     return _arena.create<LiteralExpr>(type, value);
 }
 
-const Expression *FunctionBuilder::local(const Type *type, std::span<const Expression *> init) noexcept {
+const RefExpr *FunctionBuilder::local(const Type *type, std::span<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     ArenaVector initializer{_arena, init};
     _append(_arena.create<DeclareStmt>(v, initializer));
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
+const RefExpr *FunctionBuilder::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     ArenaVector initializer{_arena, init};
     _append(_arena.create<DeclareStmt>(v, initializer));
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::shared(const Type *type) noexcept {
+const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
     return _ref(_shared_variables.emplace_back(
         Variable{type, Variable::Tag::SHARED, _next_variable_uid()}));
 }
 
 uint32_t FunctionBuilder::_next_variable_uid() noexcept { return ++_variable_counter; }
 
-const Expression *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
-const Expression *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
-const Expression *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
+const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
+const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
+const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
 
-const Expression *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
+const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
             _builtin_variables.cbegin(),
             _builtin_variables.cend(),
@@ -115,19 +115,19 @@ const Expression *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::uniform(const Type *type) noexcept {
+const RefExpr *FunctionBuilder::uniform(const Type *type) noexcept {
     Variable v{type, Variable::Tag::UNIFORM, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::buffer(const Type *type) noexcept {
+const RefExpr *FunctionBuilder::buffer(const Type *type) noexcept {
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept {
+const RefExpr *FunctionBuilder::buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept {
     if (auto iter = std::find_if(
             _captured_buffers.cbegin(),
             _captured_buffers.cend(),
@@ -185,7 +185,7 @@ const Expression *FunctionBuilder::cast(const Type *type, CastOp op, const Expre
     return _arena.create<CastExpr>(type, op, expr);
 }
 
-const Expression *FunctionBuilder::_ref(Variable v) noexcept {
+const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
     return _arena.create<RefExpr>(v);
 }
 
@@ -221,7 +221,7 @@ ScopeStmt *FunctionBuilder::scope() noexcept {
     return _arena.create<ScopeStmt>(ArenaVector<const Statement *>(_arena));
 }
 
-const Expression *FunctionBuilder::constant(const Type *type, uint64_t hash) noexcept {
+const ConstantExpr *FunctionBuilder::constant(const Type *type, uint64_t hash) noexcept {
     if (!type->is_array()) { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
     _captured_constants.emplace_back(ConstantBinding{type, hash});
     return _arena.create<ConstantExpr>(type, hash);

@@ -15,7 +15,7 @@ class ScopeStmt;
 class Function {
 
 public:
-    enum struct Tag {
+    enum struct Tag : uint {
         KERNEL,
         CALLABLE,
         // TODO: Ray-tracing functions...
@@ -28,6 +28,7 @@ public:
     };
 
     struct TextureBinding {
+        Variable variable;
         // TODO...
     };
     

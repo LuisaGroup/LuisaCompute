@@ -46,7 +46,7 @@ int main() {
         Constant int_consts = const_vector;
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
-    
+
     // binding to template lambdas
     Callable<int(int, int)> add = [&]<typename T>(Var<T> a, Var<T> b) noexcept {
         return a + b;
@@ -55,22 +55,21 @@ int main() {
     auto t0 = std::chrono::high_resolution_clock::now();
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
-    
+
     // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
     // >>> Kernel kernel = [&](...) { ... }
     Kernel<void(Buffer<float>, uint)> kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
-        
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
-        
+
         for (auto v : range(v_int)) {
             v_int += v;
         }
-        
+
         Var v_int_add_one = add(v_int, 1);
         Var vv_int = int_consts[v_int];
-        Var v_float = buffer_float[count + thread_id().x];
+        Var v_float = buffer_float.load_as<float>(count + thread_id().x);
         Var vv_float = float_consts[vv_int];
         Var call_ret = callable(10, v_int, v_float);
 
@@ -120,8 +119,9 @@ int main() {
         Var vt_copy = vt;
         Var c = 0.5f + vt.a * 1.0f;
 
-        Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
+        Var vec4 = buffer.load(10);           // indexing into captured buffer (with literal)
+        Var another_vec4 = buffer.load(v_int);// indexing into captured buffer (with Var)*/
+        buffer.store(v_int + 1, 123);
     };
     auto t1 = std::chrono::high_resolution_clock::now();
 
