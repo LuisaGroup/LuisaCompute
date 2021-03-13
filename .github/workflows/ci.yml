@@ -3,8 +3,6 @@ name: CI
 on: [ push, pull_request ]
 
 jobs:
-  build:
-
   build-linux:
     runs-on: ubuntu-latest
     steps:
