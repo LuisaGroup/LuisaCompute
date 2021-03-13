@@ -45,5 +45,5 @@ jobs:
           submodules: true
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
           cmake --build build
