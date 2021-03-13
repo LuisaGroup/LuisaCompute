@@ -17,6 +17,7 @@
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/type_registry.h>
+#include <ast/usage.h>
 
 namespace luisa::compute {
 
@@ -57,9 +58,9 @@ private:
     ArenaVector<Variable> _arguments;
     ArenaVector<uint32_t> _used_custom_callables;
     ArenaVector<std::string_view> _used_builtin_callables;
+    ArenaVector<Usage> _variable_usages;
     Tag _tag;
     uint32_t _uid;
-    uint32_t _variable_counter{0u};
 
 protected:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
@@ -91,6 +92,7 @@ private:
           _arguments{_arena},
           _used_custom_callables{_arena},
           _used_builtin_callables{_arena},
+          _variable_usages{_arena},
           _tag{tag},
           _uid{uid} {}
 
@@ -121,6 +123,7 @@ public:
     [[nodiscard]] const auto *body() const noexcept { return _body; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto return_type() const noexcept { return _ret; }
+    [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;
     [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
 
@@ -198,6 +201,7 @@ public:
 
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
+    void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
 };
 
 }// namespace luisa::compute

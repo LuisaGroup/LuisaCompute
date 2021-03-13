@@ -96,7 +96,11 @@ const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
         Variable{type, Variable::Tag::SHARED, _next_variable_uid()}));
 }
 
-uint32_t FunctionBuilder::_next_variable_uid() noexcept { return ++_variable_counter; }
+uint32_t FunctionBuilder::_next_variable_uid() noexcept {
+    auto uid = static_cast<uint32_t>(_variable_usages.size());
+    _variable_usages.emplace_back(Usage::NONE);
+    return uid;
+}
 
 const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
 const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
@@ -240,6 +244,11 @@ void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
 
 void FunctionBuilder::for_(const Statement *init, const Expression *condition, const Statement *update, const ScopeStmt *body) noexcept {
     _append(_arena.create<ForStmt>(init, condition, update, body));
+}
+
+void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
+    auto old_usage = _variable_usages[uid];
+    _variable_usages[uid] = static_cast<Usage>(old_usage | usage);
 }
 
 }// namespace luisa::compute
