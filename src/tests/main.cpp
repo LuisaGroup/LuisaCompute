@@ -75,10 +75,10 @@ auto foo(Var<T> f) { return f * f; }
 class OnceIter {
 
 private:
-    uint _time;
+    uint32_t _time;
 
 public:
-    explicit OnceIter(uint time) noexcept : _time{time} {}
+    explicit OnceIter(uint32_t time) noexcept : _time{time} {}
     auto &operator++() noexcept {
         _time++;
         return *this;
