@@ -51,5 +51,5 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat" amd64
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=%VCINSTALLDIR%\bin\cl.exe -D CMAKE_CXX_COMPILER=%VCINSTALLDIR%\bin\cl.exe
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER:FILEPATH="%VCINSTALLDIR%\bin\cl.exe" -D CMAKE_CXX_COMPILER:FILEPATH="%VCINSTALLDIR%\bin\cl.exe"
           cmake --build build
