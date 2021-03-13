@@ -49,6 +49,6 @@ jobs:
           version: 1.10.2
       - name: "Configure and Build"
         run: |
-          cmd /k "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat" x64
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe"
+          cmd /k "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat"
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release
           cmake --build build
