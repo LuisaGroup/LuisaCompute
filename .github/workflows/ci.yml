@@ -48,8 +48,8 @@ jobs:
         with:
           version: 1.10.2
       - name: "Configure and Build"
-        shell: cmd
         run: |
-          cmd /k "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"
+          Invoke-BatchFile "${env:ProgramFiles(x86)}\\Microsoft Visual Studio\\2019\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat" x64
+          Get-ChildItem env:* | Sort-Object name
           cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=cl -D CMAKE_CXX_COMPILER=cl
           cmake --build build
