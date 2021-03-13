@@ -9,8 +9,8 @@
 
 #include <core/concepts.h>
 #include <core/basic_types.h>
+#include <ast/usage.h>
 #include <ast/variable.h>
-#include <core/logging.h>
 
 namespace luisa::compute {
 
@@ -20,6 +20,10 @@ class Expression : public concepts::Noncopyable {
 
 private:
     const Type *_type;
+    mutable Usage _usage{Usage::NONE};
+
+private:
+    virtual void _mark(Usage usage) const noexcept = 0;
 
 protected:
     ~Expression() noexcept = default;
@@ -27,7 +31,14 @@ protected:
 public:
     explicit Expression(const Type *type) noexcept : _type{type} {}
     [[nodiscard]] auto type() const noexcept { return _type; }
+    [[nodiscard]] auto usage() const noexcept { return _usage; }
     virtual void accept(ExprVisitor &) const = 0;
+    void mark(Usage usage) const noexcept {
+        if ((_usage & usage) == 0u) {
+            _usage = static_cast<Usage>(_usage | usage);
+            _mark(usage);
+        }
+    }
 };
 
 class UnaryExpr;
@@ -64,9 +75,12 @@ enum struct UnaryOp {
 };
 
 class UnaryExpr : public Expression {
+
 private:
     const Expression *_operand;
     UnaryOp _op;
+
+    void _mark(Usage) const noexcept override { _operand->mark(Usage::READ); }
 
 public:
     UnaryExpr(const Type *type, UnaryOp op, const Expression *operand) noexcept : Expression{type}, _operand{operand}, _op{op} {}
@@ -107,6 +121,11 @@ private:
     const Expression *_rhs;
     BinaryOp _op;
 
+    void _mark(Usage) const noexcept override {
+        _lhs->mark(Usage::READ);
+        _rhs->mark(Usage::READ);
+    }
+
 public:
     BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
         : Expression{type}, _op{op}, _lhs{lhs}, _rhs{rhs} {}
@@ -123,6 +142,11 @@ private:
     const Expression *_range;
     const Expression *_index;
 
+    void _mark(Usage usage) const noexcept override {
+        _range->mark(usage);
+        _index->mark(Usage::READ);
+    }
+
 public:
     AccessExpr(const Type *type, const Expression *range, const Expression *index) noexcept
         : Expression{type}, _range{range}, _index{index} {}
@@ -137,6 +161,8 @@ class MemberExpr : public Expression {
 private:
     const Expression *_self;
     size_t _member;
+
+    void _mark(Usage usage) const noexcept override { _self->mark(usage); }
 
 public:
     MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
@@ -158,7 +184,7 @@ struct make_literal_value<std::tuple<T...>> {
     using type = std::variant<T...>;
 };
 
-}
+}// namespace detail
 
 class LiteralExpr : public Expression {
 
@@ -167,6 +193,7 @@ public:
 
 private:
     Value _value;
+    void _mark(Usage) const noexcept override {}
 
 public:
     LiteralExpr(const Type *type, Value v) noexcept
@@ -179,6 +206,7 @@ class RefExpr : public Expression {
 
 private:
     Variable _variable;
+    void _mark(Usage usage) const noexcept override;
 
 public:
     explicit RefExpr(Variable v) noexcept
@@ -191,6 +219,7 @@ class ConstantExpr : public Expression {
 
 private:
     uint64_t _hash;
+    void _mark(Usage) const noexcept override {}
 
 public:
     explicit ConstantExpr(const Type *type, uint64_t hash) noexcept
@@ -209,19 +238,10 @@ private:
     std::string_view _name;
     ArgumentList _arguments;
     uint32_t _uid{uid_npos};
+    void _mark(Usage) const noexcept override;
 
 public:
-    CallExpr(const Type *type, std::string_view name, ArgumentList args) noexcept
-        : Expression{type}, _name{name}, _arguments{args} {
-        using namespace std::string_view_literals;
-        if (auto prefix = "custom_"sv; _name.starts_with(prefix)) {
-            auto uid_str = _name.substr(prefix.size());
-            if (auto [p, ec] = std::from_chars(uid_str.data(), uid_str.data() + uid_str.size(), _uid);
-                ec != std::errc{}) {
-                LUISA_ERROR_WITH_LOCATION("Invalid custom callable function: {}.", _name);
-            }
-        }
-    }
+    CallExpr(const Type *type, std::string_view name, ArgumentList args) noexcept;
     [[nodiscard]] auto name() const noexcept { return _name; }
     [[nodiscard]] auto arguments() const noexcept { return _arguments; }
     [[nodiscard]] auto is_builtin() const noexcept { return _uid == uid_npos; }
@@ -239,6 +259,7 @@ class CastExpr : public Expression {
 private:
     const Expression *_source;
     CastOp _op;
+    void _mark(Usage) const noexcept override { _source->mark(Usage::READ); }
 
 public:
     CastExpr(const Type *type, CastOp op, const Expression *src) noexcept

@@ -98,9 +98,11 @@ private:
 
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) noexcept {
-        std::scoped_lock lock{_function_registry_mutex()};
-        auto f_uid = static_cast<uint32_t>(_function_registry().size());
-        auto f = _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
+        auto f = [tag] {
+            std::scoped_lock lock{_function_registry_mutex()};
+            auto f_uid = static_cast<uint32_t>(_function_registry().size());
+            return _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
+        }();
         _push(f);
         f->with(f->_body, std::forward<Def>(def));
         if (_pop() != f) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }

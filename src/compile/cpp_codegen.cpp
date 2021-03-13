@@ -294,6 +294,16 @@ void CppCodegen::_emit_function(Function f) noexcept {
         _scratch << "\n";
     }
 
+    auto emit_access_attribute = [f, this](Variable v) {
+        switch (f.variable_usage(v.uid())) {
+            case NONE: _scratch << " [[access::none]]"; break;
+            case READ: _scratch << " [[access::read]]"; break;
+            case WRITE: _scratch << " [[access::write]]"; break;
+            case READ_WRITE: _scratch << " [[access::read_write]]"; break;
+            default: _scratch << " [[access::unknown]]"; break;
+        }
+    };
+
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
         _scratch << "__kernel__ void kernel_" << f.uid();
@@ -312,6 +322,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
             _scratch << "__uniform__ ";
         }
         _emit_variable_decl(arg);
+        emit_access_attribute(arg);
         _scratch << ",";
     }
     for (auto tex : f.captured_textures()) {
@@ -320,6 +331,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
     for (auto buffer : f.captured_buffers()) {
         _scratch << "\n    ";
         _emit_variable_decl(buffer.variable);
+        emit_access_attribute(buffer.variable);
         _scratch << ",";
     }
     for (auto builtin : f.builtin_variables()) {

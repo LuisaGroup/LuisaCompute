@@ -199,21 +199,25 @@ std::vector<std::unique_ptr<FunctionBuilder>> &FunctionBuilder::_function_regist
 }
 
 Function FunctionBuilder::callable(uint32_t uid) noexcept {
-    std::scoped_lock lock{_function_registry_mutex()};
-    auto &&registry = _function_registry();
-    if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid custom callable function with uid {}.", uid); }
-    auto &&f = *registry[uid];
-    if (f.tag() != Function::Tag::CALLABLE) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a callable function.", uid); }
-    return f;
+    auto f = [uid] {
+        std::scoped_lock lock{_function_registry_mutex()};
+        auto &&registry = _function_registry();
+        if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid custom callable function with uid {}.", uid); }
+        return registry[uid].get();
+    }();
+    if (f->tag() != Function::Tag::CALLABLE) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a callable function.", uid); }
+    return *f;
 }
 
 Function FunctionBuilder::kernel(uint32_t uid) noexcept {
-    std::scoped_lock lock{_function_registry_mutex()};
-    auto &&registry = _function_registry();
-    if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid kernel function with uid {}.", uid); }
-    auto &&f = *registry[uid];
-    if (f.tag() != Function::Tag::KERNEL) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a kernel function.", uid); }
-    return f;
+    auto f = [uid] {
+        std::scoped_lock lock{_function_registry_mutex()};
+        auto &&registry = _function_registry();
+        if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid kernel function with uid {}.", uid); }
+        return registry[uid].get();
+    }();
+    if (f->tag() != Function::Tag::KERNEL) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a kernel function.", uid); }
+    return *f;
 }
 
 std::recursive_mutex &FunctionBuilder::_function_registry_mutex() noexcept {

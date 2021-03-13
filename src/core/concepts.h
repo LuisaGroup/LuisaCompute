@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <span>
 #include <type_traits>
 #include <core/basic_types.h>
 
