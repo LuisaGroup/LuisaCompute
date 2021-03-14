@@ -17,6 +17,7 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install gcc-10 g++-10 build-essential cmake ninja-build git file libopenimageio-dev libopencv-dev
+          sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
       - name: "Configure and Build"
         run: |
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-10 -D CMAKE_CXX_COMPILER=g++-10
