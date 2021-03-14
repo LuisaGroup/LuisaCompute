@@ -190,7 +190,7 @@ int main() {
 
     print(Type::from("array<array<vector<float,3>,5>,9>"));
 
-    auto hash_aa = luisa::xxh32_hash32(type_aa.name(), std::strlen(type_aa.name()), 0);
+    auto hash_aa = luisa::xxh3_hash64(type_aa.name(), std::strlen(type_aa.name()), 0);
     auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
     LUISA_INFO("{} {}", hash_aa, hash_bb);
 

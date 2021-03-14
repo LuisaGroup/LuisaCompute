@@ -22,14 +22,7 @@ target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog)
 find_package(Threads REQUIRED)
 target_link_libraries(luisa-compute-ext INTERFACE Threads::Threads)
 
-set(XXHASH_SOURCES
-    xxHash/xxh3.h
-    xxHash/xxh_x86dispatch.c xxHash/xxh_x86dispatch.h
-    xxHash/xxhash.c xxHash/xxhash.h)
-add_library(xxhash SHARED ${XXHASH_SOURCES})
-target_include_directories(xxhash PUBLIC xxHash)
-target_compile_definitions(xxhash PUBLIC XXH_EXPORT)
-set_target_properties(xxhash PROPERTIES
-                      UNITY_BUILD ON
-                      WINDOWS_EXPORT_ALL_SYMBOLS ON)
+add_library(xxhash INTERFACE)
+target_include_directories(xxhash INTERFACE xxHash)
+target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 target_link_libraries(luisa-compute-ext INTERFACE xxhash)

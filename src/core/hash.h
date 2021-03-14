@@ -4,20 +4,22 @@
 
 #pragma once
 
-#include "core/logging.h"
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <span>
 
-#include <xxh3.h>
+#include <xxhash.h>
+#include <core/logging.h>
 
 namespace luisa {
 
-[[nodiscard]] uint32_t xxh32_hash32(const void *data, size_t size, uint32_t seed = 19980810u) noexcept;
-[[nodiscard]] uint64_t xxh3_hash64(const void *data, size_t size, uint64_t seed = 19980810u) noexcept;
-[[nodiscard]] XXH128_hash_t xxh3_hash128(const void *data, size_t size, uint64_t seed = 19980810u) noexcept;
+[[nodiscard]] inline uint64_t xxh3_hash64(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
+    return XXH3_64bits_withSeed(data, size, seed);
+}
+
+[[nodiscard]] std::string_view hash_to_string(uint64_t hash) noexcept;
 
 struct Hash {
 
@@ -48,9 +50,5 @@ struct Hash {
         return xxh3_hash64(v.data(), v.size_bytes());
     }
 };
-
-[[nodiscard]] std::string_view hash_to_string(uint64_t hash) noexcept;
-[[nodiscard]] std::string_view hash_to_string(uint32_t hash) noexcept;
-[[nodiscard]] std::string_view hash_to_string(XXH128_hash_t hash) noexcept;
 
 }// namespace luisa
