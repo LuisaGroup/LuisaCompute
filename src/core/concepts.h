@@ -69,7 +69,7 @@ template<typename T>
 concept Matrix = is_matrix_v<T>;
 
 template<typename T>
-concept Basic = Scalar<T> || Vector<T> || Matrix<T>;
+concept Basic = is_basic_v<T>;
 
 // operator traits
 #define LUISA_MAKE_UNARY_OP_CONCEPT(op, op_name) \
