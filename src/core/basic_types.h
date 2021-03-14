@@ -6,11 +6,7 @@
 
 #include <cstdint>
 #include <cstddef>
-#include <array>
-#include <tuple>
 #include <type_traits>
-
-#include <core/macro.h>
 
 namespace luisa {
 

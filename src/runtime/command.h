@@ -9,6 +9,7 @@
 #include <variant>
 #include <memory>
 #include <vector>
+#include <array>
 #include <span>
 
 #include <core/logging.h>

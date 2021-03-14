@@ -6,6 +6,8 @@
 
 #include <span>
 #include <type_traits>
+
+#include <core/macro.h>
 #include <core/basic_types.h>
 
 namespace luisa::concepts {
