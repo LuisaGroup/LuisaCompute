@@ -23,6 +23,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(luisa-compute-ext INTERFACE Threads::Threads)
 
 set(CMAKE_C_STANDARD 99)
+set(XXHASH_BUILD_XXHSUM OFF CACHE BOOL "" FORCE)
 add_subdirectory(xxHash/cmake_unofficial)
 set_target_properties(xxhash PROPERTIES UNITY_BUILD ON)
 target_link_libraries(luisa-compute-ext INTERFACE xxHash::xxhash)
