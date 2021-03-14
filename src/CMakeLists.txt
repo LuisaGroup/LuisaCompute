@@ -1,3 +1,9 @@
+if (MSVC)
+    add_compile_options(/arch:AVX2 $<$<CONFIG:Release>:/O2> /favor:INTEL64)
+else ()
+    add_compile_options(-march=native -mtune=native $<$<CONFIG:Release>:-Ofast> -flto)
+endif ()
+
 add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
@@ -7,7 +13,7 @@ if (MSVC)
                                NOMINMAX
                                _ENABLE_EXTENDED_ALIGNED_STORAGE
                                _CRT_SECURE_NO_WARNINGS)
-endif()
+endif ()
 
 set(BUILD_SHARED_LIBS ON)
 set(BUILD_STATIC_LIBS OFF)
