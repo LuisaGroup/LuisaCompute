@@ -1,7 +1,7 @@
 if (MSVC)
     add_compile_options(/arch:AVX2 $<$<CONFIG:Release>:/O2> /favor:INTEL64)
 else ()
-    add_compile_options(-march=native -mtune=native $<$<CONFIG:Release>:-Ofast> -flto)
+    add_compile_options(-mtune=native $<$<CONFIG:Release>:-Ofast> -flto)
 endif ()
 
 add_library(luisa-compute-include INTERFACE)
@@ -16,7 +16,6 @@ if (MSVC)
 endif ()
 
 set(BUILD_SHARED_LIBS ON)
-set(BUILD_STATIC_LIBS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
