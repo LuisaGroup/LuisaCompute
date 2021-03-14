@@ -65,12 +65,6 @@ public:
     [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
         return this->view()[std::forward<I>(i)];
     }
-    
-//    template<typename Index>
-//    [[nodiscard]] decltype(auto) load(Index &&index) const noexcept { return view().load(std::forward<Index>(index)); }
-//
-//    template<typename Index, typename Value>
-//    void store(Index &&index, Value &&value) const noexcept { view().store(std::forward<Index>(index), std::forward<Value>(value)); }
 };
 
 template<typename T>
@@ -163,21 +157,6 @@ public:
             source.offset_bytes(), this->offset_bytes(),
             this->size_bytes()};
     }
-    
-//    template<typename I>
-//    [[nodiscard]] auto load(I &&index) const noexcept {
-//        // TODO: mark read
-//        return (*this)[std::forward<I>(index)];
-//    }
-//
-//    template<typename I, typename Value>
-//    void store(I &&i, Value &&v) const noexcept {
-//        // TODO: mark write
-//        auto p = (*this)[std::forward<I>(i)];
-//        p = std::forward<Value>(v);
-//    }
-    
-    
     
     template<concepts::Integral I>
     [[nodiscard]] auto operator[](I i) const noexcept { return this->operator[](detail::Expr{i}); }

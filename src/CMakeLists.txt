@@ -1,9 +1,12 @@
 add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
-target_compile_definitions(luisa-compute-include INTERFACE NOMINMAX _ENABLE_EXTENDED_ALIGNED_STORAGE)
 if (MSVC)
-    target_compile_options(luisa-compute-include INTERFACE -Zc:preprocessor)
+    target_compile_options(luisa-compute-include INTERFACE /Zc:preprocessor)
+    target_compile_definitions(luisa-compute-include INTERFACE
+                               NOMINMAX
+                               _ENABLE_EXTENDED_ALIGNED_STORAGE
+                               _CRT_SECURE_NO_WARNINGS)
 endif()
 
 set(BUILD_SHARED_LIBS ON)

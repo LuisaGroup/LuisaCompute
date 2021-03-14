@@ -23,9 +23,9 @@ protected:
     const Expression *_expression;
 
 public:
-    explicit constexpr ExprBase(const Expression *expr) noexcept : _expression{expr} {}
+    explicit ExprBase(const Expression *expr) noexcept : _expression{expr} {}
 
-    template<typename U>
+    template<concepts::NonPointer U>  // to prevent conversion from pointer to bool
     requires concepts::Constructible<T, U>
     ExprBase(U literal) noexcept : ExprBase{FunctionBuilder::current()->literal(literal)} {}
 

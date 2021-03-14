@@ -50,6 +50,12 @@ template<typename Ret, typename F, typename... Args>
 concept InvocableRet = std::is_invocable_r_v<Ret, F, Args...>;
 
 template<typename T>
+concept Pointer = std::is_pointer_v<T>;
+
+template<typename T>
+concept NonPointer = std::negation_v<std::is_pointer<T>>;
+
+template<typename T>
 concept Container = requires(T a) {
     a.begin();
     a.size();
