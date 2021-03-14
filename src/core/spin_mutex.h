@@ -5,8 +5,6 @@
 #pragma once
 
 #include <atomic>
-#include <emmintrin.h>
-#include <thread>
 
 namespace luisa {
 
