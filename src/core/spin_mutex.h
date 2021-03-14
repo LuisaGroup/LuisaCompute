@@ -20,7 +20,7 @@ public:
 #if defined(__x86_64__) || defined(_M_X64)
                 _mm_pause();
 #elif defined(__aarch64__)
-                __asm__ __volatile__("isb\n");
+                asm volatile("isb");
 #endif
             }
         }

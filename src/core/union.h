@@ -11,6 +11,7 @@
 #include <core/platform.h>
 #include <core/concepts.h>
 #include <core/logging.h>
+#include <core/memory.h>
 
 namespace luisa {
 
