@@ -59,23 +59,17 @@ const Type *Type::from(std::string_view description) noexcept {
 
         auto type_identifier = read_identifier();
 
-#define TRY_PARSE_SCALAR_TYPE_CASE(T, TAG) \
-    if (type_identifier == #T##sv) {       \
-        info._tag = Tag::TAG;              \
-        info._size = sizeof(T);            \
-        info._alignment = alignof(T);      \
+#define TRY_PARSE_SCALAR_TYPE(T, TAG) \
+    if (type_identifier == #T##sv) {  \
+        info._tag = Tag::TAG;         \
+        info._size = sizeof(T);       \
+        info._alignment = alignof(T); \
     } else
-
-#define TRY_PARSE_SCALAR_TYPE(CASE) TRY_PARSE_SCALAR_TYPE_CASE CASE
-
-        LUISA_MAP(TRY_PARSE_SCALAR_TYPE,
-                  (bool, BOOL),
-                  (float, FLOAT),
-                  (int, INT),
-                  (uint, UINT))
-
+        TRY_PARSE_SCALAR_TYPE(bool, BOOL)
+        TRY_PARSE_SCALAR_TYPE(float, FLOAT)
+        TRY_PARSE_SCALAR_TYPE(int, INT)
+        TRY_PARSE_SCALAR_TYPE(uint, UINT)
 #undef TRY_PARSE_SCALAR_TYPE
-#undef TRY_PARSE_SCALAR_TYPE_CASE
 
         if (type_identifier == "atomic"sv) {
             info._tag = Tag::ATOMIC;

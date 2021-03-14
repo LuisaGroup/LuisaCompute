@@ -83,54 +83,45 @@ concept Basic = is_basic_v<T>;
 #define LUISA_MAKE_UNARY_OP_CONCEPT(op, op_name) \
     template<typename Operand>                   \
     concept op_name = requires(Operand operand) { op operand; };
-#define LUISA_MAKE_UNARY_OP_CONCEPT_FROM_PAIR(op_and_name) LUISA_MAKE_UNARY_OP_CONCEPT op_and_name
-LUISA_MAP(LUISA_MAKE_UNARY_OP_CONCEPT_FROM_PAIR,
-          (+, Plus),
-          (-, Minus),
-          (!, Not),
-          (~, BitNot))
+LUISA_MAKE_UNARY_OP_CONCEPT(+, Plus)
+LUISA_MAKE_UNARY_OP_CONCEPT(-, Minus)
+LUISA_MAKE_UNARY_OP_CONCEPT(!, Not)
+LUISA_MAKE_UNARY_OP_CONCEPT(~, BitNot)
 #undef LUISA_MAKE_UNARY_OP_CONCEPT
-#undef LUISA_MAKE_UNARY_OP_CONCEPT_FROM_PAIR
 
 #define LUISA_MAKE_BINARY_OP_CONCEPT(op, op_name) \
     template<typename Lhs, typename Rhs>          \
     concept op_name = requires(Lhs lhs, Rhs rhs) { lhs op rhs; };
-
-#define LUISA_MAKE_BINARY_OP_CONCEPT_FROM_PAIR(op_and_name) LUISA_MAKE_BINARY_OP_CONCEPT op_and_name
-
-LUISA_MAP(LUISA_MAKE_BINARY_OP_CONCEPT_FROM_PAIR,
-          (+, Add),
-          (-, Sub),
-          (*, Mul),
-          (/, Div),
-          (%, Mod),
-          (&, BitAnd),
-          (|, BitOr),
-          (^, BitXor),
-          (<<, ShiftLeft),
-          (>>, ShiftRight),
-          (&&, And),
-          (||, Or),
-          (==, Equal),
-          (!=, NotEqual),
-          (<, Less),
-          (<=, LessEqual),
-          (>, Greater),
-          (>=, GreaterEqual),
-          (=, Assign),
-          (+=, AddAssign),
-          (-=, SubAssign),
-          (*=, MulAssign),
-          (/=, DivAssign),
-          (%=, ModAssign),
-          (&=, BitAndAssign),
-          (|=, BitOrAssign),
-          (^=, BitXorAssign),
-          (<<=, ShiftLeftAssign),
-          (>>=, ShiftRightAssign))
-
+LUISA_MAKE_BINARY_OP_CONCEPT(+, Add)
+LUISA_MAKE_BINARY_OP_CONCEPT(-, Sub)
+LUISA_MAKE_BINARY_OP_CONCEPT(*, Mul)
+LUISA_MAKE_BINARY_OP_CONCEPT(/, Div)
+LUISA_MAKE_BINARY_OP_CONCEPT(%, Mod)
+LUISA_MAKE_BINARY_OP_CONCEPT(&, BitAnd)
+LUISA_MAKE_BINARY_OP_CONCEPT(|, BitOr)
+LUISA_MAKE_BINARY_OP_CONCEPT(^, BitXor)
+LUISA_MAKE_BINARY_OP_CONCEPT(<<, ShiftLeft)
+LUISA_MAKE_BINARY_OP_CONCEPT(>>, ShiftRight)
+LUISA_MAKE_BINARY_OP_CONCEPT(&&, And)
+LUISA_MAKE_BINARY_OP_CONCEPT(||, Or)
+LUISA_MAKE_BINARY_OP_CONCEPT(==, Equal)
+LUISA_MAKE_BINARY_OP_CONCEPT(!=, NotEqual)
+LUISA_MAKE_BINARY_OP_CONCEPT(<, Less)
+LUISA_MAKE_BINARY_OP_CONCEPT(<=, LessEqual)
+LUISA_MAKE_BINARY_OP_CONCEPT(>, Greater)
+LUISA_MAKE_BINARY_OP_CONCEPT(>=, GreaterEqual)
+LUISA_MAKE_BINARY_OP_CONCEPT(=, Assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(+=, AddAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(-=, SubAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(*=, MulAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(/=, DivAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(%=, ModAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(&=, BitAndAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(|=, BitOrAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(^=, BitXorAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(<<=, ShiftLeftAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(>>=, ShiftRightAssign)
 #undef LUISA_MAKE_BINARY_OP_CONCEPT
-#undef LUISA_MAKE_BINARY_OP_CONCEPT_FROM_PAIR
 
 template<typename Lhs, typename Rhs>
 concept Access = requires(Lhs lhs, Rhs rhs) { lhs[rhs]; };

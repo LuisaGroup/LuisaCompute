@@ -25,7 +25,7 @@ protected:
 public:
     explicit ExprBase(const Expression *expr) noexcept : _expression{expr} {}
 
-    template<concepts::NonPointer U>  // to prevent conversion from pointer to bool
+    template<concepts::NonPointer U>// to prevent conversion from pointer to bool
     requires concepts::Constructible<T, U>
     ExprBase(U literal) noexcept : ExprBase{FunctionBuilder::current()->literal(literal)} {}
 
@@ -45,28 +45,25 @@ public:
     [[nodiscard]] auto operator op(U &&rhs) const noexcept {                                              \
         return this->operator op(Expr{std::forward<U>(rhs)});                                             \
     }
-#define LUISA_MAKE_EXPR_BINARY_OP_FROM_TRIPLET(op) LUISA_MAKE_EXPR_BINARY_OP op
-    LUISA_MAP(LUISA_MAKE_EXPR_BINARY_OP_FROM_TRIPLET,
-              (+, Add, ADD),
-              (-, Sub, SUB),
-              (*, Mul, MUL),
-              (/, Div, DIV),
-              (%, Mod, MOD),
-              (&, BitAnd, BIT_AND),
-              (|, BitOr, BIT_OR),
-              (^, BitXor, BIT_XOR),
-              (<<, ShiftLeft, SHL),
-              (>>, ShiftRight, SHR),
-              (&&, And, AND),
-              (||, Or, OR),
-              (==, Equal, EQUAL),
-              (!=, NotEqual, NOT_EQUAL),
-              (<, Less, LESS),
-              (<=, LessEqual, LESS_EQUAL),
-              (>, Greater, GREATER),
-              (>=, GreaterEqual, GREATER_EQUAL))
+    LUISA_MAKE_EXPR_BINARY_OP(+, Add, ADD)
+    LUISA_MAKE_EXPR_BINARY_OP(-, Sub, SUB)
+    LUISA_MAKE_EXPR_BINARY_OP(*, Mul, MUL)
+    LUISA_MAKE_EXPR_BINARY_OP(/, Div, DIV)
+    LUISA_MAKE_EXPR_BINARY_OP(%, Mod, MOD)
+    LUISA_MAKE_EXPR_BINARY_OP(&, BitAnd, BIT_AND)
+    LUISA_MAKE_EXPR_BINARY_OP(|, BitOr, BIT_OR)
+    LUISA_MAKE_EXPR_BINARY_OP(^, BitXor, BIT_XOR)
+    LUISA_MAKE_EXPR_BINARY_OP(<<, ShiftLeft, SHL)
+    LUISA_MAKE_EXPR_BINARY_OP(>>, ShiftRight, SHR)
+    LUISA_MAKE_EXPR_BINARY_OP(&&, And, AND)
+    LUISA_MAKE_EXPR_BINARY_OP(||, Or, OR)
+    LUISA_MAKE_EXPR_BINARY_OP(==, Equal, EQUAL)
+    LUISA_MAKE_EXPR_BINARY_OP(!=, NotEqual, NOT_EQUAL)
+    LUISA_MAKE_EXPR_BINARY_OP(<, Less, LESS)
+    LUISA_MAKE_EXPR_BINARY_OP(<=, LessEqual, LESS_EQUAL)
+    LUISA_MAKE_EXPR_BINARY_OP(>, Greater, GREATER)
+    LUISA_MAKE_EXPR_BINARY_OP(>=, GreaterEqual, GREATER_EQUAL)
 #undef LUISA_MAKE_EXPR_BINARY_OP
-#undef LUISA_MAKE_EXPR_BINARY_OP_FROM_TRIPLET
 
     template<typename U>
     requires concepts::Access<T, U> [[nodiscard]] auto operator[](Expr<U> index) const noexcept {
@@ -96,21 +93,18 @@ public:
     void operator op(U &&rhs) &noexcept {                                                                \
         return this->operator op(Expr{std::forward<U>(rhs)});                                            \
     }
-#define LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TRIPLET(op) LUISA_MAKE_EXPR_ASSIGN_OP op
-    LUISA_MAP(LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TRIPLET,
-              (=, Assign, ASSIGN),
-              (+=, AddAssign, ADD_ASSIGN),
-              (-=, SubAssign, SUB_ASSIGN),
-              (*=, MulAssign, MUL_ASSIGN),
-              (/=, DivAssign, DIV_ASSIGN),
-              (%=, ModAssign, MOD_ASSIGN),
-              (&=, BitAndAssign, BIT_AND_ASSIGN),
-              (|=, BitOrAssign, BIT_OR_ASSIGN),
-              (^=, BitXorAssign, BIT_XOR_ASSIGN),
-              (<<=, ShiftLeftAssign, SHL_ASSIGN),
-              (>>=, ShiftRightAssign, SHR_ASSIGN))
+    LUISA_MAKE_EXPR_ASSIGN_OP(=, Assign, ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(+=, AddAssign, ADD_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(-=, SubAssign, SUB_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(*=, MulAssign, MUL_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(/=, DivAssign, DIV_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(%=, ModAssign, MOD_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(&=, BitAndAssign, BIT_AND_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(|=, BitOrAssign, BIT_OR_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(^=, BitXorAssign, BIT_XOR_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(<<=, ShiftLeftAssign, SHL_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(>>=, ShiftRightAssign, SHR_ASSIGN)
 #undef LUISA_MAKE_EXPR_ASSIGN_OP
-#undef LUISA_MAKE_EXPR_ASSIGN_OP_FROM_TRIPLET
 
     // casts
     template<typename Dest>
@@ -209,28 +203,25 @@ LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(~, BitNot, BIT_NOT)
     operator op(Lhs lhs, luisa::compute::dsl::detail::Expr<Rhs> rhs) noexcept { \
         return luisa::compute::dsl::detail::Expr{lhs} op rhs;                   \
     }
-#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP_FROM_PAIR(op) LUISA_MAKE_GLOBAL_EXPR_BINARY_OP op
-LUISA_MAP(LUISA_MAKE_GLOBAL_EXPR_BINARY_OP_FROM_PAIR,
-          (+, Add),
-          (-, Sub),
-          (*, Mul),
-          (/, Div),
-          (%, Mod),
-          (&, BitAnd),
-          (|, BitOr),
-          (^, BitXor),
-          (<<, ShiftLeft),
-          (>>, ShiftRight),
-          (&&, And),
-          (||, Or),
-          (==, Equal),
-          (!=, NotEqual),
-          (<, Less),
-          (<=, LessEqual),
-          (>, Greater),
-          (>=, GreaterEqual))
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(+, Add)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(-, Sub)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(*, Mul)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(/, Div)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(%, Mod)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(&, BitAnd)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(|, BitOr)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(^, BitXor)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<<, ShiftLeft)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>>, ShiftRight)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(&&, And)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(||, Or)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(==, Equal)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(!=, NotEqual)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<, Less)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<=, LessEqual)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>, Greater)
+LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>=, GreaterEqual)
 #undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP
-#undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP_FROM_PAIR
 
 namespace luisa::compute::dsl {
 
