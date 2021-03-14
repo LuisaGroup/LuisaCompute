@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <emmintrin.h>
 #include <thread>
 
 namespace luisa {
@@ -16,8 +17,11 @@ private:
 
 public:
     void lock() noexcept {
-        while (_flag.test_and_set(std::memory_order_acquire))// acquire lock
-            while (_flag.test(std::memory_order_relaxed)) {} // test lock
+        while (_flag.test_and_set(std::memory_order_acquire)) {// acquire lock
+            while (_flag.test(std::memory_order_relaxed)) { // test lock
+                _mm_pause();
+            }
+        }
     }
 
     void unlock() noexcept {
