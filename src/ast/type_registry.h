@@ -12,6 +12,7 @@
 
 #include <core/memory.h>
 #include <core/macro.h>
+#include <core/spin_mutex.h>
 #include <ast/type.h>
 
 namespace luisa::compute {
@@ -20,7 +21,7 @@ class TypeRegistry {
 
 private:
     std::vector<std::unique_ptr<Type>> _types;
-    std::mutex _types_mutex;
+    spin_mutex _types_mutex;
 
 public:
     template<typename F>

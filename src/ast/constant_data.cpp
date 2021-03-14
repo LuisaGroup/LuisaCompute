@@ -3,6 +3,7 @@
 //
 
 #include <core/hash.h>
+#include <core/spin_mutex.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 
@@ -10,13 +11,13 @@ namespace luisa::compute {
 
 namespace detail {
 
-std::vector<ConstantData> &constant_registry() noexcept {
+[[nodiscard]] std::vector<ConstantData> &constant_registry() noexcept {
     static std::vector<ConstantData> r;
     return r;
 }
 
-std::mutex &constant_registry_mutex() noexcept {
-    static std::mutex m;
+[[nodiscard]] auto &constant_registry_mutex() noexcept {
+    static spin_mutex m;
     return m;
 }
 

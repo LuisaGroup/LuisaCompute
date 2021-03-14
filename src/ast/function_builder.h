@@ -5,12 +5,12 @@
 #pragma once
 
 #include <vector>
-#include <mutex>
 
 #include <fmt/format.h>
 
 #include <core/memory.h>
 #include <core/hash.h>
+#include <core/spin_mutex.h>
 
 #include <ast/statement.h>
 #include <ast/function.h>
@@ -64,7 +64,7 @@ private:
 
 protected:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
-    [[nodiscard]] static std::mutex &_function_registry_mutex() noexcept;
+    [[nodiscard]] static spin_mutex &_function_registry_mutex() noexcept;
     [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
