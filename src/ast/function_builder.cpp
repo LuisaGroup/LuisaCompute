@@ -201,7 +201,7 @@ std::vector<std::unique_ptr<FunctionBuilder>> &FunctionBuilder::_function_regist
 Function FunctionBuilder::callable(uint32_t uid) noexcept {
     auto f = [uid] {
         std::scoped_lock lock{_function_registry_mutex()};
-        auto &&registry = _function_registry();
+        const auto &registry = _function_registry();
         if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid custom callable function with uid {}.", uid); }
         return registry[uid].get();
     }();
@@ -212,7 +212,7 @@ Function FunctionBuilder::callable(uint32_t uid) noexcept {
 Function FunctionBuilder::kernel(uint32_t uid) noexcept {
     auto f = [uid] {
         std::scoped_lock lock{_function_registry_mutex()};
-        auto &&registry = _function_registry();
+        const auto &registry = _function_registry();
         if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid kernel function with uid {}.", uid); }
         return registry[uid].get();
     }();

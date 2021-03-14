@@ -14,7 +14,12 @@ void RefExpr::_mark(Usage usage) const noexcept {
 
 void CallExpr::_mark(Usage) const noexcept {
     for (auto arg : _arguments) { arg->mark(Usage::READ); }
-    if (!is_builtin()) {// TODO: builtins
+    if (is_builtin()) {
+        // TODO: builtins
+        if (_name == "texture_write") {  // texture_write(tex, ...)
+            _arguments.front()->mark(Usage::WRITE);
+        }
+    } else {
         auto f = Function::callable(_uid);
         auto args = f.arguments();
         for (auto i = 0u; i < args.size(); i++) {
