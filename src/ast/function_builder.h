@@ -64,7 +64,7 @@ private:
 
 protected:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
-    [[nodiscard]] static std::recursive_mutex &_function_registry_mutex() noexcept;
+    [[nodiscard]] static std::mutex &_function_registry_mutex() noexcept;
     [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 

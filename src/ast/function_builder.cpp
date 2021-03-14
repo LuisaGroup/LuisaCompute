@@ -220,8 +220,8 @@ Function FunctionBuilder::kernel(uint32_t uid) noexcept {
     return *f;
 }
 
-std::recursive_mutex &FunctionBuilder::_function_registry_mutex() noexcept {
-    static std::recursive_mutex mutex;
+std::mutex &FunctionBuilder::_function_registry_mutex() noexcept {
+    static std::mutex mutex;
     return mutex;
 }
 
