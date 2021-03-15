@@ -7,6 +7,7 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <tuple>
 
 #include <fmt/format.h>
 
@@ -80,7 +81,7 @@ LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, UINT32)
 template<typename T, size_t N>
 struct TypeDesc<std::array<T, N>> {
     static std::string_view description() noexcept {
-        static auto s = fmt::format(FMT_STRING("array<{},{}>"), TypeDesc<T>::description(), N);
+        static thread_local auto s = fmt::format(FMT_STRING("array<{},{}>"), TypeDesc<T>::description(), N);
         return s;
     }
 };
@@ -88,7 +89,7 @@ struct TypeDesc<std::array<T, N>> {
 template<typename T, size_t N>
 struct TypeDesc<T[N]> {
     static std::string_view description() noexcept {
-        static auto s = fmt::format(FMT_STRING("array<{},{}>"), TypeDesc<T>::description(), N);
+        static thread_local auto s = fmt::format(FMT_STRING("array<{},{}>"), TypeDesc<T>::description(), N);
         return s;
     }
 };
@@ -98,7 +99,7 @@ template<>
 struct TypeDesc<std::atomic<int>> {
     static constexpr std::string_view description() noexcept {
         using namespace std::string_view_literals;
-        return "atomic<int>";
+        return "atomic<int>"sv;
     }
 };
 
@@ -106,7 +107,7 @@ template<>
 struct TypeDesc<std::atomic<uint>> {
     static constexpr std::string_view description() noexcept {
         using namespace std::string_view_literals;
-        return "atomic<uint>";
+        return "atomic<uint>"sv;
     }
 };
 
@@ -115,7 +116,7 @@ template<>
 struct TypeDesc<float3x3> {
     static constexpr std::string_view description() noexcept {
         using namespace std::string_view_literals;
-        return "matrix<3>";
+        return "matrix<3>"sv;
     }
 };
 
@@ -123,7 +124,22 @@ template<>
 struct TypeDesc<float4x4> {
     static constexpr std::string_view description() noexcept {
         using namespace std::string_view_literals;
-        return "matrix<4>";
+        return "matrix<4>"sv;
+    }
+};
+
+template<typename... T>
+struct TypeDesc<std::tuple<T...>> {
+    static std::string_view description() noexcept {
+        static thread_local auto s = [] {
+            std::ostringstream os;
+            os << "struct<" << alignof(std::tuple<T...>);
+            auto appender = [](std::string_view ts) { return fmt::format(",{}", ts); };
+            (os << ... << appender(TypeDesc<T>::description()));
+            os << ">";
+            return os.str();
+        }();
+        return s;
     }
 };
 
@@ -156,5 +172,5 @@ const Type *Type::of() noexcept {
         }                                                                                                \
     };                                                                                                   \
     }
-#define LUISA_STRUCT(S, ...) \
+#define LUISA_STRUCT_REFLECT(S, ...) \
     LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)

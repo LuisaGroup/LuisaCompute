@@ -127,6 +127,21 @@ struct Expr : public ExprBase<T> {
     void operator=(const Expr &rhs) noexcept { ExprBase<T>::operator=(rhs); }
 };
 
+template<typename... T>
+struct Expr<std::tuple<T...>> : public ExprBase<std::tuple<T...>> {
+    using ExprBase<std::tuple<T...>>::ExprBase;
+    Expr(Expr &&another) noexcept = default;
+    Expr(const Expr &another) noexcept = default;
+    void operator=(Expr &&rhs) noexcept { ExprBase<std::tuple<T...>>::operator=(rhs); }
+    void operator=(const Expr &rhs) noexcept { ExprBase<std::tuple<T...>>::operator=(rhs); }
+    template<size_t i>
+    [[nodiscard]] auto member() const noexcept {
+        using M = std::tuple_element_t<i, std::tuple<T...>>;
+        return Expr<M>{FunctionBuilder::current()->member(
+            Type::of<M>(), this->expression(), i)};
+    };
+};
+
 template<typename T>
 struct Expr<Vector<T, 2>> : public ExprBase<Vector<T, 2>> {
     using ExprBase<Vector<T, 2>>::ExprBase;
@@ -244,6 +259,11 @@ template<typename Dest, typename Src>
 
 [[nodiscard]] inline auto dispatch_id() noexcept {
     return detail::Expr<uint3>{FunctionBuilder::current()->dispatch_id()};
+}
+
+template<typename... T>
+[[nodiscard]] inline auto multiple(T &&...v) noexcept {
+    return std::make_tuple(detail::Expr{v}...);
 }
 
 }// namespace luisa::compute::dsl

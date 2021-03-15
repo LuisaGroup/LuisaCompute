@@ -6,9 +6,6 @@
 
 #include <dsl/var.h>
 
-// for custom structs
-#undef LUISA_STRUCT// to extend it...
-
 #define LUISA_STRUCT_MAKE_MEMBER_EXPR(m)                                    \
 private:                                                                    \
     using Type_##m = std::remove_cvref_t<decltype(std::declval<This>().m)>; \
@@ -20,7 +17,7 @@ public:                                                                     \
         _member_index(#m))};
 
 #define LUISA_STRUCT(S, ...)                                                                                     \
-    LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)                                                \
+    LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                                         \
     namespace luisa::compute::dsl::detail {                                                                      \
     template<>                                                                                                   \
     struct Expr<S> : public ExprBase<S> {                                                                        \

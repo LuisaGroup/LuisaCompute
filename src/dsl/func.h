@@ -158,6 +158,39 @@ public:
     }
 };
 
+namespace detail {
+
+template<typename T>
+struct is_tuple : std::false_type {};
+
+template<typename... T>
+struct is_tuple<std::tuple<T...>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_tuple_v = is_tuple<T>::value;
+
+template<typename... T, size_t... i>
+[[nodiscard]] inline auto tuple_to_var_impl(std::tuple<T...> tuple, std::index_sequence<i...>) noexcept {
+    return Var<std::tuple<expr_value_t<T>...>>{std::get<i>(tuple)...};
+}
+
+template<typename... T>
+[[nodiscard]] inline auto tuple_to_var(std::tuple<T...> tuple) noexcept {
+    return tuple_to_var_impl(std::move(tuple), std::index_sequence_for<T...>{});
+}
+
+template<typename... T, size_t... i>
+[[nodiscard]] inline auto var_to_tuple_impl(Expr<std::tuple<T...>> v, std::index_sequence<i...>) noexcept {
+    return std::tuple<Expr<T>...>{v.template member<i>()...};
+}
+
+template<typename... T>
+[[nodiscard]] inline auto var_to_tuple(Expr<std::tuple<T...>> v) noexcept {
+    return var_to_tuple_impl(v, std::index_sequence_for<T...>{});
+}
+
+}// namespace detail
+
 template<typename T>
 class Callable {
     static_assert(always_false_v<T>);
@@ -182,6 +215,9 @@ public:
         : _function{FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
                   def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
+              } else if constexpr (detail::is_tuple_v<Ret>) {
+                  auto ret = detail::tuple_to_var(def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...));
+                  FunctionBuilder::current()->return_(ret.expression());
               } else {
                   Var<Ret> ret{def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...)};
                   FunctionBuilder::current()->return_(ret.expression());
@@ -195,6 +231,12 @@ public:
                 fmt::format("custom_{}", _function.uid()),
                 {args.expression()...});
             FunctionBuilder::current()->void_(expr);
+        } else if constexpr (detail::is_tuple_v<Ret>) {
+            Var ret = detail::Expr<Ret>{FunctionBuilder::current()->call(
+                Type::of<Ret>(),
+                fmt::format("custom_{}", _function.uid()),
+                {args.expression()...})};
+            return detail::var_to_tuple(ret);
         } else {
             return detail::Expr<Ret>{FunctionBuilder::current()->call(
                 Type::of<Ret>(),
@@ -228,6 +270,11 @@ struct function<std::function<Var<Ret>(Args...)>> {
 template<typename Ret, typename... Args>
 struct function<std::function<Expr<Ret>(Args...)>> {
     using type = function_signature_t<Ret, definition_to_prototype_t<Args>...>;
+};
+
+template<typename... Ret, typename... Args>
+struct function<std::function<std::tuple<Ret...>(Args...)>> {
+    using type = function_signature_t<std::tuple<expr_value_t<Ret>...>, definition_to_prototype_t<Args>...>;
 };
 
 template<typename T>

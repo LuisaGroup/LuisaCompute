@@ -41,6 +41,10 @@ int main() {
 
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
+    
+    Callable add_mul = [](Var<int> a, Var<int> b) noexcept {
+      return multiple(a + b, a * b);
+    };
 
     std::function callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
@@ -62,6 +66,10 @@ int main() {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
+        
+        auto [a, m] = add_mul(v_int, v_int);
+        Var a_copy = a;
+        Var m_copy = m;
 
         for (auto v : range(v_int)) {
             v_int += v;

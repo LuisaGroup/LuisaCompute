@@ -72,8 +72,8 @@ struct BB {
     float3x3 m;
 };
 
-LUISA_STRUCT(AA, x, ba, a, atomic)
-LUISA_STRUCT(BB, a, b, m)
+LUISA_STRUCT_REFLECT(AA, x, ba, a, atomic)
+LUISA_STRUCT_REFLECT(BB, a, b, m)
 
 struct Interface : public concepts::Noncopyable {
     Interface() noexcept = default;
