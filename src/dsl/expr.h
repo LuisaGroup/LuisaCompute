@@ -8,6 +8,11 @@
 #include <string_view>
 #include <ast/function_builder.h>
 
+namespace luisa::compute::dsl {
+template<typename T>
+struct Var;
+}
+
 namespace luisa::compute::dsl::detail {
 
 template<typename T>
@@ -192,7 +197,25 @@ template<typename T>
 }
 
 template<typename T>
-using expr_value_t = typename std::remove_cvref_t<decltype(Expr{std::declval<T>()})>::ValueType;
+struct expr_value_impl {
+    using type = T;
+};
+
+template<typename T>
+struct expr_value_impl<Expr<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct expr_value_impl<Var<T>> {
+    using type = T;
+};
+
+template<typename T>
+using expr_value = expr_value_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using expr_value_t = typename expr_value<T>::type;
 
 }// namespace luisa::compute::dsl::detail
 
