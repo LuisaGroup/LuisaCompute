@@ -126,4 +126,7 @@ LUISA_MAKE_BINARY_OP_CONCEPT(>>=, ShiftRightAssign)
 template<typename Lhs, typename Rhs>
 concept Access = requires(Lhs lhs, Rhs rhs) { lhs[rhs]; };
 
+template<typename T>
+concept Function = std::is_function_v<T>;
+
 }// namespace luisa::concepts

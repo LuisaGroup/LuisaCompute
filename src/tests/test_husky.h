@@ -3,7 +3,7 @@
 #ifdef HUSKY_WINDOWS
 #include <iostream>
 #include <optional>
-#include <core/dynamic_dll.h>
+#include <core/dynamic_module.h>
 
 #ifdef _WINDOWS
 

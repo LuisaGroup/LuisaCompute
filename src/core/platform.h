@@ -19,6 +19,7 @@
 #endif
 
 #include <string_view>
+#include <filesystem>
 
 namespace luisa {
 
@@ -26,10 +27,10 @@ namespace luisa {
 void aligned_free(void *p) noexcept;
 [[nodiscard]] size_t pagesize() noexcept;
 
-[[nodiscard]] const char *dynamic_module_prefix() noexcept;
-[[nodiscard]] const char *dynamic_module_extension() noexcept;
-[[nodiscard]] void *dynamic_module_load(const char *path) noexcept;
+[[nodiscard]] std::string_view dynamic_module_prefix() noexcept;
+[[nodiscard]] std::string_view dynamic_module_extension() noexcept;
+[[nodiscard]] void *dynamic_module_load(const std::filesystem::path &path) noexcept;
 void dynamic_module_destroy(void *handle) noexcept;
-[[nodiscard]] void *dynamic_module_find_symbol(void *handle, const char *name) noexcept;
+[[nodiscard]] void *dynamic_module_find_symbol(void *handle, std::string_view name) noexcept;
 
 }// namespace luisa

@@ -3,6 +3,7 @@
 //
 
 #include <cstdlib>
+#include <string>
 #include <type_traits>
 #include <filesystem>
 #include <fmt/format.h>
@@ -52,11 +53,11 @@ size_t pagesize() noexcept {
     return page_size;
 }
 
-void *dynamic_module_load(const char *path) noexcept {
+void *dynamic_module_load(const std::filesystem::path &path) noexcept {
     if (!std::filesystem::exists(path)) {
-        LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}", path);
+        LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}", path.string());
     } else {
-        LUISA_INFO("Loading dynamic module: '{}'", path);
+        LUISA_INFO("Loading dynamic module: '{}'", path.string());
     }
     auto canonical_path = std::filesystem::canonical(path).string();
     auto module = LoadLibraryA(canonical_path.c_str());
@@ -72,9 +73,11 @@ void dynamic_module_destroy(void *handle) noexcept {
     if (handle != nullptr) { FreeLibrary(reinterpret_cast<HMODULE>(handle)); }
 }
 
-void *dynamic_module_find_symbol(void *handle, const char *name) noexcept {
+void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
+    static thread_local std::string name;
+    name = name_view;
     LUISA_INFO("Loading dynamic symbol: {}", name);
-    auto symbol = GetProcAddress(reinterpret_cast<HMODULE>(handle), name);
+    auto symbol = GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str());
     if (symbol == nullptr) {
         LUISA_ERROR("Failed to load symbol '{}', reason: {}",
                     name, detail::win32_last_error_message());
@@ -82,8 +85,8 @@ void *dynamic_module_find_symbol(void *handle, const char *name) noexcept {
     return reinterpret_cast<void *>(symbol);
 }
 
-const char *dynamic_module_prefix() noexcept { return ""; }
-const char *dynamic_module_extension() noexcept { return ".dll"; }
+std::string_view dynamic_module_prefix() noexcept { return ""; }
+std::string_view dynamic_module_extension() noexcept { return ".dll"; }
 
 }// namespace luisa
 
@@ -102,11 +105,11 @@ size_t pagesize() noexcept {
     return page_size;
 }
 
-void *dynamic_module_load(const char *path) noexcept {
+void *dynamic_module_load(const std::filesystem::path &path) noexcept {
     if (!std::filesystem::exists(path)) {
-        LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}", path);
+        LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}", path.string());
     } else {
-        LUISA_INFO("Loading dynamic module: '{}'", path);
+        LUISA_INFO("Loading dynamic module: '{}'", path.string());
     }
     auto canonical_path = std::filesystem::canonical(path).string();
     auto module = dlopen(canonical_path.c_str(), RTLD_LAZY);
@@ -122,17 +125,19 @@ void dynamic_module_destroy(void *handle) noexcept {
     if (handle != nullptr) { dlclose(handle); }
 }
 
-void *dynamic_module_find_symbol(void *handle, const char *name) noexcept {
+void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
+    static thread_local std::string name;
+    name = name_view;
     LUISA_INFO("Loading dynamic symbol: {}", name);
-    auto symbol = dlsym(handle, name);
+    auto symbol = dlsym(handle, name.c_str());
     if (symbol == nullptr) {
         LUISA_ERROR("Failed to load symbol '{}', reason: {}", name, dlerror());
     }
     return symbol;
 }
 
-const char *dynamic_module_prefix() noexcept { return "lib"; }
-const char *dynamic_module_extension() noexcept { return ".so"; }
+std::string_view dynamic_module_prefix() noexcept { return "lib"; }
+std::string_view dynamic_module_extension() noexcept { return ".so"; }
 
 }// namespace luisa
 
