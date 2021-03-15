@@ -85,8 +85,12 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     return reinterpret_cast<void *>(symbol);
 }
 
-std::string_view dynamic_module_prefix() noexcept { return ""; }
-std::string_view dynamic_module_extension() noexcept { return ".dll"; }
+std::filesystem::path dynamic_module_path(
+    std::string_view name,
+    const std::filesystem::path &search_path) noexcept {
+    auto decorated_name = fmt::format("{}.dll", name);
+    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / name;
+}
 
 }// namespace luisa
 
@@ -136,8 +140,12 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     return symbol;
 }
 
-std::string_view dynamic_module_prefix() noexcept { return "lib"; }
-std::string_view dynamic_module_extension() noexcept { return ".so"; }
+std::filesystem::path dynamic_module_path(
+    std::string_view name,
+    const std::filesystem::path &search_path) noexcept {
+    auto decorated_name = fmt::format("lib{}.so", name);
+    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / name;
+}
 
 }// namespace luisa
 
