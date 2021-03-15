@@ -73,7 +73,7 @@ void FunctionBuilder::assign(AssignOp op, const Expression *lhs, const Expressio
     _append(_arena.create<AssignStmt>(op, lhs, rhs));
 }
 
-const LiteralExpr *FunctionBuilder::_literal(const Type *type, LiteralExpr::Value value) noexcept {
+const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {
     return _arena.create<LiteralExpr>(type, value);
 }
 
@@ -155,23 +155,23 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *element_type, uint64_
     return _ref(v);
 }
 
-const Expression *FunctionBuilder::unary(const Type *type, UnaryOp op, const Expression *expr) noexcept {
+const UnaryExpr *FunctionBuilder::unary(const Type *type, UnaryOp op, const Expression *expr) noexcept {
     return _arena.create<UnaryExpr>(type, op, expr);
 }
 
-const Expression *FunctionBuilder::binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept {
+const BinaryExpr *FunctionBuilder::binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept {
     return _arena.create<BinaryExpr>(type, op, lhs, rhs);
 }
 
-const Expression *FunctionBuilder::member(const Type *type, const Expression *self, size_t member_index) noexcept {
+const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *self, size_t member_index) noexcept {
     return _arena.create<MemberExpr>(type, self, member_index);
 }
 
-const Expression *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
+const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
     return _arena.create<AccessExpr>(type, range, index);
 }
 
-const Expression *FunctionBuilder::call(const Type *type, std::string_view func, std::initializer_list<const Expression *> args) noexcept {
+const CallExpr *FunctionBuilder::call(const Type *type, std::string_view func, std::initializer_list<const Expression *> args) noexcept {
     ArenaString func_name{_arena, func};
     ArenaVector func_args{_arena, args};
     auto expr = _arena.create<CallExpr>(type, func_name, func_args);
@@ -185,7 +185,7 @@ const Expression *FunctionBuilder::call(const Type *type, std::string_view func,
     return expr;
 }
 
-const Expression *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
+const CastExpr *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
     return _arena.create<CastExpr>(type, op, expr);
 }
 
@@ -206,7 +206,7 @@ Function FunctionBuilder::callable(uint32_t uid) noexcept {
         return registry[uid].get();
     }();
     if (f->tag() != Function::Tag::CALLABLE) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a callable function.", uid); }
-    return f;
+    return Function{f};
 }
 
 Function FunctionBuilder::kernel(uint32_t uid) noexcept {
@@ -217,7 +217,7 @@ Function FunctionBuilder::kernel(uint32_t uid) noexcept {
         return registry[uid].get();
     }();
     if (f->tag() != Function::Tag::KERNEL) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a kernel function.", uid); }
-    return f;
+    return Function{f};
 }
 
 spin_mutex &FunctionBuilder::_function_registry_mutex() noexcept {

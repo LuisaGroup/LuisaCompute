@@ -32,7 +32,7 @@ public:
 
     template<concepts::non_pointer U>// to prevent conversion from pointer to bool
     requires concepts::constructible<T, U>
-    ExprBase(U literal) noexcept : ExprBase{FunctionBuilder::current()->literal(literal)} {}
+    ExprBase(U literal) noexcept : ExprBase{FunctionBuilder::current()->literal(Type::of(literal), literal)} {}
 
     constexpr ExprBase(ExprBase &&) noexcept = default;
     constexpr ExprBase(const ExprBase &) noexcept = default;

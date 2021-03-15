@@ -14,12 +14,13 @@ namespace luisa::compute::compile {
 class CppCodegen : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
-    Function _function{nullptr};
+    Function _function;
     std::vector<uint32_t> _generated_functions;
     std::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
 
 private:
+    void visit(const Type *type) noexcept override;
     void visit(const UnaryExpr *expr) override;
     void visit(const BinaryExpr *expr) override;
     void visit(const MemberExpr *expr) override;
@@ -35,7 +36,6 @@ private:
     void visit(const DeclareStmt *stmt) override;
     void visit(const IfStmt *stmt) override;
     void visit(const WhileStmt *stmt) override;
-    void visit(const Type *type) noexcept override;
     void visit(const ExprStmt *stmt) override;
     void visit(const SwitchStmt *stmt) override;
     void visit(const SwitchCaseStmt *stmt) override;

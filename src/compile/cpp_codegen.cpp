@@ -419,12 +419,9 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
             _emit_type_name(type->element());
             _scratch << ">";
             break;
-        case Type::Tag::STRUCTURE: {
-            static thread_local std::array<char, 17u> temp;
-            fmt::format_to_n(temp.data(), temp.size(), "S{:X}", type->hash());
-            _scratch << std::string_view{temp.data(), temp.size()};
+        case Type::Tag::STRUCTURE:
+            _scratch << "S" << hash_to_string(type->hash());
             break;
-        }
     }
 }
 

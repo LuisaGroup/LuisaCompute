@@ -73,7 +73,6 @@ protected:
 
     void _append(const Statement *statement) noexcept;
 
-    [[nodiscard]] const LiteralExpr *_literal(const Type *type, LiteralExpr::Value value) noexcept;
     [[nodiscard]] const RefExpr *_builtin(Variable::Tag tag) noexcept;
     [[nodiscard]] const RefExpr *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
@@ -171,14 +170,13 @@ public:
     [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
 
     // expressions
-    template<concepts::basic T>
-    [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
-    [[nodiscard]] const Expression *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
-    [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
-    [[nodiscard]] const Expression *member(const Type *type, const Expression *self, size_t member_index) noexcept;
-    [[nodiscard]] const Expression *access(const Type *type, const Expression *range, const Expression *index) noexcept;
-    [[nodiscard]] const Expression *call(const Type *type /* nullptr for void */, std::string_view func, std::initializer_list<const Expression *> args) noexcept;
-    [[nodiscard]] const Expression *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
+    [[nodiscard]] const LiteralExpr *literal(const Type *type, LiteralExpr::Value value) noexcept;
+    [[nodiscard]] const UnaryExpr *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
+    [[nodiscard]] const BinaryExpr *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
+    [[nodiscard]] const MemberExpr *member(const Type *type, const Expression *self, size_t member_index) noexcept;
+    [[nodiscard]] const AccessExpr *access(const Type *type, const Expression *range, const Expression *index) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, std::string_view func, std::initializer_list<const Expression *> args) noexcept;
+    [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
 
     // statements
     void break_() noexcept;

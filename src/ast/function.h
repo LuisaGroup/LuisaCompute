@@ -39,10 +39,14 @@ public:
     };
 
 private:
-    const FunctionBuilder *_builder;
+    const FunctionBuilder *_builder{nullptr};
+    
+private:
+    friend class FunctionBuilder;
+    explicit Function(const FunctionBuilder *builder) noexcept : _builder{builder} {}
 
 public:
-    Function(const FunctionBuilder *builder) noexcept : _builder{builder} {}
+    Function() noexcept = default;
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
     [[nodiscard]] std::span<const Variable> shared_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
