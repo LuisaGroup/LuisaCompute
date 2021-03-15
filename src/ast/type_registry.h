@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <tuple>
+#include <sstream>
 
 #include <fmt/format.h>
 
