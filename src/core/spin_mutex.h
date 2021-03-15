@@ -5,18 +5,7 @@
 #pragma once
 
 #include <atomic>
-
-#if defined(__x86_64__) || defined(_M_X64)
-#include <immintrin.h>
-#define LUISA_INTRIN_PAUSE() _mm_pause()
-#elif defined(_M_X64)
-#include <windows.h>
-#define LUISA_INTRIN_PAUSE() YieldProcessor()
-#elif defined(__aarch64__)
-#define LUISA_INTRIN_PAUSE() asm volatile("isb")
-#else
-#define LUISA_INTRIN_PAUSE() []{}()
-#endif
+#include <core/intrin.h>
 
 namespace luisa {
 

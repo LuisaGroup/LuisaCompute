@@ -4,39 +4,34 @@
 
 #pragma once
 
-#include <cstdlib>
-#include <memory>
-#include <type_traits>
-#include <limits>
-
 #ifdef _MSC_VER
-
-#include <intrin.h>
-
 #define LUISA_FORCE_INLINE __forceinline
-
-namespace luisa {
-
-[[nodiscard]] inline auto aligned_alloc(size_t alignment, size_t size) noexcept {
-    return _aligned_malloc(size, alignment);
-}
-
-inline void aligned_free(void *p) noexcept {
-    _aligned_free(p);
-}
-
-}// namespace luisa
-
+#define LUISA_EXPORT __declspec(dllexport)
 #else
-
 #define LUISA_FORCE_INLINE [[gnu::always_inline, gnu::hot]] inline
+#define LUISA_EXPORT [[gnu::visibility("default")]]
+#endif
+
+#ifdef _WINDOWS
+#define LUISA_PLATFORM_WINDOWS
+#define LUISA_DLL_HANDLE HMODULE
+#elif defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
+#define LUISA_PLATFORM_UNIX
+#define LUISA_DLL_HANDLE void *
+#endif
+
+#include <string_view>
 
 namespace luisa {
 
-inline void aligned_free(void *p) noexcept {
-    free(p);
-}
+[[nodiscard]] void *aligned_alloc(size_t alignment, size_t size) noexcept;
+void aligned_free(void *p) noexcept;
+[[nodiscard]] size_t pagesize() noexcept;
+
+[[nodiscard]] const char *dynamic_module_prefix() noexcept;
+[[nodiscard]] const char *dynamic_module_extension() noexcept;
+[[nodiscard]] LUISA_DLL_HANDLE dynamic_module_load(const char *path) noexcept;
+void dynamic_module_destroy(LUISA_DLL_HANDLE handle) noexcept;
+[[nodiscard]] void *dynamic_module_find_symbol(LUISA_DLL_HANDLE handle, const char *name) noexcept;
 
 }// namespace luisa
-
-#endif
