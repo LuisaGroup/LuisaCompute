@@ -1,27 +1,21 @@
 #pragma once
-#define HUSKY_WINDOWS
-#ifdef HUSKY_WINDOWS
+
 #include <iostream>
 #include <optional>
 #include <core/dynamic_module.h>
 
-#ifdef _WINDOWS
-
-#include <Windows.h>
+#ifdef LUISA_PLATFORM_WINDOWS
 
 namespace luisa::compute {
-class Function;
-class Function;
-void RunHLSLCodeGen(Function *func) {
-    DynamicDLL dll("LC_DXBackend.dll");
-    funcPtr_t<void(Function const *)> codegenFunc;
 
-    dll.GetDLLFunc(codegenFunc, "SerializeMD5");
-    std::cout << codegenFunc << std::endl;
-    system("pause");
+class Function;
+
+void RunHLSLCodeGen(Function func) {
+    DynamicModule dll{"LC_DXBackend.dll"};
+    auto codegenFunc = dll.function<void(Function const &)>("SerializeMD5");
+    LUISA_INFO_WITH_LOCATION("Function Pointer: {}", fmt::ptr(codegenFunc));
     codegenFunc(func);
 }
 }// namespace luisa::compute
-#endif
 
 #endif
