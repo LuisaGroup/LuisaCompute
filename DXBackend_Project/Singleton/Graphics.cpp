@@ -1,5 +1,5 @@
 #include "Graphics.h"
-#include "../Singleton/ShaderCompiler.h"
+#include "../Singleton/ShaderLoader.h"
 #include "../Singleton/ShaderID.h"
 #include "../RenderComponent/Shader.h"
 #include "../RenderComponent/ComputeShader.h"
@@ -41,7 +41,7 @@ void Graphics::Initialize(GFXDevice* device, ThreadCommand* commandList) {
 	_WriteBuffer_K = ShaderID::PropertyToID("_WriteBuffer_K");
 	_ReadBuffer = ShaderID::PropertyToID("_ReadBuffer");
 	_WriteBuffer = ShaderID::PropertyToID("_WriteBuffer");
-	copyBufferCS = ShaderCompiler::GetComputeShader("CopyBufferRegion");*/
+	copyBufferCS = ShaderLoader::GetComputeShader("CopyBufferRegion");*/
 	srvAllocator.New(
 		65536,
 		[=](uint64 size) -> void* {

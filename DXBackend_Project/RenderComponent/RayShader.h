@@ -7,7 +7,7 @@ class DescriptorHeap;
 class StructuredBuffer;
 class ComputeShaderCompiler;
 class ComputeShaderReader;
-class ShaderCompiler;
+class ShaderLoader;
 class RayShader final : public IShader
 {
 private:

@@ -1,6 +1,6 @@
 #include "VirtualVoxelMap.h"
 #include "../RenderComponentInclude.h"
-#include "../../Singleton/ShaderCompiler.h"
+#include "../../Singleton/ShaderLoader.h"
 #include "../../Singleton/ShaderID.h"
 #include "../../Singleton/Graphics.h"
 #include "../../PipelineComponent/ThreadCommand.h"
@@ -69,7 +69,7 @@ VirtualVoxelMap::VirtualVoxelMap(
 		VEngine_Log("Voxel Resolution should be multiple of 8!\n");
 		throw 0;
 	}
-	props.shader = ShaderCompiler::GetComputeShader("VirtualVoxelSetter");
+	props.shader = ShaderLoader::GetComputeShader("VirtualVoxelSetter");
 	props._SelfMap = ShaderID::PropertyToID("_SelfMap");
 	props._IndirectTex = ShaderID::PropertyToID("_IndirectTex");
 	props._IndirectBuffer = ShaderID::PropertyToID("_IndirectBuffer");

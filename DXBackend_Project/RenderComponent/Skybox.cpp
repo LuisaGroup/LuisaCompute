@@ -3,7 +3,7 @@
 #include "Texture.h"
 #include "Shader.h"
 #include <mutex>
-#include "../Singleton/ShaderCompiler.h"
+#include "../Singleton/ShaderLoader.h"
 #include "../Singleton/ShaderID.h"
 #include "../Common/Camera.h"
 #include "../RenderComponent/PSOContainer.h"
@@ -49,7 +49,7 @@ Skybox::Skybox(
 	World* world = World::GetInstance();
 	SkyboxCBufferID = ShaderID::PropertyToID("SkyboxBuffer");
 	ObjectPtr<UploadBuffer> noProperty = nullptr;
-	shader = ShaderCompiler::GetShader("Skybox");
+	shader = ShaderLoader::GetShader("Skybox");
 	if (fullScreenMesh == nullptr) {
 		std::array<float3, 3> vertex;
 		vertex[0] = {-3, -1, 1};

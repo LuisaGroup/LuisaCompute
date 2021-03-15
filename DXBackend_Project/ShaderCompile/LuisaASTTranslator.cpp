@@ -570,7 +570,7 @@ vengine::string CodegenUtility::GetFunctionDecl(Function const* func) {
 		for (auto&& i : func->arguments()) {
 			RegistStructType(i.type());
 			data += CodegenUtility::GetTypeName(*i.type());
-			data += " "_sv;
+			data += ' ';
 			data += CodegenUtility::GetVariableName(i);
 			data += ',';
 		}
@@ -608,7 +608,7 @@ void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, ven
 	},
 			   valueView);
 }
-static StackObject<HashMap<Type const*, bool>, true> codegenStructType;
+static thread_local StackObject<HashMap<Type const*, bool>, true> codegenStructType;
 void CodegenUtility::ClearStructType() {
 	codegenStructType.New();
 	codegenStructType->Clear();
@@ -739,6 +739,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		result += vengine::to_string(var->uid());
 		result += ";\n"_sv;
 	};
+
 	for (auto& vec3 : vec4Arr) {
 		cbufferSize += ELE_SIZE * 4;
 		result += GetTypeName(*vec3->type());

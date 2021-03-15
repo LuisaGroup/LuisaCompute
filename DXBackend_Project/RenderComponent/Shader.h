@@ -24,9 +24,9 @@ struct ShaderInputPass {
 	D3D12_BLEND_DESC blendState;
 };
 
-class ShaderCompiler;
+class ShaderLoader;
 class Shader final : public IShader {
-	friend class ShaderCompiler;
+	friend class ShaderLoader;
 	friend class CommandSignature;
 
 private:
