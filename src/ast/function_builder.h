@@ -106,7 +106,7 @@ private:
         _push(f);
         f->with(f->_body, std::forward<Def>(def));
         if (_pop() != f) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
-        return Function{*f};
+        return Function{f};
     }
 
 public:

@@ -39,10 +39,10 @@ public:
     };
 
 private:
-    const FunctionBuilder &_builder;
+    const FunctionBuilder *_builder;
 
 public:
-    Function(const FunctionBuilder &builder) noexcept : _builder{builder} {}
+    Function(const FunctionBuilder *builder) noexcept : _builder{builder} {}
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
     [[nodiscard]] std::span<const Variable> shared_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;

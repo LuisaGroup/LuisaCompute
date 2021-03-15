@@ -206,7 +206,7 @@ Function FunctionBuilder::callable(uint32_t uid) noexcept {
         return registry[uid].get();
     }();
     if (f->tag() != Function::Tag::CALLABLE) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a callable function.", uid); }
-    return *f;
+    return f;
 }
 
 Function FunctionBuilder::kernel(uint32_t uid) noexcept {
@@ -217,7 +217,7 @@ Function FunctionBuilder::kernel(uint32_t uid) noexcept {
         return registry[uid].get();
     }();
     if (f->tag() != Function::Tag::KERNEL) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a kernel function.", uid); }
-    return *f;
+    return f;
 }
 
 spin_mutex &FunctionBuilder::_function_registry_mutex() noexcept {

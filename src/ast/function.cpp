@@ -8,35 +8,35 @@
 namespace luisa::compute {
 
 std::span<const Variable> Function::builtin_variables() const noexcept {
-    return _builder.builtin_variables();
+    return _builder->builtin_variables();
 }
 
 std::span<const Variable> Function::shared_variables() const noexcept {
-    return _builder.shared_variables();
+    return _builder->shared_variables();
 }
 
 std::span<const Function::ConstantBinding> Function::constants() const noexcept {
-    return _builder.constants();
+    return _builder->constants();
 }
 
 std::span<const Function::BufferBinding> Function::captured_buffers() const noexcept {
-    return _builder.captured_buffers();
+    return _builder->captured_buffers();
 }
 
 std::span<const Function::TextureBinding> Function::captured_textures() const noexcept {
-    return _builder.captured_textures();
+    return _builder->captured_textures();
 }
 
 std::span<const Variable> Function::arguments() const noexcept {
-    return _builder.arguments();
+    return _builder->arguments();
 }
 
 Function::Tag Function::tag() const noexcept {
-    return _builder.tag();
+    return _builder->tag();
 }
 
 const ScopeStmt *Function::body() const noexcept {
-    return _builder.body();
+    return _builder->body();
 }
 
 Function Function::callable(uint32_t uid) noexcept {
@@ -44,15 +44,15 @@ Function Function::callable(uint32_t uid) noexcept {
 }
 
 uint32_t Function::uid() const noexcept {
-    return _builder.uid();
+    return _builder->uid();
 }
 
 std::span<const uint32_t> Function::custom_callables() const noexcept {
-    return _builder.custom_callables();
+    return _builder->custom_callables();
 }
 
 std::span<const std::string_view> Function::builtin_callables() const noexcept {
-    return _builder.builtin_callables();
+    return _builder->builtin_callables();
 }
 
 Function Function::kernel(uint32_t uid) noexcept {
@@ -60,11 +60,11 @@ Function Function::kernel(uint32_t uid) noexcept {
 }
 
 const Type *Function::return_type() const noexcept {
-    return _builder.return_type();
+    return _builder->return_type();
 }
 
 Usage Function::variable_usage(uint32_t uid) const noexcept {
-    return _builder.variable_usage(uid);
+    return _builder->variable_usage(uid);
 }
 
 }

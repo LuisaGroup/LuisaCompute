@@ -7,7 +7,7 @@
 
 namespace luisa::compute::compile {
 
-Codegen::Scratch::Scratch() noexcept { _buffer.reserve(4096u); }
+Codegen::Scratch::Scratch() noexcept { _buffer.reserve(4096u - 1u); }
 std::string_view Codegen::Scratch::view() const noexcept { return _buffer; }
 
 namespace detail {

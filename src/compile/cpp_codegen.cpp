@@ -285,7 +285,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
         _emit_function(Function::callable(callable));
     }
 
-    _function_uid = f.uid();
+    _function = f;
     _indent = 0u;
 
     // constants
@@ -293,16 +293,6 @@ void CppCodegen::_emit_function(Function f) noexcept {
         for (auto c : f.constants()) { _emit_constant(c); }
         _scratch << "\n";
     }
-
-    auto emit_access_attribute = [f, this](Variable v) {
-        switch (f.variable_usage(v.uid())) {
-            case NONE: _scratch << " [[access::none]]"; break;
-            case READ: _scratch << " [[access::read]]"; break;
-            case WRITE: _scratch << " [[access::write]]"; break;
-            case READ_WRITE: _scratch << " [[access::read_write]]"; break;
-            default: _scratch << " [[access::unknown]]"; break;
-        }
-    };
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
@@ -322,7 +312,10 @@ void CppCodegen::_emit_function(Function f) noexcept {
             _scratch << "__uniform__ ";
         }
         _emit_variable_decl(arg);
-        emit_access_attribute(arg);
+        if (arg.tag() == Variable::Tag::BUFFER) {
+            _scratch << " ";
+            _emit_access_attribute(arg);
+        }
         _scratch << ",";
     }
     for (auto tex : f.captured_textures()) {
@@ -331,7 +324,8 @@ void CppCodegen::_emit_function(Function f) noexcept {
     for (auto buffer : f.captured_buffers()) {
         _scratch << "\n    ";
         _emit_variable_decl(buffer.variable);
-        emit_access_attribute(buffer.variable);
+        _scratch << " ";
+        _emit_access_attribute(buffer.variable);
         _scratch << ",";
     }
     for (auto builtin : f.builtin_variables()) {
@@ -537,6 +531,16 @@ void CppCodegen::visit(const ForStmt *stmt) {
 
     _scratch << ") ";
     stmt->body()->accept(*this);
+}
+
+void CppCodegen::_emit_access_attribute(Variable v) noexcept {
+    switch (_function.variable_usage(v.uid())) {
+        case NONE: _scratch << "[[access::none]]"; break;
+        case READ: _scratch << "[[access::read]]"; break;
+        case WRITE: _scratch << "[[access::write]]"; break;
+        case READ_WRITE: _scratch << "[[access::read_write]]"; break;
+        default: _scratch << "[[access::unknown]]"; break;
+    }
 }
 
 }// namespace luisa::compute::compile
