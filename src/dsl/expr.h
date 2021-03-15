@@ -93,17 +93,17 @@ public:
     void operator op(U &&rhs) &noexcept {                                                                \
         return this->operator op(Expr{std::forward<U>(rhs)});                                            \
     }
-    LUISA_MAKE_EXPR_ASSIGN_OP(=, assign, ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(+=, add_assign, ADD_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(-=, sub_assign, SUB_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(*=, mul_assign, MUL_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(/=, div_assign, DIV_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(%=, mod_assign, MOD_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(&=, bit_and_assign, BIT_AND_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(|=, bit_or_assign, BIT_OR_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(^=, bit_xor_assign, BIT_XOR_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(<<=, shift_left_assign, SHL_ASSIGN)
-    LUISA_MAKE_EXPR_ASSIGN_OP(>>=, shift_right_assign, SHR_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(=, assignable, ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(+=, add_assignable, ADD_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(-=, sub_assignable, SUB_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(*=, mul_assignable, MUL_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(/=, div_assignable, DIV_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(%=, mod_assignable, MOD_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(&=, bit_and_assignable, BIT_AND_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(|=, bit_or_assignable, BIT_OR_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(^=, bit_xor_assignable, BIT_XOR_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(<<=, shift_left_assignable, SHL_ASSIGN)
+    LUISA_MAKE_EXPR_ASSIGN_OP(>>=, shift_right_assignable, SHR_ASSIGN)
 #undef LUISA_MAKE_EXPR_ASSIGN_OP
 
     // casts
