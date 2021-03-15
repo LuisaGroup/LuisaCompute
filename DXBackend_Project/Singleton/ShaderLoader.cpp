@@ -1,5 +1,5 @@
 //#endif
-#include "ShaderCompiler.h"
+#include "ShaderLoader.h"
 #include "../Utility/StringUtility.h"
 #include "../RenderComponent/PSOContainer.h"
 #include "../RenderComponent/Shader.h"
@@ -9,7 +9,7 @@
 using namespace neb;
 #define StructuredBuffer SCompile::StructuredBuffer_S
 #define SHADER_MULTICORE_COMPILE
-int32_t ShaderCompiler::shaderIDCount = 0;
+int32_t ShaderLoader::shaderIDCount = 0;
 namespace ShaderGlobalNameSpace {
 struct ShaderGlobal {
 	HashMap<vengine::string, Shader*> shaderMap;
@@ -26,18 +26,18 @@ struct ShaderGlobal {
 };
 StackObject<ShaderGlobal> globalData;
 }// namespace ShaderGlobalNameSpace
-Shader* ShaderCompiler::LoadShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
+Shader* ShaderLoader::LoadShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
 	using namespace ShaderGlobalNameSpace;
 	Shader* sh = new Shader(name, device, path);
 	return globalData->shaderMap.Insert(name, sh).Value();
 }
-RayShader* ShaderCompiler::LoadRayShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
+RayShader* ShaderLoader::LoadRayShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
 	using namespace ShaderGlobalNameSpace;
 	RayShader* sh = new RayShader(static_cast<ID3D12Device5*>(device), path);
 	globalData->rayShaderMap.Insert(name, sh);
 	return sh;
 }
-RayShader const* ShaderCompiler::GetRayShader(const vengine::string& name) {
+RayShader const* ShaderLoader::GetRayShader(const vengine::string& name) {
 	using namespace ShaderGlobalNameSpace;
 	std::lock_guard lck(globalData->mtx);
 	auto ite = globalData->rayShaderMap.Find(name);
@@ -49,12 +49,12 @@ RayShader const* ShaderCompiler::GetRayShader(const vengine::string& name) {
 	}
 	return nullptr;
 }
-ComputeShader* ShaderCompiler::LoadComputeShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
+ComputeShader* ShaderLoader::LoadComputeShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
 	using namespace ShaderGlobalNameSpace;
 	ComputeShader* sh = new ComputeShader(name, path, device);
 	return globalData->computeShaderMap.Insert(name, sh).Value();
 }
-Shader const* ShaderCompiler::GetShader(const vengine::string& name) {
+Shader const* ShaderLoader::GetShader(const vengine::string& name) {
 	using namespace ShaderGlobalNameSpace;
 	std::lock_guard lck(globalData->mtx);
 	auto ite = globalData->shaderMap.Find(name);
@@ -65,7 +65,7 @@ Shader const* ShaderCompiler::GetShader(const vengine::string& name) {
 	}
 	return nullptr;
 }
-ComputeShader const* ShaderCompiler::GetComputeShader(const vengine::string& name) {
+ComputeShader const* ShaderLoader::GetComputeShader(const vengine::string& name) {
 	using namespace ShaderGlobalNameSpace;
 	std::lock_guard lck(globalData->mtx);
 	auto ite = globalData->computeShaderMap.Find(name);
@@ -76,7 +76,7 @@ ComputeShader const* ShaderCompiler::GetComputeShader(const vengine::string& nam
 	}
 	return nullptr;
 }
-void ShaderCompiler::ReleaseShader(Shader const* shader) {
+void ShaderLoader::ReleaseShader(Shader const* shader) {
 	using namespace ShaderGlobalNameSpace;
 	std::lock_guard lck(globalData->mtx);
 	auto ite = globalData->shaderMap.Find(shader->GetName());
@@ -85,7 +85,7 @@ void ShaderCompiler::ReleaseShader(Shader const* shader) {
 	delete ite.Value();
 	globalData->shaderMap.Remove(ite);
 }
-void ShaderCompiler::ReleaseComputeShader(ComputeShader const* shader) {
+void ShaderLoader::ReleaseComputeShader(ComputeShader const* shader) {
 	using namespace ShaderGlobalNameSpace;
 	std::lock_guard lck(globalData->mtx);
 	auto ite = globalData->computeShaderMap.Find(shader->GetName());
@@ -93,7 +93,7 @@ void ShaderCompiler::ReleaseComputeShader(ComputeShader const* shader) {
 	delete ite.Value();
 	globalData->computeShaderMap.Remove(ite);
 }
-void ShaderCompiler::Init(GFXDevice* device) {
+void ShaderLoader::Init(GFXDevice* device) {
 	using namespace ShaderGlobalNameSpace;
 	globalData.New();
 	globalData->device = device;
@@ -104,7 +104,7 @@ void ShaderCompiler::Init(GFXDevice* device) {
 		jsonObj->Get("rayShader", globalData->rayShaderJson);
 	}
 }
-void ShaderCompiler::Reload(GFXDevice* device, JobBucket* bucket, HashMap<Shader const*, vengine::vector<JobHandle>>& shaderHandles) {
+void ShaderLoader::Reload(GFXDevice* device, JobBucket* bucket, HashMap<Shader const*, vengine::vector<JobHandle>>& shaderHandles) {
 	using namespace ShaderGlobalNameSpace;
 	globalData->shaderMap.IterateAll([&](vengine::string const& name, Shader*& shader) -> void {
 		shaderHandles.Insert(shader).Value().push_back(bucket->GetTask({}, [&name, &shader]() -> void {
@@ -129,7 +129,7 @@ void ShaderCompiler::Reload(GFXDevice* device, JobBucket* bucket, HashMap<Shader
 		});
 	});
 }
-void ShaderCompiler::Dispose() {
+void ShaderLoader::Dispose() {
 	using namespace ShaderGlobalNameSpace;
 	globalData.Delete();
 }

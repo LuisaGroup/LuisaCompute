@@ -16,7 +16,7 @@ void RunHLSLCodeGen(Function *func) {
     DynamicDLL dll("LC_DXBackend.dll");
     funcPtr_t<void(Function const *)> codegenFunc;
 
-    dll.GetDLLFunc(codegenFunc, "CodegenBody");
+    dll.GetDLLFunc(codegenFunc, "SerializeMD5");
     std::cout << codegenFunc << std::endl;
     system("pause");
     codegenFunc(func);

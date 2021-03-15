@@ -2,7 +2,7 @@
 #include "../../RenderComponent/RenderComponentInclude.h"
 #include "../../LogicComponent/Transform.h"
 #include "../../Singleton/ShaderID.h"
-#include "../../Singleton/ShaderCompiler.h"
+#include "../../Singleton/ShaderLoader.h"
 #include "../ThreadCommand.h"
 RayTracingManager* RayTracingManager::current = nullptr;
 namespace RTAccStructUtil {
@@ -235,7 +235,7 @@ RayTracingManager::RayTracingManager(
 	_IndexBuffer = ShaderID::PropertyToID("_IndexBuffer");
 	_VertexBuffer = ShaderID::PropertyToID("_VertexBuffer");
 	current = this;
-	rtUtilcs = ShaderCompiler::GetComputeShader("RTUtility");
+	rtUtilcs = ShaderLoader::GetComputeShader("RTUtility");
 	static constexpr uint64 ACC_ALIGN = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT;
 	ID3D12Device5* device = static_cast<ID3D12Device5*>(originDevice);
 	memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));

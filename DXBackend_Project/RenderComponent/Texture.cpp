@@ -3,7 +3,7 @@
 #include "../RenderComponent/DescriptorHeap.h"
 #include <fstream>
 #include "ComputeShader.h"
-#include "../Singleton/ShaderCompiler.h"
+#include "../Singleton/ShaderLoader.h"
 #include "RenderCommand.h"
 #include "../Singleton/ShaderID.h"
 #include "../Singleton/Graphics.h"

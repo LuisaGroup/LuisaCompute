@@ -11,7 +11,7 @@ struct ComputeKernel
 
 class ComputeShader final : public IShader
 {
-	friend class ShaderCompiler;
+	friend class ShaderLoader;
 	friend class ComputeShaderCompiler;
 	friend class ComputeShaderReader;
 private:

@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <Utility/StringUtility.h>
 #include <fstream>
+#include <Utility/BinaryReader.h>
 
 #include "ShaderUniforms.h"
 namespace SCompile {
@@ -637,5 +638,20 @@ void HLSLCompiler::GetShaderVariables(
 		//TODO
 		registPos++;
 	}
+}
+bool HLSLCompiler::CheckNeedReCompile(std::array<uint8_t, 16> const& md5, vengine::string const& shaderFileName) {
+	vengine::string md5Path = shaderFileName + ".md5"_sv;
+	{
+		BinaryReader binReader(md5Path);
+		if (binReader && binReader.GetLength() >= md5.size()) {
+			std::array<uint64, 2> file;
+			binReader.Read((char*)file.data(), md5.size());
+			uint64 const* compare = (uint64 const*)md5.data();
+			if (compare[0] == file[0] && compare[1] == file[1]) return true;
+		}
+	}
+	std::ofstream ofs(md5Path.c_str(), std::ios::binary);
+	ofs.write((char const*)md5.data(), md5.size());
+	return false;
 }
 }// namespace SCompile

@@ -36,5 +36,10 @@ public:
 	static void GetShaderVariables(
 		luisa::compute::Function const& func,
 		vengine::vector<ShaderVariable>& result);
+	static bool CheckNeedReCompile(
+		std::array<uint8_t, 16> const& md5,
+		vengine::string const& shaderFileName);
+
+private:
 };
 }// namespace SCompile
