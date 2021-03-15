@@ -4,49 +4,33 @@
 
 #pragma once
 
-#include <cstdlib>
-#include <memory>
-#include <type_traits>
-#include <limits>
-
 #ifdef _MSC_VER
-
-#include <intrin.h>
-
 #define LUISA_FORCE_INLINE __forceinline
-
-namespace luisa {
-
-[[nodiscard]] inline auto aligned_alloc(size_t alignment, size_t size) noexcept {
-    return _aligned_malloc(size, alignment);
-}
-
-inline void aligned_free(void *p) noexcept {
-    _aligned_free(p);
-}
-
-}// namespace luisa
-
+#define LUISA_EXPORT __declspec(dllexport)
 #else
-
 #define LUISA_FORCE_INLINE [[gnu::always_inline, gnu::hot]] inline
-
-namespace luisa {
-
-inline void aligned_free(void *p) noexcept {
-    free(p);
-}
-
-}// namespace luisa
-
+#define LUISA_EXPORT [[gnu::visibility("default")]]
 #endif
 
+#if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
+#define LUISA_PLATFORM_WINDOWS
+#elif defined(__unix__) || defined(__unix) || defined(__APPLE__)
+#define LUISA_PLATFORM_UNIX
+#endif
+
+#include <string_view>
+#include <filesystem>
+
 namespace luisa {
 
-template<typename T, typename... Args>
-constexpr T *construct_at(T *p, Args &&...args) {
-    return ::new (const_cast<void *>(static_cast<const volatile void *>(p)))
-        T(std::forward<Args>(args)...);
-}
+[[nodiscard]] void *aligned_alloc(size_t alignment, size_t size) noexcept;
+void aligned_free(void *p) noexcept;
+[[nodiscard]] size_t pagesize() noexcept;
+
+[[nodiscard]] std::string_view dynamic_module_prefix() noexcept;
+[[nodiscard]] std::string_view dynamic_module_extension() noexcept;
+[[nodiscard]] void *dynamic_module_load(const std::filesystem::path &path) noexcept;
+void dynamic_module_destroy(void *handle) noexcept;
+[[nodiscard]] void *dynamic_module_find_symbol(void *handle, std::string_view name) noexcept;
 
 }// namespace luisa

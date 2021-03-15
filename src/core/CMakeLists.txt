@@ -6,15 +6,18 @@ set(LUISA_COMPUTE_CORE_SOURCES
     hash.cpp hash.h
     macro.h
     union.h
-    platform.h
+    platform.cpp platform.h
     mathematics.h
     atomic.h
-    dynamic_dll.h
-    dynamic_dll.cpp
-    basic_types.cpp basic_types.h)
+    dynamic_module.cpp dynamic_module.h
+    basic_types.cpp basic_types.h
+    intrin.h)
 
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
-target_link_libraries(luisa-compute-core PUBLIC luisa-compute-include luisa-compute-ext)
+target_link_libraries(luisa-compute-core PUBLIC
+                      luisa-compute-include
+                      luisa-compute-ext
+                      ${CMAKE_DL_LIBS})
 set_target_properties(luisa-compute-core PROPERTIES
                       WINDOWS_EXPORT_ALL_SYMBOLS ON
                       UNITY_BUILD ON)

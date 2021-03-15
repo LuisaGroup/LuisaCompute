@@ -5,24 +5,25 @@
 #pragma once
 
 #include <atomic>
+#include <core/intrin.h>
 
 namespace luisa {
 
 class spin_mutex {
 
 private:
-    std::atomic_flag _flag;
+    std::atomic_flag _flag;// ATOMIC_FLAG_INIT not needed as per C++20
 
 public:
     void lock() noexcept {
         while (_flag.test_and_set(std::memory_order::acquire)) {// acquire lock
-            while (_flag.test(std::memory_order::relaxed)) {    // test lock
-#if defined(__x86_64__) || defined(_M_X64)
-                _mm_pause();
-#elif defined(__aarch64__)
-                __asm__ __volatile__("isb\n");
+#ifdef __cpp_lib_atomic_flag_test
+            while (_flag.test(std::memory_order::relaxed)) {// test lock
 #endif
+                LUISA_INTRIN_PAUSE();
+#ifdef __cpp_lib_atomic_flag_test
             }
+#endif
         }
     }
 
