@@ -12,12 +12,10 @@
 #define LUISA_EXPORT [[gnu::visibility("default")]]
 #endif
 
-#ifdef _WINDOWS
+#if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
 #define LUISA_PLATFORM_WINDOWS
-#define LUISA_DLL_HANDLE HMODULE
 #elif defined(__unix__) || defined(__unix) || defined(__APPLE__)
 #define LUISA_PLATFORM_UNIX
-#define LUISA_DLL_HANDLE void *
 #endif
 
 #include <string_view>
@@ -30,8 +28,8 @@ void aligned_free(void *p) noexcept;
 
 [[nodiscard]] const char *dynamic_module_prefix() noexcept;
 [[nodiscard]] const char *dynamic_module_extension() noexcept;
-[[nodiscard]] LUISA_DLL_HANDLE dynamic_module_load(const char *path) noexcept;
-void dynamic_module_destroy(LUISA_DLL_HANDLE handle) noexcept;
-[[nodiscard]] void *dynamic_module_find_symbol(LUISA_DLL_HANDLE handle, const char *name) noexcept;
+[[nodiscard]] void *dynamic_module_load(const char *path) noexcept;
+void dynamic_module_destroy(void *handle) noexcept;
+[[nodiscard]] void *dynamic_module_find_symbol(void *handle, const char *name) noexcept;
 
 }// namespace luisa
