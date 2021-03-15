@@ -15,7 +15,7 @@
 #ifdef _WINDOWS
 #define LUISA_PLATFORM_WINDOWS
 #define LUISA_DLL_HANDLE HMODULE
-#elif defined(__unix__) || defined(__unix) || (defined(__APPLE__) && defined(__MACH__))
+#elif defined(__unix__) || defined(__unix) || defined(__APPLE__)
 #define LUISA_PLATFORM_UNIX
 #define LUISA_DLL_HANDLE void *
 #endif
