@@ -11,7 +11,7 @@ namespace luisa::compute {
 class Function;
 
 void RunHLSLCodeGen(Function func) {
-    DynamicModule dll{"LC_DXBackend.dll"};
+    DynamicModule dll{"", "LC_DXBackend"};
     auto codegenFunc = dll.function<void(Function const &)>("SerializeMD5");
     LUISA_INFO_WITH_LOCATION("Function Pointer: {}", fmt::ptr(codegenFunc));
     codegenFunc(func);

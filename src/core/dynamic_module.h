@@ -11,7 +11,7 @@ private:
     void *_handle;
 
 public:
-    explicit DynamicModule(const std::filesystem::path &path) noexcept;
+    DynamicModule(const std::filesystem::path &folder, std::string_view name) noexcept;
     DynamicModule(DynamicModule &&another) noexcept;
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;
     ~DynamicModule() noexcept;

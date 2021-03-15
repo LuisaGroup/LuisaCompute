@@ -32,6 +32,6 @@ void aligned_free(void *p) noexcept;
 [[nodiscard]] void *dynamic_module_load(const std::filesystem::path &path) noexcept;
 void dynamic_module_destroy(void *handle) noexcept;
 [[nodiscard]] void *dynamic_module_find_symbol(void *handle, std::string_view name) noexcept;
-[[nodiscard]] std::filesystem::path dynamic_module_path(std::string_view name, const std::filesystem::path &search_path = {}) noexcept;
+[[nodiscard]] std::filesystem::path dynamic_module_path(std::string_view name, const std::filesystem::path &search_path) noexcept;
 
 }// namespace luisa

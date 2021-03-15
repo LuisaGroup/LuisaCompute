@@ -13,7 +13,7 @@ DynamicModule::DynamicModule(DynamicModule &&another) noexcept
 
 DynamicModule::~DynamicModule() noexcept { dynamic_module_destroy(_handle); }
 
-DynamicModule::DynamicModule(const std::filesystem::path &path) noexcept
-    : _handle{dynamic_module_load(path)} {}
+DynamicModule::DynamicModule(const std::filesystem::path &folder, std::string_view name) noexcept
+    : _handle{dynamic_module_load(dynamic_module_path(name, folder))} {}
 
 }// namespace luisa
