@@ -83,7 +83,7 @@ struct Interface : public concepts::Noncopyable {
 };
 
 template<typename T>
-requires concepts::Container<T> void foo(T &&) noexcept {}
+requires concepts::container<T> void foo(T &&) noexcept {}
 
 struct Impl : public Interface {};
 

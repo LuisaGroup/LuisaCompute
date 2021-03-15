@@ -171,7 +171,7 @@ public:
     [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
 
     // expressions
-    template<concepts::Basic T>
+    template<concepts::basic T>
     [[nodiscard]] auto literal(T value) noexcept { return _literal(Type::of(value), value); }
     [[nodiscard]] const Expression *unary(const Type *type, UnaryOp op, const Expression *expr) noexcept;
     [[nodiscard]] const Expression *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;

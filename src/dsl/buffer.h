@@ -158,10 +158,10 @@ public:
             this->size_bytes()};
     }
     
-    template<concepts::Integral I>
+    template<concepts::integral I>
     [[nodiscard]] auto operator[](I i) const noexcept { return this->operator[](detail::Expr{i}); }
     
-    template<concepts::Integral I>
+    template<concepts::integral I>
     [[nodiscard]] auto operator[](detail::Expr<I> i) const noexcept {
         auto self = _expression ? _expression : FunctionBuilder::current()->buffer_binding(Type::of<T>(), _handle, _offset_bytes);
         auto expr = FunctionBuilder::current()->access(Type::of<T>(), self, i.expression());

@@ -87,7 +87,7 @@ public:
           _capacity{capacity} {}
 
     template<typename U>
-    requires concepts::Container<U> && concepts::Constructible<T, typename std::remove_cvref_t<U>::value_type>
+    requires concepts::container<U> && concepts::constructible<T, typename std::remove_cvref_t<U>::value_type>
     ArenaVector(Arena &arena, U &&span, size_t capacity = 0u)
         : ArenaVector{arena, std::max(span.size(), capacity)} {
         std::uninitialized_copy_n(span.begin(), span.size(), _data);
@@ -95,7 +95,7 @@ public:
     }
 
     template<typename U>
-    requires concepts::Constructible<T, U> explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
+    requires concepts::constructible<T, U> explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
         : ArenaVector{arena, std::max(init.size(), capacity)} {
         std::uninitialized_copy_n(init.begin(), init.size(), _data);
         _size = init.size();
@@ -140,7 +140,7 @@ public:
 };
 
 template<typename T>
-requires concepts::SpanConvertible<T>
+requires concepts::span_convertible<T>
 ArenaVector(Arena &, T &&) -> ArenaVector<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>

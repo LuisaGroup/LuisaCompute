@@ -12,7 +12,7 @@ namespace luisa::compute::dsl {
 template<typename T>
 class Constant {
 
-    static_assert(concepts::Basic<T>);
+    static_assert(concepts::basic<T>);
 
 private:
     const Type *_type;
@@ -36,7 +36,7 @@ public:
     Constant &operator=(Constant &&) noexcept = delete;
     Constant &operator=(const Constant &) noexcept = delete;
 
-    template<concepts::Integral U>
+    template<concepts::integral U>
     [[nodiscard]] auto operator[](detail::Expr<U> index) const noexcept {
         return detail::Expr<T>{FunctionBuilder::current()->access(
             Type::of<T>(),
@@ -44,7 +44,7 @@ public:
             index.expression())};
     }
 
-    template<concepts::Integral U>
+    template<concepts::integral U>
     [[nodiscard]] auto operator[](U index) const noexcept { return (*this)[detail::Expr{index}]; }
 };
 
@@ -57,7 +57,7 @@ Constant(std::span<const T> data) -> Constant<T>;
 template<typename T>
 Constant(std::initializer_list<T>) -> Constant<T>;
 
-template<concepts::Container T>
+template<concepts::container T>
 Constant(T &&) -> Constant<std::remove_const_t<typename std::remove_cvref_t<T>::value_type>>;
 
 }// namespace luisa::compute::dsl

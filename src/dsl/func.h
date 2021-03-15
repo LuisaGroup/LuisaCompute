@@ -145,7 +145,7 @@ public:
     Kernel(const Kernel &) noexcept = default;
 
     template<typename Def>
-    requires concepts::InvocableRet<void, Def, detail::prototype_to_creation_t<Args>...>
+    requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
     Kernel(Def &&def) noexcept
         : _function{FunctionBuilder::define_kernel([&def] {
               def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
@@ -177,7 +177,7 @@ public:
     Callable(const Callable &) noexcept = default;
 
     template<typename Def>
-    requires concepts::Invocable<Def, detail::prototype_to_creation_t<Args>...>
+    requires concepts::invocable<Def, detail::prototype_to_creation_t<Args>...>
     Callable(Def &&def) noexcept
         : _function{FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {

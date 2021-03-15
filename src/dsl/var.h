@@ -29,7 +29,7 @@ private:
 public:
     // for local variables
     template<typename... Args>
-    requires concepts::Constructible<T, detail::expr_value_t<Args>...>
+    requires concepts::constructible<T, detail::expr_value_t<Args>...>
     Var(Args &&...args) noexcept
         : detail::Expr<T>{FunctionBuilder::current()->local(
             Type::of<T>(),

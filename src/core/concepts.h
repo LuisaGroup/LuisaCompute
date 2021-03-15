@@ -21,112 +21,110 @@ struct Noncopyable {
 };
 
 template<typename T>
-concept SpanConvertible = requires(T v) {
+concept span_convertible = requires(T v) {
     std::span{std::forward<T>(v)};
 };
 
 template<typename T, typename... Args>
-concept Constructible = requires(Args... args) {
+concept constructible = requires(Args... args) {
     T{args...};
 };
 
 template<typename Src, typename Dest>
-concept StaticConvertible = requires(Src s) {
+concept static_convertible = requires(Src s) {
     static_cast<Dest>(s);
 };
 
 template<typename Src, typename Dest>
-concept BitwiseConvertible = sizeof(Src) >= sizeof(Dest);
+concept bitwise_convertible = sizeof(Src) >= sizeof(Dest);
 
 template<typename Src, typename Dest>
-concept ReinterpretConvertible = requires(Src s) {
+concept reinterpret_convertible = requires(Src s) {
     reinterpret_cast<Dest *>(&s);
 };
 
 template<typename F, typename... Args>
-concept Invocable = std::is_invocable_v<F, Args...>;
+concept invocable = std::is_invocable_v<F, Args...>;
 
 template<typename Ret, typename F, typename... Args>
-concept InvocableRet = std::is_invocable_r_v<Ret, F, Args...>;
+concept invocable_with_return = std::is_invocable_r_v<Ret, F, Args...>;
 
 template<typename T>
-concept Pointer = std::is_pointer_v<T>;
+concept pointer = std::is_pointer_v<T>;
 
 template<typename T>
-concept NonPointer = std::negation_v<std::is_pointer<T>>;
+concept non_pointer = std::negation_v<std::is_pointer<T>>;
 
 template<typename T>
-concept Container = requires(T a) {
+concept container = requires(T a) {
     a.begin();
     a.size();
 };
 
 template<typename T>
-concept Integral = is_integral_v<T>;
+concept integral = is_integral_v<T>;
 
 template<typename T>
-concept Unsigned = std::conjunction_v<is_integral<T>, std::is_unsigned<T>>;
+concept scalar = is_scalar_v<T>;
 
 template<typename T>
-concept Scalar = is_scalar_v<T>;
+concept vector = is_vector_v<T>;
 
 template<typename T>
-concept Vector = is_vector_v<T>;
+concept matrix = is_matrix_v<T>;
 
 template<typename T>
-concept Matrix = is_matrix_v<T>;
-
-template<typename T>
-concept Basic = is_basic_v<T>;
+concept basic = is_basic_v<T>;
 
 // operator traits
 #define LUISA_MAKE_UNARY_OP_CONCEPT(op, op_name) \
     template<typename Operand>                   \
     concept op_name = requires(Operand operand) { op operand; };
-LUISA_MAKE_UNARY_OP_CONCEPT(+, Plus)
-LUISA_MAKE_UNARY_OP_CONCEPT(-, Minus)
-LUISA_MAKE_UNARY_OP_CONCEPT(!, Not)
-LUISA_MAKE_UNARY_OP_CONCEPT(~, BitNot)
+LUISA_MAKE_UNARY_OP_CONCEPT(+, operator_plus)
+LUISA_MAKE_UNARY_OP_CONCEPT(-, operator_minus)
+LUISA_MAKE_UNARY_OP_CONCEPT(!, operator_not)
+LUISA_MAKE_UNARY_OP_CONCEPT(~, operator_bit_not)
 #undef LUISA_MAKE_UNARY_OP_CONCEPT
 
 #define LUISA_MAKE_BINARY_OP_CONCEPT(op, op_name) \
     template<typename Lhs, typename Rhs>          \
     concept op_name = requires(Lhs lhs, Rhs rhs) { lhs op rhs; };
-LUISA_MAKE_BINARY_OP_CONCEPT(+, Add)
-LUISA_MAKE_BINARY_OP_CONCEPT(-, Sub)
-LUISA_MAKE_BINARY_OP_CONCEPT(*, Mul)
-LUISA_MAKE_BINARY_OP_CONCEPT(/, Div)
-LUISA_MAKE_BINARY_OP_CONCEPT(%, Mod)
-LUISA_MAKE_BINARY_OP_CONCEPT(&, BitAnd)
-LUISA_MAKE_BINARY_OP_CONCEPT(|, BitOr)
-LUISA_MAKE_BINARY_OP_CONCEPT(^, BitXor)
-LUISA_MAKE_BINARY_OP_CONCEPT(<<, ShiftLeft)
-LUISA_MAKE_BINARY_OP_CONCEPT(>>, ShiftRight)
-LUISA_MAKE_BINARY_OP_CONCEPT(&&, And)
-LUISA_MAKE_BINARY_OP_CONCEPT(||, Or)
-LUISA_MAKE_BINARY_OP_CONCEPT(==, Equal)
-LUISA_MAKE_BINARY_OP_CONCEPT(!=, NotEqual)
-LUISA_MAKE_BINARY_OP_CONCEPT(<, Less)
-LUISA_MAKE_BINARY_OP_CONCEPT(<=, LessEqual)
-LUISA_MAKE_BINARY_OP_CONCEPT(>, Greater)
-LUISA_MAKE_BINARY_OP_CONCEPT(>=, GreaterEqual)
-LUISA_MAKE_BINARY_OP_CONCEPT(=, Assign)
-LUISA_MAKE_BINARY_OP_CONCEPT(+=, AddAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(-=, SubAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(*=, MulAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(/=, DivAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(%=, ModAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(&=, BitAndAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(|=, BitOrAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(^=, BitXorAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(<<=, ShiftLeftAssign)
-LUISA_MAKE_BINARY_OP_CONCEPT(>>=, ShiftRightAssign)
+LUISA_MAKE_BINARY_OP_CONCEPT(+, operator_add)
+LUISA_MAKE_BINARY_OP_CONCEPT(-, operator_sub)
+LUISA_MAKE_BINARY_OP_CONCEPT(*, operator_mul)
+LUISA_MAKE_BINARY_OP_CONCEPT(/, operator_div)
+LUISA_MAKE_BINARY_OP_CONCEPT(%, operator_mod)
+LUISA_MAKE_BINARY_OP_CONCEPT(&, operator_bit_and)
+LUISA_MAKE_BINARY_OP_CONCEPT(|, operator_bit_or)
+LUISA_MAKE_BINARY_OP_CONCEPT(^, operator_bit_Xor)
+LUISA_MAKE_BINARY_OP_CONCEPT(<<, operator_shift_left)
+LUISA_MAKE_BINARY_OP_CONCEPT(>>, operator_shift_right)
+LUISA_MAKE_BINARY_OP_CONCEPT(&&, operator_and)
+LUISA_MAKE_BINARY_OP_CONCEPT(||, operator_or)
+LUISA_MAKE_BINARY_OP_CONCEPT(==, operator_equal)
+LUISA_MAKE_BINARY_OP_CONCEPT(!=, operator_not_equal)
+LUISA_MAKE_BINARY_OP_CONCEPT(<, operator_less)
+LUISA_MAKE_BINARY_OP_CONCEPT(<=, operator_less_equal)
+LUISA_MAKE_BINARY_OP_CONCEPT(>, operator_greater)
+LUISA_MAKE_BINARY_OP_CONCEPT(>=, operator_greater_equal)
+
+LUISA_MAKE_BINARY_OP_CONCEPT(=, assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(+=, add_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(-=, sub_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(*=, mul_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(/=, div_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(%=, mod_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(&=, bit_and_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(|=, bit_or_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(^=, bit_xor_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(<<=, shift_left_assign)
+LUISA_MAKE_BINARY_OP_CONCEPT(>>=, shift_right_assign)
 #undef LUISA_MAKE_BINARY_OP_CONCEPT
 
 template<typename Lhs, typename Rhs>
-concept Access = requires(Lhs lhs, Rhs rhs) { lhs[rhs]; };
+concept operator_access = requires(Lhs lhs, Rhs rhs) { lhs[rhs]; };
 
 template<typename T>
-concept Function = std::is_function_v<T>;
+concept function = std::is_function_v<T>;
 
 }// namespace luisa::concepts

@@ -87,7 +87,7 @@ private:
     ScopeStmt *_body;
 
 public:
-    template<concepts::Integral T>
+    template<concepts::integral T>
     explicit SwitchCaseStmtBuilder(T c) noexcept : _body{FunctionBuilder::current()->scope()} {
         FunctionBuilder::current()->case_(extract_expression(c), _body);
     }
@@ -253,28 +253,28 @@ template<typename T>
     return detail::SwitchStmtBuilder{std::forward<T>(expr)};
 }
 
-template<concepts::Integral T>
+template<concepts::integral T>
 [[nodiscard]] inline auto range(T end) noexcept { return detail::ForRange<T, false>{0, end, 1}; }
 
-template<concepts::Integral T>
+template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{0, Var{end}, 1}; }
 
-template<concepts::Integral T>
+template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, T end, T step = 1) noexcept {
     return detail::ForRange<T, true>{begin, end, step};
 }
 
-template<concepts::Integral T>
+template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, T step = 1) noexcept {
     return detail::ForRange<T, true>{begin, Var{end}, step};
 }
 
-template<concepts::Integral T>
+template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, T end, detail::Expr<T> step) noexcept {
     return detail::ForRange<T, true>{begin, end, Var{step}};
 }
 
-template<concepts::Integral T>
+template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, detail::Expr<T> step) noexcept {
     return detail::ForRange<T, true>{begin, Var{end}, Var{step}};
 }

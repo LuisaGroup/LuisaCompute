@@ -16,7 +16,7 @@ public:
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;
     ~DynamicModule() noexcept;
 
-    template<concepts::Function F>
+    template<concepts::function F>
     [[nodiscard]] auto function(std::string_view name) const noexcept {
         return reinterpret_cast<std::add_pointer_t<F>>(
             dynamic_module_find_symbol(_handle, name));

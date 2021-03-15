@@ -26,13 +26,13 @@ public:
     
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
-    template<concepts::Integral U>
+    template<concepts::integral U>
     [[nodiscard]] auto operator[](detail::Expr<U> index) const noexcept {
         return detail::Expr<T>{FunctionBuilder::current()->access(
             Type::of<T>(), _expression, index.expression())};
     }
 
-    template<concepts::Integral U>
+    template<concepts::integral U>
     [[nodiscard]] auto operator[](U index) const noexcept { return (*this)[detail::Expr{index}]; }
 };
 
