@@ -15,11 +15,6 @@
 
 namespace luisa::compute {
 
-struct TypeData {
-    std::string description;
-    std::vector<const Type *> members;
-};
-
 const Type *Type::from(std::string_view description) noexcept {
 
     static constexpr const Type *(*from_desc_impl)(std::string_view &) = [](std::string_view &s) noexcept -> const Type * {

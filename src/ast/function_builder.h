@@ -118,30 +118,19 @@ public:
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto return_type() const noexcept { return _ret; }
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
+    [[nodiscard]] static Function at(uint32_t uid) noexcept;
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;
     [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
 
     // build primitives
     template<typename Def>
     static auto define_kernel(Def &&def) noexcept {
-        if (!_function_stack().empty()) {
-            LUISA_ERROR_WITH_LOCATION("Kernel definitions cannot be nested.");
-        }
         return _define(Function::Tag::KERNEL, std::forward<Def>(def));
     }
 
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
-        auto f = _define(Function::Tag::CALLABLE, std::forward<Def>(def));
-        if (!f.builtin_variables().empty()
-            || !f.shared_variables().empty()
-            || !f.captured_buffers().empty()
-            || !f.captured_textures().empty()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Custom callables may not have builtin, "
-                "shared or captured variables.");
-        }
-        return f;
+        return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
     }
 
     [[nodiscard]] const RefExpr *thread_id() noexcept;

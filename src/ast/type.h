@@ -5,6 +5,8 @@
 #pragma once
 
 #include <cassert>
+#include <string>
+#include <vector>
 #include <string_view>
 #include <span>
 #include <memory>
@@ -12,11 +14,15 @@
 namespace luisa::compute {
 
 class Type;
-struct TypeData;
 class TypeRegistry;
 
 struct TypeVisitor {
     virtual void visit(const Type *) noexcept = 0;
+};
+
+struct TypeData {
+    std::string description;
+    std::vector<const Type *> members;
 };
 
 class Type {
