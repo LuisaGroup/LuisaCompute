@@ -1,9 +1,3 @@
-if (MSVC)
-    add_compile_options(/arch:AVX2 $<$<CONFIG:Release>:/O2> /favor:INTEL64)
-else ()
-    add_compile_options(-mtune=native $<$<CONFIG:Release>:-Ofast> -flto)
-endif ()
-
 add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
@@ -14,13 +8,6 @@ if (MSVC)
                                _ENABLE_EXTENDED_ALIGNED_STORAGE
                                _CRT_SECURE_NO_WARNINGS)
 endif ()
-
-set(BUILD_SHARED_LIBS ON)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-
-set(CMAKE_FIND_PACKAGE_SORT_ORDER NATURAL)
-set(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
 
 add_subdirectory(ext)
 add_subdirectory(core)
