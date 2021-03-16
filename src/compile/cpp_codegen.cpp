@@ -532,10 +532,10 @@ void CppCodegen::visit(const ForStmt *stmt) {
 
 void CppCodegen::_emit_access_attribute(Variable v) noexcept {
     switch (_function.variable_usage(v.uid())) {
-        case NONE: _scratch << "[[access::none]]"; break;
-        case READ: _scratch << "[[access::read]]"; break;
-        case WRITE: _scratch << "[[access::write]]"; break;
-        case READ_WRITE: _scratch << "[[access::read_write]]"; break;
+        case Usage::NONE: _scratch << "[[access::none]]"; break;
+        case Usage::READ: _scratch << "[[access::read]]"; break;
+        case Usage::WRITE: _scratch << "[[access::write]]"; break;
+        case Usage::READ_WRITE: _scratch << "[[access::read_write]]"; break;
         default: _scratch << "[[access::unknown]]"; break;
     }
 }

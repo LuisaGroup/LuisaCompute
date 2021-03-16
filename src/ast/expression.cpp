@@ -16,7 +16,7 @@ void CallExpr::_mark(Usage) const noexcept {
     for (auto arg : _arguments) { arg->mark(Usage::READ); }
     if (is_builtin()) {
         // TODO: builtins
-        if (_name == "texture_write") {  // texture_write(tex, ...)
+        if (_name == "texture_write") {// texture_write(tex, ...)
             _arguments.front()->mark(Usage::WRITE);
         }
     } else {
@@ -24,7 +24,7 @@ void CallExpr::_mark(Usage) const noexcept {
         auto args = f.arguments();
         for (auto i = 0u; i < args.size(); i++) {
             if (auto arg = args[i];
-                (f.variable_usage(arg.uid()) & Usage::WRITE) != 0u
+                (static_cast<uint32_t>(f.variable_usage(arg.uid())) & static_cast<uint32_t>(Usage::WRITE)) != 0u
                 && (arg.tag() == Variable::Tag::BUFFER
                     || arg.tag() == Variable::Tag::TEXTURE)) {
                 _arguments[i]->mark(Usage::WRITE);
