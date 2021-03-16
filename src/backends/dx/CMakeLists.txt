@@ -1,5 +1,7 @@
 if (WIN32)
     
+    message(STATUS "Build with DirectX")
+    
     set(DX_BACKEND_SOURCES
         CJsonObject/cJSON.h
         CJsonObject/JsonCompiler.h
@@ -216,8 +218,6 @@ if (WIN32)
         WorldManagement/World.cpp)
     
     luisa_compute_add_backend(dx SOURCES ${DX_BACKEND_SOURCES})
-    
-    target_compile_definitions(luisa-compute-backend-dx PRIVATE _UNICODE)
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     
     if (MSVC)
@@ -226,9 +226,10 @@ if (WIN32)
                                /permissive-
                                /MP
                                /GS /TP /Qpar /GL /W0 /Gy
-                               /Zi /Gm- /O2
+                               /Zi /Gm-
                                /sdl- /GT
-                               /QIntel-jcc-erratum /WX- /Zc:forScope
+                               $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/QIntel-jcc-erratum>
+                               /WX- /Zc:forScope
                                /Zc:inline /fp:precise
                                /arch:AVX2 /Gr /Oy /Oi /MD
                                /std:c++latest /FC
