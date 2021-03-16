@@ -1,5 +1,4 @@
 add_library(luisa-compute-backends INTERFACE)
-
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "" "SOURCES" ${ARGN})
     add_library(luisa-compute-backend-${name} MODULE ${BACKEND_SOURCES})
@@ -15,3 +14,4 @@ function(luisa_compute_add_backend name)
 endfunction()
 
 add_subdirectory(llvm)
+add_subdirectory(DXBackend_Project)
