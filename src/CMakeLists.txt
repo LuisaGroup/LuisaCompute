@@ -16,6 +16,7 @@ add_subdirectory(ast)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(backends)
+add_subdirectory(python)
 
 add_library(luisa-compute INTERFACE)
 target_link_libraries(luisa-compute INTERFACE
@@ -24,7 +25,9 @@ target_link_libraries(luisa-compute INTERFACE
                       luisa-compute-compile
                       luisa-compute-runtime
                       luisa-compute-dsl
-                      luisa-compute-backends)
+                      luisa-compute-backends
+                      luisa-compute-python)
+
 add_library(luisa::compute ALIAS luisa-compute)
 
 add_subdirectory(tests)
