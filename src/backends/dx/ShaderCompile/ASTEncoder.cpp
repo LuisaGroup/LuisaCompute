@@ -119,9 +119,9 @@ void ASTExprEncoder::visit(const LiteralExpr* expr) {
 	},
 			   expr->value());
 	//sz = data->size() - sz;
-	for (size_t i = sz; i < data->size(); ++i) {
-		std::cout << (uint)(*data)[i];
-	}
+//	for (size_t i = sz; i < data->size(); ++i) {
+//		std::cout << (uint)(*data)[i];
+//	}
 }
 void ASTExprEncoder::visit(const RefExpr* expr) {
 	Push<uint>(65536 * 6);
