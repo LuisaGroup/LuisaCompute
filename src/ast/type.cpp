@@ -122,6 +122,11 @@ const Type *Type::from(std::string_view description) noexcept {
             info._size = 0u;
             for (auto member : data.members) {
                 auto ma = member->alignment();
+                if (info._alignment < ma) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Struct alignment {} is smaller than member (description = {}, alignment = {}).",
+                        info._alignment, member->description(), member->alignment());
+                }
                 info._size = (info._size + ma - 1u) / ma * ma + member->size();
             }
             info._size = (info._size + info._alignment - 1u) / info._alignment * info._alignment;

@@ -2,7 +2,10 @@
 // Created by Mike Smith on 2021/3/16.
 //
 
+#include <pybind11/stl.h>
 #include <pybind11/pybind11.h>
+
+#include <ast/interface.h>
 #include <ast/function_builder.h>
 
 namespace luisa::compute::python {
@@ -50,14 +53,18 @@ PYBIND11_MODULE(pyluisa, m) {
             .def_property_readonly("tag", &Type::tag)
             .def_property_readonly("description", &Type::description)
             .def_property_readonly("dimension", &Type::dimension)
-            .def_property_readonly("members", &Type::members)
+            .def_property_readonly("members", [](const Type &t) {
+                auto m = t.members();
+                return std::vector<const Type *>{m.begin(), m.end()};
+            })
             .def_property_readonly("element", &Type::element)
             .def_property_readonly("is_scalar", &Type::is_scalar)
             .def_property_readonly("is_array", &Type::is_array)
             .def_property_readonly("is_vector", &Type::is_vector)
             .def_property_readonly("is_matrix", &Type::is_matrix)
             .def_property_readonly("is_structure", &Type::is_structure)
-            .def_property_readonly("is_atomic", &Type::is_atomic);
+            .def_property_readonly("is_atomic", &Type::is_atomic)
+            .def("__repr__", &Type::description);
 
         auto function = py::class_<Function>(ast, "Function");
         py::enum_<Function::Tag>(function, "Tag")
