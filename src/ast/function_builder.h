@@ -47,7 +47,7 @@ public:
 
 private:
     Arena _arena;
-    ScopeStmt *_body;
+    ScopeStmt _body;
     const Type *_ret{nullptr};
     ArenaVector<ScopeStmt *> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
@@ -68,9 +68,6 @@ protected:
     [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
-    static void _push(FunctionBuilder *func) noexcept;
-    static FunctionBuilder *_pop() noexcept;
-
     void _append(const Statement *statement) noexcept;
 
     [[nodiscard]] const RefExpr *_builtin(Variable::Tag tag) noexcept;
@@ -81,7 +78,7 @@ protected:
 
 private:
     explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept
-        : _body{_arena.create<ScopeStmt>(ArenaVector<const Statement *>(_arena))},
+        : _body{ArenaVector<const Statement *>(_arena)},
           _scope_stack{_arena},
           _builtin_variables{_arena},
           _shared_variables{_arena},
@@ -97,14 +94,10 @@ private:
 
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) noexcept {
-        auto f = [tag] {
-            std::scoped_lock lock{_function_registry_mutex()};
-            auto f_uid = static_cast<uint32_t>(_function_registry().size());
-            return _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
-        }();
-        _push(f);
-        f->with(f->_body, std::forward<Def>(def));
-        if (_pop() != f) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
+        auto f = create(tag);
+        push(f);
+        f->with(&f->_body, std::forward<Def>(def));
+        pop(f);
         return Function{f};
     }
 
@@ -121,7 +114,7 @@ public:
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
-    [[nodiscard]] const auto *body() const noexcept { return _body; }
+    [[nodiscard]] auto body() const noexcept { return &_body; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto return_type() const noexcept { return _ret; }
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
@@ -198,6 +191,10 @@ public:
         ScopeGuard guard{this, s};
         return body();
     }
+    
+    static void push(FunctionBuilder *) noexcept;
+    static void pop(const FunctionBuilder *) noexcept;
+    [[nodiscard]] static FunctionBuilder *create(Function::Tag) noexcept;
 
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;

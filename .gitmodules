@@ -10,3 +10,6 @@
 [submodule "src/ext/fmt"]
 	path = src/ext/fmt
 	url = https://github.com/fmtlib/fmt.git
+[submodule "src/ext/pybind11"]
+	path = src/ext/pybind11
+	url = https://github.com/pybind/pybind11.git

@@ -54,7 +54,7 @@ int main() {
 
         $for(x) : $range(v_int / 2) {
             array[x] = v_int.cast<float>();
-        }
+        };
 
         $ v_float = buffer_float[count];
         $ call_ret = callable(10, v_int, v_float);

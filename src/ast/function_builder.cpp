@@ -11,16 +11,16 @@ std::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
     return stack;
 }
 
-void FunctionBuilder::_push(FunctionBuilder *func) noexcept {
+void FunctionBuilder::push(FunctionBuilder *func) noexcept {
     _function_stack().emplace_back(func);
 }
 
-FunctionBuilder *FunctionBuilder::_pop() noexcept {
+void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
     if (_function_stack().empty()) { LUISA_ERROR_WITH_LOCATION("Invalid pop on empty function stack."); }
-    auto f = _function_stack().back();
+    if (auto f = _function_stack().back(); f != func) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
     _function_stack().pop_back();
-    return f;
 }
+
 FunctionBuilder *FunctionBuilder::current() noexcept {
     if (_function_stack().empty()) { LUISA_ERROR_WITH_LOCATION("Function stack is empty."); }
     return _function_stack().back();
@@ -253,6 +253,12 @@ void FunctionBuilder::for_(const Statement *init, const Expression *condition, c
 void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
     auto old_usage = _variable_usages[uid];
     _variable_usages[uid] = static_cast<Usage>(old_usage | usage);
+}
+
+FunctionBuilder *FunctionBuilder::create(Function::Tag tag) noexcept {
+    std::scoped_lock lock{_function_registry_mutex()};
+    auto f_uid = static_cast<uint32_t>(_function_registry().size());
+    return _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
 }
 
 }// namespace luisa::compute
