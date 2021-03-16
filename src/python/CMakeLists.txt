@@ -1,5 +1,5 @@
 add_library(luisa-compute-python INTERFACE)
 
 pybind11_add_module(pyluisa pyluisa.cpp)
-target_link_libraries(pyluisa PRIVATE luisa-compute-ast)
+target_link_libraries(pyluisa PRIVATE luisa-compute-ast luisa-compute-compile)
 add_dependencies(luisa-compute-python pyluisa)

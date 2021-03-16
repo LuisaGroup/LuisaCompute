@@ -60,6 +60,7 @@ public:
     [[nodiscard]] const Type *return_type() const noexcept;
     [[nodiscard]] Usage variable_usage(uint32_t uid) const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
+    [[nodiscard]] static Function at(uint32_t uid) noexcept;
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;
     [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
 };
