@@ -8,16 +8,16 @@ namespace luisa::compute {
 #ifdef NDEBUG
 DLL_EXPORT void CodegenBody(Function func) {
 	vengine::vengine_init_malloc(malloc, free);
-	LUISA_INFO("Start Working.");
+	LUISA_INFO("HLSL codegen started.");
 	vengine::string string_buffer;
-	string_buffer.reserve(4096u);
+	string_buffer.reserve(4095u);
 	auto t0 = std::chrono::high_resolution_clock::now();
 	CodegenUtility::ClearStructType();
 	StringStateVisitor vis;
 	func.body()->accept(vis);
 	{
 		vengine::string str;
-		str.reserve(1024u);
+		str.reserve(1023u);
 		CodegenUtility::PrintStructType(str);
 		for (auto& i : func.constants()) {
 			CodegenUtility::PrintConstant(i, str);
@@ -29,7 +29,7 @@ DLL_EXPORT void CodegenBody(Function func) {
 	}
 	auto t1 = std::chrono::high_resolution_clock::now();
 	using namespace std::chrono_literals;
-	LUISA_INFO("Finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+	LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
 
 	std::cout << string_buffer
 			  << CodegenUtility::GetFunctionDecl(func) << "\n"
@@ -557,6 +557,7 @@ vengine::string CodegenUtility::GetTypeName(Type const& type) {
 
 vengine::string CodegenUtility::GetFunctionDecl(Function func) {
 	vengine::string data;
+	data.reserve(1023u);
 	if (func.return_type()) {
 		data = CodegenUtility::GetTypeName(*func.return_type());
 	} else {
