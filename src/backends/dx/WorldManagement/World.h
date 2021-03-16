@@ -74,15 +74,15 @@ public:
 	~World();
 	void DestroyAllCameras();
 	
-	inline static constexpr World* GetInstance() { return current; }
-	inline static constexpr World* CreateInstance()
+	inline static World* GetInstance() { return current; }
+	inline static World* CreateInstance()
 	{
 		if (current)
 			return current;
 		new World();
 		return current;
 	}
-	inline static constexpr void DestroyInstance()
+	inline static void DestroyInstance()
 	{
 		auto a = current;
 		current = nullptr;

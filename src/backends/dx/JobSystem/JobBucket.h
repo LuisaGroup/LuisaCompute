@@ -30,7 +30,7 @@ public:
 	JobBucket(JobSystem* sys) noexcept;
 	~JobBucket() noexcept {}
 	template <typename T>
-	constexpr JobHandle GetTask(JobHandle const* dependedJobs, uint32_t dependCount, const T& func)
+	JobHandle GetTask(JobHandle const* dependedJobs, uint32_t dependCount, const T& func)
 	{
 		using Func = typename std::remove_cvref_t<T>;
 		Runnable<void()> runnable(func);
@@ -38,13 +38,13 @@ public:
 		return JobHandle(startEnd, startEnd);
 	}
 	template <typename T>
-	constexpr JobHandle GetTask(const std::initializer_list<JobHandle>& handles, const T& func)
+	JobHandle GetTask(const std::initializer_list<JobHandle>& handles, const T& func)
 	{
 		return GetTask<T>(handles.begin(), handles.size(), func);
 	}
 
 	template <typename T>
-	constexpr JobHandle GetParallelTask(JobHandle const* dependedJobs, uint32_t dependCount, uint parallelCount, uint threadCount, const T& func)
+	JobHandle GetParallelTask(JobHandle const* dependedJobs, uint32_t dependCount, uint parallelCount, uint threadCount, const T& func)
 	{
 		if (threadCount > sys->GetThreadCount())
 			threadCount = sys->GetThreadCount();
@@ -75,7 +75,7 @@ public:
 		return JobHandle(end - count, end);
 	}
 	template <typename T>
-	constexpr JobHandle GetParallelTask(const std::initializer_list<JobHandle>& handles, uint parallelCount, uint threadCount, const T& func)
+	JobHandle GetParallelTask(const std::initializer_list<JobHandle>& handles, uint parallelCount, uint threadCount, const T& func)
 	{
 		return GetParallelTask(handles.begin(), handles.size(), parallelCount, threadCount, func);
 	}

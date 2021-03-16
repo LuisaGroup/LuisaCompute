@@ -400,7 +400,7 @@ void RayTracingManager::BuildRTStruct(
 			CBufferChunk ck = getCBuffer(sizeof(RTUtilParam));
 			RTUtilParam param = {
 				(float3)moveDir,
-				renderersList.size()};
+				static_cast<uint>(renderersList.size())};
 			ck.CopyData(&param);
 			rtUtilcs->SetResource(
 				cmdList,
