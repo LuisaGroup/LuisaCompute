@@ -326,7 +326,7 @@ public:
 #define ThrowHResult(hr__, x)                                              \
 	{                                                                      \
 		vengine::wstring wfn = AnsiToWString(__FILE__);                    \
-		if (FAILED(hr__)) { throw DxException(hr__, L#x, wfn, __LINE__); } \
+		if (FAILED(hr__)) { throw DxException(hr__, L""#x, wfn, __LINE__); } \
 	}
 
 #endif

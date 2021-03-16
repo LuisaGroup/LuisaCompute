@@ -239,42 +239,42 @@ void ASTStmtEncoder::Push(uint8_t const* dd, size_t sz) {
 ASTStmtEncoder::~ASTStmtEncoder() {
 }
 
-void SerializeMD5_Result(Function const* func, vengine::vector<uint8_t>& result) {
+void SerializeMD5_Result(Function func, vengine::vector<uint8_t>& result) {
 	result.push_back(0);
-	for (auto& i : func->shared_variables()) {
+	for (auto& i : func.shared_variables()) {
 		GetVariableBinary(i, &result);
 	}
 	result.push_back(1);
-	for (auto& i : func->arguments()) {
+	for (auto& i : func.arguments()) {
 		GetVariableBinary(i, &result);
 	}
 	result.push_back(2);
-	for (auto& i : func->custom_callables()) {
+	for (auto& i : func.custom_callables()) {
 		auto customFunc = Function::callable(i);
-		SerializeMD5_Result(&customFunc, result);
+		SerializeMD5_Result(customFunc, result);
 	}
 	result.push_back(3);
-	GetTypeBinary(func->return_type(), &result);
+	GetTypeBinary(func.return_type(), &result);
 	result.push_back(4);
-	for (auto& i : func->constants()) {
+	for (auto& i : func.constants()) {
 		GetTypeBinary(i.type, &result);
 		PushToVector((uint8_t const*)&i.hash, sizeof(i.hash), &result);
 	}
 	result.push_back(5);
-	for (auto& i : func->captured_buffers()) {
+	for (auto& i : func.captured_buffers()) {
 		GetVariableBinary(i.variable, &result);
 	}
 	result.push_back(6);
-	for (auto& i : func->arguments()) {
+	for (auto& i : func.arguments()) {
 		GetVariableBinary(i, &result);
 	}
 	result.push_back(7);
 	ASTStmtEncoder encoder(&result);
-	func->body()->accept(encoder);
+	func.body()->accept(encoder);
 	//TODO: texture binding
 }
 
-DLL_EXPORT void SerializeMD5(Function const* func) {
+DLL_EXPORT void SerializeMD5(Function func) {
 	vengine::vengine_init_malloc();
 	vengine::vector<uint8_t> result;
 	result.reserve(65536);
