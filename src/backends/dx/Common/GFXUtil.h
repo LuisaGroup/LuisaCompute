@@ -22,7 +22,7 @@ using GFXResource = ID3D12Resource;
 using GFXPipelineState = ID3D12PipelineState;
 using GFXVertexBufferView = D3D12_VERTEX_BUFFER_VIEW;
 using GFXIndexBufferView = D3D12_INDEX_BUFFER_VIEW;
-#ifdef _DEBUG
+#ifndef NDEBUG
 #include <comdef.h>
 
 class DxException {
@@ -314,19 +314,19 @@ public:
 #define ThrowIfFailed(x) (x)
 #else
 
-#define ThrowIfFailed(x)                                                   \
-	{                                                                      \
-		HRESULT hr__ = (x);                                                \
-		vengine::wstring wfn = AnsiToWString(__FILE__);                    \
-		if (FAILED(hr__)) { throw DxException(hr__, L#x, wfn, __LINE__); } \
+#define ThrowIfFailed(x)                                                      \
+	{                                                                         \
+		HRESULT hr__ = (x);                                                   \
+		vengine::wstring wfn = AnsiToWString(__FILE__);                       \
+		if (FAILED(hr__)) { throw DxException(hr__, L"" #x, wfn, __LINE__); } \
 	}
 #endif
 #endif
 #ifndef ThrowHResult
-#define ThrowHResult(hr__, x)                                              \
-	{                                                                      \
-		vengine::wstring wfn = AnsiToWString(__FILE__);                    \
-		if (FAILED(hr__)) { throw DxException(hr__, L""#x, wfn, __LINE__); } \
+#define ThrowHResult(hr__, x)                                                 \
+	{                                                                         \
+		vengine::wstring wfn = AnsiToWString(__FILE__);                       \
+		if (FAILED(hr__)) { throw DxException(hr__, L"" #x, wfn, __LINE__); } \
 	}
 
 #endif

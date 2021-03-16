@@ -219,7 +219,7 @@ if (WIN32)
     
     luisa_compute_add_backend(dx SOURCES ${DX_BACKEND_SOURCES})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    
+
     if (MSVC)
         target_compile_options(luisa-compute-backend-dx PRIVATE
                                /JMC
@@ -231,11 +231,11 @@ if (WIN32)
                                $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/QIntel-jcc-erratum>
                                /WX- /Zc:forScope
                                /Zc:inline /fp:precise
-                               /arch:AVX2 /Gr /Oy /Oi /MD
+                               /arch:AVX2 /Gr /Oy /Oi
                                /std:c++latest /FC
                                /nologo
                                /Ot)
-        
+
         target_link_options(luisa-compute-backend-dx PRIVATE
                             /MANIFEST /LTCG:incremental /NXCOMPAT
                             /OPT:REF /INCREMENTAL:NO
