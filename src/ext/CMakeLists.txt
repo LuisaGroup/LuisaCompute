@@ -4,13 +4,14 @@ set(MI_OVERRIDE ON CACHE BOOL "" FORCE)
 set(MI_XMALLOC ON CACHE BOOL "" FORCE)
 set(MI_USE_CXX OFF CACHE BOOL "" FORCE)
 set(MI_OSX_ZONE ON CACHE BOOL "" FORCE)
-set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(MI_BUILD_SHARED ON CACHE BOOL "" FORCE)
+set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(mimalloc)
-set_target_properties(mimalloc-static PROPERTIES UNITY_BUILD ON)
-target_link_libraries(luisa-compute-ext INTERFACE mimalloc-static)
+target_link_libraries(luisa-compute-ext INTERFACE
+                      $<$<PLATFORM_ID:Windows>:mimalloc>
+                      $<$<NOT:$<PLATFORM_ID:Windows>>:mimalloc-static>)
 
 #set(WITH_WERROR OFF CACHE BOOL "" FORCE)
 #set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
