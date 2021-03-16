@@ -5,7 +5,7 @@ namespace luisa::compute {
 template<typename T>
 struct GetBinary {
 	static std::array<uint8_t, sizeof(T)> Get(T const& value) {
-		std::array<uint8_t, sizeof(T)> arr;
+		std::array<uint8_t, sizeof(T)> arr{};
 		if constexpr (std::is_same_v<bool, T>) {
 			arr[0] = (uint8_t)value;
 		} else if constexpr (std::is_same_v<float, T>) {
@@ -16,7 +16,7 @@ struct GetBinary {
 		} else if constexpr (std::is_same_v<uint, T>) {
 			*(uint*)arr.data() = value;
 		} else {
-			static_assert(false, "Unknown Type!");
+			static_assert(always_false_v<T>, "Unknown Type!");
 		}
 		return arr;
 	}
@@ -25,7 +25,7 @@ template<typename EleType, size_t N>
 struct GetBinary<Vector<EleType, N>> {
 	using ArrayType = std::array<uint8_t, sizeof(EleType) * N>;
 	static ArrayType Get(Vector<EleType, N> const& value) {
-		ArrayType sumArray;
+		ArrayType sumArray{};
 		for (size_t i = 0; i < N; ++i) {
 			auto arr = GetBinary<EleType>::Get(value[i]);
 			constexpr size_t byteSize = arr.size();
@@ -38,7 +38,7 @@ template<size_t N>
 struct GetBinary<Matrix<N>> {
 	using ArrayType = std::array<uint8_t, N * N * sizeof(float)>;
 	static ArrayType Get(Matrix<N> const& value) {
-		ArrayType sumArray;
+		ArrayType sumArray{};
 		for (size_t i = 0; i < N; ++i) {
 			auto arr = GetBinary<Vector<float, N>>::Get(value[i]);
 			constexpr size_t byteSize = arr.size();
