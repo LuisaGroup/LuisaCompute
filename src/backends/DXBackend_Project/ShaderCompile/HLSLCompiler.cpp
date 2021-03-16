@@ -27,12 +27,7 @@ void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
 	PROCESS_INFORMATION piProcInfo;
 
 	static HANDLE g_hInputFile = NULL;
-	vengine::wstring ws;
-	ws.resize(cmd.length());
-	for (uint i = 0; i < cmd.length(); ++i) {
-		ws[i] = cmd[i];
-	}
-
+	
 	//PROCESS_INFORMATION piProcInfo;
 	STARTUPINFO siStartInfo;
 	BOOL bSuccess = FALSE;
@@ -52,17 +47,29 @@ void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
 	siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
 
 	// Create the child process.
-
+	#ifdef UNICODE
 	bSuccess = CreateProcess(NULL,
-							 ws.data(),	  // command line
-							 NULL,		  // process security attributes
-							 NULL,		  // primary thread security attributes
-							 TRUE,		  // handles are inherited
-							 0,			  // creation flags
-							 NULL,		  // use parent's environment
-							 NULL,		  // use parent's current directory
-							 &siStartInfo,// STARTUPINFO pointer
-							 &piProcInfo);// receives PROCESS_INFORMATION
+							 vengine::wstring(cmd).data(),// command line
+							 NULL,			  // process security attributes
+							 NULL,			  // primary thread security attributes
+							 TRUE,			  // handles are inherited
+							 0,				  // creation flags
+							 NULL,			  // use parent's environment
+							 NULL,			  // use parent's current directory
+							 &siStartInfo,	  // STARTUPINFO pointer
+							 &piProcInfo);	  // receives PROCESS_INFORMATION
+	#else
+	bSuccess = CreateProcess(NULL,
+							 cmd.data(),  // command line
+							 NULL,			  // process security attributes
+							 NULL,			  // primary thread security attributes
+							 TRUE,			  // handles are inherited
+							 0,				  // creation flags
+							 NULL,			  // use parent's environment
+							 NULL,			  // use parent's current directory
+							 &siStartInfo,	  // STARTUPINFO pointer
+							 &piProcInfo);	  // receives PROCESS_INFORMATION
+	#endif
 	data->bSuccess = bSuccess;
 	data->piProcInfo = piProcInfo;
 }
