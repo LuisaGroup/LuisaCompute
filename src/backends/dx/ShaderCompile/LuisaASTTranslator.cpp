@@ -6,25 +6,30 @@
 
 namespace luisa::compute {
 #ifdef NDEBUG
-DLL_EXPORT void CodegenBody(Function const* func) {
-	vengine::vengine_init_malloc();
-	std::cout << "Start Working" << std::endl;
+DLL_EXPORT void CodegenBody(Function func) {
+	vengine::vengine_init_malloc(malloc, free);
+	LUISA_INFO("Start Working.");
+	auto t0 = std::chrono::high_resolution_clock::now();
 	CodegenUtility::ClearStructType();
 	StringStateVisitor vis;
-	func->body()->accept(vis);
+	func.body()->accept(vis);
 	{
 		vengine::string str;
 		CodegenUtility::PrintStructType(str);
-		for (auto& i : func->constants()) {
+		for (auto& i : func.constants()) {
 			CodegenUtility::PrintConstant(i, str);
 		}
-		CodegenUtility::PrintUniform(func->captured_buffers(), func->captured_textures(), str);
-		CodegenUtility::PrintGlobalVariables(func->arguments(), str);
+		CodegenUtility::PrintUniform(func.captured_buffers(), func.captured_textures(), str);
+		CodegenUtility::PrintGlobalVariables(func.arguments(), str);
 		std::cout << str << std::endl;
 	}
+	auto t1 = std::chrono::high_resolution_clock::now();
+	using namespace std::chrono_literals;
+	LUISA_INFO("Finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+	
 	std::cout << CodegenUtility::GetFunctionDecl(func) << std::endl;
 	std::cout << vis.ToString() << std::endl;
-	std::cout << "Finished" << std::endl;
+	
 }
 #endif
 template<typename T>
@@ -546,14 +551,14 @@ vengine::string CodegenUtility::GetTypeName(Type const& type) {
 	}
 }
 
-vengine::string CodegenUtility::GetFunctionDecl(Function const* func) {
+vengine::string CodegenUtility::GetFunctionDecl(Function func) {
 	vengine::string data;
-	if (func->return_type()) {
-		data = CodegenUtility::GetTypeName(*func->return_type());
+	if (func.return_type()) {
+		data = CodegenUtility::GetTypeName(*func.return_type());
 	} else {
 		data = "void"_sv;
 	}
-	switch (func->tag()) {
+	switch (func.tag()) {
 		case Function::Tag::CALLABLE:
 			data += " custom_"_sv;
 			break;
@@ -562,12 +567,12 @@ vengine::string CodegenUtility::GetFunctionDecl(Function const* func) {
 			//TODO: kernel specific declare
 			break;
 	}
-	data += vengine::to_string(func->uid());
-	if (func->arguments().empty()) {
+	data += vengine::to_string(func.uid());
+	if (func.arguments().empty()) {
 		data += "()"_sv;
 	} else {
 		data += '(';
-		for (auto&& i : func->arguments()) {
+		for (auto&& i : func.arguments()) {
 			RegistStructType(i.type());
 			data += CodegenUtility::GetTypeName(*i.type());
 			data += ' ';

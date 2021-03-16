@@ -150,8 +150,9 @@ int main(int argc, char *argv[]) {
 
 #ifdef LUISA_PLATFORM_WINDOWS
     DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
-    auto hlsl_codegen = dll.function<void(Function)>("SerializeMD5");
-    LUISA_INFO("Function Pointer: {}", fmt::ptr(hlsl_codegen));
+    auto hlsl_serialize = dll.function<void(Function)>("SerializeMD5");
+    auto hlsl_codegen = dll.function<void(Function)>("CodegenBody");
+    hlsl_serialize(function);
     hlsl_codegen(function);
 #endif
 }
