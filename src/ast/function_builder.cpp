@@ -12,13 +12,26 @@ std::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
 }
 
 void FunctionBuilder::push(FunctionBuilder *func) noexcept {
+    if (func->tag() == Function::Tag::KERNEL && !_function_stack().empty()) {
+        LUISA_ERROR_WITH_LOCATION("Kernel definitions cannot be nested.");
+    }
     _function_stack().emplace_back(func);
 }
 
 void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
     if (_function_stack().empty()) { LUISA_ERROR_WITH_LOCATION("Invalid pop on empty function stack."); }
-    if (auto f = _function_stack().back(); f != func) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
+    auto f = _function_stack().back();
     _function_stack().pop_back();
+    if (f != func) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
+    if (f->tag() == Function::Tag::CALLABLE
+        && !(f->builtin_variables().empty()
+             && f->shared_variables().empty()
+             && f->captured_buffers().empty()
+             && f->captured_textures().empty())) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Custom callables may not have builtin, "
+            "shared or captured variables.");
+    }
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
@@ -199,25 +212,21 @@ std::vector<std::unique_ptr<FunctionBuilder>> &FunctionBuilder::_function_regist
 }
 
 Function FunctionBuilder::callable(uint32_t uid) noexcept {
-    auto f = [uid] {
-        std::scoped_lock lock{_function_registry_mutex()};
-        const auto &registry = _function_registry();
-        if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid custom callable function with uid {}.", uid); }
-        return registry[uid].get();
-    }();
-    if (f->tag() != Function::Tag::CALLABLE) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a callable function.", uid); }
-    return Function{f};
+    auto f = at(uid);
+    if (f.tag() != Function::Tag::CALLABLE) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Requested function (with uid = {}) is not a callable function.", uid);
+    }
+    return f;
 }
 
 Function FunctionBuilder::kernel(uint32_t uid) noexcept {
-    auto f = [uid] {
-        std::scoped_lock lock{_function_registry_mutex()};
-        const auto &registry = _function_registry();
-        if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid kernel function with uid {}.", uid); }
-        return registry[uid].get();
-    }();
-    if (f->tag() != Function::Tag::KERNEL) { LUISA_ERROR_WITH_LOCATION("Requested function (with uid = {}) is not a kernel function.", uid); }
-    return Function{f};
+    auto f = at(uid);
+    if (f.tag() != Function::Tag::KERNEL) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Requested function (with uid = {}) is not a kernel function.", uid);
+    }
+    return f;
 }
 
 spin_mutex &FunctionBuilder::_function_registry_mutex() noexcept {
@@ -259,6 +268,13 @@ FunctionBuilder *FunctionBuilder::create(Function::Tag tag) noexcept {
     std::scoped_lock lock{_function_registry_mutex()};
     auto f_uid = static_cast<uint32_t>(_function_registry().size());
     return _function_registry().emplace_back(new FunctionBuilder{tag, f_uid}).get();
+}
+
+Function FunctionBuilder::at(uint32_t uid) noexcept {
+    std::scoped_lock lock{_function_registry_mutex()};
+    const auto &registry = _function_registry();
+    if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid kernel function with uid {}.", uid); }
+    return Function{registry[uid].get()};
 }
 
 }// namespace luisa::compute
