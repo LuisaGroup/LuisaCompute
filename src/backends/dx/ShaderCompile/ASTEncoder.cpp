@@ -275,10 +275,21 @@ void SerializeMD5_Result(Function func, vengine::vector<uint8_t>& result) {
 }
 
 DLL_EXPORT void SerializeMD5(Function func) {
-	vengine::vengine_init_malloc();
+	
+	LUISA_INFO("Hello, Husky!");
+	
+	vengine::vengine_init_malloc(malloc, free);
+//	vengine::vengine_init_malloc();
 	vengine::vector<uint8_t> result;
 	result.reserve(65536);
+	
+	LUISA_INFO("HLSL codegen started.");
+	auto t_husky = std::chrono::high_resolution_clock::now();
 	SerializeMD5_Result(func, result);
+	auto t_husky_stop = std::chrono::high_resolution_clock::now();
+	using namespace std::chrono_literals;
+	LUISA_INFO("HLSL codegen finished in {} ms.", (t_husky_stop - t_husky) / 1ns * 1e-6);
+	
 	std::span<uint8_t> arr(result.data(), result.size());
 
 	MD5 md5(arr);
