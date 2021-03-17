@@ -335,13 +335,13 @@ Matrix4 Transform::GetLocalToWorldMatrixCPU() const noexcept {
 	Matrix4 target;
 	{
 		TransformData const& data = transData;
-		XMVECTOR vec = XMLoadFloat3(&data.right);
+		Vector3 vec = data.right;
 		vec *= data.localScale.x;
 		target[0] = vec;
-		vec = XMLoadFloat3(&data.up);
+		vec = data.up;
 		vec *= data.localScale.y;
 		target[1] = vec;
-		vec = XMLoadFloat3(&data.forward);
+		vec = data.forward;
 		vec *= data.localScale.z;
 		target[2] = vec;
 		/*target[0].m128_f32[3] = data.position.x;
@@ -352,24 +352,7 @@ Matrix4 Transform::GetLocalToWorldMatrixCPU() const noexcept {
 	return transpose(target);
 }
 Matrix4 Transform::GetLocalToWorldMatrixGPU() const noexcept {
-	Matrix4 target;
-	{
-		TransformData const& data = transData;
-		XMVECTOR vec = XMLoadFloat3(&data.right);
-		vec *= data.localScale.x;
-		target[0] = vec;
-		vec = XMLoadFloat3(&data.up);
-		vec *= data.localScale.y;
-		target[1] = vec;
-		vec = XMLoadFloat3(&data.forward);
-		vec *= data.localScale.z;
-		target[2] = vec;
-		/*target[0].m128_f32[3] = data.position.x;
-		target[1].m128_f32[3] = data.position.y;
-		target[2].m128_f32[3] = data.position.z;*/
-		target[3] = Vector4(data.position, 1);
-	}
-	return target;
+	return GetLocalToWorldMatrixCPU();
 }
 Matrix4 Transform::GetWorldToLocalMatrixCPU() const noexcept {
 	return inverse(GetLocalToWorldMatrixCPU());

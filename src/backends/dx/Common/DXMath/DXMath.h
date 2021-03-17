@@ -28,32 +28,29 @@ typedef DirectX::XMFLOAT4X3 float4x3;
 #include <memory>
 #include <initializer_list>
 
-
-
-
 using namespace DirectX;
-inline float XM_CALLCONV CombineVector4(const XMVECTOR& V2) noexcept
-{
-	XMVECTOR vTemp2 = _mm_shuffle_ps(V2, V2, _MM_SHUFFLE(1, 0, 0, 0)); // Copy X to the Z position and Y to the W position
-	vTemp2 = _mm_add_ps(vTemp2, V2);          // Add Z = X+Z; W = Y+W;
+inline float XM_CALLCONV CombineVector4(XMVECTOR const& V2) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	return V2.vector4_f32[0] + V2.vector4_f32[1] + V2.vector4_f32[2] + V2.vector4_f32[3];
+#else
+	XMVECTOR vTemp2 = _mm_shuffle_ps(V2, V2, _MM_SHUFFLE(1, 0, 0, 0));// Copy X to the Z position and Y to the W position
+	vTemp2 = _mm_add_ps(vTemp2, V2);								  // Add Z = X+Z; W = Y+W;
 	return vTemp2.m128_f32[2] + vTemp2.m128_f32[3];
+#endif
 }
 
-inline float XM_CALLCONV dot(const Math::Vector4& vec, const Math::Vector4& vec1) noexcept
-{
+inline float XM_CALLCONV dot(const Math::Vector4& vec, const Math::Vector4& vec1) noexcept {
 	return CombineVector4(vec * vec1);
 }
 
-inline void XM_CALLCONV Float4x4ToFloat4x3(const float4x4& f, float4x3& result) noexcept
-{
+inline void XM_CALLCONV Float4x4ToFloat4x3(const float4x4& f, float4x3& result) noexcept {
 	memcpy(&result._11, &f._11, sizeof(float3));
 	memcpy(&result._21, &f._21, sizeof(float3));
 	memcpy(&result._31, &f._31, sizeof(float3));
 	memcpy(&result._41, &f._41, sizeof(float3));
 }
 
-inline void XM_CALLCONV Float4x3ToFloat4x4(const float4x3& f, float4x4& result) noexcept
-{
+inline void XM_CALLCONV Float4x3ToFloat4x4(const float4x3& f, float4x4& result) noexcept {
 	memcpy(&result._11, &f._11, sizeof(float3));
 	memcpy(&result._21, &f._21, sizeof(float3));
 	memcpy(&result._31, &f._31, sizeof(float3));
@@ -64,16 +61,13 @@ inline void XM_CALLCONV Float4x3ToFloat4x4(const float4x3& f, float4x4& result) 
 	result._44 = 1;
 }
 
-inline Math::Vector4 XM_CALLCONV abs(const Math::Vector4& vec) noexcept
-{
-	XMVECTOR& V = (XMVECTOR&)vec;
+inline Math::Vector4 XM_CALLCONV abs(const Math::Vector4& vec) noexcept {
+	XMVECTOR const& V = (XMVECTOR const&)vec;
 #if defined(_XM_NO_INTRINSICS_)
-	XMVECTORF32 vResult = { { {
-			fabsf(V.vector4_f32[0]),
-			fabsf(V.vector4_f32[1]),
-			fabsf(V.vector4_f32[2]),
-			fabsf(V.vector4_f32[3])
-		} } };
+	XMVECTORF32 vResult = {{{fabsf(V.vector4_f32[0]),
+							 fabsf(V.vector4_f32[1]),
+							 fabsf(V.vector4_f32[2]),
+							 fabsf(V.vector4_f32[3])}}};
 	return vResult.v;
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
 	return vabsq_f32(V);
@@ -85,16 +79,13 @@ inline Math::Vector4 XM_CALLCONV abs(const Math::Vector4& vec) noexcept
 #endif
 }
 
-inline Math::Vector3 XM_CALLCONV abs(const Math::Vector3& vec) noexcept
-{
-	XMVECTOR& V = (XMVECTOR&)vec;
+inline Math::Vector3 XM_CALLCONV abs(const Math::Vector3& vec) noexcept {
+	XMVECTOR const& V = (XMVECTOR const&)vec;
 #if defined(_XM_NO_INTRINSICS_)
-	XMVECTORF32 vResult = { { {
-			fabsf(V.vector4_f32[0]),
-			fabsf(V.vector4_f32[1]),
-			fabsf(V.vector4_f32[2]),
-			fabsf(V.vector4_f32[3])
-		} } };
+	XMVECTORF32 vResult = {{{fabsf(V.vector4_f32[0]),
+							 fabsf(V.vector4_f32[1]),
+							 fabsf(V.vector4_f32[2]),
+							 fabsf(V.vector4_f32[3])}}};
 	return vResult.v;
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
 	return vabsq_f32(V);
@@ -109,8 +100,7 @@ inline Math::Vector3 XM_CALLCONV abs(const Math::Vector3& vec) noexcept
 inline Math::Vector4 XM_CALLCONV clamp(
 	const Math::Vector4& v,
 	const Math::Vector4& min,
-	const Math::Vector4& max) noexcept
-{
+	const Math::Vector4& max) noexcept {
 	FXMVECTOR& V = (FXMVECTOR&)v;
 	FXMVECTOR& Min = (FXMVECTOR&)min;
 	FXMVECTOR& Max = (FXMVECTOR&)max;
@@ -137,8 +127,7 @@ inline Math::Vector4 XM_CALLCONV clamp(
 inline Math::Vector3 XM_CALLCONV clamp(
 	const Math::Vector3& v,
 	const Math::Vector3& min,
-	const Math::Vector3& max) noexcept
-{
+	const Math::Vector3& max) noexcept {
 	FXMVECTOR& V = (FXMVECTOR&)v;
 	FXMVECTOR& Min = (FXMVECTOR&)min;
 	FXMVECTOR& Max = (FXMVECTOR&)max;
@@ -162,10 +151,9 @@ inline Math::Vector3 XM_CALLCONV clamp(
 #endif
 }
 
-inline Math::Vector4 XM_CALLCONV lerp(const Math::Vector4& aa, const Math::Vector4& bb, float t) noexcept
-{
-	XMVECTOR& V0 = (XMVECTOR&)aa;
-	XMVECTOR& V1 = (XMVECTOR&)bb;
+inline Math::Vector4 XM_CALLCONV lerp(const Math::Vector4& aa, const Math::Vector4& bb, float t) noexcept {
+	XMVECTOR const& V0 = (XMVECTOR const&)aa;
+	XMVECTOR const& V1 = (XMVECTOR const&)bb;
 #if defined(_XM_NO_INTRINSICS_)
 
 	XMVECTOR Scale = XMVectorReplicate(t);
@@ -182,10 +170,9 @@ inline Math::Vector4 XM_CALLCONV lerp(const Math::Vector4& aa, const Math::Vecto
 	return _mm_add_ps(Result, V0);
 #endif
 }
-inline Math::Vector3 XM_CALLCONV lerp(const Math::Vector3& aa, const Math::Vector3& bb, float t) noexcept
-{
-	XMVECTOR& V0 = (XMVECTOR&)aa;
-	XMVECTOR& V1 = (XMVECTOR&)bb;
+inline Math::Vector3 XM_CALLCONV lerp(const Math::Vector3& aa, const Math::Vector3& bb, float t) noexcept {
+	XMVECTOR const& V0 = (XMVECTOR const&)aa;
+	XMVECTOR const& V1 = (XMVECTOR const&)bb;
 #if defined(_XM_NO_INTRINSICS_)
 
 	XMVECTOR Scale = XMVectorReplicate(t);
@@ -203,13 +190,12 @@ inline Math::Vector3 XM_CALLCONV lerp(const Math::Vector3& aa, const Math::Vecto
 #endif
 }
 
-inline Math::Vector4 XM_CALLCONV lerp(const Math::Vector4& aa, const Math::Vector4& bb, const Math::Vector4& t) noexcept
-{
-	XMVECTOR& V0 = (XMVECTOR&)aa;
-	XMVECTOR& V1 = (XMVECTOR&)bb;
+inline Math::Vector4 XM_CALLCONV lerp(const Math::Vector4& aa, const Math::Vector4& bb, const Math::Vector4& t) noexcept {
+	XMVECTOR const& V0 = (XMVECTOR const&)aa;
+	XMVECTOR const& V1 = (XMVECTOR const&)bb;
 #if defined(_XM_NO_INTRINSICS_)
 
-	XMVECTOR Scale = (XMVECTOR&)t;
+	XMVECTOR Scale = (XMVECTOR const&)t;
 	XMVECTOR Length = XMVectorSubtract(V1, V0);
 	return XMVectorMultiplyAdd(Length, Scale, V0);
 
@@ -218,13 +204,12 @@ inline Math::Vector4 XM_CALLCONV lerp(const Math::Vector4& aa, const Math::Vecto
 	return vmlaq_n_f32(V0, L, t);
 #elif defined(_XM_SSE_INTRINSICS_)
 	XMVECTOR L = _mm_sub_ps(V1, V0);
-	XMVECTOR& S = (XMVECTOR&)t;
+	XMVECTOR const& S = (XMVECTOR const&)t;
 	XMVECTOR Result = _mm_mul_ps(L, S);
 	return _mm_add_ps(Result, V0);
 #endif
 }
-inline float XM_CALLCONV lerp(float aa, float bb, float cc) noexcept
-{
+inline float XM_CALLCONV lerp(float aa, float bb, float cc) noexcept {
 	float l = bb - aa;
 	return aa + l * cc;
 }
@@ -232,13 +217,12 @@ inline float XM_CALLCONV lerpFloat(float aa, float bb, float cc) noexcept {
 	float l = bb - aa;
 	return aa + l * cc;
 }
-inline Math::Vector3 XM_CALLCONV lerp(const Math::Vector3& aa, const Math::Vector3& bb, const Math::Vector3& t) noexcept
-{
-	XMVECTOR& V0 = (XMVECTOR&)aa;
-	XMVECTOR& V1 = (XMVECTOR&)bb;
+inline Math::Vector3 XM_CALLCONV lerp(const Math::Vector3& aa, const Math::Vector3& bb, const Math::Vector3& t) noexcept {
+	XMVECTOR const& V0 = (XMVECTOR const&)aa;
+	XMVECTOR const& V1 = (XMVECTOR const&)bb;
 #if defined(_XM_NO_INTRINSICS_)
 
-	XMVECTOR Scale = (XMVECTOR&)t;
+	XMVECTOR Scale = (XMVECTOR const&)t;
 	XMVECTOR Length = XMVectorSubtract(V1, V0);
 	return XMVectorMultiplyAdd(Length, Scale, V0);
 
@@ -247,141 +231,121 @@ inline Math::Vector3 XM_CALLCONV lerp(const Math::Vector3& aa, const Math::Vecto
 	return vmlaq_n_f32(V0, L, t);
 #elif defined(_XM_SSE_INTRINSICS_)
 	XMVECTOR L = _mm_sub_ps(V1, V0);
-	XMVECTOR& S = (XMVECTOR&)t;
+	XMVECTOR const& S = (XMVECTOR const&)t;
 	XMVECTOR Result = _mm_mul_ps(L, S);
 	return _mm_add_ps(Result, V0);
 #endif
 }
 
-inline float XM_CALLCONV CombineVector3(const XMVECTOR& v) noexcept
-{
+inline float XM_CALLCONV CombineVector3(XMVECTOR const& v) noexcept {
 	return v.m128_f32[0] + v.m128_f32[1] + v.m128_f32[2];
 }
 
-inline float XM_CALLCONV dot(const Math::Vector3& vec, const Math::Vector3& vec1) noexcept
-{
+inline float XM_CALLCONV dot(const Math::Vector3& vec, const Math::Vector3& vec1) noexcept {
 	return CombineVector3(vec * vec1);
 }
-inline int2 XM_CALLCONV XM_CALLCONV mul(const int2& a, const int2& b) noexcept
-{
+inline int2 XM_CALLCONV mul(const int2& a, const int2& b) noexcept {
 	return int2(a.x * b.x, a.y * b.y);
 }
 
-inline uint2 XM_CALLCONV XM_CALLCONV mul(const uint2& a, const uint2& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y };
+inline uint2 XM_CALLCONV mul(const uint2& a, const uint2& b) noexcept {
+	return {a.x * b.x, a.y * b.y};
 }
 
-inline int3 XM_CALLCONV XM_CALLCONV mul(const int3& a, const int3& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y , a.z * b.z };
+inline int3 XM_CALLCONV mul(const int3& a, const int3& b) noexcept {
+	return {a.x * b.x, a.y * b.y, a.z * b.z};
 }
 
-inline uint3 XM_CALLCONV XM_CALLCONV mul(const uint3& a, const uint3& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y ,a.z * b.z };
+inline uint3 XM_CALLCONV mul(const uint3& a, const uint3& b) noexcept {
+	return {a.x * b.x, a.y * b.y, a.z * b.z};
 }
 
-inline int4 XM_CALLCONV XM_CALLCONV mul(const int4& a, const int4& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w };
+inline int4 XM_CALLCONV mul(const int4& a, const int4& b) noexcept {
+	return {a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w};
 }
 
-inline uint4 XM_CALLCONV XM_CALLCONV mul(const uint4& a, const uint4& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w };
+inline uint4 XM_CALLCONV mul(const uint4& a, const uint4& b) noexcept {
+	return {a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w};
 }
 
-inline float2 XM_CALLCONV XM_CALLCONV mul(const float2& a, const float2& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y };
+inline float2 XM_CALLCONV mul(const float2& a, const float2& b) noexcept {
+	return {a.x * b.x, a.y * b.y};
 }
 
-
-inline float3 XM_CALLCONV XM_CALLCONV mul(const float3& a, const float3& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y , a.z * b.z };
+inline float3 XM_CALLCONV mul(const float3& a, const float3& b) noexcept {
+	return {a.x * b.x, a.y * b.y, a.z * b.z};
 }
 
-
-
-inline float4 XM_CALLCONV XM_CALLCONV mul(const float4& a, const float4& b) noexcept
-{
-	return { a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w };
+inline float4 XM_CALLCONV mul(const float4& a, const float4& b) noexcept {
+	return {a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w};
 }
 
-
-
-inline Math::Vector4 XM_CALLCONV mul(const Math::Matrix4& m, const Math::Vector4& vec) noexcept
-{
+inline Math::Vector4 XM_CALLCONV mul(const Math::Matrix4& m, const Math::Vector4& vec) noexcept {
 	Math::Matrix4& mat = (Math::Matrix4&)m;
 	return {
 		dot(mat[0], vec),
 		dot(mat[1], vec),
 		dot(mat[2], vec),
-		dot(mat[3], vec)
-	};
+		dot(mat[3], vec)};
 }
 
-inline Math::Vector3 XM_CALLCONV mul(const Math::Matrix3& m, const  Math::Vector3& vec) noexcept
-{
+inline Math::Vector3 XM_CALLCONV mul(const Math::Matrix3& m, const Math::Vector3& vec) noexcept {
 	Math::Matrix4& mat = (Math::Matrix4&)m;
 	return {
-		CombineVector3(mat[0] * vec),
-		CombineVector3(mat[1] * vec),
-		CombineVector3(mat[2] * vec)
-	};
+		CombineVector3(reinterpret_cast<Math::Vector3&>(mat[0]) * vec),
+		CombineVector3(reinterpret_cast<Math::Vector3&>(mat[1]) * vec),
+		CombineVector3(reinterpret_cast<Math::Vector3&>(mat[2]) * vec)};
 }
 
-inline Math::Vector3 XM_CALLCONV sqrt(const Math::Vector3& vec) noexcept
-{
-	return _mm_sqrt_ps((XMVECTOR&)vec);
+inline Math::Vector3 XM_CALLCONV sqrt(const Math::Vector3& vec) noexcept {
+#if defined(_XM_NO_INTRINSICS_)
+	return Math::Vector3(XMVectorSqrt((FXMVECTOR&)vec));
+#else
+	return _mm_sqrt_ps((XMVECTOR const&)vec);
+#endif
 }
 
-inline Math::Vector4 XM_CALLCONV sqrt(const Math::Vector4& vec) noexcept
-{
-	return _mm_sqrt_ps((XMVECTOR&)vec);
+inline Math::Vector4 XM_CALLCONV sqrt(const Math::Vector4& vec) noexcept {
+#if defined(_XM_NO_INTRINSICS_)
+	return Math::Vector4(XMVectorSqrt((FXMVECTOR&)vec));
+#else
+	return _mm_sqrt_ps((XMVECTOR const&)vec);
+#endif
 }
 
-inline float XM_CALLCONV length(const Math::Vector3& vec1) noexcept
-{
+inline float XM_CALLCONV length(const Math::Vector3& vec1) noexcept {
 	Math::Vector3 diff = vec1 * vec1;
-	float dotValue = CombineVector3((const XMVECTOR&)diff);
+	float dotValue = CombineVector3((XMVECTOR const&)diff);
 	return sqrt(dotValue);
 }
 
-inline float XM_CALLCONV lengthsq(const Math::Vector3& vec1) noexcept
-{
+inline float XM_CALLCONV lengthsq(const Math::Vector3& vec1) noexcept {
 	Math::Vector3 diff = vec1 * vec1;
-	return  CombineVector3((const XMVECTOR&)diff);
+	return CombineVector3((XMVECTOR const&)diff);
 }
 
-inline float XM_CALLCONV lengthsq(const Math::Vector4& vec1) noexcept
-{
+inline float XM_CALLCONV lengthsq(const Math::Vector4& vec1) noexcept {
 	Math::Vector4 diff = vec1 * vec1;
-	return  CombineVector4((const XMVECTOR&)diff);
+	return CombineVector4((XMVECTOR const&)diff);
 }
 
-inline float XM_CALLCONV distance(const Math::Vector3& vec1, const Math::Vector3& vec2) noexcept
-{
+inline float XM_CALLCONV distance(const Math::Vector3& vec1, const Math::Vector3& vec2) noexcept {
 	Math::Vector3 diff = vec1 - vec2;
 	diff *= diff;
-	float dotValue = CombineVector3((const XMVECTOR&)diff);
+	float dotValue = CombineVector3((XMVECTOR const&)diff);
 	return sqrt(dotValue);
 }
 
-inline float XM_CALLCONV length(const Math::Vector4& vec1) noexcept
-{
+inline float XM_CALLCONV length(const Math::Vector4& vec1) noexcept {
 	Math::Vector4 diff = vec1 * vec1;
-	float dotValue = CombineVector4((const XMVECTOR&)diff);
+	float dotValue = CombineVector4((XMVECTOR const&)diff);
 	return sqrt(dotValue);
 }
 
-inline float XM_CALLCONV distance(const Math::Vector4& vec1, const Math::Vector4& vec2) noexcept
-{
+inline float XM_CALLCONV distance(const Math::Vector4& vec1, const Math::Vector4& vec2) noexcept {
 	Math::Vector4 diff = vec1 - vec2;
 	diff *= diff;
-	float dotValue = CombineVector4((const XMVECTOR&)diff);
+	float dotValue = CombineVector4((XMVECTOR const&)diff);
 	return sqrt(dotValue);
 }
 
@@ -392,77 +356,78 @@ inline float XM_CALLCONV distance(const Math::Vector4& vec1, const Math::Vector4
 #undef min
 #endif
 
-
- Math::Matrix4 XM_CALLCONV mul
-(
+DLL_COMMON Math::Matrix4 XM_CALLCONV mul(
 	const Math::Matrix4& m1,
 	const Math::Matrix4& m2) noexcept;
 
-template <typename T>
-constexpr inline T XM_CALLCONV Max(const T& a, const T& b) noexcept
-{
+template<typename T>
+constexpr inline T XM_CALLCONV Max(const T& a, const T& b) noexcept {
 	return (((a) > (b)) ? (a) : (b));
 }
-template <typename T>
-constexpr inline T XM_CALLCONV Max(std::initializer_list<T> const& vars) noexcept
-{
+template<typename T>
+constexpr inline T XM_CALLCONV Max(std::initializer_list<T> const& vars) noexcept {
 	if (vars.size() == 0) return T();
 	T const* maxValue = vars.begin();
-	for (T const* ptr = maxValue + 1; ptr != vars.end(); ++ptr)
-	{
+	for (T const* ptr = maxValue + 1; ptr != vars.end(); ++ptr) {
 		if (*maxValue < *ptr)
 			maxValue = ptr;
 	}
 	return *maxValue;
 }
-template <typename T>
-constexpr inline T XM_CALLCONV Min(std::initializer_list<T> const& vars) noexcept
-{
+template<typename T>
+constexpr inline T XM_CALLCONV Min(std::initializer_list<T> const& vars) noexcept {
 	if (vars.size() == 0) return T();
 	T const* minValue = vars.begin();
-	for (T const* ptr = minValue + 1; ptr != vars.end(); ++ptr)
-	{
+	for (T const* ptr = minValue + 1; ptr != vars.end(); ++ptr) {
 		if (*minValue > *ptr)
 			minValue = ptr;
 	}
 	return *minValue;
 }
-template <typename T>
-constexpr inline T XM_CALLCONV Min(const T& a, const T& b) noexcept
-{
+template<typename T>
+constexpr inline T XM_CALLCONV Min(const T& a, const T& b) noexcept {
 	return (((a) < (b)) ? (a) : (b));
 }
-template <>
-inline Math::Vector3 XM_CALLCONV Max<Math::Vector3>(const Math::Vector3& vec1, const Math::Vector3& vec2) noexcept
-{
-	return _mm_max_ps((XMVECTOR&)vec1, (XMVECTOR&)vec2);
+template<>
+inline Math::Vector3 XM_CALLCONV Max<Math::Vector3>(const Math::Vector3& vec1, const Math::Vector3& vec2) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	return Math::Vector3(XMVectorMax((FXMVECTOR&)vec1, (FXMVECTOR&)vec2));
+#else
+	return _mm_max_ps((XMVECTOR const&)vec1, (XMVECTOR const&)vec2);
+#endif
 }
-template <>
-inline Math::Vector4 XM_CALLCONV Max<Math::Vector4>(const Math::Vector4& vec1, const Math::Vector4& vec2) noexcept
-{
-	return _mm_max_ps((XMVECTOR&)vec1, (XMVECTOR&)vec2);
+template<>
+inline Math::Vector4 XM_CALLCONV Max<Math::Vector4>(const Math::Vector4& vec1, const Math::Vector4& vec2) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	return Math::Vector4(XMVectorMax((FXMVECTOR&)vec1, (FXMVECTOR&)vec2));
+#else
+	return _mm_max_ps((XMVECTOR const&)vec1, (XMVECTOR const&)vec2);
+#endif
 }
-template <>
-inline Math::Vector3 XM_CALLCONV Min<Math::Vector3>(const Math::Vector3& vec1, const Math::Vector3& vec2) noexcept
-{
-	return _mm_min_ps((XMVECTOR&)vec1, (XMVECTOR&)vec2);
+template<>
+inline Math::Vector3 XM_CALLCONV Min<Math::Vector3>(const Math::Vector3& vec1, const Math::Vector3& vec2) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	return Math::Vector3(XMVectorMin((FXMVECTOR&)vec1, (FXMVECTOR&)vec2));
+#else
+	return _mm_min_ps((XMVECTOR const&)vec1, (XMVECTOR const&)vec2);
+#endif
 }
-template <>
-inline Math::Vector4 XM_CALLCONV Min<Math::Vector4>(const Math::Vector4& vec1, const Math::Vector4& vec2) noexcept
-{
-	return _mm_min_ps((XMVECTOR&)vec1, (XMVECTOR&)vec2);
+template<>
+inline Math::Vector4 XM_CALLCONV Min<Math::Vector4>(const Math::Vector4& vec1, const Math::Vector4& vec2) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	return Math::Vector4(XMVectorMin((FXMVECTOR&)vec1, (FXMVECTOR&)vec2));
+#else
+	return _mm_min_ps((XMVECTOR const&)vec1, (XMVECTOR const&)vec2);
+#endif
 }
 
-inline Math::Vector4 XM_CALLCONV floor(const Math::Vector4& c) noexcept
-{
-	XMVECTOR& V = (XMVECTOR&)c;
+inline Math::Vector4 XM_CALLCONV floor(const Math::Vector4& c) noexcept {
+	XMVECTOR const& V = (XMVECTOR const&)c;
 #if defined(_XM_NO_INTRINSICS_)
-	XMVECTORF32 Result = { { {
-			floorf(V.vector4_f32[0]),
-			floorf(V.vector4_f32[1]),
-			floorf(V.vector4_f32[2]),
-			floorf(V.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{floorf(V.vector4_f32[0]),
+							floorf(V.vector4_f32[1]),
+							floorf(V.vector4_f32[2]),
+							floorf(V.vector4_f32[3])}}};
 	return Result.v;
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
 #if defined(_M_ARM64) || defined(_M_HYBRID_X86_ARM64)
@@ -502,16 +467,13 @@ inline Math::Vector4 XM_CALLCONV floor(const Math::Vector4& c) noexcept
 	return vResult;
 #endif
 }
-inline Math::Vector3 XM_CALLCONV floor(const Math::Vector3& c) noexcept
-{
-	XMVECTOR& V = (XMVECTOR&)c;
+inline Math::Vector3 XM_CALLCONV floor(const Math::Vector3& c) noexcept {
+	XMVECTOR const& V = (XMVECTOR const&)c;
 #if defined(_XM_NO_INTRINSICS_)
-	XMVECTORF32 Result = { { {
-			floorf(V.vector4_f32[0]),
-			floorf(V.vector4_f32[1]),
-			floorf(V.vector4_f32[2]),
-			floorf(V.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{floorf(V.vector4_f32[0]),
+							floorf(V.vector4_f32[1]),
+							floorf(V.vector4_f32[2]),
+							floorf(V.vector4_f32[3])}}};
 	return Result.v;
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
 #if defined(_M_ARM64) || defined(_M_HYBRID_X86_ARM64)
@@ -551,19 +513,14 @@ inline Math::Vector3 XM_CALLCONV floor(const Math::Vector3& c) noexcept
 	return vResult;
 #endif
 }
-inline Math::Vector4 XM_CALLCONV ceil
-(
-	const Math::Vector4& c
-) noexcept
-{
-	XMVECTOR& V = (XMVECTOR&)c;
+inline Math::Vector4 XM_CALLCONV ceil(
+	const Math::Vector4& c) noexcept {
+	XMVECTOR const& V = (XMVECTOR const&)c;
 #if defined(_XM_NO_INTRINSICS_)
-	XMVECTORF32 Result = { { {
-			ceilf(V.vector4_f32[0]),
-			ceilf(V.vector4_f32[1]),
-			ceilf(V.vector4_f32[2]),
-			ceilf(V.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{ceilf(V.vector4_f32[0]),
+							ceilf(V.vector4_f32[1]),
+							ceilf(V.vector4_f32[2]),
+							ceilf(V.vector4_f32[3])}}};
 	return Result.v;
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
 #if defined(_M_ARM64) || defined(_M_HYBRID_X86_ARM64)
@@ -603,19 +560,14 @@ inline Math::Vector4 XM_CALLCONV ceil
 	return vResult;
 #endif
 }
-inline Math::Vector3 XM_CALLCONV ceil
-(
-	const Math::Vector3& c
-) noexcept
-{
-	XMVECTOR& V = (XMVECTOR&)c;
+inline Math::Vector3 XM_CALLCONV ceil(
+	const Math::Vector3& c) noexcept {
+	XMVECTOR const& V = (XMVECTOR const&)c;
 #if defined(_XM_NO_INTRINSICS_)
-	XMVECTORF32 Result = { { {
-			ceilf(V.vector4_f32[0]),
-			ceilf(V.vector4_f32[1]),
-			ceilf(V.vector4_f32[2]),
-			ceilf(V.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{ceilf(V.vector4_f32[0]),
+							ceilf(V.vector4_f32[1]),
+							ceilf(V.vector4_f32[2]),
+							ceilf(V.vector4_f32[3])}}};
 	return Result.v;
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
 #if defined(_M_ARM64) || defined(_M_HYBRID_X86_ARM64)
@@ -656,30 +608,24 @@ inline Math::Vector3 XM_CALLCONV ceil
 #endif
 }
 
+DLL_COMMON Math::Matrix4 XM_CALLCONV transpose(const Math::Matrix4& m) noexcept;
 
- Math::Matrix4 XM_CALLCONV transpose(const Math::Matrix4& m) noexcept;
-
-inline Math::Vector3 XM_CALLCONV pow(const Math::Vector3& v1, const Math::Vector3& v2) noexcept
-{
-	XMVECTOR& V1 = (XMVECTOR&)v1;
-	XMVECTOR& V2 = (XMVECTOR&)v2;
+inline Math::Vector3 XM_CALLCONV pow(const Math::Vector3& v1, const Math::Vector3& v2) noexcept {
+	XMVECTOR const& V1 = (XMVECTOR const&)v1;
+	XMVECTOR const& V2 = (XMVECTOR const&)v2;
 #if defined(_XM_NO_INTRINSICS_)
 
-	XMVECTORF32 Result = { { {
-			powf(V1.vector4_f32[0], V2.vector4_f32[0]),
-			powf(V1.vector4_f32[1], V2.vector4_f32[1]),
-			powf(V1.vector4_f32[2], V2.vector4_f32[2]),
-			powf(V1.vector4_f32[3], V2.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{powf(V1.vector4_f32[0], V2.vector4_f32[0]),
+							powf(V1.vector4_f32[1], V2.vector4_f32[1]),
+							powf(V1.vector4_f32[2], V2.vector4_f32[2]),
+							powf(V1.vector4_f32[3], V2.vector4_f32[3])}}};
 	return Result.v;
 
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
-	XMVECTORF32 vResult = { { {
-			powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
-			powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
-			powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
-			powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))
-		} } };
+	XMVECTORF32 vResult = {{{powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
+							 powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
+							 powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
+							 powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))}}};
 	return vResult.v;
 #elif defined(_XM_SSE_INTRINSICS_)
 	__declspec(align(16)) float a[4];
@@ -695,28 +641,23 @@ inline Math::Vector3 XM_CALLCONV pow(const Math::Vector3& v1, const Math::Vector
 #endif
 }
 
-inline Math::Vector3 XM_CALLCONV pow(const Math::Vector3& v1, float v2) noexcept
-{
-	XMVECTOR& V1 = (XMVECTOR&)v1;
+inline Math::Vector3 XM_CALLCONV pow(const Math::Vector3& v1, float v2) noexcept {
+	XMVECTOR const& V1 = (XMVECTOR const&)v1;
 	XMVECTOR V2 = XMVectorReplicate(v2);
-	//XMVECTOR& V2 = (XMVECTOR&)v2;
+	//XMVECTOR const& V2 = (XMVECTOR const&)v2;
 #if defined(_XM_NO_INTRINSICS_)
 
-	XMVECTORF32 Result = { { {
-			powf(V1.vector4_f32[0], V2.vector4_f32[0]),
-			powf(V1.vector4_f32[1], V2.vector4_f32[1]),
-			powf(V1.vector4_f32[2], V2.vector4_f32[2]),
-			powf(V1.vector4_f32[3], V2.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{powf(V1.vector4_f32[0], V2.vector4_f32[0]),
+							powf(V1.vector4_f32[1], V2.vector4_f32[1]),
+							powf(V1.vector4_f32[2], V2.vector4_f32[2]),
+							powf(V1.vector4_f32[3], V2.vector4_f32[3])}}};
 	return Result.v;
 
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
-	XMVECTORF32 vResult = { { {
-			powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
-			powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
-			powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
-			powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))
-		} } };
+	XMVECTORF32 vResult = {{{powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
+							 powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
+							 powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
+							 powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))}}};
 	return vResult.v;
 #elif defined(_XM_SSE_INTRINSICS_)
 	__declspec(align(16)) float a[4];
@@ -732,27 +673,22 @@ inline Math::Vector3 XM_CALLCONV pow(const Math::Vector3& v1, float v2) noexcept
 #endif
 }
 
-inline Math::Vector4 XM_CALLCONV pow(const Math::Vector4& v1, const Math::Vector4& v2) noexcept
-{
-	XMVECTOR& V1 = (XMVECTOR&)v1;
-	XMVECTOR& V2 = (XMVECTOR&)v2;
+inline Math::Vector4 XM_CALLCONV pow(const Math::Vector4& v1, const Math::Vector4& v2) noexcept {
+	XMVECTOR const& V1 = (XMVECTOR const&)v1;
+	XMVECTOR const& V2 = (XMVECTOR const&)v2;
 #if defined(_XM_NO_INTRINSICS_)
 
-	XMVECTORF32 Result = { { {
-			powf(V1.vector4_f32[0], V2.vector4_f32[0]),
-			powf(V1.vector4_f32[1], V2.vector4_f32[1]),
-			powf(V1.vector4_f32[2], V2.vector4_f32[2]),
-			powf(V1.vector4_f32[3], V2.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{powf(V1.vector4_f32[0], V2.vector4_f32[0]),
+							powf(V1.vector4_f32[1], V2.vector4_f32[1]),
+							powf(V1.vector4_f32[2], V2.vector4_f32[2]),
+							powf(V1.vector4_f32[3], V2.vector4_f32[3])}}};
 	return Result.v;
 
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
-	XMVECTORF32 vResult = { { {
-			powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
-			powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
-			powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
-			powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))
-		} } };
+	XMVECTORF32 vResult = {{{powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
+							 powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
+							 powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
+							 powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))}}};
 	return vResult.v;
 #elif defined(_XM_SSE_INTRINSICS_)
 	__declspec(align(16)) float a[4];
@@ -768,27 +704,22 @@ inline Math::Vector4 XM_CALLCONV pow(const Math::Vector4& v1, const Math::Vector
 #endif
 }
 
-inline Math::Vector4 XM_CALLCONV pow(const Math::Vector4& v1, float v2)
-{
-	XMVECTOR& V1 = (XMVECTOR&)v1;
+inline Math::Vector4 XM_CALLCONV pow(const Math::Vector4& v1, float v2) {
+	XMVECTOR const& V1 = (XMVECTOR const&)v1;
 	XMVECTOR V2 = XMVectorReplicate(v2);
 #if defined(_XM_NO_INTRINSICS_)
 
-	XMVECTORF32 Result = { { {
-			powf(V1.vector4_f32[0], V2.vector4_f32[0]),
-			powf(V1.vector4_f32[1], V2.vector4_f32[1]),
-			powf(V1.vector4_f32[2], V2.vector4_f32[2]),
-			powf(V1.vector4_f32[3], V2.vector4_f32[3])
-		} } };
+	XMVECTORF32 Result = {{{powf(V1.vector4_f32[0], V2.vector4_f32[0]),
+							powf(V1.vector4_f32[1], V2.vector4_f32[1]),
+							powf(V1.vector4_f32[2], V2.vector4_f32[2]),
+							powf(V1.vector4_f32[3], V2.vector4_f32[3])}}};
 	return Result.v;
 
 #elif defined(_XM_ARM_NEON_INTRINSICS_)
-	XMVECTORF32 vResult = { { {
-			powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
-			powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
-			powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
-			powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))
-		} } };
+	XMVECTORF32 vResult = {{{powf(vgetq_lane_f32(V1, 0), vgetq_lane_f32(V2, 0)),
+							 powf(vgetq_lane_f32(V1, 1), vgetq_lane_f32(V2, 1)),
+							 powf(vgetq_lane_f32(V1, 2), vgetq_lane_f32(V2, 2)),
+							 powf(vgetq_lane_f32(V1, 3), vgetq_lane_f32(V2, 3))}}};
 	return vResult.v;
 #elif defined(_XM_SSE_INTRINSICS_)
 	__declspec(align(16)) float a[4];
@@ -803,274 +734,210 @@ inline Math::Vector4 XM_CALLCONV pow(const Math::Vector4& v1, float v2)
 	return vResult;
 #endif
 }
- Math::Matrix3 XM_CALLCONV transpose(const Math::Matrix3& m) noexcept;
+DLL_COMMON Math::Matrix3 XM_CALLCONV transpose(const Math::Matrix3& m) noexcept;
 
- Math::Matrix4 XM_CALLCONV inverse(const Math::Matrix4& m) noexcept;
+DLL_COMMON Math::Matrix4 XM_CALLCONV inverse(const Math::Matrix4& m) noexcept;
 
- Math::Matrix4 XM_CALLCONV QuaternionToMatrix(const Math::Vector4& q) noexcept;
+DLL_COMMON Math::Matrix4 XM_CALLCONV QuaternionToMatrix(const Math::Vector4& q) noexcept;
 
- Math::Matrix4 XM_CALLCONV GetTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
- Math::Matrix4 XM_CALLCONV GetTransposedTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
- Math::Vector4 XM_CALLCONV cross(const Math::Vector4& v1, const Math::Vector4& v2, const Math::Vector4& v3) noexcept;
- Math::Vector3 XM_CALLCONV cross(const Math::Vector3& v1, const Math::Vector3& v2) noexcept;
- Math::Vector4 XM_CALLCONV normalize(const Math::Vector4& v) noexcept;
- Math::Vector3 XM_CALLCONV normalize(const Math::Vector3& v) noexcept;
- Math::Matrix4 XM_CALLCONV GetInverseTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
-struct double2
-{
+DLL_COMMON Math::Matrix4 XM_CALLCONV GetTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
+DLL_COMMON Math::Matrix4 XM_CALLCONV GetTransposedTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
+DLL_COMMON Math::Vector4 XM_CALLCONV cross(const Math::Vector4& v1, const Math::Vector4& v2, const Math::Vector4& v3) noexcept;
+DLL_COMMON Math::Vector3 XM_CALLCONV cross(const Math::Vector3& v1, const Math::Vector3& v2) noexcept;
+DLL_COMMON Math::Vector4 XM_CALLCONV normalize(const Math::Vector4& v) noexcept;
+DLL_COMMON Math::Vector3 XM_CALLCONV normalize(const Math::Vector3& v) noexcept;
+DLL_COMMON Math::Matrix4 XM_CALLCONV GetInverseTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
+struct double2 {
 	double x;
 	double y;
-	double2(double x, double y) :
-		x(x), y(y) {}
+	double2(double x, double y) : x(x), y(y) {}
 	double2() : x(0), y(0) {}
-	double2(double x) :
-		x(x), y(x) {}
+	double2(double x) : x(x), y(x) {}
 };
 
-struct double3
-{
+struct double3 {
 	double x, y, z;
-	double3(double x, double y, double z) :
-		x(x), y(y), z(z) {}
-	double3() :x(0), y(0), z(0)
-	{
-
+	double3(double x, double y, double z) : x(x), y(y), z(z) {}
+	double3() : x(0), y(0), z(0) {
 	}
 	double3(double x) : x(x), y(x), z(x) {}
 };
 
-struct double4
-{
+struct double4 {
 	double x, y, z, w;
-	double4(double x, double y, double z, double w) :
-		x(x), y(y), z(z), w(w) {}
-	double4(double x) :
-		x(x), y(x), z(x), w(x) {}
-	double4() : x(0), y(0), z(0), w(0)
-	{
-
+	double4(double x, double y, double z, double w) : x(x), y(y), z(z), w(w) {}
+	double4(double x) : x(x), y(x), z(x), w(x) {}
+	double4() : x(0), y(0), z(0), w(0) {
 	}
 };
 
-inline float2 XM_CALLCONV operator+(const float2& a, const float2& b)
-{
+inline float2 XM_CALLCONV operator+(const float2& a, const float2& b) {
 	return float2(a.x + b.x, a.y + b.y);
 }
-inline float3 XM_CALLCONV operator+(const float3& a, const float3& b)
-{
+inline float3 XM_CALLCONV operator+(const float3& a, const float3& b) {
 	return float3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
-inline float4 XM_CALLCONV operator+(const float4& a, const float4& b)
-{
+inline float4 XM_CALLCONV operator+(const float4& a, const float4& b) {
 	return float4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
 }
-inline double2 XM_CALLCONV operator+(const double2& a, const double2& b)
-{
+inline double2 XM_CALLCONV operator+(const double2& a, const double2& b) {
 	return double2(a.x + b.x, a.y + b.y);
 }
-inline double3 XM_CALLCONV operator+(const double3& a, const double3& b)
-{
+inline double3 XM_CALLCONV operator+(const double3& a, const double3& b) {
 	return double3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
-inline double4 XM_CALLCONV operator+(const double4& a, const double4& b)
-{
+inline double4 XM_CALLCONV operator+(const double4& a, const double4& b) {
 	return double4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
 }
 
-inline int2 XM_CALLCONV operator+(const int2& a, const int2& b)
-{
+inline int2 XM_CALLCONV operator+(const int2& a, const int2& b) {
 	return int2(a.x + b.x, a.y + b.y);
 }
-inline int3 XM_CALLCONV operator+(const int3& a, const int3& b)
-{
+inline int3 XM_CALLCONV operator+(const int3& a, const int3& b) {
 	return int3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
-inline int4 XM_CALLCONV operator+(const int4& a, const int4& b)
-{
+inline int4 XM_CALLCONV operator+(const int4& a, const int4& b) {
 	return int4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
 }
 
-inline uint2 XM_CALLCONV operator+(const uint2& a, const uint2& b)
-{
+inline uint2 XM_CALLCONV operator+(const uint2& a, const uint2& b) {
 	return uint2(a.x + b.x, a.y + b.y);
 }
-inline uint3 XM_CALLCONV operator+(const uint3& a, const uint3& b)
-{
+inline uint3 XM_CALLCONV operator+(const uint3& a, const uint3& b) {
 	return uint3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
-inline uint4 XM_CALLCONV operator+(const uint4& a, const uint4& b)
-{
+inline uint4 XM_CALLCONV operator+(const uint4& a, const uint4& b) {
 	return uint4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
 }
 
-inline float2 XM_CALLCONV operator-(const float2& a, const float2& b)
-{
+inline float2 XM_CALLCONV operator-(const float2& a, const float2& b) {
 	return float2(a.x - b.x, a.y - b.y);
 }
-inline float3 XM_CALLCONV operator-(const float3& a, const float3& b)
-{
+inline float3 XM_CALLCONV operator-(const float3& a, const float3& b) {
 	return float3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
-inline float4 XM_CALLCONV operator-(const float4& a, const float4& b)
-{
+inline float4 XM_CALLCONV operator-(const float4& a, const float4& b) {
 	return float4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
 }
-inline double2 XM_CALLCONV operator-(const double2& a, const double2& b)
-{
+inline double2 XM_CALLCONV operator-(const double2& a, const double2& b) {
 	return double2(a.x - b.x, a.y - b.y);
 }
-inline double3 XM_CALLCONV operator-(const double3& a, const double3& b)
-{
+inline double3 XM_CALLCONV operator-(const double3& a, const double3& b) {
 	return double3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
-inline double4 XM_CALLCONV operator-(const double4& a, const double4& b)
-{
+inline double4 XM_CALLCONV operator-(const double4& a, const double4& b) {
 	return double4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
 }
 
-inline int2 XM_CALLCONV operator-(const int2& a, const int2& b)
-{
+inline int2 XM_CALLCONV operator-(const int2& a, const int2& b) {
 	return int2(a.x - b.x, a.y - b.y);
 }
-inline int3 XM_CALLCONV operator-(const int3& a, const int3& b)
-{
+inline int3 XM_CALLCONV operator-(const int3& a, const int3& b) {
 	return int3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
-inline int4 XM_CALLCONV operator-(const int4& a, const int4& b)
-{
+inline int4 XM_CALLCONV operator-(const int4& a, const int4& b) {
 	return int4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
 }
 
-inline uint2 XM_CALLCONV operator-(const uint2& a, const uint2& b)
-{
+inline uint2 XM_CALLCONV operator-(const uint2& a, const uint2& b) {
 	return uint2(a.x - b.x, a.y - b.y);
 }
-inline uint3 XM_CALLCONV operator-(const uint3& a, const uint3& b)
-{
+inline uint3 XM_CALLCONV operator-(const uint3& a, const uint3& b) {
 	return uint3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
-inline uint4 XM_CALLCONV operator-(const uint4& a, const uint4& b)
-{
+inline uint4 XM_CALLCONV operator-(const uint4& a, const uint4& b) {
 	return uint4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w);
 }
 
-inline float2 XM_CALLCONV operator*(const float2& a, const float2& b)
-{
+inline float2 XM_CALLCONV operator*(const float2& a, const float2& b) {
 	return float2(a.x * b.x, a.y * b.y);
 }
-inline float3 XM_CALLCONV operator*(const float3& a, const float3& b)
-{
+inline float3 XM_CALLCONV operator*(const float3& a, const float3& b) {
 	return float3(a.x * b.x, a.y * b.y, a.z * b.z);
 }
-inline float4 XM_CALLCONV operator*(const float4& a, const float4& b)
-{
+inline float4 XM_CALLCONV operator*(const float4& a, const float4& b) {
 	return float4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
 }
-inline double2 XM_CALLCONV operator*(const double2& a, const double2& b)
-{
+inline double2 XM_CALLCONV operator*(const double2& a, const double2& b) {
 	return double2(a.x * b.x, a.y * b.y);
 }
-inline double3 XM_CALLCONV operator*(const double3& a, const double3& b)
-{
+inline double3 XM_CALLCONV operator*(const double3& a, const double3& b) {
 	return double3(a.x * b.x, a.y * b.y, a.z * b.z);
 }
-inline double4 XM_CALLCONV operator*(const double4& a, const double4& b)
-{
+inline double4 XM_CALLCONV operator*(const double4& a, const double4& b) {
 	return double4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
 }
 
-inline int2 XM_CALLCONV operator*(const int2& a, const int2& b)
-{
+inline int2 XM_CALLCONV operator*(const int2& a, const int2& b) {
 	return int2(a.x * b.x, a.y * b.y);
 }
-inline int3 XM_CALLCONV operator*(const int3& a, const int3& b)
-{
+inline int3 XM_CALLCONV operator*(const int3& a, const int3& b) {
 	return int3(a.x * b.x, a.y * b.y, a.z * b.z);
 }
-inline int4 XM_CALLCONV operator*(const int4& a, const int4& b)
-{
+inline int4 XM_CALLCONV operator*(const int4& a, const int4& b) {
 	return int4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
 }
 
-inline uint2 XM_CALLCONV operator*(const uint2& a, const uint2& b)
-{
+inline uint2 XM_CALLCONV operator*(const uint2& a, const uint2& b) {
 	return uint2(a.x * b.x, a.y * b.y);
 }
-inline uint3 XM_CALLCONV operator*(const uint3& a, const uint3& b)
-{
+inline uint3 XM_CALLCONV operator*(const uint3& a, const uint3& b) {
 	return uint3(a.x * b.x, a.y * b.y, a.z * b.z);
 }
-inline uint4 XM_CALLCONV operator*(const uint4& a, const uint4& b)
-{
+inline uint4 XM_CALLCONV operator*(const uint4& a, const uint4& b) {
 	return uint4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w);
 }
-inline float2 XM_CALLCONV operator/(const float2& a, const float2& b)
-{
+inline float2 XM_CALLCONV operator/(const float2& a, const float2& b) {
 	return float2(a.x / b.x, a.y / b.y);
 }
-inline float3 XM_CALLCONV operator/(const float3& a, const float3& b)
-{
+inline float3 XM_CALLCONV operator/(const float3& a, const float3& b) {
 	return float3(a.x / b.x, a.y / b.y, a.z / b.z);
 }
-inline float4 XM_CALLCONV operator/(const float4& a, const float4& b)
-{
+inline float4 XM_CALLCONV operator/(const float4& a, const float4& b) {
 	return float4(a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w);
 }
-inline double2 XM_CALLCONV operator/(const double2& a, const double2& b)
-{
+inline double2 XM_CALLCONV operator/(const double2& a, const double2& b) {
 	return double2(a.x / b.x, a.y / b.y);
 }
-inline double3 XM_CALLCONV operator/(const double3& a, const double3& b)
-{
+inline double3 XM_CALLCONV operator/(const double3& a, const double3& b) {
 	return double3(a.x / b.x, a.y / b.y, a.z / b.z);
 }
-inline double4 XM_CALLCONV operator/(const double4& a, const double4& b)
-{
+inline double4 XM_CALLCONV operator/(const double4& a, const double4& b) {
 	return double4(a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w);
 }
 
-inline int2 XM_CALLCONV operator/(const int2& a, const int2& b)
-{
+inline int2 XM_CALLCONV operator/(const int2& a, const int2& b) {
 	return int2(a.x / b.x, a.y / b.y);
 }
-inline int3 XM_CALLCONV operator/(const int3& a, const int3& b)
-{
+inline int3 XM_CALLCONV operator/(const int3& a, const int3& b) {
 	return int3(a.x / b.x, a.y / b.y, a.z / b.z);
 }
-inline int4 XM_CALLCONV operator/(const int4& a, const int4& b)
-{
+inline int4 XM_CALLCONV operator/(const int4& a, const int4& b) {
 	return int4(a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w);
 }
 
-inline uint2 XM_CALLCONV operator/(const uint2& a, const uint2& b)
-{
+inline uint2 XM_CALLCONV operator/(const uint2& a, const uint2& b) {
 	return uint2(a.x / b.x, a.y / b.y);
 }
-inline uint3 XM_CALLCONV operator/(const uint3& a, const uint3& b)
-{
+inline uint3 XM_CALLCONV operator/(const uint3& a, const uint3& b) {
 	return uint3(a.x / b.x, a.y / b.y, a.z / b.z);
 }
-inline uint4 XM_CALLCONV operator/(const uint4& a, const uint4& b)
-{
+inline uint4 XM_CALLCONV operator/(const uint4& a, const uint4& b) {
 	return uint4(a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w);
 }
 
-
-inline float2& XM_CALLCONV operator+=(float2& a, const float2& b)
-{
+inline float2& XM_CALLCONV operator+=(float2& a, const float2& b) {
 	a.x += b.x;
 	a.y += b.y;
 	return a;
 }
-inline float3& XM_CALLCONV operator+=(float3& a, const float3& b)
-{
+inline float3& XM_CALLCONV operator+=(float3& a, const float3& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
 	return a;
 }
-inline float4& XM_CALLCONV operator+=(float4& a, const float4& b)
-{
+inline float4& XM_CALLCONV operator+=(float4& a, const float4& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
@@ -1078,42 +945,36 @@ inline float4& XM_CALLCONV operator+=(float4& a, const float4& b)
 	return a;
 }
 
-inline double2& XM_CALLCONV operator+=(double2& a, const double2& b)
-{
+inline double2& XM_CALLCONV operator+=(double2& a, const double2& b) {
 	a.x += b.x;
 	a.y += b.y;
 	return a;
 }
-inline double3& XM_CALLCONV operator+=(double3& a, const double3& b)
-{
+inline double3& XM_CALLCONV operator+=(double3& a, const double3& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
 	return a;
 }
-inline double4& XM_CALLCONV operator+=(double4& a, const double4& b)
-{
+inline double4& XM_CALLCONV operator+=(double4& a, const double4& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
 	a.w += b.w;
 	return a;
 }
-inline uint2& XM_CALLCONV operator+=(uint2& a, const uint2& b)
-{
+inline uint2& XM_CALLCONV operator+=(uint2& a, const uint2& b) {
 	a.x += b.x;
 	a.y += b.y;
 	return a;
 }
-inline uint3& XM_CALLCONV operator+=(uint3& a, const uint3& b)
-{
+inline uint3& XM_CALLCONV operator+=(uint3& a, const uint3& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
 	return a;
 }
-inline uint4& XM_CALLCONV operator+=(uint4& a, const uint4& b)
-{
+inline uint4& XM_CALLCONV operator+=(uint4& a, const uint4& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
@@ -1121,21 +982,18 @@ inline uint4& XM_CALLCONV operator+=(uint4& a, const uint4& b)
 	return a;
 }
 
-inline int2& XM_CALLCONV operator+=(int2& a, const int2& b)
-{
+inline int2& XM_CALLCONV operator+=(int2& a, const int2& b) {
 	a.x += b.x;
 	a.y += b.y;
 	return a;
 }
-inline int3& XM_CALLCONV operator+=(int3& a, const int3& b)
-{
+inline int3& XM_CALLCONV operator+=(int3& a, const int3& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
 	return a;
 }
-inline int4& XM_CALLCONV operator+=(int4& a, const int4& b)
-{
+inline int4& XM_CALLCONV operator+=(int4& a, const int4& b) {
 	a.x += b.x;
 	a.y += b.y;
 	a.z += b.z;
@@ -1143,22 +1001,18 @@ inline int4& XM_CALLCONV operator+=(int4& a, const int4& b)
 	return a;
 }
 
-
-inline float2& XM_CALLCONV operator-=(float2& a, const float2& b)
-{
+inline float2& XM_CALLCONV operator-=(float2& a, const float2& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	return a;
 }
-inline float3& XM_CALLCONV operator-=(float3& a, const float3& b)
-{
+inline float3& XM_CALLCONV operator-=(float3& a, const float3& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
 	return a;
 }
-inline float4& XM_CALLCONV operator-=(float4& a, const float4& b)
-{
+inline float4& XM_CALLCONV operator-=(float4& a, const float4& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
@@ -1166,42 +1020,36 @@ inline float4& XM_CALLCONV operator-=(float4& a, const float4& b)
 	return a;
 }
 
-inline double2& XM_CALLCONV operator-=(double2& a, const double2& b)
-{
+inline double2& XM_CALLCONV operator-=(double2& a, const double2& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	return a;
 }
-inline double3& XM_CALLCONV operator-=(double3& a, const double3& b)
-{
+inline double3& XM_CALLCONV operator-=(double3& a, const double3& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
 	return a;
 }
-inline double4& XM_CALLCONV operator-=(double4& a, const double4& b)
-{
+inline double4& XM_CALLCONV operator-=(double4& a, const double4& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
 	a.w -= b.w;
 	return a;
 }
-inline uint2& XM_CALLCONV operator-=(uint2& a, const uint2& b)
-{
+inline uint2& XM_CALLCONV operator-=(uint2& a, const uint2& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	return a;
 }
-inline uint3& XM_CALLCONV operator-=(uint3& a, const uint3& b)
-{
+inline uint3& XM_CALLCONV operator-=(uint3& a, const uint3& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
 	return a;
 }
-inline uint4& XM_CALLCONV operator-=(uint4& a, const uint4& b)
-{
+inline uint4& XM_CALLCONV operator-=(uint4& a, const uint4& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
@@ -1209,21 +1057,18 @@ inline uint4& XM_CALLCONV operator-=(uint4& a, const uint4& b)
 	return a;
 }
 
-inline int2& XM_CALLCONV operator-=(int2& a, const int2& b)
-{
+inline int2& XM_CALLCONV operator-=(int2& a, const int2& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	return a;
 }
-inline int3& XM_CALLCONV operator-=(int3& a, const int3& b)
-{
+inline int3& XM_CALLCONV operator-=(int3& a, const int3& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
 	return a;
 }
-inline int4& XM_CALLCONV operator-=(int4& a, const int4& b)
-{
+inline int4& XM_CALLCONV operator-=(int4& a, const int4& b) {
 	a.x -= b.x;
 	a.y -= b.y;
 	a.z -= b.z;
@@ -1231,22 +1076,18 @@ inline int4& XM_CALLCONV operator-=(int4& a, const int4& b)
 	return a;
 }
 
-
-inline float2& XM_CALLCONV operator*=(float2& a, const float2& b)
-{
+inline float2& XM_CALLCONV operator*=(float2& a, const float2& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	return a;
 }
-inline float3& XM_CALLCONV operator*=(float3& a, const float3& b)
-{
+inline float3& XM_CALLCONV operator*=(float3& a, const float3& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
 	return a;
 }
-inline float4& XM_CALLCONV operator*=(float4& a, const float4& b)
-{
+inline float4& XM_CALLCONV operator*=(float4& a, const float4& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
@@ -1254,42 +1095,36 @@ inline float4& XM_CALLCONV operator*=(float4& a, const float4& b)
 	return a;
 }
 
-inline double2& XM_CALLCONV operator*=(double2& a, const double2& b)
-{
+inline double2& XM_CALLCONV operator*=(double2& a, const double2& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	return a;
 }
-inline double3& XM_CALLCONV operator*=(double3& a, const double3& b)
-{
+inline double3& XM_CALLCONV operator*=(double3& a, const double3& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
 	return a;
 }
-inline double4& XM_CALLCONV operator*=(double4& a, const double4& b)
-{
+inline double4& XM_CALLCONV operator*=(double4& a, const double4& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
 	a.w *= b.w;
 	return a;
 }
-inline uint2& XM_CALLCONV operator*=(uint2& a, const uint2& b)
-{
+inline uint2& XM_CALLCONV operator*=(uint2& a, const uint2& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	return a;
 }
-inline uint3& XM_CALLCONV operator*=(uint3& a, const uint3& b)
-{
+inline uint3& XM_CALLCONV operator*=(uint3& a, const uint3& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
 	return a;
 }
-inline uint4& XM_CALLCONV operator*=(uint4& a, const uint4& b)
-{
+inline uint4& XM_CALLCONV operator*=(uint4& a, const uint4& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
@@ -1297,42 +1132,36 @@ inline uint4& XM_CALLCONV operator*=(uint4& a, const uint4& b)
 	return a;
 }
 
-inline int2& XM_CALLCONV operator*=(int2& a, const int2& b)
-{
+inline int2& XM_CALLCONV operator*=(int2& a, const int2& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	return a;
 }
-inline int3& XM_CALLCONV operator*=(int3& a, const int3& b)
-{
+inline int3& XM_CALLCONV operator*=(int3& a, const int3& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
 	return a;
 }
-inline int4& XM_CALLCONV operator*=(int4& a, const int4& b)
-{
+inline int4& XM_CALLCONV operator*=(int4& a, const int4& b) {
 	a.x *= b.x;
 	a.y *= b.y;
 	a.z *= b.z;
 	a.w *= b.w;
 	return a;
 }
-inline float2& XM_CALLCONV operator/=(float2& a, const float2& b)
-{
+inline float2& XM_CALLCONV operator/=(float2& a, const float2& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	return a;
 }
-inline float3& XM_CALLCONV operator/=(float3& a, const float3& b)
-{
+inline float3& XM_CALLCONV operator/=(float3& a, const float3& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
 	return a;
 }
-inline float4& XM_CALLCONV operator/=(float4& a, const float4& b)
-{
+inline float4& XM_CALLCONV operator/=(float4& a, const float4& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
@@ -1340,42 +1169,36 @@ inline float4& XM_CALLCONV operator/=(float4& a, const float4& b)
 	return a;
 }
 
-inline double2& XM_CALLCONV operator/=(double2& a, const double2& b)
-{
+inline double2& XM_CALLCONV operator/=(double2& a, const double2& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	return a;
 }
-inline double3& XM_CALLCONV operator/=(double3& a, const double3& b)
-{
+inline double3& XM_CALLCONV operator/=(double3& a, const double3& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
 	return a;
 }
-inline double4& XM_CALLCONV operator/=(double4& a, const double4& b)
-{
+inline double4& XM_CALLCONV operator/=(double4& a, const double4& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
 	a.w /= b.w;
 	return a;
 }
-inline uint2& XM_CALLCONV operator/=(uint2& a, const uint2& b)
-{
+inline uint2& XM_CALLCONV operator/=(uint2& a, const uint2& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	return a;
 }
-inline uint3& XM_CALLCONV operator/=(uint3& a, const uint3& b)
-{
+inline uint3& XM_CALLCONV operator/=(uint3& a, const uint3& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
 	return a;
 }
-inline uint4& XM_CALLCONV operator/=(uint4& a, const uint4& b)
-{
+inline uint4& XM_CALLCONV operator/=(uint4& a, const uint4& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
@@ -1383,132 +1206,103 @@ inline uint4& XM_CALLCONV operator/=(uint4& a, const uint4& b)
 	return a;
 }
 
-inline int2& XM_CALLCONV operator/=(int2& a, const int2& b)
-{
+inline int2& XM_CALLCONV operator/=(int2& a, const int2& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	return a;
 }
-inline int3& XM_CALLCONV operator/=(int3& a, const int3& b)
-{
+inline int3& XM_CALLCONV operator/=(int3& a, const int3& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
 	return a;
 }
-inline int4& XM_CALLCONV operator/=(int4& a, const int4& b)
-{
+inline int4& XM_CALLCONV operator/=(int4& a, const int4& b) {
 	a.x /= b.x;
 	a.y /= b.y;
 	a.z /= b.z;
 	a.w /= b.w;
 	return a;
 }
-namespace vengine
-{
-	template <>
-	struct hash<uint2>
-	{
-		inline uint64_t operator()(uint2 const& value) const noexcept
-		{
-			uint32_t const* ptr = (uint32_t const*)&value;
-			return Hash::Int32ArrayHash(ptr, ptr + 2);
-		}
-	};
-	template <>
-	struct hash<uint3>
-	{
-		inline uint64_t operator()(uint3 const& value) const noexcept
-		{
-			uint32_t const* ptr = (uint32_t const*)&value;
-			return Hash::Int32ArrayHash(ptr, ptr + 3);
-		}
-	};
-	template <>
-	struct hash<uint4>
-	{
-		inline uint64_t operator()(uint4 const& value) const noexcept
-		{
-			uint32_t const* ptr = (uint32_t const*)&value;
-			return Hash::Int32ArrayHash(ptr, ptr + 4);
-		}
-	};
-	template <>
-	struct hash<int2>
-	{
-		inline uint64_t operator()(int2  const& value) const noexcept
-		{
-			uint32_t const* ptr = (uint32_t const*)&value;
-			return Hash::Int32ArrayHash(ptr, ptr + 2);
-		}
-	};
-	template <>
-	struct hash<int3>
-	{
-		inline uint64_t operator()(int3 const& value) const noexcept
-		{
-			uint32_t const* ptr = (uint32_t const*)&value;
-			return Hash::Int32ArrayHash(ptr, ptr + 3);
-		}
-	};
-	template <>
-	struct hash<int4>
-	{
-		inline uint64_t operator()(int4 const& value) const noexcept
-		{
-			uint32_t const* ptr = (uint32_t const*)&value;
-			return Hash::Int32ArrayHash(ptr, ptr + 4);
-		}
-	};
-}
-namespace std
-{
-	template <>
-	struct equal_to<uint2>
-	{
-		inline bool operator()(uint2 const& a, uint2 const& b) const noexcept
-		{
-			return a.x == b.x && a.y == b.y;
-		}
-	};
-	template <>
-	struct equal_to<uint3>
-	{
-		inline bool operator()(uint3 const& a, uint3 const& b) const noexcept
-		{
-			return a.x == b.x && a.y == b.y && a.z == b.z;
-		}
-	};
-	template <>
-	struct equal_to<uint4>
-	{
-		inline bool operator()(uint4 const& a, uint4 const& b) const noexcept
-		{
-			return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
-		}
-	};
-	template <>
-	struct equal_to<int2>
-	{
-		inline bool operator()(int2 const& a, int2 const& b) const noexcept
-		{
-			return a.x == b.x && a.y == b.y;
-		}
-	};
-	template <>
-	struct equal_to<int3>
-	{
-		inline bool operator()(int3 const& a, int3 const& b) const noexcept
-		{
-			return a.x == b.x && a.y == b.y && a.z == b.z;
-		}
-	};
-	template <>
-	struct equal_to<int4>
-	{
-		inline bool operator()(int4 const& a, int4 const& b) const noexcept
-		{
-			return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
-		}
-	};
-}
+namespace vengine {
+template<>
+struct hash<uint2> {
+	inline uint64_t operator()(uint2 const& value) const noexcept {
+		uint32_t const* ptr = (uint32_t const*)&value;
+		return Hash::Int32ArrayHash(ptr, ptr + 2);
+	}
+};
+template<>
+struct hash<uint3> {
+	inline uint64_t operator()(uint3 const& value) const noexcept {
+		uint32_t const* ptr = (uint32_t const*)&value;
+		return Hash::Int32ArrayHash(ptr, ptr + 3);
+	}
+};
+template<>
+struct hash<uint4> {
+	inline uint64_t operator()(uint4 const& value) const noexcept {
+		uint32_t const* ptr = (uint32_t const*)&value;
+		return Hash::Int32ArrayHash(ptr, ptr + 4);
+	}
+};
+template<>
+struct hash<int2> {
+	inline uint64_t operator()(int2 const& value) const noexcept {
+		uint32_t const* ptr = (uint32_t const*)&value;
+		return Hash::Int32ArrayHash(ptr, ptr + 2);
+	}
+};
+template<>
+struct hash<int3> {
+	inline uint64_t operator()(int3 const& value) const noexcept {
+		uint32_t const* ptr = (uint32_t const*)&value;
+		return Hash::Int32ArrayHash(ptr, ptr + 3);
+	}
+};
+template<>
+struct hash<int4> {
+	inline uint64_t operator()(int4 const& value) const noexcept {
+		uint32_t const* ptr = (uint32_t const*)&value;
+		return Hash::Int32ArrayHash(ptr, ptr + 4);
+	}
+};
+}// namespace vengine
+namespace std {
+template<>
+struct equal_to<uint2> {
+	inline bool operator()(uint2 const& a, uint2 const& b) const noexcept {
+		return a.x == b.x && a.y == b.y;
+	}
+};
+template<>
+struct equal_to<uint3> {
+	inline bool operator()(uint3 const& a, uint3 const& b) const noexcept {
+		return a.x == b.x && a.y == b.y && a.z == b.z;
+	}
+};
+template<>
+struct equal_to<uint4> {
+	inline bool operator()(uint4 const& a, uint4 const& b) const noexcept {
+		return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+	}
+};
+template<>
+struct equal_to<int2> {
+	inline bool operator()(int2 const& a, int2 const& b) const noexcept {
+		return a.x == b.x && a.y == b.y;
+	}
+};
+template<>
+struct equal_to<int3> {
+	inline bool operator()(int3 const& a, int3 const& b) const noexcept {
+		return a.x == b.x && a.y == b.y && a.z == b.z;
+	}
+};
+template<>
+struct equal_to<int4> {
+	inline bool operator()(int4 const& a, int4 const& b) const noexcept {
+		return a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+	}
+};
+}// namespace std

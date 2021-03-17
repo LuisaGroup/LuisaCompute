@@ -316,7 +316,8 @@ public:
 	void IterateAll(const Func& func) const noexcept {
 		using FuncType = std::remove_cvref_t<std::remove_pointer_t<Func>>;
 		static constexpr size_t ArgSize = FunctionDataType<FuncType>::ArgsCount;
-		static constexpr bool noEarlyBreak = std::is_same_v<FunctionDataType<FuncType>::RetType, void>;
+		using ReturnType = typename FunctionDataType<FuncType>::RetType;
+		static constexpr bool noEarlyBreak = std::is_same_v<ReturnType, void>;
 		if constexpr (ArgSize == 3) {
 			for (uint64_t i = 0; i < allocatedNodes.size(); ++i) {
 				LinkNode* vv = allocatedNodes[i];
@@ -351,7 +352,7 @@ public:
 				}
 			}
 		} else {
-			static_assert(false, "Invalid Iterate Functions");
+			static_assert(std::_Always_false<Func>, "Invalid Iterate Functions");
 		}
 	}
 	void Reserve(uint64_t capacity) noexcept {

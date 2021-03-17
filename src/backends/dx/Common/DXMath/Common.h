@@ -12,6 +12,7 @@
 //
 
 #pragma once
+#include <config.h>
 
 #include <DirectXMath.h>
 #include <intrin.h>

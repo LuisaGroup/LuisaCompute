@@ -192,42 +192,6 @@ public:
 			stackObj.Delete();
 	}
 };
-
-template<typename F, typename T>
-struct LoopClass;
-
-template<typename F, size_t... idx>
-struct LoopClass<F, std::index_sequence<idx...>> {
-	static void Do(const F& f) noexcept {
-		char c[] = {(f(idx), 0)...};
-	}
-};
-
-template<typename F, uint32_t count>
-struct LoopClassEarlyBreak {
-	static bool Do(const F& f) noexcept {
-		if (!LoopClassEarlyBreak<F, count - 1>::Do((f))) return false;
-		return f(count);
-	}
-};
-
-template<typename F>
-struct LoopClassEarlyBreak<F, 0> {
-	static bool Do(const F& f) noexcept {
-		return f(0);
-	}
-};
-
-template<typename F, uint32_t count>
-void InnerLoop(const F& function) noexcept {
-	LoopClass<typename std::remove_cvref_t<F>, std::make_index_sequence<count>>::Do(function);
-}
-
-template<typename F, uint32_t count>
-bool InnerLoopEarlyBreak(const F& function) noexcept {
-	return LoopClassEarlyBreak<typename std::remove_cvref_t<F>, count - 1>::Do(function);
-}
-
 //Declare Tuple
 
 template<typename T>

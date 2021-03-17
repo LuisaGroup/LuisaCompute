@@ -18,13 +18,13 @@ struct TupleGetter<index, Tuple<>>
 	static constexpr Type& Get(Tuple<>& value) noexcept
 	{
 		//Tuple Out of Range!
-		static_assert(false);
+		static_assert(std::_Always_false<char>);
 		return value;
 	}
 	static constexpr Type const& Get(Tuple<> const& value) noexcept
 	{
 		//Tuple Out of Range!
-		static_assert(false);
+		static_assert(std::_Always_false<char>);
 		return value;
 
 	}
@@ -132,12 +132,12 @@ struct GetFirstFromTuple<Tar>
 	static constexpr Tar& Run(Tuple<>& tuple) noexcept
 	{
 		//Can't find type
-		static_assert(false);
+		static_assert(std::_Always_false<char>);
 	}
 	static constexpr Tar const& Run(Tuple<> const& tuple) noexcept
 	{
 		//Can't find type
-		static_assert(false);
+		static_assert(std::_Always_false<char>);
 	}
 };
 template <typename Tar, typename T, typename ... Args>
@@ -206,7 +206,7 @@ struct GetLastFromTuple< Tar, T, Args...>
 		if constexpr (!lastMatched && !currentMatched)
 		{
 			//Can't find type
-			static_assert(false);
+			static_assert(std::_Always_false<char>);
 		}
 	}
 	static constexpr Tar const& Run(Tuple<T, Args...> const& tuple) noexcept
@@ -222,7 +222,7 @@ struct GetLastFromTuple< Tar, T, Args...>
 		if constexpr (!lastMatched && !currentMatched)
 		{
 			//Can't find type
-			static_assert(false);
+			static_assert(std::_Always_false<char>);
 		}
 	}
 };
