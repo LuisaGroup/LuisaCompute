@@ -35,13 +35,9 @@ int main(int argc, char *argv[]) {
     auto working_dir = std::filesystem::current_path();
     Context context{runtime_dir, working_dir};
 
-#ifdef __APPLE__
-    auto device = context.create_device("metal");
-#else
-    auto device = context.create_device("dx");
-#endif
-    auto buffer = device->create_buffer<float4>(1024u);
-    auto float_buffer = device->create_buffer<float>(1024u);
+    FakeDevice device;
+    auto buffer = device.create_buffer<float4>(1024u);
+    auto float_buffer = device.create_buffer<float>(1024u);
 
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
@@ -152,7 +148,7 @@ int main(int argc, char *argv[]) {
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
 
-#ifdef LUISA_PLATFORM_WINDOWS
+#if defined(LUISA_BACKEND_DX_ENABLED)
     DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
     auto hlsl_serialize = dll.function<void(Function)>("SerializeMD5");
     auto hlsl_codegen = dll.function<void(Function)>("CodegenBody");

@@ -10,6 +10,7 @@
 #include <runtime/buffer.h>
 #include <runtime/stream.h>
 #include <dsl/buffer_view.h>
+#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -22,11 +23,14 @@ int main(int argc, char *argv[]) {
     auto working_dir = std::filesystem::current_path();
     Context context{runtime_dir, working_dir};
 
-#ifdef __APPLE__
+#if defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
-#else
+#elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
+#else
+    auto device = std::make_unique<FakeDevice>();
 #endif
+    
     auto buffer = device->create_buffer<float>(16384u);
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);

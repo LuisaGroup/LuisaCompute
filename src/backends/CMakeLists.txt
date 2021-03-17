@@ -11,11 +11,13 @@ function(luisa_compute_add_backend name)
                           LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends/"
                           RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/"
                           DEBUG_POSTFIX "")
+    string(TOUPPER ${name} UPPER_NAME)
+    target_compile_definitions(luisa-compute-backends INTERFACE LUISA_BACKEND_${UPPER_NAME}_ENABLED)
 endfunction()
 
-option(LUISA_COMPUTE_ENABLE_DX ON "Enable DirectX backend")
-option(LUISA_COMPUTE_ENABLE_LLVM ON "Enable LLVM backend")
-option(LUISA_COMPUTE_ENABLE_METAL ON "Enable Metal backend")
+option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
+option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
+option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
 
 if (LUISA_COMPUTE_ENABLE_DX)
     add_subdirectory(dx)
