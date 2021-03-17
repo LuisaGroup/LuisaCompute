@@ -39,8 +39,11 @@ int main(int argc, char *argv[]) {
     auto stream = device->create_stream();
     
     auto t0 = std::chrono::high_resolution_clock::now();
-    stream << buffer.upload(data.data())
+    stream << [] { LUISA_INFO("Hello!"); }
+           << buffer.upload(data.data())
+           << [] { LUISA_INFO("Here!"); }
            << buffer.download(results.data())
+           << [] { LUISA_INFO("Bye!"); }
            << synchronize();
     auto t1 = std::chrono::high_resolution_clock::now();
     

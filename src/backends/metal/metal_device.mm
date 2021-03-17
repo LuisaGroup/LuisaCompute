@@ -38,7 +38,7 @@ void MetalDevice::_dispose_buffer(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::_create_stream() noexcept {
     auto t0 = std::chrono::high_resolution_clock::now();
-    auto stream = [_handle newCommandQueue];
+    auto stream = [_handle newCommandQueueWithMaxCommandBufferCount:8u];
     auto t1 = std::chrono::high_resolution_clock::now();
     using namespace std::chrono_literals;
     auto dt = (t1 - t0) / 1ns * 1e-6;
@@ -132,6 +132,7 @@ void MetalDevice::_dispatch(uint64_t stream_handle, KernelLaunchCommand command)
 }
 
 MetalDevice::MetalDevice(uint32_t index) noexcept {
+
     auto devices = MTLCopyAllDevices();
     if (auto count = devices.count; index >= count) {
         LUISA_ERROR_WITH_LOCATION(
@@ -142,12 +143,12 @@ MetalDevice::MetalDevice(uint32_t index) noexcept {
     LUISA_VERBOSE_WITH_LOCATION(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
-    
+
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
     _available_buffer_slots.resize(initial_buffer_count);
     std::iota(_available_buffer_slots.rbegin(), _available_buffer_slots.rend(), 0u);
-    
+
     static constexpr auto initial_stream_count = 4u;
     _stream_slots.resize(initial_stream_count, nullptr);
     _available_stream_slots.resize(initial_stream_count);
@@ -166,6 +167,13 @@ void MetalDevice::_dispatch(uint64_t stream_handle, SynchronizeCommand) noexcept
     auto command_buffer = [stream commandBuffer];
     [command_buffer commit];
     [command_buffer waitUntilCompleted];
+}
+
+void MetalDevice::_dispatch(uint64_t stream_handle, std::function<void()> function) noexcept {
+    auto stream = _stream_slots[stream_handle];
+    auto command_buffer = [stream commandBuffer];
+    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
+    [command_buffer commit];
 }
 
 }

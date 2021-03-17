@@ -11,7 +11,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
     
     target_compile_options(luisa-compute-backend-metal PRIVATE -fobjc-arc)
-    
     target_link_libraries(luisa-compute-backend-metal PRIVATE
                           "-framework Foundation"
                           "-framework Metal"

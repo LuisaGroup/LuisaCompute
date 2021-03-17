@@ -40,6 +40,7 @@ private:
     void _dispatch(uint64_t stream_handle, BufferDownloadCommand command) noexcept override;
     void _dispatch(uint64_t stream_handle, KernelLaunchCommand command) noexcept override;
     void _dispatch(uint64_t stream_handle, SynchronizeCommand command) noexcept override;
+    void _dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override;
 
 public:
     explicit MetalDevice(uint32_t index) noexcept;

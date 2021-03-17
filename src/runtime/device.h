@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <functional>
 
 #include <core/memory.h>
 #include <core/concepts.h>
@@ -35,6 +36,7 @@ private:
     virtual void _dispatch(uint64_t stream_handle, BufferDownloadCommand) noexcept = 0;
     virtual void _dispatch(uint64_t stream_handle, KernelLaunchCommand) noexcept = 0;
     virtual void _dispatch(uint64_t stream_handle, SynchronizeCommand) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, std::function<void()>) noexcept = 0;
 
 public:
     virtual ~Device() noexcept = default;
