@@ -2,6 +2,9 @@ add_executable(test main.cpp)
 target_compile_features(test PRIVATE c_std_11 cxx_std_20)
 target_link_libraries(test PRIVATE luisa::compute)
 
+add_executable(test_runtime test_runtime.cpp)
+target_link_libraries(test_runtime PRIVATE luisa::compute)
+
 add_executable(test_ast test_ast.cpp)
 target_link_libraries(test_ast PRIVATE luisa::compute)
 

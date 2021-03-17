@@ -25,11 +25,9 @@ private:
     size_t _size;
     const void *_data;
 
-private:
+public:
     BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
         : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
-
-public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -44,11 +42,9 @@ private:
     size_t _size;
     void *_data;
 
-private:
+public:
     BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
         : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
-
-public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -64,11 +60,9 @@ private:
     size_t _dst_offset;
     size_t _size;
 
-private:
+public:
     BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
         : _src_handle{src}, _dst_handle{dst}, _src_offset{src_offset}, _dst_offset{dst_offset}, _size{size} {}
-
-public:
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
@@ -107,7 +101,6 @@ private:
     [[nodiscard]] static std::vector<std::unique_ptr<Data>> &_available_blocks() noexcept;
     [[nodiscard]] static Storage _allocate() noexcept;
     static void _recycle(Data *storage) noexcept;
-    // TODO: ensure move safety
 
 public:
     KernelArgumentEncoder() noexcept : _storage{_allocate()}, _ptr{_storage->data()} {}
@@ -133,5 +126,9 @@ public:
     [[nodiscard]] auto dispatch_size() const noexcept { return _dispatch_size; }
     [[nodiscard]] auto arguments() const noexcept { return _encoder.arguments(); }
 };
+
+struct SynchronizeCommand {};
+
+[[nodiscard]] constexpr auto synchronize() noexcept { return SynchronizeCommand{}; }
 
 }// namespace luisa::compute

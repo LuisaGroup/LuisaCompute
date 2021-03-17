@@ -8,6 +8,7 @@
 
 #include <core/dynamic_module.h>
 #include <runtime/device.h>
+#include <runtime/context.h>
 #include <ast/interface.h>
 #include <compile/cpp_codegen.h>
 #include <dsl/syntax.h>
@@ -27,10 +28,20 @@ struct Test {
 LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
+    
+    luisa::log_level_verbose();
+    
+    auto runtime_dir = std::filesystem::canonical(argv[0]).parent_path();
+    auto working_dir = std::filesystem::current_path();
+    Context context{runtime_dir, working_dir};
 
-    FakeDevice device;
-    auto buffer = device.create_buffer<float4>(1024u);
-    auto float_buffer = device.create_buffer<float>(1024u);
+#ifdef __APPLE__
+    auto device = context.create_device("metal");
+#else
+    auto device = context.create_device("dx");
+#endif
+    auto buffer = device->create_buffer<float4>(1024u);
+    auto float_buffer = device->create_buffer<float>(1024u);
 
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);

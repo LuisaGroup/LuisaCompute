@@ -30,10 +30,11 @@ private:
     friend class Stream;
     [[nodiscard]] virtual uint64_t _create_stream() noexcept = 0;
     virtual void _dispose_stream(uint64_t handle) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, BufferCopyCommand) = 0;
-    virtual void _dispatch(uint64_t stream_handle, BufferUploadCommand) = 0;
-    virtual void _dispatch(uint64_t stream_handle, BufferDownloadCommand) = 0;
-    virtual void _dispatch(uint64_t stream_handle, KernelLaunchCommand) = 0;
+    virtual void _dispatch(uint64_t stream_handle, BufferCopyCommand) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, BufferUploadCommand) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, BufferDownloadCommand) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, KernelLaunchCommand) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, SynchronizeCommand) noexcept = 0;
 
 public:
     virtual ~Device() noexcept = default;

@@ -37,7 +37,9 @@ DeviceHandle Context::create_device(std::string_view backend_name, uint32_t inde
             auto destroy = _device_deleters[i];
             return std::make_pair(create, destroy);
         }
-        auto &&m = _loaded_modules.emplace_back(_runtime_directory / "backends", backend_name);
+        auto &&m = _loaded_modules.emplace_back(
+            _runtime_directory / "backends",
+            fmt::format("luisa-compute-backend-{}", backend_name));
         auto create = m.function<DeviceCreator>("create");
         auto destroy = m.function<DeviceDeleter>("destroy");
         _device_identifiers.emplace_back(backend_name);

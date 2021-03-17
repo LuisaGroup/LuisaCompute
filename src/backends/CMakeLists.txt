@@ -15,3 +15,4 @@ endfunction()
 
 add_subdirectory(llvm)
 add_subdirectory(dx)
+add_subdirectory(metal)

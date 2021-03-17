@@ -19,7 +19,6 @@ class alignas(8) BufferView {
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
-    Device *_device{nullptr};
     uint64_t _handle{0u};
     size_t _offset_bytes{0u};
     size_t _size{0u};
@@ -27,8 +26,8 @@ private:
 
 protected:
     friend class Buffer<T>;
-    BufferView(Device *device, uint64_t handle, size_t offset_bytes, size_t size) noexcept
-        : _device{device}, _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {
+    BufferView(uint64_t handle, size_t offset_bytes, size_t size) noexcept
+        : _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {
         if (_offset_bytes % alignof(T) != 0u) {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid buffer view offset {} for elements with alignment {}.",
@@ -49,8 +48,7 @@ protected:
 
 public:
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
-
-    [[nodiscard]] auto device() const noexcept { return _device; }
+    
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
@@ -62,7 +60,7 @@ public:
                 "Subview (with offset_elements = {}, size_elements = {}) overflows buffer view (with size_elements = {}).",
                 offset_elements, size_elements, _size);
         }
-        return BufferView{_device, _handle, _offset_bytes + offset_elements * sizeof(T), size_elements};
+        return BufferView{_handle, _offset_bytes + offset_elements * sizeof(T), size_elements};
     }
 
     template<typename U>
@@ -82,7 +80,7 @@ public:
                 "Invalid host pointer {} for elements with alignment {}.",
                 fmt::ptr(data), alignof(T));
         }
-        BufferDownloadCommand{_handle, offset_bytes(), size_bytes(), data};
+        return BufferDownloadCommand{_handle, offset_bytes(), size_bytes(), data};
     }
 
     [[nodiscard]] auto upload(const T *data) {
@@ -90,9 +88,6 @@ public:
     }
 
     [[nodiscard]] auto copy(BufferView<T> source) {
-        if (source.device() != this->device()) {
-            LUISA_ERROR_WITH_LOCATION("Incompatible buffer views created on different devices.");
-        }
         if (source.size() != this->size()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Incompatible buffer views with different element counts (src = {}, dst = {}).",
