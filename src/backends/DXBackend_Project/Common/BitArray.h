@@ -10,7 +10,7 @@ public:
 	private:
 		BitArray* arr;
 		size_t index;
-		constexpr Iterator(BitArray* arr, size_t index) : arr(arr), index(index) {}
+		Iterator(BitArray* arr, size_t index) : arr(arr), index(index) {}
 
 	public:
 		operator bool() const {
@@ -19,13 +19,13 @@ public:
 		void operator=(bool value) {
 			arr->Set(index, value);
 		}
-		constexpr bool operator==(const Iterator& another) const {
+		bool operator==(const Iterator& another) const {
 			return arr == another.arr && index == another.index;
 		}
-		constexpr bool operator!=(const Iterator& another) const {
+		bool operator!=(const Iterator& another) const {
 			return !operator==(another);
 		}
-		constexpr void operator++() {
+		inline void operator++() {
 			index++;
 		}
 	};
@@ -59,7 +59,7 @@ private:
 		size_t factor = index - (elementIndex * 8);
 		return ptr[elementIndex] & bitOffsetArray[factor];
 	}
-	inline constexpr void Set(size_t index, bool value) {
+	inline void Set(size_t index, bool value) {
 #ifndef NDEBUG
 		if (index >= length) throw "Index Out of Range!";
 #endif

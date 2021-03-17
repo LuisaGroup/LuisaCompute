@@ -38,7 +38,7 @@ private:
 		} else
 			free(ptr);
 	}
-	constexpr void AllocateMemory() {
+	inline void AllocateMemory() {
 		if (!allPtrs.empty()) return;
 		using StorageT = Storage<T, 1>;
 		StorageT* ptr = reinterpret_cast<StorageT*>(PoolMalloc(sizeof(StorageT) * capacity));
@@ -153,7 +153,7 @@ private:
 		} else
 			free(ptr);
 	}
-	constexpr void AllocateMemory() {
+	inline void AllocateMemory() {
 		if (!allPtrs.empty()) return;
 		TypeCollector* ptr = reinterpret_cast<TypeCollector*>(PoolMalloc(sizeof(TypeCollector) * capacity));
 		allPtrs.reserve(capacity + allPtrs.capacity());
@@ -278,12 +278,12 @@ private:
 	bool objectSwitcher = true;
 
 public:
-	constexpr void UpdateSwitcher() {
+	inline void UpdateSwitcher() {
 		if (unusedObjects[objectSwitcher].count < 0) unusedObjects[objectSwitcher].count = 0;
 		objectSwitcher = !objectSwitcher;
 	}
 
-	constexpr void Delete(T* targetPtr) {
+	inline void Delete(T* targetPtr) {
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			targetPtr->~T();
 		Array* arr = unusedObjects + !objectSwitcher;

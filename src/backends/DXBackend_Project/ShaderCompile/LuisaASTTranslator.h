@@ -15,7 +15,7 @@ class CodegenUtility {
 public:
 	static vengine::string GetVariableName(Variable const& type);
 	static vengine::string GetTypeName(Type const& type);
-	static vengine::string GetFunctionDecl(Function const* func);
+	static vengine::string GetFunctionDecl(Function func);
 	static void PrintConstant(Function::ConstantBinding const& binding, vengine::string& result);
 	static void ClearStructType();
 	static void RegistStructType(Type const* type);
@@ -30,7 +30,7 @@ public:
 		std::span<const Variable> values,
 		vengine::string& result);
 	static void SeparateVariables(
-		Function const& func,
+		Function func,
 		vengine::vector<Variable const*>& buffers,
 		vengine::vector<Variable const*>& textures,
 		vengine::vector<Variable const*>& globalSRVValues,

@@ -10,13 +10,13 @@ class LockFreeArrayQueue {
 	size_t capacity;
 	spin_mutex mtx;
 	T* arr;
-	static constexpr void* Malloc(size_t i) noexcept {
+	static inline void* Malloc(size_t i) noexcept {
 		if constexpr (useVAlloc) {
 			return vengine_malloc(i);
 		} else
 			return malloc(i);
 	}
-	static constexpr void Free(void* ptr) noexcept {
+	static inline void Free(void* ptr) noexcept {
 		if (!ptr) return;
 		if constexpr (useVAlloc) {
 			vengine_free(ptr);
@@ -120,13 +120,13 @@ class SingleThreadArrayQueue {
 	size_t tail;
 	size_t capacity;
 	T* arr;
-	static constexpr void* Malloc(size_t i) noexcept {
+	static inline void* Malloc(size_t i) noexcept {
 		if constexpr (useVAlloc) {
 			return vengine_malloc(i);
 		} else
 			return malloc(i);
 	}
-	static constexpr void Free(void* ptr) noexcept {
+	static inline void Free(void* ptr) noexcept {
 		if (!ptr) return;
 		if constexpr (useVAlloc) {
 			vengine_free(ptr);

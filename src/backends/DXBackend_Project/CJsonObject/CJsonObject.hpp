@@ -164,7 +164,7 @@ struct JsonKeyValuePair
 };
 
 template <typename ... Args>
-constexpr void GetValuesFromJson(neb::CJsonObject* cjson, Args&& ... args)
+inline void GetValuesFromJson(neb::CJsonObject* cjson, Args&& ... args)
 {
 	char c[] = { (cjson->Get(args.key, *args.value), 0)... };
 }

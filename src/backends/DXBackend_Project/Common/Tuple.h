@@ -15,13 +15,13 @@ template <size_t index>
 struct TupleGetter<index, Tuple<>>
 {
 	using Type = typename Tuple<>;
-	inline static constexpr Type& Get(Tuple<>& value) noexcept
+	static constexpr Type& Get(Tuple<>& value) noexcept
 	{
 		//Tuple Out of Range!
 		static_assert(false);
 		return value;
 	}
-	inline static constexpr Type const& Get(Tuple<> const& value) noexcept
+	static constexpr Type const& Get(Tuple<> const& value) noexcept
 	{
 		//Tuple Out of Range!
 		static_assert(false);
@@ -35,8 +35,8 @@ template <size_t index, typename T, typename ... Types>
 struct TupleGetter<index, Tuple<T, Types...>>
 {
 	using Type = typename TupleGetter<index - 1, Tuple<Types...>>::Type;
-	inline static constexpr typename Type& Get(Tuple<T, Types...>& value) noexcept;
-	inline static constexpr typename Type const& Get(Tuple<T, Types...> const& value) noexcept;
+	static constexpr typename Type& Get(Tuple<T, Types...>& value) noexcept;
+	static constexpr typename Type const& Get(Tuple<T, Types...> const& value) noexcept;
 };
 
 
@@ -44,8 +44,8 @@ template <typename T, typename ... Types>
 struct TupleGetter<0, Tuple<T, Types...>>
 {
 	using Type = typename T;
-	inline static constexpr T& Get(Tuple<T, Types...>& value) noexcept;
-	inline static constexpr T const& Get(Tuple<T, Types...> const& value) noexcept;
+	static constexpr T& Get(Tuple<T, Types...>& value) noexcept;
+	static constexpr T const& Get(Tuple<T, Types...> const& value) noexcept;
 };
 //Body of Tuple
 template <typename T, typename ... Types>
@@ -58,54 +58,54 @@ struct Tuple<T, Types...> : public Tuple<Types...>
 	constexpr Tuple() noexcept {}
 public:
 	template <size_t i>
-	inline constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type& Get() noexcept;
+	constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type& Get() noexcept;
 	template <size_t i>
-	inline constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type const& Get() const noexcept;
+	constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type const& Get() const noexcept;
 	template <typename F>
-	inline constexpr F& GetFirst() noexcept;
+	constexpr F& GetFirst() noexcept;
 	template <typename F>
-	inline constexpr F& GetLast() noexcept;
+	constexpr F& GetLast() noexcept;
 	template <typename F>
-	inline constexpr F const& GetFirst() const noexcept;
+	constexpr F const& GetFirst() const noexcept;
 	template <typename F>
-	inline constexpr F const& GetLast() const noexcept;
+	constexpr F const& GetLast() const noexcept;
 	template <typename F>
-	inline static constexpr bool ContainedType() noexcept;
+	static constexpr bool ContainedType() noexcept;
 };
 
 //Function of Tuple Getter
 template <size_t index, typename T, typename ... Types>
-inline constexpr typename TupleGetter<index, Tuple<T, Types...>>::Type const& TupleGetter<index, Tuple<T, Types...>>::Get(Tuple<T, Types...> const& value) noexcept
+constexpr typename TupleGetter<index, Tuple<T, Types...>>::Type const& TupleGetter<index, Tuple<T, Types...>>::Get(Tuple<T, Types...> const& value) noexcept
 {
 	return TupleGetter<index - 1, Tuple<Types...>>::Get(value);
 }
 
 template <typename T, typename ... Types>
-inline constexpr T const& TupleGetter<0, Tuple<T, Types...>>::Get(Tuple<T, Types...> const& value) noexcept
+constexpr T const& TupleGetter<0, Tuple<T, Types...>>::Get(Tuple<T, Types...> const& value) noexcept
 {
 	return value.value;
 }
 template <size_t index, typename T, typename ... Types>
-inline constexpr typename TupleGetter<index, Tuple<T, Types...>>::Type& TupleGetter<index, Tuple<T, Types...>>::Get(Tuple<T, Types...>& value) noexcept
+constexpr typename TupleGetter<index, Tuple<T, Types...>>::Type& TupleGetter<index, Tuple<T, Types...>>::Get(Tuple<T, Types...>& value) noexcept
 {
 	return TupleGetter<index - 1, Tuple<Types...>>::Get(value);
 }
 
 template <typename T, typename ... Types>
-inline constexpr T& TupleGetter<0, Tuple<T, Types...>>::Get(Tuple<T, Types...>& value) noexcept
+constexpr T& TupleGetter<0, Tuple<T, Types...>>::Get(Tuple<T, Types...>& value) noexcept
 {
 	return value.value;
 }
 
 template <typename T, typename ... Types>
 template <size_t i>
-inline constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type& Tuple<T, Types...>::Get() noexcept
+constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type& Tuple<T, Types...>::Get() noexcept
 {
 	return TupleGetter<i, Tuple<T, Types...>>::Get(*this);
 }
 template <typename T, typename ... Types>
 template <size_t i>
-inline constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type const& Tuple<T, Types...>::Get() const noexcept
+constexpr typename TupleGetter<i, Tuple<T, Types...>>::Type const& Tuple<T, Types...>::Get() const noexcept
 {
 	return TupleGetter<i, Tuple<T, Types...>>::Get(*this);
 }
@@ -228,32 +228,32 @@ struct GetLastFromTuple< Tar, T, Args...>
 };
 template <typename T, typename ... Types>
 template <typename F>
-inline constexpr F& Tuple<T, Types...>::GetFirst() noexcept
+constexpr F& Tuple<T, Types...>::GetFirst() noexcept
 {
 	return GetFirstFromTuple<F, T, Types...>::Run(*this);
 }
 template <typename T, typename ... Types>
 template <typename F>
-inline constexpr F& Tuple<T, Types...>::GetLast() noexcept
+constexpr F& Tuple<T, Types...>::GetLast() noexcept
 {
 	return GetLastFromTuple<F, T, Types...>::Run(*this);
 }
 template <typename T, typename ... Types>
 template <typename F>
-inline constexpr F const& Tuple<T, Types...>::GetFirst() const noexcept
+constexpr F const& Tuple<T, Types...>::GetFirst() const noexcept
 {
 	return GetFirstFromTuple<F, T, Types...>::Run(*this);
 }
 template <typename T, typename ... Types>
 template <typename F>
-inline constexpr F const& Tuple<T, Types...>::GetLast() const noexcept
+constexpr F const& Tuple<T, Types...>::GetLast() const noexcept
 {
 	return GetLastFromTuple<F, T, Types...>::Run(*this);
 }
 
 template <typename T, typename ... Types>
 template <typename F>
-inline constexpr bool Tuple<T, Types...>::ContainedType() noexcept
+constexpr bool Tuple<T, Types...>::ContainedType() noexcept
 {
 	return GetFirstFromTuple<F, T, Types...>::containedType;
 }

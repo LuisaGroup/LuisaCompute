@@ -4,7 +4,7 @@
 #include <type_traits>
 #include "DLL.h"
 #include "MetaLib.h"
-inline constexpr void* aligned_malloc(size_t size, size_t alignment) noexcept {
+inline void* aligned_malloc(size_t size, size_t alignment) noexcept {
 	if (alignment & (alignment - 1)) {
 		return nullptr;
 	} else {
@@ -26,7 +26,7 @@ inline void aligned_free(void* palignedmem) noexcept {
 }
 //allocFunc:: void* operator()(size_t)
 template<typename AllocFunc>
-inline constexpr void* aligned_malloc(size_t size, size_t alignment, const AllocFunc& allocFunc) noexcept {
+inline void* aligned_malloc(size_t size, size_t alignment, const AllocFunc& allocFunc) noexcept {
 	if (alignment & (alignment - 1)) {
 		return nullptr;
 	} else {
@@ -44,7 +44,7 @@ inline constexpr void* aligned_malloc(size_t size, size_t alignment, const Alloc
 }
 
 template<typename FreeFunc>
-inline constexpr void* aligned_free(void* palignedmem, const FreeFunc& func) noexcept {
+inline void* aligned_free(void* palignedmem, const FreeFunc& func) noexcept {
 	func(reinterpret_cast<void*>((static_cast<void**>(palignedmem))[-1]));
 }
 namespace vengine {

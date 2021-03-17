@@ -64,7 +64,7 @@ struct RenderTextureDescriptor {
 	TextureDimension type = TextureDimension::Tex2D;
 	RenderTextureFormat rtFormat;
 	RenderTextureState initState = RenderTextureState::Default;
-	constexpr bool operator==(const RenderTextureDescriptor& other) const {
+	bool operator==(const RenderTextureDescriptor& other) const {
 		bool value = width == other.width && height == other.height && depthSlice == other.depthSlice && type == other.type && rtFormat.usage == other.rtFormat.usage && initState == other.initState;
 		if (value) {
 			if (rtFormat.usage == RenderTextureUsage::ColorBuffer) {
@@ -76,7 +76,7 @@ struct RenderTextureDescriptor {
 		return false;
 	}
 
-	constexpr bool operator!=(const RenderTextureDescriptor& other) const {
+	bool operator!=(const RenderTextureDescriptor& other) const {
 		return !operator==(other);
 	}
 };

@@ -284,11 +284,11 @@ void StringUtil::Split(const vengine::string& str, const vengine::string& sign, 
 	if (s.size() > 0)
 		v.push_back(s);
 }
-inline constexpr void mtolower(char& c) {
+inline void mtolower(char& c) {
 	if ((c >= 'A') && (c <= 'Z'))
 		c = c + ('a' - 'A');
 }
-inline constexpr void mtoupper(char& c) {
+inline void mtoupper(char& c) {
 	if ((c >= 'a') && (c <= 'z'))
 		c = c + ('A' - 'a');
 }

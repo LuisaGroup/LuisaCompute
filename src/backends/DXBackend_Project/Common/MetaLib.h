@@ -57,22 +57,22 @@ private:
 
 public:
 	template<typename... Args>
-	constexpr void New(Args&&... args) noexcept {
+	inline void New(Args&&... args) noexcept {
 		if constexpr (!std::is_trivially_constructible_v<T>)
 			new (storage) T(std::forward<Args>(args)...);
 	}
 	template<typename... Args>
-	constexpr void InPlaceNew(Args&&... args) noexcept {
+	inline void InPlaceNew(Args&&... args) noexcept {
 		if constexpr (!std::is_trivially_constructible_v<T>)
 			new (storage) T{std::forward<Args>(args)...};
 	}
-	constexpr void operator=(const StackObject<T>& value) {
+	inline void operator=(const StackObject<T>& value) {
 		*(T*)storage = value.operator*();
 	}
-	constexpr void operator=(StackObject<T>&& value) {
+	inline void operator=(StackObject<T>&& value) {
 		*(T*)storage = std::move(*value);
 	}
-	constexpr void Delete() noexcept {
+	inline void Delete() noexcept {
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			((T*)storage)->~T();
 	}
@@ -116,13 +116,13 @@ private:
 
 public:
 	template<typename... Args>
-	constexpr void New(Args&&... args) noexcept {
+	inline void New(Args&&... args) noexcept {
 		if (initialized) return;
 		stackObj.New(std::forward<Args>(args)...);
 		initialized = true;
 	}
 	template<typename... Args>
-	constexpr void InPlaceNew(Args&&... args) noexcept {
+	inline void InPlaceNew(Args&&... args) noexcept {
 		if (initialized) return;
 		stackObj.InPlaceNew(std::forward<Args>(args)...);
 		initialized = true;
@@ -133,13 +133,13 @@ public:
 	constexpr bool Initialized() const noexcept {
 		return initialized;
 	}
-	constexpr void Delete() noexcept {
+	inline void Delete() noexcept {
 		if (initialized) {
 			initialized = false;
 			stackObj.Delete();
 		}
 	}
-	constexpr void operator=(const StackObject<T, true>& value) noexcept {
+	inline void operator=(const StackObject<T, true>& value) noexcept {
 		if (initialized) {
 			stackObj.Delete();
 		}
@@ -148,7 +148,7 @@ public:
 			stackObj = value.stackObj;
 		}
 	}
-	constexpr void operator=(StackObject<T>&& value) noexcept {
+	inline void operator=(StackObject<T>&& value) noexcept {
 		if (initialized) {
 			stackObj.Delete();
 		}
@@ -278,7 +278,7 @@ struct hash<Type> {
 };
 }// namespace vengine
 
-inline static constexpr bool BinaryEqualTo_Size(void const* a, void const* b, uint64_t size) noexcept {
+static constexpr bool BinaryEqualTo_Size(void const* a, void const* b, uint64_t size) noexcept {
 	const uint64_t bit64Count = size / sizeof(uint64_t);
 	const uint64_t bit32Count = (size - bit64Count * sizeof(uint64_t)) / sizeof(uint32_t);
 	const uint64_t bit16Count =
@@ -332,7 +332,7 @@ inline static constexpr bool BinaryEqualTo_Size(void const* a, void const* b, ui
 	return true;
 }
 template<typename T>
-inline static constexpr bool BinaryEqualTo(T const* a, T const* b) {
+static constexpr bool BinaryEqualTo(T const* a, T const* b) {
 	return BinaryEqualTo_Size(a, b, sizeof(T));
 }
 namespace FunctionTemplateGlobal {

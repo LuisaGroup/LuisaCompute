@@ -20,12 +20,6 @@ public:
 	~ASTExprEncoder();
 
 private:
-	template <typename T>
-	void Push(T const& data) {
-		static_assert(!std::is_pointer_v<T>, "Cannot be pointer!");
-		Push(reinterpret_cast<uint8_t const*>(&data), sizeof(T));
-	}
-	void Push(uint8_t const* data, size_t sz);
 };
 class ASTStmtEncoder : public StmtVisitor {
 public:
@@ -47,11 +41,5 @@ public:
 	~ASTStmtEncoder();
 
 private:
-	template<typename T>
-	void Push(T data) {
-		static_assert(!std::is_pointer_v<T>, "Cannot be pointer!");
-		Push(reinterpret_cast<uint8_t const*>(&data), sizeof(T));
-	}
-	void Push(uint8_t const* data, size_t sz);
 };
 }// namespace luisa::compute

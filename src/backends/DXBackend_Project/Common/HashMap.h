@@ -50,17 +50,17 @@ public:
 		const HashMap* map;
 		uint64_t hashValue;
 		HashMap::LinkNode* node;
-		inline constexpr Iterator(const HashMap* map, uint64_t hashValue, HashMap::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
+		 Iterator(const HashMap* map, uint64_t hashValue, HashMap::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
 
 	public:
-		constexpr Iterator() : map(nullptr), hashValue(0), node(nullptr) {}
-		inline constexpr bool operator==(const Iterator& a) const noexcept {
+		 Iterator() : map(nullptr), hashValue(0), node(nullptr) {}
+		 bool operator==(const Iterator& a) const noexcept {
 			return node == a.node;
 		}
-		inline constexpr operator bool() const noexcept {
+		 operator bool() const noexcept {
 			return node;
 		}
-		inline constexpr bool operator!=(const Iterator& a) const noexcept {
+		 bool operator!=(const Iterator& a) const noexcept {
 			return !operator==(a);
 		}
 		inline K const& Key() const noexcept;
@@ -83,7 +83,7 @@ private:
 			
 		}
 		uint64_t size() const noexcept { return mSize; }
-		constexpr HashArray() noexcept : mSize(0) {}
+		 HashArray() noexcept : mSize(0) {}
 		void ClearAll() {
 			memset(nodesPtr, 0, sizeof(LinkNode*) * mSize);
 		}
@@ -163,13 +163,13 @@ private:
 		allocatedNodes.erase(ite);
 		pool.Delete(oldNode);
 	}
-	inline static constexpr uint64_t GetPow2Size(uint64_t capacity) noexcept {
+	static  uint64_t GetPow2Size(uint64_t capacity) noexcept {
 		uint64_t ssize = 1;
 		while (ssize < capacity)
 			ssize <<= 1;
 		return ssize;
 	}
-	inline static constexpr uint64_t GetHash(uint64_t hash, uint64_t size) noexcept {
+	static  uint64_t GetHash(uint64_t hash, uint64_t size) noexcept {
 		return hash & (size - 1);
 	}
 	void Resize(uint64_t newCapacity) noexcept {
@@ -195,7 +195,7 @@ private:
 		}
 		nodeVec = newNode;
 	}
-	inline static constexpr Iterator End() noexcept {
+	static  Iterator End() noexcept {
 		return Iterator(nullptr, -1, nullptr);
 	}
 

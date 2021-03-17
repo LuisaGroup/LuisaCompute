@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 template<typename F>
-constexpr void QuicksortStack(std::remove_cvref_t<F>* a, int32_t p, int32_t q) noexcept {
+inline void QuicksortStack(std::remove_cvref_t<F>* a, int32_t p, int32_t q) noexcept {
 	using T = std::remove_cvref_t<F>;
 	int32_t i = p;
 	int32_t j = q;
@@ -28,7 +28,7 @@ constexpr void QuicksortStack(std::remove_cvref_t<F>* a, int32_t p, int32_t q) n
 }
 
 template<typename F, typename CompareFunc>
-constexpr void QuicksortStackCustomCompare(std::remove_cvref_t<F>* a, const CompareFunc& compareFunc, int32_t p, int32_t q) noexcept {
+inline void QuicksortStackCustomCompare(std::remove_cvref_t<F>* a, const CompareFunc& compareFunc, int32_t p, int32_t q) noexcept {
 	using T = std::remove_cvref_t<F>;
 	int32_t i = p;
 	int32_t j = q;
