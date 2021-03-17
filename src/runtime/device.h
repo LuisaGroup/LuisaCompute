@@ -22,27 +22,28 @@ class Stream;
 class Device {
 
 private:
-    template<typename T> friend class Buffer;
+    template<typename T>
+    friend class Buffer;
     [[nodiscard]] virtual uint64_t _create_buffer(size_t size_bytes) noexcept = 0;
     virtual void _dispose_buffer(uint64_t handle) noexcept = 0;
-    
+
     friend class Stream;
     [[nodiscard]] virtual uint64_t _create_stream() noexcept = 0;
     virtual void _dispose_stream(uint64_t handle) noexcept = 0;
-    virtual void _dispatch(uint64_t stream, BufferCopyCommand) = 0;
-    virtual void _dispatch(uint64_t stream, BufferUploadCommand) = 0;
-    virtual void _dispatch(uint64_t stream, BufferDownloadCommand) = 0;
-    virtual void _dispatch(uint64_t stream, KernelLaunchCommand) = 0;
+    virtual void _dispatch(uint64_t stream_handle, BufferCopyCommand) = 0;
+    virtual void _dispatch(uint64_t stream_handle, BufferUploadCommand) = 0;
+    virtual void _dispatch(uint64_t stream_handle, BufferDownloadCommand) = 0;
+    virtual void _dispatch(uint64_t stream_handle, KernelLaunchCommand) = 0;
 
 public:
     virtual ~Device() noexcept = default;
-    
+
     template<typename T>
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
         auto handle = _create_buffer(size * sizeof(T));
         return Buffer<T>{this, size, handle};
     }
-    
+
     [[nodiscard]] Stream create_stream() noexcept;
 };
 
@@ -50,4 +51,4 @@ using DeviceDeleter = void(Device *);
 using DeviceCreator = Device *(uint32_t index);
 using DeviceHandle = std::unique_ptr<Device, DeviceDeleter *>;
 
-}
+}// namespace luisa::compute
