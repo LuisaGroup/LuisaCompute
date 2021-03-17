@@ -13,6 +13,18 @@ function(luisa_compute_add_backend name)
                           DEBUG_POSTFIX "")
 endfunction()
 
-add_subdirectory(llvm)
-add_subdirectory(dx)
-add_subdirectory(metal)
+option(LUISA_COMPUTE_ENABLE_DX ON "Enable DirectX backend")
+option(LUISA_COMPUTE_ENABLE_LLVM ON "Enable LLVM backend")
+option(LUISA_COMPUTE_ENABLE_METAL ON "Enable Metal backend")
+
+if (LUISA_COMPUTE_ENABLE_DX)
+    add_subdirectory(dx)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_LLVM)
+    add_subdirectory(llvm)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_METAL)
+    add_subdirectory(metal)
+endif ()
