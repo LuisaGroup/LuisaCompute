@@ -38,7 +38,7 @@ private:
 		} else
 			free(ptr);
 	}
-	inline void AllocateMemory() {
+	void AllocateMemory() {
 		if (!allPtrs.empty()) return;
 		using StorageT = Storage<T, 1>;
 		StorageT* ptr = reinterpret_cast<StorageT*>(PoolMalloc(sizeof(StorageT) * capacity));
@@ -58,13 +58,13 @@ public:
 		  capacity(o.capacity) {
 		o.capacity = 0;
 	}
-	constexpr Pool(uint64_t capa, bool initialize = true) : capacity(capa) {
+	Pool(uint64_t capa, bool initialize = true) : capacity(capa) {
 		if (initialize)
 			AllocateMemory();
 	}
 
 	template<typename... Args>
-	constexpr T* New(Args&&... args) {
+	T* New(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -72,7 +72,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	constexpr T* PlaceNew(Args&&... args) {
+	T* PlaceNew(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -80,7 +80,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	constexpr T* New_Lock(std::mutex& mtx, Args&&... args) {
+	T* New_Lock(std::mutex& mtx, Args&&... args) {
 		T* value = nullptr;
 		{
 			std::lock_guard<std::mutex> lck(mtx);
@@ -92,7 +92,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	constexpr T* PlaceNew_Lock(std::mutex& mtx, Args&&... args) {
+	T* PlaceNew_Lock(std::mutex& mtx, Args&&... args) {
 		T* value = nullptr;
 		{
 			std::lock_guard<std::mutex> lck(mtx);
@@ -153,7 +153,7 @@ private:
 		} else
 			free(ptr);
 	}
-	inline void AllocateMemory() {
+	void AllocateMemory() {
 		if (!allPtrs.empty()) return;
 		TypeCollector* ptr = reinterpret_cast<TypeCollector*>(PoolMalloc(sizeof(TypeCollector) * capacity));
 		allPtrs.reserve(capacity + allPtrs.capacity());
@@ -181,13 +181,13 @@ public:
 		  allocatedObjects(std::move(o.allocatedObjects)) {
 		o.capacity = 0;
 	}
-	constexpr Pool(uint64_t capa, bool initialize = true) : capacity(capa) {
+	Pool(uint64_t capa, bool initialize = true) : capacity(capa) {
 		if (initialize)
 			AllocateMemory();
 	}
 
 	template<typename... Args>
-	constexpr T* New(Args&&... args) {
+	T* New(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -196,7 +196,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	constexpr T* PlaceNew(Args&&... args) {
+	T* PlaceNew(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -205,7 +205,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	constexpr T* New_Lock(std::mutex& mtx, Args&&... args) {
+	T* New_Lock(std::mutex& mtx, Args&&... args) {
 		T* value = nullptr;
 		{
 			std::lock_guard<std::mutex> lck(mtx);
@@ -218,7 +218,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	constexpr T* PlaceNew_Lock(std::mutex& mtx, Args&&... args) {
+	T* PlaceNew_Lock(std::mutex& mtx, Args&&... args) {
 		T* value = nullptr;
 		{
 			std::lock_guard<std::mutex> lck(mtx);
@@ -278,12 +278,12 @@ private:
 	bool objectSwitcher = true;
 
 public:
-	inline void UpdateSwitcher() {
+	void UpdateSwitcher() {
 		if (unusedObjects[objectSwitcher].count < 0) unusedObjects[objectSwitcher].count = 0;
 		objectSwitcher = !objectSwitcher;
 	}
 
-	inline void Delete(T* targetPtr) {
+	void Delete(T* targetPtr) {
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			targetPtr->~T();
 		Array* arr = unusedObjects + !objectSwitcher;
@@ -302,7 +302,7 @@ public:
 		arr->objs[currentCount] = (StorageT*)targetPtr;
 	}
 	template<typename... Args>
-	constexpr T* New(Args&&... args) {
+	T* New(Args&&... args) {
 		Array* arr = unusedObjects + objectSwitcher;
 		int64_t currentCount = --arr->count;
 		T* t;
@@ -317,7 +317,7 @@ public:
 		return t;
 	}
 
-	constexpr ConcurrentPool(uint64_t initCapacity) {
+	ConcurrentPool(uint64_t initCapacity) {
 		if (initCapacity < 3) initCapacity = 3;
 		unusedObjects[0].objs = new StorageT*[initCapacity];
 		unusedObjects[0].capacity = initCapacity;

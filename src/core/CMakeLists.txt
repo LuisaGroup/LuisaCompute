@@ -1,7 +1,7 @@
 set(LUISA_COMPUTE_CORE_SOURCES
     logging.cpp
     logging.h
-    memory.h
+    memory.cpp memory.h
     concepts.h
     hash.cpp hash.h
     macro.h

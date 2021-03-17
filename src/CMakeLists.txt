@@ -6,7 +6,8 @@ if (MSVC)
     target_compile_definitions(luisa-compute-include INTERFACE
                                NOMINMAX
                                _ENABLE_EXTENDED_ALIGNED_STORAGE
-                               _CRT_SECURE_NO_WARNINGS)
+                               _CRT_SECURE_NO_WARNINGS
+                               _UNICODE)
 endif ()
 
 add_subdirectory(ext)

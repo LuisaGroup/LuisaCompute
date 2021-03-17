@@ -89,7 +89,7 @@ std::filesystem::path dynamic_module_path(
     std::string_view name,
     const std::filesystem::path &search_path) noexcept {
     auto decorated_name = fmt::format("{}.dll", name);
-    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / name;
+    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
 }
 
 }// namespace luisa
@@ -144,7 +144,7 @@ std::filesystem::path dynamic_module_path(
     std::string_view name,
     const std::filesystem::path &search_path) noexcept {
     auto decorated_name = fmt::format("lib{}.so", name);
-    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / name;
+    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
 }
 
 }// namespace luisa

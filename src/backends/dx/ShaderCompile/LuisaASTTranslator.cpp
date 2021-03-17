@@ -7,29 +7,33 @@
 namespace luisa::compute {
 #ifdef NDEBUG
 DLL_EXPORT void CodegenBody(Function func) {
-	vengine::vengine_init_malloc();
-	std::cout << "Start Working" << std::endl;
-	
-
+	vengine::vengine_init_malloc(malloc, free);
+	LUISA_INFO("HLSL codegen started.");
+	vengine::string string_buffer;
+	string_buffer.reserve(4095u);
+	auto t0 = std::chrono::high_resolution_clock::now();
 	CodegenUtility::ClearStructType();
 	StringStateVisitor vis;
 	func.body()->accept(vis);
 	{
 		vengine::string str;
-
+		str.reserve(1023u);
 		CodegenUtility::PrintStructType(str);
 		for (auto& i : func.constants()) {
 			CodegenUtility::PrintConstant(i, str);
 		}
 		CodegenUtility::PrintUniform(func.captured_buffers(), func.captured_textures(), str);
 		CodegenUtility::PrintGlobalVariables(func.arguments(), str);
-		
-
-		//std::cout << str << std::endl;
+		string_buffer += str;
+		string_buffer += "\n";
 	}
-	//std::cout << CodegenUtility::GetFunctionDecl(func) << std::endl;
-	//std::cout << vis.ToString() << std::endl;
-	std::cout << "Finished" << std::endl;
+	auto t1 = std::chrono::high_resolution_clock::now();
+	using namespace std::chrono_literals;
+	LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+
+	std::cout << string_buffer
+			  << CodegenUtility::GetFunctionDecl(func) << "\n"
+			  << vis.ToString() << std::endl;
 }
 #endif
 template<typename T>
@@ -553,6 +557,7 @@ vengine::string CodegenUtility::GetTypeName(Type const& type) {
 
 vengine::string CodegenUtility::GetFunctionDecl(Function func) {
 	vengine::string data;
+	data.reserve(1023u);
 	if (func.return_type()) {
 		data = CodegenUtility::GetTypeName(*func.return_type());
 	} else {
@@ -781,7 +786,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 	return cbufferSize;
 }
 void CodegenUtility::SeparateVariables(
-	Function func,
+	Function const& func,
 	vengine::vector<Variable const*>& buffers,
 	vengine::vector<Variable const*>& textures,
 	vengine::vector<Variable const*>& globalSRVValues,

@@ -6,11 +6,11 @@
 #include <chrono>
 #include <numeric>
 
+#include <core/dynamic_module.h>
 #include <runtime/device.h>
 #include <ast/interface.h>
 #include <compile/cpp_codegen.h>
 #include <dsl/syntax.h>
-#include <tests/test_husky.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -33,7 +33,7 @@ struct FakeDevice : public Device {
     }
 };
 
-int main() {
+int main(int argc, char *argv[]) {
 
     FakeDevice device;
     Buffer<float4> buffer{&device, 1024u};
@@ -144,7 +144,15 @@ int main() {
     auto t3 = std::chrono::high_resolution_clock::now();
 
     std::cout << scratch.view() << std::endl;
-
+    
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
+
+#ifdef LUISA_PLATFORM_WINDOWS
+    DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
+    auto hlsl_serialize = dll.function<void(Function)>("SerializeMD5");
+    auto hlsl_codegen = dll.function<void(Function)>("CodegenBody");
+    hlsl_serialize(function);
+    hlsl_codegen(function);
+#endif
 }

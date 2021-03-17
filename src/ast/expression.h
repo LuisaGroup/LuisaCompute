@@ -34,8 +34,8 @@ public:
     [[nodiscard]] auto usage() const noexcept { return _usage; }
     virtual void accept(ExprVisitor &) const = 0;
     void mark(Usage usage) const noexcept {
-        if ((_usage & usage) == 0u) {
-            _usage = static_cast<Usage>(_usage | usage);
+        if (auto a = static_cast<uint32_t>(_usage), b = static_cast<uint32_t>(usage); (a & b) == 0u) {
+            _usage = static_cast<Usage>(a | b);
             _mark(usage);
         }
     }

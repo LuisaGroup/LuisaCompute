@@ -1,9 +1,52 @@
 #pragma once
 #include <cstdlib>
-#include <stdint.h>
+#include <cstdint>
 #include <type_traits>
 #include "DLL.h"
 #include "MetaLib.h"
+inline void* aligned_malloc(size_t size, size_t alignment) noexcept {
+	if (alignment & (alignment - 1)) {
+		return nullptr;
+	} else {
+		void* praw = malloc(sizeof(void*) + size + alignment);
+		if (praw) {
+			void* pbuf = reinterpret_cast<void*>(reinterpret_cast<size_t>(praw) + sizeof(void*));
+			void* palignedbuf = reinterpret_cast<void*>((reinterpret_cast<size_t>(pbuf) | (alignment - 1)) + 1);
+			(static_cast<void**>(palignedbuf))[-1] = praw;
+
+			return palignedbuf;
+		} else {
+			return nullptr;
+		}
+	}
+}
+
+inline void aligned_free(void* palignedmem) noexcept {
+	free(reinterpret_cast<void*>((static_cast<void**>(palignedmem))[-1]));
+}
+//allocFunc:: void* operator()(size_t)
+template<typename AllocFunc>
+inline void* aligned_malloc(size_t size, size_t alignment, const AllocFunc& allocFunc) noexcept {
+	if (alignment & (alignment - 1)) {
+		return nullptr;
+	} else {
+		void* praw = allocFunc(sizeof(void*) + size + alignment);
+		if (praw) {
+			void* pbuf = reinterpret_cast<void*>(reinterpret_cast<size_t>(praw) + sizeof(void*));
+			void* palignedbuf = reinterpret_cast<void*>((reinterpret_cast<size_t>(pbuf) | (alignment - 1)) + 1);
+			(static_cast<void**>(palignedbuf))[-1] = praw;
+
+			return palignedbuf;
+		} else {
+			return nullptr;
+		}
+	}
+}
+
+template<typename FreeFunc>
+void aligned_free(void* palignedmem, const FreeFunc& func) noexcept {
+	func(reinterpret_cast<void*>((static_cast<void**>(palignedmem))[-1]));
+}
 namespace vengine {
 void vengine_init_malloc();
 void vengine_init_malloc(

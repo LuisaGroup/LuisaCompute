@@ -13,3 +13,6 @@
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/pybind/pybind11.git
+[submodule "src/ext/mimalloc"]
+	path = src/ext/mimalloc
+	url = https://github.com/microsoft/mimalloc.git

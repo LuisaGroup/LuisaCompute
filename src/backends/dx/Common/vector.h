@@ -8,6 +8,9 @@
 
 namespace vengine {
 
+template<typename T>
+constexpr auto always_false_v = false;
+
 template<typename T, bool useVEngineAlloc = true, bool forceTrivial = std::is_trivial_v<T>>
 class vector {
 private:
@@ -220,7 +223,7 @@ public:
 	}
 	void SetZero() const noexcept {
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
-			static_assert(false, "Non-Trivial data cannot be setted");
+			static_assert(always_false_v<T>, "Non-Trivial data cannot be setted");
 		} else {
 			if (arr) memset(arr, 0, sizeof(T) * mSize);
 		}

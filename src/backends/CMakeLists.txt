@@ -14,4 +14,4 @@ function(luisa_compute_add_backend name)
 endfunction()
 
 add_subdirectory(llvm)
-add_subdirectory(DXBackend_Project)
+add_subdirectory(dx)

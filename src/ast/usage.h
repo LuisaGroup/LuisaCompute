@@ -6,7 +6,7 @@
 
 namespace luisa::compute {
 
-enum Usage : uint16_t {
+enum struct Usage : uint16_t {
     NONE = 0,
     READ = 0x01,
     WRITE = 0x02,

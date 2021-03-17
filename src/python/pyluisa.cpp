@@ -7,6 +7,7 @@
 
 #include <ast/interface.h>
 #include <ast/function_builder.h>
+#include <compile/cpp_codegen.h>
 
 namespace luisa::compute::python {
 
@@ -19,9 +20,8 @@ PYBIND11_MODULE(pyluisa, m) {
     auto compute = m.def_submodule("compute");
 
     // ast
-    [&compute] {
+    [ast = compute.def_submodule("ast")] {
         using namespace luisa::compute;
-        auto ast = compute.def_submodule("ast");
 
         auto type = py::class_<Type, std::unique_ptr<Type, py::nodelete>>(ast, "Type");
 
@@ -41,9 +41,7 @@ PYBIND11_MODULE(pyluisa, m) {
         // clang-format on
 #undef LUISA_MAKE_TYPE_TAG_VALUE
 
-        type.def(py::init([](std::string_view name) {
-                return const_cast<Type *>(Type::from(name));
-            }))
+        type.def(py::init([](std::string_view name) { return const_cast<Type *>(Type::from(name)); }))
             .def_static("at", &Type::at)
             .def_property_readonly_static("count", &Type::count)
             .def_property_readonly("hash", &Type::hash)
@@ -53,10 +51,7 @@ PYBIND11_MODULE(pyluisa, m) {
             .def_property_readonly("tag", &Type::tag)
             .def_property_readonly("description", &Type::description)
             .def_property_readonly("dimension", &Type::dimension)
-            .def_property_readonly("members", [](const Type &t) {
-                auto m = t.members();
-                return std::vector<const Type *>{m.begin(), m.end()};
-            })
+            .def_property_readonly("members", [](const Type &t) { return std::vector{t.members()}; })
             .def_property_readonly("element", &Type::element)
             .def_property_readonly("is_scalar", &Type::is_scalar)
             .def_property_readonly("is_array", &Type::is_array)
@@ -74,7 +69,32 @@ PYBIND11_MODULE(pyluisa, m) {
         // builder methods
         auto builder = py::class_<FunctionBuilder, std::unique_ptr<FunctionBuilder, py::nodelete>>(ast, "Builder");
         builder.def(py::init([](Function::Tag tag) { return FunctionBuilder::create(tag); }))
-            .def("__enter__", [](FunctionBuilder &fb) { FunctionBuilder::push(&fb); })
-            .def("__exit__", [](FunctionBuilder &fb, py::object &, py::object &, py::object &) { FunctionBuilder::pop(&fb); });
+            .def("__enter__", [](FunctionBuilder &fb) {
+                FunctionBuilder::push(&fb);
+                return &fb;
+            })
+            .def("__exit__", [](FunctionBuilder &fb, py::object &, py::object &, py::object &) { FunctionBuilder::pop(&fb); })
+            .def_static("current", &FunctionBuilder::current)
+            .def("uid", &FunctionBuilder::uid)
+            .def("thread_id", [](FunctionBuilder &fb) -> const void * { return fb.thread_id(); })
+            .def("block_id", [](FunctionBuilder &fb) -> const void * { return fb.block_id(); })
+            .def("dispatch_id", [](FunctionBuilder &fb) -> const void * { return fb.dispatch_id(); });
+
+        function.def_static("at", &Function::at);
+    }();
+
+    // compile
+    [compile = compute.def_submodule("compile")] {
+        using namespace luisa::compute;
+        using namespace luisa::compute::compile;
+
+        py::class_<Codegen::Scratch>(compile, "Scratch")
+            .def(py::init())
+            .def_property_readonly("view", &Codegen::Scratch::view)
+            .def("__repr__", &Codegen::Scratch::view);
+
+        py::class_<CppCodegen>(compile, "CppCodegen")
+            .def(py::init<Codegen::Scratch &>())
+            .def("emit", &CppCodegen::emit);
     }();
 }
