@@ -3,6 +3,8 @@
 //
 
 #import <chrono>
+#import <numeric>
+
 #import <core/platform.h>
 #import <backends/metal/metal_device.h>
 
@@ -140,6 +142,16 @@ MetalDevice::MetalDevice(uint32_t index) noexcept {
     LUISA_VERBOSE_WITH_LOCATION(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
+    
+    static constexpr auto initial_buffer_count = 64u;
+    _buffer_slots.resize(initial_buffer_count, nullptr);
+    _available_buffer_slots.resize(initial_buffer_count);
+    std::iota(_available_buffer_slots.rbegin(), _available_buffer_slots.rend(), 0u);
+    
+    static constexpr auto initial_stream_count = 4u;
+    _stream_slots.resize(initial_stream_count, nullptr);
+    _available_stream_slots.resize(initial_stream_count);
+    std::iota(_available_stream_slots.rbegin(), _available_stream_slots.rend(), 0u);
 }
 
 MetalDevice::~MetalDevice() noexcept {
