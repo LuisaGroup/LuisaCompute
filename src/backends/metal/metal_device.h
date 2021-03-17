@@ -18,7 +18,7 @@ namespace luisa::compute::metal {
 class MetalDevice : public Device {
 
 private:
-    id<MTLDevice> _handle;
+    id<MTLDevice> _handle{nullptr};
     
     // for buffers
     spin_mutex _buffer_mutex;

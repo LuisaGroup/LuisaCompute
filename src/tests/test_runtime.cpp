@@ -33,11 +33,17 @@ int main(int argc, char *argv[]) {
     std::iota(data.begin(), data.end(), 1.0f);
 
     auto stream = device->create_stream();
+    
+    auto t0 = std::chrono::high_resolution_clock::now();
     stream << buffer.upload(data.data())
            << buffer.download(results.data())
            << synchronize();
-
-    LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}",
+    auto t1 = std::chrono::high_resolution_clock::now();
+    
+    using namespace std::chrono_literals;
+    LUISA_INFO("Finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+    
+    LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[16382], results[16383]);
 }

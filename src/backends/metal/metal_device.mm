@@ -61,14 +61,23 @@ void MetalDevice::_dispose_stream(uint64_t handle) noexcept {
 }
 
 void MetalDevice::_dispatch(uint64_t stream_handle, BufferCopyCommand command) noexcept {
-
+    auto stream = _stream_slots[stream_handle];
+    auto command_buffer = [stream commandBuffer];
+    auto blit_encoder = [command_buffer blitCommandEncoder];
+    [blit_encoder copyFromBuffer:_buffer_slots[command.src_handle()]
+                    sourceOffset:command.src_offset()
+                        toBuffer:_buffer_slots[command.dst_handle()]
+               destinationOffset:command.dst_offset()
+                            size:command.size()];
+    [blit_encoder endEncoding];
+    [command_buffer commit];
 }
 
 void MetalDevice::_dispatch(uint64_t stream_handle, BufferUploadCommand command) noexcept {
-    
+
     auto stream = _stream_slots[stream_handle];
     auto buffer = _buffer_slots[command.handle()];
-    
+
     auto t0 = std::chrono::high_resolution_clock::now();
     auto temporary = [_handle newBufferWithBytes:command.data()
                                           length:command.size()
@@ -78,7 +87,7 @@ void MetalDevice::_dispatch(uint64_t stream_handle, BufferUploadCommand command)
     LUISA_VERBOSE_WITH_LOCATION(
         "Allocated temporary shared buffer with size {} in {} ms.",
         command.size(), (t1 - t0) / 1ns * 1e-6);
-    
+
     auto command_buffer = [stream commandBuffer];
     auto blit_encoder = [command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temporary
@@ -91,10 +100,10 @@ void MetalDevice::_dispatch(uint64_t stream_handle, BufferUploadCommand command)
 }
 
 void MetalDevice::_dispatch(uint64_t stream_handle, BufferDownloadCommand command) noexcept {
-    
+
     auto stream = _stream_slots[stream_handle];
     auto buffer = _buffer_slots[command.handle()];
-    
+
     auto t0 = std::chrono::high_resolution_clock::now();
     auto temporary = [_handle newBufferWithLength:command.size() options:MTLResourceStorageModeShared];
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -102,7 +111,7 @@ void MetalDevice::_dispatch(uint64_t stream_handle, BufferDownloadCommand comman
     LUISA_VERBOSE_WITH_LOCATION(
         "Allocated temporary shared buffer with size {} in {} ms.",
         command.size(), (t1 - t0) / 1ns * 1e-6);
-    
+
     auto command_buffer = [stream commandBuffer];
     auto blit_encoder = [command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:buffer
@@ -112,7 +121,7 @@ void MetalDevice::_dispatch(uint64_t stream_handle, BufferDownloadCommand comman
                             size:command.size()];
     [blit_encoder endEncoding];
     [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-        std::memcpy(command.data(), temporary.contents, command.size());
+      std::memcpy(command.data(), temporary.contents, command.size());
     }];
     [command_buffer commit];
 }

@@ -13,10 +13,11 @@ class FakeDevice : public Device {
     void _dispose_buffer(uint64_t handle) noexcept override {}
     uint64_t _create_stream() noexcept override { return 0; }
     void _dispose_stream(uint64_t handle) noexcept override {}
-    void _dispatch(uint64_t stream, BufferCopyCommand command) override {}
-    void _dispatch(uint64_t stream, BufferUploadCommand command) override {}
-    void _dispatch(uint64_t stream, BufferDownloadCommand command) override {}
-    void _dispatch(uint64_t stream, KernelLaunchCommand command) override {}
+    void _dispatch(uint64_t stream, BufferCopyCommand command) noexcept override {}
+    void _dispatch(uint64_t stream, BufferUploadCommand command) noexcept override {}
+    void _dispatch(uint64_t stream, BufferDownloadCommand command) noexcept override {}
+    void _dispatch(uint64_t stream, KernelLaunchCommand command) noexcept override {}
+    void _dispatch(uint64_t stream_handle, SynchronizeCommand command) noexcept override {}
 };
 
 }
