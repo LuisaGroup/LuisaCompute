@@ -6,66 +6,12 @@
 
 #include <runtime/command.h>
 #include <runtime/device.h>
+#include <runtime/buffer.h>
 
 #include <dsl/expr.h>
 #include <dsl/arg.h>
 
 namespace luisa::compute::dsl {
-
-#define LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)                    \
-    static_assert(alignof(T) <= 16u);                         \
-    static_assert(std::is_same_v<T, std::remove_cvref_t<T>>); \
-    static_assert(std::is_trivially_copyable_v<T>);           \
-    static_assert(std::is_trivially_destructible_v<T>);
-
-template<typename T>
-class BufferView;
-
-template<typename T>
-class alignas(8) Buffer : public concepts::Noncopyable {
-    
-    LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
-
-private:
-    Device *_device;
-    size_t _size;
-    uint64_t _handle;
-
-public:
-    Buffer(Device *device, size_t size) noexcept
-        : _device{device},
-          _handle{device->create_buffer(size * sizeof(T))},
-          _size{size} {}
-
-    Buffer(Buffer &&another) noexcept
-        : _device{another._device},
-          _handle{another._handle},
-          _size{another._handle} { another._device = nullptr; }
-
-    Buffer &operator=(Buffer &&rhs) noexcept {
-        if (&rhs != this) {
-            _device->dispose_buffer(_handle);
-            _device = rhs._device;
-            _handle = rhs._handle;
-            _size = rhs._handle;
-            rhs._device = nullptr;
-        }
-        return *this;
-    }
-
-    ~Buffer() noexcept {
-        if (_device != nullptr /* not moved */) {
-            _device->dispose_buffer(_handle);
-        }
-    }
-
-    [[nodiscard]] auto view() const noexcept { return BufferView<T>{_device, _handle, 0u, _size}; }
-    
-    template<typename I>
-    [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
-        return this->view()[std::forward<I>(i)];
-    }
-};
 
 template<typename T>
 class alignas(8) BufferView {

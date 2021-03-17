@@ -6,6 +6,7 @@
 
 #include <runtime/device.h>
 #include <dsl/sugar.h>
+#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -18,20 +19,11 @@ struct Test {
 
 LUISA_STRUCT(Test, something, a)
 
-struct FakeDevice : public Device {
-
-    void dispose_buffer(uint64_t handle) noexcept override {}
-
-    uint64_t create_buffer(size_t byte_size) noexcept override {
-        return 0;
-    }
-};
-
 int main() {
-
+    
     FakeDevice device;
-    Buffer<float4> buffer{&device, 1024u};
-    Buffer<float> float_buffer{&device, 1024u};
+    auto buffer = device.create_buffer<float4>(1024u);
+    auto float_buffer = device.create_buffer<float>(1024u);
 
     std::vector<int> const_vector{1, 2, 3, 4};
 

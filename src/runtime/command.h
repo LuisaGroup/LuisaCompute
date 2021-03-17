@@ -107,6 +107,7 @@ private:
     [[nodiscard]] static std::vector<std::unique_ptr<Data>> &_available_blocks() noexcept;
     [[nodiscard]] static Storage _allocate() noexcept;
     static void _recycle(Data *storage) noexcept;
+    // TODO: ensure move safety
 
 public:
     KernelArgumentEncoder() noexcept : _storage{_allocate()}, _ptr{_storage->data()} {}

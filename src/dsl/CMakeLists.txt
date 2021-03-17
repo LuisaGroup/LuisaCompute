@@ -4,7 +4,7 @@ set(LUISA_COMPUTE_DSL_SOURCES
     expr.h
     syntax.h
     func.h
-    buffer.h
+    buffer_view.h
     shared.h
     constant.h
     texture.h
