@@ -53,7 +53,6 @@ static void PushToVector(uint8_t const* dd, size_t sz, vengine::vector<uint8_t>*
 	data->resize(offset + sz);
 	memcpy(data->data() + offset, dd, sz);
 }
-
 static void GetTypeBinary(Type const* type, vengine::vector<uint8_t>* result) {
 	if (!type) return;
 	struct Data {
@@ -276,24 +275,24 @@ void SerializeMD5_Result(Function func, vengine::vector<uint8_t>& result) {
 
 DLL_EXPORT void SerializeMD5(Function func) {
 	
-	LUISA_INFO("Hello, Husky!");
+	//LUISA_INFO("Hello, Husky!");
 	
 	vengine::vengine_init_malloc(malloc, free);
 	vengine::vector<uint8_t> result;
 	result.reserve(65536);
 	
-	LUISA_INFO("HLSL serialization started.");
+	//LUISA_INFO("HLSL serialization started.");
 	auto t_husky = std::chrono::high_resolution_clock::now();
 	SerializeMD5_Result(func, result);
 	auto t_husky_stop = std::chrono::high_resolution_clock::now();
 	using namespace std::chrono_literals;
-	LUISA_INFO("HLSL serialization finished in {} ms.", (t_husky_stop - t_husky) / 1ns * 1e-6);
+	//LUISA_INFO("HLSL serialization finished in {} ms.", (t_husky_stop - t_husky) / 1ns * 1e-6);
 	
 	std::span<uint8_t> arr(result.data(), result.size());
 
 	MD5 md5(arr);
 	auto&& md5Data = md5.GetDigest();
 	auto intData = (uint64_t const*)md5Data.data();
-	LUISA_INFO("MD5: {:X}{:X}", intData[0], intData[1]);
+	//LUISA_INFO("MD5: {:X}{:X}", intData[0], intData[1]);
 }
 }// namespace luisa::compute

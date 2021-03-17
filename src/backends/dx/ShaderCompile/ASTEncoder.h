@@ -20,6 +20,14 @@ public:
 	~ASTExprEncoder();
 
 private:
+	template <typename T>
+	void Push(T const& dd) {
+		size_t offset = data->size();
+		data->resize(offset + sizeof(T));
+		*reinterpret_cast<T*>(data->data()) = dd;
+	}
+
+	void Push(uint8_t const* data, size_t sz);
 };
 class ASTStmtEncoder : public StmtVisitor {
 public:
@@ -41,5 +49,12 @@ public:
 	~ASTStmtEncoder();
 
 private:
+	template<typename T>
+	void Push(T const& dd) {
+		size_t offset = data->size();
+		data->resize(offset + sizeof(T));
+		*reinterpret_cast<T*>(data->data()) = dd;
+	}
+	void Push(uint8_t const* data, size_t sz);
 };
 }// namespace luisa::compute

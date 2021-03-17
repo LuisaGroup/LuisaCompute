@@ -786,7 +786,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 	return cbufferSize;
 }
 void CodegenUtility::SeparateVariables(
-	Function const& func,
+	Function func,
 	vengine::vector<Variable const*>& buffers,
 	vengine::vector<Variable const*>& textures,
 	vengine::vector<Variable const*>& globalSRVValues,
