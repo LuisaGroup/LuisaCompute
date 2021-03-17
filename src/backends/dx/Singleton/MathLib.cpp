@@ -299,11 +299,10 @@ void MathLib::GetFrustumBoundingBox(
 	poses[7] = pos + forward * farZ + right * halfFarXWidth + up * halfFarYHeight;
 	*minValue = poses[7];
 	*maxValue = poses[7];
-	auto func = [&](uint i) -> void {
+	for (uint i = 0; i < 7; ++i) {
 		*minValue = Min<Vector3>(poses[i], *minValue);
 		*maxValue = Max<Vector3>(poses[i], *maxValue);
 	};
-	InnerLoop<decltype(func), 7>(func);
 }
 bool MathLib::ConeIntersect(const Cone& cone, const Vector4& plane) noexcept {
 	Vector3 dir = cone.direction;
@@ -336,10 +335,9 @@ void MathLib::GetOrthoCamFrustumPlanes(
 	positions[4] = position + forward * farPlane;
 	normals[5] = -forward;
 	positions[5] = position + forward * nearPlane;
-	auto func = [&](uint i) -> void {
+	for (uint i = 0; i < 6; ++i) {
 		results[i] = GetPlane(normals[i], positions[i]);
 	};
-	InnerLoop<decltype(func), 6>(func);
 }
 void MathLib::GetOrthoCamFrustumPoints(
 	const Math::Vector3& right,
@@ -498,7 +496,7 @@ void MathLib::GetCubemapRenderData(
 	Matrix4 proj = XMMatrixPerspectiveFovLH(90 * Deg2Rad, 1, farZ, nearZ);
 	double nearWindowHeight = (double)nearZ * tan(45 * Deg2Rad);
 	double farWindowHeight = (double)farZ * tan(45 * Deg2Rad);
-	auto calculateFunc = [&](uint i) -> void {
+	for (uint i = 0; i < 6; ++i) {
 		Vector4* frustumPlanesResult = frustumPlanes[i];
 		Matrix4 view = GetInverseTransformMatrix(rightDirs[i], upDirs[i], forwardDirs[i], position);
 		viewProj[i] = mul(view, proj);
@@ -523,5 +521,4 @@ void MathLib::GetCubemapRenderData(
 		}
 		minMaxBound[i] = {minPos, maxPos};
 	};
-	InnerLoop<decltype(calculateFunc), 6>(calculateFunc);
 }

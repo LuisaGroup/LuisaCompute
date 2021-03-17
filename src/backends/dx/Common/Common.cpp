@@ -15,41 +15,6 @@
 #include "MCollection.h"
 #include <comdef.h>
 #include "DXMath/DXMath.h"
-Math::Matrix4 XM_CALLCONV QuaternionToMatrix(const Math::Vector4& q) noexcept {
-	static const XMVECTORF32 Constant1110 = {{{1.0f, 1.0f, 1.0f, 0.0f}}};
-	XMVECTOR& Quaternion = (XMVECTOR&)q;
-	XMVECTOR Q0 = _mm_add_ps(Quaternion, Quaternion);
-	XMVECTOR Q1 = _mm_mul_ps(Quaternion, Q0);
-	XMVECTOR V0 = XM_PERMUTE_PS(Q1, _MM_SHUFFLE(3, 0, 0, 1));
-	V0 = _mm_and_ps(V0, g_XMMask3);
-	XMVECTOR V1 = XM_PERMUTE_PS(Q1, _MM_SHUFFLE(3, 1, 2, 2));
-	V1 = _mm_and_ps(V1, g_XMMask3);
-	XMVECTOR R0 = _mm_sub_ps(Constant1110, V0);
-	R0 = _mm_sub_ps(R0, V1);
-	V0 = XM_PERMUTE_PS(Quaternion, _MM_SHUFFLE(3, 1, 0, 0));
-	V1 = XM_PERMUTE_PS(Q0, _MM_SHUFFLE(3, 2, 1, 2));
-	V0 = _mm_mul_ps(V0, V1);
-	V1 = XM_PERMUTE_PS(Quaternion, _MM_SHUFFLE(3, 3, 3, 3));
-	XMVECTOR V2 = XM_PERMUTE_PS(Q0, _MM_SHUFFLE(3, 0, 2, 1));
-	V1 = _mm_mul_ps(V1, V2);
-	XMVECTOR R1 = _mm_add_ps(V0, V1);
-	XMVECTOR R2 = _mm_sub_ps(V0, V1);
-	V0 = _mm_shuffle_ps(R1, R2, _MM_SHUFFLE(1, 0, 2, 1));
-	V0 = XM_PERMUTE_PS(V0, _MM_SHUFFLE(1, 3, 2, 0));
-	V1 = _mm_shuffle_ps(R1, R2, _MM_SHUFFLE(2, 2, 0, 0));
-	V1 = XM_PERMUTE_PS(V1, _MM_SHUFFLE(2, 0, 2, 0));
-	Q1 = _mm_shuffle_ps(R0, V0, _MM_SHUFFLE(1, 0, 3, 0));
-	Q1 = XM_PERMUTE_PS(Q1, _MM_SHUFFLE(1, 3, 2, 0));
-	XMMATRIX M;
-	M.r[0] = Q1;
-	Q1 = _mm_shuffle_ps(R0, V0, _MM_SHUFFLE(3, 2, 3, 1));
-	Q1 = XM_PERMUTE_PS(Q1, _MM_SHUFFLE(1, 3, 0, 2));
-	M.r[1] = Q1;
-	Q1 = _mm_shuffle_ps(V1, R0, _MM_SHUFFLE(3, 2, 1, 0));
-	M.r[2] = Q1;
-	M.r[3] = g_XMIdentityR3;
-	return transpose(M);
-}
 Math::Matrix4 XM_CALLCONV GetTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept {
 	Math::Matrix4 target;
 	target[0] = right;
@@ -72,10 +37,42 @@ Math::Matrix4 XM_CALLCONV GetTransposedTransformMatrix(const Math::Vector3& righ
 	target[2].m128_f32[3] = position.GetZ();
 	return target;
 }
+Math::Matrix4 XM_CALLCONV GetInverseTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept {
+	// Keep camera's axes orthogonal to each other and of unit length.
+	Math::Vector3 L = normalize(forward);
+	Math::Vector3 U = normalize(cross(L, right));
+	// U, L already ortho-normal, so no need to normalize cross product.
+	Math::Vector3 R = cross(U, L);
+	// Fill in the view matrix entries.
+	float x = -dot(position, R);
+	float y = -dot(position, U);
+	float z = -dot(position, L);
+	float4x4 mView;
+	mView(0, 0) = right.GetX();
+	mView(1, 0) = right.GetY();
+	mView(2, 0) = right.GetZ();
+	mView(3, 0) = x;
+	mView(0, 1) = up.GetX();
+	mView(1, 1) = up.GetY();
+	mView(2, 1) = up.GetZ();
+	mView(3, 1) = y;
+	mView(0, 2) = forward.GetX();
+	mView(1, 2) = forward.GetY();
+	mView(2, 2) = forward.GetZ();
+	mView(3, 2) = z;
+	mView(0, 3) = 0.0f;
+	mView(1, 3) = 0.0f;
+	mView(2, 3) = 0.0f;
+	mView(3, 3) = 1.0f;
+	return mView;
+}
 Math::Vector4 XM_CALLCONV cross(const Math::Vector4& v1, const Math::Vector4& v2, const Math::Vector4& v3) noexcept {
-	XMVECTOR& V1 = (XMVECTOR&)v1;
-	XMVECTOR& V2 = (XMVECTOR&)v2;
-	XMVECTOR& V3 = (XMVECTOR&)v3;
+#ifdef _XM_NO_INTRINSICS_
+	return XMVector4Cross((XMVECTOR const&)v1, (XMVECTOR const&)v2, (XMVECTOR const&)v3);
+#else
+	XMVECTOR const& V1 = (XMVECTOR const&)v1;
+	XMVECTOR const& V2 = (XMVECTOR const&)v2;
+	XMVECTOR const& V3 = (XMVECTOR const&)v3;
 	// V2zwyz * V3wzwy
 	XMVECTOR vResult = XM_PERMUTE_PS(V2, _MM_SHUFFLE(2, 1, 3, 2));
 	XMVECTOR vTemp3 = XM_PERMUTE_PS(V3, _MM_SHUFFLE(1, 3, 2, 3));
@@ -115,10 +112,14 @@ Math::Vector4 XM_CALLCONV cross(const Math::Vector4& v1, const Math::Vector4& v2
 	vTemp3 = _mm_mul_ps(vTemp3, vTemp1);
 	vResult = _mm_add_ps(vResult, vTemp3);
 	return vResult;
+#endif
 }
 Math::Vector3 XM_CALLCONV cross(const Math::Vector3& v1, const Math::Vector3& v2) noexcept {
-	XMVECTOR& V1 = (XMVECTOR&)v1;
-	XMVECTOR& V2 = (XMVECTOR&)v2;
+#ifdef _XM_NO_INTRINSICS_
+	return XMVector3Cross((XMVECTOR const&)v1, (XMVECTOR const&)v2);
+#else
+	XMVECTOR const& V1 = (XMVECTOR const&)v1;
+	XMVECTOR const& V2 = (XMVECTOR const&)v2;
 	XMVECTOR vTemp1 = XM_PERMUTE_PS(V1, _MM_SHUFFLE(3, 0, 2, 1));
 	// z2,x2,y2,w2
 	XMVECTOR vTemp2 = XM_PERMUTE_PS(V2, _MM_SHUFFLE(3, 1, 0, 2));
@@ -134,9 +135,13 @@ Math::Vector3 XM_CALLCONV cross(const Math::Vector3& v1, const Math::Vector3& v2
 	vResult = _mm_sub_ps(vResult, vTemp1);
 	// Set w to zero
 	return _mm_and_ps(vResult, g_XMMask3);
+#endif
 }
 Math::Vector4 XM_CALLCONV normalize(const Math::Vector4& v) noexcept {
-	XMVECTOR& V = (XMVECTOR&)v;
+#ifdef _XM_NO_INTRINSICS_
+	return XMVector4Normalize(v);
+#else
+	XMVECTOR const& V = (XMVECTOR const&)v;
 	XMVECTOR vLengthSq = _mm_mul_ps(V, V);
 	// vTemp has z and w
 	XMVECTOR vTemp = XM_PERMUTE_PS(vLengthSq, _MM_SHUFFLE(3, 2, 3, 2));
@@ -168,9 +173,13 @@ Math::Vector4 XM_CALLCONV normalize(const Math::Vector4& v) noexcept {
 	XMVECTOR vTemp2 = _mm_and_ps(vResult, vLengthSq);
 	vResult = _mm_or_ps(vTemp1, vTemp2);
 	return vResult;
+#endif
 }
 Math::Vector3 XM_CALLCONV normalize(const Math::Vector3& v) noexcept {
-	XMVECTOR& V = (XMVECTOR&)v;
+#ifdef _XM_NO_INTRINSICS_
+	return XMVector3Normalize(v);
+#else
+	XMVECTOR const& V = (XMVECTOR const&)v;
 	// Perform the dot product on x,y and z only
 	XMVECTOR vLengthSq = _mm_mul_ps(V, V);
 	XMVECTOR vTemp = XM_PERMUTE_PS(vLengthSq, _MM_SHUFFLE(2, 1, 2, 1));
@@ -196,37 +205,13 @@ Math::Vector3 XM_CALLCONV normalize(const Math::Vector3& v) noexcept {
 	XMVECTOR vTemp2 = _mm_and_ps(vResult, vLengthSq);
 	vResult = _mm_or_ps(vTemp1, vTemp2);
 	return vResult;
-}
-Math::Matrix4 XM_CALLCONV GetInverseTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept {
-	// Keep camera's axes orthogonal to each other and of unit length.
-	Math::Vector3 L = normalize(forward);
-	Math::Vector3 U = normalize(cross(L, right));
-	// U, L already ortho-normal, so no need to normalize cross product.
-	Math::Vector3 R = cross(U, L);
-	// Fill in the view matrix entries.
-	float x = -dot(position, R);
-	float y = -dot(position, U);
-	float z = -dot(position, L);
-	float4x4 mView;
-	mView(0, 0) = right.GetX();
-	mView(1, 0) = right.GetY();
-	mView(2, 0) = right.GetZ();
-	mView(3, 0) = x;
-	mView(0, 1) = up.GetX();
-	mView(1, 1) = up.GetY();
-	mView(2, 1) = up.GetZ();
-	mView(3, 1) = y;
-	mView(0, 2) = forward.GetX();
-	mView(1, 2) = forward.GetY();
-	mView(2, 2) = forward.GetZ();
-	mView(3, 2) = z;
-	mView(0, 3) = 0.0f;
-	mView(1, 3) = 0.0f;
-	mView(2, 3) = 0.0f;
-	mView(3, 3) = 1.0f;
-	return mView;
+#endif
 }
 Math::Matrix4 XM_CALLCONV inverse(const Math::Matrix4& m) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	auto det = XMMatrixDeterminant(m);
+	return XMMatrixInverse(&det, m);
+#else
 	Math::Matrix4 MT = transpose(m);
 	XMVECTOR V00 = XM_PERMUTE_PS(MT[2], _MM_SHUFFLE(1, 1, 0, 0));
 	XMVECTOR V10 = XM_PERMUTE_PS(MT[3], _MM_SHUFFLE(3, 2, 3, 2));
@@ -330,8 +315,12 @@ Math::Matrix4 XM_CALLCONV inverse(const Math::Matrix4& m) noexcept {
 	mResult.r[2] = _mm_mul_ps(C4, vTemp);
 	mResult.r[3] = _mm_mul_ps(C6, vTemp);
 	return mResult;
+#endif
 }
 Math::Matrix3 XM_CALLCONV transpose(const Math::Matrix3& m) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	return Math::Matrix3(XMMatrixTranspose(m));
+#else
 	XMMATRIX& M = (XMMATRIX&)m;
 	// x.x,x.y,y.x,y.y
 	XMVECTOR vTemp1 = _mm_shuffle_ps(M.r[0], M.r[1], _MM_SHUFFLE(1, 0, 1, 0));
@@ -349,8 +338,12 @@ Math::Matrix3 XM_CALLCONV transpose(const Math::Matrix3& m) noexcept {
 	// x.z,y.z,z.z,w.z
 	mResult[2] = _mm_shuffle_ps(vTemp3, vTemp4, _MM_SHUFFLE(2, 0, 2, 0));
 	return mResult;
+#endif
 }
 Math::Matrix4 XM_CALLCONV transpose(const Math::Matrix4& m) noexcept {
+#ifdef _XM_NO_INTRINSICS_
+	return Math::Matrix4(XMMatrixTranspose(m));
+#else
 	XMMATRIX& M = (XMMATRIX&)m;
 	// x.x,x.y,y.x,y.y
 	XMVECTOR vTemp1 = _mm_shuffle_ps(M.r[0], M.r[1], _MM_SHUFFLE(1, 0, 1, 0));
@@ -370,6 +363,7 @@ Math::Matrix4 XM_CALLCONV transpose(const Math::Matrix4& m) noexcept {
 	// x.w,y.w,z.w,w.w
 	mResult[3] = _mm_shuffle_ps(vTemp3, vTemp4, _MM_SHUFFLE(3, 1, 3, 1));
 	return mResult;
+#endif
 }
 Math::Matrix4 XM_CALLCONV mul(
 	const Math::Matrix4& m1,

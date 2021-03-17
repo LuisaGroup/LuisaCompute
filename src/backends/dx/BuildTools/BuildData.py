@@ -3,12 +3,16 @@ PP = {
         "DEBUG",
         "_DEBUG",
         "_CONSOLE",
-        "_CRT_SECURE_NO_WARNINGS"
+        "_CRT_SECURE_NO_WARNINGS",
+        #"CLANG_COMPILER",
+        "NOMINMAX"
     ],
     "Release" : [
         "NDEBUG",
         "_CONSOLE",
-        "_CRT_SECURE_NO_WARNINGS"
+        "_CRT_SECURE_NO_WARNINGS",
+        #"CLANG_COMPILER",
+        "NOMINMAX"
     ]
 }
 

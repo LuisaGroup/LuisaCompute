@@ -168,6 +168,7 @@ def GenerateCMake(allFiles:dict):
     f = open("CMakeLists.txt", "w")
     f.write(setValue)
     f.close()
+    print("CMake Generated!")
     
 def ClearFilters():
     xmlPath = bd.Proj + '.vcxproj'

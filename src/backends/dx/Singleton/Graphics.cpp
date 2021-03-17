@@ -202,7 +202,7 @@ void Graphics::Blit(
 	uint width, uint height,
 	const Shader* shader, uint pass) {
 	D3D12_VIEWPORT mViewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f};
-	D3D12_RECT mScissorRect = {0, 0, width, height};
+	D3D12_RECT mScissorRect = {0, 0, (int32_t)width, (int32_t)height};
 	PSODescriptor psoDesc;
 	psoDesc.meshLayoutIndex = fullScreenMesh->GetLayoutIndex();
 	psoDesc.shaderPass = pass;

@@ -1,6 +1,6 @@
 
 #pragma once
-
+#include <config.h>
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>
 #include <DirectXColors.h>
