@@ -12,6 +12,7 @@ namespace luisa::compute {
 class CommandBuffer {
 
 private:
+    // TODO: serialized commands?
     std::vector<std::unique_ptr<Command>> _commands;
 
 public:
@@ -19,6 +20,9 @@ public:
     void append(std::unique_ptr<Command> cmd) noexcept;
     [[nodiscard]] auto begin() const noexcept { return _commands.cbegin(); }
     [[nodiscard]] auto end() const noexcept { return _commands.cend(); }
+    [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }
+    [[nodiscard]] auto size() const noexcept { return _commands.size(); }
+    // TODO: reordering commands?
 };
 
 }

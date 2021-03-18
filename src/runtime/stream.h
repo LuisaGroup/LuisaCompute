@@ -20,8 +20,8 @@ public:
     class Delegate {
     
     private:
-        Stream *_stream{nullptr};
-        std::unique_ptr<CommandBuffer> _cb{nullptr};
+        Stream *_stream;
+        CommandBuffer _cb;
         
     private:
         void _commit() noexcept;
@@ -32,7 +32,7 @@ public:
         Delegate &operator=(Delegate &&) noexcept = default;
         ~Delegate() noexcept;
         Delegate &operator<<(std::unique_ptr<Command> cmd) noexcept;
-        Delegate &operator<<(std::function<void()> f) noexcept;
+        Stream &operator<<(std::function<void()> f) noexcept;
         void operator<<(SynchronizeToken) noexcept;
     };
 
@@ -44,8 +44,7 @@ private:
     friend class Device;
     Stream(Device *device, uint64_t handle) noexcept
         : _device{device}, _handle{handle} {}
-    
-    void _dispatch(std::unique_ptr<CommandBuffer> cb) noexcept;
+    void _dispatch(CommandBuffer cb) noexcept;
 
 public:
     Stream(Stream &&s) noexcept;

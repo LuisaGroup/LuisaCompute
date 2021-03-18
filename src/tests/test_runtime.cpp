@@ -42,7 +42,6 @@ int main(int argc, char *argv[]) {
     stream
         << [] { LUISA_INFO("Hello!"); }
         << buffer.upload(data.data())
-        << [] { LUISA_INFO("Here!"); }
         << buffer.download(results.data())
         << [] { LUISA_INFO("Bye!"); }
         << synchronize();

@@ -8,7 +8,7 @@
 
 namespace luisa::compute {
 
-void Stream::_dispatch(std::unique_ptr<CommandBuffer> cb) noexcept { _device->_dispatch(_handle, std::move(cb)); }
+void Stream::_dispatch(CommandBuffer cb) noexcept { _device->_dispatch(_handle, std::move(cb)); }
 
 Stream::Delegate Stream::operator<<(std::unique_ptr<Command> cmd) noexcept {
     Delegate delegate{this};
@@ -40,28 +40,31 @@ Stream &Stream::operator=(Stream &&rhs) noexcept {
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 Stream::Delegate &Stream::Delegate::operator<<(std::unique_ptr<Command> cmd) noexcept {
-    if (_cb == nullptr) { _cb = std::make_unique<CommandBuffer>(); }
-    _cb->append(std::move(cmd));
+    _cb.append(std::move(cmd));
     return *this;
 }
 
-Stream::Delegate &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
+Stream &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
+    auto &&stream = *_stream;
     _commit();
-    *_stream << std::move(f);
-    return *this;
+    return stream << std::move(f);
 }
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
 
 void Stream::Delegate::operator<<(Stream::SynchronizeToken) noexcept {
+    auto &stream = *_stream;
     _commit();
-    *_stream << SynchronizeToken{};
+    stream << SynchronizeToken{};
 }
 
 void Stream::Delegate::_commit() noexcept {
-    if (_cb != nullptr) {
+    if (_stream != nullptr && !_cb.empty()) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Commit {} command{} to stream #{}.",
+            _cb.size(), _cb.size() == 1u ? "" : "s", _stream->_handle);
         _stream->_dispatch(std::move(_cb));
-        _cb = nullptr;
+        _stream = nullptr;
     }
 }
 

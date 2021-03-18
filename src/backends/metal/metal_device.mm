@@ -39,7 +39,7 @@ void MetalDevice::_dispose_buffer(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::_create_stream() noexcept {
     auto t0 = std::chrono::high_resolution_clock::now();
-    auto stream = [_handle newCommandQueueWithMaxCommandBufferCount:8u];
+    auto stream = [_handle newCommandQueue];
     auto t1 = std::chrono::high_resolution_clock::now();
     using namespace std::chrono_literals;
     auto dt = (t1 - t0) / 1ns * 1e-6;
@@ -110,10 +110,10 @@ id<MTLCommandQueue> MetalDevice::stream(uint64_t handle) const noexcept {
     return _stream_slots[handle];
 }
 
-void MetalDevice::_dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer> commands) noexcept {
+void MetalDevice::_dispatch(uint64_t stream_handle, CommandBuffer commands) noexcept {
     auto cb = [stream(stream_handle) commandBuffer];
     MetalCommandEncoder encoder{this, cb};
-    for (auto &&command : *commands) { command->accept(encoder); }
+    for (auto &&command : commands) { command->accept(encoder); }
     [cb commit];
 }
 

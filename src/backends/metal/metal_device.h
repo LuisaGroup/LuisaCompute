@@ -36,11 +36,9 @@ private:
     uint64_t _create_stream() noexcept override;
     void _dispose_stream(uint64_t handle) noexcept override;
     void _synchronize_stream(uint64_t stream_handle) noexcept override;
-    void _dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer> ptr) noexcept override;
-
-public:
-private:
+    void _dispatch(uint64_t stream_handle, CommandBuffer cb) noexcept override;
     void _dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override;
+    
 public:
     explicit MetalDevice(uint32_t index) noexcept;
     ~MetalDevice() noexcept override;
