@@ -168,10 +168,10 @@ def GenerateCMake(root:ET.Element, xmlns):
     example = open("CMakeLists.txt", "r")
     exampleStr = example.read()
     example.close()
-    setValue = "\nset(DX_BACKEND_SOURCES\n"
+    setValue = "\n    set(DX_BACKEND_SOURCES\n"
     for i in cmakePaths: 
-        setValue += i + '\n'
-    setValue += ')\n'
+        setValue += "        " + i + '\n'
+    setValue += '    )\n'
     splitedStrs = exampleStr.split("##[[[]]]")
     if len(splitedStrs) == 2:
         setValue = splitedStrs[0] + "##[[[]]]" + setValue + "##[[[]]]" + splitedStrs[1]
