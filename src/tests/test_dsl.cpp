@@ -134,8 +134,8 @@ int main(int argc, char *argv[]) {
     auto t1 = std::chrono::high_resolution_clock::now();
 
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
-    LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
-    auto function = Function::kernel(command.kernel_uid());
+    LUISA_INFO("Command: kernel = {}, args = {}", command->kernel_uid(), command->arguments().size());
+    auto function = Function::kernel(command->kernel_uid());
 
     auto t2 = std::chrono::high_resolution_clock::now();
     Codegen::Scratch scratch;

@@ -17,7 +17,7 @@ class FakeDevice : public Device {
     void _dispatch(uint64_t stream, BufferUploadCommand) noexcept override {}
     void _dispatch(uint64_t stream, BufferDownloadCommand) noexcept override {}
     void _dispatch(uint64_t stream, KernelLaunchCommand) noexcept override {}
-    void _dispatch(uint64_t stream_handle, SynchronizeCommand) noexcept override {}
+    void _synchronize_stream(uint64_t stream_handle) noexcept override {}
     void _dispatch(uint64_t stream_handle, std::function<void()> f) noexcept override { f(); }
 };
 

@@ -114,21 +114,21 @@ public:
     }
 
     [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) &&noexcept {
-        return KernelLaunchCommand{
+        return KernelLaunchCommand::create(
             _function_uid, std::move(_encoder),
-            dispatch_size, block_size};
+            dispatch_size, block_size);
     }
 
     [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) &&noexcept {
-        return KernelLaunchCommand{
+        return KernelLaunchCommand::create(
             _function_uid, std::move(_encoder),
-            uint3{dispatch_size, 1u}, uint3{block_size, 1u}};
+            uint3{dispatch_size, 1u}, uint3{block_size, 1u});
     }
 
     [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) &&noexcept {
-        return KernelLaunchCommand{
+        return KernelLaunchCommand::create(
             _function_uid, std::move(_encoder),
-            uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u}};
+            uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
     }
 };
 

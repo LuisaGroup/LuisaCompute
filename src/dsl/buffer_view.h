@@ -15,7 +15,7 @@ namespace luisa::compute::dsl {
 
 template<typename T>
 class alignas(8) BufferView {
-    
+
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
@@ -48,7 +48,7 @@ protected:
 
 public:
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
-    
+
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
@@ -80,11 +80,11 @@ public:
                 "Invalid host pointer {} for elements with alignment {}.",
                 fmt::ptr(data), alignof(T));
         }
-        return BufferDownloadCommand{_handle, offset_bytes(), size_bytes(), data};
+        return BufferDownloadCommand::create(_handle, offset_bytes(), size_bytes(), data);
     }
 
     [[nodiscard]] auto upload(const T *data) {
-        return BufferUploadCommand{this->handle(), this->offset_bytes(), this->size_bytes(), data};
+        return BufferUploadCommand::create(this->handle(), this->offset_bytes(), this->size_bytes(), data);
     }
 
     [[nodiscard]] auto copy(BufferView<T> source) {
@@ -93,15 +93,15 @@ public:
                 "Incompatible buffer views with different element counts (src = {}, dst = {}).",
                 source.size(), this->size());
         }
-        return BufferCopyCommand{
+        return BufferCopyCommand::create(
             source.handle(), this->handle(),
             source.offset_bytes(), this->offset_bytes(),
-            this->size_bytes()};
+            this->size_bytes());
     }
-    
+
     template<concepts::integral I>
     [[nodiscard]] auto operator[](I i) const noexcept { return this->operator[](detail::Expr{i}); }
-    
+
     template<concepts::integral I>
     [[nodiscard]] auto operator[](detail::Expr<I> i) const noexcept {
         auto self = _expression ? _expression : FunctionBuilder::current()->buffer_binding(Type::of<T>(), _handle, _offset_bytes);

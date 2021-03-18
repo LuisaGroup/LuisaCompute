@@ -110,7 +110,7 @@ int main() {
             auto t1 = std::chrono::high_resolution_clock::now();
 
             auto command = kernel(float_buffer, 12u).parallelize(1024u);
-            auto function = Function::kernel(command.kernel_uid());
+            auto function = Function::kernel(command->kernel_uid());
 
             auto t2 = std::chrono::high_resolution_clock::now();
             Codegen::Scratch scratch;

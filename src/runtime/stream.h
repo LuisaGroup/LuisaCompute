@@ -5,17 +5,28 @@
 #pragma once
 
 #include <utility>
+
+#include <core/spin_mutex.h>
 #include <runtime/device.h>
+#include <runtime/command_group.h>
 
 namespace luisa::compute {
 
 class Device;
+
+namespace detail {
+struct StreamSyncToken {};
+}// namespace detail
+
+[[nodiscard]] constexpr auto synchronize() noexcept { return detail::StreamSyncToken{}; }
 
 class Stream : public concepts::Noncopyable {
 
 private:
     Device *_device;
     uint64_t _handle;
+    spin_mutex _mutex;
+    
 
 private:
     friend class Device;
@@ -41,18 +52,25 @@ public:
         rhs._device = nullptr;
         return *this;
     }
-    
+
     Stream &operator<<(std::unique_ptr<Command> cmd) {
-    
+//        _device->_dispatch(_handle, *cmd);
+//        return *this;
+    }
+
+    Stream &operator<<(std::function<void()> f) {
+        _device->_dispatch(_handle, std::move(f));
+        return *this;
     }
     
-    Stream &operator<<(std::function<void()> f) {
-    
+    Stream &operator<<(detail::StreamSyncToken) {
+        _device->_synchronize_stream(_handle);
+        return *this;
     }
 
     template<typename Cmd>
     Stream &operator<<(Cmd &&cmd) {
-        _device->_dispatch(_handle, std::forward<Cmd>(cmd));
+        _device->_dispatch(_handle, *cmd);
         return *this;
     }
 };

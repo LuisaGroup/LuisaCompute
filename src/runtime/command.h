@@ -21,18 +21,22 @@ class BufferUploadCommand;
 class BufferDownloadCommand;
 class BufferCopyCommand;
 class KernelLaunchCommand;
-class SynchronizeCommand;
 
 struct CommandVisitor {
     virtual void visit(const BufferCopyCommand *) noexcept = 0;
     virtual void visit(const BufferUploadCommand *) noexcept = 0;
     virtual void visit(const BufferDownloadCommand *) noexcept = 0;
     virtual void visit(const KernelLaunchCommand *) noexcept = 0;
-    virtual void visit(const SynchronizeCommand *) noexcept = 0;
 };
 
 #define LUISA_MAKE_COMMAND_ACCEPT_VISITOR() \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); }
+
+#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                    \
+    template<typename... Args>                                             \
+    [[nodiscard]] static auto create(Args &&...args) noexcept {            \
+        return std::unique_ptr<Cmd>{new Cmd{std::forward<Args>(args)...}}; \
+    }
 
 class Command {
 
@@ -42,20 +46,25 @@ public:
     struct Resource {
 
         enum struct Tag : uint32_t {
+            NONE,
             BUFFER,
             TEXTURE
         };
 
         enum struct Usage : uint32_t {
-            NONE = 0u,
+            NONE,
             READ = 1u,
             WRITE = 2u,
             READ_WRITE = READ | WRITE
         };
 
-        uint64_t handle;
-        Tag tag;
-        Usage usage;
+        uint64_t handle{0u};
+        Tag tag{Tag::NONE};
+        Usage usage{Usage::NONE};
+
+        constexpr Resource() noexcept = default;
+        constexpr Resource(uint64_t handle, Tag tag, Usage usage) noexcept
+            : handle{handle}, tag{tag}, usage{usage} {}
     };
 
 private:
@@ -85,13 +94,15 @@ private:
     size_t _size;
     const void *_data;
 
-public:
+private:
     BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
         : _handle{handle},
           _offset{offset_bytes},
           _size{size_bytes},
           _data{data} { _buffer_write_only(_handle); }
 
+public:
+    LUISA_MAKE_COMMAND_CREATOR(BufferUploadCommand)
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -107,13 +118,15 @@ private:
     size_t _size;
     void *_data;
 
-public:
+private:
     BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
         : _handle{handle},
           _offset{offset_bytes},
           _size{size_bytes},
           _data{data} { _buffer_read_only(_handle); }
 
+public:
+    LUISA_MAKE_COMMAND_CREATOR(BufferDownloadCommand)
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -130,7 +143,7 @@ private:
     size_t _dst_offset;
     size_t _size;
 
-public:
+private:
     BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
         : _src_handle{src},
           _dst_handle{dst},
@@ -141,6 +154,8 @@ public:
         _buffer_write_only(_dst_handle);
     }
 
+public:
+    LUISA_MAKE_COMMAND_CREATOR(BufferCopyCommand)
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
@@ -198,9 +213,12 @@ private:
     uint3 _block_size;
     uint32_t _kernel_uid;
 
-public:
+private:
     KernelLaunchCommand(uint32_t kernel_uid, KernelArgumentEncoder encoder, uint3 dispatch_size, uint3 block_size) noexcept
         : _encoder{std::move(encoder)}, _dispatch_size{dispatch_size}, _block_size{block_size}, _kernel_uid{kernel_uid} {}
+
+public:
+    LUISA_MAKE_COMMAND_CREATOR(KernelLaunchCommand)
     [[nodiscard]] auto kernel_uid() const noexcept { return _kernel_uid; }
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     [[nodiscard]] auto dispatch_size() const noexcept { return _dispatch_size; }
@@ -208,14 +226,7 @@ public:
     LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
 };
 
-struct SynchronizeCommand : public Command {
-    LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
-};
-
 #undef LUISA_MAKE_COMMAND_ACCEPT_VISITOR
-
-[[nodiscard]] constexpr auto synchronize() noexcept {
-    return SynchronizeCommand{};
-}
+#undef LUISA_MAKE_COMMAND_CREATOR
 
 }// namespace luisa::compute

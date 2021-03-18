@@ -101,5 +101,5 @@ int main() {
     };
 
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
-    LUISA_INFO("Command: kernel = {}, args = {}", command.kernel_uid(), command.arguments().size());
+    LUISA_INFO("Command: kernel = {}, args = {}", command->kernel_uid(), command->arguments().size());
 }

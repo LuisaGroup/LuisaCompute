@@ -162,7 +162,7 @@ MetalDevice::~MetalDevice() noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Destroyed Metal device with name: {}.", name);
 }
 
-void MetalDevice::_dispatch(uint64_t stream_handle, SynchronizeCommand) noexcept {
+void MetalDevice::_synchronize_stream(uint64_t stream_handle) noexcept {
     auto stream = _stream_slots[stream_handle];
     auto command_buffer = [stream commandBuffer];
     [command_buffer commit];
