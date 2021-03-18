@@ -17,13 +17,13 @@ Stream::Delegate Stream::operator<<(std::unique_ptr<Command> cmd) noexcept {
 }
 
 Stream &Stream::operator<<(std::function<void()> f) noexcept {
-    return Delegate{this} << std::move(f);
-}
-
-Stream &Stream::operator<<(SynchronizeToken) {
-    _device->_synchronize_stream(_handle);
+    auto command_buffer = std::make_unique<CommandBuffer>();
+    command_buffer->set_callback(std::move(f));
+    _dispatch(std::move(command_buffer));
     return *this;
 }
+
+void Stream::operator<<(SynchronizeToken) { _device->_synchronize_stream(_handle); }
 
 Stream::Stream(Stream &&s) noexcept
     : _device{s._device}, _handle{s._handle} { s._device = nullptr; }
@@ -48,18 +48,19 @@ Stream::Delegate &Stream::Delegate::operator<<(std::unique_ptr<Command> cmd) noe
     return *this;
 }
 
-Stream &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
+Stream::Delegate &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
     _cb->set_callback(std::move(f));
     _commit();
-    return *_stream;
+    _cb = std::make_unique<CommandBuffer>();
+    return *this;
 }
 
 Stream::Delegate::Delegate(Stream *s) noexcept
     : _stream{s}, _cb{std::make_unique<CommandBuffer>()} {}
 
-Stream &Stream::Delegate::operator<<(Stream::SynchronizeToken) noexcept {
+void Stream::Delegate::operator<<(Stream::SynchronizeToken) noexcept {
     _commit();
-    return (*_stream) << SynchronizeToken{};
+    (*_stream) << SynchronizeToken{};
 }
 
 void Stream::Delegate::_commit() noexcept {
