@@ -95,15 +95,16 @@ def RemoveNonExistsPath(root:ET.Element, xmlns, filePaths: dict):
     for i in itemGroups:
         if len(i.attrib) != 0:
             continue
-        removeList = []
+        itemGroupDict = {}
         for sub in i:
             includePath = lb.ProcessPath(sub.attrib.get('Include'))
             if includePath == None:
                 continue
-            if filePaths.get(includePath) == None:
-                removeList.append(sub)
-        for r in removeList:
-            i.remove(r)
+            if filePaths.get(includePath) != None:
+                itemGroupDict[sub] = 1
+        i.clear()
+        for key in itemGroupDict:
+            i.append(key)
         if len(i) == 0:
             itemGroupsRemoveList.append(i)
     for i in itemGroupsRemoveList:
@@ -128,7 +129,6 @@ def VCXProjSettingMain():
     root = tree.getroot()
     allFiles = {}
     lb.File_GetAllFiles(allFiles, '.', bd.IgnoreFolders, {}, bd.IgnoreFile, bd.ContainedFiles)
-    GenerateCMake(allFiles)
     allFileDict = {}
     for i in allFiles:
         lst = allFiles[i]
@@ -152,23 +152,38 @@ def VCXProjSettingMain():
     tree.write(xmlPath)
     print("Build Success!")
 
-def GenerateCMake(allFiles:dict):
-    example = open("CMakeExample.txt", "r")
+
+def GenerateCMake(root:ET.Element, xmlns):
+    cmakePaths = []
+    itemGroups = []
+    lb.XML_GetSubElements(itemGroups, root, "ItemGroup",xmlns)
+    for i in itemGroups:
+        if len(i.attrib) != 0:
+            continue
+        for sub in i:
+            if lb.XML_GetTag(sub, xmlns) == 'ClCompile':
+                path = sub.attrib.get('Include')
+                if path != None:
+                    cmakePaths.append(path)
+    example = open("CMakeLists.txt", "r")
     exampleStr = example.read()
     example.close()
-    setValue = "set(DX_BACKEND_SOURCES\n"
-    hList = allFiles["h"]
-    cppList = allFiles["cpp"]
-    for i in hList:
-        setValue += i + '\n'
-    for i in cppList: 
+    setValue = "\nset(DX_BACKEND_SOURCES\n"
+    for i in cmakePaths: 
         setValue += i + '\n'
     setValue += ')\n'
-    setValue += exampleStr
-    f = open("CMakeLists.txt", "w")
-    f.write(setValue)
-    f.close()
-    print("CMake Generated!")
+    splitedStrs = exampleStr.split("##[[[]]]")
+    if len(splitedStrs) == 2:
+        setValue = splitedStrs[0] + "##[[[]]]" + setValue + "##[[[]]]" + splitedStrs[1]
+    elif len(splitedStrs) == 3:
+        setValue = splitedStrs[0] + "##[[[]]]" + setValue + "##[[[]]]" + splitedStrs[2]
+    else: 
+        print("CMakeLists format wrong!")
+        return
+    example = open("CMakeLists.txt", "w")
+    example.write(setValue)
+    example.close()
+    print("CMake Generate Success!")
     
 def ClearFilters():
     xmlPath = bd.Proj + '.vcxproj'
@@ -188,3 +203,9 @@ def main():
     CopyFiles()
     ClearFilters()
     VCXProjSettingMain()
+
+def cmakeMain():
+    xmlPath = bd.Proj + '.vcxproj'
+    tree, xmlns = GetVCXProj(xmlPath)
+    root = tree.getroot()
+    GenerateCMake(root, xmlns)
