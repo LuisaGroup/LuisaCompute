@@ -2,83 +2,83 @@ if (WIN32)
     
     message(STATUS "Build with DirectX")
     ##[[[]]]
-set(DX_BACKEND_SOURCES
-CJsonObject/cJSON.cpp
-CJsonObject/CJsonObject.cpp
-CJsonObject/JsonCompiler.cpp
-CJsonObject/SerializedObject.cpp
-Common/Camera.cpp
-Common/Common.cpp
-Common/GFXUtil.cpp
-Common/Log.cpp
-Common/MathHelper.cpp
-Common/vengine_library.cpp
-Common/VObject.cpp
-File/CopyDir.cpp
-File/FilePacker.cpp
-File/FileUtility.cpp
-File/MGUID.cpp
-File/Path.cpp
-JobSystem/JobBucket.cpp
-JobSystem/JobNode.cpp
-JobSystem/JobSystem.cpp
-LogicComponent/Component.cpp
-LogicComponent/RayRenderer.cpp
-LogicComponent/RendererBase.cpp
-LogicComponent/Transform.cpp
-PipelineComponent/CommandAllocator.cpp
-PipelineComponent/CommandBuffer.cpp
-PipelineComponent/RayTracing/RayTracingManager.cpp
-PipelineComponent/ThreadCommand.cpp
-RenderComponent/BackBuffer.cpp
-RenderComponent/CBufferAllocator.cpp
-RenderComponent/CBufferPool.cpp
-RenderComponent/ComputeShader.cpp
-RenderComponent/DescriptorHeap.cpp
-RenderComponent/DescriptorHeapRoot.cpp
-RenderComponent/GPUResourceBase.cpp
-RenderComponent/Mesh.cpp
-RenderComponent/PSOContainer.cpp
-RenderComponent/RayShader.cpp
-RenderComponent/ReadbackBuffer.cpp
-RenderComponent/RenderCommand.cpp
-RenderComponent/RenderTexture.cpp
-RenderComponent/Shader.cpp
-RenderComponent/Skybox.cpp
-RenderComponent/StructuredBuffer.cpp
-RenderComponent/Texture.cpp
-RenderComponent/TextureBase.cpp
-RenderComponent/TextureHeap.cpp
-RenderComponent/UploadBuffer.cpp
-RenderComponent/Utility/CommandSignature.cpp
-RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.cpp
-RenderComponent/Utility/DefaultBufferAllocator.cpp
-RenderComponent/Utility/DefaultTextureAllocator.cpp
-RenderComponent/Utility/ShaderIO.cpp
-RenderComponent/Voxel/VirtualVoxelMap.cpp
-ShaderCompile/ASTEncoder.cpp
-ShaderCompile/HLSLCompiler.cpp
-ShaderCompile/LuisaASTTranslator.cpp
-Singleton/ColorUtility.cpp
-Singleton/Graphics.cpp
-Singleton/MathLib.cpp
-Singleton/MeshLayout.cpp
-Singleton/ShaderID.cpp
-Singleton/ShaderLoader.cpp
-TestMain.cpp
-Utility/Actor.cpp
-Utility/BinaryReader.cpp
-Utility/BuddyAllocator.cpp
-Utility/ElementAllocator.cpp
-Utility/IEnumerator.cpp
-Utility/MD5.cpp
-Utility/Random.cpp
-Utility/StringUtility.cpp
-Utility/TaskThread.cpp
-Utility/ThreadResetEvent.cpp
-WorldManagement/World.cpp
-)
-##[[[]]]
+    set(DX_BACKEND_SOURCES
+        CJsonObject/cJSON.cpp
+        CJsonObject/CJsonObject.cpp
+        CJsonObject/JsonCompiler.cpp
+        CJsonObject/SerializedObject.cpp
+        Common/Camera.cpp
+        Common/Common.cpp
+        Common/GFXUtil.cpp
+        Common/Log.cpp
+        Common/MathHelper.cpp
+        Common/vengine_library.cpp
+        Common/VObject.cpp
+        File/CopyDir.cpp
+        File/FilePacker.cpp
+        File/FileUtility.cpp
+        File/MGUID.cpp
+        File/Path.cpp
+        JobSystem/JobBucket.cpp
+        JobSystem/JobNode.cpp
+        JobSystem/JobSystem.cpp
+        LogicComponent/Component.cpp
+        LogicComponent/RayRenderer.cpp
+        LogicComponent/RendererBase.cpp
+        LogicComponent/Transform.cpp
+        PipelineComponent/CommandAllocator.cpp
+        PipelineComponent/CommandBuffer.cpp
+        PipelineComponent/RayTracing/RayTracingManager.cpp
+        PipelineComponent/ThreadCommand.cpp
+        RenderComponent/BackBuffer.cpp
+        RenderComponent/CBufferAllocator.cpp
+        RenderComponent/CBufferPool.cpp
+        RenderComponent/ComputeShader.cpp
+        RenderComponent/DescriptorHeap.cpp
+        RenderComponent/DescriptorHeapRoot.cpp
+        RenderComponent/GPUResourceBase.cpp
+        RenderComponent/Mesh.cpp
+        RenderComponent/PSOContainer.cpp
+        RenderComponent/RayShader.cpp
+        RenderComponent/ReadbackBuffer.cpp
+        RenderComponent/RenderCommand.cpp
+        RenderComponent/RenderTexture.cpp
+        RenderComponent/Shader.cpp
+        RenderComponent/Skybox.cpp
+        RenderComponent/StructuredBuffer.cpp
+        RenderComponent/Texture.cpp
+        RenderComponent/TextureBase.cpp
+        RenderComponent/TextureHeap.cpp
+        RenderComponent/UploadBuffer.cpp
+        RenderComponent/Utility/CommandSignature.cpp
+        RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.cpp
+        RenderComponent/Utility/DefaultBufferAllocator.cpp
+        RenderComponent/Utility/DefaultTextureAllocator.cpp
+        RenderComponent/Utility/ShaderIO.cpp
+        RenderComponent/Voxel/VirtualVoxelMap.cpp
+        ShaderCompile/ASTEncoder.cpp
+        ShaderCompile/HLSLCompiler.cpp
+        ShaderCompile/LuisaASTTranslator.cpp
+        Singleton/ColorUtility.cpp
+        Singleton/Graphics.cpp
+        Singleton/MathLib.cpp
+        Singleton/MeshLayout.cpp
+        Singleton/ShaderID.cpp
+        Singleton/ShaderLoader.cpp
+        TestMain.cpp
+        Utility/Actor.cpp
+        Utility/BinaryReader.cpp
+        Utility/BuddyAllocator.cpp
+        Utility/ElementAllocator.cpp
+        Utility/IEnumerator.cpp
+        Utility/MD5.cpp
+        Utility/Random.cpp
+        Utility/StringUtility.cpp
+        Utility/TaskThread.cpp
+        Utility/ThreadResetEvent.cpp
+        WorldManagement/World.cpp
+        )
+    ##[[[]]]
     luisa_compute_add_backend(dx SOURCES ${DX_BACKEND_SOURCES})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     
@@ -97,9 +97,11 @@ WorldManagement/World.cpp
                                /std:c++latest /FC
                                /nologo
                                /Ot)
-        
+
         target_link_options(luisa-compute-backend-dx PRIVATE
-                            /MANIFEST /LTCG:incremental /NXCOMPAT
+                            /MANIFEST
+                            $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/LTCG:incremental>
+                            /NXCOMPAT
                             /OPT:REF /INCREMENTAL:NO
                             /NOLOGO
                             /TLBID:1
@@ -107,6 +109,12 @@ WorldManagement/World.cpp
     endif ()
     
     target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-ast)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_definitions(luisa-compute-backend-dx PRIVATE
+                                   _XM_NO_INTRINSICS_
+                                   m128_f32=vector4_f32
+                                   m128_u32=vector4_u32)
+    endif ()
     set_target_properties(luisa-compute-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
 endif ()
