@@ -1,4 +1,4 @@
-#define NOMINMAX
+#include <config.h>
 #include <windows.h>
 #include <wrl.h>
 #include <DirectXMath.h>

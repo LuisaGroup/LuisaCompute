@@ -350,4 +350,4 @@ template<typename T>
 using FunctionDataType = typename FunctionTemplateGlobal::FunctionType<T>::RetAndArgsType;
 
 template<typename A, typename B>
-static constexpr bool IsFunctionTypeOf = std::is_same_v<FunctionTemplateGlobal::FunctionType<A>::FuncType, B>;
+static constexpr bool IsFunctionTypeOf = std::is_same_v<typename FunctionTemplateGlobal::FunctionType<A>::FuncType, B>;
