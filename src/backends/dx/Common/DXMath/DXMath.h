@@ -1,5 +1,5 @@
 #pragma once
-#define NOMINMAX
+#include <config.h>
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <intrin.h>

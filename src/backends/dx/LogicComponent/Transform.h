@@ -1,5 +1,5 @@
 #pragma once
-#include <DirectXMath.h>
+#include <config.h>
 #include "../Common/VObject.h"
 #include "../LogicComponent/Component.h"
 #include "../Common/RandomVector.h"

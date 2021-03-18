@@ -8,7 +8,7 @@ namespace luisa::compute {
 #ifdef NDEBUG
 DLL_EXPORT void CodegenBody(Function func) {
 	vengine::vengine_init_malloc(malloc, free);
-	LUISA_INFO("HLSL codegen started.");
+	//LUISA_INFO("HLSL codegen started.");
 	vengine::string string_buffer;
 	string_buffer.reserve(4095u);
 	auto t0 = std::chrono::high_resolution_clock::now();
@@ -29,7 +29,7 @@ DLL_EXPORT void CodegenBody(Function func) {
 	}
 	auto t1 = std::chrono::high_resolution_clock::now();
 	using namespace std::chrono_literals;
-	LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+	//LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
 
 	std::cout << string_buffer
 			  << CodegenUtility::GetFunctionDecl(func) << "\n"

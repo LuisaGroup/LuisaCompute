@@ -38,5 +38,6 @@ target_include_directories(xxhash INTERFACE xxHash)
 target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 target_link_libraries(luisa-compute-ext INTERFACE xxhash)
 
-set(PYBIND11_FINDPYTHON ON CACHE BOOL "" FORCE)
-add_subdirectory(pybind11)
+#set(PYBIND11_FINDPYTHON ON CACHE BOOL "" FORCE)
+
+#add_subdirectory(pybind11)

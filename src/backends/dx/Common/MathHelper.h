@@ -5,7 +5,7 @@
 //***************************************************************************************
 
 #pragma once
-
+#include <config.h>
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <cstdint>
