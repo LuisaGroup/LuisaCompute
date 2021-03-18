@@ -41,6 +41,14 @@ public:
         rhs._device = nullptr;
         return *this;
     }
+    
+    Stream &operator<<(std::unique_ptr<Command> cmd) {
+    
+    }
+    
+    Stream &operator<<(std::function<void()> f) {
+    
+    }
 
     template<typename Cmd>
     Stream &operator<<(Cmd &&cmd) {
