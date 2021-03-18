@@ -8,71 +8,54 @@
 
 #include <core/spin_mutex.h>
 #include <runtime/device.h>
-#include <runtime/command_group.h>
+#include <runtime/command_buffer.h>
 
 namespace luisa::compute {
 
-class Device;
-
-namespace detail {
-struct StreamSyncToken {};
-}// namespace detail
-
-[[nodiscard]] constexpr auto synchronize() noexcept { return detail::StreamSyncToken{}; }
-
 class Stream : public concepts::Noncopyable {
+
+public:
+    struct SynchronizeToken {};
+    
+    class Delegate {
+    
+    private:
+        Stream *_stream;
+        std::unique_ptr<CommandBuffer> _cb;
+        
+    private:
+        void _commit() noexcept;
+    
+    public:
+        explicit Delegate(Stream *s) noexcept;
+        Delegate(Delegate &&) noexcept = default;
+        Delegate &operator=(Delegate &&) noexcept = default;
+        ~Delegate() noexcept;
+        Delegate &operator<<(std::unique_ptr<Command> cmd) noexcept;
+        Stream &operator<<(std::function<void()> f) noexcept;
+        Stream &operator<<(SynchronizeToken) noexcept;
+    };
 
 private:
     Device *_device;
     uint64_t _handle;
-    spin_mutex _mutex;
-    
 
 private:
     friend class Device;
     Stream(Device *device, uint64_t handle) noexcept
         : _device{device}, _handle{handle} {}
+    
+    void _dispatch(std::unique_ptr<CommandBuffer> cb) noexcept;
 
 public:
-    Stream(Stream &&s) noexcept
-        : _device{s._device},
-          _handle{s._handle} {
-        s._device = nullptr;
-    }
-
-    ~Stream() noexcept {
-        if (_device != nullptr) {
-            _device->_dispose_stream(_handle);
-        }
-    }
-
-    Stream &operator=(Stream &&rhs) noexcept {
-        _device = rhs._device;
-        _handle = rhs._handle;
-        rhs._device = nullptr;
-        return *this;
-    }
-
-    Stream &operator<<(std::unique_ptr<Command> cmd) {
-//        _device->_dispatch(_handle, *cmd);
-//        return *this;
-    }
-
-    Stream &operator<<(std::function<void()> f) {
-        _device->_dispatch(_handle, std::move(f));
-        return *this;
-    }
-    
-    Stream &operator<<(detail::StreamSyncToken) {
-        _device->_synchronize_stream(_handle);
-        return *this;
-    }
-
-    template<typename Cmd>
-    Stream &operator<<(Cmd &&cmd) {
-        _device->_dispatch(_handle, *cmd);
-        return *this;
-    }
+    Stream(Stream &&s) noexcept;
+    ~Stream() noexcept;
+    Stream &operator=(Stream &&rhs) noexcept;
+    Delegate operator<<(std::unique_ptr<Command> cmd) noexcept;
+    Stream &operator<<(std::function<void()> f) noexcept;
+    Stream &operator<<(SynchronizeToken);
 };
+
+[[nodiscard]] constexpr auto synchronize() noexcept { return Stream::SynchronizeToken{}; }
 
 }// namespace luisa::compute

@@ -84,6 +84,7 @@ protected:
 public:
     [[nodiscard]] std::span<const Resource> resources() const noexcept;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
+    virtual ~Command() noexcept = default;
 };
 
 class BufferUploadCommand : public Command {

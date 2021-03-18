@@ -9,16 +9,17 @@
 namespace luisa::compute {
 
 class FakeDevice : public Device {
+
+private:
     uint64_t _create_buffer(size_t) noexcept override { return 0; }
     void _dispose_buffer(uint64_t) noexcept override {}
     uint64_t _create_stream() noexcept override { return 0; }
     void _dispose_stream(uint64_t) noexcept override {}
-    void _dispatch(uint64_t stream, BufferCopyCommand) noexcept override {}
-    void _dispatch(uint64_t stream, BufferUploadCommand) noexcept override {}
-    void _dispatch(uint64_t stream, BufferDownloadCommand) noexcept override {}
-    void _dispatch(uint64_t stream, KernelLaunchCommand) noexcept override {}
     void _synchronize_stream(uint64_t stream_handle) noexcept override {}
-    void _dispatch(uint64_t stream_handle, std::function<void()> f) noexcept override { f(); }
+    void _dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer> ptr) noexcept override {}
+
+public:
+    ~FakeDevice() noexcept override = default;
 };
 
-}
+}// namespace luisa::compute

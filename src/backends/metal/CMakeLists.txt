@@ -6,7 +6,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     enable_language(OBJCXX)
     
     set(METAL_SOURCES
-        metal_device.mm metal_device.h)
+        metal_device.mm metal_device.h
+        metal_command_encoder.h)
     
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
     

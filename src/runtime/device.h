@@ -11,7 +11,7 @@
 
 #include <core/memory.h>
 #include <core/concepts.h>
-#include <runtime/command.h>
+#include <runtime/command_buffer.h>
 
 namespace luisa::compute {
 
@@ -32,11 +32,7 @@ private:
     [[nodiscard]] virtual uint64_t _create_stream() noexcept = 0;
     virtual void _dispose_stream(uint64_t handle) noexcept = 0;
     virtual void _synchronize_stream(uint64_t stream_handle) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, BufferCopyCommand) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, BufferUploadCommand) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, BufferDownloadCommand) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, KernelLaunchCommand) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, std::function<void()>) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer>) noexcept = 0;
 
 public:
     virtual ~Device() noexcept = default;

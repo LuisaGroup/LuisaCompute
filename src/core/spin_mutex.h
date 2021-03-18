@@ -15,6 +15,8 @@ private:
     std::atomic_flag _flag;// ATOMIC_FLAG_INIT not needed as per C++20
 
 public:
+    spin_mutex() noexcept = default;
+    
     void lock() noexcept {
         while (_flag.test_and_set(std::memory_order::acquire)) {// acquire lock
 #ifdef __cpp_lib_atomic_flag_test

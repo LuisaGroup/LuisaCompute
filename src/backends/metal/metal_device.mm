@@ -7,6 +7,7 @@
 
 #import <core/platform.h>
 #import <backends/metal/metal_device.h>
+#import <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {
 
@@ -62,75 +63,6 @@ void MetalDevice::_dispose_stream(uint64_t handle) noexcept {
     _available_stream_slots.emplace_back(handle);
 }
 
-void MetalDevice::_dispatch(uint64_t stream_handle, BufferCopyCommand command) noexcept {
-    auto stream = _stream_slots[stream_handle];
-    auto command_buffer = [stream commandBuffer];
-    auto blit_encoder = [command_buffer blitCommandEncoder];
-    [blit_encoder copyFromBuffer:_buffer_slots[command.src_handle()]
-                    sourceOffset:command.src_offset()
-                        toBuffer:_buffer_slots[command.dst_handle()]
-               destinationOffset:command.dst_offset()
-                            size:command.size()];
-    [blit_encoder endEncoding];
-    [command_buffer commit];
-}
-
-void MetalDevice::_dispatch(uint64_t stream_handle, BufferUploadCommand command) noexcept {
-
-    auto stream = _stream_slots[stream_handle];
-    auto buffer = _buffer_slots[command.handle()];
-
-    auto t0 = std::chrono::high_resolution_clock::now();
-    auto temporary = [_handle newBufferWithBytes:command.data()
-                                          length:command.size()
-                                         options:MTLResourceStorageModeShared];
-    auto t1 = std::chrono::high_resolution_clock::now();
-    using namespace std::chrono_literals;
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Allocated temporary shared buffer with size {} in {} ms.",
-        command.size(), (t1 - t0) / 1ns * 1e-6);
-
-    auto command_buffer = [stream commandBuffer];
-    auto blit_encoder = [command_buffer blitCommandEncoder];
-    [blit_encoder copyFromBuffer:temporary
-                    sourceOffset:0u
-                        toBuffer:buffer
-               destinationOffset:command.offset()
-                            size:command.size()];
-    [blit_encoder endEncoding];
-    [command_buffer commit];
-}
-
-void MetalDevice::_dispatch(uint64_t stream_handle, BufferDownloadCommand command) noexcept {
-
-    auto stream = _stream_slots[stream_handle];
-    auto buffer = _buffer_slots[command.handle()];
-
-    auto t0 = std::chrono::high_resolution_clock::now();
-    auto temporary = [_handle newBufferWithLength:command.size() options:MTLResourceStorageModeShared];
-    auto t1 = std::chrono::high_resolution_clock::now();
-    using namespace std::chrono_literals;
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Allocated temporary shared buffer with size {} in {} ms.",
-        command.size(), (t1 - t0) / 1ns * 1e-6);
-
-    auto command_buffer = [stream commandBuffer];
-    auto blit_encoder = [command_buffer blitCommandEncoder];
-    [blit_encoder copyFromBuffer:buffer
-                    sourceOffset:command.offset()
-                        toBuffer:temporary
-               destinationOffset:0u
-                            size:command.size()];
-    [blit_encoder endEncoding];
-    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-      std::memcpy(command.data(), temporary.contents, command.size());
-    }];
-    [command_buffer commit];
-}
-
-void MetalDevice::_dispatch(uint64_t stream_handle, KernelLaunchCommand command) noexcept {
-}
-
 MetalDevice::MetalDevice(uint32_t index) noexcept {
 
     auto devices = MTLCopyAllDevices();
@@ -163,17 +95,33 @@ MetalDevice::~MetalDevice() noexcept {
 }
 
 void MetalDevice::_synchronize_stream(uint64_t stream_handle) noexcept {
-    auto stream = _stream_slots[stream_handle];
-    auto command_buffer = [stream commandBuffer];
+    auto command_buffer = [stream(stream_handle) commandBuffer];
     [command_buffer commit];
     [command_buffer waitUntilCompleted];
 }
 
-void MetalDevice::_dispatch(uint64_t stream_handle, std::function<void()> function) noexcept {
-    auto stream = _stream_slots[stream_handle];
-    auto command_buffer = [stream commandBuffer];
-    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
-    [command_buffer commit];
+id<MTLBuffer> MetalDevice::buffer(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_buffer_mutex};
+    return _buffer_slots[handle];
+}
+
+id<MTLCommandQueue> MetalDevice::stream(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_stream_mutex};
+    return _stream_slots[handle];
+}
+
+void MetalDevice::_dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer> commands) noexcept {
+    auto cb = [stream(stream_handle) commandBuffer];
+    MetalCommandEncoder encoder{this, cb};
+    for (auto &&command : *commands) { command->accept(encoder); }
+    if (auto f = std::move(commands->callback())) {
+        [cb addCompletedHandler:^(id<MTLCommandBuffer>) { f(); }];
+    }
+    [cb commit];
+}
+
+id<MTLDevice> MetalDevice::handle() const noexcept {
+    return _handle;
 }
 
 }
