@@ -8,26 +8,26 @@
 
 namespace luisa::compute {
 
-void RefExpr::_mark(Usage usage) const noexcept {
+void RefExpr::_mark(Variable::Usage usage) const noexcept {
     FunctionBuilder::current()->mark_variable_usage(_variable.uid(), usage);
 }
 
-void CallExpr::_mark(Usage) const noexcept {
-    for (auto arg : _arguments) { arg->mark(Usage::READ); }
+void CallExpr::_mark(Variable::Usage) const noexcept {
+    for (auto arg : _arguments) { arg->mark(Variable::Usage::READ); }
     if (is_builtin()) {
         // TODO: builtins
         if (_name == "texture_write") {// texture_write(tex, ...)
-            _arguments.front()->mark(Usage::WRITE);
+            _arguments.front()->mark(Variable::Usage::WRITE);
         }
     } else {
         auto f = Function::callable(_uid);
         auto args = f.arguments();
         for (auto i = 0u; i < args.size(); i++) {
             if (auto arg = args[i];
-                (static_cast<uint32_t>(f.variable_usage(arg.uid())) & static_cast<uint32_t>(Usage::WRITE)) != 0u
+                (static_cast<uint32_t>(f.variable_usage(arg.uid())) & static_cast<uint32_t>(Variable::Usage::WRITE)) != 0u
                 && (arg.tag() == Variable::Tag::BUFFER
                     || arg.tag() == Variable::Tag::TEXTURE)) {
-                _arguments[i]->mark(Usage::WRITE);
+                _arguments[i]->mark(Variable::Usage::WRITE);
             };
         }
     }

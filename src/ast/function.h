@@ -4,7 +4,6 @@
 #include <variant>
 
 #include <core/basic_types.h>
-#include <ast/usage.h>
 #include <ast/variable.h>
 #include <ast/constant_data.h>
 
@@ -58,7 +57,7 @@ public:
     [[nodiscard]] Tag tag() const noexcept;
     [[nodiscard]] uint32_t uid() const noexcept;
     [[nodiscard]] const Type *return_type() const noexcept;
-    [[nodiscard]] Usage variable_usage(uint32_t uid) const noexcept;
+    [[nodiscard]] Variable::Usage variable_usage(uint32_t uid) const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
     [[nodiscard]] static Function at(uint32_t uid) noexcept;
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;

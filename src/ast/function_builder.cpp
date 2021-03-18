@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2020/12/2.
 //
 
-#include "function_builder.h"
+#include <ast/function_builder.h>
 
 namespace luisa::compute {
 
@@ -111,7 +111,7 @@ const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
 
 uint32_t FunctionBuilder::_next_variable_uid() noexcept {
     auto uid = static_cast<uint32_t>(_variable_usages.size());
-    _variable_usages.emplace_back(Usage::NONE);
+    _variable_usages.emplace_back(Variable::Usage::NONE);
     return uid;
 }
 
@@ -259,9 +259,9 @@ void FunctionBuilder::for_(const Statement *init, const Expression *condition, c
     _append(_arena.create<ForStmt>(init, condition, update, body));
 }
 
-void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
+void FunctionBuilder::mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept {
     auto old_usage = static_cast<uint32_t>(_variable_usages[uid]);
-    _variable_usages[uid] = static_cast<Usage>(old_usage | static_cast<uint32_t>(usage));
+    _variable_usages[uid] = static_cast<Variable::Usage>(old_usage | static_cast<uint32_t>(usage));
 }
 
 FunctionBuilder *FunctionBuilder::create(Function::Tag tag) noexcept {

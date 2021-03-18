@@ -72,7 +72,7 @@ private:
 
 public:
     explicit ReturnStmt(const Expression *expr) noexcept : _expr{expr} {
-        if (_expr != nullptr) { _expr->mark(Usage::READ); }
+        if (_expr != nullptr) { _expr->mark(Variable::Usage::READ); }
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -99,7 +99,7 @@ private:
 public:
     DeclareStmt(Variable var, std::span<const Expression *> init) noexcept
         : _var{var}, _initializer{init} {
-        for (auto i : _initializer) { i->mark(Usage::READ); }
+        for (auto i : _initializer) { i->mark(Variable::Usage::READ); }
     }
     [[nodiscard]] auto variable() const noexcept { return _var; }
     [[nodiscard]] const auto &initializer() const noexcept { return _initializer; }
@@ -130,8 +130,8 @@ private:
 public:
     AssignStmt(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept
         : _lhs{lhs}, _rhs{rhs}, _op{op} {
-        _lhs->mark(Usage::WRITE);
-        _rhs->mark(Usage::READ);
+        _lhs->mark(Variable::Usage::WRITE);
+        _rhs->mark(Variable::Usage::READ);
     }
 
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
@@ -150,7 +150,7 @@ private:
 public:
     IfStmt(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept
         : _condition{cond}, _true_branch{true_branch}, _false_branch{false_branch} {
-        _condition->mark(Usage::READ);
+        _condition->mark(Variable::Usage::READ);
     }
     [[nodiscard]] auto condition() const noexcept { return _condition; }
     [[nodiscard]] auto true_branch() const noexcept { return _true_branch; }
@@ -166,7 +166,7 @@ private:
 
 public:
     WhileStmt(const Expression *cond, const ScopeStmt *body) : _condition{cond}, _body{body} {
-        _condition->mark(Usage::READ);
+        _condition->mark(Variable::Usage::READ);
     }
     [[nodiscard]] auto condition() const noexcept { return _condition; }
     [[nodiscard]] auto body() const noexcept { return _body; }
@@ -180,7 +180,7 @@ private:
 
 public:
     explicit ExprStmt(const Expression *expr) noexcept : _expr{expr} {
-        _expr->mark(Usage::READ);
+        _expr->mark(Variable::Usage::READ);
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -194,7 +194,7 @@ private:
 
 public:
     SwitchStmt(const Expression *expr, const ScopeStmt *body) noexcept
-        : _expr{expr}, _body{body} { _expr->mark(Usage::READ); }
+        : _expr{expr}, _body{body} { _expr->mark(Variable::Usage::READ); }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -208,7 +208,7 @@ private:
 
 public:
     SwitchCaseStmt(const Expression *expr, const ScopeStmt *body) noexcept
-        : _expr{expr}, _body{body} { _expr->mark(Usage::READ); }
+        : _expr{expr}, _body{body} { _expr->mark(Variable::Usage::READ); }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -242,7 +242,7 @@ public:
           _condition{condition},
           _update{update},
           _body{body} {
-        if (_condition != nullptr) { _condition->mark(Usage::READ); }
+        if (_condition != nullptr) { _condition->mark(Variable::Usage::READ); }
     }
     [[nodiscard]] auto initialization() const noexcept { return _initialization; }
     [[nodiscard]] auto condition() const noexcept { return _condition; }

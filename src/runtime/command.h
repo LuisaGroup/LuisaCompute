@@ -17,7 +17,49 @@
 
 namespace luisa::compute {
 
-class BufferUploadCommand {
+class Command {
+
+public:
+    static constexpr auto max_resource_count = 64u;
+
+    struct Resource {
+
+        enum struct Tag : uint32_t {
+            BUFFER,
+            TEXTURE
+        };
+
+        enum struct Usage : uint32_t {
+            NONE = 0u,
+            READ = 1u,
+            WRITE = 2u,
+            READ_WRITE = READ | WRITE
+        };
+
+        uint64_t handle;
+        Tag tag;
+        Usage usage;
+    };
+
+private:
+    std::array<Resource, max_resource_count> _resource_slots{};
+    size_t _resource_count{0u};
+
+    void _use_resource(uint64_t handle, Resource::Tag tag, Resource::Usage usage) noexcept;
+
+protected:
+    void _buffer_read_only(uint64_t handle) noexcept;
+    void _buffer_write_only(uint64_t handle) noexcept;
+    void _buffer_read_write(uint64_t handle) noexcept;
+    void _texture_read_only(uint64_t handle) noexcept;
+    void _texture_write_only(uint64_t handle) noexcept;
+    void _texture_read_write(uint64_t handle) noexcept;
+
+public:
+    [[nodiscard]] std::span<const Resource> resources() const noexcept;
+};
+
+class BufferUploadCommand : public Command {
 
 private:
     uint64_t _handle;
@@ -27,14 +69,18 @@ private:
 
 public:
     BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
-        : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
+        : _handle{handle},
+          _offset{offset_bytes},
+          _size{size_bytes},
+          _data{data} { _buffer_write_only(_handle); }
+
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto data() const noexcept { return _data; }
 };
 
-class BufferDownloadCommand {
+class BufferDownloadCommand : public Command {
 
 private:
     uint64_t _handle;
@@ -44,14 +90,18 @@ private:
 
 public:
     BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
-        : _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
+        : _handle{handle},
+          _offset{offset_bytes},
+          _size{size_bytes},
+          _data{data} { _buffer_read_only(_handle); }
+    
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto data() const noexcept { return _data; }
 };
 
-class BufferCopyCommand {
+class BufferCopyCommand : public Command {
 
 private:
     uint64_t _src_handle;
@@ -62,7 +112,15 @@ private:
 
 public:
     BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
-        : _src_handle{src}, _dst_handle{dst}, _src_offset{src_offset}, _dst_offset{dst_offset}, _size{size} {}
+        : _src_handle{src},
+          _dst_handle{dst},
+          _src_offset{src_offset},
+          _dst_offset{dst_offset},
+          _size{size} {
+        _buffer_read_only(_src_handle);
+        _buffer_write_only(_dst_handle);
+    }
+    
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
@@ -70,6 +128,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 };
 
+// TODO...
 class KernelArgumentEncoder {
 
 public:

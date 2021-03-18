@@ -9,7 +9,6 @@
 
 #include <core/concepts.h>
 #include <core/basic_types.h>
-#include <ast/usage.h>
 #include <ast/variable.h>
 
 namespace luisa::compute {
@@ -20,10 +19,10 @@ class Expression : public concepts::Noncopyable {
 
 private:
     const Type *_type;
-    mutable Usage _usage{Usage::NONE};
+    mutable Variable::Usage _usage{Variable::Usage::NONE};
 
 private:
-    virtual void _mark(Usage usage) const noexcept = 0;
+    virtual void _mark(Variable::Usage usage) const noexcept = 0;
 
 protected:
     ~Expression() noexcept = default;
@@ -33,9 +32,9 @@ public:
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto usage() const noexcept { return _usage; }
     virtual void accept(ExprVisitor &) const = 0;
-    void mark(Usage usage) const noexcept {
+    void mark(Variable::Usage usage) const noexcept {
         if (auto a = static_cast<uint32_t>(_usage), b = static_cast<uint32_t>(usage); (a & b) == 0u) {
-            _usage = static_cast<Usage>(a | b);
+            _usage = static_cast<Variable::Usage>(a | b);
             _mark(usage);
         }
     }
@@ -80,7 +79,7 @@ private:
     const Expression *_operand;
     UnaryOp _op;
 
-    void _mark(Usage) const noexcept override { _operand->mark(Usage::READ); }
+    void _mark(Variable::Usage) const noexcept override { _operand->mark(Variable::Usage::READ); }
 
 public:
     UnaryExpr(const Type *type, UnaryOp op, const Expression *operand) noexcept : Expression{type}, _operand{operand}, _op{op} {}
@@ -121,9 +120,9 @@ private:
     const Expression *_rhs;
     BinaryOp _op;
 
-    void _mark(Usage) const noexcept override {
-        _lhs->mark(Usage::READ);
-        _rhs->mark(Usage::READ);
+    void _mark(Variable::Usage) const noexcept override {
+        _lhs->mark(Variable::Usage::READ);
+        _rhs->mark(Variable::Usage::READ);
     }
 
 public:
@@ -142,9 +141,9 @@ private:
     const Expression *_range;
     const Expression *_index;
 
-    void _mark(Usage usage) const noexcept override {
+    void _mark(Variable::Usage usage) const noexcept override {
         _range->mark(usage);
-        _index->mark(Usage::READ);
+        _index->mark(Variable::Usage::READ);
     }
 
 public:
@@ -162,7 +161,7 @@ private:
     const Expression *_self;
     size_t _member;
 
-    void _mark(Usage usage) const noexcept override { _self->mark(usage); }
+    void _mark(Variable::Usage usage) const noexcept override { _self->mark(usage); }
 
 public:
     MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
@@ -193,7 +192,7 @@ public:
 
 private:
     Value _value;
-    void _mark(Usage) const noexcept override {}
+    void _mark(Variable::Usage) const noexcept override {}
 
 public:
     LiteralExpr(const Type *type, Value v) noexcept
@@ -206,7 +205,7 @@ class RefExpr : public Expression {
 
 private:
     Variable _variable;
-    void _mark(Usage usage) const noexcept override;
+    void _mark(Variable::Usage usage) const noexcept override;
 
 public:
     explicit RefExpr(Variable v) noexcept
@@ -219,7 +218,7 @@ class ConstantExpr : public Expression {
 
 private:
     uint64_t _hash;
-    void _mark(Usage) const noexcept override {}
+    void _mark(Variable::Usage) const noexcept override {}
 
 public:
     explicit ConstantExpr(const Type *type, uint64_t hash) noexcept
@@ -238,7 +237,7 @@ private:
     std::string_view _name;
     ArgumentList _arguments;
     uint32_t _uid{uid_npos};
-    void _mark(Usage) const noexcept override;
+    void _mark(Variable::Usage) const noexcept override;
 
 public:
     CallExpr(const Type *type, std::string_view name, ArgumentList args) noexcept;
@@ -259,7 +258,7 @@ class CastExpr : public Expression {
 private:
     const Expression *_source;
     CastOp _op;
-    void _mark(Usage) const noexcept override { _source->mark(Usage::READ); }
+    void _mark(Variable::Usage) const noexcept override { _source->mark(Variable::Usage::READ); }
 
 public:
     CastExpr(const Type *type, CastOp op, const Expression *src) noexcept

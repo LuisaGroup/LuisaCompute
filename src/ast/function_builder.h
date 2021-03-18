@@ -17,7 +17,6 @@
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/type_registry.h>
-#include <ast/usage.h>
 
 namespace luisa::compute {
 
@@ -58,7 +57,7 @@ private:
     ArenaVector<Variable> _arguments;
     ArenaVector<uint32_t> _used_custom_callables;
     ArenaVector<std::string_view> _used_builtin_callables;
-    ArenaVector<Usage> _variable_usages;
+    ArenaVector<Variable::Usage> _variable_usages;
     Tag _tag;
     uint32_t _uid;
 
@@ -187,7 +186,7 @@ public:
 
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
-    void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
+    void mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept;
 };
 
 }// namespace luisa::compute

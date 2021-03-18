@@ -50,4 +50,50 @@ std::span<const std::byte> KernelArgumentEncoder::uniform_data() const noexcept 
     return {_storage->data(), _ptr};
 }
 
+std::span<const Command::Resource> Command::resources() const noexcept {
+    return {_resource_slots.data(), _resource_count};
+}
+
+inline void Command::_use_resource(uint64_t handle, Command::Resource::Tag tag, Command::Resource::Usage usage) noexcept {
+    if (_resource_count == max_resource_count) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Number of resources in command exceeded limit {}.",
+            max_resource_count);
+    }
+    if (std::find_if(_resource_slots.cbegin(),
+                     _resource_slots.cbegin() + _resource_count,
+                     [handle, tag](auto b) noexcept { return b.tag == tag && b.handle == handle; })
+        != _resource_slots.cbegin() + _resource_count) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Aliasing in {} resource with handle {}.",
+            tag == Resource::Tag::BUFFER ? "buffer" : "texture",
+            handle);
+    }
+    _resource_slots[_resource_count++] = {handle, tag, usage};
+}
+
+void Command::_buffer_read_only(uint64_t handle) noexcept {
+    _use_resource(handle, Resource::Tag::BUFFER, Resource::Usage::READ);
+}
+
+void Command::_buffer_write_only(uint64_t handle) noexcept {
+    _use_resource(handle, Resource::Tag::BUFFER, Resource::Usage::WRITE);
+}
+
+void Command::_buffer_read_write(uint64_t handle) noexcept {
+    _use_resource(handle, Resource::Tag::BUFFER, Resource::Usage::READ_WRITE);
+}
+
+void Command::_texture_read_only(uint64_t handle) noexcept {
+    _use_resource(handle, Resource::Tag::TEXTURE, Resource::Usage::READ);
+}
+
+void Command::_texture_write_only(uint64_t handle) noexcept {
+    _use_resource(handle, Resource::Tag::TEXTURE, Resource::Usage::WRITE);
+}
+
+void Command::_texture_read_write(uint64_t handle) noexcept {
+    _use_resource(handle, Resource::Tag::TEXTURE, Resource::Usage::READ_WRITE);
+}
+
 }// namespace luisa::compute

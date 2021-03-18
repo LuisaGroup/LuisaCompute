@@ -29,6 +29,13 @@ public:
         BLOCK_ID,
         DISPATCH_ID
     };
+    
+    enum struct Usage : uint32_t {
+        NONE = 0,
+        READ = 0x01,
+        WRITE = 0x02,
+        READ_WRITE = READ | WRITE
+    };
 
 private:
     const Type *_type;
