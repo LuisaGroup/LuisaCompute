@@ -13,6 +13,7 @@
 #include <core/concepts.h>
 #include <core/logging.h>
 #include <core/mathematics.h>
+#include <core/spin_mutex.h>
 
 namespace luisa {
 
@@ -186,7 +187,7 @@ template<>
 class PoolThreadSafety<true> {
 
 private:
-    std::mutex _mutex;
+    spin_mutex _mutex;
 
 public:
     template<typename F>
@@ -198,7 +199,7 @@ public:
 
 }// namespace detail
 
-template<typename T, bool thread_safe = true>
+template<typename T, bool thread_safe = false>
 class Pool : detail::PoolThreadSafety<thread_safe> {
 
     struct Node {
@@ -209,14 +210,41 @@ class Pool : detail::PoolThreadSafety<thread_safe> {
         }
     };
 
+public:
+    class ObjectRecycle {
+
+    private:
+        Pool *_pool;
+
+    public:
+        explicit ObjectRecycle(Pool *pool) noexcept : _pool{pool} {}
+        void operator()(T *object) const noexcept { _pool->_recycle(object); }
+    };
+
+    using Object = std::unique_ptr<T, ObjectRecycle>;
+
 private:
     static_assert(std::is_trivially_destructible_v<T>);
-    Arena _arena;
+    Arena &_arena;
     Node *_head{nullptr};
 
+private:
+    void _recycle(T *object) noexcept {
+        this->with_thread_safety([object, this] {
+            auto node = Node::of(object);
+            node->next = _head;
+            _head = node;
+        });
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Recycled pool object at address {}.",
+            fmt::ptr(object));
+    }
+
 public:
+    explicit Pool(Arena &arena) noexcept : _arena{arena} {}
+
     template<typename... Args>
-    [[nodiscard]] auto obtain(Args &&...args) {
+    [[nodiscard]] auto create(Args &&...args) {
         auto node = this->with_thread_safety([this] {
             if (_head == nullptr) {// empty pool
                 return _arena.allocate<Node>();
@@ -225,16 +253,15 @@ public:
             _head = _head->next;
             return node;
         });
-        return luisa::construct_at(&node->object, std::forward<Args>(args)...);
-    }
-
-    void recycle(T *object) noexcept {
-        this->with_thread_safety([&] {
-            auto node = Node::of(object);
-            node->next = _head;
-            _head = node;
-        });
+        auto object = luisa::construct_at(&node->object, std::forward<Args>(args)...);
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Created pool object at address {}.",
+            fmt::ptr(object));
+        return Object{object, ObjectRecycle{this}};
     }
 };
+
+template<typename T>
+using ThreadSafePool = Pool<T, true>;
 
 }// namespace luisa

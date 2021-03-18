@@ -55,7 +55,7 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
 
     LUISA_VERBOSE_WITH_LOCATION(
-        "Aligned address 0x{:016x} with size {} bytes to [0x{:016x}, 0x{:016x}) (pagesize = {} bytes).",
+        "Aligned address 0x{:012x} with size {} bytes to [0x{:012x}, 0x{:012x}) (pagesize = {} bytes).",
         address, size, aligned_begin, aligned_end, page_size);
 
     auto t0 = std::chrono::high_resolution_clock::now();
@@ -66,7 +66,7 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     auto t1 = std::chrono::high_resolution_clock::now();
     using namespace std::chrono_literals;
     LUISA_VERBOSE_WITH_LOCATION(
-        "Allocated temporary shared buffer with size {} in {} ms.",
+        "Wrapped receiver pointer into temporary shared buffer with size {} in {} ms.",
         size, (t1 - t0) / 1ns * 1e-6);
 
     auto blit_encoder = [_command_buffer blitCommandEncoder];

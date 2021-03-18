@@ -15,10 +15,26 @@
 using namespace luisa;
 using namespace luisa::compute;
 
+struct Base {
+    float a;
+};
+
+struct Derived : Base {
+    float b;
+    constexpr Derived(float a, float b) noexcept : Base{a}, b{b} {}
+};
+
 int main(int argc, char *argv[]) {
 
     luisa::log_level_verbose();
-
+    
+    Arena arena;
+    Pool<Derived> pool{arena};
+    {
+        auto p = pool.create(1.0f, 2.0f);
+        LUISA_INFO("Pool object: ({}, {}).", p->a, p->b);
+    }
+    
     auto runtime_dir = std::filesystem::canonical(argv[0]).parent_path();
     auto working_dir = std::filesystem::current_path();
     Context context{runtime_dir, working_dir};
