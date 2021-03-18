@@ -17,9 +17,7 @@ Stream::Delegate Stream::operator<<(std::unique_ptr<Command> cmd) noexcept {
 }
 
 Stream &Stream::operator<<(std::function<void()> f) noexcept {
-    auto command_buffer = std::make_unique<CommandBuffer>();
-    command_buffer->set_callback(std::move(f));
-    _dispatch(std::move(command_buffer));
+    _device->_dispatch(_handle, std::move(f));
     return *this;
 }
 
@@ -29,9 +27,7 @@ Stream::Stream(Stream &&s) noexcept
     : _device{s._device}, _handle{s._handle} { s._device = nullptr; }
 
 Stream::~Stream() noexcept {
-    if (_device != nullptr) {
-        _device->_dispose_stream(_handle);
-    }
+    if (_device != nullptr) { _device->_dispose_stream(_handle); }
 }
 
 Stream &Stream::operator=(Stream &&rhs) noexcept {
@@ -44,27 +40,29 @@ Stream &Stream::operator=(Stream &&rhs) noexcept {
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 Stream::Delegate &Stream::Delegate::operator<<(std::unique_ptr<Command> cmd) noexcept {
+    if (_cb == nullptr) { _cb = std::make_unique<CommandBuffer>(); }
     _cb->append(std::move(cmd));
     return *this;
 }
 
 Stream::Delegate &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
-    _cb->set_callback(std::move(f));
     _commit();
-    _cb = std::make_unique<CommandBuffer>();
+    *_stream << std::move(f);
     return *this;
 }
 
-Stream::Delegate::Delegate(Stream *s) noexcept
-    : _stream{s}, _cb{std::make_unique<CommandBuffer>()} {}
+Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
 
 void Stream::Delegate::operator<<(Stream::SynchronizeToken) noexcept {
     _commit();
-    (*_stream) << SynchronizeToken{};
+    *_stream << SynchronizeToken{};
 }
 
 void Stream::Delegate::_commit() noexcept {
-    if (_cb != nullptr) { _stream->_dispatch(std::move(_cb)); }
+    if (_cb != nullptr) {
+        _stream->_dispatch(std::move(_cb));
+        _cb = nullptr;
+    }
 }
 
 }// namespace luisa::compute

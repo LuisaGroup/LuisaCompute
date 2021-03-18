@@ -30,26 +30,27 @@ int main(int argc, char *argv[]) {
 #else
     auto device = std::make_unique<FakeDevice>();
 #endif
-    
+
     auto buffer = device->create_buffer<float>(16384u);
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
     std::iota(data.begin(), data.end(), 1.0f);
 
     auto stream = device->create_stream();
-    
+
     auto t0 = std::chrono::high_resolution_clock::now();
-    stream << [] { LUISA_INFO("Hello!"); }
-           << buffer.upload(data.data())
-           << [] { LUISA_INFO("Here!"); }
-           << buffer.download(results.data())
-           << [] { LUISA_INFO("Bye!"); }
-           << synchronize();
+    stream
+        << [] { LUISA_INFO("Hello!"); }
+        << buffer.upload(data.data())
+        << [] { LUISA_INFO("Here!"); }
+        << buffer.download(results.data())
+        << [] { LUISA_INFO("Bye!"); }
+        << synchronize();
     auto t1 = std::chrono::high_resolution_clock::now();
-    
+
     using namespace std::chrono_literals;
     LUISA_INFO("Finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
-    
+
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[16382], results[16383]);

@@ -8,11 +8,7 @@ namespace luisa::compute {
 
 void CommandBuffer::append(std::unique_ptr<Command> cmd) noexcept {
     _commands.emplace_back(std::move(cmd));
-}
-
-void CommandBuffer::set_callback(std::function<void()> cb) noexcept {
-    if (_callback) { LUISA_ERROR_WITH_LOCATION("Command buffer callback already set."); }
-    _callback = std::move(cb);
+    LUISA_VERBOSE_WITH_LOCATION("Added command to command buffer.");
 }
 
 }

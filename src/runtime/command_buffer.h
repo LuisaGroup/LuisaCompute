@@ -13,15 +13,12 @@ class CommandBuffer {
 
 private:
     std::vector<std::unique_ptr<Command>> _commands;
-    std::function<void()> _callback;
 
 public:
+    CommandBuffer() noexcept { LUISA_VERBOSE_WITH_LOCATION("Created command buffer."); }
     void append(std::unique_ptr<Command> cmd) noexcept;
-    void set_callback(std::function<void()> cb) noexcept;
     [[nodiscard]] auto begin() const noexcept { return _commands.cbegin(); }
     [[nodiscard]] auto end() const noexcept { return _commands.cend(); }
-    [[nodiscard]] auto &callback() noexcept { return _callback; }
-    [[nodiscard]] const auto &callback() const noexcept { return _callback; }
 };
 
 }

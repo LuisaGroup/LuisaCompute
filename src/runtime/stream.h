@@ -20,8 +20,8 @@ public:
     class Delegate {
     
     private:
-        Stream *_stream;
-        std::unique_ptr<CommandBuffer> _cb;
+        Stream *_stream{nullptr};
+        std::unique_ptr<CommandBuffer> _cb{nullptr};
         
     private:
         void _commit() noexcept;

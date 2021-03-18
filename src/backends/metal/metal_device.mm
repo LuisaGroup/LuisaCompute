@@ -114,14 +114,17 @@ void MetalDevice::_dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffe
     auto cb = [stream(stream_handle) commandBuffer];
     MetalCommandEncoder encoder{this, cb};
     for (auto &&command : *commands) { command->accept(encoder); }
-    if (auto f = std::move(commands->callback())) {
-        [cb addCompletedHandler:^(id<MTLCommandBuffer>) { f(); }];
-    }
     [cb commit];
 }
 
 id<MTLDevice> MetalDevice::handle() const noexcept {
     return _handle;
+}
+
+void MetalDevice::_dispatch(uint64_t stream_handle, std::function<void()> function) noexcept {
+    auto command_buffer = [stream(stream_handle) commandBuffer];
+    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
+    [command_buffer commit];
 }
 
 }

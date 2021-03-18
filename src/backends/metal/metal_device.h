@@ -39,6 +39,9 @@ private:
     void _dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer> ptr) noexcept override;
 
 public:
+private:
+    void _dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override;
+public:
     explicit MetalDevice(uint32_t index) noexcept;
     ~MetalDevice() noexcept override;
     [[nodiscard]] id<MTLDevice> handle() const noexcept;

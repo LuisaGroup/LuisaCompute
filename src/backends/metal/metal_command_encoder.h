@@ -75,7 +75,7 @@ public:
                                 size:size];
         [blit_encoder endEncoding];
         [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          std::memcpy(data, temporary.contents, size);
+            std::memcpy(data, temporary.contents, size);
         }];
     }
 

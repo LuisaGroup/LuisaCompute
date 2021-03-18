@@ -33,6 +33,7 @@ private:
     virtual void _dispose_stream(uint64_t handle) noexcept = 0;
     virtual void _synchronize_stream(uint64_t stream_handle) noexcept = 0;
     virtual void _dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer>) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, std::function<void()>) noexcept = 0;
 
 public:
     virtual ~Device() noexcept = default;
