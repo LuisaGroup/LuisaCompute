@@ -25,11 +25,16 @@ constexpr T *construct_at(T *p, Args &&...args) {
 class Arena : public concepts::Noncopyable {
 
 public:
-    static constexpr auto block_size = static_cast<size_t>(256ul * 1024ul);
+    struct Node {
+        std::byte *data;
+        Node *next;
+        Node(std::byte *data, Node *next) noexcept : data{data}, next{next} {}
+    };
+    static constexpr auto block_size = static_cast<size_t>(64ul * 1024ul) - sizeof(Node);
 
 private:
-    std::vector<std::byte *> _blocks;
-    uint64_t _ptr{0ul};
+    Node *_head{nullptr};
+    uint64_t _current_address{0ul};
     size_t _total{0ul};
 
 public:
@@ -37,10 +42,13 @@ public:
     Arena(Arena &&) noexcept = default;
     Arena &operator=(Arena &&) noexcept = default;
     ~Arena() noexcept {
-        for (auto p : _blocks) { aligned_free(p); }
+        auto p = _head;
+        while (p != nullptr) {
+            auto next = p->next;
+            aligned_free(p->data);
+            p = next;
+        }
     }
-
-    [[nodiscard]] auto total_size() const noexcept { return _total; }
 
     template<typename T = std::byte, size_t alignment = alignof(T)>
     [[nodiscard]] auto allocate(size_t n = 1u) {
@@ -49,17 +57,28 @@ public:
         static constexpr auto size = sizeof(T);
 
         auto byte_size = n * size;
-        auto aligned_p = reinterpret_cast<std::byte *>((_ptr + alignment - 1u) / alignment * alignment);
-        if (_blocks.empty() || aligned_p + byte_size > _blocks.back() + block_size) {
-            static constexpr auto alloc_alignment = std::max(alignment, sizeof(void *));
+        auto aligned_p = reinterpret_cast<std::byte *>((_current_address + alignment - 1u) / alignment * alignment);
+        if (_head == nullptr || aligned_p + byte_size > _head->data + block_size) {
+            static constexpr auto alloc_alignment = std::max(alignment, static_cast<size_t>(16u));
             static_assert((alloc_alignment & (alloc_alignment - 1u)) == 0, "Alignment should be power of two.");
-            auto alloc_size = (std::max(block_size, byte_size) + alloc_alignment - 1u) / alloc_alignment * alloc_alignment;
-            aligned_p = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size));
-            if (aligned_p == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to allocate memory: size = {}, alignment = {}, count = {}", size, alignment, n); }
-            _blocks.emplace_back(aligned_p);
-            _total += alloc_size;
+            auto alloc_size = std::max(block_size, size * n);
+            static constexpr auto node_alignment = alignof(Node);
+            auto node_offset = (alloc_size + node_alignment - 1u) / node_alignment * node_alignment;
+            auto alloc_size_with_node = node_offset + sizeof(Node);
+            auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_node));
+            if (storage == nullptr) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Failed to allocate memory: size = {}, alignment = {}.",
+                    alloc_size_with_node, alloc_alignment);
+            }
+            _head = construct_at(reinterpret_cast<Node *>(storage + node_offset), storage, _head);
+            _total += alloc_size_with_node;
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Allocated {} bytes in arena (total = {} bytes).",
+                alloc_size_with_node, _total);
+            aligned_p = _head->data;
         }
-        _ptr = reinterpret_cast<uint64_t>(aligned_p + byte_size);
+        _current_address = reinterpret_cast<uint64_t>(aligned_p + byte_size);
         return reinterpret_cast<T *>(aligned_p);
     }
 
@@ -87,7 +106,7 @@ public:
           _capacity{capacity} {}
 
     template<typename U>
-    requires concepts::container<U> && concepts::constructible<T, typename std::remove_cvref_t<U>::value_type>
+    requires concepts::container<U> &&concepts::constructible<T, typename std::remove_cvref_t<U>::value_type>
     ArenaVector(Arena &arena, U &&span, size_t capacity = 0u)
         : ArenaVector{arena, std::max(span.size(), capacity)} {
         std::uninitialized_copy_n(span.begin(), span.size(), _data);
@@ -118,7 +137,9 @@ public:
     T &emplace_back(Args &&...args) {
         if (_size == _capacity) {
             _capacity = next_pow2(_capacity * 2u);
-            LUISA_VERBOSE_WITH_LOCATION("Capacity of ArenaVector exceeded, reallocating for {}.", _capacity);
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Capacity of ArenaVector exceeded, reallocating for {} ({} bytes).",
+                _capacity, _capacity * sizeof(T));
             auto new_data = _arena.allocate<T>(_capacity);
             std::uninitialized_move_n(_data, _size, new_data);
             _data = new_data;
