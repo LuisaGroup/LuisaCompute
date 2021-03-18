@@ -32,10 +32,17 @@ struct CommandVisitor {
 #define LUISA_MAKE_COMMAND_ACCEPT_VISITOR() \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); }
 
-#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                    \
-    template<typename... Args>                                             \
-    [[nodiscard]] static auto create(Args &&...args) noexcept {            \
-        return std::unique_ptr<Cmd>{new Cmd{std::forward<Args>(args)...}}; \
+#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                        \
+    template<typename... Args>                                                 \
+    [[nodiscard]] static auto create(Args &&...args) noexcept {                \
+        auto t0 = std::chrono::high_resolution_clock::now();                   \
+        auto cmd = std::unique_ptr<Cmd>{new Cmd{std::forward<Args>(args)...}}; \
+        auto t1 = std::chrono::high_resolution_clock::now();                   \
+        using namespace std::chrono_literals;                                  \
+        LUISA_VERBOSE_WITH_LOCATION(                                           \
+            "Created {} in {} ms.",                                            \
+            #Cmd, (t1 - t0) / 1ns * 1e-6);                                     \
+        return cmd;                                                            \
     }
 
 class Command {

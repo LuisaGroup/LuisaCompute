@@ -105,7 +105,7 @@ void *aligned_alloc(size_t alignment, size_t size) noexcept { return ::aligned_a
 void aligned_free(void *p) noexcept { free(p); }
 
 size_t pagesize() noexcept {
-    static thread_local auto page_size = getpagesize();
+    static thread_local auto page_size = sysconf(_SC_PAGESIZE);
     return page_size;
 }
 

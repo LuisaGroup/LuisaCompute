@@ -4,6 +4,7 @@
 
 #pragma once
 
+#import <core/platform.h>
 #import <runtime/command.h>
 #import <backends/metal/metal_device.h>
 
@@ -55,12 +56,22 @@ public:
     void visit(const BufferDownloadCommand *command) noexcept override {
 
         auto buffer = _device->buffer(command->handle());
-        auto data = command->data();
+        auto address = reinterpret_cast<uint64_t>(command->data());
         auto size = command->size();
-
+    
+        auto page_size = pagesize();
+        auto aligned_begin = address / page_size * page_size;
+        auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
+        
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Aligned address 0x{:016x} with size {} bytes to [0x{:016x}, 0x{:016x}) (pagesize = {} bytes).",
+            address, size, aligned_begin, aligned_end, page_size);
+    
         auto t0 = std::chrono::high_resolution_clock::now();
-        auto temporary = [_device->handle() newBufferWithLength:size
-                                                        options:MTLResourceStorageModeShared];
+        auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
+                                                              length:aligned_end - aligned_begin
+                                                             options:MTLResourceStorageModeShared
+                                                         deallocator:nullptr];
         auto t1 = std::chrono::high_resolution_clock::now();
         using namespace std::chrono_literals;
         LUISA_VERBOSE_WITH_LOCATION(
@@ -71,12 +82,9 @@ public:
         [blit_encoder copyFromBuffer:buffer
                         sourceOffset:command->offset()
                             toBuffer:temporary
-                   destinationOffset:0u
+                   destinationOffset:aligned_begin - address
                                 size:size];
         [blit_encoder endEncoding];
-        [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-            std::memcpy(data, temporary.contents, size);
-        }];
     }
 
     void visit(const KernelLaunchCommand *command) noexcept override {

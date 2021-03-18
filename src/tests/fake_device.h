@@ -16,6 +16,7 @@ private:
     uint64_t _create_stream() noexcept override { return 0; }
     void _dispose_stream(uint64_t) noexcept override {}
     void _synchronize_stream(uint64_t stream_handle) noexcept override {}
+    void _dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override {}
     void _dispatch(uint64_t stream_handle, std::unique_ptr<CommandBuffer> ptr) noexcept override {}
 
 public:
