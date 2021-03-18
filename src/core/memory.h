@@ -18,7 +18,7 @@
 namespace luisa {
 
 template<typename T, typename... Args>
-constexpr T *construct_at(T *p, Args &&...args) {
+constexpr decltype(auto) construct_at(T *p, Args &&...args) {
     return ::new (const_cast<void *>(static_cast<const volatile void *>(p)))
         T(std::forward<Args>(args)...);
 }
@@ -26,15 +26,15 @@ constexpr T *construct_at(T *p, Args &&...args) {
 class Arena : public concepts::Noncopyable {
 
 public:
-    struct Node {
+    struct Link {
         std::byte *data;
-        Node *next;
-        Node(std::byte *data, Node *next) noexcept : data{data}, next{next} {}
+        Link *next;
+        Link(std::byte *data, Link *next) noexcept : data{data}, next{next} {}
     };
-    static constexpr auto block_size = static_cast<size_t>(64ul * 1024ul) - sizeof(Node);
+    static constexpr auto block_size = static_cast<size_t>(64ul * 1024ul) - sizeof(Link);
 
 private:
-    Node *_head{nullptr};
+    Link *_head{nullptr};
     uint64_t _current_address{0ul};
     size_t _total{0ul};
 
@@ -63,20 +63,20 @@ public:
             static constexpr auto alloc_alignment = std::max(alignment, static_cast<size_t>(16u));
             static_assert((alloc_alignment & (alloc_alignment - 1u)) == 0, "Alignment should be power of two.");
             auto alloc_size = std::max(block_size, size * n);
-            static constexpr auto node_alignment = alignof(Node);
-            auto node_offset = (alloc_size + node_alignment - 1u) / node_alignment * node_alignment;
-            auto alloc_size_with_node = node_offset + sizeof(Node);
-            auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_node));
+            static constexpr auto link_alignment = alignof(Link);
+            auto link_offset = (alloc_size + link_alignment - 1u) / link_alignment * link_alignment;
+            auto alloc_size_with_link = link_offset + sizeof(Link);
+            auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_link));
             if (storage == nullptr) {
                 LUISA_ERROR_WITH_LOCATION(
                     "Failed to allocate memory: size = {}, alignment = {}.",
-                    alloc_size_with_node, alloc_alignment);
+                    alloc_size_with_link, alloc_alignment);
             }
-            _head = construct_at(reinterpret_cast<Node *>(storage + node_offset), storage, _head);
-            _total += alloc_size_with_node;
+            _head = luisa::construct_at(reinterpret_cast<Link *>(storage + link_offset), storage, _head);
+            _total += alloc_size_with_link;
             LUISA_VERBOSE_WITH_LOCATION(
                 "Allocated {} bytes in arena (total = {} bytes).",
-                alloc_size_with_node, _total);
+                alloc_size_with_link, _total);
             aligned_p = _head->data;
         }
         _current_address = reinterpret_cast<uint64_t>(aligned_p + byte_size);
