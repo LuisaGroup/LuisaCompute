@@ -12,7 +12,6 @@ namespace luisa::compute {
 class CommandBuffer {
 
 private:
-    // TODO: serialized commands?
     std::vector<CommandHandle> _commands;
 
 public:

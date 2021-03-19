@@ -34,7 +34,7 @@ struct CommandVisitor {
 namespace detail {
 
 template<typename Cmd>
-[[nodiscard]] Pool<Cmd> &pool() noexcept;
+[[nodiscard]] extern Pool<Cmd> &pool() noexcept;
 
 class CommandRecycle : private CommandVisitor {
 
@@ -70,7 +70,6 @@ using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
         return CommandHandle{command_ptr};                                      \
     }
 
-// Note: this should go last
 #define LUISA_MAKE_COMMAND_COMMON(Cmd) \
     LUISA_MAKE_COMMAND_CREATOR(Cmd)    \
     LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
