@@ -31,7 +31,7 @@ jobs:
           submodules: true
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja openimageio opencv pybind11 llvm
+          brew install cmake ninja opencv pybind11 llvm
       - name: "Configure and Build"
         run: |
           export PATH=$PATH:/usr/local/opt/llvm/bin
