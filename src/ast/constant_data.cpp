@@ -11,8 +11,8 @@ namespace luisa::compute {
 
 namespace detail {
 
-[[nodiscard]] std::vector<ConstantData> &constant_registry() noexcept {
-    static std::vector<ConstantData> r;
+[[nodiscard]] auto &constant_registry() noexcept {
+    static ArenaVector<ConstantData> r{Arena::global()};
     return r;
 }
 
@@ -35,10 +35,10 @@ uint64_t ConstantData::create(ConstantData::View data) noexcept {
                     detail::constant_registry().cend(),
                     [hash](auto &&item) noexcept { return item._hash == hash; });
                 iter == detail::constant_registry().cend()) {
-                auto ptr = std::make_unique<std::byte[]>(view.size_bytes());
-                std::memmove(ptr.get(), view.data(), view.size_bytes());
-                std::span<const T> new_view{reinterpret_cast<T *>(ptr.get()), view.size()};
-                detail::constant_registry().emplace_back(ConstantData{std::move(ptr), new_view, hash});
+                auto ptr = Arena::global().allocate<T>(view.size());
+                std::memmove(ptr, view.data(), view.size_bytes());
+                std::span<const T> new_view{ptr, view.size()};
+                detail::constant_registry().emplace_back(ConstantData{new_view, hash});
             }
             return hash;
         },

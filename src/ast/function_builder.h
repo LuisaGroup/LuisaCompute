@@ -45,7 +45,6 @@ public:
     using TextureBinding = Function::TextureBinding;
 
 private:
-    Arena _arena;
     ScopeStmt _body;
     const Type *_ret{nullptr};
     ArenaVector<ScopeStmt *> _scope_stack;
@@ -62,6 +61,7 @@ private:
     uint32_t _uid;
 
 protected:
+    [[nodiscard]] static Arena &arena() noexcept;
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] static spin_mutex &_function_registry_mutex() noexcept;
     [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
@@ -73,21 +73,19 @@ protected:
     [[nodiscard]] const RefExpr *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
 
-    friend class ScopeGuard;
-
 private:
     explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept
-        : _body{ArenaVector<const Statement *>(_arena)},
-          _scope_stack{_arena},
-          _builtin_variables{_arena},
-          _shared_variables{_arena},
-          _captured_constants{_arena},
-          _captured_buffers{_arena},
-          _captured_textures{_arena},
-          _arguments{_arena},
-          _used_custom_callables{_arena},
-          _used_builtin_callables{_arena},
-          _variable_usages{_arena},
+        : _body{ArenaVector<const Statement *>(arena())},
+          _scope_stack{arena()},
+          _builtin_variables{arena()},
+          _shared_variables{arena()},
+          _captured_constants{arena()},
+          _captured_buffers{arena()},
+          _captured_textures{arena()},
+          _arguments{arena()},
+          _used_custom_callables{arena()},
+          _used_builtin_callables{arena()},
+          _variable_usages{arena()},
           _tag{tag},
           _uid{uid} {}
 

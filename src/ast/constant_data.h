@@ -36,12 +36,11 @@ public:
     using View = typename detail::constant_data_view<basic_types>::type;
 
 private:
-    std::unique_ptr<std::byte[]> _storage;
     View _view;
     uint64_t _hash;
     
-    ConstantData(std::unique_ptr<std::byte[]> s, View v, uint64_t hash) noexcept
-        : _storage{std::move(s)}, _view{v}, _hash{hash}{}
+    ConstantData(View v, uint64_t hash) noexcept
+        : _view{v}, _hash{hash}{}
 
 public:
     [[nodiscard]] static uint64_t create(View data) noexcept;

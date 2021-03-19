@@ -178,10 +178,6 @@ int main() {
     int a[5]{1, 2, 3, 4, 5};
     auto hh = Hash{}(a);
 
-    Arena another{std::move(arena)};
-    auto p = another.allocate<int, 1024>(1);
-    LUISA_INFO("{}", fmt::ptr(p));
-
     auto &&type_aa = typeid(AA);
     auto &&type_bb = typeid(BB);
     LUISA_INFO("{}", type_aa.before(type_bb));

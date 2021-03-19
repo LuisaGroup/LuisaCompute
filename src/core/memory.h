@@ -37,19 +37,16 @@ private:
     Link *_head{nullptr};
     uint64_t _current_address{0ul};
     size_t _total{0ul};
+    spin_mutex _mutex;
+    bool _thread_safe;
 
 public:
-    Arena() noexcept = default;
-    Arena(Arena &&) noexcept = default;
-    Arena &operator=(Arena &&) noexcept = default;
-    ~Arena() noexcept {
-        auto p = _head;
-        while (p != nullptr) {
-            auto next = p->next;
-            aligned_free(p->data);
-            p = next;
-        }
-    }
+    explicit Arena(bool thread_safe = true) noexcept
+        : _thread_safe{thread_safe} {}
+    Arena(Arena &&) noexcept = delete;
+    Arena &operator=(Arena &&) noexcept = delete;
+    ~Arena() noexcept;
+    [[nodiscard]] static Arena &global(bool is_thread_local = false) noexcept;
 
     template<typename T = std::byte, size_t alignment = alignof(T)>
     [[nodiscard]] auto allocate(size_t n = 1u) {
@@ -57,30 +54,38 @@ public:
         static_assert(std::is_trivially_destructible_v<T>);
         static constexpr auto size = sizeof(T);
 
-        auto byte_size = n * size;
-        auto aligned_p = reinterpret_cast<std::byte *>((_current_address + alignment - 1u) / alignment * alignment);
-        if (_head == nullptr || aligned_p + byte_size > _head->data + block_size) {
-            static constexpr auto alloc_alignment = std::max(alignment, static_cast<size_t>(16u));
-            static_assert((alloc_alignment & (alloc_alignment - 1u)) == 0, "Alignment should be power of two.");
-            auto alloc_size = std::max(block_size, size * n);
-            static constexpr auto link_alignment = alignof(Link);
-            auto link_offset = (alloc_size + link_alignment - 1u) / link_alignment * link_alignment;
-            auto alloc_size_with_link = link_offset + sizeof(Link);
-            auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_link));
-            if (storage == nullptr) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Failed to allocate memory: size = {}, alignment = {}.",
-                    alloc_size_with_link, alloc_alignment);
+        auto do_allocate = [this, n] {
+            auto byte_size = n * size;
+            auto aligned_p = reinterpret_cast<std::byte *>((_current_address + alignment - 1u) / alignment * alignment);
+            if (_head == nullptr || aligned_p + byte_size > _head->data + block_size) {
+                static constexpr auto alloc_alignment = std::max(alignment, static_cast<size_t>(16u));
+                static_assert((alloc_alignment & (alloc_alignment - 1u)) == 0, "Alignment should be power of two.");
+                auto alloc_size = std::max(block_size, size * n);
+                static constexpr auto link_alignment = alignof(Link);
+                auto link_offset = (alloc_size + link_alignment - 1u) / link_alignment * link_alignment;
+                auto alloc_size_with_link = link_offset + sizeof(Link);
+                auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_link));
+                if (storage == nullptr) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Failed to allocate memory: size = {}, alignment = {}.",
+                        alloc_size_with_link, alloc_alignment);
+                }
+                _head = luisa::construct_at(reinterpret_cast<Link *>(storage + link_offset), storage, _head);
+                _total += alloc_size_with_link;
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "Allocated {} bytes in arena (total = {} bytes).",
+                    alloc_size_with_link, _total);
+                aligned_p = _head->data;
             }
-            _head = luisa::construct_at(reinterpret_cast<Link *>(storage + link_offset), storage, _head);
-            _total += alloc_size_with_link;
-            LUISA_VERBOSE_WITH_LOCATION(
-                "Allocated {} bytes in arena (total = {} bytes).",
-                alloc_size_with_link, _total);
-            aligned_p = _head->data;
+            _current_address = reinterpret_cast<uint64_t>(aligned_p + byte_size);
+            return reinterpret_cast<T *>(aligned_p);
+        };
+        
+        if (_thread_safe) {
+            std::scoped_lock lock{_mutex};
+            return do_allocate();
         }
-        _current_address = reinterpret_cast<uint64_t>(aligned_p + byte_size);
-        return reinterpret_cast<T *>(aligned_p);
+        return do_allocate();
     }
 
     template<typename T, typename... Args>
@@ -173,34 +178,8 @@ struct ArenaString : public std::string_view {
         : std::string_view{std::strncpy(arena.allocate<char>(s.size()), s.data(), s.size()), s.size()} {}
 };
 
-namespace detail {
-
-template<bool thread_safe = false>
-class PoolThreadSafety {
-
-public:
-    template<typename F>
-    decltype(auto) with_thread_safety(F &&f) { return f(); }
-};
-
-template<>
-class PoolThreadSafety<true> {
-
-private:
-    spin_mutex _mutex;
-
-public:
-    template<typename F>
-    decltype(auto) with_thread_safety(F &&f) {
-        std::scoped_lock lock{_mutex};
-        return f();
-    }
-};
-
-}// namespace detail
-
-template<typename T, bool thread_safe = false>
-class Pool : detail::PoolThreadSafety<thread_safe> {
+template<typename T>
+class Pool {
 
     struct Node {
         T object;
@@ -230,11 +209,9 @@ private:
 
 private:
     void _recycle(T *object) noexcept {
-        this->with_thread_safety([object, this] {
-            auto node = Node::of(object);
-            node->next = _head;
-            _head = node;
-        });
+        auto node = Node::of(object);
+        node->next = _head;
+        _head = node;
         LUISA_VERBOSE_WITH_LOCATION(
             "Recycled pool object at address {}.",
             fmt::ptr(object));
@@ -245,14 +222,14 @@ public:
 
     template<typename... Args>
     [[nodiscard]] auto create(Args &&...args) {
-        auto node = this->with_thread_safety([this] {
+        auto node = [this] {
             if (_head == nullptr) {// empty pool
                 return _arena.allocate<Node>();
             }
             auto node = _head;
             _head = _head->next;
             return node;
-        });
+        }();
         auto object = luisa::construct_at(&node->object, std::forward<Args>(args)...);
         LUISA_VERBOSE_WITH_LOCATION(
             "Created pool object at address {}.",
@@ -260,8 +237,5 @@ public:
         return Object{object, ObjectRecycle{this}};
     }
 };
-
-template<typename T>
-using ThreadSafePool = Pool<T, true>;
 
 }// namespace luisa
