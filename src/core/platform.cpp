@@ -37,7 +37,7 @@ namespace detail {
         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
         (LPTSTR)&buffer,
         0, nullptr);
-    auto err_msg = fmt::format("{} (code = 0x{:x}).", buffer, err_code);
+    auto err_msg = fmt::format("{} (code = 0x{:x}).", static_cast<char *>(buffer), err_code);
     LocalFree(buffer);
     return err_msg;
 }
