@@ -74,20 +74,7 @@ protected:
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
 
 private:
-    explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept
-        : _body{ArenaVector<const Statement *>(arena())},
-          _scope_stack{arena()},
-          _builtin_variables{arena()},
-          _shared_variables{arena()},
-          _captured_constants{arena()},
-          _captured_buffers{arena()},
-          _captured_textures{arena()},
-          _arguments{arena()},
-          _used_custom_callables{arena()},
-          _used_builtin_callables{arena()},
-          _variable_usages{arena()},
-          _tag{tag},
-          _uid{uid} {}
+    explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept;
 
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) noexcept {
