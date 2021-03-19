@@ -13,11 +13,11 @@ class CommandBuffer {
 
 private:
     // TODO: serialized commands?
-    std::vector<std::unique_ptr<Command>> _commands;
+    std::vector<CommandHandle> _commands;
 
 public:
     CommandBuffer() noexcept { LUISA_VERBOSE_WITH_LOCATION("Created command buffer."); }
-    void append(std::unique_ptr<Command> cmd) noexcept;
+    void append(CommandHandle cmd) noexcept;
     [[nodiscard]] auto begin() const noexcept { return _commands.cbegin(); }
     [[nodiscard]] auto end() const noexcept { return _commands.cend(); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }

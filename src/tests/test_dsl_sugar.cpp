@@ -99,7 +99,9 @@ int main() {
         $ vec4 = buffer[10];           // indexing into captured buffer (with literal)
         $ another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
-
+    
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
-    LUISA_INFO("Command: kernel = {}, args = {}", command->kernel_uid(), command->arguments().size());
+    auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
+    LUISA_INFO("Command: kernel = {}, args = {}", launch_command->kernel_uid(), launch_command->argument_count());
+    auto function = Function::kernel(launch_command->kernel_uid());
 }

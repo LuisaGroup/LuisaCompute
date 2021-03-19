@@ -7,49 +7,6 @@
 
 namespace luisa::compute {
 
-void KernelArgumentEncoder::Deleter::operator()(KernelArgumentEncoder::Data *ptr) const noexcept {
-    _recycle(ptr);
-}
-
-std::vector<std::unique_ptr<KernelArgumentEncoder::Data>> &KernelArgumentEncoder::_available_blocks() noexcept {
-    static thread_local std::vector<std::unique_ptr<Data>> blocks;
-    return blocks;
-}
-
-KernelArgumentEncoder::Storage KernelArgumentEncoder::_allocate() noexcept {
-    auto &&blocks = _available_blocks();
-    if (blocks.empty()) { return Storage{new Data}; }
-    auto data = blocks.back().release();
-    blocks.pop_back();
-    return Storage{data};
-}
-
-void KernelArgumentEncoder::_recycle(Data *storage) noexcept {
-    _available_blocks().emplace_back(storage);
-}
-
-std::span<const KernelArgumentEncoder::Argument> KernelArgumentEncoder::arguments() const noexcept {
-    return _arguments;
-}
-
-void KernelArgumentEncoder::encode_buffer(uint64_t handle, size_t offset_bytes) noexcept {
-    _arguments.emplace_back(BufferArgument{handle, offset_bytes});
-}
-
-void KernelArgumentEncoder::encode_uniform(const void *data, size_t size, size_t alignment) noexcept {
-    auto aligned_ptr = reinterpret_cast<std::byte *>((reinterpret_cast<uint64_t>(_ptr) + alignment - 1u) / alignment * alignment);
-    if (aligned_ptr + size > _storage->data() + _storage->size()) {
-        LUISA_ERROR_WITH_LOCATION("Size limit of uniform data exceeded.");
-    }
-    std::memmove(aligned_ptr, data, size);
-    _arguments.emplace_back(UniformArgument{std::span{aligned_ptr, size}});
-    _ptr = aligned_ptr + size;
-}
-
-std::span<const std::byte> KernelArgumentEncoder::uniform_data() const noexcept {
-    return {_storage->data(), _ptr};
-}
-
 std::span<const Command::Resource> Command::resources() const noexcept {
     return {_resource_slots.data(), _resource_count};
 }
@@ -95,5 +52,86 @@ void Command::_texture_write_only(uint64_t handle) noexcept {
 void Command::_texture_read_write(uint64_t handle) noexcept {
     _use_resource(handle, Resource::Tag::TEXTURE, Resource::Usage::READ_WRITE);
 }
+
+void KernelLaunchCommand::encode_buffer(
+    uint64_t handle,
+    size_t offset,
+    Command::Resource::Usage usage) noexcept {
+
+    BufferArgument argument{};
+    argument.tag = Argument::Tag::BUFFER;
+    argument.handle = handle;
+    argument.offset = offset;
+    argument.usage = usage;
+    if (_argument_buffer_size + sizeof(BufferArgument) > _argument_buffer.size()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to encode buffer. Kernel argument buffer exceeded size limit {}.",
+            _argument_buffer.size());
+    }
+    std::memcpy(
+        _argument_buffer.data() + _argument_buffer_size,
+        &argument, sizeof(BufferArgument));
+    _use_resource(handle, Resource::Tag::BUFFER, usage);
+    _argument_buffer_size += sizeof(BufferArgument);
+    _argument_count++;
+}
+
+void KernelLaunchCommand::encode_uniform(const void *data, size_t size) noexcept {
+    UniformArgument argument{};
+    argument.tag = Argument::Tag::UNIFORM;
+    argument.size = size;
+    if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to encode uniform with size {}. Kernel argument buffer exceeded size limit {}.",
+            size, _argument_buffer.size());
+    }
+    std::memcpy(
+        _argument_buffer.data() + _argument_buffer_size,
+        &argument, sizeof(UniformArgument));
+    _argument_buffer_size += sizeof(UniformArgument);
+    std::memcpy(
+        _argument_buffer.data() + _argument_buffer_size,
+        data, size);
+    _argument_buffer_size += size;
+    _argument_count++;
+}
+
+void KernelLaunchCommand::set_launch_size(uint3 dispatch_size, uint3 block_size) noexcept {
+    _dispatch_size = dispatch_size;
+    _block_size = block_size;
+}
+
+namespace detail {
+
+#define LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(Cmd) \
+    template<>                                      \
+    Pool<Cmd> &pool<Cmd>() noexcept {               \
+        static Pool<Cmd> pool{Arena::global()};     \
+        return pool;                                \
+    }
+LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(BufferCopyCommand)
+LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(BufferUploadCommand)
+LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(BufferDownloadCommand)
+LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(KernelLaunchCommand)
+#undef LUISA_MAKE_COMMAND_POOL_SPECIALIZATION
+
+void CommandRecycle::operator()(Command *command) noexcept {
+    command->accept(*this);
+}
+
+#define LUISA_MAKE_COMMAND_RECYCLE_VISIT(Cmd)                 \
+    void CommandRecycle::visit(const Cmd *command) noexcept { \
+        using Recycle = typename Pool<Cmd>::ObjectRecycle;    \
+        Recycle{&pool<Cmd>()}(                                \
+            const_cast<Cmd *>(                                \
+                static_cast<const volatile Cmd *>(command))); \
+    }
+LUISA_MAKE_COMMAND_RECYCLE_VISIT(BufferCopyCommand)
+LUISA_MAKE_COMMAND_RECYCLE_VISIT(BufferUploadCommand)
+LUISA_MAKE_COMMAND_RECYCLE_VISIT(BufferDownloadCommand)
+LUISA_MAKE_COMMAND_RECYCLE_VISIT(KernelLaunchCommand)
+#undef LUISA_MAKE_COMMAND_RECYCLE_VISIT
+
+}// namespace detail
 
 }// namespace luisa::compute

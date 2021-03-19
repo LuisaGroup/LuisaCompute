@@ -14,9 +14,11 @@
 
 #include <core/logging.h>
 #include <core/basic_types.h>
+#include <core/memory.h>
 
 namespace luisa::compute {
 
+class Command;
 class BufferUploadCommand;
 class BufferDownloadCommand;
 class BufferCopyCommand;
@@ -29,21 +31,49 @@ struct CommandVisitor {
     virtual void visit(const KernelLaunchCommand *) noexcept = 0;
 };
 
-#define LUISA_MAKE_COMMAND_ACCEPT_VISITOR() \
-    void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); }
+namespace detail {
 
-#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                        \
-    template<typename... Args>                                                 \
-    [[nodiscard]] static auto create(Args &&...args) noexcept {                \
-        auto t0 = std::chrono::high_resolution_clock::now();                   \
-        auto cmd = std::unique_ptr<Cmd>{new Cmd{std::forward<Args>(args)...}}; \
-        auto t1 = std::chrono::high_resolution_clock::now();                   \
-        using namespace std::chrono_literals;                                  \
-        LUISA_VERBOSE_WITH_LOCATION(                                           \
-            "Created {} in {} ms.",                                            \
-            #Cmd, (t1 - t0) / 1ns * 1e-6);                                     \
-        return cmd;                                                            \
+template<typename Cmd>
+[[nodiscard]] Pool<Cmd> &pool() noexcept;
+
+class CommandRecycle : private CommandVisitor {
+
+private:
+    void visit(const BufferCopyCommand *command) noexcept override;
+    void visit(const BufferUploadCommand *command) noexcept override;
+    void visit(const BufferDownloadCommand *command) noexcept override;
+    void visit(const KernelLaunchCommand *command) noexcept override;
+
+public:
+    void operator()(Command *command) noexcept;
+};
+
+}// namespace detail
+
+using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
+
+#define LUISA_MAKE_COMMAND_ACCEPT_VISITOR()                        \
+    void accept(CommandVisitor &visitor) const noexcept override { \
+        visitor.visit(this);                                       \
     }
+
+#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                         \
+    template<typename... Args>                                                  \
+    [[nodiscard]] static auto create(Args &&...args) noexcept {                 \
+        auto t0 = std::chrono::high_resolution_clock::now();                    \
+        auto command = detail::pool<Cmd>().create(std::forward<Args>(args)...); \
+        auto t1 = std::chrono::high_resolution_clock::now();                    \
+        using namespace std::chrono_literals;                                   \
+        LUISA_VERBOSE_WITH_LOCATION(                                            \
+            "Created {} in {} ms.", #Cmd, (t1 - t0) / 1ns * 1e-6);              \
+        auto command_ptr = static_cast<Command *>(command.release());           \
+        return CommandHandle{command_ptr};                                      \
+    }
+
+// Note: this should go last
+#define LUISA_MAKE_COMMAND_COMMON(Cmd) \
+    LUISA_MAKE_COMMAND_CREATOR(Cmd)    \
+    LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
 
 class Command {
 
@@ -78,9 +108,8 @@ private:
     std::array<Resource, max_resource_count> _resource_slots{};
     size_t _resource_count{0u};
 
-    void _use_resource(uint64_t handle, Resource::Tag tag, Resource::Usage usage) noexcept;
-
 protected:
+    void _use_resource(uint64_t handle, Resource::Tag tag, Resource::Usage usage) noexcept;
     void _buffer_read_only(uint64_t handle) noexcept;
     void _buffer_write_only(uint64_t handle) noexcept;
     void _buffer_read_write(uint64_t handle) noexcept;
@@ -88,10 +117,12 @@ protected:
     void _texture_write_only(uint64_t handle) noexcept;
     void _texture_read_write(uint64_t handle) noexcept;
 
+protected:
+    ~Command() noexcept = default;
+
 public:
     [[nodiscard]] std::span<const Resource> resources() const noexcept;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
-    virtual ~Command() noexcept = default;
 };
 
 class BufferUploadCommand : public Command {
@@ -102,20 +133,17 @@ private:
     size_t _size;
     const void *_data;
 
-private:
+public:
     BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
         : _handle{handle},
           _offset{offset_bytes},
           _size{size_bytes},
           _data{data} { _buffer_write_only(_handle); }
-
-public:
-    LUISA_MAKE_COMMAND_CREATOR(BufferUploadCommand)
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
+    LUISA_MAKE_COMMAND_COMMON(BufferUploadCommand)
 };
 
 class BufferDownloadCommand : public Command {
@@ -126,20 +154,17 @@ private:
     size_t _size;
     void *_data;
 
-private:
+public:
     BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
         : _handle{handle},
           _offset{offset_bytes},
           _size{size_bytes},
           _data{data} { _buffer_read_only(_handle); }
-
-public:
-    LUISA_MAKE_COMMAND_CREATOR(BufferDownloadCommand)
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
+    LUISA_MAKE_COMMAND_COMMON(BufferDownloadCommand)
 };
 
 class BufferCopyCommand : public Command {
@@ -151,7 +176,7 @@ private:
     size_t _dst_offset;
     size_t _size;
 
-private:
+public:
     BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
         : _src_handle{src},
           _dst_handle{dst},
@@ -161,80 +186,113 @@ private:
         _buffer_read_only(_src_handle);
         _buffer_write_only(_dst_handle);
     }
-
-public:
-    LUISA_MAKE_COMMAND_CREATOR(BufferCopyCommand)
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
     [[nodiscard]] auto dst_offset() const noexcept { return _dst_offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
-};
-
-// TODO...
-class KernelArgumentEncoder {
-
-public:
-    using Data = std::array<std::byte, 1024u>;
-    struct Deleter {
-        void operator()(Data *ptr) const noexcept;
-    };
-    using Storage = std::unique_ptr<Data, Deleter>;
-
-    struct BufferArgument {
-        uint64_t handle;
-        size_t offset_bytes;
-    };
-
-    struct TextureArgument {
-        uint64_t handle;
-    };
-
-    struct UniformArgument {
-        std::span<const std::byte> data;
-    };
-
-    using Argument = std::variant<BufferArgument, TextureArgument, UniformArgument>;
-
-private:
-    std::vector<Argument> _arguments;
-    Storage _storage;
-    std::byte *_ptr;
-    [[nodiscard]] static std::vector<std::unique_ptr<Data>> &_available_blocks() noexcept;
-    [[nodiscard]] static Storage _allocate() noexcept;
-    static void _recycle(Data *storage) noexcept;
-
-public:
-    KernelArgumentEncoder() noexcept : _storage{_allocate()}, _ptr{_storage->data()} {}
-    void encode_buffer(uint64_t handle, size_t offset_bytes) noexcept;
-    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
-    [[nodiscard]] std::span<const Argument> arguments() const noexcept;
-    [[nodiscard]] std::span<const std::byte> uniform_data() const noexcept;
+    LUISA_MAKE_COMMAND_COMMON(BufferCopyCommand)
 };
 
 class KernelLaunchCommand : public Command {
 
+public:
+    struct Argument {
+        enum struct Tag : uint32_t {
+            BUFFER,
+            TEXTURE,
+            UNIFORM
+        };
+        Tag tag;
+    };
+
+    struct BufferArgument : Argument {
+        uint64_t handle;
+        size_t offset;
+        Resource::Usage usage;
+    };
+
+    struct TextureArgument : Argument {
+        uint64_t handle;
+        Resource::Usage usage;
+    };
+
+    struct UniformArgument : Argument {
+        size_t size;
+    };
+
+    struct ArgumentBuffer : std::array<std::byte, 4000u> {};
+
 private:
-    KernelArgumentEncoder _encoder;
+    uint32_t _kernel_uid;
+    uint32_t _argument_count{0u};
     uint3 _dispatch_size;
     uint3 _block_size;
-    uint32_t _kernel_uid;
-
-private:
-    KernelLaunchCommand(uint32_t kernel_uid, KernelArgumentEncoder encoder, uint3 dispatch_size, uint3 block_size) noexcept
-        : _encoder{std::move(encoder)}, _dispatch_size{dispatch_size}, _block_size{block_size}, _kernel_uid{kernel_uid} {}
+    size_t _argument_buffer_size{0u};
+    ArgumentBuffer _argument_buffer{};
 
 public:
-    LUISA_MAKE_COMMAND_CREATOR(KernelLaunchCommand)
+    explicit KernelLaunchCommand(uint32_t uid) noexcept : _kernel_uid{uid} {}
+    void set_launch_size(uint3 dispatch_size, uint3 block_size) noexcept;
     [[nodiscard]] auto kernel_uid() const noexcept { return _kernel_uid; }
-    [[nodiscard]] auto block_size() const noexcept { return _block_size; }
+    [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
     [[nodiscard]] auto dispatch_size() const noexcept { return _dispatch_size; }
-    [[nodiscard]] auto arguments() const noexcept { return _encoder.arguments(); }
-    LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
+    [[nodiscard]] auto block_size() const noexcept { return _block_size; }
+
+    // Note: encode/decode order:
+    //   1. captured buffers
+    //   2. captured textures
+    //   3. arguments
+    void encode_buffer(uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
+    // TODO: encode texture
+    void encode_uniform(const void *data, size_t size) noexcept;
+
+    template<typename Visit>
+    void decode(Visit &&visit) const noexcept {
+        auto p = _argument_buffer.data();
+        while (p < _argument_buffer.data() + _argument_buffer_size) {
+            Argument argument{};
+            std::memcpy(&argument, p, sizeof(Argument));
+            switch (argument.tag) {
+                case Argument::Tag::BUFFER: {
+                    BufferArgument buffer_argument{};
+                    std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
+                    decode(buffer_argument);
+                    p += sizeof(BufferArgument);
+                    break;
+                }
+                case Argument::Tag::TEXTURE: {
+                    TextureArgument texture_argument{};
+                    std::memcpy(&texture_argument, p, sizeof(TextureArgument));
+                    decode(texture_argument);
+                    p += sizeof(TextureArgument);
+                    break;
+                }
+                case Argument::Tag::UNIFORM: {
+                    UniformArgument uniform_argument{};
+                    std::memcpy(&uniform_argument, p, sizeof(UniformArgument));
+                    p += sizeof(UniformArgument);
+                    std::span data{p, uniform_argument.size};
+                    visit(data);
+                    p += uniform_argument.size;
+                    break;
+                }
+                default: {
+                    LUISA_ERROR_WITH_LOCATION("Invalid argument.");
+                    break;
+                }
+            }
+        }
+    }
+    LUISA_MAKE_COMMAND_COMMON(KernelLaunchCommand)
 };
 
 #undef LUISA_MAKE_COMMAND_ACCEPT_VISITOR
 #undef LUISA_MAKE_COMMAND_CREATOR
+#undef LUISA_MAKE_COMMAND_COMMON
+
+namespace detail {
+
+}// namespace detail
 
 }// namespace luisa::compute

@@ -95,40 +95,62 @@ namespace detail {
 class KernelInvoke {
 
 private:
-    uint32_t _function_uid;
-    KernelArgumentEncoder _encoder;
+    CommandHandle _command;
+    Function _function;
+    size_t _argument_index{0u};
+
+private:
+    [[nodiscard]] auto _launch_command() noexcept {
+        return static_cast<KernelLaunchCommand *>(_command.get());
+    }
 
 public:
-    explicit KernelInvoke(uint32_t function_uid) noexcept : _function_uid{function_uid} {}
+    explicit KernelInvoke(uint32_t function_uid) noexcept
+        : _command{KernelLaunchCommand::create(function_uid)},
+          _function{Function::kernel(function_uid)} {
+
+        for (auto buffer : _function.captured_buffers()) {
+            _launch_command()->encode_buffer(
+                buffer.handle, buffer.offset_bytes,
+                static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
+        }
+        
+        for (auto texture : _function.captured_textures()) {
+            // TODO: encode captured textures...
+        }
+    }
 
     template<typename T>
     KernelInvoke &operator<<(BufferView<T> buffer) noexcept {
-        _encoder.encode_buffer(buffer.handle(), buffer.offset_bytes());
+        auto usage = _function.variable_usage(
+            _function.arguments()[_argument_index].uid());
+        _launch_command()->encode_buffer(
+            buffer.handle(), buffer.offset_bytes(),
+            static_cast<Command::Resource::Usage>(usage));
+        _argument_index++;
         return *this;
     }
 
     template<typename T>
     KernelInvoke &operator<<(T data) noexcept {
-        _encoder.encode_uniform(&data, sizeof(T), alignof(T));
+        _launch_command()->encode_uniform(&data, sizeof(T));
+        _argument_index++;
         return *this;
     }
 
     [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) &&noexcept {
-        return KernelLaunchCommand::create(
-            _function_uid, std::move(_encoder),
-            dispatch_size, block_size);
+        _launch_command()->set_launch_size(dispatch_size, block_size);
+        return std::move(_command);
     }
 
     [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) &&noexcept {
-        return KernelLaunchCommand::create(
-            _function_uid, std::move(_encoder),
-            uint3{dispatch_size, 1u}, uint3{block_size, 1u});
+        _launch_command()->set_launch_size(uint3{dispatch_size, 1u}, uint3{block_size, 1u});
+        return std::move(_command);
     }
 
     [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) &&noexcept {
-        return KernelLaunchCommand::create(
-            _function_uid, std::move(_encoder),
-            uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
+        _launch_command()->set_launch_size(uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
+        return std::move(_command);
     }
 };
 

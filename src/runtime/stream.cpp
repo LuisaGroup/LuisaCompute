@@ -10,7 +10,7 @@ namespace luisa::compute {
 
 void Stream::_dispatch(CommandBuffer cb) noexcept { _device->_dispatch(_handle, std::move(cb)); }
 
-Stream::Delegate Stream::operator<<(std::unique_ptr<Command> cmd) noexcept {
+Stream::Delegate Stream::operator<<(CommandHandle cmd) noexcept {
     Delegate delegate{this};
     delegate << std::move(cmd);
     return delegate;
@@ -39,7 +39,7 @@ Stream &Stream::operator=(Stream &&rhs) noexcept {
 
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
-Stream::Delegate &Stream::Delegate::operator<<(std::unique_ptr<Command> cmd) noexcept {
+Stream::Delegate &Stream::Delegate::operator<<(CommandHandle cmd) noexcept {
     _cb.append(std::move(cmd));
     return *this;
 }

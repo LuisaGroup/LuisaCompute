@@ -63,7 +63,9 @@ public:
                 static constexpr auto link_alignment = alignof(Link);
                 auto link_offset = (alloc_size + link_alignment - 1u) / link_alignment * link_alignment;
                 auto alloc_size_with_link = link_offset + sizeof(Link);
+                auto t0 = std::chrono::high_resolution_clock::now();
                 auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_link));
+                auto t1 = std::chrono::high_resolution_clock::now();
                 if (storage == nullptr) {
                     LUISA_ERROR_WITH_LOCATION(
                         "Failed to allocate memory: size = {}, alignment = {}.",
@@ -71,9 +73,10 @@ public:
                 }
                 _head = luisa::construct_at(reinterpret_cast<Link *>(storage + link_offset), storage, _head);
                 _total += alloc_size_with_link;
+                using namespace std::chrono_literals;
                 LUISA_VERBOSE_WITH_LOCATION(
-                    "Allocated {} bytes in arena (total = {} bytes).",
-                    alloc_size_with_link, _total);
+                    "Allocated {} bytes in arena (total = {} bytes) in {} ms.",
+                    alloc_size_with_link, _total, (t1 - t0) / 1ns * 1e-6);
                 aligned_p = _head->data;
             }
             _current_address = reinterpret_cast<uint64_t>(aligned_p + byte_size);

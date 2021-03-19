@@ -31,7 +31,7 @@ public:
         Delegate(Delegate &&) noexcept = default;
         Delegate &operator=(Delegate &&) noexcept = default;
         ~Delegate() noexcept;
-        Delegate &operator<<(std::unique_ptr<Command> cmd) noexcept;
+        Delegate &operator<<(CommandHandle cmd) noexcept;
         Stream &operator<<(std::function<void()> f) noexcept;
         void operator<<(SynchronizeToken) noexcept;
     };
@@ -50,7 +50,7 @@ public:
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
-    Delegate operator<<(std::unique_ptr<Command> cmd) noexcept;
+    Delegate operator<<(CommandHandle cmd) noexcept;
     Stream &operator<<(std::function<void()> f) noexcept;
     void operator<<(SynchronizeToken);
 };
