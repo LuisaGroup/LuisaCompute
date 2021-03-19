@@ -33,8 +33,13 @@ struct CommandVisitor {
 
 namespace detail {
 
-template<typename Cmd>
-[[nodiscard]] extern Pool<Cmd> &pool() noexcept;
+#define LUISA_MAKE_COMMAND_POOL_DECL(Cmd) \
+    [[nodiscard]] Pool<Cmd> &pool_##Cmd() noexcept;
+LUISA_MAKE_COMMAND_POOL_DECL(BufferCopyCommand)
+LUISA_MAKE_COMMAND_POOL_DECL(BufferUploadCommand)
+LUISA_MAKE_COMMAND_POOL_DECL(BufferDownloadCommand)
+LUISA_MAKE_COMMAND_POOL_DECL(KernelLaunchCommand)
+#undef LUISA_MAKE_COMMAND_POOL_DECL
 
 class CommandRecycle : private CommandVisitor {
 
@@ -57,17 +62,17 @@ using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
         visitor.visit(this);                                       \
     }
 
-#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                         \
-    template<typename... Args>                                                  \
-    [[nodiscard]] static auto create(Args &&...args) noexcept {                 \
-        auto t0 = std::chrono::high_resolution_clock::now();                    \
-        auto command = detail::pool<Cmd>().create(std::forward<Args>(args)...); \
-        auto t1 = std::chrono::high_resolution_clock::now();                    \
-        using namespace std::chrono_literals;                                   \
-        LUISA_VERBOSE_WITH_LOCATION(                                            \
-            "Created {} in {} ms.", #Cmd, (t1 - t0) / 1ns * 1e-6);              \
-        auto command_ptr = static_cast<Command *>(command.release());           \
-        return CommandHandle{command_ptr};                                      \
+#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                          \
+    template<typename... Args>                                                   \
+    [[nodiscard]] static auto create(Args &&...args) noexcept {                  \
+        auto t0 = std::chrono::high_resolution_clock::now();                     \
+        auto command = detail::pool_##Cmd().create(std::forward<Args>(args)...); \
+        auto t1 = std::chrono::high_resolution_clock::now();                     \
+        using namespace std::chrono_literals;                                    \
+        LUISA_VERBOSE_WITH_LOCATION(                                             \
+            "Created {} in {} ms.", #Cmd, (t1 - t0) / 1ns * 1e-6);               \
+        auto command_ptr = static_cast<Command *>(command.release());            \
+        return CommandHandle{command_ptr};                                       \
     }
 
 #define LUISA_MAKE_COMMAND_COMMON(Cmd) \

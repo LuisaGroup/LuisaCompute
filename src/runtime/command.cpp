@@ -103,17 +103,16 @@ void KernelLaunchCommand::set_launch_size(uint3 dispatch_size, uint3 block_size)
 
 namespace detail {
 
-#define LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(Cmd) \
-    template<>                                      \
-    Pool<Cmd> &pool<Cmd>() noexcept {               \
-        static Pool<Cmd> pool{Arena::global()};     \
-        return pool;                                \
+#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd)       \
+    Pool<Cmd> &pool_##Cmd() noexcept {          \
+        static Pool<Cmd> pool{Arena::global()}; \
+        return pool;                            \
     }
-LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(BufferCopyCommand)
-LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(BufferUploadCommand)
-LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(BufferDownloadCommand)
-LUISA_MAKE_COMMAND_POOL_SPECIALIZATION(KernelLaunchCommand)
-#undef LUISA_MAKE_COMMAND_POOL_SPECIALIZATION
+LUISA_MAKE_COMMAND_POOL_IMPL(BufferCopyCommand)
+LUISA_MAKE_COMMAND_POOL_IMPL(BufferUploadCommand)
+LUISA_MAKE_COMMAND_POOL_IMPL(BufferDownloadCommand)
+LUISA_MAKE_COMMAND_POOL_IMPL(KernelLaunchCommand)
+#undef LUISA_MAKE_COMMAND_POOL_IMPL
 
 void CommandRecycle::operator()(Command *command) noexcept {
     command->accept(*this);
