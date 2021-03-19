@@ -121,7 +121,7 @@ void CommandRecycle::operator()(Command *command) noexcept {
 #define LUISA_MAKE_COMMAND_RECYCLE_VISIT(Cmd)                 \
     void CommandRecycle::visit(const Cmd *command) noexcept { \
         using Recycle = typename Pool<Cmd>::ObjectRecycle;    \
-        Recycle{&pool<Cmd>()}(                                \
+        Recycle{&pool_##Cmd()}(                               \
             const_cast<Cmd *>(                                \
                 static_cast<const volatile Cmd *>(command))); \
     }
