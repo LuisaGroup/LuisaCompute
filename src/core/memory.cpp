@@ -18,14 +18,14 @@ luisa::Arena::~Arena() noexcept {
 Arena &Arena::global(bool is_thread_local) noexcept {
     if (is_thread_local) {
         static thread_local auto &arena = []() -> Arena & {
-            static thread_local Arena arena{false};
+            static thread_local Arena arena;
             LUISA_VERBOSE_WITH_LOCATION("Created thread-local global arena.");
             return arena;
         }();
         return arena;
     }
     static auto &arena = []() -> Arena & {
-        static Arena arena{true};
+        static Arena arena;
         LUISA_VERBOSE_WITH_LOCATION("Created thread-safe global arena.");
         return arena;
     }();

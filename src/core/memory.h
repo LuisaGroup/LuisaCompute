@@ -38,11 +38,9 @@ private:
     uint64_t _current_address{0ul};
     size_t _total{0ul};
     spin_mutex _mutex;
-    bool _thread_safe;
 
 public:
-    explicit Arena(bool thread_safe = true) noexcept
-        : _thread_safe{thread_safe} {}
+    explicit Arena() noexcept = default;
     Arena(Arena &&) noexcept = delete;
     Arena &operator=(Arena &&) noexcept = delete;
     ~Arena() noexcept;
@@ -53,14 +51,15 @@ public:
 
         static_assert(std::is_trivially_destructible_v<T>);
         static constexpr auto size = sizeof(T);
+        auto byte_size = n * size;
 
-        auto do_allocate = [this, n] {
-            auto byte_size = n * size;
-            auto aligned_p = reinterpret_cast<std::byte *>((_current_address + alignment - 1u) / alignment * alignment);
+        auto do_allocate = [this, byte_size] {
+            auto aligned_p = reinterpret_cast<std::byte *>(
+                (_current_address + alignment - 1u) / alignment * alignment);
             if (_head == nullptr || aligned_p + byte_size > _head->data + block_size) {
                 static constexpr auto alloc_alignment = std::max(alignment, static_cast<size_t>(16u));
                 static_assert((alloc_alignment & (alloc_alignment - 1u)) == 0, "Alignment should be power of two.");
-                auto alloc_size = std::max(block_size, size * n);
+                auto alloc_size = std::max(block_size, byte_size);
                 static constexpr auto link_alignment = alignof(Link);
                 auto link_offset = (alloc_size + link_alignment - 1u) / link_alignment * link_alignment;
                 auto alloc_size_with_link = link_offset + sizeof(Link);
@@ -80,11 +79,8 @@ public:
             _current_address = reinterpret_cast<uint64_t>(aligned_p + byte_size);
             return reinterpret_cast<T *>(aligned_p);
         };
-        
-        if (_thread_safe) {
-            std::scoped_lock lock{_mutex};
-            return do_allocate();
-        }
+
+        std::scoped_lock lock{_mutex};
         return do_allocate();
     }
 
