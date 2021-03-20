@@ -3,8 +3,10 @@
 namespace luisa {
 
 DynamicModule &DynamicModule::operator=(DynamicModule &&rhs) noexcept {
-    _handle = rhs._handle;
-    rhs._handle = nullptr;
+    if (&rhs != this) {
+        _handle = rhs._handle;
+        rhs._handle = nullptr;
+    }
     return *this;
 }
 

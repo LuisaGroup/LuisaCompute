@@ -82,7 +82,7 @@ using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
 class Command {
 
 public:
-    static constexpr auto max_resource_count = 64u;
+    static constexpr auto max_resource_count = 48u;
 
     struct Resource {
 
@@ -223,16 +223,17 @@ public:
 
     struct UniformArgument : Argument {
         size_t size;
+        size_t alignment;
     };
 
-    struct ArgumentBuffer : std::array<std::byte, 4000u> {};
+    struct ArgumentBuffer : std::array<std::byte, 2048u> {};
 
 private:
     uint32_t _kernel_uid;
     uint32_t _argument_count{0u};
+    size_t _argument_buffer_size{0u};
     uint3 _dispatch_size;
     uint3 _block_size;
-    size_t _argument_buffer_size{0u};
     ArgumentBuffer _argument_buffer{};
 
 public:
@@ -249,7 +250,7 @@ public:
     //   3. arguments
     void encode_buffer(uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
     // TODO: encode texture
-    void encode_uniform(const void *data, size_t size) noexcept;
+    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {

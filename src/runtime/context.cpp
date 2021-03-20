@@ -7,23 +7,14 @@
 
 namespace luisa::compute {
 
-Context::Context(const std::filesystem::path &rt_dir,
-                 const std::filesystem::path &work_dir) noexcept
-    : _runtime_directory{std::filesystem::canonical(rt_dir)} {
-
-    if (!std::filesystem::exists(work_dir)) {
-        LUISA_INFO("Creating working directory: {}.", work_dir.string());
-        std::filesystem::create_directories(work_dir);
-    }
-    _working_directory = std::filesystem::canonical(work_dir);
+Context::Context(const std::filesystem::path &program) noexcept
+    : _runtime_directory{std::filesystem::canonical(program).parent_path()} {
+    LUISA_INFO("Created context for program: {}.", program.filename().string<char>());
+    LUISA_INFO("Runtime directory: {}.", _runtime_directory.string<char>());
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {
     return _runtime_directory;
-}
-
-const std::filesystem::path &Context::working_directory() const noexcept {
-    return _working_directory;
 }
 
 DeviceHandle Context::create_device(std::string_view backend_name, uint32_t index) noexcept {

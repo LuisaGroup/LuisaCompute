@@ -31,9 +31,7 @@ int main(int argc, char *argv[]) {
     
     luisa::log_level_verbose();
     
-    auto runtime_dir = std::filesystem::canonical(argv[0]).parent_path();
-    auto working_dir = std::filesystem::current_path();
-    Context context{runtime_dir, working_dir};
+    Context context{argv[0]};
 
     FakeDevice device;
     auto buffer = device.create_buffer<float4>(1024u);

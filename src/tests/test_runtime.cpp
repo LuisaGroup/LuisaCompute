@@ -28,6 +28,8 @@ int main(int argc, char *argv[]) {
 
     luisa::log_level_verbose();
     
+    LUISA_INFO("sizeof(KernelLaunchCommand) = {}.", sizeof(KernelLaunchCommand));
+    
     Arena arena;
     Pool<Derived> pool{arena};
     {
@@ -35,9 +37,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Pool object: ({}, {}).", p->a, p->b);
     }
     
-    auto runtime_dir = std::filesystem::canonical(argv[0]).parent_path();
-    auto working_dir = std::filesystem::current_path();
-    Context context{runtime_dir, working_dir};
+    Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");

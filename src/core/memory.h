@@ -75,7 +75,7 @@ public:
                 _total += alloc_size_with_link;
                 using namespace std::chrono_literals;
                 LUISA_VERBOSE_WITH_LOCATION(
-                    "Allocated {} bytes in arena (total = {} bytes) in {} ms.",
+                    "Allocated {} bytes for arena (total = {} bytes) in {} ms.",
                     alloc_size_with_link, _total, (t1 - t0) / 1ns * 1e-6);
                 aligned_p = _head->data;
             }
@@ -178,7 +178,7 @@ struct ArenaString : public std::string_view {
 };
 
 template<typename T>
-class Pool {
+class Pool : concepts::Noncopyable {
 
     struct Node {
         T object;
@@ -205,34 +205,49 @@ private:
     static_assert(std::is_trivially_destructible_v<T>);
     Arena &_arena;
     Node *_head{nullptr};
+    spin_mutex _mutex;
+    size_t _count{0u};
+    size_t _total{0u};
 
 private:
     void _recycle(T *object) noexcept {
         auto node = Node::of(object);
-        node->next = _head;
-        _head = node;
+        auto [count, total] = [node, this] {
+            std::scoped_lock lock{_mutex};
+            node->next = _head;
+            _head = node;
+            _count++;
+            return std::make_pair(_count, _total);
+        }();
         LUISA_VERBOSE_WITH_LOCATION(
-            "Recycled pool object at address {}.",
-            fmt::ptr(object));
+            "Recycled pool object at address {} (available = {}, total = {}).",
+            fmt::ptr(object), count, total);
     }
 
 public:
     explicit Pool(Arena &arena) noexcept : _arena{arena} {}
+    Pool(Pool &&) noexcept = delete;
+    Pool &operator=(Pool &&) noexcept = delete;
 
     template<typename... Args>
     [[nodiscard]] auto create(Args &&...args) {
-        auto node = [this] {
+        Node *node = nullptr;
+        auto [count, total] = [this, &node] {
+            std::scoped_lock lock{_mutex};
             if (_head == nullptr) {// empty pool
-                return _arena.allocate<Node>();
+                _total++;
+                node = _arena.allocate<Node>();
+            } else {
+                node = _head;
+                _head = _head->next;
+                _count--;
             }
-            auto node = _head;
-            _head = _head->next;
-            return node;
+            return std::make_pair(_count, _total);
         }();
         auto object = luisa::construct_at(&node->object, std::forward<Args>(args)...);
         LUISA_VERBOSE_WITH_LOCATION(
-            "Created pool object at address {}.",
-            fmt::ptr(object));
+            "Created pool object at address {} (available = {}, total = {}).",
+            fmt::ptr(object), count, total);
         return Object{object, ObjectRecycle{this}};
     }
 };

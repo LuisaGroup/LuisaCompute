@@ -11,7 +11,10 @@ std::span<const Command::Resource> Command::resources() const noexcept {
     return {_resource_slots.data(), _resource_count};
 }
 
-inline void Command::_use_resource(uint64_t handle, Command::Resource::Tag tag, Command::Resource::Usage usage) noexcept {
+inline void Command::_use_resource(
+    uint64_t handle, Command::Resource::Tag tag,
+    Command::Resource::Usage usage) noexcept {
+
     if (_resource_count == max_resource_count) {
         LUISA_ERROR_WITH_LOCATION(
             "Number of resources in command exceeded limit {}.",
@@ -65,7 +68,8 @@ void KernelLaunchCommand::encode_buffer(
     argument.usage = usage;
     if (_argument_buffer_size + sizeof(BufferArgument) > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to encode buffer. Kernel argument buffer exceeded size limit {}.",
+            "Failed to encode buffer. "
+            "Kernel argument buffer exceeded size limit {}.",
             _argument_buffer.size());
     }
     std::memcpy(
@@ -76,13 +80,15 @@ void KernelLaunchCommand::encode_buffer(
     _argument_count++;
 }
 
-void KernelLaunchCommand::encode_uniform(const void *data, size_t size) noexcept {
+void KernelLaunchCommand::encode_uniform(const void *data, size_t size, size_t alignment) noexcept {
     UniformArgument argument{};
     argument.tag = Argument::Tag::UNIFORM;
     argument.size = size;
+    argument.alignment = alignment;
     if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to encode uniform with size {}. Kernel argument buffer exceeded size limit {}.",
+            "Failed to encode uniform with size {}. "
+            "Kernel argument buffer exceeded size limit {}.",
             size, _argument_buffer.size());
     }
     std::memcpy(

@@ -133,24 +133,24 @@ public:
 
     template<typename T>
     KernelInvoke &operator<<(T data) noexcept {
-        _launch_command()->encode_uniform(&data, sizeof(T));
+        _launch_command()->encode_uniform(&data, sizeof(T), alignof(T));
         _argument_index++;
         return *this;
     }
 
-    [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) &&noexcept {
+    [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) noexcept {
         _launch_command()->set_launch_size(dispatch_size, block_size);
-        return std::move(_command);
+        auto command = std::move(_command);
+        _command = nullptr;
+        return command;
     }
 
-    [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) &&noexcept {
-        _launch_command()->set_launch_size(uint3{dispatch_size, 1u}, uint3{block_size, 1u});
-        return std::move(_command);
+    [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) noexcept {
+        return parallelize(uint3{dispatch_size, 1u}, uint3{block_size, 1u});
     }
 
-    [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) &&noexcept {
-        _launch_command()->set_launch_size(uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
-        return std::move(_command);
+    [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) noexcept {
+        return parallelize(uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
     }
 };
 

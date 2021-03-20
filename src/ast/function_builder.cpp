@@ -19,7 +19,9 @@ void FunctionBuilder::push(FunctionBuilder *func) noexcept {
 }
 
 void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
-    if (_function_stack().empty()) { LUISA_ERROR_WITH_LOCATION("Invalid pop on empty function stack."); }
+    if (_function_stack().empty()) {
+        LUISA_ERROR_WITH_LOCATION("Invalid pop on empty function stack.");
+    }
     auto f = _function_stack().back();
     _function_stack().pop_back();
     if (f != func) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
@@ -35,12 +37,16 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
-    if (_function_stack().empty()) { LUISA_ERROR_WITH_LOCATION("Function stack is empty."); }
+    if (_function_stack().empty()) {
+        LUISA_ERROR_WITH_LOCATION("Function stack is empty.");
+    }
     return _function_stack().back();
 }
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {
-    if (_scope_stack.empty()) { LUISA_ERROR_WITH_LOCATION("Scope stack is empty."); }
+    if (_scope_stack.empty()) {
+        LUISA_ERROR_WITH_LOCATION("Scope stack is empty.");
+    }
     _scope_stack.back()->append(statement);
 }
 
@@ -53,7 +59,10 @@ void FunctionBuilder::continue_() noexcept {
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
-    if (_ret != nullptr) { LUISA_ERROR_WITH_LOCATION("Multiple non-void return statements are not allowed."); }
+    if (_ret != nullptr) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Multiple non-void return statements are not allowed.");
+    }
     _ret = expr ? expr->type() : nullptr;
     _append(arena().create<ReturnStmt>(expr));
 }
@@ -152,13 +161,15 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *element_type, uint64_
         iter != _captured_buffers.cend()) {
         if (iter->offset_bytes != offset_bytes) {
             LUISA_ERROR_WITH_LOCATION(
-                "Aliasing in implicitly captured buffer (handle = {}, original offset = {}, requested offset = {}).",
+                "Aliasing in implicitly captured buffer "
+                "(handle = {}, original offset = {}, requested offset = {}).",
                 handle, iter->offset_bytes, offset_bytes);
         }
         auto v = iter->variable;
         if (*v.type() != *element_type) {
             LUISA_ERROR_WITH_LOCATION(
-                "Aliasing in implicitly captured buffer (handle = {}, original type = {}, requested type = {}).",
+                "Aliasing in implicitly captured buffer "
+                "(handle = {}, original type = {}, requested type = {}).",
                 handle, v.type()->description(), element_type->description());
         }
         return _ref(v);
@@ -290,7 +301,7 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag, uint32_t uid) noexcep
       _arguments{arena()},
       _used_custom_callables{arena()},
       _used_builtin_callables{arena()},
-      _variable_usages{arena()},
+      _variable_usages{arena(), 128u},
       _tag{tag},
       _uid{uid} {}
 
