@@ -1,5 +1,5 @@
 #pragma once
-
+#include <config.h>
 #define DLL_EXPORT extern "C" _declspec(dllexport)
 
 #define VENGINE_CDECL _cdecl
