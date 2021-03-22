@@ -4,7 +4,7 @@
 class JobNode;
 class JobBucket;
 using uint = uint32_t;
-class  JobHandle
+class DLL_COMMON JobHandle
 {
 	friend class JobBucket;
 	friend class JobNode;
@@ -23,6 +23,9 @@ public:
 	JobHandle() : start(-1), end(-1){}
 	operator bool() const noexcept {
 		return start != -1;
+	}
+	uint Count() const {
+		return end + 1 - start;
 	}
 	void Reset() { start = -1; }
 };

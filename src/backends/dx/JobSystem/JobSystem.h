@@ -9,7 +9,7 @@ class JobNode;
 class JobBucket;
 class JobThreadRunnable;
 
-class  JobSystem
+class DLL_COMMON JobSystem
 {
 	friend class JobBucket;
 	friend class JobThreadRunnable;

@@ -1,21 +1,21 @@
 #pragma once
-#include <config.h>
-#include <Common/DLL.h>
+#include "../Common/DLL.h"
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
-#include <Common/LockFreeArrayQueue.h>
-#include <Common/Pool.h>
-#include <Common/TypeWiper.h>
-#include <Common/MetaLib.h>
-#include <Common/Runnable.h>
+#include "../Common/LockFreeArrayQueue.h"
+#include "../Common/Pool.h"
+#include <DirectXMath.h>
+#include "../Common/TypeWiper.h"
+#include "../Common/MetaLib.h"
+#include "../Common/Runnable.h"
 class JobHandle;
 class JobThreadRunnable;
 class JobBucket;
 class VectorPool;
 class JobSystem;
 typedef uint32_t uint;
-class  JobNode
+class DLL_COMMON JobNode
 {
 	friend class JobBucket;
 	friend class JobSystem;
