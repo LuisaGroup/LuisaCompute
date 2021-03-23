@@ -71,7 +71,7 @@ void JobNode::Create(JobBucket* bucket, Runnable<void()>&& runnable, JobSystem* 
 	std::mutex* threadMtx = &sys->threadMtx;
 	targetDepending = 0;
 	for (uint i = 0; i < dependCount; ++i) {
-		targetDepending += dependedJobs->Count();
+		targetDepending += dependedJobs[i].Count();
 	}
 	this->threadMtx = threadMtx;
 	this->runnable.New(std::move(runnable));
@@ -89,7 +89,7 @@ void JobNode::CreateParallel(JobBucket* bucket, Runnable<void()>&& runnable, uin
 	std::mutex* threadMtx = &sys->threadMtx;
 	targetDepending = 0;
 	for (uint i = 0; i < dependCount; ++i) {
-		targetDepending += dependedJobs->Count();
+		targetDepending += dependedJobs[i].Count();
 	}
 	this->threadMtx = threadMtx;
 	this->runnable.New(std::move(runnable));
@@ -110,7 +110,7 @@ void JobNode::CreateEmpty(JobBucket* bucket, JobSystem* sys, JobHandle const* de
 	std::mutex* threadMtx = &sys->threadMtx;
 	targetDepending = 0;
 	for (uint i = 0; i < dependCount; ++i) {
-		targetDepending += dependedJobs->Count();
+		targetDepending += dependedJobs[i].Count();
 	}
 	this->threadMtx = threadMtx;
 	runnableState = RunnableType::UnAvaliable;

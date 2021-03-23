@@ -30,9 +30,9 @@ START:
 	bucket->allJobNodes.clear();
 	currentBucketPos++;
 	uint32_t size = executingNode.Length();
-	if (executingNode.Length() < mThreadCount) {
+	if (size < mThreadCount) {
 		lockGuard lck(threadMtx);
-		for (int64_t i = 0; i < executingNode.Length(); ++i) {
+		for (int64_t i = 0; i < size; ++i) {
 			cv.notify_one();
 		}
 	} else {
