@@ -8,7 +8,9 @@
 
 namespace luisa::compute {
 
-void Stream::_dispatch(CommandBuffer cb) noexcept { _device->_dispatch(_handle, std::move(cb)); }
+void Stream::_dispatch(CommandBuffer command_buffer, std::function<void()> callback) noexcept {
+    _device->_dispatch(_handle, std::move(command_buffer), std::move(callback));
+}
 
 Stream::Delegate Stream::operator<<(CommandHandle cmd) noexcept {
     Delegate delegate{this};
@@ -16,9 +18,10 @@ Stream::Delegate Stream::operator<<(CommandHandle cmd) noexcept {
     return delegate;
 }
 
-Stream &Stream::operator<<(std::function<void()> f) noexcept {
-    _device->_dispatch(_handle, std::move(f));
-    return *this;
+Stream::Delegate Stream::operator<<(std::function<void()> f) noexcept {
+    Delegate delegate{this};
+    delegate << std::move(f);
+    return delegate;
 }
 
 void Stream::operator<<(SynchronizeToken) { _device->_synchronize_stream(_handle); }
@@ -40,31 +43,39 @@ Stream &Stream::operator=(Stream &&rhs) noexcept {
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 Stream::Delegate &Stream::Delegate::operator<<(CommandHandle cmd) noexcept {
-    _cb.append(std::move(cmd));
+    if (_callback) { _commit(); }
+    _command_buffer.append(std::move(cmd));
     return *this;
 }
 
-Stream &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
-    auto &&stream = *_stream;
-    _commit();
-    return stream << std::move(f);
+Stream::Delegate &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
+    if (_callback) {
+        _callback = [f = std::move(f), callback = std::move(_callback)] {
+            callback();
+            f();
+        };
+    } else { _callback = std::move(f); }
+    return *this;
 }
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
 
 void Stream::Delegate::operator<<(Stream::SynchronizeToken) noexcept {
-    auto &stream = *_stream;
     _commit();
-    stream << SynchronizeToken{};
+    *_stream << SynchronizeToken{};
 }
 
 void Stream::Delegate::_commit() noexcept {
-    if (_stream != nullptr && !_cb.empty()) {
+    if (!_command_buffer.empty() || _callback) {
         LUISA_VERBOSE_WITH_LOCATION(
-            "Commit {} command{} to stream #{}.",
-            _cb.size(), _cb.size() == 1u ? "" : "s", _stream->_handle);
-        _stream->_dispatch(std::move(_cb));
-        _stream = nullptr;
+            "Commit {} command{} to stream #{} with{} callback.",
+            _command_buffer.size(),
+            _command_buffer.size() == 1u ? "" : "s",
+            _stream->_handle,
+            _callback ? "" : "out");
+        _stream->_dispatch(std::move(_command_buffer), std::move(_callback));
+        _command_buffer = {};
+        _callback = {};
     }
 }
 

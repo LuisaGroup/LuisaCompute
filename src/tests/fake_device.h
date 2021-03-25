@@ -20,8 +20,7 @@ private:
     uint64_t _create_stream() noexcept override { return _handle++; }
     void _dispose_stream(uint64_t) noexcept override {}
     void _synchronize_stream(uint64_t stream_handle) noexcept override {}
-    void _dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override {}
-    void _dispatch(uint64_t stream_handle, CommandBuffer cb) noexcept override {}
+    void _dispatch(uint64_t stream_handle, CommandBuffer buffer, std::function<void()> function) noexcept override {}
     void _prepare_kernel(uint32_t uid) noexcept override {}
 
 public:

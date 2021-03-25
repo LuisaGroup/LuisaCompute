@@ -37,24 +37,28 @@ int main(int argc, char *argv[]) {
     };
     device->prepare(kernel);
 
-    auto stream = device->create_stream();
-    auto buffer = device->create_buffer<float>(16384u);
-    auto result_buffer = device->create_buffer<float>(16384u);
+    static constexpr auto n = 1024u * 1024u;
 
-    std::vector<float> data(16384u);
-    std::vector<float> results(16384u);
+    auto stream = device->create_stream();
+    auto buffer = device->create_buffer<float>(n);
+    auto result_buffer = device->create_buffer<float>(n);
+
+    std::vector<float> data(n);
+    std::vector<float> results(n);
     std::iota(data.begin(), data.end(), 1.0f);
 
     auto t0 = std::chrono::high_resolution_clock::now();
     stream << buffer.upload(data.data())
-           << kernel(buffer, result_buffer, 2.0f).parallelize(16384u)
-           << result_buffer.download(results.data())
-           << synchronize();
+           << kernel(buffer, result_buffer, 2.0f).parallelize(n, 1024u)
+           << result_buffer.download(results.data());
     auto t1 = std::chrono::high_resolution_clock::now();
+    stream << synchronize();
+    auto t2 = std::chrono::high_resolution_clock::now();
 
     using namespace std::chrono_literals;
-    LUISA_INFO("Finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+    LUISA_INFO("Dispatched in {} ms. Finished in {} ms.",
+               (t1 - t0) / 1ns * 1e-6, (t2 - t0) / 1ns * 1e-6);
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
-               results[16382], results[16383]);
+               results[n - 2u], results[n - 1u]);
 }

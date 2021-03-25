@@ -76,7 +76,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
             index, count);
     }
     _handle = devices[index];
-    LUISA_VERBOSE_WITH_LOCATION(
+    LUISA_INFO(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
     _compiler = std::make_unique<MetalCompiler>(this);
@@ -96,7 +96,7 @@ MetalDevice::~MetalDevice() noexcept {
     auto name = fmt::format(
         "{}", [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
     _handle = nullptr;
-    LUISA_VERBOSE_WITH_LOCATION("Destroyed Metal device with name: {}.", name);
+    LUISA_INFO("Destroyed Metal device with name: {}.", name);
 }
 
 void MetalDevice::_synchronize_stream(uint64_t stream_handle) noexcept {
@@ -115,21 +115,8 @@ id<MTLCommandQueue> MetalDevice::stream(uint64_t handle) const noexcept {
     return _stream_slots[handle];
 }
 
-void MetalDevice::_dispatch(uint64_t stream_handle, CommandBuffer commands) noexcept {
-    auto cb = [stream(stream_handle) commandBuffer];
-    MetalCommandEncoder encoder{this, cb};
-    for (auto &&command : commands) { command->accept(encoder); }
-    [cb commit];
-}
-
 id<MTLDevice> MetalDevice::handle() const noexcept {
     return _handle;
-}
-
-void MetalDevice::_dispatch(uint64_t stream_handle, std::function<void()> function) noexcept {
-    auto command_buffer = [stream(stream_handle) commandBuffer];
-    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
-    [command_buffer commit];
 }
 
 void MetalDevice::_prepare_kernel(uint32_t uid) noexcept {
@@ -138,6 +125,18 @@ void MetalDevice::_prepare_kernel(uint32_t uid) noexcept {
 
 id<MTLComputePipelineState> MetalDevice::kernel(uint32_t uid) const noexcept {
     return _compiler->kernel(uid);
+}
+
+void MetalDevice::_dispatch(uint64_t stream_handle, CommandBuffer commands, std::function<void()> function) noexcept {
+    auto command_buffer = [stream(stream_handle) commandBuffer];
+    MetalCommandEncoder encoder{this, command_buffer};
+    for (auto &&command : commands) { command->accept(encoder); }
+    if (function) {
+        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          function();
+        }];
+    }
+    [command_buffer commit];
 }
 
 }

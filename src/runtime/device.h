@@ -26,7 +26,7 @@ class Device {
 private:
     const Context &_ctx;
 
-protected:
+private:
     template<typename T>
     friend class Buffer;
     [[nodiscard]] virtual uint64_t _create_buffer(size_t size_bytes) noexcept = 0;
@@ -36,8 +36,7 @@ protected:
     [[nodiscard]] virtual uint64_t _create_stream() noexcept = 0;
     virtual void _dispose_stream(uint64_t handle) noexcept = 0;
     virtual void _synchronize_stream(uint64_t stream_handle) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, CommandBuffer) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, std::function<void()>) noexcept = 0;
+    virtual void _dispatch(uint64_t stream_handle, CommandBuffer, std::function<void()>) noexcept = 0;
     
     virtual void _prepare_kernel(uint32_t uid) noexcept = 0;
 

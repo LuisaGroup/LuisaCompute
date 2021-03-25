@@ -21,7 +21,8 @@ public:
     
     private:
         Stream *_stream;
-        CommandBuffer _cb;
+        CommandBuffer _command_buffer;
+        std::function<void()> _callback;
         
     private:
         void _commit() noexcept;
@@ -32,7 +33,7 @@ public:
         Delegate &operator=(Delegate &&) noexcept = default;
         ~Delegate() noexcept;
         Delegate &operator<<(CommandHandle cmd) noexcept;
-        Stream &operator<<(std::function<void()> f) noexcept;
+        Delegate &operator<<(std::function<void()> f) noexcept;
         void operator<<(SynchronizeToken) noexcept;
     };
 
@@ -44,14 +45,14 @@ private:
     friend class Device;
     Stream(Device *device, uint64_t handle) noexcept
         : _device{device}, _handle{handle} {}
-    void _dispatch(CommandBuffer cb) noexcept;
+    void _dispatch(CommandBuffer command_buffer, std::function<void()> callback) noexcept;
 
 public:
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
     Delegate operator<<(CommandHandle cmd) noexcept;
-    Stream &operator<<(std::function<void()> f) noexcept;
+    Delegate operator<<(std::function<void()> f) noexcept;
     void operator<<(SynchronizeToken);
 };
 
