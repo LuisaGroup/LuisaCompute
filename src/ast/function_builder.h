@@ -61,7 +61,7 @@ private:
     uint32_t _uid;
 
 protected:
-    [[nodiscard]] static Arena &arena() noexcept;
+    [[nodiscard]] static Arena &_arena() noexcept;
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] static spin_mutex &_function_registry_mutex() noexcept;
     [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
@@ -109,7 +109,18 @@ public:
     // build primitives
     template<typename Def>
     static auto define_kernel(Def &&def) noexcept {
-        return _define(Function::Tag::KERNEL, std::forward<Def>(def));
+        return _define(Function::Tag::KERNEL, [&def] {
+            auto &&f = FunctionBuilder::current();
+            auto gid = f->dispatch_id();
+            auto gs = f->launch_size();
+            auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
+            auto cond = f->call(Type::of<bool>(), "all", {less});
+            auto ret_cond = f->unary(Type::of<bool>(), UnaryOp::NOT, cond);
+            auto if_body = f->scope();
+            f->with(if_body, [f] { f->return_(); });
+            f->if_(ret_cond, if_body, nullptr);
+            def();
+        });
     }
 
     template<typename Def>
@@ -120,6 +131,7 @@ public:
     [[nodiscard]] const RefExpr *thread_id() noexcept;
     [[nodiscard]] const RefExpr *block_id() noexcept;
     [[nodiscard]] const RefExpr *dispatch_id() noexcept;
+    [[nodiscard]] const RefExpr *launch_size() noexcept;
 
     // variables
     [[nodiscard]] const RefExpr *local(const Type *type, std::span<const Expression *> init) noexcept;
@@ -164,7 +176,7 @@ public:
         ScopeGuard guard{this, s};
         return body();
     }
-    
+
     static void push(FunctionBuilder *) noexcept;
     static void pop(const FunctionBuilder *) noexcept;
     [[nodiscard]] static FunctionBuilder *create(Function::Tag) noexcept;

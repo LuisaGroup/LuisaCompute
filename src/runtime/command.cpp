@@ -102,8 +102,8 @@ void KernelLaunchCommand::encode_uniform(const void *data, size_t size, size_t a
     _argument_count++;
 }
 
-void KernelLaunchCommand::set_launch_size(uint3 dispatch_size, uint3 block_size) noexcept {
-    _dispatch_size = dispatch_size;
+void KernelLaunchCommand::set_dispatch_size(uint3 launch_size, uint3 block_size) noexcept {
+    _launch_size = launch_size;
     _block_size = block_size;
 }
 

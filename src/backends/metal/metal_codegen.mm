@@ -209,7 +209,7 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     stmt->condition()->accept(*this);
     _scratch << ") ";
     stmt->true_branch()->accept(*this);
-    if (auto fb = stmt->false_branch(); !fb->statements().empty()) {
+    if (auto fb = stmt->false_branch(); fb != nullptr && !fb->statements().empty()) {
         _scratch << " else ";
         if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
             fb->statements().size() == 1u && elif != nullptr) {
@@ -265,7 +265,6 @@ void MetalCodegen::visit(const AssignStmt *stmt) {
         case AssignOp::BIT_XOR_ASSIGN: _scratch << " ^= "; break;
         case AssignOp::SHL_ASSIGN: _scratch << " <<= "; break;
         case AssignOp::SHR_ASSIGN: _scratch << " >>= "; break;
-        default: break;
     }
     stmt->rhs()->accept(*this);
     _scratch << ";";
@@ -359,6 +358,7 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
+        case Variable::Tag::LAUNCH_SIZE: _scratch << "ls"; break;
     }
 }
 
@@ -450,6 +450,12 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << " ";
             _emit_variable_name(v);
             _scratch << " [[thread_position_in_grid]]";
+            break;
+        case Variable::Tag::LAUNCH_SIZE:
+            _scratch << "constant ";
+            _emit_type_name(v.type());
+            _scratch << " &";
+            _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:
             _emit_type_name(v.type());

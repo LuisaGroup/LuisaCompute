@@ -140,7 +140,7 @@ public:
     }
 
     [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) noexcept {
-        _launch_command()->set_launch_size(dispatch_size, block_size);
+        _launch_command()->set_dispatch_size(dispatch_size, block_size);
         auto command = std::move(_command);
         _command = nullptr;
         return command;

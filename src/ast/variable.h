@@ -27,7 +27,8 @@ public:
         // builtins
         THREAD_ID,
         BLOCK_ID,
-        DISPATCH_ID
+        DISPATCH_ID,
+        LAUNCH_SIZE
     };
     
     enum struct Usage : uint32_t {

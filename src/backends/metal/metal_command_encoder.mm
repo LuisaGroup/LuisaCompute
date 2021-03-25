@@ -46,7 +46,7 @@ void MetalCommandEncoder::visit(const BufferUploadCommand *command) noexcept {
 void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 
     auto buffer = _device->buffer(command->handle());
-    
+
     auto address = reinterpret_cast<uint64_t>(command->data());
     auto size = command->size();
 
@@ -79,8 +79,42 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 }
 
 void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
+
     auto kernel = _device->kernel(command->kernel_uid());
-    
+    auto buffer_count = 0u;
+    auto texture_count = 0u;
+
+    auto launch_size = command->launch_size();
+    auto block_size = command->block_size();
+    auto blocks = (launch_size + block_size - 1u) / block_size;
+
+    auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
+    [compute_encoder setComputePipelineState:kernel];
+    [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)
+                    threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
+    command->decode([&](auto argument) noexcept {
+        using T = decltype(argument);
+        if constexpr (std::is_same_v<T, KernelLaunchCommand::BufferArgument>) {
+            auto buffer = _device->buffer(argument.handle);
+            [compute_encoder setBuffer:buffer offset:argument.offset atIndex:buffer_count++];
+            auto usage = [](Command::Resource::Usage u) noexcept -> NSUInteger {
+                switch (u) {
+                    case Command::Resource::Usage::READ: return MTLResourceUsageRead;
+                    case Command::Resource::Usage::WRITE: return MTLResourceUsageWrite;
+                    case Command::Resource::Usage::READ_WRITE: return MTLResourceUsageRead | MTLResourceUsageWrite;
+                    default: return 0u;
+                }
+            }(argument.usage);
+            [compute_encoder useResource:buffer usage:usage];
+        } else if constexpr (std::is_same_v<T, KernelLaunchCommand::TextureArgument>) {
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        } else {// uniform
+            [compute_encoder setBytes:argument.data() length:argument.size_bytes() atIndex:buffer_count++];
+        }
+    });
+    [compute_encoder setBytes:&launch_size length:sizeof(launch_size) atIndex:buffer_count];
+    [compute_encoder endEncoding];
+
     LUISA_ERROR_WITH_LOCATION("Not implemented!");
 }
 
