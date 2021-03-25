@@ -2,19 +2,27 @@
 // Created by Mike Smith on 2021/3/24.
 //
 
+#include <backends/metal/metal_codegen.h>
 #include <backends/metal/metal_compiler.h>
 
 namespace luisa::compute::metal {
 
-void MetalCodegen::emit(Function f) {
-}
-
-MetalCodegen::MetalCodegen(compile::Codegen::Scratch &scratch) noexcept
-    : Codegen(scratch) {}
-
-id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid, std::string_view s) noexcept {
-
+id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
+    
+    LUISA_INFO("Compiling kernel #{}.", uid);
+    auto t0 = std::chrono::high_resolution_clock::now();
+    compile::Codegen::Scratch scratch;
+    MetalCodegen codegen{scratch};
+    codegen.emit(Function::kernel(uid));
+    auto t1 = std::chrono::high_resolution_clock::now();
+    
+    auto s = scratch.view();
     auto hash = xxh3_hash64(s.data(), s.size());
+    
+    using namespace std::chrono_literals;
+    LUISA_VERBOSE(
+        "Generated source (hash = 0x{:016x}) for kernel #{} in {} ms:\n\n{}",
+        hash, uid, (t1 - t0) / 1ns * 1e-6, s);
 
     // try cache
     {
@@ -92,22 +100,13 @@ void MetalCompiler::prepare(uint32_t uid) noexcept {
         != _kernels.cend()) { return; }
 
     auto kernel = std::async(std::launch::async, [uid, this] {
-        LUISA_INFO("Compiling kernel #{}.", uid);
         auto t0 = std::chrono::high_resolution_clock::now();
-        compile::Codegen::Scratch scratch;
-        MetalCodegen codegen{scratch};
-        codegen.emit(Function::kernel(uid));
+        auto k = _compile(uid);
         auto t1 = std::chrono::high_resolution_clock::now();
         using namespace std::chrono_literals;
         LUISA_VERBOSE_WITH_LOCATION(
-            "Generated source for kernel #{} in {} ms.",
-            uid, (t1 - t0) / 1ns * 1e-6);
-        auto t2 = std::chrono::high_resolution_clock::now();
-        auto k = _compile(uid, scratch.view());
-        auto t3 = std::chrono::high_resolution_clock::now();
-        LUISA_VERBOSE_WITH_LOCATION(
             "Compiled source for kernel #{} in {} ms.",
-            uid, (t3 - t2) / 1ns * 1e-6);
+            uid, (t1 - t0) / 1ns * 1e-6);
         return PipelineState{k};
     });
 

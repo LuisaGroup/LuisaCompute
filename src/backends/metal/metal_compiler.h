@@ -12,19 +12,10 @@
 
 #import <core/hash.h>
 #import <core/spin_mutex.h>
-#import <compile/codegen.h>
 
 namespace luisa::compute::metal {
 
-class MetalCodegen : public compile::Codegen {
-public:
-    explicit MetalCodegen(Scratch &scratch) noexcept;
-    void emit(Function f) override;
-};
-
 class MetalCompiler {
-
-public:
     
     struct alignas(16) KernelCacheItem {
         uint64_t hash;
@@ -52,7 +43,7 @@ private:
     spin_mutex _kernel_mutex;
     
 private:
-    [[nodiscard]] id<MTLComputePipelineState> _compile(uint32_t uid, std::string_view s) noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> _compile(uint32_t uid) noexcept;
 
 public:
     explicit MetalCompiler(id<MTLDevice> device) noexcept : _device{device} {}
