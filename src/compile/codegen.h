@@ -28,6 +28,7 @@ public:
         Scratch &operator<<(const char *s) noexcept;
         Scratch &operator<<(const std::string &s) noexcept;
         [[nodiscard]] std::string_view view() const noexcept;
+        [[nodiscard]] const char *c_str() const noexcept;
         [[nodiscard]] bool empty() const noexcept;
         [[nodiscard]] size_t size() const noexcept;
         void pop_back() noexcept;

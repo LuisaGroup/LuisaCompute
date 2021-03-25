@@ -21,6 +21,7 @@ private:
     void _synchronize_stream(uint64_t stream_handle) noexcept override {}
     void _dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override {}
     void _dispatch(uint64_t stream_handle, CommandBuffer cb) noexcept override {}
+    void _prepare_kernel(uint32_t uid) noexcept override {}
 
 public:
     ~FakeDevice() noexcept override = default;

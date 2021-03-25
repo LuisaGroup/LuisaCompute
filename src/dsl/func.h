@@ -5,6 +5,7 @@
 #pragma once
 
 #include <runtime/command.h>
+#include <runtime/device.h>
 #include <dsl/var.h>
 
 namespace luisa::compute::dsl {
@@ -114,7 +115,7 @@ public:
                 buffer.handle, buffer.offset_bytes,
                 static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
         }
-        
+
         for (auto texture : _function.captured_textures()) {
             // TODO: encode captured textures...
         }
@@ -154,6 +155,10 @@ public:
     }
 };
 
+struct DeviceKernelPreparation : public Device {
+    void prepare(uint32_t uid) noexcept { Device::_prepare_kernel(uid); }
+};
+
 }// namespace detail
 
 template<typename... Args>
@@ -177,6 +182,10 @@ public:
         detail::KernelInvoke invoke{_function.uid()};
         (invoke << ... << args);
         return invoke;
+    }
+
+    void prepare(Device &device) const noexcept {
+        device.prepare_kernel(_function.uid());
     }
 };
 
@@ -324,17 +333,14 @@ Callable(T &&) -> Callable<detail::function_t<T>>;
 
 namespace luisa::compute::dsl::detail {
 
-struct KernelBuilder {
+struct FuncBuilder {
     template<typename F>
     [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel{std::forward<F>(def)}; }
-};
-
-struct CallableBuilder {
     template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator/(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
 };
 
 }// namespace luisa::compute::dsl::detail
 
-#define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelBuilder{} % [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} % [&]
+#define LUISA_KERNEL ::luisa::compute::dsl::detail::FuncBuilder{} % [&]
+#define LUISA_CALLABLE ::luisa::compute::dsl::detail::FuncBuilder{} / [&]

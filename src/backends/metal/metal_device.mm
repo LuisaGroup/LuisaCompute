@@ -6,6 +6,9 @@
 #import <numeric>
 
 #import <core/platform.h>
+#import <core/hash.h>
+#import <ast/function.h>
+
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_command_encoder.h>
 
@@ -75,6 +78,7 @@ MetalDevice::MetalDevice(uint32_t index) noexcept {
     LUISA_VERBOSE_WITH_LOCATION(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
+    _compiler = std::make_unique<MetalCompiler>(_handle);
 
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
@@ -125,6 +129,14 @@ void MetalDevice::_dispatch(uint64_t stream_handle, std::function<void()> functi
     auto command_buffer = [stream(stream_handle) commandBuffer];
     [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
     [command_buffer commit];
+}
+
+void MetalDevice::_prepare_kernel(uint32_t uid) noexcept {
+    _compiler->prepare(uid);
+}
+
+id<MTLComputePipelineState> MetalDevice::kernel(uint32_t uid) const noexcept {
+    return _compiler->kernel(uid);
 }
 
 }

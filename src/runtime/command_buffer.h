@@ -15,7 +15,7 @@ private:
     std::vector<CommandHandle> _commands;
 
 public:
-    CommandBuffer() noexcept { LUISA_VERBOSE_WITH_LOCATION("Created command buffer."); }
+    CommandBuffer() noexcept = default;
     void append(CommandHandle cmd) noexcept;
     [[nodiscard]] auto begin() const noexcept { return _commands.cbegin(); }
     [[nodiscard]] auto end() const noexcept { return _commands.cend(); }

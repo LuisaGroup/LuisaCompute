@@ -22,7 +22,7 @@ class Stream;
 
 class Device {
 
-private:
+protected:
     template<typename T>
     friend class Buffer;
     [[nodiscard]] virtual uint64_t _create_buffer(size_t size_bytes) noexcept = 0;
@@ -34,6 +34,8 @@ private:
     virtual void _synchronize_stream(uint64_t stream_handle) noexcept = 0;
     virtual void _dispatch(uint64_t stream_handle, CommandBuffer) noexcept = 0;
     virtual void _dispatch(uint64_t stream_handle, std::function<void()>) noexcept = 0;
+    
+    virtual void _prepare_kernel(uint32_t uid) noexcept = 0;
 
 public:
     virtual ~Device() noexcept = default;
@@ -45,6 +47,7 @@ public:
     }
 
     [[nodiscard]] Stream create_stream() noexcept;
+    void prepare_kernel(uint32_t uid) noexcept;
 };
 
 using DeviceDeleter = void(Device *);

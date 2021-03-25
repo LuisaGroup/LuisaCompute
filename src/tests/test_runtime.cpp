@@ -10,10 +10,12 @@
 #include <runtime/buffer.h>
 #include <runtime/stream.h>
 #include <dsl/buffer_view.h>
+#include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
+using namespace luisa::compute::dsl;
 
 struct Base {
     float a;
@@ -27,8 +29,6 @@ struct Derived : Base {
 int main(int argc, char *argv[]) {
 
     luisa::log_level_verbose();
-    
-    LUISA_INFO("sizeof(KernelLaunchCommand) = {}.", sizeof(KernelLaunchCommand));
     
     Arena arena;
     Pool<Derived> pool{arena};
@@ -51,7 +51,12 @@ int main(int argc, char *argv[]) {
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
     std::iota(data.begin(), data.end(), 1.0f);
-
+    
+    auto kernel = LUISA_KERNEL(Var<float> a) noexcept {
+    
+    };
+    kernel.prepare(*device);
+    
     auto stream = device->create_stream();
 
     auto t0 = std::chrono::high_resolution_clock::now();
