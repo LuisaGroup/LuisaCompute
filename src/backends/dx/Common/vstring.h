@@ -248,11 +248,34 @@ inline string IntegerToString(const _Ty _Val) noexcept {// convert _Val to strin
 
 	return string(_RNext, _Buff_end);
 }
+template<class _Ty>
+inline void IntegerToString(const _Ty _Val, string& str) noexcept {// convert _Val to string
+	static_assert(std::is_integral_v<_Ty>, "_Ty must be integral");
+	using _UTy = std::make_unsigned_t<_Ty>;
+	char _Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
+	char* const _Buff_end = std::end(_Buff);
+	char* _RNext = _Buff_end;
+	const auto _UVal = static_cast<_UTy>(_Val);
+	if (_Val < 0) {
+		_RNext = UIntegral_to_buff(_RNext, static_cast<_UTy>(0 - _UVal));
+		*--_RNext = '-';
+	} else {
+		_RNext = UIntegral_to_buff(_RNext, _UVal);
+	}
+	str.push_back_all(_RNext, _Buff_end - _RNext);
+	
+}
 inline string to_string(double _Val) noexcept {
 	const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
 	string _Str(_Len, '\0');
 	_CSTD sprintf_s(&_Str[0], _Len + 1, "%f", _Val);
 	return _Str;
+}
+inline void to_string(double _Val, vengine::string& str) noexcept {
+	const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
+	size_t oldSize = str.size();
+	str.resize(oldSize + _Len);
+	_CSTD sprintf_s(&str[oldSize], _Len + 1, "%f", _Val);
 }
 inline string to_string(float _Val) noexcept {
 	return to_string((double)_Val);
@@ -281,6 +304,35 @@ inline string to_string(int64_t _Val) noexcept {
 }
 inline string to_string(uint64_t _Val) noexcept {
 	return IntegerToString(_Val);
+}
+
+inline void to_string(float _Val, vengine::string& str) noexcept {
+	 to_string((double)_Val, str);
+}
+
+inline void to_string(int32_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
+}
+inline void to_string(uint32_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
+}
+inline void to_string(int16_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
+}
+inline void to_string(uint16_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
+}
+inline void to_string(int8_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
+}
+inline void to_string(uint8_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
+}
+inline void to_string(int64_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
+}
+inline void to_string(uint64_t _Val, vengine::string& str) noexcept {
+	IntegerToString(_Val, str);
 }
 template<class _Ty>
 inline wstring IntegerToWString(const _Ty _Val) noexcept {// convert _Val to string

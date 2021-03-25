@@ -81,13 +81,13 @@ struct GetName<Matrix<N>> {
 template<typename T>
 struct PrintValue {
 	void operator()(T const& v, vengine::string& str) {
-		str += vengine::to_string((int)v);
+		vengine::to_string((int)v, str);
 	}
 };
 template<>
 struct PrintValue<float> {
 	void operator()(float const& v, vengine::string& str) {
-		str += vengine::to_string(v);
+		vengine::to_string(v, str);
 	}
 };
 
@@ -98,7 +98,7 @@ struct PrintValue<Vector<EleType, N>> {
 		varName += GetName<T>::Get();
 		varName += '(';
 		for (size_t i = 0; i < N; ++i) {
-			varName += vengine::to_string(v[i]);
+			vengine::to_string(v[i], varName);
 			varName += ',';
 		}
 		varName[varName.size() - 1] = ')';
@@ -225,7 +225,7 @@ void StringExprVisitor::visit(const MemberExpr* expr) {
 	expr->self()->accept(*this);
 	if (expr->self()->type()->is_structure()) {
 		(*str) += ".v"_sv;
-		(*str) += vengine::to_string(expr->member_index());
+		vengine::to_string(expr->member_index(), (*str));
 	} else {
 		switch (expr->member_index()) {
 			case 0:
@@ -289,7 +289,8 @@ void StringExprVisitor::visit(const CastExpr* expr) {
 	AfterVisit();
 }
 void StringExprVisitor::visit(const ConstantExpr* expr) {
-	(*str) += "c" + vengine::to_string(expr->hash());
+	(*str) += "c";
+	vengine::to_string(expr->hash(), (*str));
 }
 StringExprVisitor::StringExprVisitor(vengine::string& str)
 	: str(&str) {}
@@ -374,7 +375,7 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 			for (auto&& i : state->initializer()) {
 				(*str) += varTempName;
 				(*str) += ".v"_sv;
-				(*str) += vengine::to_string(count);
+				vengine::to_string(count, (*str));
 
 				(*str) += '=';
 				i->accept(vis);
@@ -548,7 +549,7 @@ vengine::string CodegenUtility::GetFunctionDecl(Function func) {
 			//TODO: kernel specific declare
 			break;
 	}
-	data += vengine::to_string(func.uid());
+	vengine::to_string(func.uid(), data);
 	if (func.arguments().empty()) {
 		data += "()"_sv;
 	} else {
@@ -574,7 +575,7 @@ void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, ven
 		PrintValue<T> prt;
 		result += GetName<T>::Get();
 		result += " c"_sv;
-		result += vengine::to_string(binding.hash);
+		vengine::to_string(binding.hash, result);
 
 		if (binding.type->is_array()) {
 			result += "[]={"_sv;
@@ -617,13 +618,13 @@ struct Print_RunTypeVisitor : public TypeVisitor {
 		if (!codegenStructType->Contains(t)) return;
 		auto&& str = *strPtr;
 		str += "struct T"_sv;
-		str += vengine::to_string(t->index());
+		vengine::to_string(t->index(), str);
 		str += "{\n"_sv;
 		size_t count = 0;
 		for (auto&& mem : t->members()) {
 			str += CodegenUtility::GetTypeName(*mem);
 			str += " v"_sv;
-			str += vengine::to_string(count);
+			vengine::to_string(count, str);
 			count++;
 			str += ";\n"_sv;
 		}
@@ -650,9 +651,9 @@ void CodegenUtility::PrintUniform(
 		auto&& var = buffers[i].variable;
 		result += GetTypeName(*var.type());
 		result += "> v"_sv;
-		result += vengine::to_string(var.uid());
+		vengine::to_string(var.uid(), result);
 		result += ":register(t"_sv;
-		result += vengine::to_string(i);
+		vengine::to_string(i, result);
 		result += ");\n"_sv;
 	}
 	//TODO: Texture Binding
@@ -688,7 +689,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 					throw 0;
 				}
 				result += "float4x4 v"_sv;
-				result += vengine::to_string(var.uid());
+				vengine::to_string(var.uid(), result);
 				result += ";\n"_sv;
 				cbufferSize += ELE_SIZE * 4 * 4;
 				break;
@@ -716,13 +717,13 @@ size_t CodegenUtility::PrintGlobalVariables(
 		cbufferSize += ELE_SIZE * 4;
 		result += GetTypeName(*vec4->type());
 		result += "4 v"_sv;
-		result += vengine::to_string(vec4->uid());
+		vengine::to_string(vec4->uid(), result);
 		result += ";\n"_sv;
 	}
 	auto PrintScalar = [&](Variable const* var) -> void {
 		result += GetTypeName(*var->type());
 		result += " v"_sv;
-		result += vengine::to_string(var->uid());
+		vengine::to_string(var->uid(), result);
 		result += ";\n"_sv;
 	};
 
@@ -730,14 +731,14 @@ size_t CodegenUtility::PrintGlobalVariables(
 		cbufferSize += ELE_SIZE * 4;
 		result += GetTypeName(*vec3->type());
 		result += "3 v"_sv;
-		result += vengine::to_string(vec3->uid());
+		vengine::to_string(vec3->uid(), result);
 		result += ";\n"_sv;
 		if (!scalarArr.empty()) {
 			auto v = scalarArr.erase_last();
 			PrintScalar(v);
 		} else {
 			result += "float __a"_sv;
-			result += vengine::to_string(alignCount);
+			vengine::to_string(alignCount, result);
 			result += ";\n"_sv;
 			alignCount++;
 		}
@@ -747,7 +748,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		cbufferSize += ELE_SIZE * 2;
 		result += GetTypeName(*vec2->type());
 		result += "2 v"_sv;
-		result += vengine::to_string(vec2->uid());
+		vengine::to_string(vec2->uid(), result);
 		result += ";\n"_sv;
 	}
 
@@ -755,7 +756,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		cbufferSize += ELE_SIZE;
 		result += GetTypeName(*vec->type());
 		result += " v"_sv;
-		result += vengine::to_string(vec->uid());
+		vengine::to_string(vec->uid(), result);
 		result += ";\n"_sv;
 	}
 	result += "}\n"_sv;//End cbuffer
