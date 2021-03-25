@@ -1,35 +1,11 @@
 #pragma once
-#include <vector>
-#include <span>
-#include "RenderCommand.h"
+#include <runtime/command.h>
 namespace luisa::compute {
-
-class CommandBuffer {
+class DirectXCommandBuffer : public CommandVisitor {
 public:
-	void ClearCommand() {
-		datas.clear();
-		commandCount = 0;
-	}
-	void AddCommand(
-		RenderCommand const& command,
-		void const* data) {
-		size_t offset = datas.size();
-		datas.resize(offset + sizeof(RenderCommand) + command.GetBufferSize());
-		*reinterpret_cast<RenderCommand*>(datas.data() + offset) = command;
-		memcpy(datas.data() + offset + sizeof(RenderCommand), data, command.GetBufferSize());
-		commandCount++;
-	}
-
-	void ExecuteCommands(std::span<RenderCommandMethod*> methods) {
-		RenderCommand* command = reinterpret_cast<RenderCommand*>(datas.data());
-		for (size_t i = 0; i < commandCount; ++i) {
-			methods[(uint32_t)command->GetCmdType()]->Execute(command->GetData());
-			command = command->GetNextCommand();
-		}
-	}
-
-private:
-	std::vector<uint8_t> datas;
-	size_t commandCount = 0;
+	void visit(const BufferCopyCommand*) noexcept override;
+	void visit(const BufferUploadCommand*) noexcept override;
+	void visit(const BufferDownloadCommand*) noexcept override;
+	void visit(const KernelLaunchCommand*) noexcept override;
 };
 }// namespace luisa::compute

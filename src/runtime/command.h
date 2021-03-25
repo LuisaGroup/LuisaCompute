@@ -251,31 +251,38 @@ public:
     void encode_buffer(uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
     // TODO: encode texture
     void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
-
+    template<typename T>
+    void static_memcpy(T *dest, void const *source) {
+        if constexpr (std::is_trivially_copyable_v<T>) {
+            *dest = reinterpret_cast<T const *>(source);
+        } else {
+            memcpy(dest, source, sizeof(T));
+        }
+    }
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
         auto p = _argument_buffer.data();
         while (p < _argument_buffer.data() + _argument_buffer_size) {
             Argument argument{};
-            std::memcpy(&argument, p, sizeof(Argument));
+            static_memcpy(&argument, p);
             switch (argument.tag) {
                 case Argument::Tag::BUFFER: {
                     BufferArgument buffer_argument{};
-                    std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
+                    static_memcpy(&buffer_argument, p);
                     decode(buffer_argument);
                     p += sizeof(BufferArgument);
                     break;
                 }
                 case Argument::Tag::TEXTURE: {
                     TextureArgument texture_argument{};
-                    std::memcpy(&texture_argument, p, sizeof(TextureArgument));
+                    static_memcpy(&texture_argument, p);
                     decode(texture_argument);
                     p += sizeof(TextureArgument);
                     break;
                 }
                 case Argument::Tag::UNIFORM: {
                     UniformArgument uniform_argument{};
-                    std::memcpy(&uniform_argument, p, sizeof(UniformArgument));
+                    static_memcpy(&uniform_argument, p);
                     p += sizeof(UniformArgument);
                     std::span data{p, uniform_argument.size};
                     visit(data);
