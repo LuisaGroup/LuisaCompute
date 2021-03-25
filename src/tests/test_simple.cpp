@@ -27,28 +27,27 @@ int main(int argc, char *argv[]) {
     auto device = std::make_unique<FakeDevice>();
 #endif
 
-    auto stream = device->create_stream();
-    auto buffer = device->create_buffer<float>(16384u);
-
-    std::vector<float> data(16384u);
-    std::iota(data.begin(), data.end(), 1.0f);
-    stream << buffer.upload(data.data());
-
     auto add = LUISA_CALLABLE(Var<float> a, Var<float> b) noexcept {
         return a + b;
     };
 
-    auto kernel = LUISA_KERNEL(BufferView<float> result, Var<float> x) noexcept {
+    auto kernel = LUISA_KERNEL(BufferView<float> source, BufferView<float> result, Var<float> x) noexcept {
         auto index = dispatch_id().x;
-        result[index] = add(buffer[index], x);
+        result[index] = add(source[index], x);
     };
     device->prepare(kernel);
 
-    std::vector<float> results(16384u);
+    auto stream = device->create_stream();
+    auto buffer = device->create_buffer<float>(16384u);
     auto result_buffer = device->create_buffer<float>(16384u);
 
+    std::vector<float> data(16384u);
+    std::vector<float> results(16384u);
+    std::iota(data.begin(), data.end(), 1.0f);
+
     auto t0 = std::chrono::high_resolution_clock::now();
-    stream << kernel(result_buffer, 2.0f).parallelize(16384u)
+    stream << buffer.upload(data.data())
+           << kernel(buffer, result_buffer, 2.0f).parallelize(16384u)
            << result_buffer.download(results.data())
            << synchronize();
     auto t1 = std::chrono::high_resolution_clock::now();
