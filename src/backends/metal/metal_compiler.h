@@ -25,15 +25,16 @@ public:
 class MetalCompiler {
 
 public:
-    struct PipelineState {
-        id<MTLComputePipelineState> handle;
+    
+    struct alignas(16) KernelCacheItem {
+        uint64_t hash;
+        id<MTLComputePipelineState> pso;
+        KernelCacheItem(uint64_t hash, id<MTLComputePipelineState> pso) noexcept
+            : hash{hash}, pso{pso} {}
     };
     
-    struct alignas(16) KernelItem {
-        uint64_t hash;
-        PipelineState pso;
-        KernelItem(uint64_t hash, id<MTLComputePipelineState> pso) noexcept
-            : hash{hash}, pso{pso} {}
+    struct PipelineState {
+        id<MTLComputePipelineState> handle;
     };
     
     struct alignas(16) KernelHandle {
@@ -45,13 +46,13 @@ public:
 
 private:
     id<MTLDevice> _device;
-    std::vector<KernelItem> _cache;
+    std::vector<KernelCacheItem> _cache;
     std::vector<KernelHandle> _kernels;
     spin_mutex _cache_mutex;
     spin_mutex _kernel_mutex;
     
 private:
-    [[nodiscard]] PipelineState _compile(uint32_t uid, std::string_view s) noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> _compile(uint32_t uid, std::string_view s) noexcept;
 
 public:
     explicit MetalCompiler(id<MTLDevice> device) noexcept : _device{device} {}

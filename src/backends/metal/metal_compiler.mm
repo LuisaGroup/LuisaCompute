@@ -12,7 +12,7 @@ void MetalCodegen::emit(Function f) {
 MetalCodegen::MetalCodegen(compile::Codegen::Scratch &scratch) noexcept
     : Codegen(scratch) {}
 
-MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid, std::string_view s) noexcept {
+id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid, std::string_view s) noexcept {
 
     auto hash = xxh3_hash64(s.data(), s.size());
 
@@ -80,7 +80,7 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid, std::string_v
             [hash](auto &&item) noexcept { return item.hash == hash; })
         == _cache.cend()) { _cache.emplace_back(hash, pso); }
 
-    return PipelineState{pso};
+    return pso;
 }
 
 void MetalCompiler::prepare(uint32_t uid) noexcept {
@@ -108,7 +108,7 @@ void MetalCompiler::prepare(uint32_t uid) noexcept {
         LUISA_VERBOSE_WITH_LOCATION(
             "Compiled source for kernel #{} in {} ms.",
             uid, (t3 - t2) / 1ns * 1e-6);
-        return k;
+        return PipelineState{k};
     });
 
     std::scoped_lock lock{_kernel_mutex};
