@@ -87,7 +87,7 @@ void KernelLaunchCommand::encode_uniform(const void *data, size_t size, size_t a
     argument.alignment = alignment;
     if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to encode uniform with size {}. "
+            "Failed to encode argument with size {}. "
             "Kernel argument buffer exceeded size limit {}.",
             size, _argument_buffer.size());
     }

@@ -3,6 +3,7 @@ function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "" "SOURCES" ${ARGN})
     add_library(luisa-compute-backend-${name} MODULE ${BACKEND_SOURCES})
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
+                          luisa-compute-ast
                           luisa-compute-runtime
                           luisa-compute-compile)
     add_dependencies(luisa-compute-backends luisa-compute-backend-${name})

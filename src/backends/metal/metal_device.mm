@@ -6,6 +6,9 @@
 #import <numeric>
 
 #import <core/platform.h>
+#import <core/hash.h>
+#import <runtime/context.h>
+
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_command_encoder.h>
 
@@ -63,7 +66,8 @@ void MetalDevice::_dispose_stream(uint64_t handle) noexcept {
     _available_stream_slots.emplace_back(handle);
 }
 
-MetalDevice::MetalDevice(uint32_t index) noexcept {
+MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
+    : Device{ctx} {
 
     auto devices = MTLCopyAllDevices();
     if (auto count = devices.count; index >= count) {
@@ -75,6 +79,7 @@ MetalDevice::MetalDevice(uint32_t index) noexcept {
     LUISA_VERBOSE_WITH_LOCATION(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
+    _compiler = std::make_unique<MetalCompiler>(this);
 
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
@@ -127,12 +132,20 @@ void MetalDevice::_dispatch(uint64_t stream_handle, std::function<void()> functi
     [command_buffer commit];
 }
 
+void MetalDevice::_prepare_kernel(uint32_t uid) noexcept {
+    _compiler->prepare(uid);
 }
 
-LUISA_EXPORT luisa::compute::Device *create(uint32_t id) {
-    return new luisa::compute::metal::MetalDevice{id};
+id<MTLComputePipelineState> MetalDevice::kernel(uint32_t uid) const noexcept {
+    return _compiler->kernel(uid);
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device *device) {
+}
+
+LUISA_EXPORT luisa::compute::Device *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
+    return new luisa::compute::metal::MetalDevice{ctx, id};
+}
+
+LUISA_EXPORT void destroy(luisa::compute::Device *device) noexcept {
     delete device;
 }

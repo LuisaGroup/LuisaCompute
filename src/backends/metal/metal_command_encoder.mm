@@ -79,6 +79,8 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 }
 
 void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
+    auto kernel = _device->kernel(command->kernel_uid());
+    
     LUISA_ERROR_WITH_LOCATION("Not implemented!");
 }
 

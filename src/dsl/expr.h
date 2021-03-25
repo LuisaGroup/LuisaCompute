@@ -191,7 +191,7 @@ template<concepts::basic T>
 Expr(T) -> Expr<T>;
 
 template<typename T>
-[[nodiscard]] const Expression *extract_expression(T &&v) noexcept {
+[[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept {
     Expr expr{std::forward<T>(v)};
     return expr.expression();
 }

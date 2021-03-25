@@ -6,12 +6,14 @@
 
 #import <vector>
 #import <thread>
+#import <future>
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 
 #import <core/spin_mutex.h>
 #import <runtime/device.h>
+#import <backends/metal/metal_compiler.h>
 
 namespace luisa::compute::metal {
 
@@ -19,6 +21,7 @@ class MetalDevice : public Device {
 
 private:
     id<MTLDevice> _handle{nullptr};
+    std::unique_ptr<MetalCompiler> _compiler{nullptr};
     
     // for buffers
     mutable spin_mutex _buffer_mutex;
@@ -38,13 +41,15 @@ private:
     void _synchronize_stream(uint64_t stream_handle) noexcept override;
     void _dispatch(uint64_t stream_handle, CommandBuffer cb) noexcept override;
     void _dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override;
-    
+    void _prepare_kernel(uint32_t uid) noexcept override;
+
 public:
-    explicit MetalDevice(uint32_t index) noexcept;
+    explicit MetalDevice(const Context &ctx, uint32_t index) noexcept;
     ~MetalDevice() noexcept override;
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLCommandQueue> stream(uint64_t handle) const noexcept;
+    [[nodiscard]] id<MTLComputePipelineState> kernel(uint32_t uid) const noexcept;
 };
 
 }

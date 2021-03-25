@@ -5,6 +5,7 @@
 #pragma once
 
 #include <runtime/command.h>
+#include <runtime/device.h>
 #include <dsl/var.h>
 
 namespace luisa::compute::dsl {
@@ -114,7 +115,7 @@ public:
                 buffer.handle, buffer.offset_bytes,
                 static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
         }
-        
+
         for (auto texture : _function.captured_textures()) {
             // TODO: encode captured textures...
         }
@@ -154,6 +155,10 @@ public:
     }
 };
 
+struct DeviceKernelPreparation : public Device {
+    void prepare(uint32_t uid) noexcept { Device::_prepare_kernel(uid); }
+};
+
 }// namespace detail
 
 template<typename... Args>
@@ -165,6 +170,8 @@ private:
 public:
     Kernel(Kernel &&) noexcept = default;
     Kernel(const Kernel &) noexcept = default;
+    
+    [[nodiscard]] auto function_uid() const noexcept { return _function.uid(); }
 
     template<typename Def>
     requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
@@ -241,7 +248,7 @@ public:
                   auto ret = detail::tuple_to_var(def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...));
                   FunctionBuilder::current()->return_(ret.expression());
               } else {
-                  Var<Ret> ret{def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...)};
+                  auto ret = def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
                   FunctionBuilder::current()->return_(ret.expression());
               }
           })} {}
@@ -324,17 +331,14 @@ Callable(T &&) -> Callable<detail::function_t<T>>;
 
 namespace luisa::compute::dsl::detail {
 
-struct KernelBuilder {
+struct FuncBuilder {
     template<typename F>
     [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel{std::forward<F>(def)}; }
-};
-
-struct CallableBuilder {
     template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator/(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
 };
 
 }// namespace luisa::compute::dsl::detail
 
-#define LUISA_KERNEL ::luisa::compute::dsl::detail::KernelBuilder{} % [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} % [&]
+#define LUISA_KERNEL ::luisa::compute::dsl::detail::FuncBuilder{} % [&]
+#define LUISA_CALLABLE ::luisa::compute::dsl::detail::FuncBuilder{} / [&]

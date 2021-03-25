@@ -65,5 +65,6 @@ bool Codegen::Scratch::empty() const noexcept { return _buffer.empty(); }
 size_t Codegen::Scratch::size() const noexcept { return _buffer.size(); }
 void Codegen::Scratch::pop_back() noexcept { _buffer.pop_back(); }
 char Codegen::Scratch::back() const noexcept { return _buffer.back(); }
+const char *Codegen::Scratch::c_str() const noexcept { return _buffer.c_str(); }
 
 }// namespace luisa::compute::compile

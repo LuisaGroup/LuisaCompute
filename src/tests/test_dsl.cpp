@@ -32,8 +32,8 @@ int main(int argc, char *argv[]) {
     luisa::log_level_verbose();
 
     Context context{argv[0]};
-
-    FakeDevice device;
+    FakeDevice device{context};
+    
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
 
