@@ -38,7 +38,6 @@ public:
 		vengine::vector<Variable const*>& groupSharedValues);
 };
 class StringExprVisitor final : public ExprVisitor {
-	friend class StringStateVisitor;
 
 public:
 	void visit(const UnaryExpr* expr) override;
@@ -50,14 +49,11 @@ public:
 	void visit(const CallExpr* expr) override;
 	void visit(const CastExpr* expr) override;
 	void visit(const ConstantExpr* expr) override;
-	vengine::string const& ToString() const;
-	StringExprVisitor();
-	StringExprVisitor(
-		StringExprVisitor&& v);
+	StringExprVisitor(vengine::string& str);
 	~StringExprVisitor();
 
 private:
-	vengine::string str;
+	vengine::string* str;
 	void BeforeVisit();
 	void AfterVisit();
 };
@@ -76,13 +72,10 @@ public:
 	void visit(const SwitchDefaultStmt* state) override;
 	void visit(const AssignStmt* state) override;
 	void visit(const ForStmt*) override;
-	StringStateVisitor();
+	StringStateVisitor(vengine::string& str);
 	~StringStateVisitor();
-	StringStateVisitor(
-		StringStateVisitor&& st);
-	vengine::string const& ToString() const;
 
 private:
-	vengine::string str;
+	vengine::string* str;
 };
 }// namespace luisa::compute

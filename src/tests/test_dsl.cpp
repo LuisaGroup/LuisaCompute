@@ -28,9 +28,9 @@ struct Test {
 LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
-    
+
     luisa::log_level_verbose();
-    
+
     Context context{argv[0]};
 
     FakeDevice device;
@@ -136,6 +136,13 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Command: kernel = {}, args = {}", launch_command->kernel_uid(), launch_command->argument_count());
     auto function = Function::kernel(launch_command->kernel_uid());
 
+#if defined(LUISA_BACKEND_DX_ENABLED)
+    DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
+    auto hlsl_serialize = dll.function<void(Function)>("SerializeMD5");
+    auto hlsl_codegen = dll.function<void(Function)>("CodegenBody");
+    hlsl_serialize(function);
+    hlsl_codegen(function);
+#else
     auto t2 = std::chrono::high_resolution_clock::now();
     Codegen::Scratch scratch;
     CppCodegen codegen{scratch};
@@ -143,15 +150,8 @@ int main(int argc, char *argv[]) {
     auto t3 = std::chrono::high_resolution_clock::now();
 
     std::cout << scratch.view() << std::endl;
-    
+
     using namespace std::chrono_literals;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
-
-#if defined(LUISA_BACKEND_DX_ENABLED)
-    DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
-    auto hlsl_serialize = dll.function<void(Function)>("SerializeMD5");
-    auto hlsl_codegen = dll.function<void(Function)>("CodegenBody");
-    hlsl_serialize(function);
-    hlsl_codegen(function);
 #endif
 }

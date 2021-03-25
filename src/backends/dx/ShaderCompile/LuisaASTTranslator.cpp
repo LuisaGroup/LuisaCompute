@@ -9,31 +9,38 @@ namespace luisa::compute {
 DLL_EXPORT void CodegenBody(Function func) {
 	vengine::vengine_init_malloc(malloc, free);
 	//LUISA_INFO("HLSL codegen started.");
-	vengine::string string_buffer;
-	string_buffer.reserve(4095u);
+	vengine::string function_buffer;
+	vengine::string decl_buffer;
+	function_buffer.reserve(65535);
+	decl_buffer.reserve(65535);
 	auto t0 = std::chrono::high_resolution_clock::now();
-	CodegenUtility::ClearStructType();
-	StringStateVisitor vis;
-	func.body()->accept(vis);
-	{
-		vengine::string str;
-		str.reserve(1023u);
-		CodegenUtility::PrintStructType(str);
-		for (auto& i : func.constants()) {
-			CodegenUtility::PrintConstant(i, str);
-		}
-		CodegenUtility::PrintUniform(func.captured_buffers(), func.captured_textures(), str);
-		CodegenUtility::PrintGlobalVariables(func.arguments(), str);
-		string_buffer += str;
-		string_buffer += "\n";
-	}
 	auto t1 = std::chrono::high_resolution_clock::now();
 	using namespace std::chrono_literals;
+	CodegenUtility::ClearStructType();
 	//LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+	StringStateVisitor vis(function_buffer);
 
-	std::cout << string_buffer
-			  << CodegenUtility::GetFunctionDecl(func) << "\n"
-			  << vis.ToString() << std::endl;
+	for (auto cust : func.custom_callables()) {
+		auto&& callable = Function::callable(cust);
+		function_buffer += CodegenUtility::GetFunctionDecl(callable);
+		callable.body()->accept(vis);
+	}
+	function_buffer += CodegenUtility::GetFunctionDecl(func);
+	func.body()->accept(vis);
+
+	CodegenUtility::PrintStructType(decl_buffer);
+
+	for (auto& i : func.constants()) {
+		CodegenUtility::PrintConstant(i, decl_buffer);
+	}
+
+	CodegenUtility::PrintUniform(func.captured_buffers(), func.captured_textures(), decl_buffer);
+	CodegenUtility::PrintGlobalVariables(func.arguments(), decl_buffer);
+
+	std::cout << decl_buffer;
+	std::cout << function_buffer;
+	/*<< CodegenUtility::GetFunctionDecl(func) << "\n"
+			  << vis.ToString() << std::endl;*/
 }
 #endif
 template<typename T>
@@ -117,21 +124,20 @@ void StringExprVisitor::visit(const UnaryExpr* expr) {
 	BeforeVisit();
 	switch (expr->op()) {
 		case UnaryOp::PLUS://+x
-			str += '+';
+			(*str) += '+';
 			break;
 		case UnaryOp::MINUS://-x
-			str += '-';
+			(*str) += '-';
 			break;
 		case UnaryOp::NOT://!x
-			str += '!';
+			(*str) += '!';
 			break;
 		case UnaryOp::BIT_NOT://~x
-			str += '~';
+			(*str) += '~';
 			break;
 	}
-	StringExprVisitor vis;
+	StringExprVisitor vis(*str);
 	expr->accept(vis);
-	str += vis.ToString();
 	AfterVisit();
 }
 void StringExprVisitor::visit(const BinaryExpr* expr) {
@@ -144,93 +150,105 @@ void StringExprVisitor::visit(const BinaryExpr* expr) {
 		}
 		return false;
 	};
-	StringExprVisitor vis;
+	StringExprVisitor vis(*str);
 	if (IsMulFuncCall()) {
-		str = "mul("_sv;
+		(*str) += "mul("_sv;
 		expr->rhs()->accept(vis);//Reverse matrix
-		str += vis.ToString();
-		str += ',';
+		(*str) += ',';
 		expr->lhs()->accept(vis);
-		str += vis.ToString();
-		str += ')';
+		(*str) += ')';
 
 	} else {
 		BeforeVisit();
 		expr->lhs()->accept(vis);
-		str += vis.ToString();
 		switch (expr->op()) {
 			case BinaryOp::ADD:
-				str += '+';
+				(*str) += '+';
 				break;
 			case BinaryOp::SUB:
-				str += '-';
+				(*str) += '-';
 				break;
 			case BinaryOp::MUL:
-				str += '*';
+				(*str) += '*';
 				break;
 			case BinaryOp::DIV:
-				str += '/';
+				(*str) += '/';
 				break;
 			case BinaryOp::MOD:
-				str += '%';
+				(*str) += '%';
 				break;
 			case BinaryOp::BIT_AND:
-				str += '&';
+				(*str) += '&';
 				break;
 			case BinaryOp::BIT_OR:
-				str += '|';
+				(*str) += '|';
 				break;
 			case BinaryOp::BIT_XOR:
-				str += '^';
+				(*str) += '^';
 				break;
 			case BinaryOp::SHL:
-				str += "<<"_sv;
+				(*str) += "<<"_sv;
 				break;
 			case BinaryOp::SHR:
-				str += ">>"_sv;
+				(*str) += ">>"_sv;
 				break;
 			case BinaryOp::AND:
-				str += "&&"_sv;
+				(*str) += "&&"_sv;
 				break;
 			case BinaryOp::OR:
-				str += "||"_sv;
+				(*str) += "||"_sv;
 				break;
 			case BinaryOp::LESS:
-				str += '<';
+				(*str) += '<';
 				break;
 			case BinaryOp::GREATER:
-				str += '>';
+				(*str) += '>';
 				break;
 			case BinaryOp::LESS_EQUAL:
-				str += "<="_sv;
+				(*str) += "<="_sv;
 				break;
 			case BinaryOp::GREATER_EQUAL:
-				str += ">="_sv;
+				(*str) += ">="_sv;
 				break;
 			case BinaryOp::EQUAL:
-				str += "=="_sv;
+				(*str) += "=="_sv;
 				break;
 			case BinaryOp::NOT_EQUAL:
-				str += "!="_sv;
+				(*str) += "!="_sv;
 				break;
 		}
 		expr->rhs()->accept(vis);
-		str += vis.ToString();
 		AfterVisit();
 	}
 }
 void StringExprVisitor::visit(const MemberExpr* expr) {
 	expr->self()->accept(*this);
-	str += ".v"_sv;
-	str += vengine::to_string(expr->member_index());
+	if (expr->self()->type()->is_structure()) {
+		(*str) += ".v"_sv;
+		(*str) += vengine::to_string(expr->member_index());
+	} else {
+		switch (expr->member_index()) {
+			case 0:
+				(*str) += ".x"_sv;
+				break;
+			case 1:
+				(*str) += ".y"_sv;
+				break;
+			case 2:
+				(*str) += ".z"_sv;
+				break;
+			default:
+				(*str) += ".w"_sv;
+				break;
+		}
+	}
 }
 void StringExprVisitor::visit(const AccessExpr* expr) {
 	expr->range()->accept(*this);
-	str += '[';
-	StringExprVisitor vis;
+	(*str) += '[';
+	StringExprVisitor vis(*str);
 	expr->index()->accept(vis);
-	str += vis.ToString();
-	str += ']';
+	(*str) += ']';
 }
 void StringExprVisitor::visit(const RefExpr* expr) {
 	Variable v = expr->variable();
@@ -238,146 +256,129 @@ void StringExprVisitor::visit(const RefExpr* expr) {
 	if (v.type()->is_vector() && v.type()->element()->size() < 4) {
 		//TODO
 	} else {
-		str = std::move(CodegenUtility::GetVariableName(v));
+		(*str) += CodegenUtility::GetVariableName(v);
 	}
 }
 void StringExprVisitor::visit(const LiteralExpr* expr) {
 	LiteralExpr::Value const& value = expr->value();
-	str.clear();
 	std::visit([&](auto&& value) -> void {
 		using T = std::remove_cvref_t<decltype(value)>;
 		PrintValue<T> prt;
-		prt(value, str);
+		prt(value, (*str));
 	},
 			   expr->value());
 }
 void StringExprVisitor::visit(const CallExpr* expr) {
-	str.clear();
-	str.push_back_all(expr->name().data(), expr->name().size());
-	str += '(';
+	str->push_back_all(expr->name().data(), expr->name().size());
+	(*str) += '(';
 	auto&& args = expr->arguments();
-	StringExprVisitor vis;
+	StringExprVisitor vis(*str);
 	for (auto&& i : args) {
 		i->accept(vis);
-		str += vis.ToString();
-		str += ',';
+		(*str) += ',';
 	}
-	str[str.size() - 1] = ')';
+	(*str)[str->size() - 1] = ')';
 }
 void StringExprVisitor::visit(const CastExpr* expr) {
 	BeforeVisit();
-	str += '(';
-	str += CodegenUtility::GetTypeName(*expr->type());
-	str += ')';
-	StringExprVisitor vis;
+	(*str) += '(';
+	(*str) += CodegenUtility::GetTypeName(*expr->type());
+	(*str) += ')';
+	StringExprVisitor vis(*str);
 	expr->expression()->accept(vis);
-	str += vis.str;
 	AfterVisit();
 }
 void StringExprVisitor::visit(const ConstantExpr* expr) {
-	str = "c" + vengine::to_string(expr->hash());
+	(*str) += "c" + vengine::to_string(expr->hash());
 }
-vengine::string const& StringExprVisitor::ToString() const {
-	return str;
-}
-StringExprVisitor::StringExprVisitor() {}
-StringExprVisitor::StringExprVisitor(
-	StringExprVisitor&& v)
-	: str(std::move(v.str)) {
-}
+StringExprVisitor::StringExprVisitor(vengine::string& str)
+	: str(&str) {}
 
 StringExprVisitor::~StringExprVisitor() {
 }
 
 void StringExprVisitor::BeforeVisit() {
-	str = '(';
+	(*str) += '(';
 }
 void StringExprVisitor::AfterVisit() {
-	str += ')';
+	(*str) += ')';
 }
 
 void StringStateVisitor::visit(const BreakStmt* state) {
-	str = "break;\n"_sv;
+	(*str) += "break;\n"_sv;
 }
 
 void StringStateVisitor::visit(const ContinueStmt* state) {
-	str = "continue;\n"_sv;
+	(*str) += "continue;\n"_sv;
 }
 
 void StringStateVisitor::visit(const ReturnStmt* state) {
 	if (state->expression()) {
-		str = "return "_sv;
-		StringExprVisitor exprVis;
+		(*str) += "return "_sv;
+		StringExprVisitor exprVis(*str);
 		state->expression()->accept(exprVis);
-		str += exprVis.ToString();
-		str += ";\n"_sv;
+		(*str) += ";\n"_sv;
 	} else {
-		str = "return;\n"_sv;
+		(*str) += "return;\n"_sv;
 	}
 }
 
 void StringStateVisitor::visit(const ScopeStmt* state) {
-	str = "{\n"_sv;
-	StringStateVisitor sonVisitor;
+	(*str) += "{\n"_sv;
+	StringStateVisitor sonVisitor(*str);
 	for (auto&& i : state->statements()) {
 		i->accept(sonVisitor);
-		str += sonVisitor.ToString();
 	}
-	str += "}\n"_sv;
+	(*str) += "}\n"_sv;
 }
 
 void StringStateVisitor::visit(const DeclareStmt* state) {
 	auto var = state->variable();
 	CodegenUtility::RegistStructType(var.type());
 	auto varName = CodegenUtility::GetTypeName(*var.type());
-	str.clear();
-	str.push_back_all(varName.data(), varName.size());
-	str += ' ';
+	str->push_back_all(varName.data(), varName.size());
+	(*str) += ' ';
 	auto varTempName = CodegenUtility::GetVariableName(var);
-	str += varTempName;
+	(*str) += varTempName;
 	if (!var.type()->is_structure()) {
-		StringExprVisitor vis;
+		StringExprVisitor vis(*str);
 		if (var.type()->is_scalar()) {
 			if (!state->initializer().empty()) {
-				str += '=';
+				(*str) += '=';
 				for (auto&& i : state->initializer()) {
 					i->accept(vis);
-					str += vis.str;
 				}
 			}
 		} else if (!state->initializer().empty()) {
-			str += '=';
-			str += CodegenUtility::GetTypeName(*var.type());
-			str += '(';
+			(*str) += '=';
+			(*str) += CodegenUtility::GetTypeName(*var.type());
+			(*str) += '(';
 			for (auto&& i : state->initializer()) {
 				i->accept(vis);
-				str += vis.str;
-				str += ',';
+				(*str) += ',';
 			}
-			str[str.size() - 1] = ')';
+			(*str)[str->size() - 1] = ')';
 		}
-		str += ";\n"_sv;
+		(*str) += ";\n"_sv;
 	} else {
 
-		StringExprVisitor vis;
+		StringExprVisitor vis(*str);
 		size_t count = 0;
 		if (state->initializer().size() == 1) {
 			auto&& i = *state->initializer().begin();
+			(*str) += '=';
 			i->accept(vis);
-			str += '=';
-			str += vis.str;
-			str += ";\n"_sv;
+			(*str) += ";\n"_sv;
 		} else {
-			str += ";\n"_sv;
+			(*str) += ";\n"_sv;
 			for (auto&& i : state->initializer()) {
-				i->accept(vis);
-				str += varTempName;
-				str += ".v"_sv;
-				str += vengine::to_string(count);
+				(*str) += varTempName;
+				(*str) += ".v"_sv;
+				(*str) += vengine::to_string(count);
 
-				str += '=';
-				str += vis.str;
-				str += ";\n"_sv;
+				(*str) += '=';
+				i->accept(vis);
+				(*str) += ";\n"_sv;
 				count++;
 			}
 		}
@@ -386,140 +387,115 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 }
 
 void StringStateVisitor::visit(const IfStmt* state) {
-	StringExprVisitor exprVisitor;
-	StringStateVisitor stateVisitor;
-	str = "if ("_sv;
+	StringExprVisitor exprVisitor(*str);
+	StringStateVisitor stateVisitor(*str);
+	(*str) += "if ("_sv;
 	state->condition()->accept(exprVisitor);
-	str += exprVisitor.ToString();
-	str += ')';
+	(*str) += ')';
 	state->true_branch()->accept(stateVisitor);
-	str += stateVisitor.ToString();
-	str += "else"_sv;
+	(*str) += "else"_sv;
 	state->false_branch()->accept(stateVisitor);
-	str += stateVisitor.ToString();
 }
 
 void StringStateVisitor::visit(const WhileStmt* state) {
-	StringStateVisitor stateVisitor;
-	StringExprVisitor exprVisitor;
+	StringStateVisitor stateVisitor(*str);
+	StringExprVisitor exprVisitor(*str);
 
-	str = "[loop]\nwhile ("_sv;
+	(*str) += "[loop]\nwhile ("_sv;
 	state->condition()->accept(exprVisitor);
-	str += exprVisitor.ToString();
-	str += ')';
+	(*str) += ')';
 	state->body()->accept(stateVisitor);
-	str += stateVisitor.ToString();
 }
 
 void StringStateVisitor::visit(const ExprStmt* state) {
-	StringExprVisitor exprVisitor;
+	StringExprVisitor exprVisitor(*str);
 	state->expression()->accept(exprVisitor);
-	str = std::move(exprVisitor.str);
-	str += ";\n"_sv;
+	(*str) += ";\n"_sv;
 }
 
 void StringStateVisitor::visit(const SwitchStmt* state) {
-	str = "switch ("_sv;
-	StringStateVisitor stateVisitor;
-	StringExprVisitor exprVisitor;
+	(*str) += "switch ("_sv;
+	StringStateVisitor stateVisitor(*str);
+	StringExprVisitor exprVisitor(*str);
 	state->expression()->accept(exprVisitor);
+	(*str) += ')';
 	state->body()->accept(stateVisitor);
-	str += exprVisitor.ToString();
-	str += ')';
-	str += stateVisitor.ToString();
 }
 
 void StringStateVisitor::visit(const SwitchCaseStmt* state) {
-	str = "case "_sv;
-	StringStateVisitor stateVisitor;
-	StringExprVisitor exprVisitor;
+	(*str) += "case "_sv;
+	StringStateVisitor stateVisitor(*str);
+	StringExprVisitor exprVisitor(*str);
 	state->expression()->accept(exprVisitor);
+	(*str) += ":\n"_sv;
 	state->body()->accept(stateVisitor);
-	str += exprVisitor.ToString();
-	str += ":\n"_sv;
-	str += stateVisitor.ToString();
 }
 
 void StringStateVisitor::visit(const SwitchDefaultStmt* state) {
-	str = "default:\n"_sv;
-	StringStateVisitor stateVisitor;
+	(*str) += "default:\n"_sv;
+	StringStateVisitor stateVisitor(*str);
 	state->body()->accept(stateVisitor);
-	str += stateVisitor.ToString();
 }
 
 void StringStateVisitor::visit(const AssignStmt* state) {
-	StringExprVisitor exprVisitor;
+	StringExprVisitor exprVisitor(*str);
 	state->lhs()->accept(exprVisitor);
-	str = exprVisitor.ToString();
 	switch (state->op()) {
 		case AssignOp::ASSIGN:
-			str += '=';
+			(*str) += '=';
 			break;
 		case AssignOp::ADD_ASSIGN:
-			str += "+="_sv;
+			(*str) += "+="_sv;
 			break;
 		case AssignOp::SUB_ASSIGN:
-			str += "-="_sv;
+			(*str) += "-="_sv;
 			break;
 		case AssignOp::MUL_ASSIGN:
-			str += "*="_sv;
+			(*str) += "*="_sv;
 			break;
 		case AssignOp::DIV_ASSIGN:
-			str += "/="_sv;
+			(*str) += "/="_sv;
 			break;
 		case AssignOp::MOD_ASSIGN:
-			str += "%="_sv;
+			(*str) += "%="_sv;
 			break;
 		case AssignOp::BIT_AND_ASSIGN:
-			str += "&="_sv;
+			(*str) += "&="_sv;
 			break;
 		case AssignOp::BIT_OR_ASSIGN:
-			str += "|="_sv;
+			(*str) += "|="_sv;
 			break;
 		case AssignOp::BIT_XOR_ASSIGN:
-			str += "^="_sv;
+			(*str) += "^="_sv;
 			break;
 		case AssignOp::SHL_ASSIGN:
-			str += "<<="_sv;
+			(*str) += "<<="_sv;
 			break;
 		case AssignOp::SHR_ASSIGN:
-			str += ">>="_sv;
+			(*str) += ">>="_sv;
 			break;
 	}
 	state->rhs()->accept(exprVisitor);
-	str += exprVisitor.ToString();
-	str += ";\n"_sv;
+	(*str) += ";\n"_sv;
 }
 
 void StringStateVisitor::visit(ForStmt const* expr) {
-	StringStateVisitor stmtVis;
-	StringExprVisitor expVis;
-	str = "[loop]\nfor("_sv;
+	StringStateVisitor stmtVis(*str);
+	StringExprVisitor expVis(*str);
+	(*str) += "[loop]\nfor("_sv;
 	expr->initialization()->accept(stmtVis);
-	str += stmtVis.ToString();
-	str += ';';
 	expr->condition()->accept(expVis);
-	str += expVis.ToString();
-	str += ';';
+	(*str) += ';';
 	expr->update()->accept(stmtVis);
-	str += stmtVis.ToString();
-	str += ')';
+	(*str)[str->size() - 2] = ')';
 	expr->body()->accept(stmtVis);
-	str += stmtVis.ToString();
 }
 
-StringStateVisitor::StringStateVisitor() {
+StringStateVisitor::StringStateVisitor(vengine::string& str)
+	: str(&str) {
 }
 
 StringStateVisitor::~StringStateVisitor() {
-}
-
-StringStateVisitor::StringStateVisitor(StringStateVisitor&& st)
-	: str(std::move(str)) {
-}
-
-vengine::string const& StringStateVisitor::ToString() const {
-	return str;
 }
 
 vengine::string CodegenUtility::GetVariableName(Variable const& type) {
@@ -691,7 +667,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 	constexpr size_t ELE_SIZE = 4;
 	size_t cbufferSize = 0;
 	size_t alignCount = 0;
-	result += "cbuffer Params:register(b0){"_sv;
+	result += "cbuffer Params:register(b0)\n{\n"_sv;
 	for (auto& var : values) {
 		auto&& type = *var.type();
 		switch (type.tag()) {
