@@ -15,6 +15,8 @@
 
 namespace luisa::compute::metal {
 
+class MetalDevice;
+
 class MetalCompiler {
     
     struct alignas(16) KernelCacheItem {
@@ -36,7 +38,7 @@ class MetalCompiler {
     };
 
 private:
-    id<MTLDevice> _device;
+    MetalDevice *_device;
     std::vector<KernelCacheItem> _cache;
     std::vector<KernelHandle> _kernels;
     spin_mutex _cache_mutex;
@@ -46,7 +48,7 @@ private:
     [[nodiscard]] id<MTLComputePipelineState> _compile(uint32_t uid) noexcept;
 
 public:
-    explicit MetalCompiler(id<MTLDevice> device) noexcept : _device{device} {}
+    explicit MetalCompiler(MetalDevice *device) noexcept : _device{device} {}
     void prepare(uint32_t uid) noexcept;
     [[nodiscard]] id<MTLComputePipelineState> kernel(uint32_t uid) noexcept;
 };

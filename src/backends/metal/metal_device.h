@@ -44,7 +44,7 @@ private:
     void _prepare_kernel(uint32_t uid) noexcept override;
 
 public:
-    explicit MetalDevice(uint32_t index) noexcept;
+    explicit MetalDevice(const Context &ctx, uint32_t index) noexcept;
     ~MetalDevice() noexcept override;
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;

@@ -2,23 +2,25 @@
 // Created by Mike Smith on 2021/3/24.
 //
 
-#include <backends/metal/metal_codegen.h>
-#include <backends/metal/metal_compiler.h>
+#import <runtime/context.h>
+#import <backends/metal/metal_device.h>
+#import <backends/metal/metal_codegen.h>
+#import <backends/metal/metal_compiler.h>
 
 namespace luisa::compute::metal {
 
 id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
-    
+
     LUISA_INFO("Compiling kernel #{}.", uid);
     auto t0 = std::chrono::high_resolution_clock::now();
     compile::Codegen::Scratch scratch;
     MetalCodegen codegen{scratch};
     codegen.emit(Function::kernel(uid));
     auto t1 = std::chrono::high_resolution_clock::now();
-    
+
     auto s = scratch.view();
     auto hash = xxh3_hash64(s.data(), s.size());
-    
+
     using namespace std::chrono_literals;
     LUISA_VERBOSE(
         "Generated source (hash = 0x{:016x}) for kernel #{} in {} ms:\n\n{}",
@@ -31,7 +33,11 @@ id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
                 _cache.cbegin(),
                 _cache.cend(),
                 [hash](auto &&item) noexcept { return item.hash == hash; });
-            iter != _cache.cend()) { return iter->pso; }
+            iter != _cache.cend()) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Cache hit for kernel #{}. Compilation skipped.", uid);
+            return iter->pso;
+        }
     };
 
     // compile from source
@@ -46,9 +52,9 @@ id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
         o.libraryType = MTLLibraryTypeExecutable;
         return o;
     }();
-
+    
     __autoreleasing NSError *error = nullptr;
-    auto library = [_device newLibraryWithSource:src options:options error:&error];
+    auto library = [_device->handle() newLibraryWithSource:src options:options error:&error];
     if (error != nullptr) {
         auto error_msg = [error.description cStringUsingEncoding:NSUTF8StringEncoding];
         LUISA_WARNING("Output while compiling kernel #{}: {}", uid, error_msg);
@@ -71,10 +77,10 @@ id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
     desc.computeFunction = func;
     desc.threadGroupSizeIsMultipleOfThreadExecutionWidth = true;
     desc.label = objc_name;
-    auto pso = [_device newComputePipelineStateWithDescriptor:desc
-                                                      options:MTLPipelineOptionNone
-                                                   reflection:nullptr
-                                                        error:&error];
+    auto pso = [_device->handle() newComputePipelineStateWithDescriptor:desc
+                                                                options:MTLPipelineOptionNone
+                                                             reflection:nullptr
+                                                                  error:&error];
     if (error != nullptr) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to create pipeline state object for kernel #{}: {}.",

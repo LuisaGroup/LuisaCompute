@@ -11,8 +11,6 @@ Stream Device::create_stream() noexcept {
     return Stream{this, _create_stream()};
 }
 
-void Device::prepare_kernel(uint32_t uid) noexcept {
-    _prepare_kernel(uid);
-}
+const Context &Device::context() const noexcept { return _ctx; }
 
 }// namespace luisa::compute

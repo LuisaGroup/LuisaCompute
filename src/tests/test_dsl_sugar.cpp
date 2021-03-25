@@ -19,9 +19,10 @@ struct Test {
 
 LUISA_STRUCT(Test, something, a)
 
-int main() {
+int main(int argc, char *argv[]) {
     
-    FakeDevice device;
+    Context context{argv[0]};
+    FakeDevice device{context};
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
 

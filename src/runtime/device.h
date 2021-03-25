@@ -19,8 +19,12 @@ template<typename T>
 class Buffer;
 
 class Stream;
+class Context;
 
 class Device {
+
+private:
+    const Context &_ctx;
 
 protected:
     template<typename T>
@@ -38,7 +42,10 @@ protected:
     virtual void _prepare_kernel(uint32_t uid) noexcept = 0;
 
 public:
+    explicit Device(const Context &ctx) noexcept : _ctx{ctx} {}
     virtual ~Device() noexcept = default;
+    
+    [[nodiscard]] const Context &context() const noexcept;
 
     template<typename T>
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
@@ -47,11 +54,13 @@ public:
     }
 
     [[nodiscard]] Stream create_stream() noexcept;
-    void prepare_kernel(uint32_t uid) noexcept;
+    
+    template<typename T>
+    void prepare(T &&kernel) noexcept { _prepare_kernel(kernel.function_uid()); }
 };
 
 using DeviceDeleter = void(Device *);
-using DeviceCreator = Device *(uint32_t index);
+using DeviceCreator = Device *(const Context &ctx, uint32_t index);
 using DeviceHandle = std::unique_ptr<Device, DeviceDeleter *>;
 
 }// namespace luisa::compute

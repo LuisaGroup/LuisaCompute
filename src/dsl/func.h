@@ -170,6 +170,8 @@ private:
 public:
     Kernel(Kernel &&) noexcept = default;
     Kernel(const Kernel &) noexcept = default;
+    
+    [[nodiscard]] auto function_uid() const noexcept { return _function.uid(); }
 
     template<typename Def>
     requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
@@ -182,10 +184,6 @@ public:
         detail::KernelInvoke invoke{_function.uid()};
         (invoke << ... << args);
         return invoke;
-    }
-
-    void prepare(Device &device) const noexcept {
-        device.prepare_kernel(_function.uid());
     }
 };
 
@@ -250,7 +248,7 @@ public:
                   auto ret = detail::tuple_to_var(def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...));
                   FunctionBuilder::current()->return_(ret.expression());
               } else {
-                  Var<Ret> ret{def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...)};
+                  auto ret = def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
                   FunctionBuilder::current()->return_(ret.expression());
               }
           })} {}

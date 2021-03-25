@@ -141,8 +141,8 @@ const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::uniform(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::UNIFORM, _next_variable_uid()};
+const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
+    Variable v{type, _tag == Function::Tag::KERNEL ? Variable::Tag::UNIFORM : Variable::Tag::LOCAL, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }

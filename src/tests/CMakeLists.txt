@@ -5,8 +5,8 @@ target_link_libraries(test PRIVATE luisa::compute)
 add_executable(test_runtime test_runtime.cpp)
 target_link_libraries(test_runtime PRIVATE luisa::compute)
 
-add_executable(test_ast test_ast.cpp)
-target_link_libraries(test_ast PRIVATE luisa::compute)
+add_executable(test_type test_type.cpp)
+target_link_libraries(test_type PRIVATE luisa::compute)
 
 add_executable(test_dsl test_dsl.cpp)
 target_link_libraries(test_dsl PRIVATE luisa::compute)

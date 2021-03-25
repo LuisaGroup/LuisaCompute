@@ -5,6 +5,7 @@
 #pragma once
 
 #include <runtime/device.h>
+#include <runtime/context.h>
 
 namespace luisa::compute {
 
@@ -24,6 +25,7 @@ private:
     void _prepare_kernel(uint32_t uid) noexcept override {}
 
 public:
+    explicit FakeDevice(const Context &ctx) noexcept : Device{ctx} {}
     ~FakeDevice() noexcept override = default;
 };
 

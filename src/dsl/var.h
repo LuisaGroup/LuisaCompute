@@ -24,7 +24,7 @@ private:
     friend class Callable;
 
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<T>{FunctionBuilder::current()->uniform(Type::of<T>())} {}
+        : detail::Expr<T>{FunctionBuilder::current()->argument(Type::of<T>())} {}
 
 public:
     // for local variables

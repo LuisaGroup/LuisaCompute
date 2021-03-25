@@ -131,7 +131,7 @@ public:
     [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle) noexcept;
 
     // explicit arguments
-    [[nodiscard]] const RefExpr *uniform(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *argument(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *buffer(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
 

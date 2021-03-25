@@ -11,6 +11,10 @@ Context::Context(const std::filesystem::path &program) noexcept
     : _runtime_directory{std::filesystem::canonical(program).parent_path()} {
     LUISA_INFO("Created context for program: {}.", program.filename().string<char>());
     LUISA_INFO("Runtime directory: {}.", _runtime_directory.string<char>());
+    _cache_directory = _runtime_directory / ".cache";
+    if (!std::filesystem::exists(_cache_directory)) {
+        std::filesystem::create_directories(_cache_directory);
+    }
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {
@@ -38,7 +42,11 @@ DeviceHandle Context::create_device(std::string_view backend_name, uint32_t inde
         _device_deleters.emplace_back(destroy);
         return std::make_pair(create, destroy);
     }();
-    return {create(index), destroy};
+    return {create(*this, index), destroy};
+}
+
+const std::filesystem::path &Context::cache_directory() const noexcept {
+    return _cache_directory;
 }
 
 }// namespace luisa::compute
