@@ -11,21 +11,21 @@ DLL_EXPORT void CodegenBody(Function func) {
 	//LUISA_INFO("HLSL codegen started.");
 	vengine::string function_buffer;
 	vengine::string decl_buffer;
-	function_buffer.reserve(65535);
-	decl_buffer.reserve(65535);
-	auto t0 = std::chrono::high_resolution_clock::now();
-	auto t1 = std::chrono::high_resolution_clock::now();
+	function_buffer.reserve(65535 * 4);
+	decl_buffer.reserve(65535 * 4);
+
 	using namespace std::chrono_literals;
 	CodegenUtility::ClearStructType();
-	//LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+	auto t0 = std::chrono::high_resolution_clock::now();
+
 	StringStateVisitor vis(function_buffer);
 
 	for (auto cust : func.custom_callables()) {
 		auto&& callable = Function::callable(cust);
-		function_buffer += CodegenUtility::GetFunctionDecl(callable);
+		CodegenUtility::GetFunctionDecl(callable, function_buffer);
 		callable.body()->accept(vis);
 	}
-	function_buffer += CodegenUtility::GetFunctionDecl(func);
+	CodegenUtility::GetFunctionDecl(func, function_buffer);
 	func.body()->accept(vis);
 
 	CodegenUtility::PrintStructType(decl_buffer);
@@ -36,8 +36,11 @@ DLL_EXPORT void CodegenBody(Function func) {
 
 	CodegenUtility::PrintUniform(func.captured_buffers(), func.captured_textures(), decl_buffer);
 	CodegenUtility::PrintGlobalVariables(func.arguments(), decl_buffer);
+	auto t1 = std::chrono::high_resolution_clock::now();
 
-	std::cout << decl_buffer;
+	LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+
+	/*std::cout << decl_buffer;
 	std::cout << function_buffer;
 	/*<< CodegenUtility::GetFunctionDecl(func) << "\n"
 			  << vis.ToString() << std::endl;*/
@@ -256,7 +259,7 @@ void StringExprVisitor::visit(const RefExpr* expr) {
 	if (v.type()->is_vector() && v.type()->element()->size() < 4) {
 		//TODO
 	} else {
-		(*str) += CodegenUtility::GetVariableName(v);
+		CodegenUtility::GetVariableName(v, *str);
 	}
 }
 void StringExprVisitor::visit(const LiteralExpr* expr) {
@@ -282,7 +285,7 @@ void StringExprVisitor::visit(const CallExpr* expr) {
 void StringExprVisitor::visit(const CastExpr* expr) {
 	BeforeVisit();
 	(*str) += '(';
-	(*str) += CodegenUtility::GetTypeName(*expr->type());
+	CodegenUtility::GetTypeName(*expr->type(), *str);
 	(*str) += ')';
 	StringExprVisitor vis(*str);
 	expr->expression()->accept(vis);
@@ -336,10 +339,10 @@ void StringStateVisitor::visit(const ScopeStmt* state) {
 void StringStateVisitor::visit(const DeclareStmt* state) {
 	auto var = state->variable();
 	CodegenUtility::RegistStructType(var.type());
-	auto varName = CodegenUtility::GetTypeName(*var.type());
-	str->push_back_all(varName.data(), varName.size());
+	CodegenUtility::GetTypeName(*var.type(), *str);
 	(*str) += ' ';
-	auto varTempName = CodegenUtility::GetVariableName(var);
+	vengine::string varTempName;
+	CodegenUtility::GetVariableName(var, varTempName);
 	(*str) += varTempName;
 	if (!var.type()->is_structure()) {
 		StringExprVisitor vis(*str);
@@ -352,7 +355,7 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 			}
 		} else if (!state->initializer().empty()) {
 			(*str) += '=';
-			(*str) += CodegenUtility::GetTypeName(*var.type());
+			CodegenUtility::GetTypeName(*var.type(), (*str));
 			(*str) += '(';
 			for (auto&& i : state->initializer()) {
 				i->accept(vis);
@@ -499,46 +502,59 @@ StringStateVisitor::StringStateVisitor(vengine::string& str)
 StringStateVisitor::~StringStateVisitor() {
 }
 
-vengine::string CodegenUtility::GetVariableName(Variable const& type) {
-	return "v" + vengine::to_string(type.uid());
+void CodegenUtility::GetVariableName(Variable const& type, vengine::string& str) {
+	str += 'v';
+	vengine::to_string(type.uid(), str);
 }
 
-vengine::string CodegenUtility::GetTypeName(Type const& type) {
+void CodegenUtility::GetTypeName(Type const& type, vengine::string& str) {
 	switch (type.tag()) {
 		case Type::Tag::ARRAY:
-			return CodegenUtility::GetTypeName(*type.element());
+			CodegenUtility::GetTypeName(*type.element(), str);
+			return;
 		case Type::Tag::ATOMIC:
-			return CodegenUtility::GetTypeName(*type.element());
+			CodegenUtility::GetTypeName(*type.element(), str);
+			return;
 		case Type::Tag::BOOL:
-			return "bool"_sv;
+			str += "bool"_sv;
+			return;
 		case Type::Tag::FLOAT:
-			return "float"_sv;
+			str += "float"_sv;
+			return;
 		case Type::Tag::INT:
-			return "int"_sv;
+			str += "int"_sv;
+			return;
 		case Type::Tag::UINT:
-			return "uint"_sv;
+			str += "uint"_sv;
+			return;
 
 		case Type::Tag::MATRIX: {
 			auto dim = vengine::to_string(type.dimension());
-			return CodegenUtility::GetTypeName(*type.element()) + dim + 'x' + dim;
+			CodegenUtility::GetTypeName(*type.element(), str);
+			str += dim;
+			str += 'x';
+			str += dim;
 		}
+			return;
 		case Type::Tag::VECTOR: {
 			auto dim = vengine::to_string(type.dimension());
-			return CodegenUtility::GetTypeName(*type.element()) + dim;
+			CodegenUtility::GetTypeName(*type.element(), str);
+			str += dim;
 		}
+			return;
 		case Type::Tag::STRUCTURE:
-			return "T" + vengine::to_string(type.index());
-			break;
+			str += 'T';
+			vengine::to_string(type.index(), str);
+			return;
 	}
 }
 
-vengine::string CodegenUtility::GetFunctionDecl(Function func) {
-	vengine::string data;
-	data.reserve(1023u);
+void CodegenUtility::GetFunctionDecl(Function func, vengine::string& data) {
+
 	if (func.return_type()) {
-		data = CodegenUtility::GetTypeName(*func.return_type());
+		CodegenUtility::GetTypeName(*func.return_type(), data);
 	} else {
-		data = "void"_sv;
+		data += "void"_sv;
 	}
 	switch (func.tag()) {
 		case Function::Tag::CALLABLE:
@@ -556,14 +572,13 @@ vengine::string CodegenUtility::GetFunctionDecl(Function func) {
 		data += '(';
 		for (auto&& i : func.arguments()) {
 			RegistStructType(i.type());
-			data += CodegenUtility::GetTypeName(*i.type());
+			CodegenUtility::GetTypeName(*i.type(), data);
 			data += ' ';
-			data += CodegenUtility::GetVariableName(i);
+			CodegenUtility::GetVariableName(i, data);
 			data += ',';
 		}
 		data[data.size() - 1] = ')';
 	}
-	return data;
 }
 
 void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, vengine::string& result) {
@@ -622,7 +637,7 @@ struct Print_RunTypeVisitor : public TypeVisitor {
 		str += "{\n"_sv;
 		size_t count = 0;
 		for (auto&& mem : t->members()) {
-			str += CodegenUtility::GetTypeName(*mem);
+			CodegenUtility::GetTypeName(*mem, str);
 			str += " v"_sv;
 			vengine::to_string(count, str);
 			count++;
@@ -649,7 +664,7 @@ void CodegenUtility::PrintUniform(
 	for (size_t i = 0; i < buffers.size(); ++i) {
 		result += "StructuredBuffer<"_sv;
 		auto&& var = buffers[i].variable;
-		result += GetTypeName(*var.type());
+		GetTypeName(*var.type(), result);
 		result += "> v"_sv;
 		vengine::to_string(var.uid(), result);
 		result += ":register(t"_sv;
@@ -715,13 +730,13 @@ size_t CodegenUtility::PrintGlobalVariables(
 	}
 	for (auto& vec4 : vec4Arr) {
 		cbufferSize += ELE_SIZE * 4;
-		result += GetTypeName(*vec4->type());
+		GetTypeName(*vec4->type(), result);
 		result += "4 v"_sv;
 		vengine::to_string(vec4->uid(), result);
 		result += ";\n"_sv;
 	}
 	auto PrintScalar = [&](Variable const* var) -> void {
-		result += GetTypeName(*var->type());
+		GetTypeName(*var->type(), result);
 		result += " v"_sv;
 		vengine::to_string(var->uid(), result);
 		result += ";\n"_sv;
@@ -729,7 +744,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 
 	for (auto& vec3 : vec4Arr) {
 		cbufferSize += ELE_SIZE * 4;
-		result += GetTypeName(*vec3->type());
+		GetTypeName(*vec3->type(), result);
 		result += "3 v"_sv;
 		vengine::to_string(vec3->uid(), result);
 		result += ";\n"_sv;
@@ -746,7 +761,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 
 	for (auto& vec2 : vec2Arr) {
 		cbufferSize += ELE_SIZE * 2;
-		result += GetTypeName(*vec2->type());
+		GetTypeName(*vec2->type(), result);
 		result += "2 v"_sv;
 		vengine::to_string(vec2->uid(), result);
 		result += ";\n"_sv;
@@ -754,7 +769,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 
 	for (auto& vec : scalarArr) {
 		cbufferSize += ELE_SIZE;
-		result += GetTypeName(*vec->type());
+		GetTypeName(*vec->type(), result);
 		result += " v"_sv;
 		vengine::to_string(vec->uid(), result);
 		result += ";\n"_sv;

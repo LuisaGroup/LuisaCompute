@@ -13,9 +13,9 @@ class Type;
 class TypeVisitor;
 class CodegenUtility {
 public:
-	static vengine::string GetVariableName(Variable const& type);
-	static vengine::string GetTypeName(Type const& type);
-	static vengine::string GetFunctionDecl(Function func);
+	static void GetVariableName(Variable const& type, vengine::string& str);
+	static void GetTypeName(Type const& type, vengine::string& str);
+	static void GetFunctionDecl(Function func, vengine::string& str);
 	static void PrintConstant(Function::ConstantBinding const& binding, vengine::string& result);
 	static void ClearStructType();
 	static void RegistStructType(Type const* type);
