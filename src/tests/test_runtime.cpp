@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
-    auto device = std::make_unique<FakeDevice>();
+    auto device = std::make_unique<FakeDevice>(context);
 #endif
 
     auto buffer = device->create_buffer<float>(16384u);
