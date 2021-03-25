@@ -139,24 +139,20 @@ public:
         return *this;
     }
 
-    [[nodiscard]] auto parallelize(uint3 dispatch_size, uint3 block_size = uint3{8u}) noexcept {
-        _launch_command()->set_dispatch_size(dispatch_size, block_size);
+    [[nodiscard]] auto parallelize(uint3 launch_size, uint3 block_size = uint3{8u}) noexcept {
+        _launch_command()->set_dispatch_size(launch_size, block_size);
         auto command = std::move(_command);
         _command = nullptr;
         return command;
     }
 
-    [[nodiscard]] auto parallelize(uint2 dispatch_size, uint2 block_size = uint2{16u, 16u}) noexcept {
-        return parallelize(uint3{dispatch_size, 1u}, uint3{block_size, 1u});
+    [[nodiscard]] auto parallelize(uint2 launch_size, uint2 block_size = uint2{16u, 16u}) noexcept {
+        return parallelize(uint3{launch_size, 1u}, uint3{block_size, 1u});
     }
 
-    [[nodiscard]] auto parallelize(uint32_t dispatch_size, uint32_t block_size = 256u) noexcept {
-        return parallelize(uint3{dispatch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
+    [[nodiscard]] auto parallelize(uint32_t launch_size, uint32_t block_size = 256u) noexcept {
+        return parallelize(uint3{launch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
     }
-};
-
-struct DeviceKernelPreparation : public Device {
-    void prepare(uint32_t uid) noexcept { Device::_prepare_kernel(uid); }
 };
 
 }// namespace detail
