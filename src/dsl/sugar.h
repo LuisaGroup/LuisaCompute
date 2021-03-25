@@ -11,6 +11,7 @@
 #define $thread_id ::luisa::compute::dsl::thread_id()
 #define $block_id ::luisa::compute::dsl::block_id()
 #define $dispatch_id ::luisa::compute::dsl::dispatch_id()
+#define $launch_size ::luisa::compute::dsl::launch_size()
 
 #define $int $<int>
 #define $uint $<uint>

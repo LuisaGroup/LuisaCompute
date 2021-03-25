@@ -1,9 +1,5 @@
 add_executable(test main.cpp)
-target_compile_features(test PRIVATE c_std_11 cxx_std_20)
 target_link_libraries(test PRIVATE luisa::compute)
-
-add_executable(test_runtime test_runtime.cpp)
-target_link_libraries(test_runtime PRIVATE luisa::compute)
 
 add_executable(test_type test_type.cpp)
 target_link_libraries(test_type PRIVATE luisa::compute)
@@ -16,3 +12,9 @@ target_link_libraries(test_dsl_multithread PRIVATE luisa::compute)
 
 add_executable(test_dsl_sugar test_dsl_sugar.cpp)
 target_link_libraries(test_dsl_sugar PRIVATE luisa::compute)
+
+add_executable(test_runtime test_runtime.cpp)
+target_link_libraries(test_runtime PRIVATE luisa::compute)
+
+add_executable(test_simple test_simple.cpp)
+target_link_libraries(test_simple PRIVATE luisa::compute)

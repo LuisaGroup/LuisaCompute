@@ -284,6 +284,10 @@ template<typename Dest, typename Src>
     return detail::Expr<uint3>{FunctionBuilder::current()->dispatch_id()};
 }
 
+[[nodiscard]] inline auto launch_size() noexcept {
+    return detail::Expr<uint3>{FunctionBuilder::current()->launch_size()};
+}
+
 template<typename... T>
 [[nodiscard]] inline auto multiple(T &&...v) noexcept {
     return std::make_tuple(detail::Expr{v}...);
