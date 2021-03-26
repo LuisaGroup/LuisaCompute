@@ -145,7 +145,7 @@ void StringExprVisitor::visit(const UnaryExpr* expr) {
 			break;
 	}
 	StringExprVisitor vis(*str);
-	expr->accept(vis);
+	expr->operand()->accept(vis);
 	AfterVisit();
 }
 void StringExprVisitor::visit(const BinaryExpr* expr) {
@@ -402,8 +402,10 @@ void StringStateVisitor::visit(const IfStmt* state) {
 	state->condition()->accept(exprVisitor);
 	(*str) += ')';
 	state->true_branch()->accept(stateVisitor);
-	(*str) += "else"_sv;
-	state->false_branch()->accept(stateVisitor);
+	if (state->false_branch()) {
+		(*str) += "else"_sv;
+		state->false_branch()->accept(stateVisitor);
+	}
 }
 
 void StringStateVisitor::visit(const WhileStmt* state) {

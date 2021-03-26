@@ -14,7 +14,7 @@
 #include <dsl/syntax.h>
 
 #include <tests/fake_device.h>
-
+#include <backends/dx/Common/FunctorMeta.h>
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::dsl;
@@ -25,6 +25,32 @@ struct Test {
     float a;
 };
 
+template<typename T>
+struct GetKernelArgType;
+
+template<typename T>
+struct GetKernelArgType<Var<T>> {
+    using Type = typename T;
+};
+template<typename T>
+struct GetKernelArgType<BufferView<T>> {
+    using Type = typename Buffer<T>;
+};
+
+template<typename T>
+struct GetKernelType;
+
+template<typename Ret, typename... Args>
+struct GetKernelType<Ret(Args...)> {
+    using KernelType = typename Ret(GetKernelArgType<Args>::Type...);
+};
+
+template<typename Func>
+decltype(auto) CompileKernel(Func &&func) {
+    using FuncType = MFunctorType<std::remove_cvref_t<Func>>;//void(BufferView<float>, Var<uint>)
+    return Kernel<GetKernelType<FuncType>::KernelType>(func);
+}
+
 LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
@@ -33,7 +59,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     FakeDevice device{context};
-    
+
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
 
@@ -60,7 +86,8 @@ int main(int argc, char *argv[]) {
 
     // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
     // >>> Kernel kernel = [&](...) { ... }
-    Kernel<void(Buffer<float>, uint)> kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
+    //auto func = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
+    Kernel<void(Buffer<float>, uint)> kernel = CompileKernel([&](BufferView<float> buffer_float, Var<uint> count) noexcept -> void {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
@@ -128,7 +155,7 @@ int main(int argc, char *argv[]) {
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
         buffer[v_int + 1] = 123;
-    };
+    });
     auto t1 = std::chrono::high_resolution_clock::now();
 
     auto command = kernel(float_buffer, 12u).parallelize(1024u);
@@ -140,7 +167,7 @@ int main(int argc, char *argv[]) {
     DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
     auto hlsl_serialize = dll.function<void(Function)>("SerializeMD5");
     auto hlsl_codegen = dll.function<void(Function)>("CodegenBody");
-    hlsl_serialize(function);
+    // hlsl_serialize(function);
     hlsl_codegen(function);
 #else
     auto t2 = std::chrono::high_resolution_clock::now();
