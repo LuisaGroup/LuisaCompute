@@ -388,13 +388,8 @@ inline wstring to_wstring(uint64_t _Val) noexcept {
 }
 
 }// namespace vengine
-inline vengine::string_view operator"" _sv(char const* str, size_t sz) {
-	return vengine::string_view(str, sz);
-}
-
-inline vengine::wstring_view operator"" _sv(wchar_t const* str, size_t sz) {
-	return vengine::wstring_view(str, sz);
-}
+DLL_COMMON vengine::string_view operator"" _sv(char const* str, size_t sz);
+DLL_COMMON vengine::wstring_view operator"" _sv(wchar_t const* str, size_t sz);
 
 inline vengine::string operator+(char c, const vengine::string& str) noexcept {
 	return vengine::string(c, str);

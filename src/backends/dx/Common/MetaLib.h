@@ -1,4 +1,5 @@
 #pragma once
+#include <config.h>
 #include <type_traits>
 #include <stdint.h>
 using uint = uint32_t;
@@ -7,7 +8,7 @@ using int64 = int64_t;
 using int32 = int32_t;
 #include <typeinfo>
 #include <new>
-#include "../Common/Hash.h"
+#include <Common/Hash.h>
 #include <mutex>
 #include <atomic>
 #include <thread>
@@ -76,28 +77,28 @@ public:
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			((T*)storage)->~T();
 	}
-	constexpr T& operator*() noexcept {
+	T& operator*() noexcept {
 		return *(T*)storage;
 	}
-	constexpr T const& operator*() const noexcept {
+	T const& operator*() const noexcept {
 		return *(T const*)storage;
 	}
-	constexpr T* operator->() noexcept {
+	T* operator->() noexcept {
 		return (T*)storage;
 	}
-	constexpr T const* operator->() const noexcept {
+	T const* operator->() const noexcept {
 		return (T const*)storage;
 	}
-	constexpr T* GetPtr() noexcept {
+	T* GetPtr() noexcept {
 		return (T*)storage;
 	}
-	constexpr T const* GetPtr() const noexcept {
+	T const* GetPtr() const noexcept {
 		return (T const*)storage;
 	}
-	constexpr operator T*() noexcept {
+	operator T*() noexcept {
 		return (T*)storage;
 	}
-	constexpr operator T const *() const noexcept {
+	operator T const *() const noexcept {
 		return (T const*)storage;
 	}
 	bool operator==(const StackObject<T>&) const noexcept = delete;
@@ -127,10 +128,13 @@ public:
 		stackObj.InPlaceNew(std::forward<Args>(args)...);
 		initialized = true;
 	}
-	constexpr operator bool() const noexcept {
+	operator bool() const noexcept {
 		return initialized;
 	}
-	constexpr bool Initialized() const noexcept {
+	operator bool() noexcept {
+		return initialized;
+	}
+	bool Initialized() const noexcept {
 		return initialized;
 	}
 	inline void Delete() noexcept {
@@ -157,28 +161,28 @@ public:
 			stackObj = std::move(value.stackObj);
 		}
 	}
-	constexpr T& operator*() noexcept {
+	T& operator*() noexcept {
 		return *stackObj;
 	}
-	constexpr T const& operator*() const noexcept {
+	T const& operator*() const noexcept {
 		return *stackObj;
 	}
-	constexpr T* operator->() noexcept {
+	T* operator->() noexcept {
 		return stackObj.operator->();
 	}
-	constexpr T const* operator->() const noexcept {
+	T const* operator->() const noexcept {
 		return stackObj.operator->();
 	}
-	constexpr T* GetPtr() noexcept {
+	T* GetPtr() noexcept {
 		return stackObj.GetPtr();
 	}
-	constexpr T const* GetPtr() const noexcept {
+	T const* GetPtr() const noexcept {
 		return stackObj.GetPtr();
 	}
-	constexpr operator T*() noexcept {
+	operator T*() noexcept {
 		return stackObj;
 	}
-	constexpr operator T const *() const noexcept {
+	operator T const *() const noexcept {
 		return stackObj;
 	}
 	bool operator==(const StackObject<T>&) const noexcept = delete;
@@ -192,6 +196,42 @@ public:
 			stackObj.Delete();
 	}
 };
+
+template<typename F, typename T>
+struct LoopClass;
+
+template<typename F, size_t... idx>
+struct LoopClass<F, std::index_sequence<idx...>> {
+	static void Do(const F& f) noexcept {
+		char c[] = {(f(idx), 0)...};
+	}
+};
+
+template<typename F, uint32_t count>
+struct LoopClassEarlyBreak {
+	static bool Do(const F& f) noexcept {
+		if (!LoopClassEarlyBreak<F, count - 1>::Do((f))) return false;
+		return f(count);
+	}
+};
+
+template<typename F>
+struct LoopClassEarlyBreak<F, 0> {
+	static bool Do(const F& f) noexcept {
+		return f(0);
+	}
+};
+
+template<typename F, uint32_t count>
+void InnerLoop(const F& function) noexcept {
+	LoopClass<typename std::remove_cvref_t<F>, std::make_index_sequence<count>>::Do(function);
+}
+
+template<typename F, uint32_t count>
+bool InnerLoopEarlyBreak(const F& function) noexcept {
+	return LoopClassEarlyBreak<typename std::remove_cvref_t<F>, count - 1>::Do(function);
+}
+
 //Declare Tuple
 
 template<typename T>
@@ -317,11 +357,13 @@ template<typename Class, typename _Ret, typename... Args>
 struct memFuncPtr<_Ret (Class::*)(Args...) const> {
 	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
 	using FuncType = typename _Ret(Args...);
+	using FuncPtrType = typename _Ret (*)(Args...);
 };
 template<typename Class, typename _Ret, typename... Args>
 struct memFuncPtr<_Ret (Class::*)(Args...)> {
 	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
 	using FuncType = typename _Ret(Args...);
+	using FuncPtrType = typename _Ret (*)(Args...);
 };
 
 template<typename T>
@@ -330,24 +372,34 @@ struct FunctionPointerData;
 template<typename _Ret, typename... Args>
 struct FunctionPointerData<_Ret(Args...)> {
 	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
-	using FuncType = typename _Ret(Args...);
 };
 
 template<typename T>
 struct FunctionType {
 	using RetAndArgsType = typename memFuncPtr<decltype(&T::operator())>::RetAndArgsType;
 	using FuncType = typename memFuncPtr<decltype(&T::operator())>::FuncType;
+	using FuncPtrType = typename memFuncPtr<decltype(&T::operator())>::FuncPtrType;
 };
 
 template<typename Ret, typename... Args>
 struct FunctionType<Ret(Args...)> {
 	using RetAndArgsType = typename FunctionPointerData<Ret(Args...)>::RetAndArgsType;
-	using FuncType = typename FunctionPointerData<Ret(Args...)>::FuncType;
+	using FuncType = typename Ret(Args...);
+	using FuncPtrType = typename Ret (*)(Args...);
+};
+template<typename Ret, typename... Args>
+struct FunctionType<Ret (*)(Args...)> {
+	using RetAndArgsType = typename FunctionPointerData<Ret(Args...)>::RetAndArgsType;
+	using FuncType = typename Ret(Args...);
+	using FuncPtrType = typename Ret (*)(Args...);
 };
 }// namespace FunctionTemplateGlobal
 
 template<typename T>
 using FunctionDataType = typename FunctionTemplateGlobal::FunctionType<T>::RetAndArgsType;
 
+template<typename T>
+using FuncPtrType = typename FunctionTemplateGlobal::FunctionType<T>::FuncPtrType;
+
 template<typename A, typename B>
-static constexpr bool IsFunctionTypeOf = std::is_same_v<typename FunctionTemplateGlobal::FunctionType<A>::FuncType, B>;
+static constexpr bool IsFunctionTypeOf = std::is_same_v<FunctionTemplateGlobal::FunctionType<A>::FuncType, B>;

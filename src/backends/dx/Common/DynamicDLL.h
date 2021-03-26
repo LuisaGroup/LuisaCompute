@@ -1,41 +1,28 @@
 #pragma once
+#include <config.h>
 #include "vstring.h"
 #include "DLL.h"
 #include "Memory.h"
 #include <Windows.h>
 #include "Log.h"
-class DynamicDLL final
-{
+class DLL_COMMON DynamicDLL final {
 	HINSTANCE inst;
-	template <typename T>
-	struct GetFuncPtrFromDll;
-	template <typename Ret, typename ... Args>
-	struct GetFuncPtrFromDll <Ret(Args...)>
-	{
-		using FuncType = typename Ret(* _cdecl)(Args...);
-		static FuncType Run(HINSTANCE h, LPCSTR str) noexcept
-		{
-			auto ptr = GetProcAddress(h, str);
-			if (ptr == nullptr) {
-				VEngine_Log(
-					{"Can not find function ",
-					 str});
-				throw 0;
-			}
-			return (FuncType)(ptr);
-		}
+	template<typename T>
+	struct IsFuncPtr {
+		static constexpr bool value = false;
 	};
+
+	template<typename _Ret, typename... Args>
+	struct IsFuncPtr<_Ret (*)(Args...)> {
+		static constexpr bool value = true;
+	};
+
 public:
 	DynamicDLL(char const* name);
 	~DynamicDLL();
-	template <typename T>
-	typename GetFuncPtrFromDll<T>::FuncType
-		GetDLLFunc(char const* str)
-	{
-		return GetFuncPtrFromDll<T>::Run(inst, str);
-	}
 	template<typename T>
-	void const* GetDLLFunc(T& funcPtr, char const* name) {
+	void GetDLLFunc(T& funcPtr, char const* name) {
+		static_assert(IsFuncPtr<std::remove_cvref_t<T>>::value, "DLL Only Support Function Pointer!");
 		auto ptr = GetProcAddress(inst, name);
 		if (ptr == nullptr) {
 			VEngine_Log(

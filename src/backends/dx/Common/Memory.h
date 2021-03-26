@@ -1,17 +1,18 @@
 #pragma once
+#include <config.h>
 #include <cstdlib>
-#include <cstdint>
+#include <stdint.h>
 #include <type_traits>
 #include "DLL.h"
 #include "MetaLib.h"
 namespace vengine {
-void vengine_init_malloc();
-void vengine_init_malloc(
+DLL_COMMON void vengine_init_malloc();
+DLL_COMMON void vengine_init_malloc(
 	funcPtr_t<void*(size_t)> mallocFunc,
 	funcPtr_t<void(void*)> freeFunc);
 }// namespace vengine
 namespace v_mimalloc {
-struct Alloc {
+struct DLL_COMMON Alloc {
 	friend void vengine::vengine_init_malloc();
 	friend void vengine::vengine_init_malloc(
 		funcPtr_t<void*(size_t)> mallocFunc,
@@ -22,10 +23,10 @@ private:
 	static funcPtr_t<void(void*)> freeFunc;
 
 public:
-	static funcPtr_t<void*(size_t)> GetMalloc() {
+	static funcPtr_t<void*(size_t)> GetMiMalloc() {
 		return mallocFunc;
 	}
-	static funcPtr_t<void(void*)> Getfree() {
+	static funcPtr_t<void(void*)> GetMifree() {
 		return freeFunc;
 	}
 	Alloc() = delete;
@@ -34,11 +35,11 @@ public:
 };
 }// namespace v_mimalloc
 
-inline void* vengine_malloc(uint64_t size) noexcept {
-	return v_mimalloc::Alloc::GetMalloc()(size);
+inline void* vengine_malloc(size_t size) noexcept {
+	return v_mimalloc::Alloc::GetMiMalloc()(size);
 }
 inline void vengine_free(void* ptr) noexcept {
-	v_mimalloc::Alloc::Getfree()(ptr);
+	v_mimalloc::Alloc::GetMifree()(ptr);
 }
 
 template<typename T, typename... Args>
@@ -89,8 +90,10 @@ struct DynamicObject {
 	}
 };
 
-#define KILL_COPY_CONSTRUCT(clsName)             \
-	clsName(clsName const&) = delete;            \
-	clsName(clsName&&) = delete;                 \
-	clsName& operator=(clsName const&) = delete; \
+#define KILL_COPY_CONSTRUCT(clsName)  \
+	clsName(clsName const&) = delete; \
+	clsName& operator=(clsName const&) = delete;
+
+#define KILL_MOVE_CONSTRUCT(clsName) \
+	clsName(clsName&&) = delete;     \
 	clsName& operator=(clsName&&) = delete;

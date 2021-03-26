@@ -22,8 +22,7 @@ public:
 	static void IterateStructType(TypeVisitor* visitor);
 	static void PrintStructType(vengine::string& str);
 	static void PrintUniform(
-		std::span<const Function::BufferBinding> buffers,
-		std::span<const Function::TextureBinding> texs,
+		Function func,
 		vengine::string& result);
 
 	static size_t PrintGlobalVariables(

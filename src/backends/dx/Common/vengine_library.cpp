@@ -46,7 +46,7 @@ string::~string() noexcept {
 }
 string::string(char const* chr) noexcept {
 	size_t size = strlen(chr);
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -54,7 +54,7 @@ string::string(char const* chr) noexcept {
 }
 string::string(const char* chr, const char* chrEnd) noexcept {
 	size_t size = chrEnd - chr;
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -63,21 +63,21 @@ string::string(const char* chr, const char* chrEnd) noexcept {
 }
 string::string(string_view tempView) {
 	auto size = tempView.size();
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
 	memcpy(ptr, tempView.c_str(), newLenSize);
 	ptr[lenSize] = 0;
 }
-void string::push_back_all(char const* c, uint64_t newStrLen) noexcept {
-	uint64_t newCapacity = lenSize + newStrLen + 1;
+void string::push_back_all(char const* c, size_t newStrLen) noexcept {
+	size_t newCapacity = lenSize + newStrLen + 1;
 	reserve(newCapacity);
 	memcpy(ptr + lenSize, c, newStrLen);
 	lenSize = newCapacity - 1;
 	ptr[lenSize] = 0;
 }
-void string::reserve(uint64_t targetCapacity) noexcept {
+void string::reserve(size_t targetCapacity) noexcept {
 	if (capacity >= targetCapacity) return;
 	char* newPtr = (char*)vengine_malloc(targetCapacity);
 	if (ptr) {
@@ -107,12 +107,12 @@ string::string(string&& data) noexcept {
 	data.lenSize = 0;
 	data.capacity = 0;
 }
-void string::resize(uint64_t newSize) noexcept {
+void string::resize(size_t newSize) noexcept {
 	reserve(newSize + 1);
 	lenSize = newSize;
 	ptr[lenSize] = 0;
 }
-string::string(uint64_t size, char c) noexcept {
+string::string(size_t size, char c) noexcept {
 	reserve(size + 1);
 	lenSize = size;
 	memset(ptr, c, lenSize);
@@ -134,14 +134,8 @@ string& string::operator=(const string& data) noexcept {
 	return *this;
 }
 string& string::operator=(string&& data) noexcept {
-	if (ptr)
-		vengine_free(ptr);
-	ptr = data.ptr;
-	lenSize = data.lenSize;
-	capacity = data.capacity;
-	data.ptr = nullptr;
-	data.lenSize = 0;
-	data.capacity = 0;
+	this->~string();
+	new (this) string(std::move(data));
 	return *this;
 }
 string& string::operator=(const char* c) noexcept {
@@ -161,7 +155,7 @@ string& string::operator=(char data) noexcept {
 }
 string& string::operator+=(const string& str) noexcept {
 	if (str.ptr) {
-		uint64_t newCapacity = lenSize + str.lenSize + 1;
+		size_t newCapacity = lenSize + str.lenSize + 1;
 		reserve(newCapacity);
 		memcpy(ptr + lenSize, str.ptr, str.lenSize);
 		lenSize = newCapacity - 1;
@@ -170,8 +164,8 @@ string& string::operator+=(const string& str) noexcept {
 	return *this;
 }
 string& string::operator+=(const char* str) noexcept {
-	uint64_t newStrLen = strlen(str);
-	uint64_t newCapacity = lenSize + newStrLen + 1;
+	size_t newStrLen = strlen(str);
+	size_t newCapacity = lenSize + newStrLen + 1;
 	reserve(newCapacity);
 	memcpy(ptr + lenSize, str, newStrLen);
 	lenSize = newCapacity - 1;
@@ -179,8 +173,8 @@ string& string::operator+=(const char* str) noexcept {
 	return *this;
 }
 string& string::operator+=(char str) noexcept {
-	static const uint64_t newStrLen = 1;
-	uint64_t newCapacity = lenSize + newStrLen + 1;
+	static const size_t newStrLen = 1;
+	size_t newCapacity = lenSize + newStrLen + 1;
 	reserve(newCapacity);
 	ptr[lenSize] = str;
 	lenSize = newCapacity - 1;
@@ -193,7 +187,7 @@ string::string(const string& a, const string& b) noexcept {
 		capacity = 0;
 		lenSize = 0;
 	} else {
-		uint64_t newLenSize = a.lenSize + b.lenSize;
+		size_t newLenSize = a.lenSize + b.lenSize;
 		reserve(newLenSize + 1);
 		lenSize = newLenSize;
 		if (a.ptr)
@@ -205,7 +199,7 @@ string::string(const string& a, const string& b) noexcept {
 }
 string::string(const string& a, const char* b) noexcept {
 	size_t newLen = strlen(b);
-	uint64_t newLenSize = a.lenSize + newLen;
+	size_t newLenSize = a.lenSize + newLen;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	if (a.ptr)
@@ -215,7 +209,7 @@ string::string(const string& a, const char* b) noexcept {
 }
 string::string(const char* a, const string& b) noexcept {
 	size_t newLen = strlen(a);
-	uint64_t newLenSize = b.lenSize + newLen;
+	size_t newLenSize = b.lenSize + newLen;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	memcpy(ptr, a, newLen);
@@ -224,7 +218,7 @@ string::string(const char* a, const string& b) noexcept {
 	ptr[lenSize] = 0;
 }
 string::string(const string& a, char b) noexcept {
-	uint64_t newLenSize = a.lenSize + 1;
+	size_t newLenSize = a.lenSize + 1;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	if (a.ptr)
@@ -233,7 +227,7 @@ string::string(const string& a, char b) noexcept {
 	ptr[newLenSize] = 0;
 }
 string::string(char a, const string& b) noexcept {
-	uint64_t newLenSize = b.lenSize + 1;
+	size_t newLenSize = b.lenSize + 1;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	if (b.ptr)
@@ -241,14 +235,14 @@ string::string(char a, const string& b) noexcept {
 	ptr[0] = a;
 	ptr[newLenSize] = 0;
 }
-char& string::operator[](uint64_t index) noexcept {
+char& string::operator[](size_t index) noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
 	return ptr[index];
 }
-void string::erase(uint64_t index) noexcept {
+void string::erase(size_t index) noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
@@ -256,31 +250,31 @@ void string::erase(uint64_t index) noexcept {
 	memmove(ptr + index, ptr + index + 1, (lenSize - index));
 	lenSize--;
 }
-char const& string::operator[](uint64_t index) const noexcept {
+char const& string::operator[](size_t index) const noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
 	return ptr[index];
 }
-bool string::Equal(char const* str, uint64_t count) const noexcept {
-	uint64_t bit64Count = count / 8;
-	uint64_t leftedCount = count - bit64Count * 8;
-	uint64_t const* value = (uint64_t const*)str;
-	uint64_t const* oriValue = (uint64_t const*)ptr;
-	for (uint64_t i = 0; i < bit64Count; ++i) {
+bool string::Equal(char const* str, size_t count) const noexcept {
+	size_t bit64Count = count / 8;
+	size_t leftedCount = count - bit64Count * 8;
+	size_t const* value = (size_t const*)str;
+	size_t const* oriValue = (size_t const*)ptr;
+	for (size_t i = 0; i < bit64Count; ++i) {
 		if (value[i] != oriValue[i]) return false;
 	}
 	char const* c = (char const*)(value + bit64Count);
 	char const* oriC = (char const*)(oriValue + bit64Count);
-	for (uint64_t i = 0; i < leftedCount; ++i) {
+	for (size_t i = 0; i < leftedCount; ++i) {
 		if (c[i] != oriC[i]) return false;
 	}
 	return true;
 }
 std::ostream& operator<<(std::ostream& out, const string& obj) noexcept {
 	if (!obj.ptr) return out;
-	for (uint64_t i = 0; i < obj.lenSize; ++i) {
+	for (size_t i = 0; i < obj.lenSize; ++i) {
 		out << obj.ptr[i];
 	}
 	return out;
@@ -304,7 +298,7 @@ wstring::~wstring() noexcept {
 }
 wstring::wstring(wchar_t const* chr) noexcept {
 	size_t size = wstrLen(chr);
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -313,7 +307,7 @@ wstring::wstring(wchar_t const* chr) noexcept {
 }
 wstring::wstring(const wchar_t* wchr, const wchar_t* wchrEnd) noexcept {
 	size_t size = wchrEnd - wchr;
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -322,7 +316,7 @@ wstring::wstring(const wchar_t* wchr, const wchar_t* wchrEnd) noexcept {
 }
 wstring::wstring(const char* chr) noexcept {
 	size_t size = strlen(chr);
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -333,7 +327,7 @@ wstring::wstring(const char* chr) noexcept {
 }
 wstring::wstring(const char* chr, const char* wchrEnd) noexcept {
 	size_t size = wchrEnd - chr;
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -344,7 +338,7 @@ wstring::wstring(const char* chr, const char* wchrEnd) noexcept {
 }
 wstring::wstring(wstring_view chunk) {
 	size_t size = chunk.size();
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -353,7 +347,7 @@ wstring::wstring(wstring_view chunk) {
 }
 wstring::wstring(string_view chunk) {
 	size_t size = chunk.size();
-	uint64_t newLenSize = size;
+	size_t newLenSize = size;
 	size += 1;
 	reserve(size);
 	lenSize = newLenSize;
@@ -362,7 +356,7 @@ wstring::wstring(string_view chunk) {
 	}
 	ptr[lenSize] = 0;
 }
-void wstring::reserve(uint64_t targetCapacity) noexcept {
+void wstring::reserve(size_t targetCapacity) noexcept {
 	if (capacity >= targetCapacity) return;
 	targetCapacity *= 2;
 	wchar_t* newPtr = (wchar_t*)(char*)vengine_malloc(targetCapacity);
@@ -394,12 +388,12 @@ wstring::wstring(wstring&& data) noexcept {
 	data.lenSize = 0;
 	data.capacity = 0;
 }
-void wstring::resize(uint64_t newSize) noexcept {
+void wstring::resize(size_t newSize) noexcept {
 	reserve(newSize + 1);
 	lenSize = newSize;
 	ptr[lenSize] = 0;
 }
-wstring::wstring(uint64_t size, wchar_t c) noexcept {
+wstring::wstring(size_t size, wchar_t c) noexcept {
 	reserve(size + 1);
 	lenSize = size;
 	memset(ptr, c, lenSize * 2);
@@ -408,7 +402,7 @@ wstring::wstring(uint64_t size, wchar_t c) noexcept {
 wstring::wstring(string const& str) noexcept {
 	reserve(str.getCapacity());
 	lenSize = str.size();
-	for (uint64_t i = 0; i < lenSize; ++i)
+	for (size_t i = 0; i < lenSize; ++i)
 		ptr[i] = str[i];
 	ptr[lenSize] = 0;
 }
@@ -428,14 +422,8 @@ wstring& wstring::operator=(const wstring& data) noexcept {
 	return *this;
 }
 wstring& wstring::operator=(wstring&& data) noexcept {
-	if (ptr)
-		vengine_free(ptr);
-	ptr = data.ptr;
-	lenSize = data.lenSize;
-	capacity = data.capacity;
-	data.ptr = nullptr;
-	data.lenSize = 0;
-	data.capacity = 0;
+	this->~wstring();
+	new (this) wstring(std::move(data));
 	return *this;
 }
 wstring& wstring::operator=(const wchar_t* c) noexcept {
@@ -455,7 +443,7 @@ wstring& wstring::operator=(wchar_t data) noexcept {
 }
 wstring& wstring::operator+=(const wstring& str) noexcept {
 	if (str.ptr) {
-		uint64_t newCapacity = lenSize + str.lenSize + 1;
+		size_t newCapacity = lenSize + str.lenSize + 1;
 		reserve(newCapacity);
 		memcpy(ptr + lenSize, str.ptr, str.lenSize * 2);
 		lenSize = newCapacity - 1;
@@ -464,8 +452,8 @@ wstring& wstring::operator+=(const wstring& str) noexcept {
 	return *this;
 }
 wstring& wstring::operator+=(const wchar_t* str) noexcept {
-	uint64_t newStrLen = wstrLen(str);
-	uint64_t newCapacity = lenSize + newStrLen + 1;
+	size_t newStrLen = wstrLen(str);
+	size_t newCapacity = lenSize + newStrLen + 1;
 	reserve(newCapacity);
 	memcpy(ptr + lenSize, str, newStrLen * 2);
 	lenSize = newCapacity - 1;
@@ -473,8 +461,8 @@ wstring& wstring::operator+=(const wchar_t* str) noexcept {
 	return *this;
 }
 wstring& wstring::operator+=(wchar_t str) noexcept {
-	static const uint64_t newStrLen = 1;
-	uint64_t newCapacity = lenSize + newStrLen + 1;
+	static const size_t newStrLen = 1;
+	size_t newCapacity = lenSize + newStrLen + 1;
 	reserve(newCapacity);
 	ptr[lenSize] = str;
 	lenSize = newCapacity - 1;
@@ -487,7 +475,7 @@ wstring::wstring(const wstring& a, const wstring& b) noexcept {
 		capacity = 0;
 		lenSize = 0;
 	} else {
-		uint64_t newLenSize = a.lenSize + b.lenSize;
+		size_t newLenSize = a.lenSize + b.lenSize;
 		reserve(newLenSize + 1);
 		lenSize = newLenSize;
 		if (a.ptr)
@@ -499,7 +487,7 @@ wstring::wstring(const wstring& a, const wstring& b) noexcept {
 }
 wstring::wstring(const wstring& a, const wchar_t* b) noexcept {
 	size_t newLen = wstrLen(b);
-	uint64_t newLenSize = a.lenSize + newLen;
+	size_t newLenSize = a.lenSize + newLen;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	if (a.ptr)
@@ -509,7 +497,7 @@ wstring::wstring(const wstring& a, const wchar_t* b) noexcept {
 }
 wstring::wstring(const wchar_t* a, const wstring& b) noexcept {
 	size_t newLen = wstrLen(a);
-	uint64_t newLenSize = b.lenSize + newLen;
+	size_t newLenSize = b.lenSize + newLen;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	memcpy(ptr, a, newLen * 2);
@@ -518,7 +506,7 @@ wstring::wstring(const wchar_t* a, const wstring& b) noexcept {
 	ptr[lenSize] = 0;
 }
 wstring::wstring(const wstring& a, wchar_t b) noexcept {
-	uint64_t newLenSize = a.lenSize + 1;
+	size_t newLenSize = a.lenSize + 1;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	if (a.ptr)
@@ -527,7 +515,7 @@ wstring::wstring(const wstring& a, wchar_t b) noexcept {
 	ptr[newLenSize] = 0;
 }
 wstring::wstring(wchar_t a, const wstring& b) noexcept {
-	uint64_t newLenSize = b.lenSize + 1;
+	size_t newLenSize = b.lenSize + 1;
 	reserve(newLenSize + 1);
 	lenSize = newLenSize;
 	if (b.ptr)
@@ -536,14 +524,14 @@ wstring::wstring(wchar_t a, const wstring& b) noexcept {
 	ptr[newLenSize] = 0;
 }
 
-wchar_t& wstring::operator[](uint64_t index) noexcept {
+wchar_t& wstring::operator[](size_t index) noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
 	return ptr[index];
 }
-void wstring::erase(uint64_t index) noexcept {
+void wstring::erase(size_t index) noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
@@ -551,24 +539,24 @@ void wstring::erase(uint64_t index) noexcept {
 	memmove(ptr + index, ptr + index + 1, (lenSize - index) * 2);
 	lenSize--;
 }
-wchar_t const& wstring::operator[](uint64_t index) const noexcept {
+wchar_t const& wstring::operator[](size_t index) const noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
 	return ptr[index];
 }
-bool wstring::Equal(wchar_t const* str, uint64_t count) const noexcept {
-	uint64_t bit64Count = count / 8;
-	uint64_t leftedCount = count - bit64Count * 8;
-	uint64_t const* value = (uint64_t const*)str;
-	uint64_t const* oriValue = (uint64_t const*)ptr;
-	for (uint64_t i = 0; i < bit64Count; ++i) {
+bool wstring::Equal(wchar_t const* str, size_t count) const noexcept {
+	size_t bit64Count = count / 8;
+	size_t leftedCount = count - bit64Count * 8;
+	size_t const* value = (size_t const*)str;
+	size_t const* oriValue = (size_t const*)ptr;
+	for (size_t i = 0; i < bit64Count; ++i) {
 		if (value[i] != oriValue[i]) return false;
 	}
 	wchar_t const* c = (wchar_t const*)(value + bit64Count);
 	wchar_t const* oriC = (wchar_t const*)(oriValue + bit64Count);
-	for (uint64_t i = 0; i < leftedCount; ++i) {
+	for (size_t i = 0; i < leftedCount; ++i) {
 		if (c[i] != oriC[i]) return false;
 	}
 	return true;
@@ -590,4 +578,12 @@ DynamicDLL::DynamicDLL(char const* name) {
 }
 DynamicDLL::~DynamicDLL() {
 	FreeLibrary(inst);
+}
+
+vengine::string_view operator"" _sv(char const* str, size_t sz) {
+	return vengine::string_view(str, sz);
+}
+
+vengine::wstring_view operator"" _sv(wchar_t const* str, size_t sz) {
+	return vengine::wstring_view(str, sz);
 }

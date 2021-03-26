@@ -23,13 +23,13 @@ class LockFreeArrayQueue {
 		} else
 			free(ptr);
 	}
-	static constexpr uint64_t GetPow2Size(uint64_t capacity) noexcept {
-		uint64_t ssize = 1;
+	static constexpr size_t GetPow2Size(size_t capacity) noexcept {
+		size_t ssize = 1;
 		while (ssize < capacity)
 			ssize <<= 1;
 		return ssize;
 	}
-	static constexpr uint64_t GetIndex(uint64_t index, uint64_t capacity) noexcept {
+	static constexpr size_t GetIndex(size_t index, size_t capacity) noexcept {
 		return index & capacity;
 	}
 
@@ -45,6 +45,10 @@ public:
 		  capacity(v.capacity),
 		  arr(v.arr) {
 		v.arr = nullptr;
+	}
+	void operator=(LockFreeArrayQueue<T, useVAlloc>&& v) {
+		this->~LockFreeArrayQueue();
+		new (this) LockFreeArrayQueue(std::move(v));
 	}
 	LockFreeArrayQueue() : LockFreeArrayQueue(32) {}
 
@@ -95,7 +99,21 @@ public:
 		if (head - tail == 0)
 			return false;
 		auto&& value = arr[GetIndex(tail++, capacity)];
-		*ptr = value;
+		constexpr bool isTrivial = std::is_trivially_destructible_v<T>;
+		if constexpr (!isTrivial) {
+			ptr->~T();
+		}
+		new (ptr) T(std::move(value));
+		if constexpr (!isTrivial) {
+			value.~T();
+		}
+		return true;
+	}
+	bool Pop() {
+		std::lock_guard<spin_mutex> lck(mtx);
+		if (head - tail == 0)
+			return false;
+		auto&& value = arr[GetIndex(tail++, capacity)];
 		if constexpr (!std::is_trivially_destructible_v<T>) {
 			value.~T();
 		}
@@ -110,7 +128,7 @@ public:
 		Free(arr);
 	}
 	size_t Length() const {
-		return tail - head;
+		return head - tail;
 	}
 };
 
@@ -133,13 +151,13 @@ class SingleThreadArrayQueue {
 		} else
 			free(ptr);
 	}
-	static constexpr uint64_t GetPow2Size(uint64_t capacity) noexcept {
-		uint64_t ssize = 1;
+	static constexpr size_t GetPow2Size(size_t capacity) noexcept {
+		size_t ssize = 1;
 		while (ssize < capacity)
 			ssize <<= 1;
 		return ssize;
 	}
-	static constexpr uint64_t GetIndex(uint64_t index, uint64_t capacity) noexcept {
+	static constexpr size_t GetIndex(size_t index, size_t capacity) noexcept {
 		return index & capacity;
 	}
 
