@@ -1,4 +1,5 @@
 #pragma once
+#include <config.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <memory>
@@ -8,9 +9,6 @@
 
 namespace vengine {
 
-template<typename T>
-constexpr auto always_false_v = false;
-
 template<typename T, bool useVEngineAlloc = true, bool forceTrivial = std::is_trivial_v<T>>
 class vector {
 private:
@@ -19,9 +17,9 @@ private:
 		~ValueType() {}
 	};
 	T* arr;
-	uint64_t mSize;
-	uint64_t mCapacity;
-	static constexpr uint64_t GetNewVectorSize(uint64_t oldSize) {
+	size_t mSize;
+	size_t mCapacity;
+	static size_t GetNewVectorSize(size_t oldSize) {
 		if constexpr (useVEngineAlloc) {
 			return oldSize * 1.5 + 8;
 
@@ -32,7 +30,7 @@ private:
 			return oldSize;
 		}
 	}
-	static T* Allocate(uint64_t& capacity) noexcept {
+	static T* Allocate(size_t& capacity) noexcept {
 		if constexpr (useVEngineAlloc) {
 			capacity *= sizeof(T);
 			auto ptr = (T*)vengine_malloc(capacity);
@@ -52,19 +50,19 @@ private:
 	}
 
 public:
-	void reserve(uint64_t newCapacity) noexcept {
+	void reserve(size_t newCapacity) noexcept {
 		if (newCapacity <= mCapacity) return;
 		T* newArr = Allocate(newCapacity);
 		if (arr) {
 			if constexpr (std::is_trivially_copyable_v<T> || forceTrivial) {
 				memcpy(newArr, arr, sizeof(T) * mSize);
 				if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
-					for (uint64_t i = 0; i < mSize; ++i) {
+					for (size_t i = 0; i < mSize; ++i) {
 						(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
 					}
 				}
 			} else {
-				for (uint64_t i = 0; i < mSize; ++i) {
+				for (size_t i = 0; i < mSize; ++i) {
 					new (newArr + i) T(static_cast<T&&>(arr[i]));
 					if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
 						(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
@@ -80,21 +78,21 @@ public:
 		mCapacity = newCapacity;
 	}
 	T* data() const noexcept { return arr; }
-	uint64_t size() const noexcept { return mSize; }
-	uint64_t capacity() const noexcept { return mCapacity; }
+	size_t size() const noexcept { return mSize; }
+	size_t capacity() const noexcept { return mCapacity; }
 	struct Iterator {
-		friend class vector<T, useVEngineAlloc, forceTrivial>;
+		friend class vector;
 
 	private:
-		const vector<T, useVEngineAlloc, forceTrivial>* lst;
-		uint64_t index;
-		constexpr Iterator(const vector<T, useVEngineAlloc, forceTrivial>* lst, uint64_t index) noexcept : lst(lst), index(index) {}
+		const vector* lst;
+		size_t index;
+		Iterator(const vector* lst, size_t index) noexcept : lst(lst), index(index) {}
 
 	public:
-		bool constexpr operator==(const Iterator& ite) const noexcept {
+		bool operator==(const Iterator& ite) const noexcept {
 			return index == ite.index;
 		}
-		bool constexpr operator!=(const Iterator& ite) const noexcept {
+		bool operator!=(const Iterator& ite) const noexcept {
 			return index != ite.index;
 		}
 		void operator++() noexcept {
@@ -103,7 +101,7 @@ public:
 		void operator--() noexcept {
 			index--;
 		}
-		uint64_t GetIndex() const noexcept {
+		size_t GetIndex() const noexcept {
 			return index;
 		}
 		void operator++(int32_t) noexcept {
@@ -112,17 +110,17 @@ public:
 		void operator--(int32_t) noexcept {
 			index--;
 		}
-		Iterator constexpr operator+(uint64_t value) const noexcept {
+		Iterator operator+(size_t value) const noexcept {
 			return Iterator(lst, index + value);
 		}
-		Iterator constexpr operator-(uint64_t value) const noexcept {
+		Iterator operator-(size_t value) const noexcept {
 			return Iterator(lst, index - value);
 		}
-		Iterator& operator+=(uint64_t value) noexcept {
+		Iterator& operator+=(size_t value) noexcept {
 			index += value;
 			return *this;
 		}
-		Iterator& operator-=(uint64_t value) noexcept {
+		Iterator& operator-=(size_t value) noexcept {
 			index -= value;
 			return *this;
 		}
@@ -139,10 +137,10 @@ public:
 			return (*lst).arr[index];
 		}
 	};
-	vector(uint64_t mSize) noexcept : mSize(mSize), mCapacity(mSize) {
+	vector(size_t mSize) noexcept : mSize(mSize), mCapacity(mSize) {
 		arr = Allocate(mCapacity);
 		if constexpr (!(std::is_trivially_constructible_v<T> || forceTrivial)) {
-			for (uint64_t i = 0; i < mSize; ++i) {
+			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T();
 			}
 		}
@@ -150,71 +148,63 @@ public:
 	vector(std::initializer_list<T> const& lst) : mSize(lst.size()), mCapacity(lst.size()) {
 		arr = Allocate(mCapacity);
 		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
-			for (uint64_t i = 0; i < mSize; ++i) {
+			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(lst.begin()[i]);
 			}
 		} else {
 			memcpy(arr, lst.begin(), sizeof(T) * mSize);
 		}
 	}
-	vector(const vector<T, useVEngineAlloc, forceTrivial>& another) noexcept : mSize(another.mSize), mCapacity(another.mCapacity) {
+	vector(const vector& another) noexcept : mSize(another.mSize), mCapacity(another.mCapacity) {
 		arr = Allocate(mCapacity);
 		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
-			for (uint64_t i = 0; i < mSize; ++i) {
+			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(another.arr[i]);
 			}
 		} else
 			memcpy(arr, another.arr, sizeof(T) * mSize);
 	}
-	vector(vector<T, useVEngineAlloc, forceTrivial>&& another) noexcept
+	vector(vector&& another) noexcept
 		: mSize(another.mSize), mCapacity(another.mCapacity),
 		  arr(another.arr) {
 		another.arr = nullptr;
 		another.mSize = 0;
 		another.mCapacity = 0;
 	}
-	void operator=(const vector<T, useVEngineAlloc, forceTrivial>& another) noexcept {
-		if (&another == this) return;
+	void operator=(const vector& another) noexcept {
 		clear();
 		reserve(another.mSize);
 		mSize = another.mSize;
 		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
-			for (uint64_t i = 0; i < mSize; ++i) {
+			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(another.arr[i]);
 			}
 		} else {
 			memcpy(arr, another.arr, sizeof(T) * mSize);
 		}
 	}
-	void operator=(vector<T, useVEngineAlloc, forceTrivial>&& another) noexcept {
-		if (&another == this) return;
-		clear();
-		if (arr)
-			Free(arr);
-		arr = another.arr;
-		mSize = another.mSize;
-		mCapacity = another.mCapacity;
-		another.arr = nullptr;
-		another.mSize = 0;
-		another.mCapacity = 0;
+	void operator=(vector&& another) noexcept {
+		this->~vector();
+		new (this) vector(std::move(another));
 	}
-	void push_back_all(const T* values, uint64_t count) noexcept {
+	void push_back_all(const T* values, size_t count) noexcept {
+		if (mSize + count > mCapacity) {
+			size_t newCapacity = GetNewVectorSize(mCapacity);
+			size_t values[2] = {
+				mCapacity + 1, count + mSize};
+			newCapacity = newCapacity > values[0] ? newCapacity : values[0];
+			newCapacity = newCapacity > values[1] ? newCapacity : values[1];
+			reserve(newCapacity);
+		}
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
-			for (uint64_t i = 0; i < count; ++i) {
-				push_back(values[i]);
+			for (size_t i = 0; i < count; ++i) {
+				T* ptr = arr + mSize + i;
+				new (ptr) T(values[i]);
 			}
 		} else {
-			if (mSize + count > mCapacity) {
-				uint64_t newCapacity = GetNewVectorSize(mCapacity);
-				uint64_t values[2] = {
-					mCapacity + 1, count + mSize};
-				newCapacity = newCapacity > values[0] ? newCapacity : values[0];
-				newCapacity = newCapacity > values[1] ? newCapacity : values[1];
-				reserve(newCapacity);
-			}
 			memcpy(arr + mSize, values, count * sizeof(T));
-			mSize += count;
 		}
+		mSize += count;
 	}
 
 	void push_back_all(const std::initializer_list<T>& list) noexcept {
@@ -223,7 +213,7 @@ public:
 	}
 	void SetZero() const noexcept {
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
-			static_assert(always_false_v<T>, "Non-Trivial data cannot be setted");
+			static_assert(false, "Non-Trivial data cannot be setted");
 		} else {
 			if (arr) memset(arr, 0, sizeof(T) * mSize);
 		}
@@ -233,7 +223,7 @@ public:
 		reserve(list.size());
 		mSize = list.size();
 		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
-			for (uint64_t i = 0; i < mSize; ++i) {
+			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(list.begin()[i]);
 			}
 		} else {
@@ -245,7 +235,7 @@ public:
 	~vector() noexcept {
 		if (arr) {
 			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
-				for (uint64_t i = 0; i < mSize; ++i) {
+				for (size_t i = 0; i < mSize; ++i) {
 					(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
 				}
 			}
@@ -259,7 +249,7 @@ public:
 	template<typename... Args>
 	T& emplace_back(Args&&... args) noexcept {
 		if (mSize >= mCapacity) {
-			uint64_t newCapacity = GetNewVectorSize(mCapacity);
+			size_t newCapacity = GetNewVectorSize(mCapacity);
 			reserve(newCapacity);
 		}
 		T* ptr = arr + mSize;
@@ -292,7 +282,7 @@ public:
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
 			if constexpr (!(std::is_trivially_copyable_v<T> || forceTrivial)) {
 				if (ite.index < mSize - 1) {
-					for (uint64_t i = ite.index; i < mSize - 1; ++i) {
+					for (size_t i = ite.index; i < mSize - 1; ++i) {
 						arr[i] = arr[i + 1];
 					}
 				}
@@ -308,9 +298,6 @@ public:
 	}
 
 	decltype(auto) erase_last() noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
-		if (mSize == 0) throw "Empty List!";
-#endif
 		mSize--;
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
 			T tempValue = arr[mSize];
@@ -322,7 +309,7 @@ public:
 	}
 	void clear() noexcept {
 		if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
-			for (uint64_t i = 0; i < mSize; ++i) {
+			for (size_t i = 0; i < mSize; ++i) {
 				(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
 			}
 		}
@@ -336,27 +323,28 @@ public:
 			arr = nullptr;
 		}
 	}
-	void resize(uint64_t newSize) noexcept {
+	void resize(size_t newSize) noexcept {
 		reserve(newSize);
 		if constexpr (!(std::is_trivially_constructible_v<T> || forceTrivial)) {
-			for (uint64_t i = mSize; i < newSize; ++i) {
+			for (size_t i = mSize; i < newSize; ++i) {
 				new (arr + i) T();
 			}
 		}
 		mSize = newSize;
 	}
-	T& operator[](uint64_t index) noexcept {
+	T& operator[](size_t index) noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 		if (index >= mSize) throw "Out of Range!";
 #endif
 		return arr[index];
 	}
-	const T& operator[](uint64_t index) const noexcept {
+	const T& operator[](size_t index) const noexcept {
 #if defined(DEBUG) || defined(_DEBUG)
 		if (index >= mSize) throw "Out of Range!";
 #endif
 		return arr[index];
 	}
+	
 };
 }// namespace vengine
 template<typename T, bool useVEngineAlloc = true>

@@ -1,4 +1,5 @@
 #pragma once
+#include <config.h>
 #include <type_traits>
 #include <stdint.h>
 
@@ -24,7 +25,7 @@ class Pool<T, useVEngineMalloc, true> {
 private:
 	ArrayList<T*, useVEngineMalloc> allPtrs;
 	ArrayList<void*, useVEngineMalloc> allocatedPtrs;
-	uint64_t capacity;
+	size_t capacity;
 
 	void* PoolMalloc(size_t size) {
 		if constexpr (useVEngineMalloc) {
@@ -38,13 +39,13 @@ private:
 		} else
 			free(ptr);
 	}
-	void AllocateMemory() {
+	inline void AllocateMemory() {
 		if (!allPtrs.empty()) return;
 		using StorageT = Storage<T, 1>;
 		StorageT* ptr = reinterpret_cast<StorageT*>(PoolMalloc(sizeof(StorageT) * capacity));
 		allPtrs.reserve(capacity + allPtrs.capacity());
 		allPtrs.resize(capacity);
-		for (uint64_t i = 0; i < capacity; ++i) {
+		for (size_t i = 0; i < capacity; ++i) {
 			allPtrs[i] = reinterpret_cast<T*>(ptr + i);
 		}
 		allocatedPtrs.push_back(ptr);
@@ -58,13 +59,13 @@ public:
 		  capacity(o.capacity) {
 		o.capacity = 0;
 	}
-	Pool(uint64_t capa, bool initialize = true) : capacity(capa) {
+	 Pool(size_t capa, bool initialize = true) : capacity(capa) {
 		if (initialize)
 			AllocateMemory();
 	}
 
 	template<typename... Args>
-	T* New(Args&&... args) {
+	 T* New(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -72,7 +73,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	T* PlaceNew(Args&&... args) {
+	 T* PlaceNew(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -124,7 +125,7 @@ public:
 	}
 
 	~Pool() {
-		for (uint64_t i = 0; i < allocatedPtrs.size(); ++i) {
+		for (size_t i = 0; i < allocatedPtrs.size(); ++i) {
 			PoolFree(allocatedPtrs[i]);
 		}
 	}
@@ -140,7 +141,7 @@ private:
 	ArrayList<T*, useVEngineMalloc> allPtrs;
 	ArrayList<void*, useVEngineMalloc> allocatedPtrs;
 	RandomVector<TypeCollector*, true, useVEngineMalloc> allocatedObjects;
-	uint64_t capacity;
+	size_t capacity;
 	void* PoolMalloc(size_t size) {
 		if constexpr (useVEngineMalloc) {
 			return vengine_malloc(size);
@@ -153,12 +154,12 @@ private:
 		} else
 			free(ptr);
 	}
-	void AllocateMemory() {
+	inline void AllocateMemory() {
 		if (!allPtrs.empty()) return;
 		TypeCollector* ptr = reinterpret_cast<TypeCollector*>(PoolMalloc(sizeof(TypeCollector) * capacity));
 		allPtrs.reserve(capacity + allPtrs.capacity());
 		allPtrs.resize(capacity);
-		for (uint64_t i = 0; i < capacity; ++i) {
+		for (size_t i = 0; i < capacity; ++i) {
 			allPtrs[i] = reinterpret_cast<T*>(ptr + i);
 		}
 		allocatedPtrs.push_back(ptr);
@@ -181,13 +182,13 @@ public:
 		  allocatedObjects(std::move(o.allocatedObjects)) {
 		o.capacity = 0;
 	}
-	Pool(uint64_t capa, bool initialize = true) : capacity(capa) {
+	 Pool(size_t capa, bool initialize = true) : capacity(capa) {
 		if (initialize)
 			AllocateMemory();
 	}
 
 	template<typename... Args>
-	T* New(Args&&... args) {
+	 T* New(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -196,7 +197,7 @@ public:
 		return value;
 	}
 	template<typename... Args>
-	T* PlaceNew(Args&&... args) {
+	 T* PlaceNew(Args&&... args) {
 		AllocateMemory();
 		T* value = allPtrs.erase_last();
 		if constexpr (!std::is_trivially_constructible_v<T>)
@@ -254,10 +255,10 @@ public:
 	}
 
 	~Pool() {
-		for (uint64_t i = 0; i < allocatedObjects.Length(); ++i) {
+		for (size_t i = 0; i < allocatedObjects.Length(); ++i) {
 			(reinterpret_cast<T*>(allocatedObjects[i]))->~T();
 		}
-		for (uint64_t i = 0; i < allocatedPtrs.size(); ++i) {
+		for (size_t i = 0; i < allocatedPtrs.size(); ++i) {
 			PoolFree(allocatedPtrs[i]);
 		}
 	}
@@ -278,12 +279,12 @@ private:
 	bool objectSwitcher = true;
 
 public:
-	void UpdateSwitcher() {
+	inline void UpdateSwitcher() {
 		if (unusedObjects[objectSwitcher].count < 0) unusedObjects[objectSwitcher].count = 0;
 		objectSwitcher = !objectSwitcher;
 	}
 
-	void Delete(T* targetPtr) {
+	inline void Delete(T* targetPtr) {
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			targetPtr->~T();
 		Array* arr = unusedObjects + !objectSwitcher;
@@ -302,7 +303,7 @@ public:
 		arr->objs[currentCount] = (StorageT*)targetPtr;
 	}
 	template<typename... Args>
-	T* New(Args&&... args) {
+	 T* New(Args&&... args) {
 		Array* arr = unusedObjects + objectSwitcher;
 		int64_t currentCount = --arr->count;
 		T* t;
@@ -317,18 +318,18 @@ public:
 		return t;
 	}
 
-	ConcurrentPool(uint64_t initCapacity) {
+	 ConcurrentPool(size_t initCapacity) {
 		if (initCapacity < 3) initCapacity = 3;
 		unusedObjects[0].objs = new StorageT*[initCapacity];
 		unusedObjects[0].capacity = initCapacity;
 		unusedObjects[0].count = initCapacity / 2;
-		for (uint64_t i = 0; i < unusedObjects[0].count; ++i) {
+		for (size_t i = 0; i < unusedObjects[0].count; ++i) {
 			unusedObjects[0].objs[i] = (StorageT*)vengine_malloc(sizeof(StorageT));
 		}
 		unusedObjects[1].objs = new StorageT*[initCapacity];
 		unusedObjects[1].capacity = initCapacity;
 		unusedObjects[1].count = initCapacity / 2;
-		for (uint64_t i = 0; i < unusedObjects[1].count; ++i) {
+		for (size_t i = 0; i < unusedObjects[1].count; ++i) {
 			unusedObjects[1].objs[i] = (StorageT*)vengine_malloc(sizeof(StorageT));
 		}
 	}

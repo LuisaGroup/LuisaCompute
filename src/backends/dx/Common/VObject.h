@@ -1,4 +1,5 @@
 #pragma once
+#include <config.h>
 #include <atomic>
 #include <mutex>
 #include "Runnable.h"
@@ -6,16 +7,15 @@
 #include <assert.h>
 #include "vector.h"
 #include "Memory.h"
-#include "string_view.h"
 class PtrLink;
 
-class VObject {
+class DLL_COMMON VObject {
 	friend class PtrLink;
 
 private:
 	vengine::vector<Runnable<void(VObject*)>> disposeFuncs;
-	static std::atomic<uint64_t> CurrentID;
-	uint64_t instanceID;
+	static std::atomic<size_t> CurrentID;
+	size_t instanceID;
 
 protected:
 	VObject() {
@@ -27,16 +27,17 @@ public:
 		return typeid(*const_cast<VObject*>(this));
 	}
 	void AddEventBeforeDispose(Runnable<void(VObject*)>&& func) noexcept;
-	uint64_t GetInstanceID() const noexcept { return instanceID; }
+	size_t GetInstanceID() const noexcept { return instanceID; }
 	virtual ~VObject() noexcept;
-	virtual vengine::string_view ToString() const;
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	KILL_COPY_CONSTRUCT(VObject)
+	VObject(VObject&& v);
+	void operator=(VObject&& v);
 };
 
 class PtrLink;
 class PtrWeakLink;
-struct LinkHeap {
+struct DLL_COMMON LinkHeap {
 	friend class PtrLink;
 	friend class PtrWeakLink;
 
@@ -56,7 +57,7 @@ public:
 
 class VEngine;
 class PtrWeakLink;
-class PtrLink {
+class DLL_COMMON PtrLink {
 	friend class VEngine;
 	friend class PtrWeakLink;
 
@@ -83,7 +84,7 @@ public:
 		Dispose();
 	}
 };
-class PtrWeakLink {
+class DLL_COMMON PtrWeakLink {
 public:
 	LinkHeap* heapPtr;
 	size_t offset = 0;
@@ -324,11 +325,11 @@ public:
 #endif
 		return *GetPtr();
 	}
-	inline T& operator[](uint64_t key) noexcept {
+	inline T& operator[](size_t key) noexcept {
 		return GetPtr()[key];
 	}
 
-	inline T const& operator[](uint64_t key) const noexcept {
+	inline T const& operator[](size_t key) const noexcept {
 		return GetPtr()[key];
 	}
 
@@ -527,11 +528,11 @@ public:
 #endif
 		return *GetPtr();
 	}
-	inline T& operator[](uint64_t key) noexcept {
+	inline T& operator[](size_t key) noexcept {
 		return GetPtr()[key];
 	}
 
-	inline T const& operator[](uint64_t key) const noexcept {
+	inline T const& operator[](size_t key) const noexcept {
 		return GetPtr()[key];
 	}
 	inline bool operator==(const ObjWeakPtr<T[]>& ptr) const noexcept {

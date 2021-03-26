@@ -34,13 +34,18 @@ DLL_EXPORT void CodegenBody(Function func) {
 		CodegenUtility::PrintConstant(i, decl_buffer);
 	}
 
-	CodegenUtility::PrintUniform(func.captured_buffers(), func.captured_textures(), decl_buffer);
+	CodegenUtility::PrintUniform(func, decl_buffer);
 	CodegenUtility::PrintGlobalVariables(func.arguments(), decl_buffer);
 	auto t1 = std::chrono::high_resolution_clock::now();
 
 	LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
-
-	/*std::cout << decl_buffer;
+	function_buffer += "[numthreads(8,8,1)]\nvoid kernel_"_sv;
+	auto kernelID = vengine::to_string(func.uid());
+	function_buffer += kernelID;
+	function_buffer += "(uint3 thd_id:SV_GROUPTHREADID,uint3 blk_id:SV_GROUPID,uint3 dsp_id:SV_DISPATCHTHREADID){\n_kernel_"_sv;
+	function_buffer += kernelID;
+	function_buffer += "(thd_id,blk_id,dsp_id);\n}\n";
+	std::cout << decl_buffer;
 	std::cout << function_buffer;
 	/*<< CodegenUtility::GetFunctionDecl(func) << "\n"
 			  << vis.ToString() << std::endl;*/
@@ -503,8 +508,25 @@ StringStateVisitor::~StringStateVisitor() {
 }
 
 void CodegenUtility::GetVariableName(Variable const& type, vengine::string& str) {
-	str += 'v';
-	vengine::to_string(type.uid(), str);
+	switch (type.tag()) {
+		case Variable::Tag::BLOCK_ID:
+			str += "blk_id"_sv;
+			break;
+		case Variable::Tag::DISPATCH_ID:
+			str += "dsp_id"_sv;
+			break;
+		case Variable::Tag::THREAD_ID:
+			str += "thd_id"_sv;
+			break;
+		case Variable::Tag::LOCAL:
+			str += "_v"_sv;
+			vengine::to_string(type.uid(), str);
+			break;
+		default:
+			str += 'v';
+			vengine::to_string(type.uid(), str);
+			break;
+	}
 }
 
 void CodegenUtility::GetTypeName(Type const& type, vengine::string& str) {
@@ -537,9 +559,8 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str) {
 		}
 			return;
 		case Type::Tag::VECTOR: {
-			auto dim = vengine::to_string(type.dimension());
 			CodegenUtility::GetTypeName(*type.element(), str);
-			str += dim;
+			vengine::to_string(type.dimension(), str);
 		}
 			return;
 		case Type::Tag::STRUCTURE:
@@ -557,27 +578,29 @@ void CodegenUtility::GetFunctionDecl(Function func, vengine::string& data) {
 		data += "void"_sv;
 	}
 	switch (func.tag()) {
-		case Function::Tag::CALLABLE:
+		case Function::Tag::CALLABLE: {
 			data += " custom_"_sv;
-			break;
+			vengine::to_string(func.uid(), data);
+			if (func.arguments().empty()) {
+				data += "()"_sv;
+			} else {
+				data += '(';
+				for (auto&& i : func.arguments()) {
+					RegistStructType(i.type());
+					CodegenUtility::GetTypeName(*i.type(), data);
+					data += ' ';
+					CodegenUtility::GetVariableName(i, data);
+					data += ',';
+				}
+				data[data.size() - 1] = ')';
+			}
+		} break;
 		default:
-			data += " kernel_"_sv;
+			data += " _kernel_"_sv;
+			vengine::to_string(func.uid(), data);
+			data += "(uint3 thd_id,uint3 blk_id,uint3 dsp_id)"_sv;
 			//TODO: kernel specific declare
 			break;
-	}
-	vengine::to_string(func.uid(), data);
-	if (func.arguments().empty()) {
-		data += "()"_sv;
-	} else {
-		data += '(';
-		for (auto&& i : func.arguments()) {
-			RegistStructType(i.type());
-			CodegenUtility::GetTypeName(*i.type(), data);
-			data += ' ';
-			CodegenUtility::GetVariableName(i, data);
-			data += ',';
-		}
-		data[data.size() - 1] = ')';
 	}
 }
 
@@ -657,19 +680,49 @@ void CodegenUtility::PrintStructType(vengine::string& str) {
 	Type::traverse(vis);
 }
 void CodegenUtility::PrintUniform(
+	Function func,
 	//Buffer Binding
-	std::span<const Function::BufferBinding> buffers,
-	std::span<const Function::TextureBinding> texs,
 	vengine::string& result) {
-	for (size_t i = 0; i < buffers.size(); ++i) {
-		result += "StructuredBuffer<"_sv;
-		auto&& var = buffers[i].variable;
+	std::span<const Variable> args = func.arguments();
+	std::span<const Function::BufferBinding> buffers = func.captured_buffers();
+	std::span<const Function::TextureBinding> texs = func.captured_textures();
+	uint tCount = 0;
+	uint uCount = 0;
+	auto ProcessBuffer = [&](Variable const& var) {
+		bool enableRandomWrite = ((uint)func.variable_usage(var.uid()) & (uint)Variable::Usage::WRITE) != 0;
+		if (enableRandomWrite) {
+			result += "RWStructuredBuffer<"_sv;
+		} else {
+			result += "StructuredBuffer<"_sv;
+		}
 		GetTypeName(*var.type(), result);
 		result += "> v"_sv;
 		vengine::to_string(var.uid(), result);
-		result += ":register(t"_sv;
-		vengine::to_string(i, result);
+		if (enableRandomWrite) {
+			result += ":register(u"_sv;
+			vengine::to_string(uCount, result);
+			uCount++;
+		} else {
+			result += ":register(t"_sv;
+			vengine::to_string(tCount, result);
+			tCount++;
+		}
 		result += ");\n"_sv;
+	};
+	for (auto& var : args) {
+		switch (var.tag()) {
+			case Variable::Tag::BUFFER:
+				//TODO: buffer writable
+				ProcessBuffer(var);
+				break;
+			case Variable::Tag::TEXTURE:
+
+				break;
+		}
+	}
+	for (size_t i = 0; i < buffers.size(); ++i) {
+		//TODO: buffer writable
+		ProcessBuffer(buffers[i].variable);
 	}
 	//TODO: Texture Binding
 }
@@ -683,9 +736,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 	constexpr size_t ELE_SIZE = 4;
 	size_t cbufferSize = 0;
 	size_t alignCount = 0;
-	result += "cbuffer Params:register(b0)\n{\n"_sv;
-	for (auto& var : values) {
-		auto&& type = *var.type();
+	auto GetUniform = [&](Type const& type, Variable const& var) -> void {
 		switch (type.tag()) {
 			///////////// Invalid types
 			case Type::Tag::ARRAY:
@@ -703,7 +754,8 @@ size_t CodegenUtility::PrintGlobalVariables(
 					VEngine_Log("Uniform Matrix Only Allow 4x4 Matrix!\n"_sv);
 					throw 0;
 				}
-				result += "float4x4 v"_sv;
+				CodegenUtility::GetTypeName(type, result);
+				result += " v"_sv;
 				vengine::to_string(var.uid(), result);
 				result += ";\n"_sv;
 				cbufferSize += ELE_SIZE * 4 * 4;
@@ -727,26 +779,41 @@ size_t CodegenUtility::PrintGlobalVariables(
 				scalarArr.push_back(&var);
 				break;
 		}
+	};
+	result += "cbuffer Params:register(b0)\n{\n"_sv;
+	for (auto& var : values) {
+		switch (var.tag()) {
+			case Variable::Tag::LOCAL:
+			case Variable::Tag::SHARED:
+			case Variable::Tag::UNIFORM:
+			case Variable::Tag::THREAD_ID:
+			case Variable::Tag::BLOCK_ID:
+			case Variable::Tag::DISPATCH_ID:
+				auto&& type = *var.type();
+				GetUniform(type, var);
+				break;
+		}
 	}
 	for (auto& vec4 : vec4Arr) {
 		cbufferSize += ELE_SIZE * 4;
 		GetTypeName(*vec4->type(), result);
-		result += "4 v"_sv;
-		vengine::to_string(vec4->uid(), result);
+		result += ' ';
+		CodegenUtility::GetVariableName(*vec4, result);
 		result += ";\n"_sv;
 	}
 	auto PrintScalar = [&](Variable const* var) -> void {
 		GetTypeName(*var->type(), result);
-		result += " v"_sv;
-		vengine::to_string(var->uid(), result);
+		result += ' ';
+		CodegenUtility::GetVariableName(*var, result);
+
 		result += ";\n"_sv;
 	};
 
 	for (auto& vec3 : vec4Arr) {
 		cbufferSize += ELE_SIZE * 4;
 		GetTypeName(*vec3->type(), result);
-		result += "3 v"_sv;
-		vengine::to_string(vec3->uid(), result);
+		result += ' ';
+		CodegenUtility::GetVariableName(*vec3, result);
 		result += ";\n"_sv;
 		if (!scalarArr.empty()) {
 			auto v = scalarArr.erase_last();
@@ -762,16 +829,16 @@ size_t CodegenUtility::PrintGlobalVariables(
 	for (auto& vec2 : vec2Arr) {
 		cbufferSize += ELE_SIZE * 2;
 		GetTypeName(*vec2->type(), result);
-		result += "2 v"_sv;
-		vengine::to_string(vec2->uid(), result);
+		result += ' ';
+		CodegenUtility::GetVariableName(*vec2, result);
 		result += ";\n"_sv;
 	}
 
 	for (auto& vec : scalarArr) {
 		cbufferSize += ELE_SIZE;
 		GetTypeName(*vec->type(), result);
-		result += " v"_sv;
-		vengine::to_string(vec->uid(), result);
+		result += ' ';
+		CodegenUtility::GetVariableName(*vec, result);
 		result += ";\n"_sv;
 	}
 	result += "}\n"_sv;//End cbuffer
