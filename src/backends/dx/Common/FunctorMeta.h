@@ -54,7 +54,7 @@ namespace FunctionTemplateGlobal {
 template<typename T, typename... Args>
 struct FunctionRetAndArgs {
 	static constexpr size_t ArgsCount = sizeof...(Args);
-	using RetType = typename T;
+	using RetType = T;
 	inline static const Type retTypes = typeid(T);
 	inline static const Type argTypes[ArgsCount] =
 		{
@@ -65,28 +65,28 @@ template<typename T>
 struct memFuncPtr;
 template<typename Class, typename _Ret, typename... Args>
 struct memFuncPtr<_Ret (Class::*)(Args...) const> {
-	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
-	using FuncType = typename _Ret(Args...);
-	using FuncPtrType = typename _Ret (*)(Args...);
+	using RetAndArgsType = FunctionRetAndArgs<_Ret, Args...>;
+	using FuncType = _Ret(Args...);
+	using FuncPtrType = _Ret (*)(Args...);
 };
 template<typename Class, typename _Ret, typename... Args>
 struct memFuncPtr<_Ret (Class::*)(Args...)> {
-	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
-	using FuncType = typename _Ret(Args...);
-	using FuncPtrType = typename _Ret (*)(Args...);
+	using RetAndArgsType = FunctionRetAndArgs<_Ret, Args...>;
+	using FuncType = _Ret(Args...);
+	using FuncPtrType = _Ret (*)(Args...);
 };
 
 template<typename Class, typename _Ret, typename... Args>
 struct memFuncPtr<_Ret (Class::*)(Args...) const noexcept> {
-	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
-	using FuncType = typename _Ret(Args...);
-	using FuncPtrType = typename _Ret (*)(Args...);
+	using RetAndArgsType = FunctionRetAndArgs<_Ret, Args...>;
+	using FuncType = _Ret(Args...);
+	using FuncPtrType = _Ret (*)(Args...);
 };
 template<typename Class, typename _Ret, typename... Args>
 struct memFuncPtr<_Ret (Class::*)(Args...) noexcept> {
-	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
-	using FuncType = typename _Ret(Args...);
-	using FuncPtrType = typename _Ret (*)(Args...);
+	using RetAndArgsType = FunctionRetAndArgs<_Ret, Args...>;
+	using FuncType = _Ret(Args...);
+	using FuncPtrType = _Ret (*)(Args...);
 };
 
 template<typename T>
@@ -94,7 +94,7 @@ struct FunctionPointerData;
 
 template<typename _Ret, typename... Args>
 struct FunctionPointerData<_Ret(Args...)> {
-	using RetAndArgsType = typename FunctionRetAndArgs<_Ret, Args...>;
+	using RetAndArgsType = FunctionRetAndArgs<_Ret, Args...>;
 };
 
 template<typename T>
@@ -107,14 +107,14 @@ struct FunctionType {
 template<typename Ret, typename... Args>
 struct FunctionType<Ret(Args...)> {
 	using RetAndArgsType = typename FunctionPointerData<Ret(Args...)>::RetAndArgsType;
-	using FuncType = typename Ret(Args...);
-	using FuncPtrType = typename Ret (*)(Args...);
+	using FuncType = Ret(Args...);
+	using FuncPtrType = Ret (*)(Args...);
 };
 template<typename Ret, typename... Args>
 struct FunctionType<Ret (*)(Args...)> {
 	using RetAndArgsType = typename FunctionPointerData<Ret(Args...)>::RetAndArgsType;
-	using FuncType = typename Ret(Args...);
-	using FuncPtrType = typename Ret (*)(Args...);
+	using FuncType = Ret(Args...);
+	using FuncPtrType = Ret (*)(Args...);
 };
 }// namespace FunctionTemplateGlobal
 
@@ -128,4 +128,4 @@ template<typename T>
 using FuncPtrType = typename FunctionTemplateGlobal::FunctionType<T>::FuncPtrType;
 
 template<typename A, typename B>
-static constexpr bool IsFunctionTypeOf = std::is_same_v<FunctionTemplateGlobal::FunctionType<A>::FuncType, B>;
+static constexpr bool IsFunctionTypeOf = std::is_same_v<typename FunctionTemplateGlobal::FunctionType<A>::FuncType, B>;

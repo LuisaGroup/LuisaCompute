@@ -30,11 +30,11 @@ struct GetKernelArgType;
 
 template<typename T>
 struct GetKernelArgType<Var<T>> {
-    using Type = typename T;
+    using Type = T;
 };
 template<typename T>
 struct GetKernelArgType<BufferView<T>> {
-    using Type = typename Buffer<T>;
+    using Type = Buffer<T>;
 };
 
 template<typename T>
@@ -42,13 +42,13 @@ struct GetKernelType;
 
 template<typename Ret, typename... Args>
 struct GetKernelType<Ret(Args...)> {
-    using KernelType = typename Ret(GetKernelArgType<Args>::Type...);
+    using KernelType = Ret(typename GetKernelArgType<Args>::Type...);
 };
 
 template<typename Func>
 decltype(auto) CompileKernel(Func &&func) {
     using FuncType = MFunctorType<std::remove_cvref_t<Func>>;//void(BufferView<float>, Var<uint>)
-    return Kernel<GetKernelType<FuncType>::KernelType>(func);
+    return Kernel<typename GetKernelType<FuncType>::KernelType>(func);
 }
 
 LUISA_STRUCT(Test, something, a)
