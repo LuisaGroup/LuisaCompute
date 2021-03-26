@@ -90,10 +90,11 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
         block_size.x, block_size.y, block_size.z);
 
     auto argument_encoder = kernel.encoder;
-    auto argument_buffer = _device->allocate_argument_buffer();
+    auto argument_buffer_pool = _device->argument_buffer_pool();
+    auto argument_buffer = argument_buffer_pool->allocate();
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:kernel.handle];
-    [argument_encoder setArgumentBuffer:argument_buffer offset:0];
+    [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
     command->decode([&](auto argument) noexcept {
         using T = decltype(argument);
         if constexpr (std::is_same_v<T, KernelLaunchCommand::BufferArgument>) {
@@ -122,14 +123,14 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     });
     auto ptr = [argument_encoder constantDataAtIndex:index_stride * argument_index];
     std::memcpy(ptr, &launch_size, sizeof(launch_size));
-    [compute_encoder setBuffer:argument_buffer offset:0 atIndex:0];
+    [compute_encoder setBuffer:argument_buffer.handle() offset:argument_buffer.offset() atIndex:0];
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)
                     threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
     [compute_encoder endEncoding];
 
-    __weak auto weak_device = _device;
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-      weak_device->recycle_argument_buffer(argument_buffer);
+      auto buffer = argument_buffer;
+      argument_buffer_pool->recycle(buffer);
     }];
 }
 
