@@ -56,6 +56,7 @@ if (WIN32)
         RenderComponent/Utility/DefaultTextureAllocator.cpp
         RenderComponent/Utility/ShaderIO.cpp
         RenderComponent/Voxel/VirtualVoxelMap.cpp
+        RHI/CommandBuffer.cpp
         ShaderCompile/ASTEncoder.cpp
         ShaderCompile/HLSLCompiler.cpp
         ShaderCompile/LuisaASTTranslator.cpp
@@ -77,8 +78,8 @@ if (WIN32)
         Utility/TaskThread.cpp
         Utility/ThreadResetEvent.cpp
         WorldManagement/World.cpp
-        )
-    ##[[[]]]
+    )
+##[[[]]]
     luisa_compute_add_backend(dx SOURCES ${DX_BACKEND_SOURCES})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     
