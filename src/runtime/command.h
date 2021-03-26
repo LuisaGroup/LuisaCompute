@@ -248,7 +248,7 @@ public:
     //   3. arguments
     void encode_buffer(uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
     // TODO: encode texture
-    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void encode_uniform(const void *data, size_t size) noexcept;
     
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {

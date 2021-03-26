@@ -18,9 +18,10 @@ using namespace luisa::compute::dsl;
 struct Test {
     float a;
     float b;
+    float array[16];
 };
 
-LUISA_STRUCT(Test, a, b);
+LUISA_STRUCT(Test, a, b, array);
 
 int main(int argc, char *argv[]) {
 

@@ -317,7 +317,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         for (auto buffer : f.captured_buffers()) {
             _scratch << "\n  ";
             _emit_variable_decl(buffer.variable);
-            _scratch << " [[id(" << index_stride * index++ << ")]];";
+            _scratch << ";";
         }
         for (auto tex : f.captured_textures()) {
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
@@ -325,9 +325,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         for (auto arg : f.arguments()) {
             _scratch << "\n  ";
             _emit_variable_decl(arg);
-            _scratch << " [[id(" << index_stride * index++ << ")]];";
+            _scratch << ";";
         }
-        _scratch << "\n  const uint3 ls [[id(" << index_stride * index << ")]];\n};\n\n";
+        _scratch << "\n  const uint3 ls;\n};\n\n";
 
         // function signature
         _scratch << "[[kernel]]\nvoid kernel_" << f.uid() << "(\n    device const Argument &arg,";

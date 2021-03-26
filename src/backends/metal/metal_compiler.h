@@ -23,8 +23,11 @@ public:
     struct alignas(16) PipelineState {
         id<MTLComputePipelineState> handle;
         id<MTLArgumentEncoder> encoder;
-        PipelineState(id<MTLComputePipelineState> handle, id<MTLArgumentEncoder> encoder) noexcept
-            : handle{handle}, encoder{encoder} {}
+        NSArray<MTLStructMember *> *arguments;
+        PipelineState(id<MTLComputePipelineState> handle,
+                      id<MTLArgumentEncoder> encoder,
+                      NSArray<MTLStructMember *> *arguments) noexcept
+            : handle{handle}, encoder{encoder}, arguments{arguments} {}
     };
 
 private:
@@ -32,10 +35,14 @@ private:
         uint64_t hash;
         id<MTLComputePipelineState> pso;
         id<MTLArgumentEncoder> encoder;
-        KernelCacheItem(uint64_t hash, id<MTLComputePipelineState> pso, id<MTLArgumentEncoder> encoder) noexcept
-            : hash{hash}, pso{pso}, encoder{encoder} {}
+        NSArray<MTLStructMember *> *arguments;
+        KernelCacheItem(uint64_t hash,
+                        id<MTLComputePipelineState> pso,
+                        id<MTLArgumentEncoder> encoder,
+                        NSArray<MTLStructMember *> *arguments) noexcept
+            : hash{hash}, pso{pso}, encoder{encoder}, arguments{arguments} {}
     };
-    
+
     struct alignas(16) KernelHandle {
         std::shared_future<PipelineState> pso;
         uint32_t uid;
@@ -49,7 +56,7 @@ private:
     std::vector<KernelHandle> _kernels;
     spin_mutex _cache_mutex;
     spin_mutex _kernel_mutex;
-    
+
 private:
     [[nodiscard]] PipelineState _compile(uint32_t uid) noexcept;
 

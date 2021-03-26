@@ -80,7 +80,6 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     auto function = Function::kernel(command->kernel_uid());
     auto kernel = _device->kernel(command->kernel_uid());
     auto argument_index = 0u;
-    static constexpr auto index_stride = 100u;
 
     auto launch_size = command->launch_size();
     auto block_size = function.block_size();
@@ -104,7 +103,9 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
                 "Encoding buffer #{} at index {} with offset {}.",
                 argument.handle, argument_index, argument.offset);
             auto buffer = _device->buffer(argument.handle);
-            [argument_encoder setBuffer:buffer offset:argument.offset atIndex:index_stride * argument_index++];
+            [argument_encoder setBuffer:buffer
+                                 offset:argument.offset
+                                atIndex:kernel.arguments[argument_index++].argumentIndex];
             switch (argument.usage) {
                 case Command::Resource::Usage::READ:
                     [compute_encoder useResource:buffer usage:MTLResourceUsageRead];
@@ -119,11 +120,11 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
         } else if constexpr (std::is_same_v<T, KernelLaunchCommand::TextureArgument>) {
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
         } else {// uniform
-            auto ptr = [argument_encoder constantDataAtIndex:index_stride * argument_index++];
+            auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());
         }
     });
-    auto ptr = [argument_encoder constantDataAtIndex:index_stride * argument_index];
+    auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index].argumentIndex];
     std::memcpy(ptr, &launch_size, sizeof(launch_size));
     [compute_encoder setBuffer:argument_buffer.handle() offset:argument_buffer.offset() atIndex:0];
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)

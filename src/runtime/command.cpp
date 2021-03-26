@@ -80,11 +80,10 @@ void KernelLaunchCommand::encode_buffer(
     _argument_count++;
 }
 
-void KernelLaunchCommand::encode_uniform(const void *data, size_t size, size_t alignment) noexcept {
+void KernelLaunchCommand::encode_uniform(const void *data, size_t size) noexcept {
     UniformArgument argument{};
     argument.tag = Argument::Tag::UNIFORM;
     argument.size = size;
-    argument.alignment = alignment;
     if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode argument with size {}. "

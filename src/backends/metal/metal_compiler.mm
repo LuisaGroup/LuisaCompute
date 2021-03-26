@@ -36,7 +36,7 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
             iter != _cache.cend()) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Cache hit for kernel #{}. Compilation skipped.", uid);
-            return {iter->pso, iter->encoder};
+            return {iter->pso, iter->encoder, iter->arguments};
         }
     }
 
@@ -86,7 +86,10 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
             "Failed to create pipeline state object for kernel #{}: {}.",
             uid, [error.description cStringUsingEncoding:NSUTF8StringEncoding]);
     }
-    auto encoder = [func newArgumentEncoderWithBufferIndex:0];
+    
+    MTLAutoreleasedArgument reflection;
+    auto encoder = [func newArgumentEncoderWithBufferIndex:0 reflection:&reflection];
+    auto members = reflection.bufferStructType.members;
 
     if (std::scoped_lock lock{_cache_mutex};
         std::none_of(
@@ -94,8 +97,8 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
             _cache.cend(),
             [hash](auto &&item) noexcept {
                 return item.hash == hash;
-            })) { _cache.emplace_back(hash, pso, encoder); }
-    return {pso, encoder};
+            })) { _cache.emplace_back(hash, pso, encoder, members); }
+    return {pso, encoder, members};
 }
 
 void MetalCompiler::prepare(uint32_t uid) noexcept {

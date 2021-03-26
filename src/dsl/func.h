@@ -144,7 +144,7 @@ public:
 
     template<typename T>
     KernelInvoke &operator<<(T data) noexcept {
-        _launch_command()->encode_uniform(&data, sizeof(T), alignof(T));
+        _launch_command()->encode_uniform(&data, sizeof(T));
         _argument_index++;
         return *this;
     }
