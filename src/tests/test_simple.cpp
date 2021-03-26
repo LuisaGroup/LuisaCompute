@@ -17,6 +17,8 @@ using namespace luisa::compute::dsl;
 
 int main(int argc, char *argv[]) {
 
+    log_level_verbose();
+
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_METAL_ENABLED)
@@ -27,13 +29,21 @@ int main(int argc, char *argv[]) {
     auto device = std::make_unique<FakeDevice>(context);
 #endif
 
+    auto load = LUISA_CALLABLE(BufferView<float> buffer, Var<uint> index) noexcept {
+        return buffer[index];
+    };
+
+    auto store = LUISA_CALLABLE(BufferView<float> buffer, Var<uint> index, Var<float> value) noexcept {
+        buffer[index] = value;
+    };
+
     auto add = LUISA_CALLABLE(Var<float> a, Var<float> b) noexcept {
         return a + b;
     };
 
     auto kernel = LUISA_KERNEL(BufferView<float> source, BufferView<float> result, Var<float> x) noexcept {
         auto index = dispatch_id().x;
-        result[index] = add(source[index], x);
+        store(result, index, add(load(source, index), x));
     };
     device->prepare(kernel);
 

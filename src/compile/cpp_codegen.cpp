@@ -299,7 +299,11 @@ void CppCodegen::_emit_function(Function f) noexcept {
         _scratch << "__kernel__ void kernel_" << f.uid();
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "__device__ ";
-        _emit_type_name(f.return_type());
+        if (f.return_type() != nullptr) {
+            _emit_type_name(f.return_type());
+        } else {
+            _scratch << "void";
+        }
         _scratch << " custom_" << f.uid();
     } else {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");

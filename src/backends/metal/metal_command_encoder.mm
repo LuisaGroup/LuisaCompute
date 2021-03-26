@@ -88,7 +88,7 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     auto block_size = command->block_size();
     auto blocks = (launch_size + block_size - 1u) / block_size;
     LUISA_VERBOSE_WITH_LOCATION(
-        "Dispatch kernel #{} in {}x{}x{} blocks (with block_size = {}x{}x{}).",
+        "Dispatch kernel #{} in ({}, {}, {}) blocks with block_size ({}, {}, {}).",
         command->kernel_uid(),
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
