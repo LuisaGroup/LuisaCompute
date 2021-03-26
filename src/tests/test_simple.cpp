@@ -24,7 +24,7 @@ LUISA_STRUCT(Test, a, b);
 
 int main(int argc, char *argv[]) {
 
-//    log_level_verbose();
+    log_level_verbose();
 
     Context context{argv[0]};
 
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
         return a + b;
     };
 
-    auto kernel = LUISA_KERNEL(BufferView<float> source, BufferView<float> result, Var<Test> x) noexcept {
+    auto kernel = LUISA_KERNEL1D(BufferView<float> source, BufferView<float> result, Var<Test> x) noexcept {
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x.a));
     };
@@ -67,9 +67,9 @@ int main(int argc, char *argv[]) {
     auto t0 = std::chrono::high_resolution_clock::now();
     stream << buffer.upload(data.data());
     {
-        auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f}).parallelize(n);
+        auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f}).launch(n);
         for (auto i = 0; i < 10; i++) {
-            s << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f}).parallelize(n);
+            s << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f}).launch(n);
         }
     }
     stream << result_buffer.download(results.data());

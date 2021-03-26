@@ -12,6 +12,7 @@
 #define $block_id ::luisa::compute::dsl::block_id()
 #define $dispatch_id ::luisa::compute::dsl::dispatch_id()
 #define $launch_size ::luisa::compute::dsl::launch_size()
+#define $block_size ::luisa::compute::dsl::block_size()
 
 #define $int $<int>
 #define $uint $<uint>

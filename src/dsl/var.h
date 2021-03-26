@@ -18,7 +18,13 @@ class Var : public detail::Expr<T> {
 private:
     // for making function arguments...
     template<typename U>
-    friend class Kernel;
+    friend class Kernel1D;
+    
+    template<typename U>
+    friend class Kernel2D;
+    
+    template<typename U>
+    friend class Kernel3D;
 
     template<typename U>
     friend class Callable;

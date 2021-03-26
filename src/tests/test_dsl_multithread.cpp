@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
             auto t0 = std::chrono::high_resolution_clock::now();
             Constant float_consts = {1.0f, 2.0f};
             Constant int_consts = const_vector;
-            Kernel kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
+            Kernel1D kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
                 Shared<float4> shared_floats{16};
 
                 Var v_int = 10;
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
             };
             auto t1 = std::chrono::high_resolution_clock::now();
 
-            auto command = kernel(float_buffer, 12u).parallelize(1024u);
+            auto command = kernel(float_buffer, 12u).launch(1024u);
             auto function = Function::kernel(static_cast<KernelLaunchCommand *>(command.get())->kernel_uid());
 
             auto t2 = std::chrono::high_resolution_clock::now();

@@ -87,7 +87,17 @@ using prototype_to_callable_invocation_t = typename prototype_to_callable_invoca
 }// namespace detail
 
 template<typename T>
-class Kernel {
+class Kernel1D {
+    static_assert(always_false_v<T>);
+};
+
+template<typename T>
+class Kernel2D {
+    static_assert(always_false_v<T>);
+};
+
+template<typename T>
+class Kernel3D {
     static_assert(always_false_v<T>);
 };
 
@@ -139,49 +149,82 @@ public:
         return *this;
     }
 
-    [[nodiscard]] auto parallelize(uint3 launch_size, uint3 block_size = uint3{8u}) noexcept {
-        _launch_command()->set_dispatch_size(launch_size, block_size);
+    [[nodiscard]] auto parallelize(uint3 launch_size) noexcept {
+        _launch_command()->set_launch_size(launch_size);
         auto command = std::move(_command);
         _command = nullptr;
         return command;
     }
+};
 
-    [[nodiscard]] auto parallelize(uint2 launch_size, uint2 block_size = uint2{16u, 16u}) noexcept {
-        return parallelize(uint3{launch_size, 1u}, uint3{block_size, 1u});
-    }
-
-    [[nodiscard]] auto parallelize(uint32_t launch_size, uint32_t block_size = 256u) noexcept {
-        return parallelize(uint3{launch_size, 1u, 1u}, uint3{block_size, 1u, 1u});
+struct KernelInvoke1D : public KernelInvoke {
+    explicit KernelInvoke1D(uint32_t uid) noexcept : KernelInvoke{uid} {}
+    [[nodiscard]] auto launch(uint size_x) noexcept {
+        return parallelize(uint3{size_x, 1u, 1u});
     }
 };
+
+struct KernelInvoke2D : public KernelInvoke {
+    explicit KernelInvoke2D(uint32_t uid) noexcept : KernelInvoke{uid} {}
+    [[nodiscard]] auto launch(uint size_x, uint size_y) noexcept {
+        return parallelize(uint3{size_x, size_y, 1u});
+    }
+};
+
+struct KernelInvoke3D : public KernelInvoke {
+    explicit KernelInvoke3D(uint32_t uid) noexcept : KernelInvoke{uid} {}
+    [[nodiscard]] auto launch(uint size_x, uint size_y, uint size_z) noexcept {
+        return parallelize(uint3{size_x, size_y, size_z});
+    }
+};
+
+template<size_t N>
+[[nodiscard]] constexpr auto kernel_default_block_size() {
+    if constexpr (N == 1) {
+        return uint3{256u, 1u, 1u};
+    } else if constexpr (N == 2) {
+        return uint3{16u, 16u, 1u};
+    } else if constexpr (N == 3) {
+        return uint3{8u, 8u, 8u};
+    } else {
+        static_assert(always_false_v<std::integral_constant<size_t, N>>);
+    }
+}
 
 }// namespace detail
 
-template<typename... Args>
-class Kernel<void(Args...)> {
+#define LUISA_MAKE_KERNEL_ND(N)                                                                                \
+    template<typename... Args>                                                                                 \
+    class Kernel##N##D<void(Args...)> {                                                                        \
+                                                                                                               \
+    private:                                                                                                   \
+        Function _function;                                                                                    \
+                                                                                                               \
+    public:                                                                                                    \
+        Kernel##N##D(Kernel##N##D &&) noexcept = default;                                                      \
+        Kernel##N##D(const Kernel##N##D &) noexcept = default;                                                 \
+                                                                                                               \
+        [[nodiscard]] auto function_uid() const noexcept { return _function.uid(); }                           \
+                                                                                                               \
+        template<typename Def>                                                                                 \
+        requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>          \
+            Kernel##N##D(Def &&def) noexcept                                                                   \
+            : _function{FunctionBuilder::define_kernel([&def] {                                                \
+                  FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());          \
+                  def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);                   \
+              })} {}                                                                                           \
+                                                                                                               \
+        [[nodiscard]] auto operator()(detail::prototype_to_kernel_invocation_t<Args>... args) const noexcept { \
+            detail::KernelInvoke##N##D invoke{_function.uid()};                                                \
+            (invoke << ... << args);                                                                           \
+            return invoke;                                                                                     \
+        }                                                                                                      \
+    };
 
-private:
-    Function _function;
-
-public:
-    Kernel(Kernel &&) noexcept = default;
-    Kernel(const Kernel &) noexcept = default;
-    
-    [[nodiscard]] auto function_uid() const noexcept { return _function.uid(); }
-
-    template<typename Def>
-    requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
-    Kernel(Def &&def) noexcept
-        : _function{FunctionBuilder::define_kernel([&def] {
-              def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
-          })} {}
-
-    [[nodiscard]] auto operator()(detail::prototype_to_kernel_invocation_t<Args>... args) const noexcept {
-        detail::KernelInvoke invoke{_function.uid()};
-        (invoke << ... << args);
-        return invoke;
-    }
-};
+LUISA_MAKE_KERNEL_ND(1)
+LUISA_MAKE_KERNEL_ND(2)
+LUISA_MAKE_KERNEL_ND(3)
+#undef LUISA_MAKE_KERNEL_ND
 
 namespace detail {
 
@@ -303,7 +346,17 @@ struct function<std::function<std::tuple<Ret...>(Args...)>> {
 };
 
 template<typename T>
-struct function<Kernel<T>> {
+struct function<Kernel1D<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct function<Kernel2D<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct function<Kernel3D<T>> {
     using type = T;
 };
 
@@ -318,7 +371,13 @@ using function_t = typename function<T>::type;
 }// namespace detail
 
 template<typename T>
-Kernel(T &&) -> Kernel<detail::function_t<T>>;
+Kernel1D(T &&) -> Kernel1D<detail::function_t<T>>;
+
+template<typename T>
+Kernel2D(T &&) -> Kernel2D<detail::function_t<T>>;
+
+template<typename T>
+Kernel3D(T &&) -> Kernel3D<detail::function_t<T>>;
 
 template<typename T>
 Callable(T &&) -> Callable<detail::function_t<T>>;
@@ -327,14 +386,29 @@ Callable(T &&) -> Callable<detail::function_t<T>>;
 
 namespace luisa::compute::dsl::detail {
 
-struct FuncBuilder {
+struct CallableBuilder {
     template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator%(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
+};
+
+struct Kernel1DBuilder {
     template<typename F>
-    [[nodiscard]] auto operator/(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel1D{std::forward<F>(def)}; }
+};
+
+struct Kernel2DBuilder {
+    template<typename F>
+    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel2D{std::forward<F>(def)}; }
+};
+
+struct Kernel3DBuilder {
+    template<typename F>
+    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel3D{std::forward<F>(def)}; }
 };
 
 }// namespace luisa::compute::dsl::detail
 
-#define LUISA_KERNEL ::luisa::compute::dsl::detail::FuncBuilder{} % [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::FuncBuilder{} / [&]
+#define LUISA_KERNEL1D ::luisa::compute::dsl::detail::Kernel1DBuilder{} % [&]
+#define LUISA_KERNEL2D ::luisa::compute::dsl::detail::Kernel2DBuilder{} % [&]
+#define LUISA_KERNEL3D ::luisa::compute::dsl::detail::Kernel3DBuilder{} % [&]
+#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} % [&]

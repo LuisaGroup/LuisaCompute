@@ -48,7 +48,7 @@ struct GetKernelType<Ret(Args...)> {
 template<typename Func>
 decltype(auto) CompileKernel(Func &&func) {
     using FuncType = MFunctorType<std::remove_cvref_t<Func>>;//void(BufferView<float>, Var<uint>)
-    return Kernel<typename GetKernelType<FuncType>::KernelType>(func);
+    return Kernel1D<typename GetKernelType<FuncType>::KernelType>(func);
 }
 
 LUISA_STRUCT(Test, something, a)
@@ -87,7 +87,8 @@ int main(int argc, char *argv[]) {
     // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
     // >>> Kernel kernel = [&](...) { ... }
     //auto func = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
-    Kernel<void(Buffer<float>, uint)> kernel = CompileKernel([&](BufferView<float> buffer_float, Var<uint> count) noexcept -> void {
+    Kernel1D<void(Buffer<float>, uint)> kernel = CompileKernel([&](BufferView<float> buffer_float, Var<uint> count) noexcept -> void {
+        
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
@@ -158,7 +159,7 @@ int main(int argc, char *argv[]) {
     });
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    auto command = kernel(float_buffer, 12u).parallelize(1024u);
+    auto command = kernel(float_buffer, 12u).launch(1024u);
     auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
     LUISA_INFO("Command: kernel = {}, args = {}", launch_command->kernel_uid(), launch_command->argument_count());
     auto function = Function::kernel(launch_command->kernel_uid());

@@ -71,4 +71,8 @@ Variable::Usage Function::variable_usage(uint32_t uid) const noexcept {
     return _builder->variable_usage(uid);
 }
 
+uint3 Function::block_size() const noexcept {
+    return _builder->block_size();
+}
+
 }

@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
-    auto kernel = LUISA_KERNEL(BufferView<float> buffer_float, Var<uint> count) noexcept {
+    auto kernel = LUISA_KERNEL1D(BufferView<float> buffer_float, Var<uint> count) noexcept {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;

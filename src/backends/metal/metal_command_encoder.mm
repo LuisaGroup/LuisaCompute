@@ -3,7 +3,8 @@
 //
 
 #import <core/platform.h>
-#include <backends/metal/metal_command_encoder.h>
+#import <ast/function.h>
+#import <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {
 
@@ -76,12 +77,13 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
 
+    auto function = Function::kernel(command->kernel_uid());
     auto kernel = _device->kernel(command->kernel_uid());
     auto argument_index = 0u;
     static constexpr auto index_stride = 100u;
 
     auto launch_size = command->launch_size();
-    auto block_size = command->block_size();
+    auto block_size = function.block_size();
     auto blocks = (launch_size + block_size - 1u) / block_size;
     LUISA_VERBOSE_WITH_LOCATION(
         "Dispatch kernel #{} in ({}, {}, {}) blocks with block_size ({}, {}, {}).",

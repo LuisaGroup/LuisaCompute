@@ -37,7 +37,13 @@ protected:
 
     // for creating function args
     template<typename U>
-    friend class Kernel;
+    friend class Kernel1D;
+    
+    template<typename U>
+    friend class Kernel2D;
+    
+    template<typename U>
+    friend class Kernel3D;
 
     template<typename U>
     friend class Callable;

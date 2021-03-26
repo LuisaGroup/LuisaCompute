@@ -57,6 +57,7 @@ private:
     ArenaVector<uint32_t> _used_custom_callables;
     ArenaVector<std::string_view> _used_builtin_callables;
     ArenaVector<Variable::Usage> _variable_usages;
+    uint3 _block_size;
     Tag _tag;
     uint32_t _uid;
 
@@ -102,6 +103,7 @@ public:
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto return_type() const noexcept { return _ret; }
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
+    [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     [[nodiscard]] static Function at(uint32_t uid) noexcept;
     [[nodiscard]] static Function callable(uint32_t uid) noexcept;
     [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
@@ -127,7 +129,11 @@ public:
     static auto define_callable(Def &&def) noexcept {
         return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
     }
+    
+    // config
+    void set_block_size(uint3 size) noexcept { _block_size = size; }
 
+    // built-in variables
     [[nodiscard]] const RefExpr *thread_id() noexcept;
     [[nodiscard]] const RefExpr *block_id() noexcept;
     [[nodiscard]] const RefExpr *dispatch_id() noexcept;

@@ -288,6 +288,15 @@ template<typename Dest, typename Src>
     return detail::Expr<uint3>{FunctionBuilder::current()->launch_size()};
 }
 
+[[nodiscard]] inline auto block_size() noexcept {
+    return FunctionBuilder::current()->block_size();
+}
+
+inline void set_block_size(uint x, uint y = 1u, uint z = 1u) noexcept {
+    FunctionBuilder::current()->set_block_size(
+        uint3{std::max(x, 1u), std::max(y, 1u), std::max(z, 1u)});
+}
+
 template<typename... T>
 [[nodiscard]] inline auto multiple(T &&...v) noexcept {
     return std::make_tuple(detail::Expr{v}...);

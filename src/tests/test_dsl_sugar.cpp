@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
         return cast<float>(int_consts[a]) + b.cast<float>() * c;
     };
 
-    auto kernel = LUISA_KERNEL($buffer<float> buffer_float, $uint count) noexcept {
+    auto kernel = LUISA_KERNEL1D($buffer<float> buffer_float, $uint count) noexcept {
 
         $constant float_consts = {1.0f, 2.0f};
         $constant int_consts = const_vector;
@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) {
         $ another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
     
-    auto command = kernel(float_buffer, 12u).parallelize(1024u);
+    auto command = kernel(float_buffer, 12u).launch(1024u);
     auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
     LUISA_INFO("Command: kernel = {}, args = {}", launch_command->kernel_uid(), launch_command->argument_count());
     auto function = Function::kernel(launch_command->kernel_uid());

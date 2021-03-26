@@ -232,17 +232,15 @@ private:
     uint32_t _kernel_uid;
     uint32_t _argument_count{0u};
     size_t _argument_buffer_size{0u};
-    uint3 _launch_size;
-    uint3 _block_size;
+    uint3 _launch_size{};
     ArgumentBuffer _argument_buffer{};
 
 public:
-    explicit KernelLaunchCommand(uint32_t uid) noexcept : _kernel_uid{uid} {}
-    void set_dispatch_size(uint3 launch_size, uint3 block_size) noexcept;
+    explicit KernelLaunchCommand(uint32_t uid) noexcept;
+    void set_launch_size(uint3 launch_size) noexcept;
     [[nodiscard]] auto kernel_uid() const noexcept { return _kernel_uid; }
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
     [[nodiscard]] auto launch_size() const noexcept { return _launch_size; }
-    [[nodiscard]] auto block_size() const noexcept { return _block_size; }
 
     // Note: encode/decode order:
     //   1. captured buffers
