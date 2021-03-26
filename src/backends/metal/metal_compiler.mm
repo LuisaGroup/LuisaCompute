@@ -3,9 +3,9 @@
 //
 
 #import <runtime/context.h>
-#import <backends/metal/metal_device.h>
 #import <backends/metal/metal_codegen.h>
 #import <backends/metal/metal_compiler.h>
+#import <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
 
@@ -38,7 +38,7 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
                 "Cache hit for kernel #{}. Compilation skipped.", uid);
             return {iter->pso, iter->encoder};
         }
-    };
+    }
 
     // compile from source
     auto src = [[NSString alloc] initWithBytes:s.data()

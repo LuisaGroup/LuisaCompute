@@ -24,7 +24,7 @@ LUISA_STRUCT(Test, a, b);
 
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
+//    log_level_verbose();
 
     Context context{argv[0]};
 
@@ -65,9 +65,11 @@ int main(int argc, char *argv[]) {
     std::iota(data.begin(), data.end(), 1.0f);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    stream << buffer.upload(data.data())
-           << kernel(buffer, result_buffer, Test{2.0f, 0.0f}).parallelize(n, 1024u)
-           << result_buffer.download(results.data());
+    stream << buffer.upload(data.data());
+    for (auto i = 0; i < 10; i++) {
+        stream << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f}).parallelize(n);
+    }
+    stream << result_buffer.download(results.data());
     auto t1 = std::chrono::high_resolution_clock::now();
     stream << synchronize();
     auto t2 = std::chrono::high_resolution_clock::now();

@@ -37,9 +37,9 @@ private:
     };
     
     struct alignas(16) KernelHandle {
-        std::future<PipelineState> pso;
+        std::shared_future<PipelineState> pso;
         uint32_t uid;
-        KernelHandle(uint32_t uid, std::future<PipelineState> pso) noexcept
+        KernelHandle(uint32_t uid, std::shared_future<PipelineState> pso) noexcept
             : pso{std::move(pso)}, uid{uid} {}
     };
 

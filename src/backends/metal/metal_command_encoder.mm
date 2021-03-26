@@ -88,7 +88,7 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
         command->kernel_uid(),
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
-    
+
     auto argument_encoder = kernel.encoder;
     auto argument_buffer = _device->allocate_argument_buffer();
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
@@ -102,15 +102,17 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
                 argument.handle, argument_index, argument.offset);
             auto buffer = _device->buffer(argument.handle);
             [argument_encoder setBuffer:buffer offset:argument.offset atIndex:index_stride * argument_index++];
-            auto usage = [](Command::Resource::Usage u) noexcept -> NSUInteger {
-                switch (u) {
-                    case Command::Resource::Usage::READ: return MTLResourceUsageRead;
-                    case Command::Resource::Usage::WRITE: return MTLResourceUsageWrite;
-                    case Command::Resource::Usage::READ_WRITE: return MTLResourceUsageRead | MTLResourceUsageWrite;
-                    default: return 0u;
-                }
-            }(argument.usage);
-            [compute_encoder useResource:buffer usage:static_cast<MTLResourceUsage>(usage)];
+            switch (argument.usage) {
+                case Command::Resource::Usage::READ:
+                    [compute_encoder useResource:buffer usage:MTLResourceUsageRead];
+                    break;
+                case Command::Resource::Usage::WRITE:
+                    [compute_encoder useResource:buffer usage:MTLResourceUsageWrite];
+                    break;
+                case Command::Resource::Usage::READ_WRITE:
+                    [compute_encoder useResource:buffer usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                default: break;
+            }
         } else if constexpr (std::is_same_v<T, KernelLaunchCommand::TextureArgument>) {
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
         } else {// uniform
@@ -124,10 +126,10 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)
                     threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
     [compute_encoder endEncoding];
-    
+
     __weak auto weak_device = _device;
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-        weak_device->recycle_argument_buffer(argument_buffer);
+      weak_device->recycle_argument_buffer(argument_buffer);
     }];
 }
 
