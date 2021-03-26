@@ -9,7 +9,7 @@
 
 namespace luisa::compute::metal {
 
-id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
+MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
 
     LUISA_INFO("Compiling kernel #{}.", uid);
     auto t0 = std::chrono::high_resolution_clock::now();
@@ -36,7 +36,7 @@ id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
             iter != _cache.cend()) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Cache hit for kernel #{}. Compilation skipped.", uid);
-            return iter->pso;
+            return {iter->pso, iter->encoder};
         }
     };
 
@@ -52,7 +52,7 @@ id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
         o.libraryType = MTLLibraryTypeExecutable;
         return o;
     }();
-    
+
     __autoreleasing NSError *error = nullptr;
     auto library = [_device->handle() newLibraryWithSource:src options:options error:&error];
     if (error != nullptr) {
@@ -86,15 +86,15 @@ id<MTLComputePipelineState> MetalCompiler::_compile(uint32_t uid) noexcept {
             "Failed to create pipeline state object for kernel #{}: {}.",
             uid, [error.description cStringUsingEncoding:NSUTF8StringEncoding]);
     }
+    auto encoder = [func newArgumentEncoderWithBufferIndex:0];
 
     if (std::scoped_lock lock{_cache_mutex};
         std::find_if(
             _cache.cbegin(),
             _cache.cend(),
             [hash](auto &&item) noexcept { return item.hash == hash; })
-        == _cache.cend()) { _cache.emplace_back(hash, pso); }
-
-    return pso;
+        == _cache.cend()) { _cache.emplace_back(hash, pso, encoder); }
+    return {pso, encoder};
 }
 
 void MetalCompiler::prepare(uint32_t uid) noexcept {
@@ -125,13 +125,13 @@ void MetalCompiler::prepare(uint32_t uid) noexcept {
     }
 }
 
-id<MTLComputePipelineState> MetalCompiler::kernel(uint32_t uid) noexcept {
+MetalCompiler::PipelineState MetalCompiler::kernel(uint32_t uid) noexcept {
     prepare(uid);
     std::scoped_lock lock{_kernel_mutex};
     auto iter = std::find_if(
         _kernels.begin(), _kernels.end(),
         [uid](auto &&handle) noexcept { return handle.uid == uid; });
-    return iter->pso.get().handle;
+    return iter->pso.get();
 }
 
 }

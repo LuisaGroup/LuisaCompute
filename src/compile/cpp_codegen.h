@@ -42,6 +42,7 @@ private:
     void visit(const SwitchDefaultStmt *stmt) override;
     void visit(const AssignStmt *stmt) override;
     void visit(const ForStmt *stmt) override;
+    void visit(const ConstantExpr *expr) override;
 
 private:
     virtual void _emit_type_decl() noexcept;
@@ -53,7 +54,6 @@ private:
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
     virtual void _emit_constant(Function::ConstantBinding c) noexcept;
     virtual void _emit_access_attribute(Variable v) noexcept;
-    void visit(const ConstantExpr *expr) override;
 
 public:
     explicit CppCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}

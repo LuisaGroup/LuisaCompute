@@ -32,6 +32,9 @@ private:
     mutable spin_mutex _stream_mutex;
     std::vector<id<MTLCommandQueue>> _stream_slots;
     std::vector<size_t> _available_stream_slots;
+    
+    spin_mutex _argument_buffer_mutex;
+    std::vector<id<MTLBuffer>> _available_argument_buffers;
 
 private:
     uint64_t _create_buffer(size_t size_bytes) noexcept override;
@@ -48,7 +51,9 @@ public:
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLCommandQueue> stream(uint64_t handle) const noexcept;
-    [[nodiscard]] id<MTLComputePipelineState> kernel(uint32_t uid) const noexcept;
+    [[nodiscard]] id<MTLBuffer> allocate_argument_buffer() noexcept;
+    void recycle_argument_buffer(id<MTLBuffer> buffer) noexcept;
+    [[nodiscard]] MetalCompiler::PipelineState kernel(uint32_t uid) const noexcept;
 };
 
 }
