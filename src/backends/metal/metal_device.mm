@@ -90,6 +90,16 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _stream_slots.resize(initial_stream_count, nullptr);
     _available_stream_slots.resize(initial_stream_count);
     std::iota(_available_stream_slots.rbegin(), _available_stream_slots.rend(), 0u);
+    
+    static constexpr auto initial_argument_buffer_count = 8u;
+    _available_argument_buffers.reserve(initial_argument_buffer_count);
+    for (auto i = 0u; i < initial_argument_buffer_count; i++) {
+        auto options = MTLResourceStorageModeShared
+                       | MTLResourceOptionCPUCacheModeWriteCombined
+                       | MTLResourceHazardTrackingModeUntracked;
+        auto buffer = [_handle newBufferWithLength:4096u options:options];
+        _available_argument_buffers.emplace_back(buffer);
+    }
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -123,7 +133,7 @@ void MetalDevice::_prepare_kernel(uint32_t uid) noexcept {
     _compiler->prepare(uid);
 }
 
-id<MTLComputePipelineState> MetalDevice::kernel(uint32_t uid) const noexcept {
+MetalCompiler::PipelineState MetalDevice::kernel(uint32_t uid) const noexcept {
     return _compiler->kernel(uid);
 }
 
@@ -137,6 +147,25 @@ void MetalDevice::_dispatch(uint64_t stream_handle, CommandBuffer commands, std:
         }];
     }
     [command_buffer commit];
+}
+
+id<MTLBuffer> MetalDevice::allocate_argument_buffer() noexcept {
+    if (std::scoped_lock lock{_argument_buffer_mutex};
+        !_available_argument_buffers.empty()) {
+        auto buffer = _available_argument_buffers.back();
+        _available_argument_buffers.pop_back();
+        return buffer;
+    }
+    auto options = MTLResourceStorageModeShared
+                   | MTLResourceOptionCPUCacheModeWriteCombined
+                   | MTLResourceHazardTrackingModeUntracked;
+    auto buffer = [_handle newBufferWithLength:4096u options:options];
+    return buffer;
+}
+
+void MetalDevice::recycle_argument_buffer(id<MTLBuffer> buffer) noexcept {
+    std::scoped_lock lock{_argument_buffer_mutex};
+    _available_argument_buffers.emplace_back(buffer);
 }
 
 }

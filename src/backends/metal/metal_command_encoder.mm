@@ -54,10 +54,6 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     auto aligned_begin = address / page_size * page_size;
     auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
 
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Aligned address 0x{:012x} with size {} bytes to [0x{:012x}, 0x{:012x}) (pagesize = {} bytes).",
-        address, size, aligned_begin, aligned_end, page_size);
-
     auto t0 = std::chrono::high_resolution_clock::now();
     auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
                                                           length:aligned_end - aligned_begin
@@ -81,8 +77,8 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
 
     auto kernel = _device->kernel(command->kernel_uid());
-    auto buffer_count = 0u;
-    auto texture_count = 0u;
+    auto argument_index = 0u;
+    static constexpr auto index_stride = 100u;
 
     auto launch_size = command->launch_size();
     auto block_size = command->block_size();
@@ -93,35 +89,48 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
 
+    auto argument_encoder = kernel.encoder;
+    auto argument_buffer = _device->allocate_argument_buffer();
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
-    [compute_encoder setComputePipelineState:kernel];
+    [compute_encoder setComputePipelineState:kernel.handle];
+    [argument_encoder setArgumentBuffer:argument_buffer offset:0];
     command->decode([&](auto argument) noexcept {
         using T = decltype(argument);
         if constexpr (std::is_same_v<T, KernelLaunchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding buffer #{} at index {} with offset {}.",
-                argument.handle, buffer_count, argument.offset);
+                argument.handle, argument_index, argument.offset);
             auto buffer = _device->buffer(argument.handle);
-            [compute_encoder setBuffer:buffer offset:argument.offset atIndex:buffer_count++];
-//            auto usage = [](Command::Resource::Usage u) noexcept -> NSUInteger {
-//                switch (u) {
-//                    case Command::Resource::Usage::READ: return MTLResourceUsageRead;
-//                    case Command::Resource::Usage::WRITE: return MTLResourceUsageWrite;
-//                    case Command::Resource::Usage::READ_WRITE: return MTLResourceUsageRead | MTLResourceUsageWrite;
-//                    default: return 0u;
-//                }
-//            }(argument.usage);
-//            [compute_encoder useResource:buffer usage:usage];
+            [argument_encoder setBuffer:buffer offset:argument.offset atIndex:index_stride * argument_index++];
+            switch (argument.usage) {
+                case Command::Resource::Usage::READ:
+                    [compute_encoder useResource:buffer usage:MTLResourceUsageRead];
+                    break;
+                case Command::Resource::Usage::WRITE:
+                    [compute_encoder useResource:buffer usage:MTLResourceUsageWrite];
+                    break;
+                case Command::Resource::Usage::READ_WRITE:
+                    [compute_encoder useResource:buffer usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                default: break;
+            }
         } else if constexpr (std::is_same_v<T, KernelLaunchCommand::TextureArgument>) {
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
         } else {// uniform
-            [compute_encoder setBytes:argument.data() length:argument.size_bytes() atIndex:buffer_count++];
+            auto ptr = [argument_encoder constantDataAtIndex:index_stride * argument_index++];
+            std::memcpy(ptr, argument.data(), argument.size_bytes());
         }
     });
-    [compute_encoder setBytes:&launch_size length:sizeof(launch_size) atIndex:buffer_count];
+    auto ptr = [argument_encoder constantDataAtIndex:index_stride * argument_index];
+    std::memcpy(ptr, &launch_size, sizeof(launch_size));
+    [compute_encoder setBuffer:argument_buffer offset:0 atIndex:0];
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)
                     threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
     [compute_encoder endEncoding];
+
+    __weak auto weak_device = _device;
+    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+      weak_device->recycle_argument_buffer(argument_buffer);
+    }];
 }
 
 }

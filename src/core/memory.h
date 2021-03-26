@@ -75,7 +75,7 @@ public:
                 _total += alloc_size_with_link;
                 using namespace std::chrono_literals;
                 LUISA_VERBOSE_WITH_LOCATION(
-                    "Allocated {} bytes for _arena (total = {} bytes) in {} ms.",
+                    "Allocated {} bytes for arena (total = {} bytes) in {} ms.",
                     alloc_size_with_link, _total, (t1 - t0) / 1ns * 1e-6);
                 aligned_p = _head->data;
             }

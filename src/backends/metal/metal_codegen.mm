@@ -130,6 +130,14 @@ void MetalCodegen::visit(const LiteralExpr *expr) {
 }
 
 void MetalCodegen::visit(const RefExpr *expr) {
+    auto v = expr->variable();
+    if (_function.tag() == Function::Tag::KERNEL
+        && (v.tag() == Variable::Tag::UNIFORM
+            || v.tag() == Variable::Tag::BUFFER
+            || v.tag() == Variable::Tag::TEXTURE
+            || v.tag() == Variable::Tag::LAUNCH_SIZE)) {
+        _scratch << "arg.";
+    }
     _emit_variable_name(expr->variable());
 }
 
@@ -299,44 +307,65 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         _scratch << "\n";
     }
 
-    // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "[[kernel]]\nvoid kernel_" << f.uid();
+        
+        auto index = 0u;
+        static constexpr auto index_stride = 100u;
+
+        // argument buffer
+        _scratch << "struct Argument {";
+        for (auto buffer : f.captured_buffers()) {
+            _scratch << "\n  ";
+            _emit_variable_decl(buffer.variable);
+            _scratch << " [[id(" << index_stride * index++ << ")]];";
+        }
+        for (auto tex : f.captured_textures()) {
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        }
+        for (auto arg : f.arguments()) {
+            _scratch << "\n  ";
+            _emit_variable_decl(arg);
+            _scratch << " [[id(" << index_stride * index++ << ")]];";
+        }
+        _scratch << "\n  const uint3 ls [[id(" << index_stride * index << ")]];\n};\n\n";
+
+        // function signature
+        _scratch << "[[kernel]]\nvoid kernel_" << f.uid() << "(\n    device const Argument &arg,";
+        for (auto builtin : f.builtin_variables()) {
+            if (builtin.tag() != Variable::Tag::LAUNCH_SIZE) {
+                _scratch << "\n    ";
+                _emit_variable_decl(builtin);
+                _scratch << ",";
+            }
+        }
+        _scratch.pop_back();
     } else if (f.tag() == Function::Tag::CALLABLE) {
         if (f.return_type() != nullptr) {
             _emit_type_name(f.return_type());
         } else {
             _scratch << "void";
         }
-        _scratch << " custom_" << f.uid();
+        _scratch << " custom_" << f.uid() << "(";
+        for (auto buffer : f.captured_buffers()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(buffer.variable);
+            _scratch << ",";
+        }
+        for (auto tex : f.captured_textures()) {
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        }
+        for (auto arg : f.arguments()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(arg);
+            _scratch << ",";
+        }
+        if (!f.arguments().empty()
+            || !f.captured_textures().empty()
+            || !f.captured_buffers().empty()) {
+            _scratch.pop_back();
+        }
     } else {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
-    }
-    // argument list
-    _scratch << "(";
-    for (auto buffer : f.captured_buffers()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(buffer.variable);
-        _scratch << ",";
-    }
-    for (auto tex : f.captured_textures()) {
-        LUISA_ERROR_WITH_LOCATION("Not implemented.");
-    }
-    for (auto arg : f.arguments()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(arg);
-        _scratch << ",";
-    }
-    for (auto builtin : f.builtin_variables()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(builtin);
-        _scratch << ",";
-    }
-    if (!f.arguments().empty()
-        || !f.captured_textures().empty()
-        || !f.captured_buffers().empty()
-        || !f.builtin_variables().empty()) {
-        _scratch.pop_back();
     }
     _scratch << ") {";
     if (!f.shared_variables().empty()) {
@@ -432,9 +461,9 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             LUISA_ERROR_WITH_LOCATION("Not implemented!");
             break;
         case Variable::Tag::UNIFORM:
-            _scratch << "constant ";
+            _scratch << "const ";
             _emit_type_name(v.type());
-            _scratch << " &";
+            _scratch << " ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::THREAD_ID:
@@ -456,9 +485,9 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << " [[thread_position_in_grid]]";
             break;
         case Variable::Tag::LAUNCH_SIZE:
-            _scratch << "constant ";
+            _scratch << "const ";
             _emit_type_name(v.type());
-            _scratch << " &";
+            _scratch << " ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:

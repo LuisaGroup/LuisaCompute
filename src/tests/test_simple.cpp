@@ -15,9 +15,16 @@ using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::dsl;
 
+struct Test {
+    float a;
+    float b;
+};
+
+LUISA_STRUCT(Test, a, b);
+
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
+//    log_level_verbose();
 
     Context context{argv[0]};
 
@@ -41,9 +48,9 @@ int main(int argc, char *argv[]) {
         return a + b;
     };
 
-    auto kernel = LUISA_KERNEL(BufferView<float> source, BufferView<float> result, Var<float> x) noexcept {
+    auto kernel = LUISA_KERNEL(BufferView<float> source, BufferView<float> result, Var<Test> x) noexcept {
         auto index = dispatch_id().x;
-        store(result, index, add(load(source, index), x));
+        store(result, index, add(load(source, index), x.a));
     };
     device->prepare(kernel);
 
@@ -58,9 +65,11 @@ int main(int argc, char *argv[]) {
     std::iota(data.begin(), data.end(), 1.0f);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    stream << buffer.upload(data.data())
-           << kernel(buffer, result_buffer, 2.0f).parallelize(n, 1024u)
-           << result_buffer.download(results.data());
+    stream << buffer.upload(data.data());
+    for (auto i = 0; i < 10; i++) {
+        stream << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f}).parallelize(n);
+    }
+    stream << result_buffer.download(results.data());
     auto t1 = std::chrono::high_resolution_clock::now();
     stream << synchronize();
     auto t2 = std::chrono::high_resolution_clock::now();
