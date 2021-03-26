@@ -89,21 +89,23 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
     auto encoder = [func newArgumentEncoderWithBufferIndex:0];
 
     if (std::scoped_lock lock{_cache_mutex};
-        std::find_if(
+        std::none_of(
             _cache.cbegin(),
             _cache.cend(),
-            [hash](auto &&item) noexcept { return item.hash == hash; })
-        == _cache.cend()) { _cache.emplace_back(hash, pso, encoder); }
+            [hash](auto &&item) noexcept {
+                return item.hash == hash;
+            })) { _cache.emplace_back(hash, pso, encoder); }
     return {pso, encoder};
 }
 
 void MetalCompiler::prepare(uint32_t uid) noexcept {
 
     if (std::scoped_lock lock{_kernel_mutex};
-        std::find_if(_kernels.cbegin(),
-                     _kernels.cend(),
-                     [uid](auto &&handle) noexcept { return handle.uid == uid; })
-        != _kernels.cend()) { return; }
+        std::any_of(_kernels.cbegin(),
+                    _kernels.cend(),
+                    [uid](auto &&handle) noexcept {
+                        return handle.uid == uid;
+                    })) { return; }
 
     auto kernel = std::async(std::launch::async, [uid, this] {
         auto t0 = std::chrono::high_resolution_clock::now();
@@ -117,10 +119,9 @@ void MetalCompiler::prepare(uint32_t uid) noexcept {
     });
 
     std::scoped_lock lock{_kernel_mutex};
-    if (std::find_if(
+    if (std::none_of(
             _kernels.cbegin(), _kernels.cend(),
-            [uid](auto &&handle) noexcept { return handle.uid == uid; })
-        == _kernels.cend()) {
+            [uid](auto &&handle) noexcept { return handle.uid == uid; })) {
         _kernels.emplace_back(uid, std::move(kernel));
     }
 }

@@ -66,8 +66,11 @@ int main(int argc, char *argv[]) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
     stream << buffer.upload(data.data());
-    for (auto i = 0; i < 10; i++) {
-        stream << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f}).parallelize(n);
+    {
+        auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f}).parallelize(n);
+        for (auto i = 0; i < 10; i++) {
+            s << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f}).parallelize(n);
+        }
     }
     stream << result_buffer.download(results.data());
     auto t1 = std::chrono::high_resolution_clock::now();

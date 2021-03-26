@@ -21,7 +21,7 @@ namespace detail {
     return m;
 }
 
-}
+}// namespace detail
 
 uint64_t ConstantData::create(ConstantData::View data) noexcept {
     return std::visit(
@@ -30,11 +30,10 @@ uint64_t ConstantData::create(ConstantData::View data) noexcept {
             auto type = Type::of<T>();
             auto hash = xxh3_hash64(view.data(), view.size_bytes(), type->hash());
             std::scoped_lock lock{detail::constant_registry_mutex()};
-            if (auto iter = std::find_if(
+            if (std::none_of(
                     detail::constant_registry().cbegin(),
                     detail::constant_registry().cend(),
-                    [hash](auto &&item) noexcept { return item._hash == hash; });
-                iter == detail::constant_registry().cend()) {
+                    [hash](auto &&item) noexcept { return item._hash == hash; })) {
                 auto ptr = Arena::global().allocate<T>(view.size());
                 std::memmove(ptr, view.data(), view.size_bytes());
                 std::span<const T> new_view{ptr, view.size()};
@@ -46,14 +45,15 @@ uint64_t ConstantData::create(ConstantData::View data) noexcept {
 }
 
 ConstantData::View ConstantData::view(uint64_t hash) noexcept {
-    
+
     auto iter = std::find_if(
         detail::constant_registry().cbegin(),
         detail::constant_registry().cend(),
         [hash](auto &&item) noexcept { return item._hash == hash; });
-    
+
     if (iter == detail::constant_registry().cend()) {
-        LUISA_ERROR_WITH_LOCATION("Invalid constant data with hash {}.", hash);
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid constant data with hash {}.", hash);
     }
     return iter->_view;
 }
