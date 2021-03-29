@@ -80,7 +80,7 @@ public:
         return BufferView{this->device(), this->handle(), this->offset_bytes(), byte_size / sizeof(U)};
     }
 
-    [[nodiscard]] auto download(T *data) const {
+    [[nodiscard]] auto copy_to(T *data) const {
         if (reinterpret_cast<size_t>(data) % alignof(T) != 0u) {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid host pointer {} for elements with alignment {}.",
@@ -89,11 +89,11 @@ public:
         return BufferDownloadCommand::create(_handle, offset_bytes(), size_bytes(), data);
     }
 
-    [[nodiscard]] auto upload(const T *data) {
+    [[nodiscard]] auto copy_from(const T *data) {
         return BufferUploadCommand::create(this->handle(), this->offset_bytes(), this->size_bytes(), data);
     }
 
-    [[nodiscard]] auto copy(BufferView<T> source) {
+    [[nodiscard]] auto copy_from(BufferView<T> source) {
         if (source.size() != this->size()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Incompatible buffer views with different element counts (src = {}, dst = {}).",

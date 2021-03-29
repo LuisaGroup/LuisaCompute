@@ -308,7 +308,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
     }
 
     if (f.tag() == Function::Tag::KERNEL) {
-        
+
         auto index = 0u;
         static constexpr auto index_stride = 100u;
 
@@ -330,7 +330,11 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         _scratch << "\n  const uint3 ls;\n};\n\n";
 
         // function signature
-        _scratch << "[[kernel]]\nvoid kernel_" << f.uid() << "(\n    device const Argument &arg,";
+        _scratch << "[[kernel]] // block_size = ("
+                 << f.block_size().x << ", "
+                 << f.block_size().y << ", "
+                 << f.block_size().z << ")\n"
+                 << "void kernel_" << f.uid() << "(\n    device const Argument &arg,";
         for (auto builtin : f.builtin_variables()) {
             if (builtin.tag() != Variable::Tag::LAUNCH_SIZE) {
                 _scratch << "\n    ";

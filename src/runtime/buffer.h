@@ -64,9 +64,9 @@ public:
 
     [[nodiscard]] auto view() const noexcept { return dsl::BufferView<T>{_handle, 0u, _size}; }
     
-    [[nodiscard]] auto download(T *data) const noexcept { return this->view().download(data); }
-    [[nodiscard]] auto upload(const T *data) { return this->view().upload(data); }
-    [[nodiscard]] auto copy(dsl::BufferView<T> source) { return this->view().copy(source); }
+    [[nodiscard]] auto copy_to(T *data) const noexcept { return this->view().copy_to(data); }
+    [[nodiscard]] auto copy_from(const T *data) { return this->view().copy_from(data); }
+    [[nodiscard]] auto copy_from(dsl::BufferView<T> source) { return this->view().copy_from(source); }
     
     template<typename I>
     [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {

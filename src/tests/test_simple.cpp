@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     };
 
     auto kernel = LUISA_KERNEL1D(BufferView<float> source, BufferView<float> result, Var<Test> x) noexcept {
-        set_block_size(1024u);
+        set_block_size(256u);
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x.a));
     };
@@ -67,14 +67,14 @@ int main(int argc, char *argv[]) {
     std::iota(data.begin(), data.end(), 1.0f);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    stream << buffer.upload(data.data());
+    stream << buffer.copy_from(data.data());
     {
         auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f}).launch(n);
         for (auto i = 0; i < 10; i++) {
             s << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f}).launch(n);
         }
     }
-    stream << result_buffer.download(results.data());
+    stream << result_buffer.copy_to(results.data());
     auto t1 = std::chrono::high_resolution_clock::now();
     stream << synchronize();
     auto t2 = std::chrono::high_resolution_clock::now();

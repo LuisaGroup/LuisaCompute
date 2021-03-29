@@ -34,6 +34,10 @@ private:
     mutable spin_mutex _stream_mutex;
     std::vector<id<MTLCommandQueue>> _stream_slots;
     std::vector<size_t> _available_stream_slots;
+    
+    mutable spin_mutex _texture_mutex;
+    std::vector<id<MTLTexture>> _texture_slots;
+    std::vector<size_t> _available_texture_slots;
 
 private:
     uint64_t _create_buffer(size_t size_bytes) noexcept override;
@@ -50,8 +54,13 @@ public:
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLCommandQueue> stream(uint64_t handle) const noexcept;
+    [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalCompiler::PipelineState kernel(uint32_t uid) const noexcept;
+
+private:
+    uint64_t _create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) override;
+    void _dispose_texture(uint64_t handle) noexcept override;
 };
 
 }

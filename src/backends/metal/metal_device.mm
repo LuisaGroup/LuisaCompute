@@ -34,10 +34,12 @@ uint64_t MetalDevice::_create_buffer(size_t size_bytes) noexcept {
 }
 
 void MetalDevice::_dispose_buffer(uint64_t handle) noexcept {
-    _buffer_slots[handle] = nullptr;
+    {
+        std::scoped_lock lock{_buffer_mutex};
+        _buffer_slots[handle] = nullptr;
+        _available_buffer_slots.emplace_back(handle);
+    }
     LUISA_VERBOSE_WITH_LOCATION("Disposed buffer #{}.", handle);
-    std::scoped_lock lock{_buffer_mutex};
-    _available_buffer_slots.emplace_back(handle);
 }
 
 uint64_t MetalDevice::_create_stream() noexcept {
@@ -60,10 +62,12 @@ uint64_t MetalDevice::_create_stream() noexcept {
 }
 
 void MetalDevice::_dispose_stream(uint64_t handle) noexcept {
-    _stream_slots[handle] = nullptr;
+    {
+        std::scoped_lock lock{_stream_mutex};
+        _stream_slots[handle] = nullptr;
+        _available_stream_slots.emplace_back(handle);
+    }
     LUISA_VERBOSE_WITH_LOCATION("Disposed stream #{}.", handle);
-    std::scoped_lock lock{_stream_mutex};
-    _available_stream_slots.emplace_back(handle);
 }
 
 MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
@@ -92,6 +96,11 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _stream_slots.resize(initial_stream_count, nullptr);
     _available_stream_slots.resize(initial_stream_count);
     std::iota(_available_stream_slots.rbegin(), _available_stream_slots.rend(), 0u);
+
+    static constexpr auto initial_texture_count = 16u;
+    _texture_slots.resize(initial_texture_count, nullptr);
+    _available_texture_slots.resize(initial_texture_count);
+    std::iota(_available_texture_slots.rbegin(), _available_texture_slots.rend(), 0u);
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -144,6 +153,67 @@ void MetalDevice::_dispatch(uint64_t stream_handle, CommandBuffer commands, std:
 
 MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
     return _argument_buffer_pool.get();
+}
+
+uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) {
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+    auto desc = [[MTLTextureDescriptor alloc] init];
+    switch (dimension) {
+        case 2u: desc.textureType = MTLTextureType2D; break;
+        case 3u: desc.textureType = MTLTextureType3D; break;
+        default: LUISA_ERROR_WITH_LOCATION("Invalid texture dimension {}.", dimension); break;
+    }
+    desc.width = width;
+    desc.height = height;
+    desc.depth = depth;
+    switch (format) {
+        case PixelFormat::R8U: desc.pixelFormat = MTLPixelFormatR8Unorm; break;
+        case PixelFormat::R8U_SRGB: desc.pixelFormat = MTLPixelFormatR8Unorm_sRGB; break;
+        case PixelFormat::RG8U: desc.pixelFormat = MTLPixelFormatRG8Unorm; break;
+        case PixelFormat::RG8U_SRGB: desc.pixelFormat = MTLPixelFormatRG8Unorm_sRGB; break;
+        case PixelFormat::RGBA8U: desc.pixelFormat = MTLPixelFormatRGBA8Unorm; break;
+        case PixelFormat::RGBA8U_SRGB: desc.pixelFormat = MTLPixelFormatRGBA8Unorm_sRGB; break;
+        case PixelFormat::R32F: desc.pixelFormat = MTLPixelFormatR32Float; break;
+        case PixelFormat::RG32F: desc.pixelFormat = MTLPixelFormatRG32Float; break;
+        case PixelFormat::RGBA32F: desc.pixelFormat = MTLPixelFormatRGBA32Float; break;
+    }
+    desc.allowGPUOptimizedContents = true;
+    desc.resourceOptions = MTLResourceStorageModePrivate;
+    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    desc.mipmapLevelCount = mipmap_levels;
+    auto texture = [_handle newTextureWithDescriptor:desc];
+    auto t1 = std::chrono::high_resolution_clock::now();
+    
+    using namespace std::chrono_literals;
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Created texture in {} ms.",
+        (t1 - t0) / 1ns * 1e-6);
+    
+    std::scoped_lock lock{_texture_mutex};
+    if (_available_texture_slots.empty()) {
+        auto s = _texture_slots.size();
+        _texture_slots.emplace_back(texture);
+        return s;
+    }
+    auto s = _available_texture_slots.back();
+    _available_texture_slots.pop_back();
+    _texture_slots[s] = texture;
+    return s;
+}
+
+void MetalDevice::_dispose_texture(uint64_t handle) noexcept {
+    {
+        std::scoped_lock lock{_texture_mutex};
+        _texture_slots[handle] = nullptr;
+        _available_texture_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Disposed texture #{}.", handle);
+}
+
+id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_texture_mutex};
+    return _texture_slots[handle];
 }
 
 }

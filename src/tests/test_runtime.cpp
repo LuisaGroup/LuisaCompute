@@ -135,8 +135,8 @@ int main(int argc, char *argv[]) {
     auto t0 = std::chrono::high_resolution_clock::now();
     stream
         << [] { LUISA_INFO("Hello!"); }
-        << buffer.upload(data.data())
-        << buffer.download(results.data())
+        << buffer.copy_from(data.data())
+        << buffer.copy_to(results.data())
         << [] { LUISA_INFO("Bye!"); }
         << synchronize();
     auto t1 = std::chrono::high_resolution_clock::now();

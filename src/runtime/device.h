@@ -11,6 +11,7 @@
 
 #include <core/memory.h>
 #include <core/concepts.h>
+#include <runtime/pixel_format.h>
 #include <runtime/command_buffer.h>
 
 namespace luisa::compute {
@@ -31,6 +32,12 @@ private:
     friend class Buffer;
     [[nodiscard]] virtual uint64_t _create_buffer(size_t size_bytes) noexcept = 0;
     virtual void _dispose_buffer(uint64_t handle) noexcept = 0;
+    
+    friend class Texture2D;
+    friend class Texture3D;
+    [[nodiscard]] virtual uint64_t _create_texture(
+        PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) = 0;
+    virtual void _dispose_texture(uint64_t handle) noexcept = 0;
 
     friend class Stream;
     [[nodiscard]] virtual uint64_t _create_stream() noexcept = 0;
