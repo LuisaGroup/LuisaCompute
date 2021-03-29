@@ -10,12 +10,14 @@
 namespace luisa::compute::metal {
 
 MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
+    
+    auto ast = Function::kernel(uid);
 
     LUISA_INFO("Compiling kernel #{}.", uid);
     auto t0 = std::chrono::high_resolution_clock::now();
     compile::Codegen::Scratch scratch;
     MetalCodegen codegen{scratch};
-    codegen.emit(Function::kernel(uid));
+    codegen.emit(ast);
     auto t1 = std::chrono::high_resolution_clock::now();
 
     auto s = scratch.view();
@@ -72,10 +74,12 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
             "Failed to find function '{}' in compiled Metal library for kernel #{}.",
             name, uid);
     }
-
+    
+    auto block_size = ast.block_size();
     auto desc = [[MTLComputePipelineDescriptor alloc] init];
     desc.computeFunction = func;
     desc.threadGroupSizeIsMultipleOfThreadExecutionWidth = true;
+    desc.maxTotalThreadsPerThreadgroup = block_size.x * block_size.y * block_size.z;
     desc.label = objc_name;
     auto pso = [_device->handle() newComputePipelineStateWithDescriptor:desc
                                                                 options:MTLPipelineOptionNone
@@ -86,7 +90,7 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
             "Failed to create pipeline state object for kernel #{}: {}.",
             uid, [error.description cStringUsingEncoding:NSUTF8StringEncoding]);
     }
-    
+
     MTLAutoreleasedArgument reflection;
     auto encoder = [func newArgumentEncoderWithBufferIndex:0 reflection:&reflection];
     auto members = reflection.bufferStructType.members;

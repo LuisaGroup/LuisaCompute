@@ -50,6 +50,7 @@ int main(int argc, char *argv[]) {
     };
 
     auto kernel = LUISA_KERNEL1D(BufferView<float> source, BufferView<float> result, Var<Test> x) noexcept {
+        set_block_size(1024u);
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x.a));
     };

@@ -132,8 +132,8 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     [compute_encoder endEncoding];
 
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-      auto buffer = argument_buffer;
-      argument_buffer_pool->recycle(buffer);
+      auto arg_buffer = argument_buffer;
+      argument_buffer_pool->recycle(arg_buffer);
     }];
 }
 
