@@ -30,14 +30,7 @@ add_subdirectory(spdlog)
 set_target_properties(spdlog PROPERTIES UNITY_BUILD ON)
 target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog)
 
-find_package(Threads REQUIRED)
-target_link_libraries(luisa-compute-ext INTERFACE Threads::Threads)
-
 add_library(xxhash INTERFACE)
 target_include_directories(xxhash INTERFACE xxHash)
 target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 target_link_libraries(luisa-compute-ext INTERFACE xxhash)
-
-#set(PYBIND11_FINDPYTHON ON CACHE BOOL "" FORCE)
-
-#add_subdirectory(pybind11)

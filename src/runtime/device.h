@@ -20,6 +20,7 @@ template<typename T>
 class Buffer;
 
 class Stream;
+class Texture;
 class Context;
 
 class Device {
@@ -33,10 +34,11 @@ private:
     [[nodiscard]] virtual uint64_t _create_buffer(size_t size_bytes) noexcept = 0;
     virtual void _dispose_buffer(uint64_t handle) noexcept = 0;
     
-    friend class Texture2D;
-    friend class Texture3D;
+    friend class Texture;
+    friend class Volume;
     [[nodiscard]] virtual uint64_t _create_texture(
-        PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) = 0;
+        PixelFormat format, uint dimension, uint width, uint height, uint depth,
+        uint mipmap_levels, bool is_bindless) = 0;
     virtual void _dispose_texture(uint64_t handle) noexcept = 0;
 
     friend class Stream;
@@ -58,6 +60,8 @@ public:
         auto handle = _create_buffer(size * sizeof(T));
         return Buffer<T>{this, size, handle};
     }
+    
+    [[nodiscard]] Texture create_texture(PixelFormat format, uint width, uint height, uint mipmap_levels = 1u) noexcept;
 
     [[nodiscard]] Stream create_stream() noexcept;
     

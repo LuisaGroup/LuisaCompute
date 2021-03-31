@@ -155,7 +155,7 @@ MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
     return _argument_buffer_pool.get();
 }
 
-uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) {
+uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
     auto desc = [[MTLTextureDescriptor alloc] init];
@@ -180,15 +180,20 @@ uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint w
     }
     desc.allowGPUOptimizedContents = true;
     desc.resourceOptions = MTLResourceStorageModePrivate;
-    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    desc.usage = is_bindless ? MTLTextureUsageShaderRead
+                             : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
     auto texture = [_handle newTextureWithDescriptor:desc];
     auto t1 = std::chrono::high_resolution_clock::now();
-    
+
     using namespace std::chrono_literals;
     LUISA_VERBOSE_WITH_LOCATION(
         "Created texture in {} ms.",
         (t1 - t0) / 1ns * 1e-6);
+
+    if (is_bindless) {
+        // TODO: emplace into descriptor array...
+    }
     
     std::scoped_lock lock{_texture_mutex};
     if (_available_texture_slots.empty()) {

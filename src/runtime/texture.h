@@ -11,9 +11,7 @@ namespace luisa::compute {
 
 class Device;
 
-class Texture2D : concepts::Noncopyable {
-
-public:
+class Texture : concepts::Noncopyable {
 
 private:
     Device *_device;
@@ -25,12 +23,12 @@ private:
 
 private:
     friend class Device;
-    Texture2D(Device *device, PixelFormat format, uint width, uint height, uint mipmap_levels) noexcept;
+    Texture(Device *device, PixelFormat format, uint width, uint height, uint mipmap_levels) noexcept;
 
 public:
-    Texture2D(Texture2D &&another) noexcept;
-    Texture2D &operator=(Texture2D &&rhs) noexcept;
-    ~Texture2D() noexcept;
+    Texture(Texture &&another) noexcept;
+    Texture &operator=(Texture &&rhs) noexcept;
+    ~Texture() noexcept;
 };
 
 }// namespace luisa::compute

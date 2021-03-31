@@ -22,7 +22,7 @@ private:
     void _synchronize_stream(uint64_t stream_handle) noexcept override {}
     void _dispatch(uint64_t stream_handle, CommandBuffer buffer, std::function<void()> function) noexcept override {}
     void _prepare_kernel(uint32_t uid) noexcept override {}
-    uint64_t _create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) override { return _handle++; }
+    uint64_t _create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) override { return _handle++; }
     void _dispose_texture(uint64_t handle) noexcept override {}
 
 public:

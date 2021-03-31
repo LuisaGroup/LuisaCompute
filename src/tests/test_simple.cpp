@@ -5,6 +5,7 @@
 #include <numeric>
 
 #include <runtime/device.h>
+#include <runtime/texture.h>
 #include <runtime/context.h>
 #include <runtime/stream.h>
 #include <dsl/buffer_view.h>
@@ -85,4 +86,6 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[n - 2u], results[n - 1u]);
+    
+    auto texture = device->create_texture(PixelFormat::RGBA32F, 1024u, 1024u);
 }

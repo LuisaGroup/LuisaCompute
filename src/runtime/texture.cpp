@@ -7,21 +7,21 @@
 
 namespace luisa::compute {
 
-Texture2D::Texture2D(Device *device, PixelFormat format, uint width, uint height, uint mipmap_levels) noexcept
+Texture::Texture(Device *device, PixelFormat format, uint width, uint height, uint mipmap_levels) noexcept
     : _device{device},
-      _handle{device->_create_texture(format, 2, width, height, 1, mipmap_levels)},
+      _handle{device->_create_texture(format, 2, width, height, 1, mipmap_levels, false)},
       _format{format},
       _width{width},
       _height{height},
       _mipmap_levels{mipmap_levels} {}
 
-Texture2D::~Texture2D() noexcept {
+Texture::~Texture() noexcept {
     if (_device != nullptr) {
         _device->_dispose_texture(_handle);
     }
 }
 
-Texture2D::Texture2D(Texture2D &&another) noexcept
+Texture::Texture(Texture &&another) noexcept
     : _device{another._device},
       _handle{another._handle},
       _format{another._format},
@@ -29,7 +29,7 @@ Texture2D::Texture2D(Texture2D &&another) noexcept
       _height{another._height},
       _mipmap_levels{another._mipmap_levels} { another._device = nullptr; }
 
-Texture2D &Texture2D::operator=(Texture2D &&rhs) noexcept {
+Texture &Texture::operator=(Texture &&rhs) noexcept {
     if (&rhs != this) {
         _device->_dispose_texture(_handle);
         _device = rhs._device;

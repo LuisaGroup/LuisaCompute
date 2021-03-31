@@ -59,7 +59,7 @@ public:
     [[nodiscard]] MetalCompiler::PipelineState kernel(uint32_t uid) const noexcept;
 
 private:
-    uint64_t _create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) override;
+    uint64_t _create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) override;
     void _dispose_texture(uint64_t handle) noexcept override;
 };
 
