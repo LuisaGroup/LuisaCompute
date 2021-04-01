@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/15.
 //
 
+#include <chrono>
 #include <cstdlib>
 #include <string>
 #include <type_traits>
@@ -112,16 +113,20 @@ size_t pagesize() noexcept {
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
     if (!std::filesystem::exists(path)) {
         LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}", path.string());
-    } else {
-        LUISA_INFO("Loading dynamic module: '{}'", path.string());
     }
     auto canonical_path = std::filesystem::canonical(path).string();
+    auto t0 = std::chrono::high_resolution_clock::now();
     auto module = dlopen(canonical_path.c_str(), RTLD_LAZY);
+    auto t1 = std::chrono::high_resolution_clock::now();
     if (module == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}",
             canonical_path, dlerror());
     }
+    using namespace std::chrono_literals;
+    LUISA_INFO(
+        "Loaded dynamic module '{}' in {} ms.",
+        path.string(), (t1 - t0) / 1ns * 1e-6);
     return module;
 }
 
@@ -132,11 +137,16 @@ void dynamic_module_destroy(void *handle) noexcept {
 void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
     static thread_local std::string name;
     name = name_view;
-    LUISA_INFO("Loading dynamic symbol: {}", name);
+    auto t0 = std::chrono::high_resolution_clock::now();
     auto symbol = dlsym(handle, name.c_str());
+    auto t1 = std::chrono::high_resolution_clock::now();
     if (symbol == nullptr) {
         LUISA_ERROR("Failed to load symbol '{}', reason: {}", name, dlerror());
     }
+    using namespace std::chrono_literals;
+    LUISA_INFO(
+        "Loading dynamic symbol '{}' in {} ms.",
+        name, (t1 - t0) / 1ns * 1e-6);
     return symbol;
 }
 

@@ -62,6 +62,9 @@ public:
         }
     }
 
+    [[nodiscard]] auto device() const noexcept { return _device; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
     [[nodiscard]] auto view() const noexcept { return dsl::BufferView<T>{_handle, 0u, _size}; }
     
     [[nodiscard]] auto copy_to(T *data) const noexcept { return this->view().copy_to(data); }

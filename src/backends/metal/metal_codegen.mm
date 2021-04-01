@@ -471,18 +471,21 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::THREAD_ID:
+            _scratch << "const ";
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
             _scratch << " [[thread_position_in_threadgroup]]";
             break;
         case Variable::Tag::BLOCK_ID:
+            _scratch << "const ";
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
             _scratch << " [[threadgroup_position_in_grid]]";
             break;
         case Variable::Tag::DISPATCH_ID:
+            _scratch << "const ";
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
@@ -495,6 +498,9 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:
+            if (_function.variable_usage(v.uid()) == Variable::Usage::READ) {
+                _scratch << "const ";
+            }
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
