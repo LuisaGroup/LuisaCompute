@@ -5,10 +5,8 @@
 class JobBucket;
 class DescriptorHeap;
 class StructuredBuffer;
-class ComputeShaderCompiler;
-class ComputeShaderReader;
 class ShaderLoader;
-class RayShader final : public IShader
+class VENGINE_DLL_RENDERER RayShader final : public IShader
 {
 private:
 	HashMap<uint, uint> mVariablesDict;
@@ -18,7 +16,7 @@ private:
 	DXRHitGroup hitGroups;
 	StackObject<SerializedObject, true> serObj;
 	StackObject<UploadBuffer, true> identifierBuffer;
-	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const override;
+	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const override;
 
 public:
 	vengine::string const& GetName() const {

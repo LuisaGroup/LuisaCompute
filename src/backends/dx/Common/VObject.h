@@ -1,5 +1,5 @@
 #pragma once
-#include <config.h>
+#include <VEngineConfig.h>
 #include <atomic>
 #include <mutex>
 #include "Runnable.h"
@@ -9,7 +9,7 @@
 #include "Memory.h"
 class PtrLink;
 
-class DLL_COMMON VObject {
+class VENGINE_DLL_COMMON VObject {
 	friend class PtrLink;
 
 private:
@@ -37,7 +37,7 @@ public:
 
 class PtrLink;
 class PtrWeakLink;
-struct DLL_COMMON LinkHeap {
+struct VENGINE_DLL_COMMON LinkHeap {
 	friend class PtrLink;
 	friend class PtrWeakLink;
 
@@ -57,7 +57,7 @@ public:
 
 class VEngine;
 class PtrWeakLink;
-class DLL_COMMON PtrLink {
+class VENGINE_DLL_COMMON PtrLink {
 	friend class VEngine;
 	friend class PtrWeakLink;
 
@@ -84,7 +84,7 @@ public:
 		Dispose();
 	}
 };
-class DLL_COMMON PtrWeakLink {
+class VENGINE_DLL_COMMON PtrWeakLink {
 public:
 	LinkHeap* heapPtr;
 	size_t offset = 0;

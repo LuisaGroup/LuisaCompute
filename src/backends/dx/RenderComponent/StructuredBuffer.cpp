@@ -4,20 +4,34 @@
 #include "UploadBuffer.h"
 #include "../PipelineComponent/ThreadCommand.h"
 #include "../Singleton/Graphics.h"
+D3D12_RESOURCE_STATES StructuredBuffer::GetGFXResourceState(GPUResourceState gfxState) const {
+	if (usedAsMesh && gfxState == GPUResourceState_GenericRead) {
+		uint v = ((uint)D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
+				  | (uint)D3D12_RESOURCE_STATE_INDEX_BUFFER
+				  | (uint)D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+				  | (uint)D3D12_RESOURCE_STATE_COPY_SOURCE);
+		return (D3D12_RESOURCE_STATES)v;
+
+	} else {
+		return (D3D12_RESOURCE_STATES)gfxState;
+	}
+}
 StructuredBuffer::StructuredBuffer(
 	GFXDevice* device,
 	StructuredBufferElement* elementsArray,
 	uint elementsCount,
 	bool isIndirect,
 	bool isReadable,
-	IBufferAllocator* allocator) : elements(elementsCount), offsets(elementsCount), allocator(allocator) {
+	IBufferAllocator* allocator,
+	bool usedAsMesh) : elements(elementsCount), offsets(elementsCount), allocator(allocator),
+					   usedAsMesh(usedAsMesh) {
 	memcpy(elements.data(), elementsArray, sizeof(StructuredBufferElement) * elementsCount);
 	for (uint i = 0; i < elementsCount; ++i) {
 		offsets[i] = byteSize;
 		auto& ele = elements[i];
 		byteSize += ele.stride * ele.elementCount;
 	}
-	initState = isReadable ? GFXResourceState_GenericRead : (isIndirect ? GFXResourceState_IndirectArg : GFXResourceState_UnorderedAccess);
+	initState = isReadable ? GPUResourceState_GenericRead : (isIndirect ? GPUResourceState_IndirectArg : GPUResourceState_UnorderedAccess);
 	if (allocator) {
 		ID3D12Heap* heap;
 		uint64 offset;
@@ -27,7 +41,7 @@ StructuredBuffer::StructuredBuffer(
 		ThrowIfFailed(device->CreatePlacedResource(
 			heap, offset,
 			&bufferDesc,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -37,7 +51,7 @@ StructuredBuffer::StructuredBuffer(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -99,14 +113,15 @@ StructuredBuffer::StructuredBuffer(
 	const std::initializer_list<StructuredBufferElement>& elementsArray,
 	bool isIndirect,
 	bool isReadable,
-	IBufferAllocator* allocator) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator) {
+	IBufferAllocator* allocator,
+	bool usedAsMesh) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator), usedAsMesh(usedAsMesh) {
 	memcpy(elements.data(), elementsArray.begin(), sizeof(StructuredBufferElement) * elementsArray.size());
 	for (uint i = 0; i < elementsArray.size(); ++i) {
 		offsets[i] = byteSize;
 		auto& ele = elements[i];
 		byteSize += ele.stride * ele.elementCount;
 	}
-	initState = isReadable ? GFXResourceState_GenericRead : (isIndirect ? GFXResourceState_IndirectArg : GFXResourceState_UnorderedAccess);
+	initState = isReadable ? GPUResourceState_GenericRead : (isIndirect ? GPUResourceState_IndirectArg : GPUResourceState_UnorderedAccess);
 	if (allocator) {
 		ID3D12Heap* heap;
 		uint64 offset;
@@ -116,7 +131,7 @@ StructuredBuffer::StructuredBuffer(
 		ThrowIfFailed(device->CreatePlacedResource(
 			heap, offset,
 			&buffer,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -126,7 +141,7 @@ StructuredBuffer::StructuredBuffer(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -141,8 +156,9 @@ StructuredBuffer::StructuredBuffer(
 	GFXDevice* device,
 	StructuredBufferElement* elementsArray,
 	uint elementsCount,
-	GFXResourceState targetState,
-	IBufferAllocator* allocator) : elements(elementsCount), offsets(elementsCount), allocator(allocator) {
+	GPUResourceState targetState,
+	IBufferAllocator* allocator,
+	bool usedAsMesh) : elements(elementsCount), offsets(elementsCount), allocator(allocator), usedAsMesh(usedAsMesh) {
 	memcpy(elements.data(), elementsArray, sizeof(StructuredBufferElement) * elementsCount);
 	for (uint i = 0; i < elementsCount; ++i) {
 		offsets[i] = byteSize;
@@ -159,7 +175,7 @@ StructuredBuffer::StructuredBuffer(
 		ThrowIfFailed(device->CreatePlacedResource(
 			heap, offset,
 			&buffer,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -169,7 +185,7 @@ StructuredBuffer::StructuredBuffer(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -177,8 +193,9 @@ StructuredBuffer::StructuredBuffer(
 StructuredBuffer::StructuredBuffer(
 	GFXDevice* device,
 	const std::initializer_list<StructuredBufferElement>& elementsArray,
-	GFXResourceState targetState,
-	IBufferAllocator* allocator) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator) {
+	GPUResourceState targetState,
+	IBufferAllocator* allocator,
+	bool usedAsMesh) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator), usedAsMesh(usedAsMesh) {
 	memcpy(elements.data(), elementsArray.begin(), sizeof(StructuredBufferElement) * elementsArray.size());
 	for (uint i = 0; i < elementsArray.size(); ++i) {
 		offsets[i] = byteSize;
@@ -195,7 +212,7 @@ StructuredBuffer::StructuredBuffer(
 		ThrowIfFailed(device->CreatePlacedResource(
 			heap, offset,
 			&buffer,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -205,7 +222,7 @@ StructuredBuffer::StructuredBuffer(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
-			(D3D12_RESOURCE_STATES)initState,
+			GetGFXResourceState(initState),
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}

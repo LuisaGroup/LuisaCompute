@@ -1,7 +1,7 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/VObject.h"
-class TextureHeap
+#include <Common/GFXUtil.h>
+#include <Common/VObject.h>
+class VENGINE_DLL_RENDERER TextureHeap
 {
 private:
 	Microsoft::WRL::ComPtr<ID3D12Heap> heap;

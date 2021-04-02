@@ -8,11 +8,11 @@
 #include "../Singleton/ShaderID.h"
 #include "../Singleton/Graphics.h"
 #include "TextureHeap.h"
-#include "../Common/Pool.h"
+#include <Common/Pool.h>
 #include "Utility/ITextureAllocator.h"
 #include "../Utility/BinaryReader.h"
-#include "../PipelineComponent/ThreadCommand.h"
 #include "UploadBuffer.h"
+#include "../PipelineComponent/ThreadCommand.h"
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 namespace TextureGlobal {
@@ -144,7 +144,7 @@ void ReadData(const vengine::string& str, ArrayList<char>& datas,
 	BinaryReader ifs(str);
 	if (!ifs) {
 		VEngine_Log("Texture Error! File Not Exists!\n");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	if (alreadyHaveHeader)
 		ifs.SetPos(sizeof(TextureData));
@@ -159,14 +159,14 @@ void ReadData(const vengine::string& str, ArrayList<char>& datas,
 	uint formt = (uint)headerResult.format;
 	if (formt >= (uint)(TextureData::LoadFormat_Num) || (uint)headerResult.textureType >= (uint)TextureDimension::Num) {
 		VEngine_Log("Texture Error! Invalide Format!\n");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	uint stride = 0;
 	TextureGlobal::TextureFormat_LoadData loadData = TextureGlobal::Texture_GetFormat(headerResult.format);
 	stride = loadData.pixelSize;
 	if (headerResult.depth != 1 && startMipLevel != 0) {
 		VEngine_Log("Texture Error! Non-2D map can not use mip streaming!\n");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	uint64_t size = 0;
 	uint64_t offsetSize = 0;
@@ -219,7 +219,7 @@ private:
 	uint arraySize;
 	TextureDimension type;
 	bool* flag;
-	GFXResourceState* initState;
+	GPUResourceState* initState;
 	Texture* tex;
 
 public:
@@ -235,7 +235,7 @@ public:
 		uint mip,
 		uint arraySize,
 		TextureDimension type, IBufferAllocator* bufferAllocator, bool* flag,
-		GFXResourceState* initState)
+		GPUResourceState* initState)
 		: resPtr(resPtr), loadFormat(loadFormat),
 		  tex(tex),
 		  width(width), height(height),
@@ -254,7 +254,7 @@ public:
 		uint mip,
 		uint arraySize,
 		TextureDimension type, bool* flag,
-		GFXResourceState* initState) : resPtr(resPtr), loadFormat(loadFormat),
+		GPUResourceState* initState) : resPtr(resPtr), loadFormat(loadFormat),
 									   width(width), height(height), mip(mip), arraySize(arraySize), type(type), ubuffer(buffer),
 									   flag(flag), initState(initState) {
 	}
@@ -320,9 +320,8 @@ public:
 		uint64_t ofst = offset;
 		uint64_t size = ubuffer->GetElementCount();
 		*flag = true;
-		//TODO: Delay Dispose
-		*initState = GFXResourceState_GenericRead;
-		directCommandList->UpdateResState(GFXResourceState_Common, GFXResourceState_GenericRead, tex);
+		*initState = GPUResourceState_GenericRead;
+		directCommandList->UpdateResState(GPUResourceState_Common, GPUResourceState_GenericRead, tex);
 	}
 };
 }// namespace TextureGlobal
@@ -402,7 +401,7 @@ Texture::Texture(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -411,7 +410,7 @@ Texture::Texture(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -443,19 +442,19 @@ D3D12_RESOURCE_DESC Texture::CreateWithoutResource(
 	TextureGlobal::ReadData(filePath, *datasPtr, data, startMipMap, maximumLoadMipmap, fileReadOffset, fileReadSize, startLoadNow, alreadyHaveTextureData);
 	if ((size_t)data.format >= (size_t)TextureData::LoadFormat_Num || data.textureType != type) {
 		VEngine_Log("Texture Type Not Match Exception\n");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	if (type == TextureDimension::Cubemap && data.depth != 6) {
 		VEngine_Log("Cubemap's tex size must be 6\n");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	if (data.mipCount > 14) {
 		VEngine_Log("Too Many Mipmap!");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	if (data.width > 8192 || data.height > 8192) {
 		VEngine_Log("Texture Too Large!");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	auto loadData = TextureGlobal::Texture_GetFormat(data.format);
 	mFormat = loadData.format;
@@ -543,7 +542,7 @@ Texture::Texture(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -552,7 +551,7 @@ Texture::Texture(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -582,7 +581,7 @@ Texture::Texture(
 		placedHeap,
 		placedOffset,
 		&texDesc,
-		(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+		D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 		nullptr,
 		IID_PPV_ARGS(&Resource)));
 	if (startLoading) {
@@ -612,7 +611,7 @@ Texture::Texture(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -621,7 +620,7 @@ Texture::Texture(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -653,7 +652,7 @@ Texture::Texture(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -662,7 +661,7 @@ Texture::Texture(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
-			(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+			D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -696,7 +695,7 @@ Texture::Texture(
 		placedHeap,
 		placedOffset,
 		&texDesc,
-		(D3D12_RESOURCE_STATES)GFXResourceState_Common,//GFXResourceState_UnorderedAccess,
+		D3D12_RESOURCE_STATE_COMMON,//GPUResourceState_UnorderedAccess,
 		nullptr,
 		IID_PPV_ARGS(&Resource)));
 	if (startLoading) {

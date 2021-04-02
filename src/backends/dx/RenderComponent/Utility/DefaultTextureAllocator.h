@@ -5,7 +5,7 @@ namespace D3D12MA
 	class Allocator;
 	class Allocation;
 }
-class DefaultTextureAllocator final : public ITextureAllocator
+class VENGINE_DLL_RENDERER DefaultTextureAllocator final : public ITextureAllocator
 {
 private:
 	HashMap<uint64, D3D12MA::Allocation*> allocatedTexs;

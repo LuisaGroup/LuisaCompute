@@ -1,6 +1,7 @@
 #pragma once
 #include "GPUResourceBase.h"
-#include "../Common/IObjectReference.h"
+#include <Common/IObjectReference.h>
+#include "IGPUResourceState.h"
 struct SubMesh {
 	float3 boundingCenter;
 	float3 boundingExtent;
@@ -9,7 +10,7 @@ struct SubMesh {
 	uint indexOffset;
 	uint indexCount;
 };
-class IMesh : public IObjectReference{
+class IMesh : public IObjectReference {
 public:
 	virtual uint GetIndexCount() const = 0;
 	virtual uint GetIndexFormat() const = 0;

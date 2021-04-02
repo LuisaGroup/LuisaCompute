@@ -4,7 +4,7 @@
 class JobNode;
 class JobBucket;
 using uint = uint32_t;
-class DLL_COMMON JobHandle
+class VENGINE_DLL_COMMON JobHandle
 {
 	friend class JobBucket;
 	friend class JobNode;

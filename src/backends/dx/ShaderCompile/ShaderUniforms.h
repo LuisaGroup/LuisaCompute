@@ -26,10 +26,6 @@ struct Pass {
 	D3D12_BLEND_DESC blendState;
 };
 
-struct KernelDescriptor {
-	vengine::string name;
-	ObjectPtr<vengine::vector<vengine::string>> macros;
-};
 enum class HitGroupFunctionType : uint8_t {
 	RayGeneration,
 	ClosestHit,
@@ -46,7 +42,6 @@ struct PassDescriptor {
 	vengine::string fragment;
 	vengine::string hull;
 	vengine::string domain;
-	ObjectPtr<vengine::vector<vengine::string>> macros;
 	D3D12_RASTERIZER_DESC rasterizeState;
 	D3D12_DEPTH_STENCIL_DESC depthStencilState;
 	D3D12_BLEND_DESC blendState;

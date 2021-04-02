@@ -1,4 +1,4 @@
-#include <config.h>
+#include <VEngineConfig.h>
 #include <windows.h>
 #include <wrl.h>
 #include <DirectXMath.h>

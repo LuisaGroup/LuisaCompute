@@ -1,12 +1,29 @@
 #include "RayTracingManager.h"
-#include "../../RenderComponent/RenderComponentInclude.h"
-#include "../../LogicComponent/Transform.h"
-#include "../../Singleton/ShaderID.h"
-#include "../../Singleton/ShaderLoader.h"
+#include <RenderComponent/RenderComponentInclude.h>
+#include <LogicComponent/Transform.h>
+#include <Singleton/ShaderID.h>
+#include <Singleton/ShaderLoader.h>
+#include <Common/GameTimer.h>
 #include "../ThreadCommand.h"
 RayTracingManager* RayTracingManager::current = nullptr;
 namespace RTAccStructUtil {
-void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC& inst, Transform const* tr) {
+
+class RemoveMeshFunctor {
+public:
+	int64 offset;
+	void operator()(VObject* obj) {
+		IMesh* mesh = reinterpret_cast<IMesh*>(
+			reinterpret_cast<size_t>(obj) + offset);
+		RayTracingManager::Command meshDeleteCmd(
+			RayTracingManager::Command::CommandType::DeleteMesh,
+			mesh,
+			0);//Submesh not used
+		if (RayTracingManager::current)
+			RayTracingManager::current->commands.Push(meshDeleteCmd);
+	}
+};
+
+void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC& inst, Transform* tr) {
 	using namespace Math;
 	float3 localScale = tr->GetLocalScale();
 	float3 right = (Vector3)tr->GetRight() * localScale.x;
@@ -79,38 +96,40 @@ void GetStaticTriangleGeometryDesc(GFXDevice* device, D3D12_RAYTRACING_GEOMETRY_
 }
 
 }// namespace RTAccStructUtil
+bool RayTracingManager::Avaliable() const {
+	return sepManager.GetElementCount() > 0;
+}
+// namespace RTAccStructUtil
 RayRendererData* RayTracingManager::AddRenderer(
 	ObjectPtr<IMesh>&& meshPtr,
 	uint shaderID,
 	uint materialID,
-	Transform const* tr,
+	Transform* tr,
 	uint subMeshIndex) {
-
+	using namespace RTAccStructUtil;
 	RayRendererData* newRender;
 	newRender = rayRenderDataPool.New_Lock(poolMtx, std::move(meshPtr));
+	newRender->trans = tr;
 	auto&& inst = newRender->instanceDesc;
-	RTAccStructUtil::GetRayTransform(inst, tr);
 	inst.InstanceID = 0;
 	inst.InstanceMask = 1;
 	inst.InstanceContributionToHitGroupIndex = 0;
 	inst.Flags = 0;
 	RayRendererData::MeshObject& meshObj = newRender->meshObj;
-	RTAccStructUtil::UpdateMeshObject(
-		device,
-		meshObj,
-		newRender->mesh,
-		subMeshIndex);
 	meshObj.materialID = materialID;
 	meshObj.shaderID = shaderID;
+	newRender->subMeshIndex = subMeshIndex;
+	IMesh* mesh = newRender->mesh;
 	Command meshBuildCmd(
 		Command::CommandType::AddMesh,
 		newRender->mesh,
 		subMeshIndex);
 	commands.Push(meshBuildCmd);
-	Command cmd(
-		Command::CommandType::Add,
-		newRender);
-	commands.Push(cmd);
+	RemoveMeshFunctor remMesh = {
+		mesh->GetVObjectPtrOffset<decltype(mesh)>(),
+	};
+	mesh->GetVObjectPtr()->AddEventBeforeDispose(remMesh);
+	sepManager.AddRenderer(newRender, (uint)UpdateOperator::UpdateMesh | (uint)UpdateOperator::UpdateTrans);
 	return newRender;
 }
 
@@ -118,23 +137,21 @@ void RayTracingManager::UpdateRenderer(
 	ObjectPtr<IMesh>&& mesh,
 	uint shaderID,
 	uint materialID,
-	Transform const* tr,
 	RayRendererData* renderer,
 	uint subMeshIndex) {
-
+	using namespace RTAccStructUtil;
+	uint custom = (uint)UpdateOperator::UpdateTrans;
 	RayRendererData::MeshObject& meshObj = renderer->meshObj;
-	RTAccStructUtil::GetRayTransform(renderer->instanceDesc, tr);
-
 	if (mesh && renderer->mesh != mesh) {
-		if (renderer->mesh) {
+		/*if (renderer->mesh) {
 			Command meshDeleteCmd(
 				Command::CommandType::DeleteMesh,
 				renderer->mesh,
 				subMeshIndex);
 			commands.Push(meshDeleteCmd);
-		}
+		}*/
 		renderer->mesh = std::move(mesh);
-		IMesh const* mm = renderer->mesh;
+		IMesh* mm = renderer->mesh;
 		Command meshBuildCmd(
 			Command::CommandType::AddMesh,
 			mm,
@@ -145,35 +162,33 @@ void RayTracingManager::UpdateRenderer(
 			mm,
 			subMeshIndex);
 		commands.Push(meshBuildCmd);
+		RemoveMeshFunctor remMesh = {
+			mm->GetVObjectPtrOffset<decltype(mm)>()};
+		mm->GetVObjectPtr()->AddEventBeforeDispose(remMesh);
+		custom |= (uint)UpdateOperator::UpdateMesh;
 	}
 	if (materialID != -1)
 		meshObj.materialID = materialID;
 	if (shaderID != -1)
 		meshObj.shaderID = shaderID;
-	Command cmd(
-		Command::CommandType::Add,
-		renderer);
-	commands.Push(cmd);
+	sepManager.UpdateRenderer(renderer, custom);
 }
 
 void RayTracingManager::RemoveRenderer(
 	RayRendererData* renderer) {
-	Command cmd(
-		Command::CommandType::Delete,
-		renderer);
-	commands.Push(cmd);
-	Command meshCmd(
+	sepManager.DeleteRenderer(renderer, 0, true);
+	/*Command meshCmd(
 		Command::CommandType::DeleteMesh,
 		renderer->mesh,
 		-1);
-	commands.Push(meshCmd);
+	commands.Push(meshCmd);*/
 }
 
 void RayTracingManager::BuildTopLevelRTStruct(
 	RenderPackage const& pack) {
 	if (!isTopLevelDirty) return;
 	isTopLevelDirty = false;
-	topLevelBuildDesc.Inputs.NumDescs = renderersList.size();
+	topLevelBuildDesc.Inputs.NumDescs = sepManager.GetElementCount();
 	ID3D12GraphicsCommandList4* cmdList = static_cast<ID3D12GraphicsCommandList4*>(pack.tCmd->GetCmdList());
 	ID3D12Device5* device = static_cast<ID3D12Device5*>(this->device);
 	D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo = {};
@@ -206,10 +221,6 @@ void RayTracingManager::BuildTopLevelRTStruct(
 		scratchStruct.get());
 }
 
-StructuredBuffer const* RayTracingManager::GetRayTracingStruct() const {
-	return topLevelAccStruct.get();
-}
-
 GpuAddress RayTracingManager::GetInstanceBufferAddress() const {
 	return {instanceStruct->GetAddress(0, 0)};
 }
@@ -227,7 +238,7 @@ RayTracingManager::RayTracingManager(
 	  rayRenderDataPool(256) {
 	if (current) {
 		VEngine_Log("Ray Tracing Manager Should be Singleton!\n");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	_Scene = ShaderID::PropertyToID("_Scene");
 	_Meshes = ShaderID::PropertyToID("_Meshes");
@@ -247,6 +258,58 @@ RayTracingManager::RayTracingManager(
 		| D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
 	topLevelInputs.NumDescs = 0;
 	topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+	rendDisposer = [this](SeparableRenderer* renderer) -> void {
+		rayRenderDataPool.Delete_Lock(poolMtx, renderer);
+	};
+	addFunction = [this](GFXDevice* device, SeparableRenderer* renderer, uint custom) -> bool {
+		auto ptr = static_cast<RayRendererData*>(renderer);
+
+		ReserveInstanceBuffer(
+			*pack,
+			sepManager.GetElementCount());
+		pack->tCmd->UpdateResState(
+			GPUResourceState_CopyDest,
+			instanceStruct.get());
+		updateFunction(device, renderer, custom);
+		return false;
+	};
+	updateFunction = [this](GFXDevice* device, SeparableRenderer* renderer, uint custom) -> bool {
+		auto ptr = static_cast<RayRendererData*>(renderer);
+		if (custom & (uint)UpdateOperator::UpdateTrans) {
+			auto&& inst = ptr->instanceDesc;
+			RTAccStructUtil::GetRayTransform(inst, ptr->trans);
+		}
+		if (custom & (uint)UpdateOperator::UpdateMesh) {
+			RayRendererData::MeshObject& meshObj = ptr->meshObj;
+			RTAccStructUtil::UpdateMeshObject(
+				device,
+				meshObj,
+				ptr->mesh,
+				ptr->subMeshIndex);
+		}
+		//////// Set Mesh
+		auto ite = allBottomLevel.Find(ptr->mesh->GetVObjectPtr()->GetInstanceID());
+		if (!ite) {
+			VEngine_Log("Ray Renderer Contains No Mesh!\n");
+			VENGINE_EXIT;
+		}
+		BottomLevelSubMesh* subMesh = nullptr;
+		for (auto& i : ite.Value().subMeshes) {
+			if (i.subMeshIndex == ptr->subMeshIndex) {
+				subMesh = &i;
+			}
+		}
+		if (!subMesh) {
+			VEngine_Log("Ray Renderer Contains No Mesh!\n");
+			VENGINE_EXIT;
+		}
+		ptr->instanceDesc.AccelerationStructure = subMesh->bottomBufferChunk->GetAddress(0, 0).address;
+		CopyInstanceDescData(ptr);
+		return false;
+	};
+	removeFunction = [this](GFXDevice* device, SeparableRenderer* renderer, SeparableRenderer* last, uint custom, bool isLast) -> void {
+		CopyInstanceDescData(static_cast<RayRendererData*>(renderer));
+	};
 }
 
 RayTracingManager::~RayTracingManager() {
@@ -259,26 +322,20 @@ void RayTracingManager::ReserveStructSize(RenderPackage const& package, uint64 n
 	bool update;
 	RTAccStructUtil::SpreadSize(update, topLevelRayStructSize, newStrSize);
 	if (update) {
-		if (topLevelAccStruct) {
-			//TODO:: Delay Dispose
-		}
 		topLevelAccStruct = std::unique_ptr<StructuredBuffer>(
 			new StructuredBuffer(
 				device,
 				{StructuredBufferElement::Get(1, topLevelRayStructSize)},
-				GFXResourceState_RayTracingStruct,
+				GPUResourceState_RayTracingStruct,
 				nullptr));
 	}
 	RTAccStructUtil::SpreadSize(update, topLevelScratchSize, newScratchSize);
 	if (update) {
-		if (scratchStruct) {
-			//TODO:: Delay Dispose
-		}
 		scratchStruct = std::unique_ptr<StructuredBuffer>(
 			new StructuredBuffer(
 				device,
 				{StructuredBufferElement::Get(1, topLevelScratchSize)},
-				GFXResourceState_UnorderedAccess,
+				GPUResourceState_UnorderedAccess,
 				nullptr));
 	}
 }
@@ -295,7 +352,7 @@ void RayTracingManager::ReserveInstanceBuffer(RenderPackage const& package, uint
 				device,
 				{StructuredBufferElement::Get(sizeof(D3D12_RAYTRACING_INSTANCE_DESC), newObjSize),
 				 StructuredBufferElement::Get(sizeof(RayRendererData::MeshObject), newObjSize)},
-				GFXResourceState_NonPixelRead,
+				GPUResourceState_NonPixelShaderRes,
 				nullptr));
 		auto cmdList = package.tCmd;
 
@@ -303,7 +360,7 @@ void RayTracingManager::ReserveInstanceBuffer(RenderPackage const& package, uint
 			newBuffer->GetInitState(),
 			newBuffer.get());
 		cmdList->UpdateResState(
-			GFXResourceState_CopyDest,
+			GPUResourceState_CopyDest,
 			newBuffer.get());
 
 		if (instanceStruct) {
@@ -311,7 +368,7 @@ void RayTracingManager::ReserveInstanceBuffer(RenderPackage const& package, uint
 				instanceStruct->GetInitState(),
 				instanceStruct.get());
 			cmdList->UpdateResState(
-				GFXResourceState_CopySource,
+				GPUResourceState_CopySource,
 				instanceStruct.get());
 			Graphics::CopyBufferRegion(
 				cmdList,
@@ -329,7 +386,6 @@ void RayTracingManager::ReserveInstanceBuffer(RenderPackage const& package, uint
 				instanceStruct->GetStride(1) * instanceStruct->GetElementCount(1));
 			cmdList->UAVBarrier(
 				newBuffer.get());
-			//TODO:: Delay Dispose
 		}
 		instanceStruct = std::move(newBuffer);
 	}
@@ -363,6 +419,8 @@ void RayTracingManager::BuildRTStruct(
 	AllocatedCBufferChunks& allocatedElements,
 	Runnable<CBufferChunk(size_t)> const& getCBuffer,
 	RenderPackage const& pack) {
+	this->allocatedElements = &allocatedElements;
+	this->pack = &pack;
 	//////// Init
 	ID3D12Device5* device = static_cast<ID3D12Device5*>(pack.device);
 	ID3D12GraphicsCommandList4* cmdList = static_cast<ID3D12GraphicsCommandList4*>(pack.tCmd->GetCmdList());
@@ -380,13 +438,12 @@ void RayTracingManager::BuildRTStruct(
 	allocatedElements.needClearSBuffers.clear();
 	//////// Move the world
 
-
 	if (instanceStruct) {
 		pack.tCmd->RegistInitState(
 			instanceStruct->GetInitState(),
 			instanceStruct.get());
 
-		if (moveTheWorld && !renderersList.empty()) {
+		if (moveTheWorld && sepManager.GetElementCount() != 0) {
 			isTopLevelDirty = true;
 			auto cmdList = pack.tCmd;
 			auto heap = Graphics::GetGlobalDescHeap();
@@ -400,7 +457,7 @@ void RayTracingManager::BuildRTStruct(
 			CBufferChunk ck = getCBuffer(sizeof(RTUtilParam));
 			RTUtilParam param = {
 				(float3)moveDir,
-				static_cast<uint>(renderersList.size())};
+				(uint)sepManager.GetElementCount()};
 			ck.CopyData(&param);
 			rtUtilcs->SetResource(
 				cmdList,
@@ -413,102 +470,27 @@ void RayTracingManager::BuildRTStruct(
 				instanceStruct.get(),
 				0);
 			cmdList->UpdateResState(
-				GFXResourceState_UnorderedAccess,
+				GPUResourceState_UnorderedAccess,
 				instanceStruct.get());
-			
+
 			rtUtilcs->Dispatch(
 				cmdList,
 				0,
-				(renderersList.size() + 63) / 64, 1, 1);
+				(sepManager.GetElementCount() + 63) / 64, 1, 1);
 			cmdList->UAVBarrier(instanceStruct.get());
 		}
 		pack.tCmd->UpdateResState(
-			GFXResourceState_CopyDest,
+			GPUResourceState_CopyDest,
 			instanceStruct.get());
 	}
 	moveTheWorld = false;
 	moveDir = {0, 0, 0};
 	//////// Execute Commands
-	auto CopyInstanceDescData =
-		[&](RayRendererData* data) -> void {
-		uint topLevelIndex = data->listIndex;
-		ConstBufferElement instUploadEle = instanceUploadPool.Get(device);
-		allocatedElements.instanceUploadElements.push_back(instUploadEle);
-		instUploadEle.buffer->CopyData(
-			instUploadEle.element,
-			&data->instanceDesc);
-		static constexpr size_t INST_SIZE = sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
-		Graphics::CopyBufferRegion(
-			pack.tCmd,
-			instanceStruct.get(),
-			topLevelIndex * INST_SIZE,
-			instUploadEle.buffer,
-			instUploadEle.element * INST_SIZE,
-			INST_SIZE);
-		ConstBufferElement meshUploadEle = meshObjUploadPool.Get(device);
-		allocatedElements.meshObjUploadElements.push_back(meshUploadEle);
-		meshUploadEle.buffer->CopyData(
-			meshUploadEle.element,
-			&data->meshObj);
-		static constexpr size_t MESH_OBJ_SIZE = sizeof(RayRendererData::MeshObject);
-		uint64 meshObjOffset = instanceStruct->GetAddressOffset(1, 0);
-		Graphics::CopyBufferRegion(
-			pack.tCmd,
-			instanceStruct.get(),
-			meshObjOffset + topLevelIndex * MESH_OBJ_SIZE,
-			meshUploadEle.buffer,
-			meshUploadEle.element * MESH_OBJ_SIZE,
-			MESH_OBJ_SIZE);
-	};
 	Command cmd;
 	//////// Build Bottom Level
 	while (commands.Pop(&cmd)) {
 		isTopLevelDirty = true;
 		switch (cmd.type) {
-			case Command::CommandType::Add: {
-
-				//Add
-				if (cmd.ptr->listIndex == -1) {
-					cmd.ptr->listIndex = renderersList.size();
-					renderersList.push_back(cmd.ptr);
-					ReserveInstanceBuffer(
-						pack,
-						renderersList.size());
-					pack.tCmd->UpdateResState(
-						GFXResourceState_CopyDest,
-						instanceStruct.get());
-				}
-				//////// Set Mesh
-				auto ite = allBottomLevel.Find(cmd.ptr->mesh->GetVObjectPtr()->GetInstanceID());
-				if (!ite) {
-					VEngine_Log("Ray Renderer Contains No Mesh!\n");
-					throw 0;
-				}
-				BottomLevelSubMesh* subMesh = nullptr;
-				for (auto& i : ite.Value().subMeshes) {
-					if (i.subMeshIndex == cmd.ptr->subMeshIndex) {
-						subMesh = &i;
-					}
-				}
-				if (!subMesh) {
-					VEngine_Log("Ray Renderer Contains No Mesh!\n");
-					throw 0;
-				}
-				cmd.ptr->instanceDesc.AccelerationStructure = subMesh->bottomBufferChunk->GetAddress(0, 0).address;
-				CopyInstanceDescData(cmd.ptr);
-			} break;
-			case Command::CommandType::Delete: {
-				//allocatedElements.needClearSBuffers.push_back(cmd.ptr->bottomBufferChunk);
-				auto ite = renderersList.end() - 1;
-				auto&& i = *ite;
-				if (cmd.ptr->listIndex != renderersList.size() - 1) {
-					i->listIndex = cmd.ptr->listIndex;
-					renderersList[i->listIndex] = i;
-					CopyInstanceDescData(i);
-				}
-				renderersList.erase(ite);
-				rayRenderDataPool.Delete_Lock(poolMtx, cmd.ptr);
-			} break;
 			case Command::CommandType::AddMesh:
 				AddMesh(
 					pack,
@@ -525,6 +507,13 @@ void RayTracingManager::BuildRTStruct(
 				break;
 		}
 	}
+	sepManager.Execute(
+		device,
+		lastFrameUpdateFunction,
+		addFunction,
+		removeFunction,
+		updateFunction,
+		rendDisposer);
 	if (instanceStruct) {
 		pack.tCmd->UpdateResState(
 			instanceStruct->GetInitState(),
@@ -572,7 +561,7 @@ void RayTracingManager::AddMesh(
 			bottomAllocMtx,
 			device,
 			std::initializer_list<StructuredBufferElement>{StructuredBufferElement::Get(1, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes)},
-			GFXResourceState_RayTracingStruct,
+			GPUResourceState_RayTracingStruct,
 			nullptr);//TODO: allocator
 		bottomStruct.SourceAccelerationStructureData = 0;
 		auto adrs = subMesh->bottomBufferChunk->GetAddress(0, 0);
@@ -583,7 +572,7 @@ void RayTracingManager::AddMesh(
 			bottomAllocMtx,
 			device,
 			std::initializer_list<StructuredBufferElement>{StructuredBufferElement::Get(1, bottomLevelPrebuildInfo.ScratchDataSizeInBytes)},
-			GFXResourceState_UnorderedAccess,
+			GPUResourceState_UnorderedAccess,
 			nullptr);//TODO: allocator
 		clearBuffer.push_back(bottomScratchChunk);
 		bottomStruct.ScratchAccelerationStructureData = bottomScratchChunk->GetAddress(0, 0).address;
@@ -617,5 +606,33 @@ void RayTracingManager::RemoveMesh(
 	allBottomLevel.Remove(ite);
 }
 
-RayTracingManager::AllocatedCBufferChunks::~AllocatedCBufferChunks() {
+void RayTracingManager::CopyInstanceDescData(RayRendererData* data) {
+	uint topLevelIndex = data->GetListIndex();
+	ConstBufferElement instUploadEle = instanceUploadPool.Get(device);
+	allocatedElements->instanceUploadElements.push_back(instUploadEle);
+	instUploadEle.buffer->CopyData(
+		instUploadEle.element,
+		&data->instanceDesc);
+	static constexpr size_t INST_SIZE = sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
+	Graphics::CopyBufferRegion(
+		pack->tCmd,
+		instanceStruct.get(),
+		topLevelIndex * INST_SIZE,
+		instUploadEle.buffer,
+		instUploadEle.element * INST_SIZE,
+		INST_SIZE);
+	ConstBufferElement meshUploadEle = meshObjUploadPool.Get(device);
+	allocatedElements->meshObjUploadElements.push_back(meshUploadEle);
+	meshUploadEle.buffer->CopyData(
+		meshUploadEle.element,
+		&data->meshObj);
+	static constexpr size_t MESH_OBJ_SIZE = sizeof(RayRendererData::MeshObject);
+	uint64 meshObjOffset = instanceStruct->GetAddressOffset(1, 0);
+	Graphics::CopyBufferRegion(
+		pack->tCmd,
+		instanceStruct.get(),
+		meshObjOffset + topLevelIndex * MESH_OBJ_SIZE,
+		meshUploadEle.buffer,
+		meshUploadEle.element * MESH_OBJ_SIZE,
+		MESH_OBJ_SIZE);
 }

@@ -1,12 +1,12 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/VObject.h"
-#include "../Common/vector.h"
+#include <Common/GFXUtil.h>
+#include <Common/VObject.h>
+#include <Common/vector.h>
 #include "DescriptorHeapRoot.h"
 #include "../Utility/ElementAllocator.h"
 class GPUResourceBase;
 class ThreadCommand;
-class DescriptorHeap : public VObject
+class VENGINE_DLL_RENDERER DescriptorHeap : public VObject
 {
 public:
 	DescriptorHeap(

@@ -1,3 +1,4 @@
+#include "RenderTexture.h"
 //#endif
 #include "RenderTexture.h"
 #include "../Singleton/Graphics.h"
@@ -48,6 +49,31 @@ void RenderTexture::GetColorUAVDesc(D3D12_UNORDERED_ACCESS_VIEW_DESC& uavDesc, u
 			uavDesc.Texture2DArray.MipSlice = targetMipLevel;
 			uavDesc.Texture2DArray.PlaneSlice = 0;
 			break;
+	}
+}
+D3D12_RESOURCE_STATES RenderTexture::GetGFXResourceState(GPUResourceState gfxState) const {
+	switch (gfxState) {
+		case GPUResourceState_RenderTarget:
+			if (static_cast<bool>(usage)) {
+				return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+			} else {
+				return D3D12_RESOURCE_STATE_RENDER_TARGET;
+			}
+		case GPUResourceState_NonPixelShaderRes:
+			if (static_cast<bool>(usage)) {
+				return D3D12_RESOURCE_STATE_DEPTH_READ;
+			} else {
+				return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+			}
+		case GPUResourceState_GenericRead:
+			if (static_cast<bool>(usage)) {
+				return D3D12_RESOURCE_STATE_DEPTH_READ;
+			} else {
+				return D3D12_RESOURCE_STATE_GENERIC_READ;
+			}
+			break;
+		default:
+			return (D3D12_RESOURCE_STATES)gfxState;
 	}
 }
 void RenderTexture::GetColorViewDesc(D3D12_SHADER_RESOURCE_VIEW_DESC& srvDesc) const {
@@ -193,10 +219,10 @@ RenderTexture::RenderTexture(
 	uint depthCount,
 	uint mipCount,
 	RenderTextureState initState,
-	float clearColor) 
+	float clearColor)
 	: TextureBase(),
-						usage(rtFormat.usage),
-						clearColor(clearColor) {
+	  usage(rtFormat.usage),
+	  clearColor(clearColor) {
 	mipCount = Max<uint>(mipCount, 1);
 	dimension = type;
 	mWidth = width;
@@ -238,25 +264,25 @@ RenderTexture::RenderTexture(
 		clearValue.Color[3] = clearColor;
 		switch (initState) {
 			case RenderTextureState::Unordered_Access:
-				this->initState = GFXResourceState_UnorderedAccess;
+				this->initState = GPUResourceState_UnorderedAccess;
 				break;
 			case RenderTextureState::Render_Target:
-				this->initState = GFXResourceState_RenderTarget;
+				this->initState = GPUResourceState_RenderTarget;
 				break;
 			case RenderTextureState::Common:
-				this->initState = GFXResourceState_Common;
+				this->initState = GPUResourceState_Common;
 				break;
 			case RenderTextureState::Generic_Read:
-				this->initState = GFXResourceState_GenericRead;
+				this->initState = GPUResourceState_GenericRead;
 				break;
 			case RenderTextureState::Non_Pixel_SRV:
-				this->initState = GFXResourceState_NonPixelRead;
+				this->initState = GPUResourceState_NonPixelShaderRes;
 				break;
 			default:
 				if (type == TextureDimension::Tex3D)
-					this->initState = GFXResourceState_UnorderedAccess;
+					this->initState = GPUResourceState_UnorderedAccess;
 				else
-					this->initState = GFXResourceState_RenderTarget;
+					this->initState = GPUResourceState_RenderTarget;
 				break;
 		}
 		resourceSize = device->GetResourceAllocationInfo(
@@ -268,7 +294,7 @@ RenderTexture::RenderTexture(
 				&prop,
 				D3D12_HEAP_FLAG_NONE,
 				&texDesc,
-				(D3D12_RESOURCE_STATES)this->initState,
+				GetGFXResourceState(this->initState),
 				&clearValue,
 				IID_PPV_ARGS(&Resource)));
 		} else {
@@ -290,7 +316,7 @@ RenderTexture::RenderTexture(
 				heap,
 				offset,
 				&texDesc,
-				(D3D12_RESOURCE_STATES)this->initState,
+				GetGFXResourceState(this->initState),
 				&clearValue,
 				IID_PPV_ARGS(&Resource)));
 		}
@@ -372,19 +398,19 @@ RenderTexture::RenderTexture(
 			depthClearValue.DepthStencil.Stencil = 0;
 			switch (initState) {
 				case RenderTextureState::Unordered_Access:
-					this->initState = GFXResourceState_UnorderedAccess;
+					this->initState = GPUResourceState_UnorderedAccess;
 					break;
 				case RenderTextureState::Generic_Read:
-					this->initState = GFXResourceState_DepthRead;
+					this->initState = GPUResourceState_GenericRead;
 					break;
 				case RenderTextureState::Common:
-					this->initState = GFXResourceState_Common;
+					this->initState = GPUResourceState_Common;
 					break;
 				case RenderTextureState::Non_Pixel_SRV:
-					this->initState = GFXResourceState_NonPixelRead;
+					this->initState = GPUResourceState_NonPixelShaderRes;
 					break;
 				default:
-					this->initState = GFXResourceState_DepthWrite;
+					this->initState = GPUResourceState_RenderTarget;
 					break;
 			}
 			resourceSize = device->GetResourceAllocationInfo(
@@ -396,7 +422,7 @@ RenderTexture::RenderTexture(
 					&heap,
 					D3D12_HEAP_FLAG_NONE,
 					&depthStencilDesc,
-					(D3D12_RESOURCE_STATES)this->initState,
+					GetGFXResourceState(this->initState),
 					&depthClearValue,
 					IID_PPV_ARGS(&Resource)));
 			} else {
@@ -418,7 +444,7 @@ RenderTexture::RenderTexture(
 					heap,
 					offset,
 					&depthStencilDesc,
-					(D3D12_RESOURCE_STATES)this->initState,
+					GetGFXResourceState(this->initState),
 					&depthClearValue,
 					IID_PPV_ARGS(&Resource)));
 			}
@@ -450,11 +476,6 @@ RenderTexture::RenderTexture(
 		}
 	}
 	BindSRVToHeap(Graphics::GetGlobalDescHeapNonConst(), GetGlobalDescIndex(), device);
-	if (usage == RenderTextureUsage::DepthBuffer)
-		writeState = GFXResourceState_DepthWrite;
-	else
-		writeState = GFXResourceState_RenderTarget;
-	readState = (bool)usage ? GFXResourceState_DepthRead : GFXResourceState_GenericRead;
 }
 RenderTexture::RenderTexture(
 	GFXDevice* device,
@@ -469,8 +490,8 @@ RenderTexture::RenderTexture(
 	uint64_t placedOffset,
 	float clearColor)
 	: TextureBase(),
-						usage(rtFormat.usage),
-						clearColor(clearColor) {
+	  usage(rtFormat.usage),
+	  clearColor(clearColor) {
 
 	mipCount = Max<uint>(mipCount, 1);
 	dimension = type;
@@ -513,25 +534,25 @@ RenderTexture::RenderTexture(
 		clearValue.Color[3] = clearColor;
 		switch (initState) {
 			case RenderTextureState::Unordered_Access:
-				this->initState = GFXResourceState_UnorderedAccess;
+				this->initState = GPUResourceState_UnorderedAccess;
 				break;
 			case RenderTextureState::Render_Target:
-				this->initState = GFXResourceState_RenderTarget;
+				this->initState = GPUResourceState_RenderTarget;
 				break;
 			case RenderTextureState::Common:
-				this->initState = GFXResourceState_Common;
+				this->initState = GPUResourceState_Common;
 				break;
 			case RenderTextureState::Generic_Read:
-				this->initState = GFXResourceState_GenericRead;
+				this->initState = GPUResourceState_GenericRead;
 				break;
 			case RenderTextureState::Non_Pixel_SRV:
-				this->initState = GFXResourceState_NonPixelRead;
+				this->initState = GPUResourceState_NonPixelShaderRes;
 				break;
 			default:
 				if (type == TextureDimension::Tex3D)
-					this->initState = GFXResourceState_UnorderedAccess;
+					this->initState = GPUResourceState_UnorderedAccess;
 				else
-					this->initState = GFXResourceState_RenderTarget;
+					this->initState = GPUResourceState_RenderTarget;
 				break;
 		}
 		resourceSize = device->GetResourceAllocationInfo(
@@ -543,7 +564,7 @@ RenderTexture::RenderTexture(
 				&prop,
 				D3D12_HEAP_FLAG_NONE,
 				&texDesc,
-				(D3D12_RESOURCE_STATES)this->initState,
+				GetGFXResourceState(this->initState),
 				&clearValue,
 				IID_PPV_ARGS(&Resource)));
 		} else {
@@ -551,7 +572,7 @@ RenderTexture::RenderTexture(
 				targetHeap->GetHeap(),
 				placedOffset,
 				&texDesc,
-				(D3D12_RESOURCE_STATES)this->initState,
+				GetGFXResourceState(this->initState),
 				&clearValue,
 				IID_PPV_ARGS(&Resource)));
 		}
@@ -633,19 +654,19 @@ RenderTexture::RenderTexture(
 			depthClearValue.DepthStencil.Stencil = 0;
 			switch (initState) {
 				case RenderTextureState::Unordered_Access:
-					this->initState = GFXResourceState_UnorderedAccess;
+					this->initState = GPUResourceState_UnorderedAccess;
 					break;
 				case RenderTextureState::Generic_Read:
-					this->initState = GFXResourceState_DepthRead;
+					this->initState = GPUResourceState_GenericRead;
 					break;
 				case RenderTextureState::Common:
-					this->initState = GFXResourceState_Common;
+					this->initState = GPUResourceState_Common;
 					break;
 				case RenderTextureState::Non_Pixel_SRV:
-					this->initState = GFXResourceState_NonPixelRead;
+					this->initState = GPUResourceState_NonPixelShaderRes;
 					break;
 				default:
-					this->initState = GFXResourceState_DepthWrite;
+					this->initState = GPUResourceState_RenderTarget;
 					break;
 			}
 			resourceSize = device->GetResourceAllocationInfo(
@@ -657,7 +678,7 @@ RenderTexture::RenderTexture(
 					&heap,
 					D3D12_HEAP_FLAG_NONE,
 					&depthStencilDesc,
-					(D3D12_RESOURCE_STATES)this->initState,
+					GetGFXResourceState(this->initState),
 					&depthClearValue,
 					IID_PPV_ARGS(&Resource)));
 			} else {
@@ -665,7 +686,7 @@ RenderTexture::RenderTexture(
 					targetHeap->GetHeap(),
 					placedOffset,
 					&depthStencilDesc,
-					(D3D12_RESOURCE_STATES)this->initState,
+					GetGFXResourceState(this->initState),
 					&depthClearValue,
 					IID_PPV_ARGS(&Resource)));
 			}
@@ -697,11 +718,6 @@ RenderTexture::RenderTexture(
 		}
 	}
 	BindSRVToHeap(Graphics::GetGlobalDescHeapNonConst(), GetGlobalDescIndex(), device);
-	if (usage == RenderTextureUsage::DepthBuffer)
-		writeState = GFXResourceState_DepthWrite;
-	else
-		writeState = GFXResourceState_RenderTarget;
-	readState = (bool)usage ? GFXResourceState_DepthRead : GFXResourceState_GenericRead;
 }
 void RenderTexture::BindRTVToHeap(DescriptorHeap* targetHeap, uint index, GFXDevice* device, uint slice, uint mip) const {
 	if (usage == RenderTextureUsage::ColorBuffer) {

@@ -9,4 +9,5 @@
 #include "TextureHeap.h"
 #include "CBufferPool.h"
 #include "DescriptorHeap.h"
+#include "DescHeapPool.h"
 #include "ReadbackBuffer.h"

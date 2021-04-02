@@ -118,9 +118,9 @@ void ASTExprEncoder::visit(const LiteralExpr* expr) {
 	},
 			   expr->value());
 	//sz = data->size() - sz;
-//	for (size_t i = sz; i < data->size(); ++i) {
-//		std::cout << (uint)(*data)[i];
-//	}
+	//	for (size_t i = sz; i < data->size(); ++i) {
+	//		std::cout << (uint)(*data)[i];
+	//	}
 }
 void ASTExprEncoder::visit(const RefExpr* expr) {
 	Push<uint>(65536 * 6);
@@ -159,7 +159,8 @@ void ASTStmtEncoder::visit(const ContinueStmt* stmt) {
 void ASTStmtEncoder::visit(const ReturnStmt* stmt) {
 	Push<uint>(65536 * 12);
 	ASTExprEncoder expr(data);
-	stmt->expression()->accept(expr);
+	if (stmt->expression())
+		stmt->expression()->accept(expr);
 }
 void ASTStmtEncoder::visit(const ScopeStmt* stmt) {
 	Push<uint>(65536 * 13);
@@ -274,20 +275,20 @@ void SerializeMD5_Result(Function func, vengine::vector<uint8_t>& result) {
 }
 
 DLL_EXPORT void SerializeMD5(Function func) {
-	
+
 	//LUISA_INFO("Hello, Husky!");
-	
+
 	vengine::vengine_init_malloc(malloc, free);
 	vengine::vector<uint8_t> result;
 	result.reserve(65536);
-	
+
 	//LUISA_INFO("HLSL serialization started.");
 	auto t_husky = std::chrono::high_resolution_clock::now();
 	SerializeMD5_Result(func, result);
 	auto t_husky_stop = std::chrono::high_resolution_clock::now();
 	using namespace std::chrono_literals;
 	//LUISA_INFO("HLSL serialization finished in {} ms.", (t_husky_stop - t_husky) / 1ns * 1e-6);
-	
+
 	std::span<uint8_t> arr(result.data(), result.size());
 
 	MD5 md5(arr);

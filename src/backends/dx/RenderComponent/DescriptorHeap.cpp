@@ -60,7 +60,7 @@ void DescriptorHeap::Create(
 		bShaderVisible);
 }
 void DescriptorHeap::SetDescriptorHeap(ThreadCommand* commandList) const {
-	commandList->UpdateDescriptorHeap(rootPtr);
+	commandList->UpdateDescriptorHeap(this, rootPtr);
 }
 void DescriptorHeap::CreateUAV(GFXDevice* device, GPUResourceBase const* resource, const D3D12_UNORDERED_ACCESS_VIEW_DESC* pDesc, uint64 index) {
 	rootPtr->CreateUAV(

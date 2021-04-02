@@ -1,11 +1,11 @@
 #pragma once
-#include "../../Common/GFXUtil.h"
+#include <Common/GFXUtil.h>
 #include "../Shader.h"
-#include "../../CJsonObject/SerializedObject.h"
+#include <CJsonObject/SerializedObject.h>
 #include "../ComputeShader.h"
 class SerializedObject;
 class ThreadCommand;
-class ShaderIO
+class VENGINE_DLL_RENDERER ShaderIO
 {
 public:
 	static void DecodeShader(
@@ -45,5 +45,5 @@ public:
 		HashMap<uint, uint>::Iterator& ite,
 		const VObject* targetObj,
 		uint64 indexOffset,
-		const std::type_info& tyid);
+		IShader::ResourceType tyid);
 };

@@ -6,7 +6,7 @@
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
 using Microsoft::WRL::ComPtr;
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 12> const& GFXUtil::GetStaticSamplers() {
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> const& GFXUtil::GetStaticSamplers() {
 	// Applications usually only need a handful of samplers.  So just define them all up front
 	// and keep them available as part of the root signature.
 	static const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
@@ -95,23 +95,30 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 12> const& GFXUtil::GetStaticSampl
 		D3D12_TEXTURE_ADDRESS_MODE_WRAP,
 		0,
 		16);
-	static const std::array<const CD3DX12_STATIC_SAMPLER_DESC, 12> arr = {
-		pointWrap, pointClamp,
-		bilinearWrap, bilinearClamp,
-		trilinearWrap, trilinearClamp,
-		anisotropicWrap, anisotropicClamp, linearShadowClamp, linearCubemapShadowClamp, mipLinearPointClamp, mipLinearPointWrap};
+	static const CD3DX12_STATIC_SAMPLER_DESC pointShadowClamp(
+		12,
+		D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT,
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,// addressU
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,// addressV
+		D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+		0,
+		16,
+		D3D12_COMPARISON_FUNC_GREATER);// addressW
+	static const std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> arr = {
+		pointWrap,
+		pointClamp,
+		bilinearWrap,
+		bilinearClamp,
+		trilinearWrap,
+		trilinearClamp,
+		anisotropicWrap,
+		anisotropicClamp,
+		linearShadowClamp,
+		linearCubemapShadowClamp,
+		mipLinearPointClamp,
+		mipLinearPointWrap,
+		pointShadowClamp};
 	return arr;
-}
-ComPtr<ID3DBlob> GFXUtil::LoadBinary(const vengine::wstring& filename) {
-	std::ifstream fin(filename.c_str(), std::ios::binary);
-	fin.seekg(0, std::ios_base::end);
-	std::ifstream::pos_type size = (int32_t)fin.tellg();
-	fin.seekg(0, std::ios_base::beg);
-	ComPtr<ID3DBlob> blob;
-	ThrowIfFailed(D3DCreateBlob(size, blob.GetAddressOf()));
-	fin.read((char*)blob->GetBufferPointer(), size);
-	fin.close();
-	return blob;
 }
 void MemcpySubresource(
 	_In_ const D3D12_MEMCPY_DEST* pDest,

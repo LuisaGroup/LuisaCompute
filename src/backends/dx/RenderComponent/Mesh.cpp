@@ -2,7 +2,7 @@
 #include "../RenderComponent/RenderCommand.h"
 #include "../Singleton/MeshLayout.h"
 #include "../Singleton/Graphics.h"
-#include "../Common/vector.h"
+#include <Common/vector.h>
 #include "../Utility/BinaryReader.h"
 #include "../PipelineComponent/ThreadCommand.h"
 #include "Utility/IBufferAllocator.h"
@@ -10,6 +10,12 @@
 using namespace DirectX;
 using Microsoft::WRL::ComPtr;
 namespace MeshGlobal {
+static constexpr D3D12_RESOURCE_STATES D3D12_MESH_GENERIC_READ_STATE =
+	(D3D12_RESOURCE_STATES)(
+		(uint)D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER
+		| (uint)D3D12_RESOURCE_STATE_INDEX_BUFFER
+		| (uint)D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+		| (uint)D3D12_RESOURCE_STATE_COPY_SOURCE);
 struct DeleteGuard {
 	char* ptr = nullptr;
 	~DeleteGuard() {
@@ -25,7 +31,7 @@ void CreateDefaultBuffer(
 	IBufferAllocator* alloc = nullptr,
 	Mesh* mesh = nullptr) {
 	if (!defaultBuffer) {
-		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_NONE);
 		if (alloc) {
 			ID3D12Heap* heap;
 			uint64 offset;
@@ -40,7 +46,7 @@ void CreateDefaultBuffer(
 				heap,
 				offset,
 				&buffer,
-				(D3D12_RESOURCE_STATES)GFXResourceState_CopyDest,
+				D3D12_RESOURCE_STATE_COPY_DEST,
 				nullptr,
 				IID_PPV_ARGS(defaultBuffer.GetAddressOf())));
 		} else {
@@ -50,7 +56,7 @@ void CreateDefaultBuffer(
 				&heap,
 				D3D12_HEAP_FLAG_NONE,
 				&buffer,
-				(D3D12_RESOURCE_STATES)GFXResourceState_CopyDest,
+				D3D12_RESOURCE_STATE_COPY_DEST,
 				nullptr,
 				IID_PPV_ARGS(defaultBuffer.GetAddressOf())));
 		}
@@ -73,7 +79,7 @@ void CreateDefaultBuffer(
 				heap,
 				offset,
 				&buffer,
-				(D3D12_RESOURCE_STATES)GFXResourceState_GenericRead,
+				D3D12_RESOURCE_STATE_GENERIC_READ,
 				nullptr,
 				IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
 		} else {
@@ -82,7 +88,7 @@ void CreateDefaultBuffer(
 				&prop,
 				D3D12_HEAP_FLAG_NONE,
 				&buffer,
-				(D3D12_RESOURCE_STATES)GFXResourceState_GenericRead,
+				D3D12_RESOURCE_STATE_GENERIC_READ,
 				nullptr,
 				IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
 		}
@@ -97,7 +103,6 @@ void CopyToBuffer(
 	cmdList->ExecuteResBarrier();
 	cmdList->GetCmdList()->CopyBufferRegion(defaultBuffer.Get(), defaultOffset, uploadBuffer.Get(), uploadOffset, byteSize);
 }
-
 class MeshLoadCommand : public RenderCommand {
 public:
 	ComPtr<GFXResource> uploadResource;
@@ -108,9 +113,9 @@ public:
 	IBufferAllocator* allocator;
 	Mesh* mesh;
 	ObjWeakPtr<bool> flagPtr;
-	GFXResourceState* selfPtrTracker;
+	GPUResourceState* selfPtrTracker;
 	MeshLoadCommand(
-		GFXResourceState* stateTracker,
+		GPUResourceState* stateTracker,
 		ObjectPtr<bool> const& flagPtr,
 		ComPtr<GFXResource>& uploadResource,
 		ComPtr<GFXResource>& defaultResource,
@@ -134,11 +139,9 @@ public:
 		auto allocator = this->allocator;
 		auto mesh = this->mesh;
 		CopyToBuffer(byteSize, copyCommandList, uploadResource, defaultResource, defaultOffset, uploadOffset);
-		directCommandList->UpdateResState(GFXResourceState_CopyDest, GFXResourceState_GenericRead, mesh);
-		*selfPtrTracker = GFXResourceState_Common;
+		directCommandList->UpdateResState(GPUResourceState_CopyDest, GPUResourceState_GenericRead, mesh);
+		*selfPtrTracker = GPUResourceState_Common;
 		*flagPtr = true;
-		//TODO: Delay Dispose
-
 	}
 };
 
@@ -562,6 +565,14 @@ char* InitMeshData(
 	return dataPtr;
 }
 }// namespace MeshGlobal
+D3D12_RESOURCE_STATES Mesh::GetGFXResourceState(GPUResourceState gfxState) const {
+	if (gfxState == GPUResourceState_GenericRead) {
+		return MeshGlobal::D3D12_MESH_GENERIC_READ_STATE;
+	} else {
+		return (D3D12_RESOURCE_STATES)gfxState;
+	}
+}
+// namespace MeshGlobal
 uint64_t Mesh::GetMeshSize(
 	uint vertexCount,
 	bool positions,
@@ -613,13 +624,15 @@ Mesh::Mesh(
 	SubMesh* subMeshesPtr,
 	uint subMeshCount,
 	float3 const& boundingCenter,
-	float3 const& boundingExtent) : allocator(allocator),
-									mVertexCount(vertexCount),
-									indexFormat(indexFormat),
-									indexCount(indexCount),
-									indexArrayPtr(indexArrayPtr),
-									boundingCenter(boundingCenter),
-									boundingExtent(boundingExtent) {
+	float3 const& boundingExtent)
+	: allocator(allocator),
+	  mVertexCount(vertexCount),
+	  indexFormat(indexFormat),
+	  indexCount(indexCount),
+	  indexArrayPtr(indexArrayPtr),
+	  boundingCenter(boundingCenter),
+	  boundingExtent(boundingExtent),
+	  GPUResourceBase(GPUResourceType::Buffer) {
 	MeshGlobal::DeleteGuard guard;
 	uint64 indexSize;
 	char* dataPtr = MeshGlobal::InitMeshData(
@@ -703,12 +716,14 @@ Mesh::Mesh(
 	SubMesh* subMeshesPtr,
 	uint subMeshCount,
 	float3 const& boundingCenter,
-	float3 const& boundingExtent) : mVertexCount(vertexCount),
-									indexFormat(indexFormat),
-									indexCount(indexCount),
-									indexArrayPtr(indexArrayPtr),
-									boundingCenter(boundingCenter),
-									boundingExtent(boundingExtent) {
+	float3 const& boundingExtent)
+	: mVertexCount(vertexCount),
+	  indexFormat(indexFormat),
+	  indexCount(indexCount),
+	  indexArrayPtr(indexArrayPtr),
+	  boundingCenter(boundingCenter),
+	  boundingExtent(boundingExtent),
+	  GPUResourceBase(GPUResourceType::Buffer) {
 	MeshGlobal::DeleteGuard guard;
 	uint64 indexSize;
 	char* dataPtr = MeshGlobal::InitMeshData(
@@ -792,7 +807,7 @@ ObjectPtr<Mesh> Mesh::LoadMeshFromFile(
 		dataPtr->clear();
 	ObjectPtr<Mesh> result = nullptr;
 	meshData.datas = dataPtr;
-	if (!MeshGlobal::DecodeMesh(str, meshData)) 
+	if (!MeshGlobal::DecodeMesh(str, meshData))
 		return result;
 	char* ptrStart = meshData.datas->data();
 	if (allocator) {
@@ -1064,12 +1079,12 @@ void Mesh::LoadMeshFromFiles(
 	ComPtr<GFXResource> uploadBuffer;
 	// Create the actual default buffer resource.
 	auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-	auto buf = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+	auto buf = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_NONE);
 	ThrowIfFailed(device->CreateCommittedResource(
 		&prop,
 		D3D12_HEAP_FLAG_NONE,
 		&buf,
-		(D3D12_RESOURCE_STATES)GFXResourceState_CopyDest,
+		D3D12_RESOURCE_STATE_COPY_DEST,
 		nullptr,
 		IID_PPV_ARGS(defaultBuffer.GetAddressOf())));
 	// In order to copy CPU memory data into our default buffer, we need to create
@@ -1080,7 +1095,7 @@ void Mesh::LoadMeshFromFiles(
 		&prop,
 		D3D12_HEAP_FLAG_NONE,
 		&buf,
-		(D3D12_RESOURCE_STATES)GFXResourceState_GenericRead,
+		MeshGlobal::D3D12_MESH_GENERIC_READ_STATE,
 		nullptr,
 		IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
 	for (uint64_t i = 0; i < meshLoadDatas.size(); ++i) {

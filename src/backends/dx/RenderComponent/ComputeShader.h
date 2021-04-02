@@ -1,7 +1,7 @@
 #pragma once
 #include "IShader.h"
 #include "Utility/CommandSignature.h"
-
+#include <Singleton/ShaderLoader.h>
 class JobBucket;
 struct ComputeKernel
 {
@@ -9,11 +9,9 @@ struct ComputeKernel
 	Microsoft::WRL::ComPtr<ID3DBlob> datas;
 };
 
-class ComputeShader final : public IShader
+class VENGINE_DLL_RENDERER ComputeShader final : public IShader
 {
 	friend class ShaderLoader;
-	friend class ComputeShaderCompiler;
-	friend class ComputeShaderReader;
 private:
 	StackObject<SerializedObject, true> serObj;
 	vengine::string name;
@@ -24,8 +22,8 @@ private:
 	vengine::vector<Microsoft::WRL::ComPtr<GFXPipelineState>> pso;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature;
 	CommandSignature cmdSig;
-	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const override;
-//	bool TrySetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const;
+	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const override;
+	//	bool TrySetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const;
 	ComputeShader(
 		vengine::string const& name,
 		const vengine::string& csoFilePath,

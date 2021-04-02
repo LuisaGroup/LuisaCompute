@@ -9,6 +9,7 @@ if (WIN32)
         CJsonObject/SerializedObject.cpp
         Common/Camera.cpp
         Common/Common.cpp
+        Common/GameTimer.cpp
         Common/GFXUtil.cpp
         Common/Log.cpp
         Common/MathHelper.cpp
@@ -34,9 +35,11 @@ if (WIN32)
         RenderComponent/CBufferAllocator.cpp
         RenderComponent/CBufferPool.cpp
         RenderComponent/ComputeShader.cpp
+        RenderComponent/DescHeapPool.cpp
         RenderComponent/DescriptorHeap.cpp
         RenderComponent/DescriptorHeapRoot.cpp
         RenderComponent/GPUResourceBase.cpp
+        RenderComponent/IShader.cpp
         RenderComponent/Mesh.cpp
         RenderComponent/PSOContainer.cpp
         RenderComponent/RayShader.cpp
@@ -54,8 +57,8 @@ if (WIN32)
         RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.cpp
         RenderComponent/Utility/DefaultBufferAllocator.cpp
         RenderComponent/Utility/DefaultTextureAllocator.cpp
+        RenderComponent/Utility/SeparableRendererManager.cpp
         RenderComponent/Utility/ShaderIO.cpp
-        RenderComponent/Voxel/VirtualVoxelMap.cpp
         RHI/CommandBuffer.cpp
         ShaderCompile/ASTEncoder.cpp
         ShaderCompile/HLSLCompiler.cpp

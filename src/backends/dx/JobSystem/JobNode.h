@@ -15,7 +15,7 @@ class JobBucket;
 class VectorPool;
 class JobSystem;
 typedef uint32_t uint;
-class DLL_COMMON JobNode
+class VENGINE_DLL_COMMON JobNode
 {
 	friend class JobBucket;
 	friend class JobSystem;

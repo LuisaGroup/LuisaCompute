@@ -1,6 +1,8 @@
 #include "GPUResourceBase.h"
-#include "GPUResourceBase.h"
-GPUResourceBase::GPUResourceBase() {
+GPUResourceBase::GPUResourceBase(GPUResourceType resourceType)
+	: resourceType(resourceType) {
 }
+
 GPUResourceBase::~GPUResourceBase() {
+
 }

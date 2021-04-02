@@ -1,6 +1,7 @@
 #pragma once
 #include "IBuffer.h"
 #include "Utility/IBufferAllocator.h"
+class FrameResource;
 class ThreadCommand;
 class DescriptorHeap;
 struct StructuredBufferElement {
@@ -12,16 +13,17 @@ struct StructuredBufferElement {
 };
 
 enum StructuredBufferState {
-	StructuredBufferState_UAV = GFXResourceState_UnorderedAccess,
-	StructuredBufferState_Indirect = GFXResourceState_IndirectArg,
-	StructuredBufferState_Read = GFXResourceState_GenericRead
+	StructuredBufferState_UAV = GPUResourceState_UnorderedAccess,
+	StructuredBufferState_Indirect = GPUResourceState_IndirectArg,
+	StructuredBufferState_Read = GPUResourceState_GenericRead
 };
 
-class StructuredBuffer final : public IBuffer {
+class VENGINE_DLL_RENDERER StructuredBuffer final : public IBuffer {
 private:
 	ArrayList<StructuredBufferElement> elements;
 	ArrayList<uint64_t> offsets;
-	GFXResourceState initState;
+	GPUResourceState initState;
+	bool usedAsMesh;
 	mutable spin_mutex descLock;
 	mutable uint srvDescIndex = -1;
 	mutable uint uavDescIndex = -1;
@@ -32,30 +34,35 @@ private:
 	void DisposeGlobalHeap() const;
 
 public:
+	GFXResourceState GetGFXResourceState(GPUResourceState gfxState) const override;
 	StructuredBuffer(
 		GFXDevice* device,
 		StructuredBufferElement* elementsArray,
 		uint elementsCount,
 		bool isIndirect = false,
 		bool isReadable = false,
-		IBufferAllocator* allocator = nullptr);
+		IBufferAllocator* allocator = nullptr,
+		bool usedAsMesh = false);
 	StructuredBuffer(
 		GFXDevice* device,
 		const std::initializer_list<StructuredBufferElement>& elementsArray,
 		bool isIndirect = false,
 		bool isReadable = false,
-		IBufferAllocator* allocator = nullptr);
+		IBufferAllocator* allocator = nullptr,
+		bool usedAsMesh = false);
 	StructuredBuffer(
 		GFXDevice* device,
 		StructuredBufferElement* elementsArray,
 		uint elementsCount,
-		GFXResourceState targetState,
-		IBufferAllocator* allocator = nullptr);
+		GPUResourceState targetState,
+		IBufferAllocator* allocator = nullptr,
+		bool usedAsMesh = false);
 	StructuredBuffer(
 		GFXDevice* device,
 		const std::initializer_list<StructuredBufferElement>& elementsArray,
-		GFXResourceState targetState,
-		IBufferAllocator* allocator = nullptr);
+		GPUResourceState targetState,
+		IBufferAllocator* allocator = nullptr,
+		bool usedAsMesh = false);
 	KILL_COPY_CONSTRUCT(StructuredBuffer)
 	uint GetSRVDescIndex(GFXDevice* device) const;
 	uint GetUAVDescIndex(GFXDevice* device) const;
@@ -63,7 +70,7 @@ public:
 	uint64 GetByteSize() const override { return byteSize; }
 	void BindSRVToHeap(DescriptorHeap* targetHeap, uint64 index, GFXDevice* device) const;
 	void BindUAVToHeap(DescriptorHeap* targetHeap, uint64 index, GFXDevice* device) const;
-	virtual GFXResourceState GetInitState() const { return initState; }
+	virtual GPUResourceState GetInitState() const { return initState; }
 	uint64_t GetStride(uint64 index) const;
 	uint64_t GetElementCount(uint64 index) const;
 	GpuAddress GetAddress(uint64 element, uint64 index) const;
@@ -73,12 +80,12 @@ public:
 class StructuredBufferStateBarrier final
 {
 	StructuredBuffer* sbuffer;
-	GFXResourceState beforeState;
-	GFXResourceState afterState;
+	GPUResourceState beforeState;
+	GPUResourceState afterState;
 	ThreadCommand* commandList;
 public:
 	StructuredBufferStateBarrier(ThreadCommand* commandList, StructuredBuffer* sbuffer, StructuredBufferState beforeState, StructuredBufferState afterState) :
-		beforeState((GFXResourceState)beforeState), afterState((GFXResourceState)afterState), sbuffer(sbuffer),
+		beforeState((GPUResourceState)beforeState), afterState((GPUResourceState)afterState), sbuffer(sbuffer),
 		commandList(commandList)
 	{
 		commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(

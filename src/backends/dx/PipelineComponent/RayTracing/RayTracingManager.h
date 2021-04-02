@@ -1,11 +1,12 @@
 #pragma once
-#include "../../Common/GFXUtil.h"
-#include "../../Common/VObject.h"
-#include "../../Struct/RenderPackage.h"
-#include "../../RenderComponent/CBufferPool.h"
-#include "../../RenderComponent/CBufferAllocator.h"
-#include "../../Common/LockFreeArrayQueue.h"
-#include "../../RenderComponent/RayRendererData.h"
+#include <Common/GFXUtil.h>
+#include <Common/VObject.h>
+#include <Struct/RenderPackage.h>
+#include <RenderComponent/CBufferPool.h>
+#include <RenderComponent/CBufferAllocator.h>
+#include <Common/LockFreeArrayQueue.h>
+#include <RenderComponent/RayRendererData.h>
+#include <RenderComponent/Utility/SeparableRendererManager.h>
 class Transform;
 class IShader;
 class IMesh;
@@ -13,15 +14,20 @@ class StructuredBuffer;
 class UploadBuffer;
 class ComputeShader;
 class ThreadCommand;
-class RayTracingManager final {
-private:
+namespace RTAccStructUtil {
+class RemoveMeshFunctor;
+}
+class VENGINE_DLL_RENDERER RayTracingManager final {
+	friend class RTAccStructUtil::RemoveMeshFunctor;
 
+private:
 	//Update And Add Should only called in main job threads, will be unsafe if called in loading thread!
 
 	~RayTracingManager();
 	void ReserveStructSize(RenderPackage const& package, uint64 newStrSize, uint64 newScratchSize);
 	void AddMesh(RenderPackage const& pack, vengine::vector<StructuredBuffer*>& clearBuffer, IMesh const* meshInterface, uint subMeshIndex, bool forceUpdateMesh);
 	void RemoveMesh(IMesh const* meshInterface, vengine::vector<StructuredBuffer*>& clearBuffer);
+	void CopyInstanceDescData(RayRendererData* data);
 
 public:
 	class AllocatedCBufferChunks {
@@ -29,22 +35,18 @@ public:
 		vengine::vector<ConstBufferElement> instanceUploadElements;
 		vengine::vector<ConstBufferElement> meshObjUploadElements;
 		vengine::vector<StructuredBuffer*> needClearSBuffers;
-		~AllocatedCBufferChunks();
 	};
-	bool Avaliable() const {
-		return !renderersList.empty();
-	}
+	bool Avaliable() const;
 	RayRendererData* AddRenderer(
 		ObjectPtr<IMesh>&& meshPtr,
 		uint shaderID,
 		uint materialID,
-		Transform const* renderer,
+		Transform* renderer,
 		uint subMeshIndex);
 	void UpdateRenderer(
 		ObjectPtr<IMesh>&& mesh,
 		uint shaderID,
 		uint materialID,
-		Transform const* tr,
 		RayRendererData* renderer,
 		uint subMeshIndex);
 	void RemoveRenderer(
@@ -58,7 +60,9 @@ public:
 		this->moveDir += moveDir;
 		moveTheWorld = true;
 	}
-	StructuredBuffer const* GetRayTracingStruct() const;
+	StructuredBuffer const* GetRayTracingStruct() const {
+		return topLevelAccStruct.get();
+	}
 	GpuAddress GetInstanceBufferAddress() const;
 	GpuAddress GetMeshObjectAddress() const;
 	static RayTracingManager* GetInstance() { return current; }
@@ -78,14 +82,8 @@ public:
 	void SetShaderResources(
 		IShader const* shader,
 		ThreadCommand* cmdList);
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-private:
-	GFXDevice* device;
-	static RayTracingManager* current;
 	struct Command {
 		enum class CommandType : uint8_t {
-			Add,
-			Delete,
 			AddMesh,
 			DeleteMesh
 		};
@@ -111,12 +109,22 @@ private:
 			this->subMeshIndex = subMeshIndex;
 		}
 	};
+	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+private:
+	enum class UpdateOperator : uint {
+		UpdateTrans = 1,
+		UpdateMesh = 2
+	};
+	GFXDevice* device;
+	AllocatedCBufferChunks* allocatedElements;
+	RenderPackage const* pack;
+	static RayTracingManager* current;
+
 	LockFreeArrayQueue<Command> commands;
 	CBufferPool instanceUploadPool;
 	CBufferPool meshObjUploadPool;
 	Pool<RayRendererData, true, true> rayRenderDataPool;
 	Pool<StructuredBuffer, true, false> sbuffers;
-	vengine::vector<RayRendererData*> renderersList;
 	std::unique_ptr<StructuredBuffer> topLevelAccStruct;
 	std::unique_ptr<StructuredBuffer> instanceStruct;
 	std::unique_ptr<StructuredBuffer> scratchStruct;
@@ -144,6 +152,12 @@ private:
 		ArrayList<BottomLevelSubMesh> subMeshes;
 	};
 	HashMap<uint64, BottomLevelBuild> allBottomLevel;
+	SeparableRendererManager sepManager;
+	Runnable<void(GFXDevice*, SeparableRenderer*, uint)> lastFrameUpdateFunction;
+	Runnable<bool(GFXDevice*, SeparableRenderer*, uint)> addFunction;
+	Runnable<void(GFXDevice*, SeparableRenderer*, SeparableRenderer*, uint, bool)> removeFunction;// device, current, last, custom, isLast
+	Runnable<bool(GFXDevice*, SeparableRenderer*, uint)> updateFunction;
+	Runnable<void(SeparableRenderer*)> rendDisposer;
 	uint _Scene;
 	uint _Meshes;
 	uint _InstanceBuffer;

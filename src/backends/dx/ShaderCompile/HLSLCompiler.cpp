@@ -27,7 +27,7 @@ void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
 	PROCESS_INFORMATION piProcInfo;
 
 	static HANDLE g_hInputFile = NULL;
-	
+
 	//PROCESS_INFORMATION piProcInfo;
 	STARTUPINFO siStartInfo;
 	BOOL bSuccess = FALSE;
@@ -46,30 +46,30 @@ void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
 	siStartInfo.hStdInput = g_hChildStd_IN_Rd;
 	siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
 
-	// Create the child process.
-	#ifdef UNICODE
+// Create the child process.
+#ifdef UNICODE
 	bSuccess = CreateProcess(NULL,
 							 vengine::wstring(cmd).data(),// command line
-							 NULL,			  // process security attributes
-							 NULL,			  // primary thread security attributes
-							 TRUE,			  // handles are inherited
-							 0,				  // creation flags
-							 NULL,			  // use parent's environment
-							 NULL,			  // use parent's current directory
-							 &siStartInfo,	  // STARTUPINFO pointer
-							 &piProcInfo);	  // receives PROCESS_INFORMATION
-	#else
+							 NULL,						  // process security attributes
+							 NULL,						  // primary thread security attributes
+							 TRUE,						  // handles are inherited
+							 0,							  // creation flags
+							 NULL,						  // use parent's environment
+							 NULL,						  // use parent's current directory
+							 &siStartInfo,				  // STARTUPINFO pointer
+							 &piProcInfo);				  // receives PROCESS_INFORMATION
+#else
 	bSuccess = CreateProcess(NULL,
 							 cmd.data(),  // command line
-							 NULL,			  // process security attributes
-							 NULL,			  // primary thread security attributes
-							 TRUE,			  // handles are inherited
-							 0,				  // creation flags
-							 NULL,			  // use parent's environment
-							 NULL,			  // use parent's current directory
-							 &siStartInfo,	  // STARTUPINFO pointer
-							 &piProcInfo);	  // receives PROCESS_INFORMATION
-	#endif
+							 NULL,		  // process security attributes
+							 NULL,		  // primary thread security attributes
+							 TRUE,		  // handles are inherited
+							 0,			  // creation flags
+							 NULL,		  // use parent's environment
+							 NULL,		  // use parent's current directory
+							 &siStartInfo,// STARTUPINFO pointer
+							 &piProcInfo);// receives PROCESS_INFORMATION
+#endif
 	data->bSuccess = bSuccess;
 	data->piProcInfo = piProcInfo;
 }
@@ -190,13 +190,11 @@ void InitRegisteData() {
 struct CompileFunctionCommand {
 	vengine::string name;
 	ShaderType type;
-	ObjectPtr<vengine::vector<vengine::string>> macros;
 };
 void GenerateCompilerCommand(
 	vengine::string const& fileName,
 	vengine::string const& functionName,
 	vengine::string const& resultFileName,
-	const ObjectPtr<vengine::vector<vengine::string>>& macros,
 	ShaderType shaderType,
 	Compiler compiler,
 	vengine::string& cmdResult) {
@@ -249,12 +247,6 @@ void GenerateCompilerCommand(
 	cmdResult.clear();
 	cmdResult.reserve(50);
 	cmdResult += *compilerPath + *start + shaderTypeCmd + shaderTypeName;
-	if (macros && !macros->empty()) {
-		for (auto ite = macros->begin(); ite != macros->end(); ++ite) {
-			cmdResult += macro_compile;
-			cmdResult += *ite + "=1 "_sv;
-		}
-	}
 	if (!functionName.empty()) {
 		cmdResult += funcName;
 		cmdResult += functionName;
@@ -297,44 +289,6 @@ void DragData<vengine::string>(std::ifstream& ifs, vengine::string& str) {
 	str.resize(length);
 	ifs.read(str.data(), length);
 }
-struct PassFunction {
-	vengine::string name;
-	ObjectPtr<vengine::vector<vengine::string>> macros;
-	PassFunction(vengine::string const& name,
-				 const ObjectPtr<vengine::vector<vengine::string>>& macros) : name(name),
-																			  macros(macros) {}
-	PassFunction() {}
-	bool operator==(const PassFunction& p) const noexcept {
-		bool cur = macros.operator bool();
-		bool pCur = p.macros.operator bool();
-		if (name == p.name) {
-			if ((!pCur && !cur)) {
-				return true;
-			} else if (cur && pCur && macros->size() == p.macros->size()) {
-				for (uint i = 0; i < macros->size(); ++i)
-					if ((*macros)[i] != (*p.macros)[i]) return false;
-				return true;
-			}
-		}
-		return false;
-	}
-	bool operator!=(const PassFunction& p) const noexcept {
-		return !operator==(p);
-	}
-};
-struct PassFunctionHash {
-	uint64 operator()(const PassFunction& pf) const noexcept {
-		vengine::hash<vengine::string> hashStr;
-		uint64 h = hashStr(pf.name);
-		if (pf.macros) {
-			for (uint i = 0; i < pf.macros->size(); ++i) {
-				h <<= 4;
-				h ^= hashStr((*pf.macros)[i]);
-			}
-		}
-		return h;
-	}
-};
 
 void PutInSerializedObjectAndData(
 	vengine::vector<char> const& serializeObj,
@@ -396,29 +350,26 @@ void HLSLCompiler::CompileShader(
 		ifs.read(resultData.data() + originSize, fileSize);
 		return true;
 	};
-	HashMap<PassFunction, std::pair<ShaderType, uint>, PassFunctionHash> passMap(passDescs.size() * 2);
+	HashMap<vengine::string, std::pair<ShaderType, uint>> passMap(passDescs.size() * 2);
 	for (auto i = passDescs.begin(); i != passDescs.end(); ++i) {
-		auto findFunc = [&](vengine::string const& namestr, const ObjectPtr<vengine::vector<vengine::string>>& macros, ShaderType type) -> void {
-			PassFunction name(namestr, macros);
-
-			if (name.name.empty()) return;
-			if (!passMap.Contains(name)) {
-				passMap.Insert(name, std::pair<ShaderType, uint>(type, (uint)passMap.Size()));
+		auto findFunc = [&](vengine::string const& namestr, ShaderType type) -> void {
+			if (namestr.empty()) return;
+			if (!passMap.Contains(namestr)) {
+				passMap.Insert(namestr, std::pair<ShaderType, uint>(type, (uint)passMap.Size()));
 			}
 		};
-		findFunc(i->vertex, i->macros, ShaderType::VertexShader);
-		findFunc(i->hull, i->macros, ShaderType::HullShader);
-		findFunc(i->domain, i->macros, ShaderType::DomainShader);
-		findFunc(i->fragment, i->macros, ShaderType::PixelShader);
+		findFunc(i->vertex, ShaderType::VertexShader);
+		findFunc(i->hull, ShaderType::HullShader);
+		findFunc(i->domain, ShaderType::DomainShader);
+		findFunc(i->fragment, ShaderType::PixelShader);
 	}
 	vengine::vector<CompileFunctionCommand> functionNames(passMap.Size());
 	PutIn<uint>(resultData, (uint)passMap.Size());
-	passMap.IterateAll([&](PassFunction const& key, std::pair<ShaderType, uint>& value) -> void {
+	passMap.IterateAll([&](vengine::string const& key, std::pair<ShaderType, uint>& value) -> void {
 		CompileFunctionCommand cmd;
-		cmd.macros = key.macros;
-		cmd.name = key.name;
+		cmd.name = key;
 		cmd.type = value.first;
-		functionNames[value.second] = cmd;
+		functionNames[value.second] = std::move(cmd);
 	});
 	vengine::string commandCache;
 	ProcessorData data;
@@ -426,8 +377,7 @@ void HLSLCompiler::CompileShader(
 	for (uint i = 0; i < functionNames.size(); ++i) {
 		strs[i] = tempFilePath + vengine::to_string(i);
 		GenerateCompilerCommand(
-			fileName, functionNames[i].name, strs[i],
-			functionNames[i].macros, functionNames[i].type, rasterizeCompilerUsage, commandCache);
+			fileName, functionNames[i].name, strs[i],functionNames[i].type, rasterizeCompilerUsage, commandCache);
 		CreateChildProcess(commandCache, &data);
 		if (!func(&data, strs[i])) {
 			std::lock_guard<spin_mutex> lck(outputMtx);
@@ -442,17 +392,16 @@ void HLSLCompiler::CompileShader(
 		PutIn(resultData, i->rasterizeState);
 		PutIn(resultData, i->depthStencilState);
 		PutIn(resultData, i->blendState);
-		auto PutInFunc = [&](vengine::string const& value, const ObjectPtr<vengine::vector<vengine::string>>& macros) -> void {
-			PassFunction psf(value, macros);
-			if (value.empty() || !passMap.Contains(psf))
+		auto PutInFunc = [&](vengine::string const& value) -> void {
+			if (value.empty() || !passMap.Contains(value))
 				PutIn<int>(resultData, -1);
 			else
-				PutIn<int>(resultData, (int)passMap[psf].second);
+				PutIn<int>(resultData, (int)passMap[value].second);
 		};
-		PutInFunc(i->vertex, i->macros);
-		PutInFunc(i->hull, i->macros);
-		PutInFunc(i->domain, i->macros);
-		PutInFunc(i->fragment, i->macros);
+		PutInFunc(i->vertex);
+		PutInFunc(i->hull);
+		PutInFunc(i->domain);
+		PutInFunc(i->fragment);
 	}
 	for (auto i = strs.begin(); i != strs.end(); ++i)
 		remove(i->c_str());
@@ -460,7 +409,7 @@ void HLSLCompiler::CompileShader(
 void HLSLCompiler::CompileComputeShader(
 	vengine::string const& fileName,
 	vengine::vector<ShaderVariable> const& vars,
-	vengine::vector<KernelDescriptor> const& passDescs,
+	vengine::vector<vengine::string> const& passDescs,
 	vengine::vector<char> const& customData,
 	vengine::string const& tempFilePath,
 	vengine::vector<char>& resultData) {
@@ -470,7 +419,7 @@ void HLSLCompiler::CompileComputeShader(
 		customData,
 		resultData,
 		vars);
-	using PassMap = HashMap<PassFunction, uint, PassFunctionHash>;
+	using PassMap = HashMap<vengine::string, uint>;
 	PassMap passMap(passDescs.size() * 2);
 
 	auto func = [&](vengine::string const& str, ProcessorData* data) -> bool {
@@ -497,23 +446,19 @@ void HLSLCompiler::CompileComputeShader(
 	vengine::vector<std::pair<PassMap::Iterator, vengine::string>> strs;
 	strs.reserve(passDescs.size());
 	for (auto&& i : passDescs) {
-		PassFunction func(
-			i.name,
-			i.macros);
-		auto ite = passMap.Find(func);
+		auto ite = passMap.Find(i);
 		if (ite) continue;
 		uint index = strs.size();
-		ite = passMap.Insert(func, index);
+		ite = passMap.Insert(i, index);
 		strs.push_back({ite, std::move(tempFilePath + vengine::to_string(index))});
 	}
 	PutIn<uint>(resultData, strs.size());
 	for (auto&& i : strs) {
-		PassFunction const& pass = i.first.Key();
+		auto const& pass = i.first.Key();
 		GenerateCompilerCommand(
 			fileName,
-			pass.name,
+			pass,
 			i.second,
-			pass.macros,
 			ShaderType::ComputeShader,
 			computeCompilerUsage,
 			kernelCommand);
@@ -529,11 +474,10 @@ void HLSLCompiler::CompileComputeShader(
 	}
 	PutIn<uint>(resultData, (uint)passDescs.size());
 	for (auto&& i : passDescs) {
-		PassFunction func(
-			i.name,
-			i.macros);
+		vengine::string func(
+			i);
 		auto ite = passMap.Find(func);
-		PutIn(resultData, i.name);
+		PutIn(resultData, i);
 		PutIn<uint>(resultData, ite.Value());
 	}
 	/*
@@ -605,7 +549,7 @@ void HLSLCompiler::CompileDXRShader(
 	};
 	vengine::string kernelCommand;
 	GenerateCompilerCommand(
-		fileName, vengine::string(), tempFilePath, nullptr, ShaderType::RayTracingShader, rayTracingCompilerUsage, kernelCommand);
+		fileName, vengine::string(), tempFilePath, ShaderType::RayTracingShader, rayTracingCompilerUsage, kernelCommand);
 	ProcessorData data;
 	CreateChildProcess(kernelCommand, &data);
 	if (!func(tempFilePath, &data)) {

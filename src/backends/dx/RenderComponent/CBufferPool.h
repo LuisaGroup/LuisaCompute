@@ -1,8 +1,8 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/VObject.h"
-#include "../Common/MetaLib.h"
-#include "../Common/vector.h"
+#include <Common/GFXUtil.h>
+#include <Common/VObject.h>
+#include <Common/MetaLib.h>
+#include <Common/vector.h>
 #include "UploadBuffer.h"
 struct ConstBufferElement
 {
@@ -21,7 +21,7 @@ struct ConstBufferElement
 	ConstBufferElement(UploadBuffer const* const buffer, uint const element) :
 		buffer(buffer), element(element) {}
 };
-class CBufferPool
+class VENGINE_DLL_RENDERER CBufferPool
 {
 private:
 	vengine::vector<std::unique_ptr<UploadBuffer>> arr;

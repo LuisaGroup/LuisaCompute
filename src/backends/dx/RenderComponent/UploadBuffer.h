@@ -3,7 +3,7 @@
 #include "IBuffer.h"
 class IBufferAllocator;
 class DescriptorHeap;
-class UploadBuffer final : public IBuffer {
+class VENGINE_DLL_RENDERER UploadBuffer final : public IBuffer {
 public:
 	UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConstantBuffer, uint64_t stride, IBufferAllocator* allocator = nullptr);
 	UploadBuffer() : mMappedData(0),
@@ -16,6 +16,7 @@ public:
 	~UploadBuffer();
 	void CopyData(uint64 elementIndex, const void* data) const;
 	void CopyData(uint64 elementIndex, const void* data, uint64 byteSize) const;
+	void CopyData(uint64 elementIndex, uint64 bufferByteOffset, const void* data, uint64 byteSize) const;
 	void CopyDatas(uint64 startElementIndex, uint64 elementCount, const void* data) const;
 	GpuAddress GetAddress(uint64 elementCount) const;
 	uint64_t GetAddressOffset(uint64 elementCount) const;
@@ -27,8 +28,8 @@ public:
 		return mElementCount;
 	}
 	KILL_COPY_CONSTRUCT(UploadBuffer)
-	virtual GFXResourceState GetInitState() const {
-		return GFXResourceState_GenericRead;
+	virtual GPUResourceState GetInitState() const {
+		return GPUResourceState_GenericRead;
 	}
 	void BindSRVToHeap(DescriptorHeap* targetHeap, uint64 index, GFXDevice* device) const;
 	uint GetSRVDescIndex(GFXDevice* device) const;

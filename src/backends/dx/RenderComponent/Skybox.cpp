@@ -5,11 +5,11 @@
 #include <mutex>
 #include "../Singleton/ShaderLoader.h"
 #include "../Singleton/ShaderID.h"
-#include "../Common/Camera.h"
+#include <Common/Camera.h>
 #include "../RenderComponent/PSOContainer.h"
 #include "DescriptorHeap.h"
 #include "../WorldManagement/World.h"
-#include "../Common/Camera.h"
+#include <Common/Camera.h>
 #include "../Singleton/Graphics.h"
 #include "Shader.h"
 #include "CBufferPool.h"
@@ -29,7 +29,7 @@ void Skybox::Draw(
 	auto commandList = package.tCmd->GetCmdList();
 	package.tCmd->UpdatePSO(pso);
 	shader->BindShader(package.tCmd, Graphics::GetGlobalDescHeap());
-	shader->SetResource(package.tCmd, ShaderID::GetMainTex(), Graphics::GetGlobalDescHeap(), skyboxTex->GetGlobalDescIndex());
+	shader->SetResource(package.tCmd, ShaderID::GetMainTex(), skyboxTex);
 	shader->SetResource(package.tCmd, SkyboxCBufferID, cameraBuffer.GetBuffer(), cameraBuffer.GetOffset());
 	auto vbv = fullScreenMesh->VertexBufferViews();
 	commandList->IASetVertexBuffers(0, fullScreenMesh->VertexBufferViewCount(), vbv);

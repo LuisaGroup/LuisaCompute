@@ -40,7 +40,7 @@ void DefaultBufferAllocator::ReturnBuffer(uint64 instanceID) {
 	auto ite = allocatedTexs.Find(instanceID);
 	if (!ite) {
 		VEngine_Log("Empty Key!\n");
-		throw 0;
+		VENGINE_EXIT;
 	}
 	ite.Value()->Release();
 	allocatedTexs.Remove(ite);

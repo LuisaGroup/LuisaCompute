@@ -4,7 +4,7 @@
 // General helper code.
 //***************************************************************************************
 #pragma once
-#include <config.h>
+#include <VEngineConfig.h>
 #include <windows.h>
 #include <wrl.h>
 #include <dxgi1_4.h>
@@ -22,26 +22,36 @@ using GFXResource = ID3D12Resource;
 using GFXPipelineState = ID3D12PipelineState;
 using GFXVertexBufferView = D3D12_VERTEX_BUFFER_VIEW;
 using GFXIndexBufferView = D3D12_INDEX_BUFFER_VIEW;
-#ifndef NDEBUG
+#ifdef _DEBUG
 #include <comdef.h>
 
 class DxException {
 public:
 	DxException() = default;
-	DxException(HRESULT hr, const vengine::wstring& functionName, const vengine::wstring& filename, int32_t lineNumber)
+	DxException(HRESULT hr, const vengine::string& functionName, const vengine::wstring& filename, int32_t lineNumber)
 		: ErrorCode(hr),
 		  FunctionName(functionName),
 		  Filename(filename),
 		  LineNumber(lineNumber) {}
 
-	vengine::wstring ToString() const {
+	vengine::string ToString() const {
 		// Get the string description of the error code.
 		_com_error err(ErrorCode);
 		vengine::wstring msg = err.ErrorMessage();
-		return FunctionName + L" failed in " + Filename + L"; line " + vengine::to_wstring(LineNumber) + L"; error: " + msg;
+		vengine::string strMsg;
+		strMsg.resize(msg.size());
+		for (size_t i = 0; i < msg.size(); ++i) {
+			strMsg[i] = msg[i];
+		}
+		vengine::string strFileName;
+		strFileName.resize(Filename.size());
+		for (size_t i = 0; i < Filename.size(); ++i) {
+			strFileName[i] = Filename[i];
+		}
+		return FunctionName + " failed in " + strFileName + "; line " + vengine::to_string(LineNumber) + "; error: " + strMsg;
 	}
 	HRESULT ErrorCode = S_OK;
-	vengine::wstring FunctionName;
+	vengine::string FunctionName;
 	vengine::wstring Filename;
 	int32_t LineNumber = -1;
 };
@@ -49,28 +59,31 @@ public:
 struct GpuAddress {
 	uint64 address;
 };
-enum GFXResourceState {
-	GFXResourceState_Common = D3D12_RESOURCE_STATE_COMMON,
-	GFXResourceState_ConstantBuffer = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
-	GFXResourceState_IndexBuffer = D3D12_RESOURCE_STATE_INDEX_BUFFER,
-	GFXResourceState_RenderTarget = D3D12_RESOURCE_STATE_RENDER_TARGET,
-	GFXResourceState_UnorderedAccess = D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-	GFXResourceState_DepthWrite = D3D12_RESOURCE_STATE_DEPTH_WRITE,
-	GFXResourceState_DepthRead = D3D12_RESOURCE_STATE_DEPTH_READ,
-	GFXResourceState_NonPixelRead = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-	GFXReseourceState_PixelRead = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-	GFXResourceState_StreamOut = D3D12_RESOURCE_STATE_STREAM_OUT,
-	GFXResourceState_IndirectArg = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
-	GFXResourceState_CopyDest = D3D12_RESOURCE_STATE_COPY_DEST,
-	GFXResourceState_CopySource = D3D12_RESOURCE_STATE_COPY_SOURCE,
-	GFXResourceState_ResolveDest = D3D12_RESOURCE_STATE_RESOLVE_DEST,
-	GFXResourceState_ResolveSource = D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
-	GFXResourceState_RayTracingStruct = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-	GFXResourceState_ShadingRateSource = D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE,
-	GFXResourceState_GenericRead = D3D12_RESOURCE_STATE_GENERIC_READ,
-	GFXResourceState_Present = D3D12_RESOURCE_STATE_PRESENT,
-	GFXResourceState_Predication = D3D12_RESOURCE_STATE_PREDICATION
+enum GPUResourceState {
+	GPUResourceState_Common = D3D12_RESOURCE_STATE_COMMON,
+	GPUResourceState_VertBuffer = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+	GPUResourceState_IndexBuffer = D3D12_RESOURCE_STATE_INDEX_BUFFER,
+	GPUResourceState_ConstBuffer = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+	GPUResourceState_RenderTarget = D3D12_RESOURCE_STATE_RENDER_TARGET,
+	GPUResourceState_UnorderedAccess = D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+	GPUResourceState_NonPixelShaderRes = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+	GPUResourceState_IndirectArg = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+	GPUResourceState_CopyDest = D3D12_RESOURCE_STATE_COPY_DEST,
+	GPUResourceState_CopySource = D3D12_RESOURCE_STATE_COPY_SOURCE,
+	GPUResourceState_RayTracingStruct = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+	GPUResourceState_ShadingRateSource = D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE,
+	GPUResourceState_GenericRead = D3D12_RESOURCE_STATE_GENERIC_READ,
+	GPUResourceState_Present = D3D12_RESOURCE_STATE_PRESENT
+
+	//GFXReseourceState_PixelRead = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+	//GPUResourceState_StreamOut = D3D12_RESOURCE_STATE_STREAM_OUT,
+	//GPUResourceState_DepthWrite = D3D12_RESOURCE_STATE_DEPTH_WRITE,
+	//GPUResourceState_DepthRead = D3D12_RESOURCE_STATE_DEPTH_READ,
+	//GPUResourceState_ResolveDest = D3D12_RESOURCE_STATE_RESOLVE_DEST,
+	//GPUResourceState_ResolveSource = D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
+	//GPUResourceState_Predication = D3D12_RESOURCE_STATE_PREDICATION
 };
+using GFXResourceState = D3D12_RESOURCE_STATES;
 enum PrimitiveTopologyType {
 	PrimitiveTopologyType_UnDefined = D3D12_PRIMITIVE_TOPOLOGY_TYPE_UNDEFINED,
 	PrimitiveTopologyType_Point = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT,
@@ -225,12 +238,7 @@ enum GFXFormat {
 
 class Camera;
 
-static constexpr uint FrameResourceNums = 3U;
 
-enum ResourceReadWriteState : bool {
-	Write = false,
-	Read = true
-};
 INLINE void d3dSetDebugName(IDXGIObject* obj, const char* name) {
 	if (obj) {
 		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
@@ -281,7 +289,7 @@ INLINE vengine::wstring AnsiToWString(const vengine::string& str) {
 #endif
 	*/
 
-class GFXUtil {
+class VENGINE_DLL_RENDERER GFXUtil {
 public:
 	static constexpr uint64 CalcAlign(uint64 value, uint64 align) {
 		return (value + (align - 1)) & ~(align - 1);
@@ -304,29 +312,27 @@ public:
 	static uint64 CalcPlacedOffsetAlignment(uint64 offset) {
 		return (offset + (D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT - 1)) & ~(D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT - 1);
 	}
-
-	static Microsoft::WRL::ComPtr<ID3DBlob> LoadBinary(const vengine::wstring& filename);
-	static std::array<const CD3DX12_STATIC_SAMPLER_DESC, 12> const& GetStaticSamplers();
+	static constexpr uint STATIC_SAMPLER_COUNT = 13;
+	static std::array<const CD3DX12_STATIC_SAMPLER_DESC, STATIC_SAMPLER_COUNT> const& GetStaticSamplers();
 };
 
 #ifndef ThrowIfFailed
 #ifdef NDEBUG
 #define ThrowIfFailed(x) (x)
 #else
-
-#define ThrowIfFailed(x)                                                      \
-	{                                                                         \
-		HRESULT hr__ = (x);                                                   \
-		vengine::wstring wfn = AnsiToWString(__FILE__);                       \
-		if (FAILED(hr__)) { throw DxException(hr__, L"" #x, wfn, __LINE__); } \
+#define ThrowIfFailed(x)                                                  \
+	{                                                                     \
+		HRESULT hr__ = (x);                                               \
+		vengine::wstring wfn = AnsiToWString(__FILE__);                   \
+		if (FAILED(hr__)) { throw DxException(hr__, #x, wfn, __LINE__); } \
 	}
 #endif
 #endif
 #ifndef ThrowHResult
-#define ThrowHResult(hr__, x)                                                 \
-	{                                                                         \
-		vengine::wstring wfn = AnsiToWString(__FILE__);                       \
-		if (FAILED(hr__)) { throw DxException(hr__, L"" #x, wfn, __LINE__); } \
+#define ThrowHResult(hr__, x)                                             \
+	{                                                                     \
+		vengine::wstring wfn = AnsiToWString(__FILE__);                   \
+		if (FAILED(hr__)) { throw DxException(hr__, #x, wfn, __LINE__); } \
 	}
 
 #endif

@@ -13,8 +13,6 @@ void ThreadCommand::ResetCommand() {
 	pso = nullptr;
 	colorHandles.clear();
 	depthHandle.ptr = 0;
-
-	
 	auto alloc = cmdAllocator->GetAllocator().Get();
 	if (managingAllocator) {
 		ThrowIfFailed(alloc->Reset());
@@ -24,22 +22,7 @@ void ThreadCommand::ResetCommand() {
 	ThrowIfFailed(cmdList->Reset(alloc, nullptr));
 }
 void ThreadCommand::CloseCommand() {
-	rtStateMap.IterateAll([&](RenderTexture* const key, ResourceReadWriteState& value) -> void {
-		if (value) {
-			GFXResourceState writeState, readState;
-			writeState = key->GetWriteState();
-			readState = key->GetReadState();
-			UpdateResState(readState, writeState, key);
-		}
-	});
-	sbufferStateMap.IterateAll([&](StructuredBuffer* const key, ResourceReadWriteState& value) -> void {
-		if (value) {
-			UpdateResState(GFXResourceState_GenericRead, GFXResourceState_UnorderedAccess, key);
-		}
-	});
 	Clear();
-	rtStateMap.Clear();
-	sbufferStateMap.Clear();
 	cmdList->Close();
 }
 bool ThreadCommand::UpdateRegisterShader(IShader const* shader) {
@@ -47,14 +30,17 @@ bool ThreadCommand::UpdateRegisterShader(IShader const* shader) {
 	if (id == shaderRootInstanceID)
 		return false;
 	shaderRootInstanceID = id;
+	bindedShader = shader;
+	bindedShaderType = typeid(*shader);
 	return true;
 }
-bool ThreadCommand::UpdateDescriptorHeap(DescriptorHeapRoot const* descHeap) {
-	uint64 id = descHeap->GetInstanceID();
+bool ThreadCommand::UpdateDescriptorHeap(DescriptorHeap const* descHeap, DescriptorHeapRoot const* descHeapRoot) {
+	this->descHeap = descHeap;
+	uint64 id = descHeapRoot->GetInstanceID();
 	if (id == descHeapInstanceID)
 		return false;
 	descHeapInstanceID = id;
-	ID3D12DescriptorHeap* heap = descHeap->pDH.Get();
+	ID3D12DescriptorHeap* heap = descHeapRoot->pDH.Get();
 	cmdList->SetDescriptorHeaps(1, &heap);
 	return true;
 }
@@ -103,14 +89,17 @@ bool ThreadCommand::UpdateRenderTarget(
 	return false;
 }
 
-void ThreadCommand::RegistInitState(GFXResourceState initState, GPUResourceBase const* resource) {
+void ThreadCommand::RegistInitState(GPUResourceState initState, GPUResourceBase const* resource, bool toInit) {
 	auto ite = barrierRecorder.Find(resource->GetInstanceID());
 	if (!ite) {
 		barrierRecorder.Insert(resource->GetInstanceID(), ResourceBarrierCommand(resource, initState, -1));
 	}
+	if (toInit) {
+		backToInitState.Insert(resource, initState);
+	}
 }
 
-void ThreadCommand::UpdateResState(GFXResourceState newState, GPUResourceBase const* resource) {
+void ThreadCommand::UpdateResState(GPUResourceState newState, GPUResourceBase const* resource) {
 	containedResources = true;
 	auto ite = barrierRecorder.Find(resource->GetInstanceID());
 	if (!ite) {
@@ -122,13 +111,13 @@ void ThreadCommand::UpdateResState(GFXResourceState newState, GPUResourceBase co
 			cmd.index = resourceBarrierCommands.size();
 			resourceBarrierCommands.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
 				resource->GetResource(),
-				cmd.targetState,
-				newState));
+				resource->GetGFXResourceState(cmd.targetState),
+				resource->GetGFXResourceState(newState)));
 			cmd.targetState = newState;
 		}
 	} else {
 		if (resourceBarrierCommands.empty()) return;
-		resourceBarrierCommands[cmd.index].Transition.StateAfter = (D3D12_RESOURCE_STATES)newState;
+		resourceBarrierCommands[cmd.index].Transition.StateAfter = resource->GetGFXResourceState(newState);
 		cmd.targetState = newState;
 	}
 }
@@ -162,22 +151,26 @@ void ThreadCommand::AliasBarriers(std::initializer_list<std::pair<GPUResourceBas
 }
 
 void ThreadCommand::KillSame() {
+	bool isCopyQueue = (commandListType == GFXCommandListType_Copy);
 	for (size_t i = 0; i < resourceBarrierCommands.size(); ++i) {
 		auto& a = resourceBarrierCommands[i];
-		if (a.Transition.StateBefore == a.Transition.StateAfter) {
+		bool toCommon = a.Transition.StateAfter == D3D12_RESOURCE_STATE_COMMON;
+		if (a.Transition.StateBefore == a.Transition.StateAfter
+			|| (toCommon && (isCopyQueue || a.Transition.pResource->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER))) {
 			auto last = resourceBarrierCommands.end() - 1;
 			if (i != (resourceBarrierCommands.size() - 1)) {
 				a = *last;
 			}
 			resourceBarrierCommands.erase(last);
 			i--;
-		} else {
+		} else if (!toCommon) {
 			auto uavIte = uavBarriersDict.Find(a.Transition.pResource);
 			if (uavIte) {
 				uavIte.Value() = false;
 			}
 		}
 	}
+
 	{
 		D3D12_RESOURCE_BARRIER uavBar;
 		uavBar.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
@@ -215,7 +208,12 @@ void ThreadCommand::ExecuteResBarrier() {
 	});
 }
 void ThreadCommand::Clear() {
-	if (!containedResources) return;
+	if (backToInitState.Size() > 0) {
+		backToInitState.IterateAll([&](GPUResourceBase const* key, GPUResourceState value) -> void {
+			UpdateResState(value, key);
+		});
+	} else if (!containedResources)
+		return;
 	containedResources = false;
 	KillSame();
 	if (!resourceBarrierCommands.empty()) {
@@ -227,42 +225,42 @@ void ThreadCommand::Clear() {
 	barrierRecorder.Clear();
 	aliasBarriers.clear();
 	aliasBarriersDict.Clear();
+	backToInitState.Clear();
 }
-void ThreadCommand::UpdateResState(GFXResourceState beforeState, GFXResourceState afterState, GPUResourceBase const* resource) {
+void ThreadCommand::UpdateResState(GPUResourceState beforeState, GPUResourceState afterState, GPUResourceBase const* resource) {
 	containedResources = true;
 	auto ite = barrierRecorder.Find(resource->GetInstanceID());
 	if (!ite) {
 		barrierRecorder.Insert(resource->GetInstanceID(), ResourceBarrierCommand(resource, afterState, resourceBarrierCommands.size()));
 		resourceBarrierCommands.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
 			resource->GetResource(),
-			beforeState,
-			afterState));
+			resource->GetGFXResourceState(beforeState),
+			resource->GetGFXResourceState(afterState)));
 	} else if (ite.Value().index < 0) {
 		auto&& cmd = ite.Value();
 		cmd.index = resourceBarrierCommands.size();
 		if (cmd.targetState != beforeState) {
 			VEngine_Log("TransitionBarrier add ResourceBarrierCommand error! before state unmatched!\n");
-			throw 0;
+			VENGINE_EXIT;
 		} else if (cmd.targetState != afterState) {
 			resourceBarrierCommands.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
 				resource->GetResource(),
-				cmd.targetState,
-				afterState));
+				resource->GetGFXResourceState(cmd.targetState),
+				resource->GetGFXResourceState(afterState)));
 			cmd.targetState = afterState;
 		}
 	} else {
 		auto&& cmd = ite.Value();
-		resourceBarrierCommands[cmd.index].Transition.StateAfter = (D3D12_RESOURCE_STATES)afterState;
+		resourceBarrierCommands[cmd.index].Transition.StateAfter = resource->GetGFXResourceState(afterState);
 		cmd.targetState = afterState;
 	}
 }
 
 ThreadCommand::ThreadCommand(GFXDevice* device, GFXCommandListType type, ObjectPtr<CommandAllocator> const& allocator)
-	: rtStateMap(23),
-	  sbufferStateMap(23),
-	  barrierRecorder(32),
+	: barrierRecorder(32),
 	  uavBarriersDict(32),
-	  aliasBarriersDict(32) {
+	  aliasBarriersDict(32),
+	  commandListType(type) {
 
 	resourceBarrierCommands.reserve(32);
 	uavBarriers.reserve(32);
@@ -283,57 +281,4 @@ ThreadCommand::ThreadCommand(GFXDevice* device, GFXCommandListType type, ObjectP
 	cmdList->Close();
 }
 ThreadCommand::~ThreadCommand() {
-}
-bool ThreadCommand::UpdateResStateLocal(RenderTexture* rt, ResourceReadWriteState state) {
-	auto ite = rtStateMap.Find(rt);
-	if (state) {
-		if (!ite) {
-			rtStateMap.Insert(rt, state);
-		} else if (ite.Value() != state) {
-			ite.Value() = state;
-		} else
-			return false;
-	} else {
-		if (ite) {
-			rtStateMap.Remove(ite);
-		} else
-			return false;
-	}
-	return true;
-}
-bool ThreadCommand::UpdateResStateLocal(StructuredBuffer* rt, ResourceReadWriteState state) {
-	auto ite = sbufferStateMap.Find(rt);
-	if (state) {
-		if (!ite) {
-			sbufferStateMap.Insert(rt, state);
-		} else if (ite.Value() != state) {
-			ite.Value() = state;
-		} else
-			return false;
-	} else {
-		if (ite) {
-			sbufferStateMap.Remove(ite);
-		} else
-			return false;
-	}
-	return true;
-}
-void ThreadCommand::SetResourceReadWriteState(RenderTexture* rt, ResourceReadWriteState state) {
-	if (!UpdateResStateLocal(rt, state)) return;
-	GFXResourceState writeState, readState;
-	writeState = rt->GetWriteState();
-	readState = rt->GetReadState();
-	if (state) {
-		UpdateResState(writeState, readState, rt);
-	} else {
-		UpdateResState(readState, writeState, rt);
-	}
-}
-void ThreadCommand::SetResourceReadWriteState(StructuredBuffer* rt, ResourceReadWriteState state) {
-	if (!UpdateResStateLocal(rt, state)) return;
-	if (state) {
-		UpdateResState(GFXResourceState_UnorderedAccess, GFXResourceState_GenericRead, rt);
-	} else {
-		UpdateResState(GFXResourceState_GenericRead, GFXResourceState_UnorderedAccess, rt);
-	}
 }

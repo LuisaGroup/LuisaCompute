@@ -1,8 +1,8 @@
 #pragma once
 #include "../RenderComponent/Shader.h"
 #include "../Struct/RenderTarget.h"
-#include "../Common/HashMap.h"
-#include "../Common/vector.h"
+#include <Common/HashMap.h>
+#include <Common/vector.h>
 #include "../JobSystem/JobInclude.h"
 #include "IMesh.h"
 #include <mutex>
@@ -75,7 +75,7 @@ struct PSOGlobalData;
 struct PSOKey;
 struct PSOKeyHash;
 }// namespace PSOGlobal
-class PSOContainer {
+class VENGINE_DLL_RENDERER PSOContainer {
 	friend class Graphics;
 	friend struct PSOGlobal::LoadCommand;
 	friend struct PSOGlobal::AsyncLoadTask;

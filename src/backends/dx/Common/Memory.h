@@ -1,18 +1,18 @@
 #pragma once
-#include <config.h>
+#include <VEngineConfig.h>
 #include <cstdlib>
 #include <stdint.h>
 #include <type_traits>
 #include "DLL.h"
 #include "MetaLib.h"
 namespace vengine {
-DLL_COMMON void vengine_init_malloc();
-DLL_COMMON void vengine_init_malloc(
+VENGINE_DLL_COMMON void vengine_init_malloc();
+VENGINE_DLL_COMMON void vengine_init_malloc(
 	funcPtr_t<void*(size_t)> mallocFunc,
 	funcPtr_t<void(void*)> freeFunc);
 }// namespace vengine
 namespace v_mimalloc {
-struct DLL_COMMON Alloc {
+struct VENGINE_DLL_COMMON Alloc {
 	friend void vengine::vengine_init_malloc();
 	friend void vengine::vengine_init_malloc(
 		funcPtr_t<void*(size_t)> mallocFunc,

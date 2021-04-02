@@ -19,7 +19,7 @@ public:
 	static void CompileComputeShader(
 		vengine::string const& fileName,
 		vengine::vector<ShaderVariable> const& vars,
-		vengine::vector<KernelDescriptor> const& passDescs,
+		vengine::vector<vengine::string> const& passDescs,
 		vengine::vector<char> const& customData,
 		vengine::string const& tempFilePath,
 		vengine::vector<char>& resultData);

@@ -1,7 +1,7 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/VObject.h"
-#include "../Common/vector.h"
+#include <Common/GFXUtil.h>
+#include <Common/VObject.h>
+#include <Common/vector.h>
 class GPUResourceBase;
 class ThreadCommand;
 enum class BindType : uint
@@ -12,7 +12,7 @@ enum class BindType : uint
 	RTV,
 	DSV
 };
-class DescriptorHeapRoot : public VObject
+class VENGINE_DLL_RENDERER DescriptorHeapRoot : public VObject
 {
 	friend class ThreadCommand;
 public:

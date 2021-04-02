@@ -1,13 +1,13 @@
 #pragma once
+#include <VEngineConfig.h>
 #include "IBufferAllocator.h"
-#include "../../Common/DLL.h"
 #include <mutex>
 namespace D3D12MA
 {
 	class Allocator;
 	class Allocation;
 }
-class DefaultBufferAllocator final: public IBufferAllocator
+class VENGINE_DLL_RENDERER DefaultBufferAllocator final: public IBufferAllocator
 {
 private:
 	HashMap<uint64, D3D12MA::Allocation*> allocatedTexs;

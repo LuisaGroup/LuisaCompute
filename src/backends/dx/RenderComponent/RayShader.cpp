@@ -149,7 +149,7 @@ bool RayShader::SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddre
 		id,
 		address);
 }
-bool RayShader::SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const {
+bool RayShader::SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const {
 	if (targetObj == nullptr) return false;
 	auto ite = mVariablesDict.Find(id);
 	if (!ite)

@@ -1,5 +1,5 @@
 #pragma once
-#include "../../Common/GFXUtil.h"
+#include <Common/GFXUtil.h>
 class Shader;
 struct MultiDrawCommand
 {
@@ -14,7 +14,7 @@ struct InstanceIndirectCommand
 	D3D12_DRAW_INDEXED_ARGUMENTS drawArgs;			//Draw Arguments
 };
 
-class CommandSignature
+class VENGINE_DLL_RENDERER CommandSignature
 {
 public:
 	enum class SignatureType : uint

@@ -1,5 +1,5 @@
 #pragma once
-#include <config.h>
+#include <VEngineConfig.h>
 #include <stdint.h>
 class Hash
 {

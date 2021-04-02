@@ -1,5 +1,5 @@
 #pragma once
-#include <config.h>
+#include <VEngineConfig.h>
 #include <stdint.h>
 #include "MetaLib.h"
 #include <iostream>
@@ -7,7 +7,7 @@
 namespace vengine {
 class string;
 class wstring;
-class DLL_COMMON string_view {
+class VENGINE_DLL_COMMON string_view {
 	friend std::ostream& operator<<(std::ostream& out, const string_view& obj) noexcept;
 	char const* data;
 	size_t mSize;
@@ -71,7 +71,7 @@ public:
 		return !operator==(chunk);
 	}
 };
-class DLL_COMMON wstring_view {
+class VENGINE_DLL_COMMON wstring_view {
 	wchar_t const* data;
 	size_t mSize;
 	static size_t wstrlen(wchar_t const* ptr) {

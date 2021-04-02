@@ -27,7 +27,7 @@ struct MeshData {
 	float3 boundingCenter;
 	float3 boundingExtent;
 };
-class Mesh final : public GPUResourceBase, public IMesh {
+class VENGINE_DLL_RENDERER Mesh final : public GPUResourceBase, public IMesh {
 	friend class MeshGlobal::MeshLoadCommand;
 	// Data about the buffers
 
@@ -37,7 +37,7 @@ class Mesh final : public GPUResourceBase, public IMesh {
 	uint mVertexCount;
 	GFXFormat indexFormat;
 	uint indexCount;
-	GFXResourceState initState = GFXResourceState_CopyDest;
+	GPUResourceState initState = GPUResourceState_CopyDest;
 	void* indexArrayPtr;
 	GFXVertexBufferView vertexView;
 	GFXIndexBufferView indexView;
@@ -57,13 +57,13 @@ class Mesh final : public GPUResourceBase, public IMesh {
 	void GenerateIBOSRVGlobalDescriptor(GFXDevice* device) const;
 	void GenerateVBOUAVGlobalDescriptor(GFXDevice* device) const;
 	void GenerateIBOUAVGlobalDescriptor(GFXDevice* device) const;
-
 public:
 	IOBJECTREFERENCE_OVERRIDE_FUNCTION
 	uint GetVertexStride() const { return VertexByteStride; }
 	uint GetVerticesByteSize() const {
 		return VertexBufferByteSize;
 	}
+	GFXResourceState GetGFXResourceState(GPUResourceState gfxState) const override;
 	bool IsLoaded() const { return flag; }
 	static uint64_t GetMeshSize(
 		uint vertexCount,
@@ -197,7 +197,7 @@ public:
 		vengine::vector<ObjectPtr<Mesh>>& results,
 		ArrayList<char>* dataPtr = nullptr);
 	~Mesh();
-	GFXResourceState GetInitState() const {
+	GPUResourceState GetInitState() const {
 		return initState;
 	}
 	Math::Matrix4* BindPosesData() const noexcept {

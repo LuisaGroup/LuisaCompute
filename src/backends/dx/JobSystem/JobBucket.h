@@ -11,7 +11,7 @@ class JobSystem;
 class JobThreadRunnable;
 class JobNode;
 typedef uint32_t uint;
-class DLL_COMMON JobBucket {
+class VENGINE_DLL_COMMON JobBucket {
 	friend class JobSystem;
 	friend class JobNode;
 	friend class JobHandle;

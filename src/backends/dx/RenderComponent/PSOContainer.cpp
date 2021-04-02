@@ -3,8 +3,8 @@
 #include "../Singleton/MeshLayout.h"
 #include "../Singleton/Graphics.h"
 #include "RenderTexture.h"
-#include "../Common/Hash.h"
-#include "../Common/LockFreeArrayQueue.h"
+#include <Common/Hash.h>
+#include <Common/LockFreeArrayQueue.h>
 #include "../Utility/TaskThread.h"
 #include "../PipelineComponent/ThreadCommand.h"
 namespace PSOGlobal {
@@ -148,15 +148,10 @@ void PSOContainer::ReleasePSO(Shader const* shader) {
 	for (auto& ite : shaderIte.Value()) {
 		std::lock_guard lck(globalData->searchMtx);
 		auto&& v = ite.Value();
-		if (v.loadState != (uint8_t)PSOLoadState::Deleted) {
-			v.Delete();
-		} else {
-			loadTask->AddTask(
-				UnloadCommand{ite});
-		}
+		loadTask->AddTask(
+			UnloadCommand{ite});
 	}
 	taskThread->ExecuteNext();
-	globalData->shaderToPSOState.Remove(shaderIte);
 }
 void PSOContainer::SetRenderTarget(
 	ThreadCommand* commandList,

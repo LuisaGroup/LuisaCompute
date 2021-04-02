@@ -1,22 +1,18 @@
 #pragma once
-#include "../Common/GFXUtil.h"
+#include <Common/GFXUtil.h>
 #include <mutex>
 #include <atomic>
 #include "CommandAllocator.h"
-#include "../Common/LockFreeArrayQueue.h"
+#include <Common/LockFreeArrayQueue.h>
 #include "../Singleton/Graphics.h"
 #include "../RenderComponent/PSOContainer.h"
-struct StateTransformBuffer {
-	GFXResource* targetResource;
-	GFXResourceState beforeState;
-	GFXResourceState afterState;
-};
 class PipelineComponent;
 class StructuredBuffer;
 class RenderTexture;
 class IShader;
+class DescriptorHeap;
 class DescriptorHeapRoot;
-class ThreadCommand final {
+class VENGINE_DLL_RENDERER ThreadCommand final {
 	friend class PipelineComponent;
 	friend class Graphics;
 
@@ -26,30 +22,32 @@ private:
 		uint mipLevel;
 		uint slice;
 	};
+	IShader const* bindedShader;
+	Type bindedShaderType;
 	//Datas
 	uint64 shaderRootInstanceID;
 	uint64 descHeapInstanceID;
+	DescriptorHeap const* descHeap;
 	void const* pso;
 	vengine::vector<D3D12_CPU_DESCRIPTOR_HANDLE> colorHandles;
 	D3D12_CPU_DESCRIPTOR_HANDLE depthHandle;
 	PSOContainer psoContainer;
 	ObjectPtr<CommandAllocator> cmdAllocator;
 	Microsoft::WRL::ComPtr<GFXCommandList> cmdList;
-	HashMap<RenderTexture*, ResourceReadWriteState> rtStateMap;
-	HashMap<StructuredBuffer*, ResourceReadWriteState> sbufferStateMap;
 	uint64 frameCount;
 	bool managingAllocator;
 	bool containedResources = false;
+	GFXCommandListType commandListType;
 	vengine::vector<D3D12_RESOURCE_BARRIER> resourceBarrierCommands;
 	struct ResourceBarrierCommand {
 		GPUResourceBase const* resource;
-		GFXResourceState targetState;
+		GPUResourceState targetState;
 		int32_t index;
 		ResourceBarrierCommand() {
 		}
 		ResourceBarrierCommand(
 			GPUResourceBase const* resource,
-			GFXResourceState targetState,
+			GPUResourceState targetState,
 			int32_t index)
 			: resource(resource),
 			  targetState(targetState),
@@ -58,32 +56,32 @@ private:
 	HashMap<uint64, ResourceBarrierCommand> barrierRecorder;
 	HashMap<GFXResource*, bool> uavBarriersDict;
 	HashMap<std::pair<GFXResource*, GFXResource*>, bool> aliasBarriersDict;
+	HashMap<GPUResourceBase const*, GPUResourceState> backToInitState;
 	vengine::vector<GFXResource*> uavBarriers;
 	vengine::vector<std::pair<GFXResource*, GFXResource*>> aliasBarriers;
 	void KillSame();
 	void Clear();
-	bool UpdateResStateLocal(RenderTexture* rt, ResourceReadWriteState state);
-	bool UpdateResStateLocal(StructuredBuffer* rt, ResourceReadWriteState state);
 
 public:
+	DescriptorHeap const* GetBindedHeap() const {return descHeap;}
+	IShader const* GetBindedShader() const { return bindedShader; }
+	Type GetBindedShaderType() const { return bindedShaderType; }
 	inline GFXCommandAllocator* GetAllocator() const { return cmdAllocator->GetAllocator().Get(); }
 	inline GFXCommandList* GetCmdList() const { return cmdList.Get(); }
 	ThreadCommand(GFXDevice* device, GFXCommandListType type, ObjectPtr<CommandAllocator> const& allocator = nullptr);
 	~ThreadCommand();
-	void SetResourceReadWriteState(RenderTexture* rt, ResourceReadWriteState state);
-	void SetResourceReadWriteState(StructuredBuffer* rt, ResourceReadWriteState state);
 	void ResetCommand();
 	void CloseCommand();
 	bool UpdateRegisterShader(IShader const* shader);
-	bool UpdateDescriptorHeap(DescriptorHeapRoot const* descHeap);
+	bool UpdateDescriptorHeap(DescriptorHeap const* descHeap, DescriptorHeapRoot const* descHeapRoot);
 	bool UpdatePSO(void* psoObj);
 	bool UpdateRenderTarget(
 		uint NumRenderTargetDescriptors,
 		const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors,
 		const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
-	void RegistInitState(GFXResourceState initState, GPUResourceBase const* resource);
-	void UpdateResState(GFXResourceState newState, GPUResourceBase const* resource);
-	void UpdateResState(GFXResourceState beforeState, GFXResourceState afterState, GPUResourceBase const* resource);
+	void RegistInitState(GPUResourceState initState, GPUResourceBase const* resource, bool backToInitAfterRender = false);
+	void UpdateResState(GPUResourceState newState, GPUResourceBase const* resource);
+	void UpdateResState(GPUResourceState beforeState, GPUResourceState afterState, GPUResourceBase const* resource);
 	void ExecuteResBarrier();
 	void UAVBarrier(GPUResourceBase const*);
 	void UAVBarriers(const std::initializer_list<GPUResourceBase const*>&);

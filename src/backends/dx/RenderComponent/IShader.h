@@ -1,17 +1,29 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/VObject.h"
-#include "../CJsonObject/SerializedObject.h"
-#include "../Struct/ShaderVariableType.h"
+#include <Common/GFXUtil.h>
+#include <Common/VObject.h>
+#include <CJsonObject/SerializedObject.h>
+#include <Struct/ShaderVariableType.h>
 class DescriptorHeap;
 class StructuredBuffer;
-class ComputeShaderCompiler;
-class ComputeShaderReader;
+class UploadBuffer;
+class Mesh;
+class TextureBase;
+class RenderTexture;
 class ShaderLoader;
 class ThreadCommand;
-class IShader : public VObject {
+class VENGINE_DLL_RENDERER IShader : public VObject {
+public:
+	enum class ResourceType : uint {
+		NONE = 0,			 
+		DESCRIPTOR_HEAP = 1, 
+		TEXTURE = 2,		 
+		STRUCTURE_BUFFER = 4,
+		UPLOAD_BUFFER = 8,	 
+		MESH = 16			 
+	};
+
 protected:
-	virtual bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const = 0;
+	virtual bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const = 0;
 
 public:
 	~IShader() {}
@@ -22,8 +34,10 @@ public:
 	virtual void BindShader(ThreadCommand* commandList, const DescriptorHeap* heap) const = 0;
 	virtual bool SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const = 0;
 	virtual vengine::string const& GetName() const = 0;
-	template<typename T>
-	bool SetResource(ThreadCommand* commandList, uint id, T* targetObj, uint64 indexOffset) const {
-		return SetRes(commandList, id, targetObj, indexOffset, typeid(PureType_t<T>));
-	}
+	bool SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset) const;
+	bool SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset) const;
+	bool SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset) const;
+	bool SetResource(ThreadCommand* commandList, uint id, Mesh const* mesh, uint64 byteOffset) const;
+	bool SetResource(ThreadCommand* commandList, uint id, TextureBase const* texture) const;
+	bool SetResource(ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel) const;
 };

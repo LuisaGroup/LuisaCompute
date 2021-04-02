@@ -1,3 +1,4 @@
+//#endif
 #include "RenderCommand.h"
 LockFreeArrayQueue<RenderCommandExecutable, false> RenderCommand::queue(100);
 void RenderCommand::UpdateResState(

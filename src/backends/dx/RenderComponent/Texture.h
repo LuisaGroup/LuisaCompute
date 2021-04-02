@@ -1,8 +1,8 @@
 #pragma once
-#include "../Common/VObject.h"
-#include "../Common/vector.h"
+#include <Common/VObject.h>
+#include <Common/vector.h>
 #include "TextureBase.h"
-#include "../Common/Memory.h"
+#include <Common/Memory.h>
 class DescriptorHeap;
 class UploadBuffer;
 class TextureHeap;
@@ -11,7 +11,7 @@ class IBufferAllocator;
 class BinaryReader;
 class ThreadCommand;
 
-class TextureData
+class VENGINE_DLL_RENDERER TextureData
 {
 public:
 	uint width;
@@ -50,7 +50,7 @@ public:
 	static void ReadTextureDataFromFile(BinaryReader& ifs,TextureData& result);
 };
 
-class Texture final : public TextureBase
+class VENGINE_DLL_RENDERER Texture final : public TextureBase
 {
 private:
 	void GetResourceViewDescriptor(D3D12_SHADER_RESOURCE_VIEW_DESC& desc) const;
@@ -63,7 +63,7 @@ private:
 	uint64 fileReadSize = 0;
 	ObjectPtr<GFXResource*> resTracker;
 	vengine::string targetFilePath;
-	GFXResourceState initState = GFXResourceState_Common;
+	GPUResourceState initState = GPUResourceState_Common;
 	Texture() {}
 	D3D12_RESOURCE_DESC CreateWithoutResource(
 		TextureData& data,
@@ -165,7 +165,7 @@ public:
 	bool IsLoaded() const { return loaded; }
 	bool IsStartLoad() const { return isStartLoad; }
 	virtual void BindSRVToHeap(DescriptorHeap* targetHeap, uint index, GFXDevice* device) const;
-	virtual GFXResourceState GetInitState() const
+	virtual GPUResourceState GetInitState() const
 	{
 		return initState;
 	}

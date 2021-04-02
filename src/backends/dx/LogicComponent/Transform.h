@@ -1,5 +1,5 @@
 #pragma once
-#include <config.h>
+#include <VEngineConfig.h>
 #include "../Common/VObject.h"
 #include "../LogicComponent/Component.h"
 #include "../Common/RandomVector.h"

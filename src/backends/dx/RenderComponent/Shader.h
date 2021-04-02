@@ -25,7 +25,7 @@ struct ShaderInputPass {
 };
 
 class ShaderLoader;
-class Shader final : public IShader {
+class VENGINE_DLL_RENDERER Shader final : public IShader {
 	friend class ShaderLoader;
 	friend class CommandSignature;
 
@@ -41,8 +41,8 @@ private:
 	~Shader();
 	Shader(vengine::string const& name, GFXDevice* device, const vengine::string& csoFilePath);
 	//bool TrySetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const;
-	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const override;
-	bool SetResWithoutCheck(ThreadCommand* commandList, HashMap<uint, uint>::Iterator& ite, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const;
+	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const override;
+	bool SetResWithoutCheck(ThreadCommand* commandList, HashMap<uint, uint>::Iterator& ite, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const;
 
 public:
 	SerializedObject const* GetJsonObject() const override {

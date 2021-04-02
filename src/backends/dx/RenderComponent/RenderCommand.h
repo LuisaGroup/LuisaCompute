@@ -1,14 +1,14 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/Pool.h"
+#include <Common/GFXUtil.h>
+#include <Common/Pool.h>
 #include <mutex>
-#include "../Common/LockFreeArrayQueue.h"
+#include <Common/LockFreeArrayQueue.h>
 class RenderCommand;
 class ThreadCommand;
 struct RenderCommandExecutable {
 	RenderCommand* ptr = nullptr;
 };
-class RenderCommand {
+class VENGINE_DLL_RENDERER RenderCommand {
 private:
 	static LockFreeArrayQueue<RenderCommandExecutable, false> queue;
 

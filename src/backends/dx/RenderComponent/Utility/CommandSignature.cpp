@@ -1,7 +1,7 @@
 //#endif
 #include "CommandSignature.h"
 #include "../Shader.h"
-#include "../../Singleton/ShaderID.h"
+#include <Singleton/ShaderID.h>
 CommandSignature::CommandSignature(GFXDevice* device, SignatureType sigType, Shader const* drawShader) : sigType(sigType) {
 	switch (sigType) {
 		case SignatureType::MultiDrawIndirect: {

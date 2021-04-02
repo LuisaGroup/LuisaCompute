@@ -1,5 +1,5 @@
 #pragma once
-#include "../Common/GFXUtil.h"
+#include <Common/GFXUtil.h>
 #include "UploadBuffer.h"
 #include "../Utility/ElementAllocator.h"
 class BuddyAllocator;
@@ -34,7 +34,7 @@ public:
 		CopyData(ptr, sizeof(T));
 	}
 };
-class CBufferAllocator {
+class VENGINE_DLL_RENDERER CBufferAllocator {
 private:
 	std::unique_ptr<ElementAllocator> buddyAlloc;
 	std::mutex mtx;

@@ -1,11 +1,11 @@
 #pragma once
-#include <config.h>
+#include <VEngineConfig.h>
 #include "vstring.h"
 #include "DLL.h"
 #include "Memory.h"
 #include <Windows.h>
 #include "Log.h"
-class DLL_COMMON DynamicDLL final {
+class VENGINE_DLL_COMMON DynamicDLL final {
 	HINSTANCE inst;
 	template<typename T>
 	struct IsFuncPtr {

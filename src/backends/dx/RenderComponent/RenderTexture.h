@@ -1,6 +1,6 @@
 #pragma once
-#include "../Common/VObject.h"
-#include "../Common/GFXUtil.h"
+#include <Common/VObject.h>
+#include <Common/GFXUtil.h>
 #include "TextureBase.h"
 #include "../RenderComponent/DescriptorHeap.h"
 #include "IBackBuffer.h"
@@ -64,7 +64,7 @@ struct RenderTextureDescriptor {
 	TextureDimension type = TextureDimension::Tex2D;
 	RenderTextureFormat rtFormat;
 	RenderTextureState initState = RenderTextureState::Default;
-	bool operator==(const RenderTextureDescriptor& other) const {
+	constexpr bool operator==(const RenderTextureDescriptor& other) const {
 		bool value = width == other.width && height == other.height && depthSlice == other.depthSlice && type == other.type && rtFormat.usage == other.rtFormat.usage && initState == other.initState;
 		if (value) {
 			if (rtFormat.usage == RenderTextureUsage::ColorBuffer) {
@@ -76,7 +76,7 @@ struct RenderTextureDescriptor {
 		return false;
 	}
 
-	bool operator!=(const RenderTextureDescriptor& other) const {
+	constexpr bool operator!=(const RenderTextureDescriptor& other) const {
 		return !operator==(other);
 	}
 };
@@ -92,35 +92,26 @@ public:
 };
 }// namespace vengine
 
-class RenderTexture final
+class VENGINE_DLL_RENDERER RenderTexture final
 	: public TextureBase,
 	  public IBackBuffer {
 private:
 	RenderTextureUsage usage;
-	GFXResourceState initState;
-	GFXResourceState writeState;
-	GFXResourceState readState;
+	GPUResourceState initState;
 	DescriptorHeap rtvHeap;
 	ArrayList<uint> uavDescIndices;
 	float clearColor;
 	void GetColorViewDesc(D3D12_SHADER_RESOURCE_VIEW_DESC& srvDesc) const;
 	void GetColorUAVDesc(D3D12_UNORDERED_ACCESS_VIEW_DESC& uavDesc, uint targetMipLevel) const;
+	GFXResourceState GetGFXResourceState(GPUResourceState gfxState) const override;
 
 public:
-	static constexpr GFXResourceState ColorReadState = GFXResourceState_GenericRead;
-	static constexpr GFXResourceState DepthReadState = GFXResourceState_DepthRead;
-	static constexpr GFXResourceState RenderTargetState = GFXResourceState_RenderTarget;
-	static constexpr GFXResourceState DepthWriteState = GFXResourceState_DepthWrite;
-	static constexpr GFXResourceState UnorderedAccessState = GFXResourceState_UnorderedAccess;
-	static constexpr GFXResourceState CopyDestState = GFXResourceState_CopyDest;
-	static constexpr GFXResourceState CommonState = GFXResourceState_Common;
-	static constexpr GFXResourceState NonPixelReadState = GFXResourceState_NonPixelRead;
 	GPUResourceBase const* GetBackBufferGPUResource() const override {
 		return this;
 	};
 
 	KILL_COPY_CONSTRUCT(RenderTexture)
-	uint GetGlobalUAVDescIndex(uint mipLevel) const;
+	uint GetGlobalUAVDescIndex(uint mipLevel) const override;
 	static uint64_t GetSizeFromProperty(
 		GFXDevice* device,
 		uint width,
@@ -154,14 +145,8 @@ public:
 		RenderTextureState initState = RenderTextureState::Default,
 		float clearColor = 0);
 	~RenderTexture();
-	virtual GFXResourceState GetInitState() const {
+	virtual GPUResourceState GetInitState() const {
 		return initState;
-	}
-	GFXResourceState GetWriteState() const {
-		return writeState;
-	}
-	GFXResourceState GetReadState() const {
-		return readState;
 	}
 	RenderTextureUsage GetUsage() const { return usage; }
 	void BindRTVToHeap(DescriptorHeap* targetHeap, uint index, GFXDevice* device, uint slice, uint mip) const;
@@ -170,6 +155,9 @@ public:
 	virtual void BindSRVToHeap(DescriptorHeap* targetHeap, uint index, GFXDevice* device) const;
 	void BindUAVToHeap(DescriptorHeap* targetHeap, uint index, GFXDevice* device, uint targetMipLevel) const;
 	void ClearRenderTarget(ThreadCommand* commandList, uint slice, uint mip) const;
+	GFXFormat GetBackBufferFormat() const {
+		return GetFormat();
+	}
 	D3D12_CPU_DESCRIPTOR_HANDLE GetRTVHandle() const override {
 		return GetColorDescriptor(0, 0);
 	}

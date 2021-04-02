@@ -32,7 +32,7 @@ UploadBuffer::UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConsta
 		ThrowIfFailed(device->CreatePlacedResource(
 			heap, offset,
 			&buffer,
-			(D3D12_RESOURCE_STATES)GFXResourceState_GenericRead,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -42,7 +42,7 @@ UploadBuffer::UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConsta
 			&prop,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
-			(D3D12_RESOURCE_STATES)GFXResourceState_GenericRead,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -99,7 +99,7 @@ void UploadBuffer::Create(GFXDevice* device, uint64 elementCount, bool isConstan
 		ThrowIfFailed(device->CreatePlacedResource(
 			heap, offset,
 			&buffer,
-			(D3D12_RESOURCE_STATES)GFXResourceState_GenericRead,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	} else {
@@ -109,7 +109,7 @@ void UploadBuffer::Create(GFXDevice* device, uint64 elementCount, bool isConstan
 			&prop,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
-			(D3D12_RESOURCE_STATES)GFXResourceState_GenericRead,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
 			nullptr,
 			IID_PPV_ARGS(&Resource)));
 	}
@@ -147,6 +147,12 @@ void UploadBuffer::CopyData(uint64 elementIndex, const void* data, uint64 byteSi
 	char* dataPos = (char*)mMappedData;
 	uint64_t offset = (uint64_t)elementIndex * mElementByteSize;
 	dataPos += offset;
+	memcpy(dataPos, data, byteSize);
+}
+void UploadBuffer::CopyData(uint64 elementIndex, uint64 bufferByteOffset, const void* data, uint64 byteSize) const {
+	char* dataPos = (char*)mMappedData;
+	uint64_t offset = (uint64_t)elementIndex * mElementByteSize;
+	dataPos += offset + bufferByteOffset;
 	memcpy(dataPos, data, byteSize);
 }
 void UploadBuffer::CopyDatas(uint64 startElementIndex, uint64 elementCount, const void* data) const {
