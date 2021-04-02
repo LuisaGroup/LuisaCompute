@@ -188,13 +188,14 @@ uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint w
 
     using namespace std::chrono_literals;
     LUISA_VERBOSE_WITH_LOCATION(
-        "Created texture in {} ms.",
+        "Created texture (with {} mipmap{}) in {} ms.",
+        mipmap_levels, mipmap_levels <= 1u ? "" : "s",
         (t1 - t0) / 1ns * 1e-6);
 
     if (is_bindless) {
         // TODO: emplace into descriptor array...
     }
-    
+
     std::scoped_lock lock{_texture_mutex};
     if (_available_texture_slots.empty()) {
         auto s = _texture_slots.size();

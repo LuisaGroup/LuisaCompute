@@ -21,6 +21,7 @@ class Buffer;
 
 class Stream;
 class Texture;
+class Volume;
 class Context;
 
 class Device {
@@ -62,7 +63,7 @@ public:
     }
     
     [[nodiscard]] Texture create_texture(PixelFormat format, uint width, uint height, uint mipmap_levels = 1u) noexcept;
-
+    [[nodiscard]] Volume create_volume(PixelFormat format, uint width, uint height, uint depth, uint mipmap_levels = 1u) noexcept;
     [[nodiscard]] Stream create_stream() noexcept;
     
     template<typename T>

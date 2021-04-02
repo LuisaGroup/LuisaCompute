@@ -7,7 +7,7 @@ set(LUISA_COMPUTE_DSL_SOURCES
     buffer_view.h
     shared.h
     constant.h
-    texture.h
+    texture_view.h
     arg.h struct.h stmt.h sugar.h)
 
 add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
