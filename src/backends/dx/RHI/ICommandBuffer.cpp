@@ -1,4 +1,4 @@
-#include "CommandBuffer.h"
+#include "ICommandBuffer.h"
 #include <iostream>
 namespace luisa::compute {
 void DirectXCommandBuffer::visit(const BufferCopyCommand* copyCmd) noexcept {

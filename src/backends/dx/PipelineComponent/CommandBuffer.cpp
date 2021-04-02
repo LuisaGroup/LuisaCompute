@@ -1,6 +1,6 @@
 //#endif
 #include "CommandBuffer.h"
-#include "..\RHI\CommandBuffer.h"
+#include <RHI\ICommandBuffer.h>
 void CommandBuffer::Clear() {
 	executeCommands.clear();
 	graphicsCmdLists.clear();

@@ -1,4 +1,5 @@
 #pragma once
+#define CLANG_COMPILER
 #ifdef CLANG_COMPILER
 #define _XM_NO_INTRINSICS_
 #define m128_f32 vector4_f32

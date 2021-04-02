@@ -59,7 +59,7 @@ if (WIN32)
         RenderComponent/Utility/DefaultTextureAllocator.cpp
         RenderComponent/Utility/SeparableRendererManager.cpp
         RenderComponent/Utility/ShaderIO.cpp
-        RHI/CommandBuffer.cpp
+        RHI/ICommandBuffer.cpp
         ShaderCompile/ASTEncoder.cpp
         ShaderCompile/HLSLCompiler.cpp
         ShaderCompile/LuisaASTTranslator.cpp

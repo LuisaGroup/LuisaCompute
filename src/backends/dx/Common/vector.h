@@ -213,7 +213,7 @@ public:
 	}
 	void SetZero() const noexcept {
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
-			static_assert(false, "Non-Trivial data cannot be setted");
+			static_assert(std::_Always_false<T>, "Non-Trivial data cannot be setted");
 		} else {
 			if (arr) memset(arr, 0, sizeof(T) * mSize);
 		}
