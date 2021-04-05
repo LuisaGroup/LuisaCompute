@@ -7,6 +7,7 @@
 
 #import <core/platform.h>
 #import <core/hash.h>
+#import <core/clock.h>
 #import <runtime/context.h>
 
 #import <backends/metal/metal_device.h>
@@ -15,12 +16,11 @@
 namespace luisa::compute::metal {
 
 uint64_t MetalDevice::_create_buffer(size_t size_bytes) noexcept {
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     auto buffer = [_handle newBufferWithLength:size_bytes options:MTLResourceStorageModePrivate];
-    auto t1 = std::chrono::high_resolution_clock::now();
-    using namespace std::chrono_literals;
-    auto dt = (t1 - t0) / 1ns * 1e-6;
-    LUISA_VERBOSE_WITH_LOCATION("Created buffer with size {} in {} ms.", size_bytes, dt);
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Created buffer with size {} in {} ms.",
+        size_bytes, clock.toc());
     std::scoped_lock lock{_buffer_mutex};
     if (_available_buffer_slots.empty()) {
         auto s = _buffer_slots.size();
@@ -43,12 +43,9 @@ void MetalDevice::_dispose_buffer(uint64_t handle) noexcept {
 }
 
 uint64_t MetalDevice::_create_stream() noexcept {
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     auto stream = [_handle newCommandQueue];
-    auto t1 = std::chrono::high_resolution_clock::now();
-    using namespace std::chrono_literals;
-    auto dt = (t1 - t0) / 1ns * 1e-6;
-    LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", dt);
+    LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
     std::scoped_lock lock{_stream_mutex};
     if (_available_stream_slots.empty()) {
         auto s = _stream_slots.size();
@@ -157,7 +154,8 @@ MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
 
 uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) {
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
+
     auto desc = [[MTLTextureDescriptor alloc] init];
     switch (dimension) {
         case 2u: desc.textureType = MTLTextureType2D; break;
@@ -184,13 +182,11 @@ uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint w
                              : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
     auto texture = [_handle newTextureWithDescriptor:desc];
-    auto t1 = std::chrono::high_resolution_clock::now();
 
-    using namespace std::chrono_literals;
     LUISA_VERBOSE_WITH_LOCATION(
         "Created texture (with {} mipmap{}) in {} ms.",
         mipmap_levels, mipmap_levels <= 1u ? "" : "s",
-        (t1 - t0) / 1ns * 1e-6);
+        clock.toc());
 
     if (is_bindless) {
         // TODO: emplace into descriptor array...

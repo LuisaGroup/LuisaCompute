@@ -4,6 +4,7 @@
 
 #include <numeric>
 
+#include <core/clock.h>
 #include <runtime/device.h>
 #include <runtime/texture.h>
 #include <runtime/context.h>
@@ -67,7 +68,7 @@ int main(int argc, char *argv[]) {
     std::vector<float> results(n);
     std::iota(data.begin(), data.end(), 1.0f);
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     stream << buffer.copy_from(data.data());
     {
         auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f}).launch(n);
@@ -76,16 +77,16 @@ int main(int argc, char *argv[]) {
         }
     }
     stream << result_buffer.copy_to(results.data());
-    auto t1 = std::chrono::high_resolution_clock::now();
-    stream << synchronize();
-    auto t2 = std::chrono::high_resolution_clock::now();
+    auto t1 = clock.toc();
 
-    using namespace std::chrono_literals;
-    LUISA_INFO("Dispatched in {} ms. Finished in {} ms.",
-               (t1 - t0) / 1ns * 1e-6, (t2 - t0) / 1ns * 1e-6);
+    clock.tic();
+    stream << synchronize();
+    auto t2 = clock.toc();
+
+    LUISA_INFO("Dispatched in {} ms. Finished in {} ms.", t1, t2);
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[n - 2u], results[n - 1u]);
-    
+
     auto texture = device->create_texture(PixelFormat::RGBA32F, 1024u, 1024u);
 }

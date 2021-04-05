@@ -7,6 +7,7 @@
 #include <numeric>
 #include <thread>
 
+#include <core/clock.h>
 #include <runtime/device.h>
 #include <ast/interface.h>
 #include <compile/cpp_codegen.h>
@@ -27,7 +28,7 @@ struct Test {
 LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
-    
+
     Context ctx{argv[0]};
     FakeDevice device{ctx};
     auto buffer = device.create_buffer<float4>(1024u);
@@ -46,7 +47,7 @@ int main(int argc, char *argv[]) {
 
     for (auto i = 0u; i < 8u; i++) {
         threads.emplace_back([&, worker = i] {
-            auto t0 = std::chrono::high_resolution_clock::now();
+            Clock clock;
             Constant float_consts = {1.0f, 2.0f};
             Constant int_consts = const_vector;
             Kernel1D kernel = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
@@ -108,22 +109,18 @@ int main(int argc, char *argv[]) {
                 Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
                 Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
             };
-            auto t1 = std::chrono::high_resolution_clock::now();
+            auto t1 = clock.toc();
 
             auto command = kernel(float_buffer, 12u).launch(1024u);
             auto function = Function::kernel(static_cast<KernelLaunchCommand *>(command.get())->kernel_uid());
 
-            auto t2 = std::chrono::high_resolution_clock::now();
+            clock.tic();
             Codegen::Scratch scratch;
             CppCodegen codegen{scratch};
             codegen.emit(function);
-            auto t3 = std::chrono::high_resolution_clock::now();
-
-            using namespace std::chrono_literals;
+            auto t2 = clock.toc();
             LUISA_INFO("Thread: {}, AST: {:.3f} ms, Codegen: {:.3f} ms",
-                       worker,
-                       (t1 - t0) / 1ns * 1e-6,
-                       (t3 - t2) / 1ns * 1e-6);
+                       worker, t1, t2);
         });
     }
 

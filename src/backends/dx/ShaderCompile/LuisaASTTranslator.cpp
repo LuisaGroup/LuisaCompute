@@ -1,3 +1,4 @@
+#include <core/clock.h>
 #include <ast/interface.h>
 #include <ast/constant_data.h>
 #include <Common/Common.h>
@@ -13,11 +14,10 @@ DLL_EXPORT void CodegenBody(Function func) {
 	vengine::string decl_buffer;
 	function_buffer.reserve(65535 * 4);
 	decl_buffer.reserve(65535 * 4);
-
-	using namespace std::chrono_literals;
+	
+	Clock clock;
+	
 	CodegenUtility::ClearStructType();
-	auto t0 = std::chrono::high_resolution_clock::now();
-
 	StringStateVisitor vis(function_buffer);
 
 	for (auto cust : func.custom_callables()) {
@@ -36,9 +36,8 @@ DLL_EXPORT void CodegenBody(Function func) {
 
 	CodegenUtility::PrintUniform(func, decl_buffer);
 	CodegenUtility::PrintGlobalVariables(func.arguments(), decl_buffer);
-	auto t1 = std::chrono::high_resolution_clock::now();
 
-	LUISA_INFO("HLSL codegen finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+	LUISA_INFO("HLSL codegen finished in {} ms.", clock.toc());
 	function_buffer += "[numthreads(8,8,1)]\nvoid kernel_"_sv;
 	auto kernelID = vengine::to_string(func.uid());
 	function_buffer += kernelID;

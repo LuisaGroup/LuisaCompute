@@ -6,6 +6,7 @@
 #include <chrono>
 #include <numeric>
 
+#include <core/clock.h>
 #include <core/dynamic_module.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
@@ -80,7 +81,7 @@ int main(int argc, char *argv[]) {
         return a + b;
     };
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
@@ -88,7 +89,6 @@ int main(int argc, char *argv[]) {
     // >>> Kernel kernel = [&](...) { ... }
     //auto func = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
     Kernel1D<void(Buffer<float>, uint)> kernel = CompileKernel([&](BufferView<float> buffer_float, Var<uint> count) noexcept -> void {
-        
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
         buffer[v_int + 1] = 123;
     });
-    auto t1 = std::chrono::high_resolution_clock::now();
+    auto t1 = clock.toc();
 
     auto command = kernel(float_buffer, 12u).launch(1024u);
     auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
@@ -171,15 +171,13 @@ int main(int argc, char *argv[]) {
     // hlsl_serialize(function);
     hlsl_codegen(function);
 #else
-    auto t2 = std::chrono::high_resolution_clock::now();
+    clock.tic();
     Codegen::Scratch scratch;
     CppCodegen codegen{scratch};
     codegen.emit(function);
-    auto t3 = std::chrono::high_resolution_clock::now();
+    auto t2 = clock.toc();
 
     std::cout << scratch.view() << std::endl;
-
-    using namespace std::chrono_literals;
-    LUISA_INFO("AST: {} ms, Codegen: {} ms", (t1 - t0) / 1ns * 1e-6, (t3 - t2) / 1ns * 1e-6);
+    LUISA_INFO("AST: {} ms, Codegen: {} ms", t1, t2);
 #endif
 }

@@ -7,7 +7,10 @@
 #include <string>
 #include <type_traits>
 #include <filesystem>
+
 #include <fmt/format.h>
+
+#include <core/clock.h>
 #include <core/platform.h>
 #include <core/logging.h>
 
@@ -115,18 +118,16 @@ void *dynamic_module_load(const std::filesystem::path &path) noexcept {
         LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}", path.string());
     }
     auto canonical_path = std::filesystem::canonical(path).string();
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     auto module = dlopen(canonical_path.c_str(), RTLD_LAZY);
-    auto t1 = std::chrono::high_resolution_clock::now();
     if (module == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}",
             canonical_path, dlerror());
     }
-    using namespace std::chrono_literals;
     LUISA_INFO(
         "Loaded dynamic module '{}' in {} ms.",
-        path.string(), (t1 - t0) / 1ns * 1e-6);
+        path.string(), clock.toc());
     return module;
 }
 
@@ -137,16 +138,14 @@ void dynamic_module_destroy(void *handle) noexcept {
 void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
     static thread_local std::string name;
     name = name_view;
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     auto symbol = dlsym(handle, name.c_str());
-    auto t1 = std::chrono::high_resolution_clock::now();
     if (symbol == nullptr) {
         LUISA_ERROR("Failed to load symbol '{}', reason: {}", name, dlerror());
     }
-    using namespace std::chrono_literals;
     LUISA_INFO(
         "Loading dynamic symbol '{}' in {} ms.",
-        name, (t1 - t0) / 1ns * 1e-6);
+        name, clock.toc());
     return symbol;
 }
 

@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/24.
 //
 
+#import <core/clock.h>
 #import <runtime/context.h>
 #import <backends/metal/metal_codegen.h>
 #import <backends/metal/metal_compiler.h>
@@ -10,23 +11,21 @@
 namespace luisa::compute::metal {
 
 MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
-    
-    auto ast = Function::kernel(uid);
 
     LUISA_INFO("Compiling kernel #{}.", uid);
-    auto t0 = std::chrono::high_resolution_clock::now();
+
+    Clock clock;
+
+    auto ast = Function::kernel(uid);
     compile::Codegen::Scratch scratch;
     MetalCodegen codegen{scratch};
     codegen.emit(ast);
-    auto t1 = std::chrono::high_resolution_clock::now();
 
     auto s = scratch.view();
     auto hash = xxh3_hash64(s.data(), s.size());
-
-    using namespace std::chrono_literals;
     LUISA_VERBOSE(
         "Generated source (hash = 0x{:016x}) for kernel #{} in {} ms:\n\n{}",
-        hash, uid, (t1 - t0) / 1ns * 1e-6, s);
+        hash, uid, clock.toc(), s);
 
     // try cache
     {
@@ -74,7 +73,7 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
             "Failed to find function '{}' in compiled Metal library for kernel #{}.",
             name, uid);
     }
-    
+
     auto block_size = ast.block_size();
     auto desc = [[MTLComputePipelineDescriptor alloc] init];
     desc.computeFunction = func;
@@ -115,13 +114,11 @@ void MetalCompiler::prepare(uint32_t uid) noexcept {
                     })) { return; }
 
     auto kernel = std::async(std::launch::async, [uid, this] {
-        auto t0 = std::chrono::high_resolution_clock::now();
+        Clock clock;
         auto k = _compile(uid);
-        auto t1 = std::chrono::high_resolution_clock::now();
-        using namespace std::chrono_literals;
         LUISA_VERBOSE_WITH_LOCATION(
             "Compiled source for kernel #{} in {} ms.",
-            uid, (t1 - t0) / 1ns * 1e-6);
+            uid, clock.toc());
         return PipelineState{k};
     });
 

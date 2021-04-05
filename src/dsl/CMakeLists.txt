@@ -8,7 +8,10 @@ set(LUISA_COMPUTE_DSL_SOURCES
     shared.h
     constant.h
     texture_view.h
-    arg.h struct.h stmt.h sugar.h)
+    arg.h
+    struct.h
+    stmt.h
+    sugar.h)
 
 add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
 target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime)

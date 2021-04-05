@@ -12,6 +12,7 @@
 #include <array>
 #include <span>
 
+#include <core/clock.h>
 #include <core/logging.h>
 #include <core/basic_types.h>
 #include <core/memory.h>
@@ -65,12 +66,10 @@ using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
 #define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                          \
     template<typename... Args>                                                   \
     [[nodiscard]] static auto create(Args &&...args) noexcept {                  \
-        auto t0 = std::chrono::high_resolution_clock::now();                     \
+        Clock clock;                                                             \
         auto command = detail::pool_##Cmd().create(std::forward<Args>(args)...); \
-        auto t1 = std::chrono::high_resolution_clock::now();                     \
-        using namespace std::chrono_literals;                                    \
         LUISA_VERBOSE_WITH_LOCATION(                                             \
-            "Created {} in {} ms.", #Cmd, (t1 - t0) / 1ns * 1e-6);               \
+            "Created {} in {} ms.", #Cmd, clock.toc());                          \
         auto command_ptr = static_cast<Command *>(command.release());            \
         return CommandHandle{command_ptr};                                       \
     }
@@ -249,7 +248,7 @@ public:
     void encode_buffer(uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
     // TODO: encode texture
     void encode_uniform(const void *data, size_t size) noexcept;
-    
+
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
         auto p = _argument_buffer.data();

@@ -11,7 +11,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
     atomic.h
     dynamic_module.cpp dynamic_module.h
     basic_types.cpp basic_types.h
-    intrin.h)
+    intrin.h
+    clock.h)
 
 find_package(Threads REQUIRED)
 

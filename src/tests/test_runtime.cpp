@@ -4,6 +4,7 @@
 
 #include <numeric>
 
+#include <core/clock.h>
 #include <core/dynamic_module.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
@@ -132,17 +133,13 @@ int main(int argc, char *argv[]) {
     device->prepare(kernel);
     auto stream = device->create_stream();
 
-    auto t0 = std::chrono::high_resolution_clock::now();
-    stream
-        << [] { LUISA_INFO("Hello!"); }
-        << buffer.copy_from(data.data())
-        << buffer.copy_to(results.data())
-        << [] { LUISA_INFO("Bye!"); }
-        << synchronize();
-    auto t1 = std::chrono::high_resolution_clock::now();
-
-    using namespace std::chrono_literals;
-    LUISA_INFO("Finished in {} ms.", (t1 - t0) / 1ns * 1e-6);
+    Clock clock;
+    stream << [] { LUISA_INFO("Hello!"); }
+           << buffer.copy_from(data.data())
+           << buffer.copy_to(results.data())
+           << [] { LUISA_INFO("Bye!"); }
+           << synchronize();
+    LUISA_INFO("Finished in {} ms.", clock.toc());
 
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],

@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/19.
 //
 
+#import <core/clock.h>
 #import <core/platform.h>
 #import <ast/function.h>
 #import <backends/metal/metal_command_encoder.h>
@@ -25,15 +26,14 @@ void MetalCommandEncoder::visit(const BufferUploadCommand *command) noexcept {
 
     auto buffer = _device->buffer(command->handle());
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     auto temporary = [_device->handle() newBufferWithBytes:command->data()
                                                     length:command->size()
                                                    options:MTLResourceStorageModeShared];
-    auto t1 = std::chrono::high_resolution_clock::now();
-    using namespace std::chrono_literals;
+
     LUISA_VERBOSE_WITH_LOCATION(
         "Allocated temporary shared buffer with size {} in {} ms.",
-        command->size(), (t1 - t0) / 1ns * 1e-6);
+        command->size(), clock.toc());
 
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temporary
@@ -55,16 +55,14 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     auto aligned_begin = address / page_size * page_size;
     auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    Clock clock;
     auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
                                                           length:aligned_end - aligned_begin
                                                          options:MTLResourceStorageModeShared
                                                      deallocator:nullptr];
-    auto t1 = std::chrono::high_resolution_clock::now();
-    using namespace std::chrono_literals;
     LUISA_VERBOSE_WITH_LOCATION(
         "Wrapped receiver pointer into temporary shared buffer with size {} in {} ms.",
-        size, (t1 - t0) / 1ns * 1e-6);
+        size, clock.toc());
 
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:buffer
