@@ -30,7 +30,7 @@ constexpr auto float_linear = PixelFormat::R32F;
 constexpr auto float2_linear = PixelFormat::RG32F;
 constexpr auto float4_linear = PixelFormat::RGBA32F;
 
-[[nodiscard]] constexpr auto pixel_size_bytes(PixelFormat format) noexcept {
+[[nodiscard]] constexpr auto pixel_format_size(PixelFormat format) noexcept {
     switch (format) {
         case PixelFormat::R8U:
         case PixelFormat::R8U_SRGB:

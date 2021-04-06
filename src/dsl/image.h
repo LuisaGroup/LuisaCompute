@@ -73,7 +73,7 @@ public:
     [[nodiscard]] auto view() const noexcept { return ImageView<format>{_handle, _size}; }
 
     template<typename UV>
-    [[nodiscard]] float4 operator[](UV uv) const noexcept {
+    [[nodiscard]] decltype(auto) operator[](UV uv) const noexcept {
         return this->view()[std::forward<UV>(uv)];
     }
 
