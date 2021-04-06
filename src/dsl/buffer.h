@@ -74,7 +74,7 @@ public:
 };
 
 template<typename T>
-class alignas(8) BufferView {
+class BufferView {
 
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
@@ -94,23 +94,6 @@ protected:
                 _offset_bytes, alignof(T));
         }
     }
-
-    // for creating function args
-    template<typename U>
-    friend class Kernel1D;
-    
-    template<typename U>
-    friend class Kernel2D;
-    
-    template<typename U>
-    friend class Kernel3D;
-
-    template<typename U>
-    friend class Callable;
-
-    explicit BufferView(detail::ArgumentCreation) noexcept
-        : _expression{FunctionBuilder::current()->buffer(Type::of<T>())} {}
-    [[nodiscard]] auto expression() const noexcept { return _expression; }
 
 public:
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
@@ -174,6 +157,11 @@ public:
         auto expr = FunctionBuilder::current()->access(Type::of<T>(), self, i.expression());
         return detail::Expr<T>{expr};
     }
+    
+    // for internal use only
+    explicit BufferView(detail::ArgumentCreation) noexcept
+        : _expression{FunctionBuilder::current()->buffer(Type::of<T>())} {}
+    [[nodiscard]] auto expression() const noexcept { return _expression; }
 };
 
 template<typename T>

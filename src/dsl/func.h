@@ -7,6 +7,7 @@
 #include <runtime/command.h>
 #include <runtime/device.h>
 #include <dsl/var.h>
+#include <dsl/buffer.h>
 
 namespace luisa::compute::dsl {
 

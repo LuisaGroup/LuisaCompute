@@ -14,23 +14,6 @@ class Var : public detail::Expr<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
-private:
-    // for making function arguments...
-    template<typename U>
-    friend class Kernel1D;
-    
-    template<typename U>
-    friend class Kernel2D;
-    
-    template<typename U>
-    friend class Kernel3D;
-
-    template<typename U>
-    friend class Callable;
-
-    explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<T>{FunctionBuilder::current()->argument(Type::of<T>())} {}
-
 public:
     // for local variables
     template<typename... Args>
@@ -39,6 +22,10 @@ public:
         : detail::Expr<T>{FunctionBuilder::current()->local(
             Type::of<T>(),
             {detail::extract_expression(std::forward<Args>(args))...})} {}
+    
+    // for internal use only...
+    explicit Var(detail::ArgumentCreation) noexcept
+        : detail::Expr<T>{FunctionBuilder::current()->argument(Type::of<T>())} {}
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{detail::Expr{another}} {}

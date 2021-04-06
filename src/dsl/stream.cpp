@@ -2,9 +2,8 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
-#include <dsl/stream.h>
-
 #include <utility>
+#include <dsl/stream.h>
 
 namespace luisa::compute::dsl {
 
