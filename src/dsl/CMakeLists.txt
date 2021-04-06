@@ -4,7 +4,7 @@ set(LUISA_COMPUTE_DSL_SOURCES
     syntax.h
     func.h
     buffer.h
-    image.cpp image.h
+    image.h
     stream.cpp stream.h
     shared.h
     constant.h

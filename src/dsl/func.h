@@ -29,9 +29,9 @@ struct definition_to_prototype<BufferView<T>> {
     using type = Buffer<T>;
 };
 
-template<>
-struct definition_to_prototype<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct definition_to_prototype<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -44,9 +44,9 @@ struct prototype_to_creation<Buffer<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_creation<Image> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_creation<Image<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -54,9 +54,9 @@ struct prototype_to_creation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_creation<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_creation<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -74,14 +74,14 @@ struct prototype_to_kernel_invocation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_kernel_invocation<Image> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_kernel_invocation<Image<format>> {
+    using type = ImageView<format>;
 };
 
-template<>
-struct prototype_to_kernel_invocation<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_kernel_invocation<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -99,14 +99,14 @@ struct prototype_to_callable_invocation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_callable_invocation<Image> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_callable_invocation<Image<format>> {
+    using type = ImageView<format>;
 };
 
-template<>
-struct prototype_to_callable_invocation<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_callable_invocation<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -165,7 +165,8 @@ public:
         return *this;
     }
     
-    KernelInvoke &operator<<(ImageView image) noexcept {
+    template<PixelFormat format>
+    KernelInvoke &operator<<(ImageView<format> image) noexcept {
         auto usage = _function.variable_usage(
             _function.arguments()[_argument_index++].uid());
         _launch_command()->encode_texture(

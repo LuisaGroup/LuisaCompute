@@ -14,75 +14,114 @@
 
 namespace luisa::compute::dsl {
 
+template<PixelFormat>
 class ImageView;
 
-// Image's are textures without sampling.
+namespace detail {
+
+[[nodiscard]] auto valid_mipmap_levels(uint width, uint height, uint requested_levels) noexcept {
+    auto rounded_size = next_pow2(std::min(width, height));
+    auto max_levels = static_cast<uint>(std::log2(rounded_size));
+    return requested_levels == 0u
+               ? max_levels
+               : std::min(requested_levels, max_levels);
+}
+
+}// namespace detail
+
+// Images are textures without sampling.
+template<PixelFormat format>
 class Image : concepts::Noncopyable {
 
 private:
     Device *_device;
     uint64_t _handle;
     uint2 _size;
-    PixelFormat _format;
-
-private:
-    friend class Device;
 
 public:
-    Image(Device &device, PixelFormat format, uint2 size) noexcept;
-    Image(Image &&another) noexcept;
-    Image &operator=(Image &&rhs) noexcept;
-    ~Image() noexcept;
+    Image(Device &device, uint2 size) noexcept
+        : _device{&device},
+          _handle{device.create_texture(
+              format, 2u,
+              size.x, size.y, 1u,
+              1u, false)},
+          _size{size} {}
+
+    Image(Image &&another) noexcept
+        : _device{another._device},
+          _handle{another._handle},
+          _size{another._size} { another._device = nullptr; }
+
+    ~Image() noexcept {
+        if (_device != nullptr) {
+            _device->dispose_texture(_handle);
+        }
+    }
+
+    Image &operator=(Image &&rhs) noexcept {
+        if (&rhs != this) {
+            _device->dispose_texture(_handle);
+            _device = rhs._device;
+            _handle = rhs._handle;
+            _size = rhs._size;
+            rhs._device = nullptr;
+        }
+        return *this;
+    }
 
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto format() const noexcept { return _format; }
-
-    [[nodiscard]] ImageView view() const noexcept;
+    [[nodiscard]] auto view() const noexcept { return ImageView<format>{_handle, _size}; }
 
     template<typename UV>
-    [[nodiscard]] float4 operator[](UV uv) const noexcept;
+    [[nodiscard]] float4 operator[](UV uv) const noexcept {
+        return this->view()[std::forward<UV>(uv)];
+    }
+
+    [[nodiscard]] CommandHandle copy_to(void *data) const noexcept { return view().copy_to(data); }
+    [[nodiscard]] CommandHandle copy_from(const void *data) const noexcept { view().copy_from(data); }
 };
 
 namespace detail {
+template<PixelFormat>
 class ImageAccess;
 }
 
+template<PixelFormat format>
 class ImageView {
 
 private:
     const RefExpr *_expression{nullptr};
     uint64_t _handle{};
     uint2 _size{};
-    PixelFormat _format{};
 
 private:
-    friend class Image;
-    constexpr explicit ImageView(uint64_t handle, PixelFormat format, uint2 size) noexcept
-        : _handle{handle},
-          _size{size},
-          _format{format} {}
+    friend class Image<format>;
+    constexpr explicit ImageView(uint64_t handle, uint2 size) noexcept
+        : _handle{handle}, _size{size} {}
 
 public:
-    ImageView(const Image &image) noexcept : ImageView{image.view()} {}
+    ImageView(const Image<format> &image) noexcept : ImageView{image.view()} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto format() const noexcept { return _format; }
 
     [[nodiscard]] auto copy_from(const void *data) const noexcept {
         return TextureUploadCommand::create(
-            _handle, _format,
+            _handle, format,
             0u, uint3{},
             uint3{_size, 1u}, data);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return TextureDownloadCommand::create(
-            _handle, _format,
+            _handle, format,
             0u, uint3{},
             uint3{_size, 1u}, data);
     }
 
-    [[nodiscard]] detail::ImageAccess operator[](detail::Expr<uint2> uv) const noexcept;
+    [[nodiscard]] detail::ImageAccess<format> operator[](detail::Expr<uint2> uv) const noexcept {
+        auto self = _expression ? _expression : FunctionBuilder::current()->image_binding(_handle);
+        return {self, uv.expression()};
+    }
 
     // for internal use
     explicit ImageView(detail::ArgumentCreation) noexcept
@@ -90,24 +129,29 @@ public:
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 };
 
-template<typename UV>
-float4 Image::operator[](UV uv) const noexcept {
-    return this->view()[std::forward<UV>(uv)];
-}
-
 namespace detail {
 
+template<PixelFormat format>
 class ImageAccess : public detail::Expr<float4> {
 
 private:
     const Expression *_image;
     const Expression *_uv;
 
+    [[nodiscard]] static auto _read(const Expression *image, const Expression *uv) noexcept {
+        auto f = FunctionBuilder::current();
+        auto expr = f->call(Type::of<float4>(), "texture_read", {image, uv});
+        if constexpr (pixel_format_is_srgb(format)) {
+            expr = f->call(Type::of<float4>(), "srgb_to_linear", {expr});
+        }
+        return expr;
+    }
+
 public:
     ImageAccess(const Expression *image, const Expression *uv) noexcept
-        : Expr<float4>{FunctionBuilder::current()->call(
-            Type::of<float4>(), "builtin_texture_read", {image, uv})},
-          _image{image}, _uv{uv} {}
+        : Expr<float4>{_read(image, uv)},
+          _image{image},
+          _uv{uv} {}
 
     ImageAccess(ImageAccess &&) noexcept = default;
     ImageAccess(const ImageAccess &) noexcept = default;
@@ -118,14 +162,17 @@ public:
 
     void operator=(Expr<float4> rhs) noexcept {
         auto f = FunctionBuilder::current();
+        auto value = rhs.expression();
+        if constexpr (pixel_format_is_srgb(format)) {
+            value = f->call(
+                Type::of<float4>(),
+                "linear_to_srgb",
+                {value});
+        }
         auto expr = f->call(
-            nullptr, "builtin_texture_write",
-            {_image, _uv, rhs.expression()});
+            nullptr, "texture_write",
+            {_image, _uv, value});
         f->void_(expr);
-    }
-
-    void operator=(ImageAccess rhs) noexcept {
-        this->operator=(Expr<float4>{rhs});
     }
 
 #define LUISA_MAKE_IMAGE_ASSIGN_OP(op)               \
@@ -142,6 +189,7 @@ public:
 
 }// namespace detail
 
-Var(detail::ImageAccess)->Var<float4>;
+template<PixelFormat format>
+Var(detail::ImageAccess<format>) -> Var<float4>;
 
 }// namespace luisa::compute::dsl

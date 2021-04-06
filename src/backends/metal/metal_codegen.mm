@@ -284,13 +284,31 @@ void MetalCodegen::emit(Function f) {
 using namespace metal;
 
 template<access a>
-[[nodiscard]] auto builtin_texture_read(texture2d<float, a> t, uint2 uv) {
+[[nodiscard]] auto texture_read(texture2d<float, a> t, uint2 uv) {
     return t.read(uv);
 }
 
 template<access a>
-void builtin_texture_write(texture2d<float, a> t, uint2 uv, float4 value) {
+void texture_write(texture2d<float, a> t, uint2 uv, float4 value) {
     t.write(value, uv);
+}
+
+[[nodiscard]] auto srgb_to_linear(float4 c) {
+    auto srgb = saturate(c.rgb);
+    auto rgb = select(
+        srgb * (1.0f / 12.92f),
+        pow((srgb + 0.055f) / 1.055f, 2.4f),
+        srgb >= 0.0404482362771082f);
+    return float4(rgb, c.a);
+}
+
+[[nodiscard]] auto linear_to_srgb(float4 c) {
+    auto rgb = saturate(c.rgb);
+    auto srgb = select(
+        rgb * 12.92f,
+        1.055f * pow(rgb, 1.0f / 2.4f) - 0.055f,
+        rgb >= 0.00313066844250063f);
+    return float4(srgb, c.a);
 }
 
 )";

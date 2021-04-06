@@ -21,5 +21,6 @@ target_link_libraries(test_simple PRIVATE luisa::compute)
 
 find_package(OpenCV CONFIG)
 if (OpenCV_FOUND)
-
+    add_executable(test_texture_io test_texture_io.cpp)
+    target_link_libraries(test_texture_io PRIVATE luisa::compute ${OpenCV_LIBS})
 endif ()
