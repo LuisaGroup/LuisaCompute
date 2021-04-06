@@ -1,5 +1,5 @@
 #pragma once
-#include "../Common/DLL.h"
+#include <VEngineConfig.h>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>

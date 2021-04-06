@@ -1,5 +1,5 @@
 #pragma once
-#include "../Common/DLL.h"
+#include <VEngineConfig.h>
 #include "../Common/vector.h"
 class JobNode;
 class JobBucket;

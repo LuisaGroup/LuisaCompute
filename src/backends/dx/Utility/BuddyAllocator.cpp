@@ -80,15 +80,16 @@ BuddyNode* BuddyAllocator::Allocate_T(uint targetLayer) {
 		void* ptr;
 		//Split
 		uint i = targetLayer;
-		while (i > 0) {
-			i--;
-			if (linkList[i].size() > 0)
-				goto ADD_NEW_BINARY;
-		}
-		ptr = resourceBlockConstruct(initSize);
-		allocatedTree.push_back({treePool.New(initSize, ptr, linkList.data(), &nodePool), ptr});
-		//Add New Binary
-	ADD_NEW_BINARY:
+		[&]() {
+			while (i > 0) {
+				i--;
+				if (linkList[i].size() > 0)
+					return;
+			}
+			ptr = resourceBlockConstruct(initSize);
+			allocatedTree.push_back({treePool.New(initSize, ptr, linkList.data(), &nodePool), ptr});
+			//Add New Binary
+		}();
 		for (; i < targetLayer; ++i) {
 			BuddyBinaryTree::Split(i, linkList.data(), &nodePool);
 		}

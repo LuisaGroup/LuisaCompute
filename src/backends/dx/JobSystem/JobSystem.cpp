@@ -6,19 +6,22 @@
 #include "JobNode.h"
 #include "../Common/Memory.h"
 void JobSystem::UpdateNewBucket() {
-START:
-	if (currentBucketPos >= buckets.size()) {
-		{
-			lockGuard lck(mainThreadWaitMutex);
-			mainThreadFinished = true;
-			mainThreadWaitCV.notify_all();
+	JobBucket* bucket;
+	while (true) {
+		if (currentBucketPos >= buckets.size()) {
+			{
+				lockGuard lck(mainThreadWaitMutex);
+				mainThreadFinished = true;
+				mainThreadWaitCV.notify_all();
+			}
+			return;
 		}
-		return;
-	}
-	JobBucket* bucket = buckets[currentBucketPos];
-	if (bucket->jobNodesVec.empty() || bucket->sys != this) {
-		currentBucketPos++;
-		goto START;
+		bucket = buckets[currentBucketPos];
+		if (bucket->jobNodesVec.empty() || bucket->sys != this) {
+			currentBucketPos++;
+			continue;
+		}
+		break;
 	}
 	bucketMissionCount = bucket->allJobNodes.size();
 	for (auto node : bucket->jobNodesVec) {
@@ -55,27 +58,32 @@ public:
 			}
 		}
 		int32_t value = (int32_t)-1;
-	MAIN_THREAD_LOOP : {
-		JobNode* node = nullptr;
-		while (sys->executingNode.Pop(&node)) {
-		START_LOOP:
-			JobNode* nextNode = node->Execute(sys->executingNode, sys->cv);
-			sys->jobNodePool.Delete(node);
-			value = --sys->bucketMissionCount;
-			if (nextNode != nullptr) {
-				node = nextNode;
-				goto START_LOOP;
+		while ([&]() {
+			JobNode* node = nullptr;
+			while (sys->executingNode.Pop(&node)) {
+				/////////// Get Next Node
+				while ([&]() {
+					JobNode* nextNode = node->Execute(sys->executingNode, sys->cv);
+					sys->jobNodePool.Delete(node);
+					value = --sys->bucketMissionCount;
+					if (nextNode != nullptr) {
+						node = nextNode;
+						return true;
+					}
+					/////////// Finish Get Next Node
+					return false;
+				}()) {}
+				if (value == 0) {
+					sys->UpdateNewBucket();
+				}
 			}
-			if (value == 0) {
-				sys->UpdateNewBucket();
+			std::unique_lock<std::mutex> lck(sys->threadMtx);
+			while (sys->JobSystemInitialized) {
+				sys->cv.wait(lck);
+				return true;
 			}
-		}
-		std::unique_lock<std::mutex> lck(sys->threadMtx);
-		while (sys->JobSystemInitialized) {
-			sys->cv.wait(lck);
-			goto MAIN_THREAD_LOOP;
-		}
-	}
+			return false;
+		}()) {}
 	}
 };
 JobBucket* JobSystem::GetJobBucket() {

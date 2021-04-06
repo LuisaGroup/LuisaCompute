@@ -1,5 +1,5 @@
 #pragma once
-#include <Common/DLL.h>
+#include <VEngineConfig.h>
 #include <initializer_list>
 #include "JobHandle.h"
 #include <Common/Pool.h>
