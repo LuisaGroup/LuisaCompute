@@ -86,7 +86,7 @@ PYBIND11_MODULE(pyluisa, m) {
     // compile
     [compile = compute.def_submodule("compile")] {
         using namespace luisa::compute;
-        using namespace luisa::compute::compile;
+        using namespace luisa::compute;
 
         py::class_<Codegen::Scratch>(compile, "Scratch")
             .def(py::init())

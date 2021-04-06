@@ -7,7 +7,7 @@
 #include <string>
 #include <ast/function.h>
 
-namespace luisa::compute::compile {
+namespace luisa::compute {
 
 class Codegen {
 
@@ -44,4 +44,4 @@ public:
     virtual void emit(Function f) = 0;
 };
 
-}// namespace luisa::compute::compile
+}// namespace luisa::compute

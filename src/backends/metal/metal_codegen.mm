@@ -70,10 +70,10 @@ namespace detail {
 class LiteralPrinter {
 
 private:
-    compile::Codegen::Scratch &_s;
+    Codegen::Scratch &_s;
 
 public:
-    explicit LiteralPrinter(compile::Codegen::Scratch &s) noexcept : _s{s} {}
+    explicit LiteralPrinter(Codegen::Scratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
         if (std::isnan(v)) { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
@@ -342,9 +342,6 @@ void MetalCodegen::_emit_function(Function f) noexcept {
     }
 
     if (f.tag() == Function::Tag::KERNEL) {
-
-        auto index = 0u;
-        static constexpr auto index_stride = 100u;
 
         // argument buffer
         _scratch << "struct Argument {";

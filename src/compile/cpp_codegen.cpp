@@ -9,7 +9,7 @@
 #include <ast/constant_data.h>
 #include <compile/cpp_codegen.h>
 
-namespace luisa::compute::compile {
+namespace luisa::compute {
 
 void CppCodegen::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
@@ -560,4 +560,4 @@ void CppCodegen::_emit_access_attribute(Variable v) noexcept {
     }
 }
 
-}// namespace luisa::compute::compile
+}// namespace luisa::compute
