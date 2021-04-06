@@ -23,8 +23,8 @@ int main(int argc, char *argv[]) {
     
     Context context{argv[0]};
     FakeDevice device{context};
-    auto buffer = device.create_buffer<float4>(1024u);
-    auto float_buffer = device.create_buffer<float>(1024u);
+    Buffer<float4> buffer{device, 1024u};
+    Buffer<float> float_buffer{device, 1024u};
 
     std::vector<int> const_vector{1, 2, 3, 4};
 

@@ -15,7 +15,7 @@
 
 namespace luisa::compute::metal {
 
-uint64_t MetalDevice::_create_buffer(size_t size_bytes) noexcept {
+uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     Clock clock;
     auto buffer = [_handle newBufferWithLength:size_bytes options:MTLResourceStorageModePrivate];
     LUISA_VERBOSE_WITH_LOCATION(
@@ -33,7 +33,7 @@ uint64_t MetalDevice::_create_buffer(size_t size_bytes) noexcept {
     return s;
 }
 
-void MetalDevice::_dispose_buffer(uint64_t handle) noexcept {
+void MetalDevice::dispose_buffer(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_buffer_mutex};
         _buffer_slots[handle] = nullptr;
@@ -42,7 +42,7 @@ void MetalDevice::_dispose_buffer(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Disposed buffer #{}.", handle);
 }
 
-uint64_t MetalDevice::_create_stream() noexcept {
+uint64_t MetalDevice::create_stream() noexcept {
     Clock clock;
     auto stream = [_handle newCommandQueue];
     LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
@@ -58,7 +58,7 @@ uint64_t MetalDevice::_create_stream() noexcept {
     return s;
 }
 
-void MetalDevice::_dispose_stream(uint64_t handle) noexcept {
+void MetalDevice::dispose_stream(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_stream_mutex};
         _stream_slots[handle] = nullptr;
@@ -107,7 +107,7 @@ MetalDevice::~MetalDevice() noexcept {
     LUISA_INFO("Destroyed Metal device with name: {}.", name);
 }
 
-void MetalDevice::_synchronize_stream(uint64_t stream_handle) noexcept {
+void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {
     auto command_buffer = [stream(stream_handle) commandBuffer];
     [command_buffer commit];
     [command_buffer waitUntilCompleted];
@@ -127,7 +127,7 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
     return _handle;
 }
 
-void MetalDevice::_prepare_kernel(uint32_t uid) noexcept {
+void MetalDevice::prepare_kernel(uint32_t uid) noexcept {
     _compiler->prepare(uid);
 }
 
@@ -135,7 +135,7 @@ MetalCompiler::PipelineState MetalDevice::kernel(uint32_t uid) const noexcept {
     return _compiler->kernel(uid);
 }
 
-void MetalDevice::_dispatch(uint64_t stream_handle, CommandBuffer commands, std::function<void()> function) noexcept {
+void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer commands, std::function<void()> function) noexcept {
     auto command_buffer = [stream(stream_handle) commandBuffer];
     MetalCommandEncoder encoder{this, command_buffer};
     for (auto &&command : commands) { command->accept(encoder); }
@@ -152,7 +152,7 @@ MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
     return _argument_buffer_pool.get();
 }
 
-uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) {
+uint64_t MetalDevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) {
 
     Clock clock;
 
@@ -204,7 +204,7 @@ uint64_t MetalDevice::_create_texture(PixelFormat format, uint dimension, uint w
     return s;
 }
 
-void MetalDevice::_dispose_texture(uint64_t handle) noexcept {
+void MetalDevice::dispose_texture(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_texture_mutex};
         _texture_slots[handle] = nullptr;

@@ -16,12 +16,6 @@
 
 namespace luisa::compute {
 
-template<typename T>
-class Buffer;
-
-class Stream;
-class Texture;
-class Volume;
 class Context;
 
 class Device {
@@ -29,45 +23,30 @@ class Device {
 private:
     const Context &_ctx;
 
-private:
-    template<typename T>
-    friend class Buffer;
-    [[nodiscard]] virtual uint64_t _create_buffer(size_t size_bytes) noexcept = 0;
-    virtual void _dispose_buffer(uint64_t handle) noexcept = 0;
-    
-    friend class Texture;
-    friend class Volume;
-    [[nodiscard]] virtual uint64_t _create_texture(
-        PixelFormat format, uint dimension, uint width, uint height, uint depth,
-        uint mipmap_levels, bool is_bindless) = 0;
-    virtual void _dispose_texture(uint64_t handle) noexcept = 0;
-
-    friend class Stream;
-    [[nodiscard]] virtual uint64_t _create_stream() noexcept = 0;
-    virtual void _dispose_stream(uint64_t handle) noexcept = 0;
-    virtual void _synchronize_stream(uint64_t stream_handle) noexcept = 0;
-    virtual void _dispatch(uint64_t stream_handle, CommandBuffer, std::function<void()>) noexcept = 0;
-    
-    virtual void _prepare_kernel(uint32_t uid) noexcept = 0;
-
 public:
     explicit Device(const Context &ctx) noexcept : _ctx{ctx} {}
     virtual ~Device() noexcept = default;
     
-    [[nodiscard]] const Context &context() const noexcept;
+    [[nodiscard]] const Context &context() const noexcept { return _ctx; }
 
-    template<typename T>
-    [[nodiscard]] auto create_buffer(size_t size) noexcept {
-        auto handle = _create_buffer(size * sizeof(T));
-        return Buffer<T>{this, size, handle};
-    }
-    
-    [[nodiscard]] Texture create_texture(PixelFormat format, uint width, uint height, uint mipmap_levels = 1u) noexcept;
-    [[nodiscard]] Volume create_volume(PixelFormat format, uint width, uint height, uint depth, uint mipmap_levels = 1u) noexcept;
-    [[nodiscard]] Stream create_stream() noexcept;
-    
-    template<typename T>
-    void prepare(T &&kernel) noexcept { _prepare_kernel(kernel.function_uid()); }
+    // buffer
+    [[nodiscard]] virtual uint64_t create_buffer(size_t size_bytes) noexcept = 0;
+    virtual void dispose_buffer(uint64_t handle) noexcept = 0;
+
+    // texture
+    [[nodiscard]] virtual uint64_t create_texture(
+        PixelFormat format, uint dimension, uint width, uint height, uint depth,
+        uint mipmap_levels, bool is_bindless) = 0;
+    virtual void dispose_texture(uint64_t handle) noexcept = 0;
+
+    // stream
+    [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
+    virtual void dispose_stream(uint64_t handle) noexcept = 0;
+    virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
+    virtual void dispatch(uint64_t stream_handle, CommandBuffer, std::function<void()>) noexcept = 0;
+
+    // kernel
+    virtual void prepare_kernel(uint32_t uid) noexcept = 0;
 };
 
 using DeviceDeleter = void(Device *);

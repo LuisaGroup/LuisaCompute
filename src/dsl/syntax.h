@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <dsl/buffer_view.h>
+#include <dsl/buffer.h>
 #include <dsl/func.h>
 #include <dsl/constant.h>
 #include <dsl/shared.h>

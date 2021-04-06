@@ -8,12 +8,12 @@
 #include <runtime/pixel_format.h>
 
 namespace luisa::compute {
-
 class Device;
-
-namespace dsl {
-class TextureView;
 }
+
+namespace luisa::compute::dsl {
+
+class TextureView;
 
 class TextureSampler {
 
@@ -49,9 +49,9 @@ private:
 
 private:
     friend class Device;
-    Texture(Device *device, PixelFormat format, uint width, uint height, uint mipmap_levels) noexcept;
 
 public:
+    Texture(Device &device, PixelFormat format, uint width, uint height, uint mipmap_levels = 1u) noexcept;
     Texture(Texture &&another) noexcept;
     Texture &operator=(Texture &&rhs) noexcept;
     ~Texture() noexcept;
@@ -62,7 +62,6 @@ public:
     [[nodiscard]] auto format() const noexcept { return _format; }
     [[nodiscard]] auto mipmap_levels() const noexcept { return _mipmap_levels; }
     
-    // following methods will be implemented in dsl/texture_view.h
     [[nodiscard]] dsl::TextureView view() const noexcept;
     
     template<typename UV, typename Level>

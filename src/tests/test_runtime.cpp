@@ -8,9 +8,8 @@
 #include <core/dynamic_module.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
-#include <runtime/buffer.h>
-#include <runtime/stream.h>
-#include <dsl/buffer_view.h>
+#include <dsl/stream.h>
+#include <dsl/buffer.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
@@ -48,7 +47,7 @@ int main(int argc, char *argv[]) {
     auto device = std::make_unique<FakeDevice>(context);
 #endif
 
-    auto buffer = device->create_buffer<float>(16384u);
+    Buffer<float> buffer{*device, 16384u};
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
     std::iota(data.begin(), data.end(), 1.0f);
@@ -129,9 +128,9 @@ int main(int argc, char *argv[]) {
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
         buffer[v_int + 1] = 123.0f;
     };
-
-    device->prepare(kernel);
-    auto stream = device->create_stream();
+    kernel.prepare(*device);
+    
+    Stream stream{*device};
 
     Clock clock;
     stream << [] { LUISA_INFO("Hello!"); }

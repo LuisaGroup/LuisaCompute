@@ -1,13 +1,13 @@
 set(LUISA_COMPUTE_DSL_SOURCES
-    dummy.cpp # to make msvc happy
     var.h
     expr.h
     syntax.h
     func.h
-    buffer_view.h
+    buffer.h
+    texture.cpp texture.h
+    stream.cpp stream.h
     shared.h
     constant.h
-    texture_view.h
     arg.h
     struct.h
     stmt.h

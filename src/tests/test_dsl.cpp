@@ -61,8 +61,8 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
     FakeDevice device{context};
 
-    auto buffer = device.create_buffer<float4>(1024u);
-    auto float_buffer = device.create_buffer<float>(1024u);
+    Buffer<float4> buffer{device, 1024u};
+    Buffer<float> float_buffer{device, 1024u};
 
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);

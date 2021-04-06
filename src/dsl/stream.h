@@ -10,7 +10,7 @@
 #include <runtime/device.h>
 #include <runtime/command_buffer.h>
 
-namespace luisa::compute {
+namespace luisa::compute::dsl {
 
 class Stream : public concepts::Noncopyable {
 
@@ -43,11 +43,11 @@ private:
 
 private:
     friend class Device;
-    Stream(Device *device, uint64_t handle) noexcept
-        : _device{device}, _handle{handle} {}
     void _dispatch(CommandBuffer command_buffer, std::function<void()> callback) noexcept;
 
 public:
+    explicit Stream(Device &device) noexcept
+        : _device{&device}, _handle{device.create_stream()} {}
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;

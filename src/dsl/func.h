@@ -86,21 +86,6 @@ using prototype_to_callable_invocation_t = typename prototype_to_callable_invoca
 
 }// namespace detail
 
-template<typename T>
-class Kernel1D {
-    static_assert(always_false_v<T>);
-};
-
-template<typename T>
-class Kernel2D {
-    static_assert(always_false_v<T>);
-};
-
-template<typename T>
-class Kernel3D {
-    static_assert(always_false_v<T>);
-};
-
 namespace detail {
 
 class KernelInvoke {
@@ -194,6 +179,10 @@ template<size_t N>
 }// namespace detail
 
 #define LUISA_MAKE_KERNEL_ND(N)                                                                                \
+    template<typename T>                                                                                       \
+    class Kernel##N##D {                                                                                       \
+        static_assert(always_false_v<T>);                                                                      \
+    };                                                                                                         \
     template<typename... Args>                                                                                 \
     class Kernel##N##D<void(Args...)> {                                                                        \
                                                                                                                \
@@ -219,6 +208,7 @@ template<size_t N>
             (invoke << ... << args);                                                                           \
             return invoke;                                                                                     \
         }                                                                                                      \
+        void prepare(Device &device) const noexcept { device.prepare_kernel(_function.uid()); }                \
     };
 
 LUISA_MAKE_KERNEL_ND(1)
