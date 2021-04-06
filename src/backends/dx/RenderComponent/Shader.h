@@ -31,18 +31,13 @@ class VENGINE_DLL_RENDERER Shader final : public IShader {
 
 private:
 	vengine::vector<ShaderPass> allPasses;
-	Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature;
-	HashMap<uint, uint> mVariablesDict;
 	HashMap<vengine::string, uint> passName;
-	vengine::vector<ShaderVariable> mVariablesVector;
 	vengine::string name;
 	StackObject<SerializedObject, true> serObj;
 	Shader() {}
 	~Shader();
 	Shader(vengine::string const& name, GFXDevice* device, const vengine::string& csoFilePath);
 	//bool TrySetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const;
-	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const override;
-	bool SetResWithoutCheck(ThreadCommand* commandList, HashMap<uint, uint>::Iterator& ite, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const;
 
 public:
 	SerializedObject const* GetJsonObject() const override {
@@ -55,15 +50,19 @@ public:
 	void GetPassPSODesc(uint pass, D3D12_GRAPHICS_PIPELINE_STATE_DESC* targetPSO) const;
 	void BindShader(ThreadCommand* commandList, const DescriptorHeap* descHeap) const override;
 	void BindShader(ThreadCommand* commandList) const override;
-	int32_t GetPropertyRootSigPos(uint id) const override;
 	bool SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const override;
-	size_t VariableLength() const override { return mVariablesVector.size(); }
 	template<typename Func>
 	void IterateVariables(Func&& f) {
-		for (int32_t i = 0; i < mVariablesVector.size(); ++i) {
+		for (int32_t i; i < mVariablesVector.size(); ++i) {
 			f(mVariablesVector[i]);
 		}
 	}
+	bool SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, Mesh const* mesh, uint64 byteOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, TextureBase const* texture) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel) const override;
 
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	KILL_COPY_CONSTRUCT(Shader)

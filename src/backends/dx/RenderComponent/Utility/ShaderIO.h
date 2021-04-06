@@ -5,8 +5,7 @@
 #include "../ComputeShader.h"
 class SerializedObject;
 class ThreadCommand;
-class VENGINE_DLL_RENDERER ShaderIO
-{
+class VENGINE_DLL_RENDERER ShaderIO {
 public:
 	static void DecodeShader(
 		const vengine::string& fileName,
@@ -22,13 +21,12 @@ public:
 		vengine::vector<ShaderVariable> const& variables,
 		Microsoft::WRL::ComPtr<ID3DBlob>& serializedRootSig,
 		Microsoft::WRL::ComPtr<ID3DBlob>& errorBlob,
-		D3D_ROOT_SIGNATURE_VERSION rootSigVersion
-	);
+		D3D_ROOT_SIGNATURE_VERSION rootSigVersion);
 	static bool SetComputeBufferByAddress(
 		HashMap<uint, uint> const& varDict,
 		vengine::vector<ShaderVariable> const& varVector,
 		ThreadCommand* commandList,
-		uint id, 
+		uint id,
 		GpuAddress address);
 	static void DecodeDXRShader(
 		const vengine::string& fileName,
@@ -38,12 +36,10 @@ public:
 		uint64& recursiveCount,
 		uint64& raypayloadSize,
 		StackObject<SerializedObject, true>& serObj);
-
-	static bool SetComputeShaderResWithoutCheck(
-		vengine::vector<ShaderVariable> const& varVector,
-		ThreadCommand* commandList,
-		HashMap<uint, uint>::Iterator& ite,
-		const VObject* targetObj,
-		uint64 indexOffset,
-		IShader::ResourceType tyid);
+	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset);
+	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset);
+	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset);
+	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, Mesh const* mesh, uint64 byteOffset);
+	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, TextureBase const* texture);
+	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel);
 };

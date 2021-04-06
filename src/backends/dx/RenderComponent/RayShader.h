@@ -9,16 +9,19 @@ class ShaderLoader;
 class VENGINE_DLL_RENDERER RayShader final : public IShader
 {
 private:
-	HashMap<uint, uint> mVariablesDict;
-	vengine::vector<ShaderVariable> mVariablesVector;
 	Microsoft::WRL::ComPtr<ID3D12StateObject> mStateObj;
-	Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature;
 	DXRHitGroup hitGroups;
 	StackObject<SerializedObject, true> serObj;
 	StackObject<UploadBuffer, true> identifierBuffer;
-	bool SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const override;
 
 public:
+	bool SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, Mesh const* mesh, uint64 byteOffset) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, TextureBase const* texture) const override;
+	bool SetResource(ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel) const override;
+
 	vengine::string const& GetName() const {
 		return "";
 	}
@@ -26,8 +29,6 @@ public:
 	{
 		return serObj.Initialized() ? serObj : nullptr;
 	}
-	size_t VariableLength() const override { return mVariablesVector.size(); }
-	int32_t GetPropertyRootSigPos(uint id) const override;
 	void BindShader(ThreadCommand* commandList) const override;
 	void BindShader(ThreadCommand* commandList, const DescriptorHeap* heap) const override;
 	bool SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const override;

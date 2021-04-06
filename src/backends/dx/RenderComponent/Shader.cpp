@@ -4,10 +4,13 @@
 #include "TextureBase.h"
 #include "../RenderComponent/DescriptorHeap.h"
 #include "UploadBuffer.h"
+#include "TextureBase.h"
+#include "RenderTexture.h"
 #include <fstream>
 #include "../JobSystem/JobInclude.h"
 #include "Utility/ShaderIO.h"
 #include "StructuredBuffer.h"
+#include <Singleton/Graphics.h>
 #include "Mesh.h"
 #include "../PipelineComponent/ThreadCommand.h"
 using Microsoft::WRL::ComPtr;
@@ -86,137 +89,148 @@ Shader::Shader(vengine::string const& name, GFXDevice* device, const vengine::st
 		serializedRootSig->GetBufferSize(),
 		IID_PPV_ARGS(mRootSignature.GetAddressOf())));
 }
-int32_t Shader::GetPropertyRootSigPos(uint id) const {
-	auto ite = mVariablesDict.Find(id);
-	if (!ite) return -1;
-	return (int32_t)ite.Value();
-}
-/*
-bool Shader::TrySetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid)const
-{
-	if (!targetObj) return false;
-	auto ite = mVariablesDict.Find(id);
-	if (!ite) return false;
-	SetResWithoutCheck(commandList, ite, targetObj, indexOffset, tyid);
-	return true;
-}*/
-bool Shader::SetResWithoutCheck(ThreadCommand* commandList, HashMap<uint, uint>::Iterator& ite, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const {
-	uint rootSigPos = ite.Value();
-	const ShaderVariable& var = mVariablesVector[rootSigPos];
-	const UploadBuffer* uploadBufferPtr;
-	ID3D12DescriptorHeap* heap = nullptr;
+
+bool Shader::SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* targetDesc, uint64 indexOffset) const {
+	ShaderVariable var;
+	uint rootSigPos;
+	if (!VariableReflection(id, targetDesc, rootSigPos, var)) return false;
 	switch (var.type) {
-		case ShaderVariableType::SRVDescriptorHeap:
-			switch (tyid) {
-				case ResourceType::DESCRIPTOR_HEAP: {
-					const DescriptorHeap* targetDesc = static_cast<const DescriptorHeap*>(targetObj);
-					if ((var.tableSize != (uint)-1) && targetDesc->GetBindType(indexOffset) != BindType::SRV)
-						return false;
-					heap = targetDesc->Get();
-					commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
-						rootSigPos,
-						targetDesc->hGPU(indexOffset));
-				} break;
-				case ResourceType::TEXTURE: {
-#ifdef DEBUG
-					if (commandList->GetBindedHeap() != Graphics::GetGlobalDescHeap()) {
-						VEngine_Log("Global Heap not binded!\n"_sv);
-						VENGINE_EXIT;
-					}
-#endif
-					const DescriptorHeap* targetDesc = Graphics::GetGlobalDescHeap();
-					TextureBase const* tex = static_cast<TextureBase const*>(targetObj);
-					commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
-						rootSigPos,
-						targetDesc->hGPU(tex->GetGlobalDescIndex()));
-				} break;
-				default:
-					return false;
-			}
-
-			break;
+		case ShaderVariableType::SRVDescriptorHeap: {
+			ID3D12DescriptorHeap* heap = nullptr;
+			if ((var.tableSize != (uint)-1) && targetDesc->GetBindType(indexOffset) != BindType::SRV)
+				return false;
+			heap = targetDesc->Get();
+			commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
+				rootSigPos,
+				targetDesc->hGPU(indexOffset));
+		} break;
 		case ShaderVariableType::UAVDescriptorHeap: {
-			switch (tyid) {
-				case ResourceType::DESCRIPTOR_HEAP: {
-					const DescriptorHeap* targetDesc = static_cast<const DescriptorHeap*>(targetObj);
-					if ((var.tableSize != (uint)-1) && targetDesc->GetBindType(indexOffset) != BindType::UAV)
-						return false;
-					heap = targetDesc->Get();
-					commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
-						rootSigPos,
-						targetDesc->hGPU(indexOffset));
-				} break;
-				case ResourceType::TEXTURE: {
-#ifdef DEBUG
-					if (commandList->GetBindedHeap() != Graphics::GetGlobalDescHeap()) {
-						VEngine_Log("Global Heap not binded!\n"_sv);
-						VENGINE_EXIT;
-					}
-#endif
-					const DescriptorHeap* targetDesc = Graphics::GetGlobalDescHeap();
-					TextureBase const* tex = static_cast<TextureBase const*>(targetObj);
-					commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
-						rootSigPos,
-						targetDesc->hGPU(tex->GetGlobalUAVDescIndex(indexOffset)));
-				} break;
-				default:
-					return false;
-			}
-
-		} break;
-		case ShaderVariableType::ConstantBuffer: {
-
-			static constexpr uint BufferID = (uint)ResourceType::STRUCTURE_BUFFER | (uint)ResourceType::UPLOAD_BUFFER;
-			if (((uint)tyid & BufferID) == 0) {
+			if ((var.tableSize != (uint)-1) && targetDesc->GetBindType(indexOffset) != BindType::UAV)
 				return false;
-			}
-			if (tyid == ResourceType::UPLOAD_BUFFER) {
-				uploadBufferPtr = static_cast<const UploadBuffer*>(targetObj);
-				commandList->GetCmdList()->SetGraphicsRootConstantBufferView(
-					rootSigPos,
-					uploadBufferPtr->GetAddress(indexOffset).address);
-			} else {
-				const StructuredBuffer* sbufferPtr = static_cast<const StructuredBuffer*>(targetObj);
-				commandList->GetCmdList()->SetGraphicsRootConstantBufferView(
-					rootSigPos,
-					sbufferPtr->GetAddress(0, indexOffset).address);
-			}
+			ID3D12DescriptorHeap* heap = targetDesc->Get();
+			commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
+				rootSigPos,
+				targetDesc->hGPU(indexOffset));
 		} break;
-		case ShaderVariableType::StructuredBuffer:
-			static constexpr uint BufferMeshID = (uint)ResourceType::STRUCTURE_BUFFER | (uint)ResourceType::UPLOAD_BUFFER | (uint)ResourceType::MESH;
-			if (((uint)tyid & BufferMeshID) == 0) {
-				return false;
-			}
-			switch (tyid) {
-				case ResourceType::UPLOAD_BUFFER: {
-					uploadBufferPtr = static_cast<const UploadBuffer*>(targetObj);
-					commandList->GetCmdList()->SetGraphicsRootShaderResourceView(
-						rootSigPos,
-						uploadBufferPtr->GetAddress(indexOffset).address);
-				} break;
-				case ResourceType::MESH: {
-					const GPUResourceBase* meshPtr = static_cast<const GPUResourceBase*>(targetObj);
-					commandList->GetCmdList()->SetGraphicsRootShaderResourceView(
-						rootSigPos,
-						meshPtr->GetResource()->GetGPUVirtualAddress() + indexOffset);
-				} break;
-				default: {
-					const StructuredBuffer* sbufferPtr = static_cast<const StructuredBuffer*>(targetObj);
-					commandList->GetCmdList()->SetGraphicsRootShaderResourceView(
-						rootSigPos,
-						sbufferPtr->GetAddress(0, indexOffset).address);
-				} break;
-			}
-			break;
+		default:
+			return false;
 	}
 	return true;
 }
-bool Shader::SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const {
-	if (targetObj == nullptr) return false;
-	auto ite = mVariablesDict.Find(id);
-	if (!ite)
-		return false;
-	return SetResWithoutCheck(commandList, ite, targetObj, indexOffset, tyid);
+bool Shader::SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* targetObj, uint64 indexOffset) const {
+	ShaderVariable var;
+	uint rootSigPos;
+	if (!VariableReflection(id, targetObj, rootSigPos, var)) return false;
+	switch (var.type) {
+		case ShaderVariableType::ConstantBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootConstantBufferView(
+				rootSigPos,
+				targetObj->GetAddress(indexOffset).address);
+		} break;
+		case ShaderVariableType::StructuredBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootShaderResourceView(
+				rootSigPos,
+				targetObj->GetAddress(indexOffset).address);
+		} break;
+		case ShaderVariableType::RWStructuredBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootUnorderedAccessView(
+				rootSigPos,
+				targetObj->GetAddress(indexOffset).address);
+		} break;
+		default:
+			return false;
+	}
+	return true;
+}
+bool Shader::SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* sbufferPtr, uint64 indexOffset) const {
+	ShaderVariable var;
+	uint rootSigPos;
+	if (!VariableReflection(id, sbufferPtr, rootSigPos, var)) return false;
+	switch (var.type) {
+		case ShaderVariableType::ConstantBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootConstantBufferView(
+				rootSigPos,
+				sbufferPtr->GetAddress(0, indexOffset).address);
+		} break;
+		case ShaderVariableType::StructuredBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootShaderResourceView(
+				rootSigPos,
+				sbufferPtr->GetAddress(0, indexOffset).address);
+		} break;
+		case ShaderVariableType::RWStructuredBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootUnorderedAccessView(
+				rootSigPos,
+				sbufferPtr->GetAddress(0, indexOffset).address);
+		} break;
+		default:
+			return false;
+	}
+	return true;
+}
+bool Shader::SetResource(ThreadCommand* commandList, uint id, Mesh const* meshPtr, uint64 byteOffset) const {
+	ShaderVariable var;
+	uint rootSigPos;
+	if (!VariableReflection(id, meshPtr, rootSigPos, var)) return false;
+	switch (var.type) {
+		case ShaderVariableType::ConstantBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootConstantBufferView(
+				rootSigPos,
+				meshPtr->GetResource()->GetGPUVirtualAddress() + byteOffset);
+		} break;
+		case ShaderVariableType::StructuredBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootShaderResourceView(
+				rootSigPos,
+				meshPtr->GetResource()->GetGPUVirtualAddress() + byteOffset);
+		} break;
+		case ShaderVariableType::RWStructuredBuffer: {
+			commandList->GetCmdList()->SetGraphicsRootUnorderedAccessView(
+				rootSigPos,
+				meshPtr->GetResource()->GetGPUVirtualAddress() + byteOffset);
+		} break;
+		default:
+			return false;
+	}
+	return true;
+}
+bool Shader::SetResource(ThreadCommand* commandList, uint id, TextureBase const* targetObj) const {
+	ShaderVariable var;
+	uint rootSigPos;
+	if (!VariableReflection(id, targetObj, rootSigPos, var)) return false;
+	switch (var.type) {
+		case ShaderVariableType::SRVDescriptorHeap: {
+			commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
+				rootSigPos,
+				Graphics::GetGlobalDescHeap()->hGPU(targetObj->GetGlobalDescIndex()));
+		} break;
+		case ShaderVariableType::UAVDescriptorHeap: {
+			commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
+				rootSigPos,
+				Graphics::GetGlobalDescHeap()->hGPU(targetObj->GetGlobalUAVDescIndex(0)));
+		} break;
+		default:
+			return false;
+	}
+	return true;
+}
+bool Shader::SetResource(ThreadCommand* commandList, uint id, RenderTexture const* targetObj, uint64 uavMipLevel) const {
+	ShaderVariable var;
+	uint rootSigPos;
+	if (!VariableReflection(id, targetObj, rootSigPos, var)) return false;
+	switch (var.type) {
+		case ShaderVariableType::SRVDescriptorHeap: {
+			commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
+				rootSigPos,
+				Graphics::GetGlobalDescHeap()->hGPU(targetObj->GetGlobalDescIndex()));
+		} break;
+		case ShaderVariableType::UAVDescriptorHeap: {
+			commandList->GetCmdList()->SetGraphicsRootDescriptorTable(
+				rootSigPos,
+				Graphics::GetGlobalDescHeap()->hGPU(targetObj->GetGlobalUAVDescIndex(uavMipLevel)));
+		} break;
+		default:
+			return false;
+	}
+	return true;
 }
 bool Shader::SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const {
 	auto ite = mVariablesDict.Find(id);
@@ -231,6 +245,11 @@ bool Shader::SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress 
 			break;
 		case ShaderVariableType::StructuredBuffer:
 			commandList->GetCmdList()->SetGraphicsRootShaderResourceView(
+				rootSigPos,
+				address.address);
+			break;
+		case ShaderVariableType::RWStructuredBuffer:
+			commandList->GetCmdList()->SetGraphicsRootUnorderedAccessView(
 				rootSigPos,
 				address.address);
 			break;

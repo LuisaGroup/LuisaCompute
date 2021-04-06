@@ -1,5 +1,4 @@
 #include "RayShader.h"
-#include "RayShader.h"
 #include "../Singleton/ShaderID.h"
 #include "Texture.h"
 #include "../RenderComponent/DescriptorHeap.h"
@@ -126,11 +125,6 @@ void RayShader::DispatchRays(
 	cmdList->DispatchRays(
 		&dispatchDesc);
 }
-int32_t RayShader::GetPropertyRootSigPos(uint id) const {
-	auto ite = mVariablesDict.Find(id);
-	if (!ite) return -1;
-	return (int32_t)ite.Value();
-}
 
 void RayShader::BindShader(ThreadCommand* commandList) const {
 	if (!commandList->UpdateRegisterShader(this)) return;
@@ -149,10 +143,21 @@ bool RayShader::SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddre
 		id,
 		address);
 }
-bool RayShader::SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const {
-	if (targetObj == nullptr) return false;
-	auto ite = mVariablesDict.Find(id);
-	if (!ite)
-		return false;
-	return ShaderIO::SetComputeShaderResWithoutCheck(mVariablesVector, commandList, ite, targetObj, indexOffset, tyid);
+bool RayShader::SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool RayShader::SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool RayShader::SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool RayShader::SetResource(ThreadCommand* commandList, uint id, Mesh const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool RayShader::SetResource(ThreadCommand* commandList, uint id, TextureBase const* obj) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj);
+}
+bool RayShader::SetResource(ThreadCommand* commandList, uint id, RenderTexture const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
 }

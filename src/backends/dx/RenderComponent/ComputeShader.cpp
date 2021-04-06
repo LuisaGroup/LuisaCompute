@@ -68,20 +68,6 @@ void ComputeShader::BindShader(ThreadCommand* commandList, const DescriptorHeap*
 	commandList->GetCmdList()->SetComputeRootSignature(mRootSignature.Get());
 	heap->SetDescriptorHeap(commandList);
 }
-int32_t ComputeShader::GetPropertyRootSigPos(uint id) const {
-	auto ite = mVariablesDict.Find(id);
-	if (!ite) return -1;
-	return (int32_t)ite.Value();
-}
-/*
-bool ComputeShader::TrySetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const
-{
-	if (targetObj == nullptr) return false;
-	auto ite = mVariablesDict.Find(id);
-	if (!ite) return false;
-	ShaderIO::SetComputeShaderResWithoutCheck(mVariablesVector, commandList, ite, targetObj, indexOffset, tyid);
-	return true;
-}*/
 bool ComputeShader::SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const {
 	return ShaderIO::SetComputeBufferByAddress(
 		mVariablesDict,
@@ -90,12 +76,24 @@ bool ComputeShader::SetBufferByAddress(ThreadCommand* commandList, uint id, GpuA
 		id,
 		address);
 }
-bool ComputeShader::SetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, ResourceType tyid) const {
-	if (targetObj == nullptr) return false;
-	auto ite = mVariablesDict.Find(id);
-	if (!ite)
-		return false;
-	return ShaderIO::SetComputeShaderResWithoutCheck(mVariablesVector, commandList, ite, targetObj, indexOffset, tyid);
+
+bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, Mesh const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
+}
+bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, TextureBase const* obj) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj);
+}
+bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, RenderTexture const* obj, uint64 offset) const {
+	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
 }
 void ComputeShader::Dispatch(ThreadCommand* commandList, uint kernel, uint x, uint y, uint z) const {
 	commandList->ExecuteResBarrier();
