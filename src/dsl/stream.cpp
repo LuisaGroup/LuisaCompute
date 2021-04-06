@@ -5,7 +5,7 @@
 #include <utility>
 #include <dsl/stream.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 void Stream::_dispatch(CommandBuffer command_buffer, std::function<void()> callback) noexcept {
     _device->dispatch(_handle, std::move(command_buffer), std::move(callback));
@@ -53,7 +53,9 @@ Stream::Delegate &Stream::Delegate::operator<<(std::function<void()> f) noexcept
             callback();
             f();
         };
-    } else { _callback = std::move(f); }
+    } else {
+        _callback = std::move(f);
+    }
     return *this;
 }
 

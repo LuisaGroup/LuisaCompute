@@ -12,7 +12,7 @@
 #include <dsl/expr.h>
 #include <dsl/var.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 template<PixelFormat>
 class ImageView;
@@ -192,4 +192,4 @@ public:
 template<PixelFormat format>
 Var(detail::ImageAccess<format>) -> Var<float4>;
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute

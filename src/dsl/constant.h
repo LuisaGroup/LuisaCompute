@@ -7,7 +7,7 @@
 #include <ast/constant_data.h>
 #include <dsl/expr.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 template<typename T>
 class Constant {
@@ -60,4 +60,4 @@ Constant(std::initializer_list<T>) -> Constant<T>;
 template<concepts::container T>
 Constant(T &&) -> Constant<std::remove_const_t<typename std::remove_cvref_t<T>::value_type>>;
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute

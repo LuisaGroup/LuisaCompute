@@ -6,9 +6,8 @@
 
 #include <dsl/var.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
-// statement buiders
 namespace detail {
 
 class IfStmtBuilder {
@@ -279,4 +278,4 @@ template<concepts::integral T>
     return detail::ForRange<T, true>{begin, Var{end}, Var{step}};
 }
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute

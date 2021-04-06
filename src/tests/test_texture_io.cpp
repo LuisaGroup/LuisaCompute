@@ -11,7 +11,6 @@
 
 using namespace luisa;
 using namespace luisa::compute;
-using namespace luisa::compute::dsl;
 
 int main(int argc, char *argv[]) {
 

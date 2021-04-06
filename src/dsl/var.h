@@ -7,7 +7,7 @@
 #include <dsl/expr.h>
 #include <dsl/arg.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 template<typename T>
 class Var : public detail::Expr<T> {
@@ -22,7 +22,7 @@ public:
         : detail::Expr<T>{FunctionBuilder::current()->local(
             Type::of<T>(),
             {detail::extract_expression(std::forward<Args>(args))...})} {}
-    
+
     // for internal use only...
     explicit Var(detail::ArgumentCreation) noexcept
         : detail::Expr<T>{FunctionBuilder::current()->argument(Type::of<T>())} {}
@@ -42,4 +42,4 @@ Var(T &&) -> Var<T>;
 template<typename T, size_t N>
 using VarArray = Var<std::array<T, N>>;
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute

@@ -10,7 +10,6 @@
 
 using namespace luisa;
 using namespace luisa::compute;
-using namespace luisa::compute::dsl;
 
 struct Test {
     int3 something;

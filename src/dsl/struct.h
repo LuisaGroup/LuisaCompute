@@ -18,7 +18,7 @@ public:                                                                     \
 
 #define LUISA_STRUCT(S, ...)                                                                                     \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                                         \
-    namespace luisa::compute::dsl::detail {                                                                      \
+    namespace luisa::compute::detail {                                                                           \
     template<>                                                                                                   \
     struct Expr<S> : public ExprBase<S> {                                                                        \
     private:                                                                                                     \
@@ -37,4 +37,4 @@ public:                                                                     \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR, __VA_ARGS__)                                                    \
     };                                                                                                           \
     }                                                                                                            \
-    using $##S = ::luisa::compute::dsl::Var<S>;
+    using $##S = ::luisa::compute::Var<S>;

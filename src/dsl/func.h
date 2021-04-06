@@ -10,7 +10,7 @@
 #include <dsl/buffer.h>
 #include <dsl/image.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 namespace detail {
 
@@ -164,7 +164,7 @@ public:
             static_cast<Command::Resource::Usage>(usage));
         return *this;
     }
-    
+
     template<PixelFormat format>
     KernelInvoke &operator<<(ImageView<format> image) noexcept {
         auto usage = _function.variable_usage(
@@ -419,9 +419,9 @@ Kernel3D(T &&) -> Kernel3D<detail::function_t<T>>;
 template<typename T>
 Callable(T &&) -> Callable<detail::function_t<T>>;
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute
 
-namespace luisa::compute::dsl::detail {
+namespace luisa::compute::detail {
 
 struct CallableBuilder {
     template<typename F>
@@ -443,9 +443,9 @@ struct Kernel3DBuilder {
     [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel3D{std::forward<F>(def)}; }
 };
 
-}// namespace luisa::compute::dsl::detail
+}// namespace luisa::compute::detail
 
-#define LUISA_KERNEL1D ::luisa::compute::dsl::detail::Kernel1DBuilder{} % [&]
-#define LUISA_KERNEL2D ::luisa::compute::dsl::detail::Kernel2DBuilder{} % [&]
-#define LUISA_KERNEL3D ::luisa::compute::dsl::detail::Kernel3DBuilder{} % [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} % [&]
+#define LUISA_KERNEL1D ::luisa::compute::detail::Kernel1DBuilder{} % [&]
+#define LUISA_KERNEL2D ::luisa::compute::detail::Kernel2DBuilder{} % [&]
+#define LUISA_KERNEL3D ::luisa::compute::detail::Kernel3DBuilder{} % [&]
+#define LUISA_CALLABLE ::luisa::compute::detail::CallableBuilder{} % [&]

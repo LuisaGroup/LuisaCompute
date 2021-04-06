@@ -9,7 +9,7 @@
 #include <dsl/expr.h>
 #include <dsl/arg.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 template<typename T>
 class BufferView;
@@ -22,7 +22,7 @@ class BufferView;
 
 template<typename T>
 class Buffer : public concepts::Noncopyable {
-    
+
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
@@ -35,12 +35,12 @@ public:
         : _device{&device},
           _size{size},
           _handle{device.create_buffer(size * sizeof(T))} {}
-    
+
     Buffer(Buffer &&another) noexcept
         : _device{another._device},
           _handle{another._handle},
           _size{another._handle} { another._device = nullptr; }
-    
+
     Buffer &operator=(Buffer &&rhs) noexcept {
         if (&rhs != this) {
             _device->dispose_buffer(_handle);
@@ -51,22 +51,22 @@ public:
         }
         return *this;
     }
-    
+
     ~Buffer() noexcept {
         if (_device != nullptr /* not moved */) {
             _device->dispose_buffer(_handle);
         }
     }
-    
+
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
     [[nodiscard]] auto view() const noexcept { return BufferView<T>{_handle, 0u, _size}; }
-    
+
     [[nodiscard]] auto copy_to(T *data) const noexcept { return this->view().copy_to(data); }
     [[nodiscard]] auto copy_from(const T *data) { return this->view().copy_from(data); }
     [[nodiscard]] auto copy_from(BufferView<T> source) { return this->view().copy_from(source); }
-    
+
     template<typename I>
     [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
         return this->view()[std::forward<I>(i)];
@@ -157,7 +157,7 @@ public:
         auto expr = FunctionBuilder::current()->access(Type::of<T>(), self, i.expression());
         return detail::Expr<T>{expr};
     }
-    
+
     // for internal use only
     explicit BufferView(detail::ArgumentCreation) noexcept
         : _expression{FunctionBuilder::current()->buffer(Type::of<T>())} {}
@@ -196,4 +196,4 @@ constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
 template<typename T>
 constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::view;
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute
