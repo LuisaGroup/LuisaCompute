@@ -8,8 +8,8 @@
 #include <dsl/constant.h>
 #include <dsl/shared.h>
 #include <dsl/struct.h>
-#include <dsl/var.h>
 #include <dsl/stmt.h>
 #include <dsl/buffer.h>
-#include <dsl/texture.h>
+#include <dsl/image.h>
 #include <dsl/stream.h>
+#include <dsl/var.h>

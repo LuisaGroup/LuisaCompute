@@ -298,12 +298,29 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag, uint32_t uid) noexcep
       _shared_variables{_arena()},
       _captured_constants{_arena()},
       _captured_buffers{_arena()},
-      _captured_textures{_arena()},
+      _captured_images{_arena()},
       _arguments{_arena()},
       _used_custom_callables{_arena()},
       _used_builtin_callables{_arena()},
       _variable_usages{_arena(), 128u},
       _tag{tag},
       _uid{uid} {}
+
+const RefExpr *FunctionBuilder::image() noexcept {
+    Variable v{nullptr, Variable::Tag::IMAGE, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return _ref(v);
+}
+
+const RefExpr *FunctionBuilder::image_binding(uint64_t handle) noexcept {
+    if (auto iter = std::find_if(
+            _captured_images.cbegin(),
+            _captured_images.cend(),
+            [handle](auto &&binding) { return binding.handle == handle; });
+        iter != _captured_images.cend()) { return _ref(iter->variable); }
+    Variable v{nullptr, Variable::Tag::IMAGE, _next_variable_uid()};
+    _captured_images.emplace_back(ImageBinding{v, handle});
+    return _ref(v);
+}
 
 }// namespace luisa::compute

@@ -84,7 +84,7 @@ private:
     size_t _size{0u};
     const RefExpr *_expression{nullptr};
 
-protected:
+private:
     friend class Buffer<T>;
     BufferView(uint64_t handle, size_t offset_bytes, size_t size) noexcept
         : _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {

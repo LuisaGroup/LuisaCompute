@@ -322,7 +322,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
         }
         _scratch << ",";
     }
-    for (auto tex : f.captured_textures()) {
+    for (auto tex : f.captured_images()) {
         LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     for (auto buffer : f.captured_buffers()) {
@@ -345,7 +345,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
         _scratch << ",";
     }
     if (!f.arguments().empty()
-        || !f.captured_textures().empty()
+        || !f.captured_images().empty()
         || !f.captured_buffers().empty()
         || !f.builtin_variables().empty()) {
         _scratch.pop_back();
@@ -370,7 +370,7 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
-        case Variable::Tag::TEXTURE: _scratch << "t" << v.uid(); break;
+        case Variable::Tag::IMAGE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
@@ -438,8 +438,17 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_type_name(v.type());
             _scratch << " *";
             break;
-        case Variable::Tag::TEXTURE:
-            LUISA_ERROR_WITH_LOCATION("Not implemented!");
+        case Variable::Tag::IMAGE:
+            _scratch << "image<float, ";
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Variable::Usage::READ_WRITE) {
+                _scratch << "access::read_write> ";
+            } else if (usage == Variable::Usage::WRITE) {
+                _scratch << "access::write> ";
+            } else {
+                _scratch << "access::read> ";
+            }
+            _emit_variable_name(v);
             break;
         case Variable::Tag::UNIFORM:
         case Variable::Tag::THREAD_ID:

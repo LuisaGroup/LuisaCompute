@@ -134,7 +134,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
     if (_function.tag() == Function::Tag::KERNEL
         && (v.tag() == Variable::Tag::UNIFORM
             || v.tag() == Variable::Tag::BUFFER
-            || v.tag() == Variable::Tag::TEXTURE
+            || v.tag() == Variable::Tag::IMAGE
             || v.tag() == Variable::Tag::LAUNCH_SIZE)) {
         _scratch << "arg.";
     }
@@ -279,10 +279,21 @@ void MetalCodegen::visit(const AssignStmt *stmt) {
 }
 
 void MetalCodegen::emit(Function f) {
-    _scratch << "#include <metal_stdlib>\n"
-                "\n"
-                "using namespace metal;\n"
-                "\n";
+    _scratch << R"(#include <metal_stdlib>
+
+using namespace metal;
+
+template<access a>
+[[nodiscard]] auto builtin_texture_read(texture2d<float, a> t, uint2 uv) {
+    return t.read(uv);
+}
+
+template<access a>
+void builtin_texture_write(texture2d<float, a> t, uint2 uv, float4 value) {
+    t.write(value, uv);
+}
+
+)";
     _emit_type_decl();
     _emit_function(f);
 }
@@ -319,7 +330,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_variable_decl(buffer.variable);
             _scratch << ";";
         }
-        for (auto tex : f.captured_textures()) {
+        for (auto tex : f.captured_images()) {
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
         }
         for (auto arg : f.arguments()) {
@@ -355,7 +366,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_variable_decl(buffer.variable);
             _scratch << ",";
         }
-        for (auto tex : f.captured_textures()) {
+        for (auto tex : f.captured_images()) {
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
         }
         for (auto arg : f.arguments()) {
@@ -364,7 +375,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _scratch << ",";
         }
         if (!f.arguments().empty()
-            || !f.captured_textures().empty()
+            || !f.captured_images().empty()
             || !f.captured_buffers().empty()) {
             _scratch.pop_back();
         }
@@ -391,7 +402,7 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
-        case Variable::Tag::TEXTURE: _scratch << "t" << v.uid(); break;
+        case Variable::Tag::IMAGE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
@@ -461,8 +472,17 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << " *";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::TEXTURE:
-            LUISA_ERROR_WITH_LOCATION("Not implemented!");
+        case Variable::Tag::IMAGE:
+            _scratch << "texture2d<float, ";
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Variable::Usage::READ_WRITE) {
+                _scratch << "access::read_write> ";
+            } else if (usage == Variable::Usage::WRITE) {
+                _scratch << "access::write> ";
+            } else {
+                _scratch << "access::read> ";
+            }
+            _emit_variable_name(v);
             break;
         case Variable::Tag::UNIFORM:
             _scratch << "const ";

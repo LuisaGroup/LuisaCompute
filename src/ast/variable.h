@@ -20,17 +20,17 @@ public:
 
         // resources
         BUFFER,
-        TEXTURE,
-        // TODO: Bindless Texture
-        // TODO: Writable Texture, Writable Buffer
+        IMAGE,
         
+        // TODO: Bindless Textures
+
         // builtins
         THREAD_ID,
         BLOCK_ID,
         DISPATCH_ID,
         LAUNCH_SIZE
     };
-    
+
     enum struct Usage : uint32_t {
         NONE = 0,
         READ = 0x01,

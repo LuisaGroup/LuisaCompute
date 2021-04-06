@@ -14,6 +14,10 @@ class MetalCommandEncoder : public CommandVisitor {
 private:
     MetalDevice *_device;
     id<MTLCommandBuffer> _command_buffer;
+    
+private:
+    [[nodiscard]] std::pair<id<MTLBuffer>, size_t> _wrap_output_buffer(void *data, size_t size) noexcept;
+    [[nodiscard]] id<MTLBuffer> _allocate_input_buffer(const void *data, size_t size) noexcept;
 
 public:
     MetalCommandEncoder(MetalDevice *device, id<MTLCommandBuffer> cb) noexcept;
@@ -21,6 +25,8 @@ public:
     void visit(const BufferUploadCommand *command) noexcept override;
     void visit(const BufferDownloadCommand *command) noexcept override;
     void visit(const KernelLaunchCommand *command) noexcept override;
+    void visit(const TextureUploadCommand *command) noexcept override;
+    void visit(const TextureDownloadCommand *command) noexcept override;
 };
 
 }// namespace luisa::compute::metal

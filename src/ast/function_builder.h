@@ -42,7 +42,7 @@ public:
     using Tag = Function::Tag;
     using ConstantBinding = Function::ConstantBinding;
     using BufferBinding = Function::BufferBinding;
-    using TextureBinding = Function::TextureBinding;
+    using ImageBinding = Function::ImageBinding;
 
 private:
     ScopeStmt _body;
@@ -52,7 +52,7 @@ private:
     ArenaVector<Variable> _shared_variables;
     ArenaVector<ConstantBinding> _captured_constants;
     ArenaVector<BufferBinding> _captured_buffers;
-    ArenaVector<TextureBinding> _captured_textures;
+    ArenaVector<ImageBinding> _captured_images;
     ArenaVector<Variable> _arguments;
     ArenaVector<uint32_t> _used_custom_callables;
     ArenaVector<std::string_view> _used_builtin_callables;
@@ -71,7 +71,6 @@ protected:
     void _append(const Statement *statement) noexcept;
 
     [[nodiscard]] const RefExpr *_builtin(Variable::Tag tag) noexcept;
-    [[nodiscard]] const RefExpr *_texture_binding(const Type *type, uint64_t handle) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
 
 private:
@@ -94,7 +93,7 @@ public:
     [[nodiscard]] auto shared_variables() const noexcept { return std::span{_shared_variables.data(), _shared_variables.size()}; }
     [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants.data(), _captured_constants.size()}; }
     [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
-    [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
+    [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_images.data(), _captured_images.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
@@ -146,12 +145,12 @@ public:
 
     [[nodiscard]] const ConstantExpr *constant(const Type *type, uint64_t hash) noexcept;
     [[nodiscard]] const RefExpr *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
-    [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const RefExpr *image_binding(uint64_t handle) noexcept;
 
     // explicit arguments
     [[nodiscard]] const RefExpr *argument(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *buffer(const Type *type) noexcept;
-    [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *image() noexcept;
 
     // expressions
     [[nodiscard]] const LiteralExpr *literal(const Type *type, LiteralExpr::Value value) noexcept;

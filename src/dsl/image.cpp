@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/3/29.
 //
 
-#include <runtime/device.h>
-#include <dsl/texture.h>
+#include "ast/function_builder.h"
+#include <dsl/image.h>
 
 namespace luisa::compute::dsl {
 
@@ -19,43 +19,46 @@ namespace detail {
 
 }// namespace detail
 
-Texture::Texture(Device &device, PixelFormat format, uint width, uint height, uint mipmap_levels) noexcept
+Image::Image(Device &device, PixelFormat format, uint2 size) noexcept
     : _device{&device},
       _handle{device.create_texture(
-          format, 2, width, height, 1,
-          detail::valid_mipmap_levels(width, height, mipmap_levels),
-          false)},
-      _format{format},
-      _width{width},
-      _height{height},
-      _mipmap_levels{detail::valid_mipmap_levels(width, height, mipmap_levels)} {}
+          format, 2u,
+          size.x, size.y, 1u,
+          1u, false)},
+      _size{size},
+      _format{format} {}
 
-Texture::~Texture() noexcept {
+Image::~Image() noexcept {
     if (_device != nullptr) {
         _device->dispose_texture(_handle);
     }
 }
 
-Texture::Texture(Texture &&another) noexcept
+Image::Image(Image &&another) noexcept
     : _device{another._device},
       _handle{another._handle},
-      _format{another._format},
-      _width{another._width},
-      _height{another._height},
-      _mipmap_levels{another._mipmap_levels} { another._device = nullptr; }
+      _size{another._size},
+      _format{another._format} { another._device = nullptr; }
 
-Texture &Texture::operator=(Texture &&rhs) noexcept {
+Image &Image::operator=(Image &&rhs) noexcept {
     if (&rhs != this) {
         _device->dispose_texture(_handle);
         _device = rhs._device;
         _handle = rhs._handle;
+        _size = rhs._size;
         _format = rhs._format;
-        _width = rhs._width;
-        _height = rhs._height;
-        _mipmap_levels = rhs._mipmap_levels;
         rhs._device = nullptr;
     }
     return *this;
+}
+
+ImageView Image::view() const noexcept {
+    return ImageView{_handle, _format, _size};
+}
+
+detail::ImageAccess ImageView::operator[](detail::Expr<uint2> uv) const noexcept {
+    auto self = _expression ? _expression : FunctionBuilder::current()->image_binding(_handle);
+    return {self, uv.expression()};
 }
 
 }// namespace luisa::compute::dsl

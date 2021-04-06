@@ -160,7 +160,7 @@ uint64_t MetalDevice::create_texture(PixelFormat format, uint dimension, uint wi
     switch (dimension) {
         case 2u: desc.textureType = MTLTextureType2D; break;
         case 3u: desc.textureType = MTLTextureType3D; break;
-        default: LUISA_ERROR_WITH_LOCATION("Invalid texture dimension {}.", dimension); break;
+        default: LUISA_ERROR_WITH_LOCATION("Invalid image dimension {}.", dimension); break;
     }
     desc.width = width;
     desc.height = height;
@@ -184,7 +184,7 @@ uint64_t MetalDevice::create_texture(PixelFormat format, uint dimension, uint wi
     auto texture = [_handle newTextureWithDescriptor:desc];
 
     LUISA_VERBOSE_WITH_LOCATION(
-        "Created texture (with {} mipmap{}) in {} ms.",
+        "Created image (with {} mipmap{}) in {} ms.",
         mipmap_levels, mipmap_levels <= 1u ? "" : "s",
         clock.toc());
 
@@ -210,7 +210,7 @@ void MetalDevice::dispose_texture(uint64_t handle) noexcept {
         _texture_slots[handle] = nullptr;
         _available_texture_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed texture #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Disposed image #{}.", handle);
 }
 
 id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {

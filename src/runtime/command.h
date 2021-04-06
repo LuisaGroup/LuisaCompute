@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "runtime/pixel_format.h"
 #include <cstdint>
 #include <cstddef>
 #include <variant>
@@ -19,51 +20,50 @@
 
 namespace luisa::compute {
 
-class Command;
-class BufferUploadCommand;
-class BufferDownloadCommand;
-class BufferCopyCommand;
-class KernelLaunchCommand;
+#define LUISA_ALL_COMMANDS     \
+    BufferUploadCommand,       \
+        BufferDownloadCommand, \
+        BufferCopyCommand,     \
+        KernelLaunchCommand,   \
+        TextureUploadCommand,  \
+        TextureDownloadCommand
+
+#define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
+LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
+#undef LUISA_MAKE_COMMAND_FWD_DECL
 
 struct CommandVisitor {
-    virtual void visit(const BufferCopyCommand *) noexcept = 0;
-    virtual void visit(const BufferUploadCommand *) noexcept = 0;
-    virtual void visit(const BufferDownloadCommand *) noexcept = 0;
-    virtual void visit(const KernelLaunchCommand *) noexcept = 0;
+#define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
+    virtual void visit(const CMD *) noexcept = 0;
+    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_ALL_COMMANDS)
+#undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
+
+class Command;
 
 namespace detail {
 
 #define LUISA_MAKE_COMMAND_POOL_DECL(Cmd) \
     [[nodiscard]] Pool<Cmd> &pool_##Cmd() noexcept;
-LUISA_MAKE_COMMAND_POOL_DECL(BufferCopyCommand)
-LUISA_MAKE_COMMAND_POOL_DECL(BufferUploadCommand)
-LUISA_MAKE_COMMAND_POOL_DECL(BufferDownloadCommand)
-LUISA_MAKE_COMMAND_POOL_DECL(KernelLaunchCommand)
+LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_DECL
 
 class CommandRecycle : private CommandVisitor {
 
-private:
-    void visit(const BufferCopyCommand *command) noexcept override;
-    void visit(const BufferUploadCommand *command) noexcept override;
-    void visit(const BufferDownloadCommand *command) noexcept override;
-    void visit(const KernelLaunchCommand *command) noexcept override;
+#define LUISA_MAKE_COMMAND_RECYCLE(CMD) \
+    void visit(const CMD *command) noexcept override;
+    LUISA_MAP(LUISA_MAKE_COMMAND_RECYCLE, LUISA_ALL_COMMANDS)
+#undef LUISA_MAKE_COMMAND_RECYCLE
 
 public:
-    void operator()(Command *command) noexcept;
+    void operator()(class Command *command) noexcept;
 };
 
 }// namespace detail
 
 using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
 
-#define LUISA_MAKE_COMMAND_ACCEPT_VISITOR()                        \
-    void accept(CommandVisitor &visitor) const noexcept override { \
-        visitor.visit(this);                                       \
-    }
-
-#define LUISA_MAKE_COMMAND_CREATOR(Cmd)                                          \
+#define LUISA_MAKE_COMMAND_COMMON(Cmd)                                           \
     template<typename... Args>                                                   \
     [[nodiscard]] static auto create(Args &&...args) noexcept {                  \
         Clock clock;                                                             \
@@ -72,11 +72,10 @@ using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
             "Created {} in {} ms.", #Cmd, clock.toc());                          \
         auto command_ptr = static_cast<Command *>(command.release());            \
         return CommandHandle{command_ptr};                                       \
+    }                                                                            \
+    void accept(CommandVisitor &visitor) const noexcept override {               \
+        visitor.visit(this);                                                     \
     }
-
-#define LUISA_MAKE_COMMAND_COMMON(Cmd) \
-    LUISA_MAKE_COMMAND_CREATOR(Cmd)    \
-    LUISA_MAKE_COMMAND_ACCEPT_VISITOR()
 
 class Command {
 
@@ -197,6 +196,64 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferCopyCommand)
 };
 
+class TextureUploadCommand : public Command {
+
+private:
+    uint64_t _handle;
+    PixelFormat _format;
+    uint _level;
+    uint3 _offset;
+    uint3 _size;
+    const void *_data;
+
+public:
+    TextureUploadCommand(
+        uint64_t handle, PixelFormat format, uint level,
+        uint3 offset, uint3 size, const void *data) noexcept
+        : _handle{handle},
+          _format{format},
+          _level{level},
+          _offset{offset},
+          _size{size},
+          _data{data} { _texture_write_only(_handle); }
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto format() const noexcept { return _format; }
+    [[nodiscard]] auto level() const noexcept { return _level; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto data() const noexcept { return _data; }
+    LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand)
+};
+
+class TextureDownloadCommand : public Command {
+
+private:
+    uint64_t _handle;
+    PixelFormat _format;
+    uint _level;
+    uint3 _offset;
+    uint3 _size;
+    void *_data;
+
+public:
+    TextureDownloadCommand(
+        uint64_t handle, PixelFormat format, uint level,
+        uint3 offset, uint3 size, void *data) noexcept
+        : _handle{handle},
+          _format{format},
+          _level{level},
+          _offset{offset},
+          _size{size},
+          _data{data} { _texture_read_only(_handle); }
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto format() const noexcept { return _format; }
+    [[nodiscard]] auto level() const noexcept { return _level; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto data() const noexcept { return _data; }
+    LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
+};
+
 class KernelLaunchCommand : public Command {
 
 public:
@@ -210,14 +267,14 @@ public:
     };
 
     struct BufferArgument : Argument {
+        Resource::Usage usage;
         uint64_t handle;
         size_t offset;
-        Resource::Usage usage;
     };
 
     struct TextureArgument : Argument {
-        uint64_t handle;
         Resource::Usage usage;
+        uint64_t handle;
     };
 
     struct UniformArgument : Argument {
@@ -246,7 +303,7 @@ public:
     //   2. captured textures
     //   3. arguments
     void encode_buffer(uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
-    // TODO: encode texture
+    void encode_texture(uint64_t handle, Resource::Usage usage) noexcept;
     void encode_uniform(const void *data, size_t size) noexcept;
 
     template<typename Visit>
@@ -289,12 +346,6 @@ public:
     LUISA_MAKE_COMMAND_COMMON(KernelLaunchCommand)
 };
 
-#undef LUISA_MAKE_COMMAND_ACCEPT_VISITOR
-#undef LUISA_MAKE_COMMAND_CREATOR
 #undef LUISA_MAKE_COMMAND_COMMON
-
-namespace detail {
-
-}// namespace detail
 
 }// namespace luisa::compute

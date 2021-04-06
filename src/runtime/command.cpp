@@ -26,7 +26,7 @@ inline void Command::_use_resource(
         != _resource_slots.cbegin() + _resource_count) {
         LUISA_ERROR_WITH_LOCATION(
             "Aliasing in {} resource with handle {}.",
-            tag == Resource::Tag::BUFFER ? "buffer" : "texture",
+            tag == Resource::Tag::BUFFER ? "buffer" : "image",
             handle);
     }
     _resource_slots[_resource_count++] = {handle, tag, usage};
@@ -80,6 +80,29 @@ void KernelLaunchCommand::encode_buffer(
     _argument_count++;
 }
 
+void KernelLaunchCommand::encode_texture(
+    uint64_t handle,
+    Command::Resource::Usage usage) noexcept {
+    
+    TextureArgument argument{};
+    argument.tag = Argument::Tag::TEXTURE;
+    argument.handle = handle;
+    argument.usage = usage;
+    
+    if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to encode texture. "
+            "Kernel argument buffer exceeded size limit {}.",
+            _argument_buffer.size());
+    }
+    std::memcpy(
+        _argument_buffer.data() + _argument_buffer_size,
+        &argument, sizeof(TextureArgument));
+    _use_resource(handle, Resource::Tag::TEXTURE, usage);
+    _argument_buffer_size += sizeof(TextureArgument);
+    _argument_count++;
+}
+
 void KernelLaunchCommand::encode_uniform(const void *data, size_t size) noexcept {
     UniformArgument argument{};
     argument.tag = Argument::Tag::UNIFORM;
@@ -115,10 +138,7 @@ namespace detail {
         static Pool<Cmd> pool{Arena::global()}; \
         return pool;                            \
     }
-LUISA_MAKE_COMMAND_POOL_IMPL(BufferCopyCommand)
-LUISA_MAKE_COMMAND_POOL_IMPL(BufferUploadCommand)
-LUISA_MAKE_COMMAND_POOL_IMPL(BufferDownloadCommand)
-LUISA_MAKE_COMMAND_POOL_IMPL(KernelLaunchCommand)
+LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_IMPL
 
 void CommandRecycle::operator()(Command *command) noexcept {
@@ -132,10 +152,7 @@ void CommandRecycle::operator()(Command *command) noexcept {
             const_cast<Cmd *>(                                \
                 static_cast<const volatile Cmd *>(command))); \
     }
-LUISA_MAKE_COMMAND_RECYCLE_VISIT(BufferCopyCommand)
-LUISA_MAKE_COMMAND_RECYCLE_VISIT(BufferUploadCommand)
-LUISA_MAKE_COMMAND_RECYCLE_VISIT(BufferDownloadCommand)
-LUISA_MAKE_COMMAND_RECYCLE_VISIT(KernelLaunchCommand)
+LUISA_MAP(LUISA_MAKE_COMMAND_RECYCLE_VISIT, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_RECYCLE_VISIT
 
 }// namespace detail

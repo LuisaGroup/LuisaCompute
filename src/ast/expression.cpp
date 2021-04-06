@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/13.
 //
 
+#include "ast/variable.h"
 #include <core/logging.h>
 #include <ast/expression.h>
 #include <ast/function_builder.h>
@@ -13,22 +14,26 @@ void RefExpr::_mark(Variable::Usage usage) const noexcept {
 }
 
 void CallExpr::_mark(Variable::Usage) const noexcept {
-    for (auto arg : _arguments) { arg->mark(Variable::Usage::READ); }
     if (is_builtin()) {
-        // TODO: builtins
-        if (_name == "texture_write") {// texture_write(tex, ...)
-            _arguments.front()->mark(Variable::Usage::WRITE);
+        if (_name == "builtin_texture_write") {
+            _arguments[0]->mark(Variable::Usage::WRITE);
+            for (auto i = 1u; i < _arguments.size(); i++) {
+                _arguments[i]->mark(Variable::Usage::READ);
+            }
+        } else {
+            for (auto arg : _arguments) {
+                arg->mark(Variable::Usage::READ);
+            }
         }
     } else {
         auto f = Function::callable(_uid);
         auto args = f.arguments();
         for (auto i = 0u; i < args.size(); i++) {
-            if (auto arg = args[i];
-                (static_cast<uint32_t>(f.variable_usage(arg.uid())) & static_cast<uint32_t>(Variable::Usage::WRITE)) != 0u
-                && (arg.tag() == Variable::Tag::BUFFER
-                    || arg.tag() == Variable::Tag::TEXTURE)) {
-                _arguments[i]->mark(Variable::Usage::WRITE);
-            };
+            auto arg = args[i];
+            _arguments[i]->mark(
+                arg.tag() == Variable::Tag::BUFFER || arg.tag() == Variable::Tag::IMAGE
+                    ? f.variable_usage(arg.uid())
+                    : Variable::Usage::READ);
         }
     }
 }

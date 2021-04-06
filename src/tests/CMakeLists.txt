@@ -18,3 +18,8 @@ target_link_libraries(test_runtime PRIVATE luisa::compute)
 
 add_executable(test_simple test_simple.cpp)
 target_link_libraries(test_simple PRIVATE luisa::compute)
+
+find_package(OpenCV CONFIG)
+if (OpenCV_FOUND)
+
+endif ()

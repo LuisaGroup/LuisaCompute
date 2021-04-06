@@ -23,7 +23,7 @@ std::span<const Function::BufferBinding> Function::captured_buffers() const noex
     return _builder->captured_buffers();
 }
 
-std::span<const Function::TextureBinding> Function::captured_textures() const noexcept {
+std::span<const Function::ImageBinding> Function::captured_images() const noexcept {
     return _builder->captured_textures();
 }
 

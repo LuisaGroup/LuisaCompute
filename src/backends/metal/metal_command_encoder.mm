@@ -50,26 +50,58 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 
     auto address = reinterpret_cast<uint64_t>(command->data());
     auto size = command->size();
-
-    auto page_size = pagesize();
-    auto aligned_begin = address / page_size * page_size;
-    auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
-
-    Clock clock;
-    auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
-                                                          length:aligned_end - aligned_begin
-                                                         options:MTLResourceStorageModeShared
-                                                     deallocator:nullptr];
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Wrapped receiver pointer into temporary shared buffer with size {} in {} ms.",
-        size, clock.toc());
+    auto [temporary, offset] = _wrap_output_buffer(command->data(), size);
 
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:buffer
                     sourceOffset:command->offset()
                         toBuffer:temporary
-               destinationOffset:aligned_begin - address
+               destinationOffset:offset
                             size:size];
+    [blit_encoder endEncoding];
+}
+
+void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
+    
+    auto offset = command->offset();
+    auto size = command->size();
+    auto pixel_bytes = pixel_size_bytes(command->format());
+    auto pitch_bytes = pixel_bytes * size.x;
+    auto image_bytes = pitch_bytes * size.y * size.z;
+    
+    auto temporary = _allocate_input_buffer(command->data(), image_bytes);
+    auto blit_encoder = [_command_buffer blitCommandEncoder];
+    [blit_encoder copyFromBuffer:temporary
+                    sourceOffset:0u
+               sourceBytesPerRow:pitch_bytes
+             sourceBytesPerImage:image_bytes
+                      sourceSize:MTLSizeMake(size.x, size.y, size.z)
+                       toTexture:_device->texture(command->handle())
+                destinationSlice:0u
+                destinationLevel:command->level()
+               destinationOrigin:MTLOriginMake(offset.x, offset.y, offset.z)];
+    [blit_encoder endEncoding];
+}
+
+void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
+    
+    auto offset = command->offset();
+    auto size = command->size();
+    auto pixel_bytes = pixel_size_bytes(command->format());
+    auto pitch_bytes = pixel_bytes * size.x;
+    auto image_bytes = pitch_bytes * size.y * size.z;
+    
+    auto [buffer, buffer_offset] = _wrap_output_buffer(command->data(), image_bytes);
+    auto blit_encoder = [_command_buffer blitCommandEncoder];
+    [blit_encoder copyFromTexture:_device->texture(command->handle())
+                      sourceSlice:0u
+                      sourceLevel:command->level()
+                     sourceOrigin:MTLOriginMake(offset.x, offset.y, offset.z)
+                       sourceSize:MTLSizeMake(size.x, size.y, size.z)
+                         toBuffer:buffer
+                destinationOffset:buffer_offset
+           destinationBytesPerRow:pitch_bytes
+         destinationBytesPerImage:image_bytes];
     [blit_encoder endEncoding];
 }
 
@@ -96,6 +128,19 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
     command->decode([&](auto argument) noexcept {
         using T = decltype(argument);
+        auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
+          switch (usage) {
+              case Command::Resource::Usage::READ:
+                  [compute_encoder useResource:res usage:MTLResourceUsageRead];
+                  break;
+              case Command::Resource::Usage::WRITE:
+                  [compute_encoder useResource:res usage:MTLResourceUsageWrite];
+                  break;
+              case Command::Resource::Usage::READ_WRITE:
+                  [compute_encoder useResource:res usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+              default: break;
+          }
+        };
         if constexpr (std::is_same_v<T, KernelLaunchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding buffer #{} at index {} with offset {}.",
@@ -104,19 +149,15 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
             [argument_encoder setBuffer:buffer
                                  offset:argument.offset
                                 atIndex:kernel.arguments[argument_index++].argumentIndex];
-            switch (argument.usage) {
-                case Command::Resource::Usage::READ:
-                    [compute_encoder useResource:buffer usage:MTLResourceUsageRead];
-                    break;
-                case Command::Resource::Usage::WRITE:
-                    [compute_encoder useResource:buffer usage:MTLResourceUsageWrite];
-                    break;
-                case Command::Resource::Usage::READ_WRITE:
-                    [compute_encoder useResource:buffer usage:MTLResourceUsageRead | MTLResourceUsageWrite];
-                default: break;
-            }
+            mark_usage(buffer, argument.usage);
         } else if constexpr (std::is_same_v<T, KernelLaunchCommand::TextureArgument>) {
-            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Encoding texture #{} at index {}.",
+                argument.handle, argument_index);
+            auto texture = _device->texture(argument.handle);
+            [argument_encoder setTexture:texture
+                                 atIndex:kernel.arguments[argument_index++].argumentIndex];
+            mark_usage(texture, argument.usage);
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());
@@ -133,6 +174,37 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
       auto arg_buffer = argument_buffer;
       argument_buffer_pool->recycle(arg_buffer);
     }];
+}
+
+inline std::pair<id<MTLBuffer>, size_t> MetalCommandEncoder::_wrap_output_buffer(void *data, size_t size) noexcept {
+    
+    auto address = reinterpret_cast<uint64_t>(data);
+    auto page_size = pagesize();
+    auto aligned_begin = address / page_size * page_size;
+    auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
+    
+    Clock clock;
+    auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
+                                                          length:aligned_end - aligned_begin
+                                                         options:MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked
+                                                     deallocator:nullptr];
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Wrapped receiver pointer into temporary shared buffer with size {} in {} ms.",
+        size, clock.toc());
+    
+    return {temporary, aligned_begin - address};
+}
+
+id<MTLBuffer> MetalCommandEncoder::_allocate_input_buffer(const void *data, size_t size) noexcept {
+    Clock clock;
+    auto temporary = [_device->handle() newBufferWithBytes:data
+                                                    length:size
+                                                   options:MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked];
+    
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Allocated temporary shared buffer with size {} in {} ms.",
+        size, clock.toc());
+    return temporary;
 }
 
 }

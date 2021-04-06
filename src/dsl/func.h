@@ -8,6 +8,7 @@
 #include <runtime/device.h>
 #include <dsl/var.h>
 #include <dsl/buffer.h>
+#include <dsl/image.h>
 
 namespace luisa::compute::dsl {
 
@@ -28,6 +29,11 @@ struct definition_to_prototype<BufferView<T>> {
     using type = Buffer<T>;
 };
 
+template<>
+struct definition_to_prototype<ImageView> {
+    using type = ImageView;
+};
+
 template<typename T>
 struct prototype_to_creation {
     using type = Var<T>;
@@ -38,9 +44,19 @@ struct prototype_to_creation<Buffer<T>> {
     using type = BufferView<T>;
 };
 
+template<>
+struct prototype_to_creation<Image> {
+    using type = ImageView;
+};
+
 template<typename T>
 struct prototype_to_creation<BufferView<T>> {
     using type = BufferView<T>;
+};
+
+template<>
+struct prototype_to_creation<ImageView> {
+    using type = ImageView;
 };
 
 template<typename T>
@@ -58,6 +74,16 @@ struct prototype_to_kernel_invocation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
+template<>
+struct prototype_to_kernel_invocation<Image> {
+    using type = ImageView;
+};
+
+template<>
+struct prototype_to_kernel_invocation<ImageView> {
+    using type = ImageView;
+};
+
 template<typename T>
 struct prototype_to_callable_invocation {
     using type = Expr<T>;
@@ -71,6 +97,16 @@ struct prototype_to_callable_invocation<Buffer<T>> {
 template<typename T>
 struct prototype_to_callable_invocation<BufferView<T>> {
     using type = BufferView<T>;
+};
+
+template<>
+struct prototype_to_callable_invocation<Image> {
+    using type = ImageView;
+};
+
+template<>
+struct prototype_to_callable_invocation<ImageView> {
+    using type = ImageView;
 };
 
 template<typename T>
@@ -112,19 +148,28 @@ public:
                 static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
         }
 
-        for (auto texture : _function.captured_textures()) {
-            // TODO: encode captured textures...
+        for (auto image : _function.captured_images()) {
+            _launch_command()->encode_texture(
+                image.handle,
+                static_cast<Command::Resource::Usage>(_function.variable_usage(image.variable.uid())));
         }
     }
 
     template<typename T>
     KernelInvoke &operator<<(BufferView<T> buffer) noexcept {
         auto usage = _function.variable_usage(
-            _function.arguments()[_argument_index].uid());
+            _function.arguments()[_argument_index++].uid());
         _launch_command()->encode_buffer(
             buffer.handle(), buffer.offset_bytes(),
             static_cast<Command::Resource::Usage>(usage));
-        _argument_index++;
+        return *this;
+    }
+    
+    KernelInvoke &operator<<(ImageView image) noexcept {
+        auto usage = _function.variable_usage(
+            _function.arguments()[_argument_index++].uid());
+        _launch_command()->encode_texture(
+            image.handle(), static_cast<Command::Resource::Usage>(usage));
         return *this;
     }
 
