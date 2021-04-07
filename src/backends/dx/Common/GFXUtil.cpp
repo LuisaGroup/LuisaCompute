@@ -3,8 +3,7 @@
 #include <fstream>
 #include "Camera.h"
 #include "../PipelineComponent/IPipelineResource.h"
-#pragma comment(lib, "d3dcompiler.lib")
-#pragma comment(lib, "D3D12.lib")
+
 using Microsoft::WRL::ComPtr;
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> const& GFXUtil::GetStaticSamplers() {
 	// Applications usually only need a handful of samplers.  So just define them all up front

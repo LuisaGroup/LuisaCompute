@@ -95,6 +95,7 @@ public:
 
 	// stream
 	uint64 create_stream() noexcept {
+		return 0u;
 		//return reinterpret_cast<uint64>(new ThreadCommand)
 	}
 	void dispose_stream(uint64 handle) noexcept {}
