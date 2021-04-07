@@ -35,6 +35,7 @@ private:
     std::vector<id<MTLCommandQueue>> _stream_slots;
     std::vector<size_t> _available_stream_slots;
     
+    // for textures
     mutable spin_mutex _texture_mutex;
     std::vector<id<MTLTexture>> _texture_slots;
     std::vector<size_t> _available_texture_slots;

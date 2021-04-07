@@ -8,13 +8,12 @@
 #include <core/dynamic_module.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
-#include <dsl/stream.h>
+#include <runtime/stream.h>
 #include <dsl/buffer.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
 using namespace luisa;
-using namespace luisa::compute;
 using namespace luisa::compute;
 
 struct Base {
