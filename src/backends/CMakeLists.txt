@@ -9,8 +9,8 @@ function(luisa_compute_add_backend name)
     add_dependencies(luisa-compute-backends luisa-compute-backend-${name})
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
                           UNITY_BUILD ON
-                          LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends/"
-                          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/"
+                          LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends/$<0:>"
+                          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/$<0:>"
                           DEBUG_POSTFIX "")
     string(TOUPPER ${name} UPPER_NAME)
     target_compile_definitions(luisa-compute-backends INTERFACE LUISA_BACKEND_${UPPER_NAME}_ENABLED)
