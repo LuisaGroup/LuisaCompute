@@ -19,7 +19,7 @@ private:
 	///////////// D3D
 	Microsoft::WRL::ComPtr<IDXGIFactory4> mdxgiFactory;
 	Microsoft::WRL::ComPtr<ID3D12Device> md3dDevice;
-	IDXGIAdapter1* adapter;
+	IDXGIAdapter1* adapter{nullptr};
 	void InitD3D(uint32_t index) {
 #if defined(DEBUG) || defined(_DEBUG)
 		// Enable the D3D12 debug layer.
@@ -52,7 +52,7 @@ private:
 		// target formats, so we only need to check quality support.
 	}
 	//////////// GFX
-	GFXDevice* dxDevice;
+	GFXDevice* dxDevice{nullptr};
 
 public:
 	DXDevice(const Context& ctx, uint32_t index) : Device(ctx) {// TODO: support device selection?
@@ -100,10 +100,12 @@ public:
 	}
 	void dispose_stream(uint64 handle) noexcept {}
 	void synchronize_stream(uint64 stream_handle) noexcept {}
-	void dispatch(uint64 stream_handle, CommandBuffer, std::function<void()>) noexcept {}
+	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer, std::function<void()> callback) noexcept {}
 
 	// kernel
-	void prepare_kernel(uint32_t uid) noexcept {}
+	void prepare_kernel(uint32_t uid) noexcept {
+		// do async compile here...
+	}
 	~DXDevice() {
 	}
 };

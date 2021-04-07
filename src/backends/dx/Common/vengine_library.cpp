@@ -1,3 +1,5 @@
+#include <mimalloc.h>
+
 #include "vstring.h"
 #include "Pool.h"
 #include <mutex>
@@ -9,8 +11,8 @@
 //#include "BinaryLinkedAllocator.h"
 #include "LinkedList.h"
 namespace v_mimalloc {
-funcPtr_t<void*(size_t)> Alloc::mallocFunc = nullptr;
-funcPtr_t<void(void*)> Alloc::freeFunc = nullptr;
+funcPtr_t<void*(size_t)> Alloc::mallocFunc = mi_malloc;
+funcPtr_t<void(void*)> Alloc::freeFunc = mi_free;
 static bool memoryInitialized = false;
 }// namespace v_mimalloc
 namespace vengine {
@@ -19,11 +21,13 @@ void vengine_init_malloc() {
 	static StackObject<DynamicDLL> vengine_malloc_dll;
 	if (memoryInitialized) return;
 	memoryInitialized = true;
-	vengine_malloc_dll.New("mimalloc-override.dll");
+	Alloc::mallocFunc = mi_malloc;
+	Alloc::freeFunc = mi_free;
+//	vengine_malloc_dll.New("mimalloc-override.dll");
 	/*vengine_malloc_dll->GetDLLFuncFromExample(Alloc::mallocFunc, "mi_malloc");
 	vengine_malloc_dll->GetDLLFuncFromExample(Alloc::freeFunc, "mi_free");*/
-	vengine_malloc_dll->GetDLLFunc(Alloc::mallocFunc, "mi_malloc");
-	vengine_malloc_dll->GetDLLFunc(Alloc::freeFunc, "mi_free");
+//	vengine_malloc_dll->GetDLLFunc(Alloc::mallocFunc, "mi_malloc");
+//	vengine_malloc_dll->GetDLLFunc(Alloc::freeFunc, "mi_free");
 }
 void vengine_init_malloc(
 	funcPtr_t<void*(size_t)> mallocFunc,

@@ -36,10 +36,12 @@ public:
 }// namespace v_mimalloc
 
 inline void* vengine_malloc(size_t size) noexcept {
-	return v_mimalloc::Alloc::GetMiMalloc()(size);
+	auto malloc_func = v_mimalloc::Alloc::GetMiMalloc();
+	return malloc_func(size);
 }
 inline void vengine_free(void* ptr) noexcept {
-	v_mimalloc::Alloc::GetMifree()(ptr);
+	auto free_func = v_mimalloc::Alloc::GetMifree();
+	free_func(ptr);
 }
 
 template<typename T, typename... Args>
