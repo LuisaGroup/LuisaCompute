@@ -175,10 +175,17 @@ public:
         f->void_(expr);
     }
 
-#define LUISA_MAKE_IMAGE_ASSIGN_OP(op)               \
-    template<typename T>                             \
-    void operator op##=(T &&rhs) noexcept {          \
-        *this = *this op Expr{std::forward<T>(rhs)}; \
+    void operator=(ImageAccess rhs) noexcept {// bypass colorspace conversion in this case
+        auto f = FunctionBuilder::current();
+        auto rhs_read = f->call(Type::of<float4>(), "texture_read", {rhs._image, rhs._uv});
+        auto self_write = f->call(nullptr, "texture_write", {_image, _uv, rhs_read});
+        f->void_(self_write);
+    }
+
+#define LUISA_MAKE_IMAGE_ASSIGN_OP(op)                             \
+    template<typename T>                                           \
+    void operator op##=(T &&rhs) noexcept {                        \
+        *this = Expr<float4>{*this} op Expr{std::forward<T>(rhs)}; \
     }
     LUISA_MAKE_IMAGE_ASSIGN_OP(+)
     LUISA_MAKE_IMAGE_ASSIGN_OP(-)

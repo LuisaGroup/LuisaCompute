@@ -6,6 +6,7 @@
 
 #include <runtime/context.h>
 #include <runtime/device.h>
+#include <runtime/stream.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 

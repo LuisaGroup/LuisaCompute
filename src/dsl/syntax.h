@@ -11,5 +11,4 @@
 #include <dsl/stmt.h>
 #include <dsl/buffer.h>
 #include <dsl/image.h>
-#include <dsl/stream.h>
 #include <dsl/var.h>

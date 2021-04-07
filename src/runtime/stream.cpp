@@ -3,7 +3,7 @@
 //
 
 #include <utility>
-#include <dsl/stream.h>
+#include <runtime/stream.h>
 
 namespace luisa::compute {
 
