@@ -1,3 +1,4 @@
+#include <codecvt>
 #include <Common/GFXUtil.h>
 #include <runtime/device.h>
 #include <RenderComponent/RenderComponentInclude.h>
@@ -41,6 +42,11 @@ private:
 											   IID_PPV_ARGS(&md3dDevice));
 				if (SUCCEEDED(hr) && suitableIndex++ == index) {
 					adapterFound = true;
+					std::wstring description{desc.Description};
+					std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+					LUISA_VERBOSE(
+						"Create DirectX device #{}: {}.",
+						index, converter.to_bytes(description));
 					break;
 				}
 			}
@@ -50,6 +56,10 @@ private:
 		// Check 4X MSAA quality support for our back buffer format.
 		// All Direct3D 11 capable devices support 4X MSAA for all render
 		// target formats, so we only need to check quality support.
+		if (!adapterFound) {
+			LUISA_ERROR_WITH_LOCATION(
+				"Failed to create DirectX device with index {}.", index);
+		}
 	}
 	//////////// GFX
 	GFXDevice* dxDevice{nullptr};
