@@ -4,7 +4,7 @@
 
 #pragma once
 
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__x86_64__)
 #include <immintrin.h>
 #define LUISA_INTRIN_PAUSE() _mm_pause()
 #elif defined(_M_X64)

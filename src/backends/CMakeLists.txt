@@ -8,15 +8,15 @@ function(luisa_compute_add_backend name)
                           luisa-compute-compile)
     add_dependencies(luisa-compute-backends luisa-compute-backend-${name})
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
-                          LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends/$<0:>"
-                          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/$<0:>"
+                          LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends"
+                          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends"
                           UNITY_BUILD ON
                           DEBUG_POSTFIX "")
     foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
-        message(STATUS "Hello ${CONFIG}")
+        string(TOUPPER ${CONFIG} CONFIG)
         set_target_properties(luisa-compute-backend-${name} PROPERTIES
-                              LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends"
-                              RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends")
+                              LIBRARY_OUTPUT_DIRECTORY_${CONFIG} "${CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG}}/backends"
+                              RUNTIME_OUTPUT_DIRECTORY_${CONFIG} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG}}/backends")
     endforeach ()
     string(TOUPPER ${name} UPPER_NAME)
     target_compile_definitions(luisa-compute-backends INTERFACE LUISA_BACKEND_${UPPER_NAME}_ENABLED)
