@@ -526,8 +526,8 @@ void RayTracingManager::AddMesh(
 	IMesh const* meshInterface,
 	uint subMeshIndex, bool forceUpdateMesh) {
 
-	auto ite = allBottomLevel.Insert(meshInterface->GetVObjectPtr()->GetInstanceID());
-	auto& v = ite.Value();
+	auto btIte = allBottomLevel.Insert(meshInterface->GetVObjectPtr()->GetInstanceID());
+	auto& v = btIte.Value();
 	BottomLevelSubMesh* subMesh = nullptr;
 	for (auto& i : v.subMeshes) {
 		if (i.subMeshIndex == subMeshIndex) {

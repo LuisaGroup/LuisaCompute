@@ -585,7 +585,7 @@ void HLSLCompiler::GetShaderVariables(
 			0);
 		registPos++;
 	}
-	for (auto& i : func.captured_textures()) {
+	for (auto& i : func.captured_images()) {
 		//TODO
 		registPos++;
 	}
