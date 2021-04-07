@@ -20,6 +20,55 @@ enum struct PixelFormat : uint32_t {
     RGBA32F,
 };
 
+/*
+enum struct PixelFormat : uint32_t {
+    RGBA8U_SRGB,
+
+    R32F,
+    RG32F,
+    RGBA32F,
+
+    R32UInt,
+    RG32UInt,
+    RGBA32UInt,
+
+    R32Int,
+    RG32Int,
+    RGBA32Int,
+
+    R16F,
+    RG16F,
+    RGBA16F,
+
+    R16UInt,
+    RG16UInt,
+    RGBA16UInt,
+
+    R16UNorm,
+    RG16UNorm,
+    RGBA16UNorm,
+
+    R16SNorm,
+    RG16SNorm,
+    RGBA16SNorm,
+    R16Int,
+    RG16Int,
+    RGBA16Int,
+
+    R8UInt,
+    RG8UInt,
+    RGBA8UInt,
+
+    R8SNorm,
+    RG8SNorm,
+    RGBA8SNorm,
+
+    R8Int,
+    RG8Int,
+    RGBA8Int,
+};
+*/
+
 constexpr auto uchar_linear = PixelFormat::R8U;
 constexpr auto uchar_sRGB = PixelFormat::R8U_SRGB;
 constexpr auto uchar2_linear = PixelFormat::RG8U;
