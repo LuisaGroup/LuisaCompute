@@ -10,23 +10,23 @@
 #include <runtime/device.h>
 #include <runtime/command_buffer.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 class Stream : public concepts::Noncopyable {
 
 public:
     struct SynchronizeToken {};
-    
+
     class Delegate {
-    
+
     private:
         Stream *_stream;
         CommandBuffer _command_buffer;
         std::function<void()> _callback;
-        
+
     private:
         void _commit() noexcept;
-    
+
     public:
         explicit Delegate(Stream *s) noexcept;
         Delegate(Delegate &&) noexcept = default;

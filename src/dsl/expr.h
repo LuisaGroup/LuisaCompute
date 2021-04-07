@@ -8,12 +8,12 @@
 #include <string_view>
 #include <ast/function_builder.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 template<typename T>
 struct Var;
 }
 
-namespace luisa::compute::dsl::detail {
+namespace luisa::compute::detail {
 
 template<typename T>
 struct Expr;
@@ -217,17 +217,17 @@ using expr_value = expr_value_impl<std::remove_cvref_t<T>>;
 template<typename T>
 using expr_value_t = typename expr_value<T>::type;
 
-}// namespace luisa::compute::dsl::detail
+}// namespace luisa::compute::detail
 
-#define LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(op, op_concept, op_tag)                                 \
-    template<luisa::concepts::op_concept T>                                                     \
-    [[nodiscard]] inline auto operator op(luisa::compute::dsl::detail::Expr<T> expr) noexcept { \
-        using R = std::remove_cvref_t<decltype(op std::declval<T>())>;                          \
-        return luisa::compute::dsl::detail::Expr<R>{                                            \
-            luisa::compute::FunctionBuilder::current()->unary(                                  \
-                luisa::compute::Type::of<R>(),                                                  \
-                luisa::compute::UnaryOp::op_tag,                                                \
-                expr.expression())};                                                            \
+#define LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(op, op_concept, op_tag)                            \
+    template<luisa::concepts::op_concept T>                                                \
+    [[nodiscard]] inline auto operator op(luisa::compute::detail::Expr<T> expr) noexcept { \
+        using R = std::remove_cvref_t<decltype(op std::declval<T>())>;                     \
+        return luisa::compute::detail::Expr<R>{                                            \
+            luisa::compute::FunctionBuilder::current()->unary(                             \
+                luisa::compute::Type::of<R>(),                                             \
+                luisa::compute::UnaryOp::op_tag,                                           \
+                expr.expression())};                                                       \
     }
 LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(+, operator_plus, PLUS)
 LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(-, operator_minus, MINUS)
@@ -235,11 +235,11 @@ LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(!, operator_not, NOT)
 LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(~, operator_bit_not, BIT_NOT)
 #undef LUISA_MAKE_GLOBAL_EXPR_UNARY_OP
 
-#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept)                        \
-    template<luisa::concepts::basic Lhs, typename Rhs>                          \
-    requires luisa::concepts::op_concept<Lhs, Rhs> [[nodiscard]] inline auto    \
-    operator op(Lhs lhs, luisa::compute::dsl::detail::Expr<Rhs> rhs) noexcept { \
-        return luisa::compute::dsl::detail::Expr{lhs} op rhs;                   \
+#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept)                     \
+    template<luisa::concepts::basic Lhs, typename Rhs>                       \
+    requires luisa::concepts::op_concept<Lhs, Rhs> [[nodiscard]] inline auto \
+    operator op(Lhs lhs, luisa::compute::detail::Expr<Rhs> rhs) noexcept {   \
+        return luisa::compute::detail::Expr{lhs} op rhs;                     \
     }
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(+, operator_add)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(-, operator_sub)
@@ -261,7 +261,7 @@ LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>, operator_greater)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>=, operator_greater_equal)
 #undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto cast(detail::Expr<Src> s) noexcept { return s.template cast<Dest>(); }
@@ -302,4 +302,4 @@ template<typename... T>
     return std::make_tuple(detail::Expr{v}...);
 }
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute

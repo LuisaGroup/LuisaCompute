@@ -16,10 +16,9 @@
 
 #include <tests/fake_device.h>
 #include <backends/dx/Common/FunctorMeta.h>
+
 using namespace luisa;
 using namespace luisa::compute;
-using namespace luisa::compute::dsl;
-using namespace luisa::compute::compile;
 
 struct Test {
     int3 something;

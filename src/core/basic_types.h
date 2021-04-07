@@ -57,35 +57,47 @@ template<typename T>
 struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     T x, y;
     constexpr VectorStorage() noexcept : x{}, y{} {}
-    explicit constexpr VectorStorage(T s) noexcept : x{s}, y{s} {}
-    explicit constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
-    explicit constexpr VectorStorage(VectorStorage<T, 3> v) noexcept : x{v.x}, y{v.y} {}
-    explicit constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y} {}
+    constexpr VectorStorage(T s) noexcept : x{s}, y{s} {}
+    constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
+    constexpr VectorStorage(VectorStorage<T, 3> v) noexcept : x{v.x}, y{v.y} {}
+    constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y} {}
+    
+    template<typename U>
+    constexpr VectorStorage(VectorStorage<U, 2> v) noexcept
+        : VectorStorage{v.x, v.y} {}
 };
 
 template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     T x, y, z;
     constexpr VectorStorage() noexcept : x{}, y{}, z{} {}
-    explicit constexpr VectorStorage(T s) noexcept : x{s}, y{s}, z{s} {}
-    explicit constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
-    explicit constexpr VectorStorage(VectorStorage<T, 2> xy, T z) noexcept : x{xy.x}, y{xy.y}, z{z} {}
-    explicit constexpr VectorStorage(T x, VectorStorage<T, 2> yz) noexcept : x{x}, y{yz.x}, z{yz.y} {}
-    explicit constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y}, z{v.z} {}
+    constexpr VectorStorage(T s) noexcept : x{s}, y{s}, z{s} {}
+    constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
+    constexpr VectorStorage(VectorStorage<T, 2> xy, T z) noexcept : x{xy.x}, y{xy.y}, z{z} {}
+    constexpr VectorStorage(T x, VectorStorage<T, 2> yz) noexcept : x{x}, y{yz.x}, z{yz.y} {}
+    constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y}, z{v.z} {}
+    
+    template<typename U>
+    constexpr VectorStorage(VectorStorage<U, 3> v) noexcept
+        : VectorStorage{v.x, v.y, v.z} {}
 };
 
 template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     T x, y, z, w;
     constexpr VectorStorage() noexcept : x{}, y{}, z{}, w{} {}
-    explicit constexpr VectorStorage(T s) noexcept : x{s}, y{s}, z{s}, w{s} {}
-    explicit constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
-    explicit constexpr VectorStorage(VectorStorage<T, 2> xy, T z, T w) noexcept : x{xy.x}, y{xy.y}, z{z}, w{w} {}
-    explicit constexpr VectorStorage(VectorStorage<T, 2> xy, VectorStorage<T, 2> zw) noexcept : x{xy.x}, y{xy.y}, z{zw.x}, w{zw.y} {}
-    explicit constexpr VectorStorage(T x, VectorStorage<T, 2> yz, T w) noexcept : x{x}, y{yz.x}, z{yz.y}, w{w} {}
-    explicit constexpr VectorStorage(T x, T y, VectorStorage<T, 2> zw) noexcept : x{x}, y{y}, z{zw.x}, w{zw.y} {}
-    explicit constexpr VectorStorage(VectorStorage<T, 3> xyz, T w) noexcept : x{xyz.x}, y{xyz.y}, z{xyz.z}, w{w} {}
-    explicit constexpr VectorStorage(T x, VectorStorage<T, 3> yzw) noexcept : x{x}, y{yzw.x}, z{yzw.y}, w{yzw.z} {}
+    constexpr VectorStorage(T s) noexcept : x{s}, y{s}, z{s}, w{s} {}
+    constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
+    constexpr VectorStorage(VectorStorage<T, 2> xy, T z, T w) noexcept : x{xy.x}, y{xy.y}, z{z}, w{w} {}
+    constexpr VectorStorage(VectorStorage<T, 2> xy, VectorStorage<T, 2> zw) noexcept : x{xy.x}, y{xy.y}, z{zw.x}, w{zw.y} {}
+    constexpr VectorStorage(T x, VectorStorage<T, 2> yz, T w) noexcept : x{x}, y{yz.x}, z{yz.y}, w{w} {}
+    constexpr VectorStorage(T x, T y, VectorStorage<T, 2> zw) noexcept : x{x}, y{y}, z{zw.x}, w{zw.y} {}
+    constexpr VectorStorage(VectorStorage<T, 3> xyz, T w) noexcept : x{xyz.x}, y{xyz.y}, z{xyz.z}, w{w} {}
+    constexpr VectorStorage(T x, VectorStorage<T, 3> yzw) noexcept : x{x}, y{yzw.x}, z{yzw.y}, w{yzw.z} {}
+    
+    template<typename U>
+    constexpr VectorStorage(VectorStorage<U, 4> v) noexcept
+        : VectorStorage{v.x, v.y, v.z, v.w} {}
 };
 
 }// namespace detail
@@ -102,7 +114,7 @@ struct Vector : public detail::VectorStorage<T, N> {
                   "Invalid vector type");
 
     template<typename... Args, std::enable_if_t<std::is_constructible_v<Storage, Args...>, int> = 0>
-    explicit constexpr Vector(Args... args) noexcept : Storage{args...} {}
+    constexpr Vector(Args... args) noexcept : Storage{args...} {}
 
     [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
     [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }

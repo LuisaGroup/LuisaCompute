@@ -6,7 +6,7 @@
 
 #include <dsl/expr.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 template<typename T>
 class Shared {
@@ -18,12 +18,12 @@ public:
     explicit Shared(size_t n) noexcept
         : _expression{FunctionBuilder::current()->shared(
             Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
-    
+
     Shared(Shared &&) noexcept = default;
     Shared(const Shared &) noexcept = delete;
     Shared &operator=(Shared &&) noexcept = delete;
     Shared &operator=(const Shared &) noexcept = delete;
-    
+
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
     template<concepts::integral U>
@@ -36,4 +36,4 @@ public:
     [[nodiscard]] auto operator[](U index) const noexcept { return (*this)[detail::Expr{index}]; }
 };
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute

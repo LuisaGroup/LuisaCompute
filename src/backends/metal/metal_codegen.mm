@@ -70,10 +70,10 @@ namespace detail {
 class LiteralPrinter {
 
 private:
-    compile::Codegen::Scratch &_s;
+    Codegen::Scratch &_s;
 
 public:
-    explicit LiteralPrinter(compile::Codegen::Scratch &s) noexcept : _s{s} {}
+    explicit LiteralPrinter(Codegen::Scratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
         if (std::isnan(v)) { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
@@ -283,14 +283,37 @@ void MetalCodegen::emit(Function f) {
 
 using namespace metal;
 
+struct TextureHeap {
+  texture2d<float, access::sample> t[65536u];
+  bool srgb[65536u];
+};
+
 template<access a>
-[[nodiscard]] auto builtin_texture_read(texture2d<float, a> t, uint2 uv) {
-    return t.read(uv);
+[[nodiscard]] auto texture_read(texture2d<float, a> t, uint2 uv) {
+  return t.read(uv);
 }
 
 template<access a>
-void builtin_texture_write(texture2d<float, a> t, uint2 uv, float4 value) {
-    t.write(value, uv);
+void texture_write(texture2d<float, a> t, uint2 uv, float4 value) {
+  t.write(value, uv);
+}
+
+[[nodiscard]] auto srgb_to_linear(float4 c) {
+  auto srgb = saturate(c.rgb);
+  auto rgb = select(
+    srgb * (1.0f / 12.92f),
+    pow((srgb + 0.055f) / 1.055f, 2.4f),
+    srgb >= 0.0404482362771082f);
+  return float4(rgb, c.a);
+}
+
+[[nodiscard]] auto linear_to_srgb(float4 c) {
+  auto rgb = saturate(c.rgb);
+  auto srgb = select(
+    rgb * 12.92f,
+    1.055f * pow(rgb, 1.0f / 2.4f) - 0.055f,
+    rgb >= 0.00313066844250063f);
+  return float4(srgb, c.a);
 }
 
 )";
@@ -320,9 +343,6 @@ void MetalCodegen::_emit_function(Function f) noexcept {
 
     if (f.tag() == Function::Tag::KERNEL) {
 
-        auto index = 0u;
-        static constexpr auto index_stride = 100u;
-
         // argument buffer
         _scratch << "struct Argument {";
         for (auto buffer : f.captured_buffers()) {
@@ -330,8 +350,10 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_variable_decl(buffer.variable);
             _scratch << ";";
         }
-        for (auto tex : f.captured_images()) {
-            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        for (auto image : f.captured_images()) {
+            _scratch << "\n  ";
+            _emit_variable_decl(image.variable);
+            _scratch << ";";
         }
         for (auto arg : f.arguments()) {
             _scratch << "\n  ";
@@ -345,7 +367,8 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"
-                 << "void kernel_" << f.uid() << "(\n    device const Argument &arg,";
+                 << "void kernel_" << f.uid()
+                 << "(\n    device const Argument &arg,";
         for (auto builtin : f.builtin_variables()) {
             if (builtin.tag() != Variable::Tag::LAUNCH_SIZE) {
                 _scratch << "\n    ";

@@ -4,8 +4,8 @@
 
 #pragma once
 
-namespace luisa::compute::dsl::detail {
+namespace luisa::compute::detail {
 
 struct ArgumentCreation {};
 
-}
+}// namespace luisa::compute::detail

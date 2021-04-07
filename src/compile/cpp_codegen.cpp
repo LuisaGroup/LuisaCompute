@@ -9,7 +9,7 @@
 #include <ast/constant_data.h>
 #include <compile/cpp_codegen.h>
 
-namespace luisa::compute::compile {
+namespace luisa::compute {
 
 void CppCodegen::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
@@ -322,8 +322,12 @@ void CppCodegen::_emit_function(Function f) noexcept {
         }
         _scratch << ",";
     }
-    for (auto tex : f.captured_images()) {
-        LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    for (auto image : f.captured_images()) {
+        _scratch << "\n    ";
+        _emit_variable_decl(image.variable);
+        _scratch << " ";
+        _emit_access_attribute(image.variable);
+        _scratch << ",";
     }
     for (auto buffer : f.captured_buffers()) {
         _scratch << "\n    ";
@@ -556,4 +560,4 @@ void CppCodegen::_emit_access_attribute(Variable v) noexcept {
     }
 }
 
-}// namespace luisa::compute::compile
+}// namespace luisa::compute

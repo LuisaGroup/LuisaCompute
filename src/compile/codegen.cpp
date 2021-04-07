@@ -5,7 +5,7 @@
 #include <ast/type_registry.h>
 #include <compile/codegen.h>
 
-namespace luisa::compute::compile {
+namespace luisa::compute {
 
 Codegen::Scratch::Scratch() noexcept { _buffer.reserve(4096u - 1u); }
 std::string_view Codegen::Scratch::view() const noexcept { return _buffer; }
@@ -67,4 +67,4 @@ void Codegen::Scratch::pop_back() noexcept { _buffer.pop_back(); }
 char Codegen::Scratch::back() const noexcept { return _buffer.back(); }
 const char *Codegen::Scratch::c_str() const noexcept { return _buffer.c_str(); }
 
-}// namespace luisa::compute::compile
+}// namespace luisa::compute

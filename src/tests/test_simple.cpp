@@ -15,7 +15,6 @@
 
 using namespace luisa;
 using namespace luisa::compute;
-using namespace luisa::compute::dsl;
 
 struct Test {
     float a;
@@ -51,12 +50,10 @@ int main(int argc, char *argv[]) {
         return a + b;
     };
 
-    auto kernel = LUISA_KERNEL1D(BufferView<float> source, BufferView<float> result, Var<Test> x, ImageView image) noexcept {
+    auto kernel = LUISA_KERNEL1D(BufferView<float> source, BufferView<float> result, Var<Test> x) noexcept {
         set_block_size(256u);
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x.a));
-        Var color = image[uint2()];
-        image[uint2()] += color + 1.0f;
     };
     kernel.prepare(*device);
 
@@ -65,7 +62,6 @@ int main(int argc, char *argv[]) {
     Stream stream{*device};
     Buffer<float> buffer{*device, n};
     Buffer<float> result_buffer{*device, n};
-    Image image{*device, PixelFormat::RGBA32F, uint2{1024u, 1024u}};
 
     std::vector<float> data(n);
     std::vector<float> results(n);
@@ -74,9 +70,9 @@ int main(int argc, char *argv[]) {
     Clock clock;
     stream << buffer.copy_from(data.data());
     {
-        auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f, {}}, image).launch(n);
+        auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f, {}}).launch(n);
         for (auto i = 0; i < 10; i++) {
-            s << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f, {}}, image).launch(n);
+            s << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f, {}}).launch(n);
         }
     }
     stream << result_buffer.copy_to(results.data());

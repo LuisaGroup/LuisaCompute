@@ -17,7 +17,7 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
     Clock clock;
 
     auto ast = Function::kernel(uid);
-    compile::Codegen::Scratch scratch;
+    Codegen::Scratch scratch;
     MetalCodegen codegen{scratch};
     codegen.emit(ast);
 

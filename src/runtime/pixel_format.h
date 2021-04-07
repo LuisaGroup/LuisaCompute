@@ -69,7 +69,17 @@ enum struct PixelFormat : uint32_t {
 };
 */
 
-[[nodiscard]] constexpr auto pixel_size_bytes(PixelFormat format) noexcept {
+constexpr auto uchar_linear = PixelFormat::R8U;
+constexpr auto uchar_sRGB = PixelFormat::R8U_SRGB;
+constexpr auto uchar2_linear = PixelFormat::RG8U;
+constexpr auto uchar2_sRGB = PixelFormat::RG8U_SRGB;
+constexpr auto uchar4_linear = PixelFormat::RGBA8U;
+constexpr auto uchar4_sRGB = PixelFormat::RGBA8U_SRGB;
+constexpr auto float_linear = PixelFormat::R32F;
+constexpr auto float2_linear = PixelFormat::RG32F;
+constexpr auto float4_linear = PixelFormat::RGBA32F;
+
+[[nodiscard]] constexpr auto pixel_format_size(PixelFormat format) noexcept {
     switch (format) {
         case PixelFormat::R8U:
         case PixelFormat::R8U_SRGB:
@@ -90,4 +100,10 @@ enum struct PixelFormat : uint32_t {
     return static_cast<size_t>(0u);
 }
 
+[[nodiscard]] constexpr auto pixel_format_is_srgb(PixelFormat format) noexcept {
+    return format == PixelFormat::R8U_SRGB
+           || format == PixelFormat::RG8U_SRGB
+           || format == PixelFormat::RGBA8U_SRGB;
 }
+
+}// namespace luisa::compute

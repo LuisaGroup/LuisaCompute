@@ -166,12 +166,18 @@ uint64_t MetalDevice::create_texture(PixelFormat format, uint dimension, uint wi
     desc.height = height;
     desc.depth = depth;
     switch (format) {
-        case PixelFormat::R8U: desc.pixelFormat = MTLPixelFormatR8Unorm; break;
-        case PixelFormat::R8U_SRGB: desc.pixelFormat = MTLPixelFormatR8Unorm_sRGB; break;
-        case PixelFormat::RG8U: desc.pixelFormat = MTLPixelFormatRG8Unorm; break;
-        case PixelFormat::RG8U_SRGB: desc.pixelFormat = MTLPixelFormatRG8Unorm_sRGB; break;
-        case PixelFormat::RGBA8U: desc.pixelFormat = MTLPixelFormatRGBA8Unorm; break;
-        case PixelFormat::RGBA8U_SRGB: desc.pixelFormat = MTLPixelFormatRGBA8Unorm_sRGB; break;
+        case PixelFormat::R8U:
+        case PixelFormat::R8U_SRGB:
+            desc.pixelFormat = MTLPixelFormatR8Unorm;
+            break;
+        case PixelFormat::RG8U:
+        case PixelFormat::RG8U_SRGB:
+            desc.pixelFormat = MTLPixelFormatRG8Unorm;
+            break;
+        case PixelFormat::RGBA8U:
+        case PixelFormat::RGBA8U_SRGB:
+            desc.pixelFormat = MTLPixelFormatRGBA8Unorm;
+            break;
         case PixelFormat::R32F: desc.pixelFormat = MTLPixelFormatR32Float; break;
         case PixelFormat::RG32F: desc.pixelFormat = MTLPixelFormatRG32Float; break;
         case PixelFormat::RGBA32F: desc.pixelFormat = MTLPixelFormatRGBA32Float; break;

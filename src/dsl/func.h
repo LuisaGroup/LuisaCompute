@@ -10,7 +10,7 @@
 #include <dsl/buffer.h>
 #include <dsl/image.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
 
 namespace detail {
 
@@ -29,9 +29,9 @@ struct definition_to_prototype<BufferView<T>> {
     using type = Buffer<T>;
 };
 
-template<>
-struct definition_to_prototype<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct definition_to_prototype<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -44,9 +44,9 @@ struct prototype_to_creation<Buffer<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_creation<Image> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_creation<Image<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -54,9 +54,9 @@ struct prototype_to_creation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_creation<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_creation<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -74,14 +74,14 @@ struct prototype_to_kernel_invocation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_kernel_invocation<Image> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_kernel_invocation<Image<format>> {
+    using type = ImageView<format>;
 };
 
-template<>
-struct prototype_to_kernel_invocation<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_kernel_invocation<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -99,14 +99,14 @@ struct prototype_to_callable_invocation<BufferView<T>> {
     using type = BufferView<T>;
 };
 
-template<>
-struct prototype_to_callable_invocation<Image> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_callable_invocation<Image<format>> {
+    using type = ImageView<format>;
 };
 
-template<>
-struct prototype_to_callable_invocation<ImageView> {
-    using type = ImageView;
+template<PixelFormat format>
+struct prototype_to_callable_invocation<ImageView<format>> {
+    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -164,8 +164,9 @@ public:
             static_cast<Command::Resource::Usage>(usage));
         return *this;
     }
-    
-    KernelInvoke &operator<<(ImageView image) noexcept {
+
+    template<PixelFormat format>
+    KernelInvoke &operator<<(ImageView<format> image) noexcept {
         auto usage = _function.variable_usage(
             _function.arguments()[_argument_index++].uid());
         _launch_command()->encode_texture(
@@ -418,9 +419,9 @@ Kernel3D(T &&) -> Kernel3D<detail::function_t<T>>;
 template<typename T>
 Callable(T &&) -> Callable<detail::function_t<T>>;
 
-}// namespace luisa::compute::dsl
+}// namespace luisa::compute
 
-namespace luisa::compute::dsl::detail {
+namespace luisa::compute::detail {
 
 struct CallableBuilder {
     template<typename F>
@@ -442,9 +443,9 @@ struct Kernel3DBuilder {
     [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel3D{std::forward<F>(def)}; }
 };
 
-}// namespace luisa::compute::dsl::detail
+}// namespace luisa::compute::detail
 
-#define LUISA_KERNEL1D ::luisa::compute::dsl::detail::Kernel1DBuilder{} % [&]
-#define LUISA_KERNEL2D ::luisa::compute::dsl::detail::Kernel2DBuilder{} % [&]
-#define LUISA_KERNEL3D ::luisa::compute::dsl::detail::Kernel3DBuilder{} % [&]
-#define LUISA_CALLABLE ::luisa::compute::dsl::detail::CallableBuilder{} % [&]
+#define LUISA_KERNEL1D ::luisa::compute::detail::Kernel1DBuilder{} % [&]
+#define LUISA_KERNEL2D ::luisa::compute::detail::Kernel2DBuilder{} % [&]
+#define LUISA_KERNEL3D ::luisa::compute::detail::Kernel3DBuilder{} % [&]
+#define LUISA_CALLABLE ::luisa::compute::detail::CallableBuilder{} % [&]

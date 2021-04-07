@@ -9,7 +9,7 @@
 
 namespace luisa::compute::metal {
 
-class MetalCodegen : public compile::Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
+class MetalCodegen : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
     Function _function;
@@ -56,4 +56,4 @@ public:
     explicit MetalCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}
     void emit(Function f) override;
 };
-}
+}// namespace luisa::compute::metal
