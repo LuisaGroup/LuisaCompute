@@ -51,23 +51,26 @@ public:
 		const HashMap* map;
 		size_t hashValue;
 		HashMap::LinkNode* node;
-		 Iterator(const HashMap* map, size_t hashValue, HashMap::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
+		Iterator(const HashMap* map, size_t hashValue, HashMap::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
 
 	public:
-		 Iterator() : map(nullptr), hashValue(0), node(nullptr) {}
-		 bool operator==(const Iterator& a) const noexcept {
+		Iterator() : map(nullptr), hashValue(0), node(nullptr) {}
+		bool operator==(const Iterator& a) const noexcept {
 			return node == a.node;
 		}
-		 operator bool() const noexcept {
+		bool operator!() const noexcept{
+			return node == nullptr;
+		}
+		operator bool() const noexcept {
 			return node;
 		}
-		 bool operator!=(const Iterator& a) const noexcept {
+		bool operator!=(const Iterator& a) const noexcept {
 			return !operator==(a);
 		}
 		inline K const& Key() const noexcept;
 		inline V& Value() const noexcept;
 	};
-	
+
 private:
 	ArrayList<LinkNode*, useVEngineAlloc> allocatedNodes;
 	struct HashArray {
@@ -81,10 +84,9 @@ private:
 			  mSize(map.mSize) {
 			map.mSize = 0;
 			map.nodesPtr = nullptr;
-			
 		}
 		size_t size() const noexcept { return mSize; }
-		 HashArray() noexcept : mSize(0) {}
+		HashArray() noexcept : mSize(0) {}
 		void ClearAll() {
 			memset(nodesPtr, 0, sizeof(LinkNode*) * mSize);
 		}
@@ -164,13 +166,13 @@ private:
 		allocatedNodes.erase(ite);
 		pool.Delete(oldNode);
 	}
-	static  size_t GetPow2Size(size_t capacity) noexcept {
+	static size_t GetPow2Size(size_t capacity) noexcept {
 		size_t ssize = 1;
 		while (ssize < capacity)
 			ssize <<= 1;
 		return ssize;
 	}
-	static  size_t GetHash(size_t hash, size_t size) noexcept {
+	static size_t GetHash(size_t hash, size_t size) noexcept {
 		return hash & (size - 1);
 	}
 	void Resize(size_t newCapacity) noexcept {
@@ -196,7 +198,7 @@ private:
 		}
 		nodeVec = newNode;
 	}
-	static  Iterator End() noexcept {
+	static Iterator End() noexcept {
 		return Iterator(nullptr, -1, nullptr);
 	}
 
@@ -211,7 +213,7 @@ public:
 	HashMap(HashMap&& map)
 		: allocatedNodes(std::move(map.allocatedNodes)),
 		  nodeVec(std::move(map.nodeVec)),
-		  pool (std::move(map.pool)){
+		  pool(std::move(map.pool)) {
 	}
 
 	void operator=(HashMap&& map) {

@@ -686,7 +686,7 @@ void CodegenUtility::PrintUniform(
 	vengine::string& result) {
 	std::span<const Variable> args = func.arguments();
 	std::span<const Function::BufferBinding> buffers = func.captured_buffers();
-	std::span<const Function::TextureBinding> texs = func.captured_textures();
+	std::span<const Function::ImageBinding> texs = func.captured_images();
 	uint tCount = 0;
 	uint uCount = 0;
 	auto ProcessBuffer = [&](Variable const& var) {
@@ -716,7 +716,7 @@ void CodegenUtility::PrintUniform(
 				//TODO: buffer writable
 				ProcessBuffer(var);
 				break;
-			case Variable::Tag::TEXTURE:
+			case Variable::Tag::IMAGE:
 
 				break;
 		}
