@@ -80,7 +80,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     LUISA_INFO(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
-
+    
     _compiler = std::make_unique<MetalCompiler>(this);
     _argument_buffer_pool = std::make_unique<MetalArgumentBufferPool>(_handle);
 
@@ -98,6 +98,11 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _texture_slots.resize(initial_texture_count, nullptr);
     _available_texture_slots.resize(initial_texture_count);
     std::iota(_available_texture_slots.rbegin(), _available_texture_slots.rend(), 0u);
+    
+    static constexpr auto initial_event_count = 4u;
+    _event_slots.resize(initial_event_count, MetalEvent{nullptr});
+    _available_event_slots.resize(initial_event_count);
+    std::iota(_available_event_slots.rbegin(), _available_event_slots.rend(), 0u);
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -222,6 +227,40 @@ void MetalDevice::dispose_texture(uint64_t handle) noexcept {
 id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
     std::scoped_lock lock{_texture_mutex};
     return _texture_slots[handle];
+}
+
+uint64_t MetalDevice::create_event() noexcept {
+    Clock clock;
+    MetalEvent event{[_handle newSharedEvent]};
+    LUISA_VERBOSE_WITH_LOCATION("Created event in {} ms.", clock.toc());
+    std::scoped_lock lock{_event_mutex};
+    if (_available_event_slots.empty()) {
+        auto s = _event_slots.size();
+        _event_slots.emplace_back(event);
+        return s;
+    }
+    auto s = _available_event_slots.back();
+    _available_event_slots.pop_back();
+    _event_slots[s] = event;
+    return s;
+}
+
+void MetalDevice::dispose_event(uint64_t handle) noexcept {
+    {
+        std::scoped_lock lock{_event_mutex};
+        _event_slots[handle] = MetalEvent{nullptr};
+        _available_event_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Disposed event #{}.", handle);
+}
+
+MetalEvent MetalDevice::event(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_event_mutex};
+    return _event_slots[handle];
+}
+
+void MetalDevice::synchronize_event(uint64_t handle) noexcept {
+    event(handle).synchronize();
 }
 
 }

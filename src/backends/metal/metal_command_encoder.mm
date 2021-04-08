@@ -62,13 +62,13 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 }
 
 void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
-    
+
     auto offset = command->offset();
     auto size = command->size();
     auto pixel_bytes = pixel_format_size(command->format());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y * size.z;
-    
+
     auto temporary = _allocate_input_buffer(command->data(), image_bytes);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temporary
@@ -84,7 +84,7 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
 }
 
 void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
-    
+
     auto offset = command->offset();
     auto size = command->size();
     auto pixel_bytes = pixel_format_size(command->format());
@@ -129,17 +129,17 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     command->decode([&](auto argument) noexcept {
         using T = decltype(argument);
         auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
-          switch (usage) {
-              case Command::Resource::Usage::READ:
-                  [compute_encoder useResource:res usage:MTLResourceUsageRead];
-                  break;
-              case Command::Resource::Usage::WRITE:
-                  [compute_encoder useResource:res usage:MTLResourceUsageWrite];
-                  break;
-              case Command::Resource::Usage::READ_WRITE:
-                  [compute_encoder useResource:res usage:MTLResourceUsageRead | MTLResourceUsageWrite];
-              default: break;
-          }
+            switch (usage) {
+                case Command::Resource::Usage::READ:
+                    [compute_encoder useResource:res usage:MTLResourceUsageRead];
+                    break;
+                case Command::Resource::Usage::WRITE:
+                    [compute_encoder useResource:res usage:MTLResourceUsageWrite];
+                    break;
+                case Command::Resource::Usage::READ_WRITE:
+                    [compute_encoder useResource:res usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                default: break;
+            }
         };
         if constexpr (std::is_same_v<T, KernelLaunchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
@@ -177,12 +177,12 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
 }
 
 inline std::pair<id<MTLBuffer>, size_t> MetalCommandEncoder::_wrap_output_buffer(void *data, size_t size) noexcept {
-    
+
     auto address = reinterpret_cast<uint64_t>(data);
     auto page_size = pagesize();
     auto aligned_begin = address / page_size * page_size;
     auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
-    
+
     Clock clock;
     auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
                                                           length:aligned_end - aligned_begin
@@ -191,7 +191,7 @@ inline std::pair<id<MTLBuffer>, size_t> MetalCommandEncoder::_wrap_output_buffer
     LUISA_VERBOSE_WITH_LOCATION(
         "Wrapped receiver pointer into temporary shared buffer with size {} in {} ms.",
         size, clock.toc());
-    
+
     return {temporary, aligned_begin - address};
 }
 
@@ -200,11 +200,19 @@ id<MTLBuffer> MetalCommandEncoder::_allocate_input_buffer(const void *data, size
     auto temporary = [_device->handle() newBufferWithBytes:data
                                                     length:size
                                                    options:MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked];
-    
+
     LUISA_VERBOSE_WITH_LOCATION(
         "Allocated temporary shared buffer with size {} in {} ms.",
         size, clock.toc());
     return temporary;
+}
+
+void MetalCommandEncoder::visit(const EventSignalCommand *command) noexcept {
+    _device->event(command->handle()).signal(_command_buffer);
+}
+
+void MetalCommandEncoder::visit(const EventWaitCommand *command) noexcept {
+    _device->event(command->handle()).wait(_command_buffer);
 }
 
 }

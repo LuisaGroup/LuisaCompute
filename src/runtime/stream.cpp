@@ -33,9 +33,12 @@ Stream::~Stream() noexcept {
 }
 
 Stream &Stream::operator=(Stream &&rhs) noexcept {
-    _device = rhs._device;
-    _handle = rhs._handle;
-    rhs._device = nullptr;
+    if (this != &rhs) {
+        _device->dispose_stream(_handle);
+        _device = rhs._device;
+        _handle = rhs._handle;
+        rhs._device = nullptr;
+    }
     return *this;
 }
 
