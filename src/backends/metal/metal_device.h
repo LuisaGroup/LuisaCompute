@@ -26,7 +26,7 @@ private:
     std::unique_ptr<MetalCompiler> _compiler{nullptr};
     std::unique_ptr<MetalArgumentBufferPool> _argument_buffer_pool{nullptr};
     dispatch_queue_t _dispatch_queue{nullptr};
-    __autoreleasing MTLSharedEventListener *_event_listener{nullptr};
+    MTLSharedEventListener *_event_listener{nullptr};
     
     // for buffers
     mutable spin_mutex _buffer_mutex;
