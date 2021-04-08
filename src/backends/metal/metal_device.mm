@@ -262,9 +262,12 @@ void MetalDevice::dispatch(uint64_t stream_handle, std::function<void()> functio
 }
 
 void MetalDevice::signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept {
-    std::scoped_lock lock{_event_mutex};
-    auto &&event = _event_slots[handle];
-    [cmd encodeSignalEvent:event._handle value:++event._counter];
+    auto [event, value] = [this, handle] {
+        std::scoped_lock lock{_event_mutex};
+        auto &&e = _event_slots[handle];
+        return std::pair{e._handle, ++e._counter};
+    }();
+    [cmd encodeSignalEvent:event value:value];
 }
 
 MetalEvent MetalDevice::event(uint64_t handle) const noexcept {

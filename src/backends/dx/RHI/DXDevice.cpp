@@ -110,12 +110,19 @@ public:
 	}
 	void dispose_stream(uint64 handle) noexcept {}
 	void synchronize_stream(uint64 stream_handle) noexcept {}
-	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer, std::function<void()> callback) noexcept {}
+	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept {}
+	void dispatch(uint64 stream_handle, std::function<void()> function) noexcept {}
 
 	// kernel
 	void prepare_kernel(uint32_t uid) noexcept {
 		// do async compile here...
 	}
+	
+	// event
+	[[nodiscard]] uint64_t create_event() noexcept override {}
+	void dispose_event(uint64_t handle) noexcept override {}
+	void synchronize_event(uint64_t handle) noexcept override {}
+	
 	~DXDevice() {
 	}
 };
