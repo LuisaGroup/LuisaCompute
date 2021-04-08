@@ -97,7 +97,7 @@ public:
 	}
 	void dispose_stream(uint64 handle) noexcept {}
 	void synchronize_stream(uint64 stream_handle) noexcept {}
-	void dispatch(uint64 stream_handle, CommandBuffer, std::function<void()>) noexcept {}
+	void dispatch(uint64 stream_handle, CommandBuffer cb, std::function<void()> func) noexcept {}
 
 	// kernel
 	void prepare_kernel(uint32_t uid) noexcept {}
