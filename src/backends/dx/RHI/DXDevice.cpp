@@ -122,7 +122,9 @@ public:
 }// namespace luisa::compute
 
 LUISA_EXPORT luisa::compute::Device* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
-	return new luisa::compute::DXDevice{ctx, id};
+	//TODO: device not finished;
+	return nullptr;
+	//return new luisa::compute::DXDevice{ctx, id};
 }
 
 LUISA_EXPORT void destroy(luisa::compute::Device* device) noexcept {

@@ -59,6 +59,8 @@ if (WIN32)
         RenderComponent/Utility/DefaultTextureAllocator.cpp
         RenderComponent/Utility/SeparableRendererManager.cpp
         RenderComponent/Utility/ShaderIO.cpp
+        render_graph/rg_system.cpp
+        render_graph/rg_node.cpp
         RHI/DXDevice.cpp
         RHI/ICommandBuffer.cpp
         ShaderCompile/ASTEncoder.cpp

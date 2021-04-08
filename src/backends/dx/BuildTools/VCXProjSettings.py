@@ -164,7 +164,7 @@ def GenerateCMake(root:ET.Element, xmlns):
             if lb.XML_GetTag(sub, xmlns) == 'ClCompile':
                 path = sub.attrib.get('Include')
                 if path != None:
-                    cmakePaths.append(path)
+                    cmakePaths.append(path.replace('\\','/'))
     example = open("CMakeLists.txt", "r")
     exampleStr = example.read()
     example.close()
