@@ -4,7 +4,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
     command.h command.cpp
     command_buffer.cpp command_buffer.h
     pixel_format.h
-    stream.cpp stream.h)
+    stream.cpp stream.h event.h event.cpp)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-core)

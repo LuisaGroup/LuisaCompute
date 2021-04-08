@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
 
 namespace luisa {
@@ -311,9 +312,16 @@ template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolea
     }
 }
 
-[[nodiscard]] constexpr auto operator!(const luisa::bool2 v) noexcept { return luisa::bool2{!v.x, !v.y}; }
-[[nodiscard]] constexpr auto operator!(const luisa::bool3 v) noexcept { return luisa::bool3{!v.x, !v.y, !v.z}; }
-[[nodiscard]] constexpr auto operator!(const luisa::bool4 v) noexcept { return luisa::bool4{!v.x, !v.y, !v.z, !v.w}; }
+template<typename T, size_t N>
+[[nodiscard]] constexpr auto operator!(const luisa::Vector<T, N> v) noexcept {
+    if constexpr (N == 2u) {
+        return luisa::bool2{!v.x, !v.y};
+    } else if constexpr (N == 3u) {
+        return luisa::bool3{!v.x, !v.y, !v.z};
+    } else {
+        return luisa::bool3{!v.x, !v.y, !v.z, !v.w};
+    }
+}
 
 [[nodiscard]] constexpr auto any(const luisa::bool2 v) noexcept { return v.x || v.y; }
 [[nodiscard]] constexpr auto any(const luisa::bool3 v) noexcept { return v.x || v.y || v.z; }

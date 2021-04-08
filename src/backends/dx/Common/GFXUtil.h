@@ -238,7 +238,6 @@ enum GFXFormat {
 
 class Camera;
 
-
 INLINE void d3dSetDebugName(IDXGIObject* obj, const char* name) {
 	if (obj) {
 		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
@@ -318,31 +317,31 @@ public:
 
 #ifndef ThrowIfFailed
 #ifdef NDEBUG
-#define ThrowIfFailed(x) (x)
+#define ThrowIfFailed(x) [&] { x; }()
 #else
 #define ThrowIfFailed(x)                                                  \
-	{                                                                     \
-		HRESULT hr__ = (x);                                               \
+	[&] {                                                                 \
+		HRESULT hr__ = x;                                                 \
 		vengine::wstring wfn = AnsiToWString(__FILE__);                   \
 		if (FAILED(hr__)) { throw DxException(hr__, #x, wfn, __LINE__); } \
-	}
+	}()
 #endif
 #endif
 #ifndef ThrowHResult
 #define ThrowHResult(hr__, x)                                             \
-	{                                                                     \
+	[&] {                                                                 \
 		vengine::wstring wfn = AnsiToWString(__FILE__);                   \
 		if (FAILED(hr__)) { throw DxException(hr__, #x, wfn, __LINE__); } \
-	}
+	}()
 
 #endif
 
 #ifndef ReleaseCom
 #define ReleaseCom(x)     \
-	{                     \
+	[&] {                 \
 		if (x) {          \
 			x->Release(); \
 			x = 0;        \
 		}                 \
-	}
+	}()
 #endif

@@ -1,3 +1,4 @@
+#include <codecvt>
 #include <Common/GFXUtil.h>
 #include <runtime/device.h>
 #include <RenderComponent/RenderComponentInclude.h>
@@ -14,12 +15,13 @@ static GFXFormat LCFormatToVEngineFormat(PixelFormat format) {
 }
 
 class DXDevice final : public Device {
+
 private:
 	///////////// D3D
 	Microsoft::WRL::ComPtr<IDXGIFactory4> mdxgiFactory;
 	Microsoft::WRL::ComPtr<ID3D12Device> md3dDevice;
-	IDXGIAdapter1* adapter;
-	void InitD3D() {
+	IDXGIAdapter1* adapter{nullptr};
+	void InitD3D(uint32_t index) {
 #if defined(DEBUG) || defined(_DEBUG)
 		// Enable the D3D12 debug layer.
 		{
@@ -29,6 +31,7 @@ private:
 		}
 #endif
 		ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
+		auto suitableIndex = 0u;
 		int32_t adapterIndex = 0; // we'll start looking for directx 12  compatible graphics devices starting at index 0
 		bool adapterFound = false;// set this to true when a good one was found
 		while (mdxgiFactory->EnumAdapters1(adapterIndex, &adapter) != DXGI_ERROR_NOT_FOUND) {
@@ -37,8 +40,13 @@ private:
 			if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
 				HRESULT hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_1,
 											   IID_PPV_ARGS(&md3dDevice));
-				if (SUCCEEDED(hr)) {
+				if (SUCCEEDED(hr) && suitableIndex++ == index) {
 					adapterFound = true;
+					std::wstring description{desc.Description};
+					std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+					LUISA_VERBOSE(
+						"Create DirectX device #{}: {}.",
+						index, converter.to_bytes(description));
 					break;
 				}
 			}
@@ -48,13 +56,17 @@ private:
 		// Check 4X MSAA quality support for our back buffer format.
 		// All Direct3D 11 capable devices support 4X MSAA for all render
 		// target formats, so we only need to check quality support.
+		if (!adapterFound) {
+			LUISA_ERROR_WITH_LOCATION(
+				"Failed to create DirectX device with index {}.", index);
+		}
 	}
 	//////////// GFX
-	GFXDevice* dxDevice;
+	GFXDevice* dxDevice{nullptr};
 
 public:
-	DXDevice(const Context& ctx) : Device(ctx) {
-		InitD3D();
+	DXDevice(const Context& ctx, uint32_t index) : Device(ctx) {// TODO: support device selection?
+		InitD3D(index);
 		dxDevice = md3dDevice.Get();
 	}
 	uint64 create_buffer(size_t size_bytes) noexcept {
@@ -93,15 +105,28 @@ public:
 
 	// stream
 	uint64 create_stream() noexcept {
+		return 0u;
 		//return reinterpret_cast<uint64>(new ThreadCommand)
 	}
 	void dispose_stream(uint64 handle) noexcept {}
 	void synchronize_stream(uint64 stream_handle) noexcept {}
-	void dispatch(uint64 stream_handle, CommandBuffer cb, std::function<void()> func) noexcept {}
+	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer, std::function<void()> callback) noexcept {}
 
 	// kernel
-	void prepare_kernel(uint32_t uid) noexcept {}
+	void prepare_kernel(uint32_t uid) noexcept {
+		// do async compile here...
+	}
 	~DXDevice() {
 	}
 };
 }// namespace luisa::compute
+
+LUISA_EXPORT luisa::compute::Device* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
+	//TODO: device not finished;
+	return nullptr;
+	//return new luisa::compute::DXDevice{ctx, id};
+}
+
+LUISA_EXPORT void destroy(luisa::compute::Device* device) noexcept {
+	delete device;
+}

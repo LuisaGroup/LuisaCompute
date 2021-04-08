@@ -47,6 +47,11 @@ public:
 
     // kernel
     virtual void prepare_kernel(uint32_t uid) noexcept = 0;
+    
+    // event
+    [[nodiscard]] virtual uint64_t create_event() noexcept = 0;
+    virtual void dispose_event(uint64_t handle) noexcept = 0;
+    virtual void synchronize_event(uint64_t handle) noexcept = 0;
 };
 
 using DeviceDeleter = void(Device *);

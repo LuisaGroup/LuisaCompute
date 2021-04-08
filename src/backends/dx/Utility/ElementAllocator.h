@@ -44,10 +44,7 @@ public:
 		{
 			return node->obj.offset + node->obj.parentNode->GetPosition();
 		}
-		operator bool() const
-		{
-			return node;
-		}
+		[[nodiscard]] operator bool() const noexcept { return node != nullptr; }
 	};
 private:
 	StackObject<BuddyAllocator> buddyAlloc;
