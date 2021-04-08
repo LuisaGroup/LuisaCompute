@@ -10,27 +10,17 @@
 namespace luisa::compute::metal {
 
 class MetalEvent {
+    
+    friend class MetalDevice;
 
 private:
     id<MTLSharedEvent> _handle;
-    uint64_t _counter{0u};
-    
+    uint64_t _counter;
 
 public:
-    explicit MetalEvent(id<MTLSharedEvent> handle) noexcept
-        : _handle{handle} {}
-    
-    void signal(id<MTLCommandBuffer> cb) noexcept {
-        [cb encodeSignalEvent:_handle value:++_counter];
-    }
-    
-    void wait(id<MTLCommandBuffer> cb) const noexcept {
-        [cb encodeWaitForEvent:_handle value:_counter];
-    }
-    
-    void synchronize() const noexcept {
-    
-    }
+    explicit MetalEvent(id<MTLSharedEvent> handle) noexcept;
+    void wait(id<MTLCommandBuffer> cb) const noexcept;
+    void synchronize(MTLSharedEventListener *listener) const noexcept;
 };
 
 }// namespace luisa::compute::metal

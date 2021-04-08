@@ -15,26 +15,22 @@ namespace luisa::compute {
 class Stream : public concepts::Noncopyable {
 
 public:
-    struct SynchronizeToken {};
-
     class Delegate {
 
     private:
         Stream *_stream;
         CommandBuffer _command_buffer;
-        std::function<void()> _callback;
 
     private:
         void _commit() noexcept;
 
     public:
         explicit Delegate(Stream *s) noexcept;
-        Delegate(Delegate &&) noexcept = default;
-        Delegate &operator=(Delegate &&) noexcept = default;
+        Delegate(Delegate &&) noexcept;
+        Delegate &operator=(Delegate &&);
         ~Delegate() noexcept;
         Delegate &operator<<(CommandHandle cmd) noexcept;
-        Delegate &operator<<(std::function<void()> f) noexcept;
-        void operator<<(SynchronizeToken) noexcept;
+        Stream &operator<<(std::function<void()> f) noexcept;
     };
 
 private:
@@ -43,7 +39,8 @@ private:
 
 private:
     friend class Device;
-    void _dispatch(CommandBuffer command_buffer, std::function<void()> callback) noexcept;
+    void _dispatch(CommandBuffer command_buffer) noexcept;
+    void _dispatch(std::function<void()> f) noexcept;
 
 public:
     explicit Stream(Device &device) noexcept
@@ -52,10 +49,8 @@ public:
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
     Delegate operator<<(CommandHandle cmd) noexcept;
-    Delegate operator<<(std::function<void()> f) noexcept;
-    void operator<<(SynchronizeToken);
+    Stream &operator<<(std::function<void()> f) noexcept;
+    void synchronize() noexcept;
 };
-
-[[nodiscard]] constexpr auto synchronize() noexcept { return Stream::SynchronizeToken{}; }
 
 }// namespace luisa::compute

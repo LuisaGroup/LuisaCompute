@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
     }
     stream << result_buffer.copy_to(results.data());
     auto t1 = clock.toc();
-    stream << synchronize();
+    stream.synchronize();
     auto t2 = clock.toc();
 
     LUISA_INFO("Dispatched in {} ms. Finished in {} ms.", t1, t2);

@@ -80,9 +80,12 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     LUISA_INFO(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
-    
+
     _compiler = std::make_unique<MetalCompiler>(this);
     _argument_buffer_pool = std::make_unique<MetalArgumentBufferPool>(_handle);
+
+    _dispatch_queue = dispatch_queue_create(nullptr, DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL);
+    _event_listener = [[MTLSharedEventListener alloc] initWithDispatchQueue:_dispatch_queue];
 
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
@@ -98,7 +101,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _texture_slots.resize(initial_texture_count, nullptr);
     _available_texture_slots.resize(initial_texture_count);
     std::iota(_available_texture_slots.rbegin(), _available_texture_slots.rend(), 0u);
-    
+
     static constexpr auto initial_event_count = 4u;
     _event_slots.resize(initial_event_count, MetalEvent{nullptr});
     _available_event_slots.resize(initial_event_count);
@@ -138,19 +141,6 @@ void MetalDevice::prepare_kernel(uint32_t uid) noexcept {
 
 MetalCompiler::PipelineState MetalDevice::kernel(uint32_t uid) const noexcept {
     return _compiler->kernel(uid);
-}
-
-void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer commands, std::function<void()> function) noexcept {
-    auto command_buffer = [stream(stream_handle) commandBuffer];
-    MetalCommandEncoder encoder{this, command_buffer};
-    for (auto &&command : commands) { command->accept(encoder); }
-    if (function) {
-        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          auto f = std::move(function);
-          f();
-        }];
-    }
-    [command_buffer commit];
 }
 
 MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
@@ -254,13 +244,32 @@ void MetalDevice::dispose_event(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Disposed event #{}.", handle);
 }
 
+void MetalDevice::synchronize_event(uint64_t handle) noexcept {
+    event(handle).synchronize(_event_listener);
+}
+
+void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept {
+    auto command_buffer = [stream(stream_handle) commandBuffer];
+    MetalCommandEncoder encoder{this, command_buffer};
+    for (auto &&command : buffer) { command->accept(encoder); }
+    [command_buffer commit];
+}
+
+void MetalDevice::dispatch(uint64_t stream_handle, std::function<void()> function) noexcept {
+    auto command_buffer = [stream(stream_handle) commandBuffer];
+    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
+    [command_buffer commit];
+}
+
+void MetalDevice::signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept {
+    std::scoped_lock lock{_event_mutex};
+    auto &&event = _event_slots[handle];
+    [cmd encodeSignalEvent:event._handle value:++event._counter];
+}
+
 MetalEvent MetalDevice::event(uint64_t handle) const noexcept {
     std::scoped_lock lock{_event_mutex};
     return _event_slots[handle];
-}
-
-void MetalDevice::synchronize_event(uint64_t handle) noexcept {
-    event(handle).synchronize();
 }
 
 }

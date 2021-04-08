@@ -131,13 +131,17 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
         auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
             switch (usage) {
                 case Command::Resource::Usage::READ:
-                    [compute_encoder useResource:res usage:MTLResourceUsageRead];
+                    [compute_encoder useResource:res
+                                           usage:MTLResourceUsageRead];
                     break;
                 case Command::Resource::Usage::WRITE:
-                    [compute_encoder useResource:res usage:MTLResourceUsageWrite];
+                    [compute_encoder useResource:res
+                                           usage:MTLResourceUsageWrite];
                     break;
                 case Command::Resource::Usage::READ_WRITE:
-                    [compute_encoder useResource:res usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+                    [compute_encoder useResource:res
+                                           usage:MTLResourceUsageRead
+                                                 | MTLResourceUsageWrite];
                 default: break;
             }
         };
@@ -186,7 +190,8 @@ inline std::pair<id<MTLBuffer>, size_t> MetalCommandEncoder::_wrap_output_buffer
     Clock clock;
     auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
                                                           length:aligned_end - aligned_begin
-                                                         options:MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked
+                                                         options:MTLResourceStorageModeShared
+                                                                 | MTLResourceHazardTrackingModeUntracked
                                                      deallocator:nullptr];
     LUISA_VERBOSE_WITH_LOCATION(
         "Wrapped receiver pointer into temporary shared buffer with size {} in {} ms.",
@@ -199,7 +204,8 @@ id<MTLBuffer> MetalCommandEncoder::_allocate_input_buffer(const void *data, size
     Clock clock;
     auto temporary = [_device->handle() newBufferWithBytes:data
                                                     length:size
-                                                   options:MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked];
+                                                   options:MTLResourceStorageModeShared
+                                                           | MTLResourceHazardTrackingModeUntracked];
 
     LUISA_VERBOSE_WITH_LOCATION(
         "Allocated temporary shared buffer with size {} in {} ms.",
@@ -208,7 +214,7 @@ id<MTLBuffer> MetalCommandEncoder::_allocate_input_buffer(const void *data, size
 }
 
 void MetalCommandEncoder::visit(const EventSignalCommand *command) noexcept {
-    _device->event(command->handle()).signal(_command_buffer);
+    _device->signal_event(command->handle(), _command_buffer);
 }
 
 void MetalCommandEncoder::visit(const EventWaitCommand *command) noexcept {
