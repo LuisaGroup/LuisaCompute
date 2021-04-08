@@ -265,7 +265,8 @@ void MetalDevice::signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexce
     auto [event, value] = [this, handle] {
         std::scoped_lock lock{_event_mutex};
         auto &&e = _event_slots[handle];
-        return std::pair{e._handle, ++e._counter};
+        auto value = ++e._counter;
+        return std::pair{e._handle, value};
     }();
     [cmd encodeSignalEvent:event value:value];
 }
