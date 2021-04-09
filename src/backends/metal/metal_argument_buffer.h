@@ -32,7 +32,7 @@ public:
 class MetalArgumentBufferPool {
 
 public:
-    static constexpr auto trunk_size = 16u;
+    static constexpr auto trunk_size = 64u;
 
 private:
     __weak id<MTLDevice> _device;

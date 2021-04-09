@@ -19,7 +19,7 @@ public:
 		InitD3D(index);
 		dxDevice = md3dDevice.Get();
 	}
-	uint64 create_buffer(size_t size_bytes) noexcept {
+	uint64 create_buffer(size_t size_bytes) noexcept override {
 		return reinterpret_cast<uint64>(
 			new StructuredBuffer(
 				dxDevice,
@@ -28,14 +28,14 @@ public:
 				nullptr//TODO: allocator
 				));
 	}
-	void dispose_buffer(uint64 handle) noexcept {
+	void dispose_buffer(uint64 handle) noexcept override {
 		delete reinterpret_cast<StructuredBuffer*>(handle);
 	}
 
 	// texture
 	uint64 create_texture(
 		PixelFormat format, uint dimension, uint width, uint height, uint depth,
-		uint mipmap_levels, bool is_bindless) {
+		uint mipmap_levels, bool is_bindless) override {
 		return reinterpret_cast<uint64>(
 			new RenderTexture(
 				dxDevice,
@@ -49,31 +49,33 @@ public:
 				RenderTextureState::Common,
 				0));
 	}
-	void dispose_texture(uint64 handle) noexcept {
+	void dispose_texture(uint64 handle) noexcept override {
 		delete reinterpret_cast<RenderTexture*>(handle);
 	}
 
 	// stream
-	uint64 create_stream() noexcept {
+	uint64 create_stream() noexcept override {
 		return reinterpret_cast<uint64>(
 			new DXStream(dxDevice, GFXCommandListType_Compute)//TODO: need support copy
 		);
 	}
-	void dispose_stream(uint64 handle) noexcept {
+	void dispose_stream(uint64 handle) noexcept override {
 		synchronize_stream(handle);
 		delete reinterpret_cast<DXStream*>(handle);
 	}
-	void synchronize_stream(uint64 stream_handle) noexcept {
+	void synchronize_stream(uint64 stream_handle) noexcept override {
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		stream->Sync(cpuFence.Get());
 	}
-	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer, std::function<void()> callback) noexcept {
-		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
-		stream->Execute(std::move(cmd_buffer), mComputeCommandQueue.Get(), cpuFence.Get(), signalCount);
-	}
+	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
 
+	}
+	void dispatch(uint64 stream_handle, std::function<void()> callback) noexcept override {
+		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
+		callback();
+	}
 	// kernel
-	void prepare_kernel(uint32_t uid) noexcept {
+	void prepare_kernel(uint32_t uid) noexcept override {
 		// do async compile here...
 	}
 	uint64_t create_event() noexcept override {
@@ -81,6 +83,7 @@ public:
 	}
 	void dispose_event(uint64_t handle) noexcept override {}
 	void synchronize_event(uint64_t handle) noexcept override {}
+
 	~DXDevice() {
 	}
 	//////////// Variables

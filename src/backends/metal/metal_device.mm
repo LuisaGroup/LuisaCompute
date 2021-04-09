@@ -80,7 +80,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     LUISA_INFO(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
-    
+
     _compiler = std::make_unique<MetalCompiler>(this);
     _argument_buffer_pool = std::make_unique<MetalArgumentBufferPool>(_handle);
 
@@ -98,7 +98,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _texture_slots.resize(initial_texture_count, nullptr);
     _available_texture_slots.resize(initial_texture_count);
     std::iota(_available_texture_slots.rbegin(), _available_texture_slots.rend(), 0u);
-    
+
     static constexpr auto initial_event_count = 4u;
     _event_slots.resize(initial_event_count, MetalEvent{nullptr});
     _available_event_slots.resize(initial_event_count);
@@ -140,24 +140,14 @@ MetalCompiler::PipelineState MetalDevice::kernel(uint32_t uid) const noexcept {
     return _compiler->kernel(uid);
 }
 
-void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer commands, std::function<void()> function) noexcept {
-    auto command_buffer = [stream(stream_handle) commandBuffer];
-    MetalCommandEncoder encoder{this, command_buffer};
-    for (auto &&command : commands) { command->accept(encoder); }
-    if (function) {
-        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          auto f = std::move(function);
-          f();
-        }];
-    }
-    [command_buffer commit];
-}
-
 MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
     return _argument_buffer_pool.get();
 }
 
-uint64_t MetalDevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) {
+uint64_t MetalDevice::create_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels, bool is_bindless) {
 
     Clock clock;
 
@@ -254,13 +244,56 @@ void MetalDevice::dispose_event(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Disposed event #{}.", handle);
 }
 
-MetalEvent MetalDevice::event(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_event_mutex};
-    return _event_slots[handle];
+void MetalDevice::synchronize_event(uint64_t handle) noexcept {
+
+    auto [e, l, v] = [this, handle] {
+        std::scoped_lock lock{_event_mutex};
+        auto &&e = _event_slots[handle];
+        if (e.listener == nullptr) {
+            e.listener = [[MTLSharedEventListener alloc] init];
+        }
+        return std::make_tuple(e.handle, e.listener, e.counter);
+    }();
+
+    std::condition_variable cv;
+    auto p = &cv;
+    [e notifyListener:l
+              atValue:v
+                block:^(id<MTLSharedEvent>, uint64_t) { p->notify_one(); }];
+    std::mutex mutex;
+    std::unique_lock lock{mutex};
+    cv.wait(lock);
 }
 
-void MetalDevice::synchronize_event(uint64_t handle) noexcept {
-    event(handle).synchronize();
+void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept {
+    auto command_buffer = [stream(stream_handle) commandBuffer];
+    MetalCommandEncoder encoder{this, command_buffer};
+    for (auto &&command : buffer) { command->accept(encoder); }
+    [command_buffer commit];
+}
+
+void MetalDevice::dispatch(uint64_t stream_handle, std::function<void()> function) noexcept {
+    auto command_buffer = [stream(stream_handle) commandBuffer];
+    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
+    [command_buffer commit];
+}
+
+void MetalDevice::signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept {
+    auto [event, value] = [this, handle] {
+        std::scoped_lock lock{_event_mutex};
+        auto &&e = _event_slots[handle];
+        return std::make_pair(e.handle, ++e.counter);
+    }();
+    [cmd encodeSignalEvent:event value:value];
+}
+
+void MetalDevice::wait_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept {
+    auto [e, v] = [this, handle] {
+        std::scoped_lock lock{_event_mutex};
+        auto &&event = _event_slots[handle];
+        return std::make_pair(event.handle, event.counter);
+    }();
+    [cmd encodeWaitForEvent:e value:v];
 }
 
 }
