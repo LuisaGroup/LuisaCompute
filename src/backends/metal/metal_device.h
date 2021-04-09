@@ -65,12 +65,11 @@ public:
     void dispose_buffer(uint64_t handle) noexcept override;
     uint64_t create_stream() noexcept override;
     void dispose_stream(uint64_t handle) noexcept override;
+    void dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void prepare_kernel(uint32_t uid) noexcept override;
     uint64_t create_event() noexcept override;
     void dispose_event(uint64_t handle) noexcept override;
-    void dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept override;
-    void dispatch(uint64_t stream_handle, std::function<void()> function) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
 };
 

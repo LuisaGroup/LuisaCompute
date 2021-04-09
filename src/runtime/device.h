@@ -44,7 +44,6 @@ public:
     virtual void dispose_stream(uint64_t handle) noexcept = 0;
     virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
     virtual void dispatch(uint64_t stream_handle, CommandBuffer) noexcept = 0;
-    virtual void dispatch(uint64_t stream_handle, std::function<void()>) noexcept = 0;
 
     // kernel
     virtual void prepare_kernel(uint32_t uid) noexcept = 0;

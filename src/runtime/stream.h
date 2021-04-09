@@ -27,10 +27,9 @@ public:
     public:
         explicit Delegate(Stream *s) noexcept;
         Delegate(Delegate &&) noexcept;
-        Delegate &operator=(Delegate &&);
+        Delegate &operator=(Delegate &&) noexcept;
         ~Delegate() noexcept;
         Delegate &operator<<(CommandHandle cmd) noexcept;
-        Stream &operator<<(std::function<void()> f) noexcept;
     };
 
 private:
@@ -40,7 +39,6 @@ private:
 private:
     friend class Device;
     void _dispatch(CommandBuffer command_buffer) noexcept;
-    void _dispatch(std::function<void()> f) noexcept;
 
 public:
     explicit Stream(Device &device) noexcept
@@ -49,7 +47,6 @@ public:
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
     Delegate operator<<(CommandHandle cmd) noexcept;
-    Stream &operator<<(std::function<void()> f) noexcept;
     void synchronize() noexcept;
 };
 

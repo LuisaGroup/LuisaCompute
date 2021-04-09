@@ -132,10 +132,8 @@ int main(int argc, char *argv[]) {
     Stream stream{*device};
 
     Clock clock;
-    stream << [] { LUISA_INFO("Hello!"); }
-           << buffer.copy_from(data.data())
-           << buffer.copy_to(results.data())
-           << [] { LUISA_INFO("Bye!"); };
+    stream << buffer.copy_from(data.data())
+           << buffer.copy_to(results.data());
     stream.synchronize();
     LUISA_INFO("Finished in {} ms.", clock.toc());
 

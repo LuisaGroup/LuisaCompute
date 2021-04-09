@@ -48,13 +48,8 @@ int main(int argc, char *argv[]) {
     copy_stream << event.wait()
                 << device_image.copy_to(host_image.data)
                 << event.signal();
-
-    stream << event.wait()
-           << [&] {
-                  cv::cvtColor(host_image, host_image, cv::COLOR_RGBA2BGR);
-                  cv::imwrite("result.png", host_image);
-              }
-           << event.signal();
-
+    
     event.synchronize();
+    cv::cvtColor(host_image, host_image, cv::COLOR_RGBA2BGR);
+    cv::imwrite("result.png", host_image);
 }

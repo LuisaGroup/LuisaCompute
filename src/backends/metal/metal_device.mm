@@ -272,12 +272,6 @@ void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcep
     [command_buffer commit];
 }
 
-void MetalDevice::dispatch(uint64_t stream_handle, std::function<void()> function) noexcept {
-    auto command_buffer = [stream(stream_handle) commandBuffer];
-    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { function(); }];
-    [command_buffer commit];
-}
-
 void MetalDevice::signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept {
     auto [event, value] = [this, handle] {
         std::scoped_lock lock{_event_mutex};

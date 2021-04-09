@@ -70,10 +70,6 @@ public:
 	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
 
 	}
-	void dispatch(uint64 stream_handle, std::function<void()> callback) noexcept override {
-		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
-		callback();
-	}
 	// kernel
 	void prepare_kernel(uint32_t uid) noexcept override {
 		// do async compile here...

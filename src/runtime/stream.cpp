@@ -17,11 +17,6 @@ Stream::Delegate Stream::operator<<(CommandHandle cmd) noexcept {
     return delegate;
 }
 
-Stream &Stream::operator<<(std::function<void()> f) noexcept {
-    _dispatch(std::move(f));
-    return *this;
-}
-
 Stream::Stream(Stream &&s) noexcept
     : _device{s._device}, _handle{s._handle} { s._device = nullptr; }
 
@@ -43,21 +38,11 @@ Stream &Stream::operator=(Stream &&rhs) noexcept {
 
 void Stream::synchronize() noexcept { _device->synchronize_stream(_handle); }
 
-void Stream::_dispatch(std::function<void()> f) noexcept {
-    _device->dispatch(_handle, std::move(f));
-}
-
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 Stream::Delegate &Stream::Delegate::operator<<(CommandHandle cmd) noexcept {
     _command_buffer.append(std::move(cmd));
     return *this;
-}
-
-Stream &Stream::Delegate::operator<<(std::function<void()> f) noexcept {
-    auto s = _stream;
-    _commit();
-    return *s << std::move(f);
 }
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
@@ -78,7 +63,7 @@ Stream::Delegate::Delegate(Stream::Delegate &&s) noexcept
     : _stream{s._stream},
       _command_buffer{std::move(s._command_buffer)} { s._stream = nullptr; }
 
-Stream::Delegate &Stream::Delegate::operator=(Stream::Delegate &&rhs) {
+Stream::Delegate &Stream::Delegate::operator=(Stream::Delegate &&rhs)  noexcept {
     if (this != &rhs) {
         _commit();
         _stream = rhs._stream;
