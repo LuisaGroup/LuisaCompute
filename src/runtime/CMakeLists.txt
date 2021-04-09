@@ -5,11 +5,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
     command_buffer.cpp command_buffer.h
     pixel_format.h
     stream.cpp stream.h
-    event.cpp event.h
-    rg_enum.h
-    rg_executor.h
-    rg_node.cpp rg_node.h
-    rg_system.cpp rg_system.h)
+    event.cpp event.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-core)

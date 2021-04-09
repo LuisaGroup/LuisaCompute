@@ -218,7 +218,7 @@ void MetalCommandEncoder::visit(const EventSignalCommand *command) noexcept {
 }
 
 void MetalCommandEncoder::visit(const EventWaitCommand *command) noexcept {
-    _device->event(command->handle()).wait(_command_buffer);
+    _device->wait_event(command->handle(), _command_buffer);
 }
 
 }

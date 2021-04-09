@@ -84,9 +84,6 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _compiler = std::make_unique<MetalCompiler>(this);
     _argument_buffer_pool = std::make_unique<MetalArgumentBufferPool>(_handle);
 
-    _dispatch_queue = dispatch_queue_create(nullptr, DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL);
-    _event_listener = [[MTLSharedEventListener alloc] initWithDispatchQueue:_dispatch_queue];
-
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
     _available_buffer_slots.resize(initial_buffer_count);
@@ -147,7 +144,10 @@ MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
     return _argument_buffer_pool.get();
 }
 
-uint64_t MetalDevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) {
+uint64_t MetalDevice::create_texture(
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels, bool is_bindless) {
 
     Clock clock;
 
@@ -245,7 +245,24 @@ void MetalDevice::dispose_event(uint64_t handle) noexcept {
 }
 
 void MetalDevice::synchronize_event(uint64_t handle) noexcept {
-    event(handle).synchronize(_event_listener);
+
+    auto [e, l, v] = [this, handle] {
+        std::scoped_lock lock{_event_mutex};
+        auto &&e = _event_slots[handle];
+        if (e.listener == nullptr) {
+            e.listener = [[MTLSharedEventListener alloc] init];
+        }
+        return std::make_tuple(e.handle, e.listener, e.counter);
+    }();
+
+    std::condition_variable cv;
+    auto p = &cv;
+    [e notifyListener:l
+              atValue:v
+                block:^(id<MTLSharedEvent>, uint64_t) { p->notify_one(); }];
+    std::mutex mutex;
+    std::unique_lock lock{mutex};
+    cv.wait(lock);
 }
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept {
@@ -265,15 +282,18 @@ void MetalDevice::signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexce
     auto [event, value] = [this, handle] {
         std::scoped_lock lock{_event_mutex};
         auto &&e = _event_slots[handle];
-        auto value = ++e._counter;
-        return std::pair{e._handle, value};
+        return std::make_pair(e.handle, ++e.counter);
     }();
     [cmd encodeSignalEvent:event value:value];
 }
 
-MetalEvent MetalDevice::event(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_event_mutex};
-    return _event_slots[handle];
+void MetalDevice::wait_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept {
+    auto [e, v] = [this, handle] {
+        std::scoped_lock lock{_event_mutex};
+        auto &&event = _event_slots[handle];
+        return std::make_pair(event.handle, event.counter);
+    }();
+    [cmd encodeWaitForEvent:e value:v];
 }
 
 }

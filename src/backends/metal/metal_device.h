@@ -25,8 +25,6 @@ private:
     id<MTLDevice> _handle{nullptr};
     std::unique_ptr<MetalCompiler> _compiler{nullptr};
     std::unique_ptr<MetalArgumentBufferPool> _argument_buffer_pool{nullptr};
-    dispatch_queue_t _dispatch_queue{nullptr};
-    MTLSharedEventListener *_event_listener{nullptr};
     
     // for buffers
     mutable spin_mutex _buffer_mutex;
@@ -57,8 +55,8 @@ public:
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalCompiler::PipelineState kernel(uint32_t uid) const noexcept;
-    [[nodiscard]] MetalEvent event(uint64_t handle) const noexcept;
     void signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept;
+    void wait_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept;
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) override;

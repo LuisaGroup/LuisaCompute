@@ -5,23 +5,17 @@
 #pragma once
 
 #import <Metal/Metal.h>
-#import <MetalKit/MetalKit.h>
 
 namespace luisa::compute::metal {
 
-class MetalEvent {
+struct MetalEvent {
 
-private:
-    id<MTLSharedEvent> _handle;
-    uint64_t _counter;
+    id<MTLSharedEvent> handle;
+    MTLSharedEventListener *listener{nullptr};
+    uint64_t counter{0u};
 
-private:
-    friend class MetalDevice;
-    explicit MetalEvent(id<MTLSharedEvent> handle) noexcept;
-
-public:
-    void wait(id<MTLCommandBuffer> cb) const noexcept;
-    void synchronize(MTLSharedEventListener *listener) const noexcept;
+    explicit MetalEvent(id<MTLSharedEvent> h) noexcept
+        : handle{h} { handle.signaledValue = 0u; }
 };
 
 }// namespace luisa::compute::metal
