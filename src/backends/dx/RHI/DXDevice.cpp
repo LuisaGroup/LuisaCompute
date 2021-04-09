@@ -72,7 +72,7 @@ public:
 	}
 	// kernel
 	void prepare_kernel(uint32_t uid) noexcept override {
-		// do async compile here...
+		// Implement async compilation here. DO NOT BLOCK.
 	}
 	uint64_t create_event() noexcept override {
 		return 0;
