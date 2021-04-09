@@ -27,7 +27,7 @@ public:
 			<< name
 			<< " sync to "
 			<< signal
-			<< " by signal"
+			<< " by signal "
 			<< static_cast<FuckingExecutor*>(signal_source)->name
 			<< '\n';
 	}
@@ -46,23 +46,23 @@ public:
 int main() {
 	using namespace luisa::compute;
 	std::function<void()> copy0([]() {
-		std::cout << "copy FIRST" << std::endl;
+		std::cout << "Working FIRST" << std::endl;
 	});
 	std::function<void()> copy1([]() {
-		std::cout << "copy SECOND" << std::endl;
+		std::cout << "Working SECOND" << std::endl;
 	});
 	std::function<void()> copy2([]() {
-		std::cout << "copy THIRD" << std::endl;
+		std::cout << "Working THIRD" << std::endl;
 	});
 
 	std::function<void()> compute0([]() {
-		std::cout << "compute FIRST" << std::endl;
+		std::cout << "StillWorking FIRST" << std::endl;
 	});
 	std::function<void()> compute1([]() {
-		std::cout << "compute SECOND" << std::endl;
+		std::cout << "StillWorking SECOND" << std::endl;
 	});
 	std::function<void()> compute2([]() {
-		std::cout << "compute THIRD" << std::endl;
+		std::cout << "StillWorking THIRD" << std::endl;
 	});
 	FuckingExecutor copyExecutor;
 	copyExecutor.name = "copy"_sv;
@@ -71,17 +71,15 @@ int main() {
 	constexpr uint COPY_QUEUE = 0;
 	constexpr uint COMPUTE_QUEUE = 1;
 	RGSystem sys;
-	RGNode node0(std::move(copy0), COPY_QUEUE);
-	RGNode node1(std::move(copy1), COPY_QUEUE);
-	RGNode node2(std::move(copy2), COPY_QUEUE);
+	RGNode node0(std::move(copy0), COMPUTE_QUEUE);
+	RGNode node1(std::move(copy1), COMPUTE_QUEUE);
+	RGNode node2(std::move(copy2), COMPUTE_QUEUE);
 
 	RGNode cnode0(std::move(compute0), COMPUTE_QUEUE);
 	RGNode cnode1(std::move(compute1), COMPUTE_QUEUE);
 	RGNode cnode2(std::move(compute2), COMPUTE_QUEUE);
 
 	cnode0.add_depend_node(&node0);
-	cnode1.add_depend_node(&node1);
-	cnode2.add_depend_node(&node2);
 
 	node0.push_to_system(&sys);
 	node1.push_to_system(&sys);

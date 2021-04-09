@@ -13,14 +13,13 @@
 namespace v_mimalloc {
 funcPtr_t<void*(size_t)> Alloc::mallocFunc = mi_malloc;
 funcPtr_t<void(void*)> Alloc::freeFunc = mi_free;
-static bool memoryInitialized = false;
+static std::atomic_bool memoryInitialized = false;
 }// namespace v_mimalloc
 namespace vengine {
 void vengine_init_malloc() {
 	using namespace v_mimalloc;
 	static StackObject<DynamicDLL> vengine_malloc_dll;
-	if (memoryInitialized) return;
-	memoryInitialized = true;
+	if (memoryInitialized.exchange(true)) return;
 	Alloc::mallocFunc = mi_malloc;
 	Alloc::freeFunc = mi_free;
 //	vengine_malloc_dll.New("mimalloc-override.dll");
@@ -33,8 +32,7 @@ void vengine_init_malloc(
 	funcPtr_t<void*(size_t)> mallocFunc,
 	funcPtr_t<void(void*)> freeFunc) {
 	using namespace v_mimalloc;
-	if (memoryInitialized) return;
-	memoryInitialized = true;
+	if (memoryInitialized.exchange(true)) return;
 	Alloc::mallocFunc = mallocFunc;
 	Alloc::freeFunc = freeFunc;
 }
