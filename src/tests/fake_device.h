@@ -13,7 +13,7 @@ class FakeDevice : public Device {
 
 private:
     uint64_t _handle{0u};
-    
+
 public:
     explicit FakeDevice(const Context &ctx) noexcept : Device{ctx} {}
     ~FakeDevice() noexcept override = default;

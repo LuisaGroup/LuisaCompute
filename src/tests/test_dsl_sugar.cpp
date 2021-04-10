@@ -19,7 +19,7 @@ struct Test {
 LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
-    
+
     Context context{argv[0]};
     FakeDevice device{context};
     Buffer<float4> buffer{device, 1024u};
@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
         $ vec4 = buffer[10];           // indexing into captured buffer (with literal)
         $ another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
-    
+
     auto command = kernel(float_buffer, 12u).launch(1024u);
     auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
     LUISA_INFO("Command: kernel = {}, args = {}", launch_command->kernel_uid(), launch_command->argument_count());

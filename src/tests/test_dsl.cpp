@@ -32,6 +32,7 @@ template<typename T>
 struct GetKernelArgType<Var<T>> {
     using Type = T;
 };
+
 template<typename T>
 struct GetKernelArgType<BufferView<T>> {
     using Type = Buffer<T>;

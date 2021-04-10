@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
         buffer[v_int + 1] = 123.0f;
     };
     kernel.prepare(*device);
-    
+
     Stream stream{*device};
 
     Clock clock;
