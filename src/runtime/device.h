@@ -18,6 +18,15 @@ namespace luisa::compute {
 
 class Context;
 
+class Event;
+class Stream;
+
+template<typename T>
+class Buffer;
+
+template<typename T>
+class Image;
+
 class Device {
 
 public:
@@ -55,24 +64,42 @@ public:
         virtual void dispose_event(uint64_t handle) noexcept = 0;
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
     };
-    
+
     using Deleter = void(Interface *);
     using Creator = Interface *(const Context &ctx, uint32_t index);
     using Handle = std::unique_ptr<Interface, Deleter *>;
 
 private:
-    Handle _impl;
+    Handle _interface;
 
 public:
     explicit Device(Handle handle) noexcept
-        : _impl{std::move(handle)} {}
-    
-    [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
-    [[nodiscard]] auto interface() const noexcept { return _impl.get(); }
-    
+        : _interface{std::move(handle)} {}
+
+    [[nodiscard]] decltype(auto) context() const noexcept { return _interface->context(); }
+    [[nodiscard]] auto interface() const noexcept { return _interface.get(); }
+
     template<typename T, typename... Args>
     [[nodiscard]] auto create(Args &&...args) noexcept {
         return T{*this, std::forward<Args>(args)...};
+    }
+
+    [[nodiscard]] Stream create_stream() noexcept;
+    [[nodiscard]] Event create_event() noexcept;
+
+    template<typename T>
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height) noexcept {
+        return create<Image<T>>(pixel, width, height);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size) noexcept {
+        return create<Image<T>>(pixel, size);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_buffer(size_t size) noexcept {
+        return create<Buffer<T>>(size);
     }
 
     template<typename Kernel>
@@ -80,7 +107,5 @@ public:
         kernel.wait_for_compilation(*this);
     }
 };
-
-
 
 }// namespace luisa::compute

@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    Buffer<float> buffer{device, 16384u};
+    auto buffer = device.create<Buffer<float>>(16384u);
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
     std::iota(data.begin(), data.end(), 1.0f);
@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
     };
     device.compile(kernel);
 
-    Stream stream{device};
+    auto stream = device.create<Stream>();
 
     Clock clock;
     stream << buffer.copy_from(data.data())

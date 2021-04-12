@@ -1,6 +1,6 @@
 set(LUISA_COMPUTE_RUNTIME_SOURCES
     context.cpp context.h
-    device.h
+    device.cpp device.h
     command.cpp command.h
     command_buffer.cpp command_buffer.h
     pixel.h

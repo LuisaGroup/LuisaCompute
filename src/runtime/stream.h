@@ -39,11 +39,12 @@ private:
 private:
     friend class Device;
     void _dispatch(CommandBuffer command_buffer) noexcept;
-
-public:
+    
     explicit Stream(Device &device) noexcept
         : _device{device.interface()},
           _handle{device.interface()->create_stream()} {}
+
+public:
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;

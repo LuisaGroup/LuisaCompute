@@ -42,7 +42,8 @@ private:
     uint2 _size;
     PixelStorage _storage;
 
-public:
+private:
+    friend class Device;
     Image(Device &device, PixelStorage storage, uint2 size) noexcept
         : _device{device.interface()},
           _handle{device.interface()->create_texture(
@@ -55,6 +56,7 @@ public:
     Image(Device &device, PixelStorage storage, uint width, uint height) noexcept
         : Image{device, storage, uint2{width, height}} {}
 
+public:
     Image(Image &&another) noexcept
         : _device{another._device},
           _handle{another._handle},
@@ -97,7 +99,7 @@ public:
     }
 
     [[nodiscard]] CommandHandle copy_to(void *data) const noexcept { return view().copy_to(data); }
-    [[nodiscard]] CommandHandle copy_from(const void *data) const noexcept { view().copy_from(data); }
+    [[nodiscard]] CommandHandle copy_from(const void *data) const noexcept { return view().copy_from(data); }
 };
 
 template<typename T>
@@ -109,8 +111,7 @@ private:
     PixelStorage _storage;
 
 private:
-    template<typename U>
-    friend class Image;
+    friend class Image<T>;
 
     constexpr explicit ImageView(
         uint64_t handle,

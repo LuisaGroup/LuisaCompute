@@ -33,12 +33,14 @@ private:
     size_t _size;
     uint64_t _handle;
 
-public:
+private:
+    friend class Device;
     Buffer(Device &device, size_t size) noexcept
         : _device{device.interface()},
           _size{size},
           _handle{device.interface()->create_buffer(size * sizeof(T))} {}
 
+public:
     Buffer(Buffer &&another) noexcept
         : _device{another._device},
           _handle{another._handle},
@@ -79,8 +81,6 @@ public:
 
 template<typename T>
 class BufferView {
-
-    LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
     uint64_t _handle;

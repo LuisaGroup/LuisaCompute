@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
-    auto device = std::make_unique<FakeDevice>(context);
+    auto device = FakeDevice::create(context);
 #endif
 
     Kernel2D fill_image = [](ImageVar<float> image) noexcept {
@@ -35,12 +35,12 @@ int main(int argc, char *argv[]) {
     };
     
     device.compile(fill_image);
-    auto device_image = device.create<Image<float>>(PixelStorage::BYTE4, 1024u, 1024u);
+    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     cv::Mat host_image{1024u, 1024u, CV_8UC4, cv::Scalar::all(0)};
 
-    auto event = device.create<Event>();
-    auto stream = device.create<Stream>();
-    auto copy_stream = device.create<Stream>();
+    auto event = device.create_event();
+    auto stream = device.create_stream();
+    auto copy_stream = device.create_stream();
 
     stream << fill_image(device_image).launch(1024u, 1024u)
            << event.signal();
