@@ -47,8 +47,6 @@ void MetalCommandEncoder::visit(const BufferUploadCommand *command) noexcept {
 void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
 
     auto buffer = _device->buffer(command->handle());
-
-    auto address = reinterpret_cast<uint64_t>(command->data());
     auto size = command->size();
     auto [temporary, offset] = _wrap_output_buffer(command->data(), size);
 

@@ -6,6 +6,8 @@
 
 #include <array>
 #include <string_view>
+
+#include <runtime/buffer.h>
 #include <ast/function_builder.h>
 
 namespace luisa::compute {
@@ -183,12 +185,55 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
     Expr<T> w{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 3)};
 };
 
+template<typename T>
+class Expr<Buffer<T>> {
+
+public:
+    using ValueType = Buffer<T>;
+
+private:
+    const RefExpr *_expression{nullptr};
+
+public:
+    explicit Expr(const RefExpr *expr) noexcept
+        : _expression{expr} {}
+    explicit Expr(BufferView<T> buffer) noexcept
+        : _expression{FunctionBuilder::current()->buffer_binding(
+            Type::of<Buffer<T>>(),
+            buffer.handle(), buffer.offset_bytes())} {}
+    Expr &operator=(Expr) = delete;
+
+    [[nodiscard]] const Expression *expression() const noexcept { return _expression; }
+
+    template<concepts::integral I>
+    [[nodiscard]] auto operator[](Expr<I> i) const noexcept {
+        return Expr<T>{FunctionBuilder::current()->access(
+            Type::of<T>(), _expression, i.expression())};
+    };
+
+    template<concepts::integral I>
+    [[nodiscard]] decltype(auto) operator[](I i) const noexcept {
+        return this->operator[](Expr<I>{i});
+    };
+};
+
+template<typename T>
+struct Expr<BufferView<T>> : public Expr<Buffer<T>> {
+    using Expr<Buffer<T>>::Expr;
+};
+
 // deduction guides
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;
 
 template<concepts::basic T>
 Expr(T) -> Expr<T>;
+
+template<typename T>
+Expr(const Buffer<T> &) -> Expr<Buffer<T>>;
+
+template<typename T>
+Expr(BufferView<T>) -> Expr<Buffer<T>>;
 
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept {

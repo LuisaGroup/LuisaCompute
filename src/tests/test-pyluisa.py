@@ -7,6 +7,7 @@ def kernel(f):
         with Builder(Function.Tag.KERNEL) as builder:
             f(*args, **kwargs)
             return builder.uid()
+    
     return wrapper
 
 

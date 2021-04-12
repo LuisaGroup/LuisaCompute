@@ -7,7 +7,7 @@
 #include <runtime/command.h>
 #include <runtime/device.h>
 #include <dsl/var.h>
-#include <dsl/buffer.h>
+#include <runtime/buffer.h>
 #include <dsl/image.h>
 
 namespace luisa::compute {
@@ -24,11 +24,6 @@ struct definition_to_prototype<Var<T>> {
     using type = T;
 };
 
-template<typename T>
-struct definition_to_prototype<BufferView<T>> {
-    using type = Buffer<T>;
-};
-
 template<PixelFormat format>
 struct definition_to_prototype<ImageView<format>> {
     using type = ImageView<format>;
@@ -39,19 +34,9 @@ struct prototype_to_creation {
     using type = Var<T>;
 };
 
-template<typename T>
-struct prototype_to_creation<Buffer<T>> {
-    using type = BufferView<T>;
-};
-
 template<PixelFormat format>
 struct prototype_to_creation<Image<format>> {
     using type = ImageView<format>;
-};
-
-template<typename T>
-struct prototype_to_creation<BufferView<T>> {
-    using type = BufferView<T>;
 };
 
 template<PixelFormat format>
@@ -69,11 +54,6 @@ struct prototype_to_kernel_invocation<Buffer<T>> {
     using type = BufferView<T>;
 };
 
-template<typename T>
-struct prototype_to_kernel_invocation<BufferView<T>> {
-    using type = BufferView<T>;
-};
-
 template<PixelFormat format>
 struct prototype_to_kernel_invocation<Image<format>> {
     using type = ImageView<format>;
@@ -87,16 +67,6 @@ struct prototype_to_kernel_invocation<ImageView<format>> {
 template<typename T>
 struct prototype_to_callable_invocation {
     using type = Expr<T>;
-};
-
-template<typename T>
-struct prototype_to_callable_invocation<Buffer<T>> {
-    using type = BufferView<T>;
-};
-
-template<typename T>
-struct prototype_to_callable_invocation<BufferView<T>> {
-    using type = BufferView<T>;
 };
 
 template<PixelFormat format>
@@ -255,7 +225,7 @@ template<size_t N>
             (invoke << ... << args);                                                                           \
             return invoke;                                                                                     \
         }                                                                                                      \
-        void prepare(Device &device) const noexcept { device.prepare_kernel(_function.uid()); }                \
+        void wait_for_compilation(Device &device) const noexcept { device.compile_kernel(_function.uid()); }   \
     };
 
 LUISA_MAKE_KERNEL_ND(1)

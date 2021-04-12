@@ -6,8 +6,6 @@
 
 #include <runtime/command.h>
 #include <runtime/device.h>
-#include <dsl/expr.h>
-#include <dsl/arg.h>
 
 namespace luisa::compute {
 
@@ -62,6 +60,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
     [[nodiscard]] auto view() const noexcept { return BufferView<T>{_handle, 0u, _size}; }
+    [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
 
     [[nodiscard]] auto copy_to(T *data) const noexcept { return this->view().copy_to(data); }
     [[nodiscard]] auto copy_from(const T *data) { return this->view().copy_from(data); }
@@ -73,6 +72,11 @@ public:
     }
 };
 
+namespace detail {
+template<typename T>
+class Expr;
+}
+
 template<typename T>
 class BufferView {
 
@@ -82,7 +86,6 @@ private:
     uint64_t _handle{0u};
     size_t _offset_bytes{0u};
     size_t _size{0u};
-    const RefExpr *_expression{nullptr};
 
 private:
     friend class Buffer<T>;
@@ -106,7 +109,8 @@ public:
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
         if (size_elements * sizeof(T) + offset_elements > _size) {
             LUISA_ERROR_WITH_LOCATION(
-                "Subview (with offset_elements = {}, size_elements = {}) overflows buffer view (with size_elements = {}).",
+                "Subview (with offset_elements = {}, size_elements = {}) "
+                "overflows buffer view (with size_elements = {}).",
                 offset_elements, size_elements, _size);
         }
         return BufferView{_handle, _offset_bytes + offset_elements * sizeof(T), size_elements};
@@ -148,20 +152,10 @@ public:
             this->size_bytes());
     }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto operator[](I i) const noexcept { return this->operator[](detail::Expr{i}); }
-
-    template<concepts::integral I>
-    [[nodiscard]] auto operator[](detail::Expr<I> i) const noexcept {
-        auto self = _expression ? _expression : FunctionBuilder::current()->buffer_binding(Type::of<T>(), _handle, _offset_bytes);
-        auto expr = FunctionBuilder::current()->access(Type::of<T>(), self, i.expression());
-        return detail::Expr<T>{expr};
+    template<typename I>
+    [[nodiscard]] auto operator[](I &&i) const noexcept {
+        return detail::Expr<Buffer<T>>{*this}[std::forward<I>(i)];
     }
-
-    // for internal use only
-    explicit BufferView(detail::ArgumentCreation) noexcept
-        : _expression{FunctionBuilder::current()->buffer(Type::of<T>())} {}
-    [[nodiscard]] auto expression() const noexcept { return _expression; }
 };
 
 template<typename T>

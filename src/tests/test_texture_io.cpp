@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
         Var rg = Var<float2>{coord} / Var<float2>{launch_size().x, launch_size().y};
         image[coord] = Var<float4>{rg, 1.0f, 1.0f};
     };
-    fill_image.prepare(*device);
+    fill_image.wait_for_compilation(*device);
 
     Image<uchar4_sRGB> device_image{*device, {1024u, 1024u}};
     cv::Mat host_image{1024u, 1024u, CV_8UC4, cv::Scalar::all(0)};
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
     copy_stream << event.wait()
                 << device_image.copy_to(host_image.data)
                 << event.signal();
-    
+
     event.synchronize();
     cv::cvtColor(host_image, host_image, cv::COLOR_RGBA2BGR);
     cv::imwrite("result.png", host_image);

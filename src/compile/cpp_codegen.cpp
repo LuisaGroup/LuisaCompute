@@ -439,7 +439,7 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::BUFFER:
             _scratch << "__device__ ";
-            _emit_type_name(v.type());
+            _emit_type_name(v.type()->element());
             _scratch << " *";
             break;
         case Variable::Tag::IMAGE:

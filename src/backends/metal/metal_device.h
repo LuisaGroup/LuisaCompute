@@ -25,22 +25,22 @@ private:
     id<MTLDevice> _handle{nullptr};
     std::unique_ptr<MetalCompiler> _compiler{nullptr};
     std::unique_ptr<MetalArgumentBufferPool> _argument_buffer_pool{nullptr};
-    
+
     // for buffers
     mutable spin_mutex _buffer_mutex;
     std::vector<id<MTLBuffer>> _buffer_slots;
     std::vector<size_t> _available_buffer_slots;
-    
+
     // for streams
     mutable spin_mutex _stream_mutex;
     std::vector<id<MTLCommandQueue>> _stream_slots;
     std::vector<size_t> _available_stream_slots;
-    
+
     // for textures
     mutable spin_mutex _texture_mutex;
     std::vector<id<MTLTexture>> _texture_slots;
     std::vector<size_t> _available_texture_slots;
-    
+
     // for events
     mutable spin_mutex _event_mutex;
     std::vector<MetalEvent> _event_slots;
@@ -54,7 +54,7 @@ public:
     [[nodiscard]] id<MTLCommandQueue> stream(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
-    [[nodiscard]] MetalCompiler::PipelineState kernel(uint32_t uid) const noexcept;
+    [[nodiscard]] MetalCompiler::KernelItem kernel(uint32_t uid) const noexcept;
     void signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept;
     void wait_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept;
 
@@ -67,10 +67,10 @@ public:
     void dispose_stream(uint64_t handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
-    void prepare_kernel(uint32_t uid) noexcept override;
+    void compile_kernel(uint32_t uid) noexcept override;
     uint64_t create_event() noexcept override;
     void dispose_event(uint64_t handle) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
 };
 
-}
+}// namespace luisa::compute::metal

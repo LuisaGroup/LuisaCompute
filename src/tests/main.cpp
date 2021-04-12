@@ -102,7 +102,8 @@ struct Once {
 int main() {
 
     for (auto i : Once()) {
-        std::cout << "\nDo some AST construction here...\n" << std::endl;
+        std::cout << "\nDo some AST construction here...\n"
+                  << std::endl;
     }
 
     auto f = LUISA_DEVICE_FUNCTION(foo);

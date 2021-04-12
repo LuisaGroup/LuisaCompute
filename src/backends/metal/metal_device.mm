@@ -132,11 +132,11 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
     return _handle;
 }
 
-void MetalDevice::prepare_kernel(uint32_t uid) noexcept {
-    _compiler->prepare(uid);
+void MetalDevice::compile_kernel(uint32_t uid) noexcept {
+    static_cast<void>(_compiler->kernel(uid));
 }
 
-MetalCompiler::PipelineState MetalDevice::kernel(uint32_t uid) const noexcept {
+MetalCompiler::KernelItem MetalDevice::kernel(uint32_t uid) const noexcept {
     return _compiler->kernel(uid);
 }
 

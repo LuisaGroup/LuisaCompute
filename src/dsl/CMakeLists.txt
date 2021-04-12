@@ -3,7 +3,6 @@ set(LUISA_COMPUTE_DSL_SOURCES
     expr.h
     syntax.h
     func.h
-    buffer.h
     image.h
     shared.h
     constant.h

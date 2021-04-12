@@ -41,7 +41,10 @@ public:
         ARRAY,
 
         ATOMIC,
-        STRUCTURE
+        STRUCTURE,
+        
+        BUFFER,
+        IMAGE
     };
 
 private:
@@ -96,6 +99,8 @@ public:
     [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }
     [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
     [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == Tag::ATOMIC; }
+    [[nodiscard]] constexpr bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
+    [[nodiscard]] constexpr bool is_image() const noexcept { return _tag == Tag::IMAGE; }
 };
 
 }// namespace luisa::compute

@@ -9,15 +9,12 @@ namespace luisa::compute {
 class TextureView;
 
 class Texture {
-
 };
 
 class TextureView {
-
 };
 
 class TextureHeap {
-
 };
 
-}
+}// namespace luisa::compute

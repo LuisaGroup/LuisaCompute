@@ -481,6 +481,8 @@ void MetalCodegen::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::STRUCTURE:
             _scratch << "S" << hash_to_string(type->hash());
             break;
+        default:
+            break;
     }
 }
 
@@ -491,7 +493,7 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             if (_function.variable_usage(v.uid()) == Variable::Usage::READ) {
                 _scratch << "const ";
             }
-            _emit_type_name(v.type());
+            _emit_type_name(v.type()->element());
             _scratch << " *";
             _emit_variable_name(v);
             break;

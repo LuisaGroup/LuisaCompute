@@ -20,50 +20,31 @@ class MetalDevice;
 class MetalCompiler {
 
 public:
-    struct alignas(16) PipelineState {
+    struct alignas(16) KernelItem {
         id<MTLComputePipelineState> handle;
         id<MTLArgumentEncoder> encoder;
         NSArray<MTLStructMember *> *arguments;
-        PipelineState(id<MTLComputePipelineState> handle,
-                      id<MTLArgumentEncoder> encoder,
-                      NSArray<MTLStructMember *> *arguments) noexcept
-            : handle{handle}, encoder{encoder}, arguments{arguments} {}
-    };
-
-private:
-    struct alignas(16) KernelCacheItem {
-        uint64_t hash;
-        id<MTLComputePipelineState> pso;
-        id<MTLArgumentEncoder> encoder;
-        NSArray<MTLStructMember *> *arguments;
-        KernelCacheItem(uint64_t hash,
-                        id<MTLComputePipelineState> pso,
-                        id<MTLArgumentEncoder> encoder,
-                        NSArray<MTLStructMember *> *arguments) noexcept
-            : hash{hash}, pso{pso}, encoder{encoder}, arguments{arguments} {}
-    };
-
-    struct alignas(16) KernelHandle {
-        std::shared_future<PipelineState> pso;
-        uint32_t uid;
-        KernelHandle(uint32_t uid, std::shared_future<PipelineState> pso) noexcept
-            : pso{std::move(pso)}, uid{uid} {}
+        KernelItem(id<MTLComputePipelineState> pso,
+                   id<MTLArgumentEncoder> encoder,
+                   NSArray<MTLStructMember *> *arguments) noexcept
+            : handle{pso},
+              encoder{encoder},
+              arguments{arguments} {}
     };
 
 private:
     MetalDevice *_device;
-    std::vector<KernelCacheItem> _cache;
-    std::vector<KernelHandle> _kernels;
+    std::unordered_map<uint64_t, KernelItem> _cache;
+    std::unordered_map<uint32_t, KernelItem> _kernels;
     spin_mutex _cache_mutex;
     spin_mutex _kernel_mutex;
 
 private:
-    [[nodiscard]] PipelineState _compile(uint32_t uid) noexcept;
+    [[nodiscard]] KernelItem _compile(uint32_t uid) noexcept;
 
 public:
     explicit MetalCompiler(MetalDevice *device) noexcept : _device{device} {}
-    void prepare(uint32_t uid) noexcept;
-    [[nodiscard]] PipelineState kernel(uint32_t uid) noexcept;
+    [[nodiscard]] KernelItem kernel(uint32_t uid) noexcept;
 };
 
 }

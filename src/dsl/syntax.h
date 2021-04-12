@@ -9,6 +9,6 @@
 #include <dsl/shared.h>
 #include <dsl/struct.h>
 #include <dsl/stmt.h>
-#include <dsl/buffer.h>
+#include <runtime/buffer.h>
 #include <dsl/image.h>
 #include <dsl/var.h>
