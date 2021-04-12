@@ -6,50 +6,42 @@
 #include "LuisaASTTranslator.h"
 
 namespace luisa::compute {
-#ifdef NDEBUG
-DLL_EXPORT void CodegenBody(Function func) {
-	vengine::vengine_init_malloc(malloc, free);
-	//LUISA_INFO("HLSL codegen started.");
-	vengine::string function_buffer;
-	vengine::string decl_buffer;
-	function_buffer.reserve(65535 * 4);
-	decl_buffer.reserve(65535 * 4);
-	
-	Clock clock;
-	
-	CodegenUtility::ClearStructType();
-	StringStateVisitor vis(function_buffer);
 
-	for (auto cust : func.custom_callables()) {
-		auto&& callable = Function::callable(cust);
-		CodegenUtility::GetFunctionDecl(callable, function_buffer);
-		callable.body()->accept(vis);
+void CodegenUtility::GetCodegen(Function func, vengine::string& str) {
+	{
+		vengine::string function_buffer;
+		function_buffer.reserve(65535 * 4);
+		str.reserve(65535 * 4);
+
+		CodegenUtility::ClearStructType();
+		StringStateVisitor vis(function_buffer);
+
+		for (auto cust : func.custom_callables()) {
+			auto&& callable = Function::callable(cust);
+			CodegenUtility::GetFunctionDecl(callable, function_buffer);
+			callable.body()->accept(vis);
+		}
+		CodegenUtility::GetFunctionDecl(func, function_buffer);
+		func.body()->accept(vis);
+
+		CodegenUtility::PrintStructType(str);
+
+		for (auto& i : func.constants()) {
+			CodegenUtility::PrintConstant(i, str);
+		}
+
+		CodegenUtility::PrintUniform(func, str);
+		CodegenUtility::PrintGlobalVariables(
+			{func.builtin_variables(),
+			 func.arguments()},
+			str);
+		str << function_buffer;
 	}
-	CodegenUtility::GetFunctionDecl(func, function_buffer);
-	func.body()->accept(vis);
-
-	CodegenUtility::PrintStructType(decl_buffer);
-
-	for (auto& i : func.constants()) {
-		CodegenUtility::PrintConstant(i, decl_buffer);
-	}
-
-	CodegenUtility::PrintUniform(func, decl_buffer);
-	CodegenUtility::PrintGlobalVariables(func.arguments(), decl_buffer);
-
-	LUISA_INFO("HLSL codegen finished in {} ms.", clock.toc());
-	function_buffer += "[numthreads(8,8,1)]\nvoid kernel_"_sv;
-	auto kernelID = vengine::to_string(func.uid());
-	function_buffer += kernelID;
-	function_buffer += "(uint3 thd_id:SV_GROUPTHREADID,uint3 blk_id:SV_GROUPID,uint3 dsp_id:SV_DISPATCHTHREADID){\n_kernel_"_sv;
-	function_buffer += kernelID;
-	function_buffer += "(thd_id,blk_id,dsp_id);\n}\n";
-	std::cout << decl_buffer;
-	std::cout << function_buffer;
-	/*<< CodegenUtility::GetFunctionDecl(func) << "\n"
-			  << vis.ToString() << std::endl;*/
+	str << "[numthreads(8,8,1)]\nvoid CSMain(uint3 thd_id:SV_GROUPTHREADID,uint3 blk_id:SV_GROUPID,uint3 dsp_id:SV_DISPATCHTHREADID){\n_kernel_"_sv;
+	str += vengine::to_string(func.uid());
+	str += "(thd_id,blk_id,dsp_id);\n}\n";
 }
-#endif
+
 template<typename T>
 struct GetSpanType;
 template<typename T>
@@ -684,7 +676,7 @@ void CodegenUtility::PrintUniform(
 	Function func,
 	//Buffer Binding
 	vengine::string& result) {
-	std::span<const Variable> args = func.arguments();
+	auto argss = {func.builtin_variables(), func.arguments()};
 	std::span<const Function::BufferBinding> buffers = func.captured_buffers();
 	std::span<const Function::ImageBinding> texs = func.captured_images();
 	uint tCount = 0;
@@ -710,15 +702,17 @@ void CodegenUtility::PrintUniform(
 		}
 		result += ");\n"_sv;
 	};
-	for (auto& var : args) {
-		switch (var.tag()) {
-			case Variable::Tag::BUFFER:
-				//TODO: buffer writable
-				ProcessBuffer(var);
-				break;
-			case Variable::Tag::IMAGE:
+	for (auto& args : argss) {
+		for (auto& var : args) {
+			switch (var.tag()) {
+				case Variable::Tag::BUFFER:
+					//TODO: buffer writable
+					ProcessBuffer(var);
+					break;
+				case Variable::Tag::IMAGE:
 
-				break;
+					break;
+			}
 		}
 	}
 	for (size_t i = 0; i < buffers.size(); ++i) {
@@ -728,7 +722,7 @@ void CodegenUtility::PrintUniform(
 	//TODO: Texture Binding
 }
 size_t CodegenUtility::PrintGlobalVariables(
-	std::span<const Variable> values,
+	std::initializer_list<std::span<const Variable>> values,
 	vengine::string& result) {
 	vengine::vector<Variable const*> scalarArr;
 	vengine::vector<Variable const*> vec2Arr;
@@ -782,17 +776,18 @@ size_t CodegenUtility::PrintGlobalVariables(
 		}
 	};
 	result += "cbuffer Params:register(b0)\n{\n"_sv;
-	for (auto& var : values) {
-		switch (var.tag()) {
-			case Variable::Tag::LOCAL:
-			case Variable::Tag::SHARED:
-			case Variable::Tag::UNIFORM:
-			case Variable::Tag::THREAD_ID:
-			case Variable::Tag::BLOCK_ID:
-			case Variable::Tag::DISPATCH_ID:
-				auto&& type = *var.type();
-				GetUniform(type, var);
-				break;
+
+	for (auto& spans : values) {
+		for (auto& var : spans) {
+			switch (var.tag()) {
+				case Variable::Tag::LAUNCH_SIZE:
+				case Variable::Tag::UNIFORM:
+
+					auto&& type = *var.type();
+					GetUniform(type, var);
+					break;
+			};
+
 		}
 	}
 	for (auto& vec4 : vec4Arr) {
@@ -810,7 +805,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		result += ";\n"_sv;
 	};
 
-	for (auto& vec3 : vec4Arr) {
+	for (auto& vec3 : vec3Arr) {
 		cbufferSize += ELE_SIZE * 4;
 		GetTypeName(*vec3->type(), result);
 		result += ' ';
@@ -837,10 +832,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 
 	for (auto& vec : scalarArr) {
 		cbufferSize += ELE_SIZE;
-		GetTypeName(*vec->type(), result);
-		result += ' ';
-		CodegenUtility::GetVariableName(*vec, result);
-		result += ";\n"_sv;
+		PrintScalar(vec);
 	}
 	result += "}\n"_sv;//End cbuffer
 	return cbufferSize;

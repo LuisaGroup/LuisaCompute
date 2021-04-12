@@ -13,6 +13,7 @@ class Type;
 class TypeVisitor;
 class CodegenUtility {
 public:
+	static void GetCodegen(Function func, vengine::string& str);
 	static void GetVariableName(Variable const& type, vengine::string& str);
 	static void GetTypeName(Type const& type, vengine::string& str);
 	static void GetFunctionDecl(Function func, vengine::string& str);
@@ -26,7 +27,7 @@ public:
 		vengine::string& result);
 
 	static size_t PrintGlobalVariables(
-		std::span<const Variable> values,
+		std::initializer_list<std::span<const Variable>> values,
 		vengine::string& result);
 	static void SeparateVariables(
 		Function func,

@@ -71,6 +71,8 @@ IgnoreFile = {
 CopyFilePaths = [
     ["../../../out/build/x64-Release/bin/luisa-compute-ast.dll",
         "Build/luisa-compute-ast.dll"],
+    ["../../../out/build/x64-Release/bin/luisa-compute-runtime.dll",
+     "Build/luisa-compute-runtime.dll"],
     ["../../../out/build/x64-Release/bin/luisa-compute-core.dll",
         "Build/luisa-compute-core.dll"],
     ["../../../out/build/x64-Release/bin/spdlog.dll", "Build/spdlog.dll"],
@@ -79,6 +81,8 @@ CopyFilePaths = [
         "Build/luisa-compute-ast.lib"],
     ["../../../out/build/x64-Release/src/core/luisa-compute-core.lib",
         "Build/luisa-compute-core.lib"],
+        ["../../../out/build/x64-Release/src/runtime/luisa-compute-runtime.lib",
+        "Build/luisa-compute-runtime.lib"],
     ["../../../out/build/x64-Release/src/ext/fmt/fmt.lib", "Build/fmt.lib"],
     ["../../../out/build/x64-Release/src/ext/spdlog/spdlog.lib", "Build/spdlog.lib"]
 ]

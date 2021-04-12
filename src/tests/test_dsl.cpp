@@ -104,7 +104,7 @@ int main(int argc, char *argv[]) {
         Var v_int_add_one = add(v_int, 1);
         Var vv_int = int_consts[v_int];
         Var v_float = buffer_float[count + thread_id().x];
-        Var vv_float = float_consts[vv_int];
+        Var vv_float = float_consts[0];
         Var call_ret = callable(10, v_int, v_float);
 
         Var v_float_copy = v_float;
@@ -112,39 +112,33 @@ int main(int argc, char *argv[]) {
         Var z = -1 + v_int * v_float + 1.0f;
         z += 1;
         static_assert(std::is_same_v<decltype(z), Var<float>>);
-        for (uint i = 0; i < 3; ++i) {
-            Var v_vec = float3{1.0f};
-            Var v2 = float3{2.0f} - v_vec * 2.0f;
-            v2 *= 5.0f + v_float;
+        Var v_vec = float3{1.0f};
+        Var v2 = float3{2.0f} - v_vec * 2.0f;
+        v2 *= 5.0f + v_float;
 
-            Var<float2> w{v_int, v_float};
-            w *= float2{1.2f};
+        Var<float2> w{v_int, v_float};
+        w *= float2{1.2f};
 
-            if_(1 + 1 == 2, [] {
-                Var a = 0.0f;
-            }).elif (1 + 2 == 3, [] {
-                  Var b = 1.0f;
-              }).else_([] {
-                Var c = 2.0f;
+        if_(1 + 1 == 2, [] {
+            Var a = 0.0f;
+        }).elif (1 + 2 == 3, [] {
+              Var b = 1.0f;
+          }).else_([] {
+            Var c = 2.0f;
+        });
+
+        switch_(123)
+            .case_(1, [] {
+
+            })
+            .case_(2, [] {
+
+            })
+            .default_([] {
+
             });
 
-            while_(true, [&] {
-                z += 1;
-            });
-
-            switch_(123)
-                .case_(1, [] {
-
-                })
-                .case_(2, [] {
-
-                })
-                .default_([] {
-
-                });
-
-            Var x = w.x;
-        }
+        Var x = w.x;
 
         Var<int3> s;
         Var<Test> vvt{s, v_float_copy};

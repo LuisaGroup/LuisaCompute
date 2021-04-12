@@ -9,19 +9,18 @@ class HLSLCompiler {
 public:
 	static bool ErrorHappened();
 	static void PrintErrorMessages();
+	static void InitRegisteData();
 	static void CompileShader(
 		vengine::string const& fileName,
 		vengine::vector<ShaderVariable> const& vars,
 		vengine::vector<PassDescriptor> const& passDescs,
 		vengine::vector<char> const& customData,
-		vengine::string const& tempFilePath,
 		vengine::vector<char>& resultData);
 	static void CompileComputeShader(
 		vengine::string const& fileName,
 		vengine::vector<ShaderVariable> const& vars,
-		vengine::vector<vengine::string> const& passDescs,
+		vengine::string const& passDesc,
 		vengine::vector<char> const& customData,
-		vengine::string const& tempFilePath,
 		vengine::vector<char>& resultData);
 	static void CompileDXRShader(
 		vengine::string const& fileName,
@@ -30,7 +29,6 @@ public:
 		uint64 raypayloadMaxSize,
 		uint64 recursiveCount,
 		vengine::vector<char> const& customData,
-		vengine::string const& tempFilePath,
 		vengine::vector<char>& resultData);
 	//TODO: Texture Binding, Bindless Texture
 	static void GetShaderVariables(
