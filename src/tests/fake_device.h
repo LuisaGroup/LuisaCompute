@@ -9,13 +9,13 @@
 
 namespace luisa::compute {
 
-class FakeDevice : public Device {
+class FakeDevice : public Device::Interface {
 
 private:
     uint64_t _handle{0u};
 
 public:
-    explicit FakeDevice(const Context &ctx) noexcept : Device{ctx} {}
+    explicit FakeDevice(const Context &ctx) noexcept : Device::Interface{ctx} {}
     ~FakeDevice() noexcept override = default;
     uint64_t create_buffer(size_t) noexcept override { return _handle++; }
     void dispose_buffer(uint64_t) noexcept override {}
@@ -29,6 +29,12 @@ public:
     uint64_t create_event() noexcept override { return _handle++; }
     void synchronize_event(uint64_t handle) noexcept override {}
     void dispose_event(uint64_t handle) noexcept override {}
+    
+    [[nodiscard]] static auto create(const Context &ctx) noexcept {
+        auto deleter = [](Device::Interface *d) { delete d; };
+        return Device{Device::Handle{new FakeDevice{ctx}, deleter}};
+    }
+    
 };
 
 }// namespace luisa::compute

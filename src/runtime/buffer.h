@@ -29,15 +29,15 @@ class Buffer : public concepts::Noncopyable {
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
-    Device *_device;
+    Device::Interface *_device;
     size_t _size;
     uint64_t _handle;
 
 public:
     Buffer(Device &device, size_t size) noexcept
-        : _device{&device},
+        : _device{device.interface()},
           _size{size},
-          _handle{device.create_buffer(size * sizeof(T))} {}
+          _handle{device.interface()->create_buffer(size * sizeof(T))} {}
 
     Buffer(Buffer &&another) noexcept
         : _device{another._device},

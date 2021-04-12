@@ -68,7 +68,7 @@ void MetalDevice::dispose_stream(uint64_t handle) noexcept {
 }
 
 MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
-    : Device{ctx} {
+    : Device::Interface{ctx} {
 
     auto devices = MTLCopyAllDevices();
     if (auto count = devices.count; index >= count) {
@@ -307,10 +307,10 @@ void MetalDevice::wait_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept
 
 }
 
-LUISA_EXPORT luisa::compute::Device *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
+LUISA_EXPORT luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
     return new luisa::compute::metal::MetalDevice{ctx, id};
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device *device) noexcept {
+LUISA_EXPORT void destroy(luisa::compute::Device::Interface *device) noexcept {
     delete device;
 }

@@ -37,20 +37,23 @@ class Image : concepts::Noncopyable {
                   std::is_same<T, float>>);
 
 private:
-    Device *_device;
+    Device::Interface *_device;
     uint64_t _handle;
     uint2 _size;
     PixelStorage _storage;
 
 public:
     Image(Device &device, PixelStorage storage, uint2 size) noexcept
-        : _device{&device},
-          _handle{device.create_texture(
+        : _device{device.interface()},
+          _handle{device.interface()->create_texture(
               pixel_storage_to_format<T>(storage), 2u,
               size.x, size.y, 1u,
               1u, false)},
           _size{size},
           _storage{storage} {}
+
+    Image(Device &device, PixelStorage storage, uint width, uint height) noexcept
+        : Image{device, storage, uint2{width, height}} {}
 
     Image(Image &&another) noexcept
         : _device{another._device},

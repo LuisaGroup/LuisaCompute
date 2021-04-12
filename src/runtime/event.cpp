@@ -8,8 +8,8 @@
 namespace luisa::compute {
 
 Event::Event(Device &device) noexcept
-    : _device{&device},
-      _handle{device.create_event()} {}
+    : _device{device.interface()},
+      _handle{device.interface()->create_event()} {}
 
 Event::~Event() noexcept {
     if (_device != nullptr) {

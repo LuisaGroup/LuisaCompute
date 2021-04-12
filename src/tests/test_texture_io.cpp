@@ -33,14 +33,14 @@ int main(int argc, char *argv[]) {
         Var rg = Var<float2>{coord} / Var<float2>{launch_size().x, launch_size().y};
         image.write(coord, Var<float4>{rg, 1.0f, 1.0f});
     };
-    fill_image.wait_for_compilation(*device);
-
-    Image<float> device_image{*device, PixelStorage::BYTE4, {1024u, 1024u}};
+    
+    device.compile(fill_image);
+    auto device_image = device.create<Image<float>>(PixelStorage::BYTE4, 1024u, 1024u);
     cv::Mat host_image{1024u, 1024u, CV_8UC4, cv::Scalar::all(0)};
 
-    Event event{*device};
-    Stream stream{*device};
-    Stream copy_stream{*device};
+    auto event = device.create<Event>();
+    auto stream = device.create<Stream>();
+    auto copy_stream = device.create<Stream>();
 
     stream << fill_image(device_image).launch(1024u, 1024u)
            << event.signal();

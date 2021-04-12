@@ -43,10 +43,10 @@ int main(int argc, char *argv[]) {
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
-    auto device = std::make_unique<FakeDevice>(context);
+    auto device = FakeDevice::create(context);
 #endif
 
-    Buffer<float> buffer{*device, 16384u};
+    Buffer<float> buffer{device, 16384u};
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
     std::iota(data.begin(), data.end(), 1.0f);
@@ -127,9 +127,9 @@ int main(int argc, char *argv[]) {
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
         buffer[v_int + 1] = 123.0f;
     };
-    kernel.wait_for_compilation(*device);
+    device.compile(kernel);
 
-    Stream stream{*device};
+    Stream stream{device};
 
     Clock clock;
     stream << buffer.copy_from(data.data())

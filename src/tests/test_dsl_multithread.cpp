@@ -28,7 +28,7 @@ LUISA_STRUCT(Test, something, a)
 int main(int argc, char *argv[]) {
 
     Context ctx{argv[0]};
-    FakeDevice device{ctx};
+    auto device = FakeDevice::create(ctx);
     Buffer<float4> buffer{device, 1024u};
     Buffer<float> float_buffer{device, 1024u};
 

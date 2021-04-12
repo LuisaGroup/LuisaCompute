@@ -13,7 +13,7 @@ class Device;
 class Event : concepts::Noncopyable {
 
 private:
-    Device *_device;
+    Device::Interface *_device;
     uint64_t _handle;
 
 public:

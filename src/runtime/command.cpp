@@ -20,10 +20,11 @@ inline void Command::_use_resource(
             "Number of resources in command exceeded limit {}.",
             max_resource_count);
     }
-    if (std::find_if(_resource_slots.cbegin(),
-                     _resource_slots.cbegin() + _resource_count,
-                     [handle, tag](auto b) noexcept { return b.tag == tag && b.handle == handle; })
-        != _resource_slots.cbegin() + _resource_count) {
+    if (std::any_of(_resource_slots.cbegin(),
+                    _resource_slots.cbegin() + _resource_count,
+                    [handle, tag](auto b) noexcept {
+                        return b.tag == tag && b.handle == handle;
+                    })) {
         LUISA_ERROR_WITH_LOCATION(
             "Aliasing in {} resource with handle {}.",
             tag == Resource::Tag::BUFFER ? "buffer" : "image",
@@ -83,12 +84,12 @@ void KernelLaunchCommand::encode_buffer(
 void KernelLaunchCommand::encode_texture(
     uint64_t handle,
     Command::Resource::Usage usage) noexcept {
-    
+
     TextureArgument argument{};
     argument.tag = Argument::Tag::TEXTURE;
     argument.handle = handle;
     argument.usage = usage;
-    
+
     if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode texture. "

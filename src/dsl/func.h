@@ -194,7 +194,10 @@ template<size_t N>
             (invoke << ... << args);                                                                           \
             return invoke;                                                                                     \
         }                                                                                                      \
-        void wait_for_compilation(Device &device) const noexcept { device.compile_kernel(_function.uid()); }   \
+                                                                                                               \
+        void wait_for_compilation(Device &device) const noexcept {                                             \
+            device.interface()->compile_kernel(_function.uid());                                               \
+        }                                                                                                      \
     };
 
 LUISA_MAKE_KERNEL_ND(1)

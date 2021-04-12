@@ -33,7 +33,7 @@ public:
     };
 
 private:
-    Device *_device;
+    Device::Interface *_device;
     uint64_t _handle;
 
 private:
@@ -42,7 +42,8 @@ private:
 
 public:
     explicit Stream(Device &device) noexcept
-        : _device{&device}, _handle{device.create_stream()} {}
+        : _device{device.interface()},
+          _handle{device.interface()->create_stream()} {}
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
