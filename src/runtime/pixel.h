@@ -148,7 +148,7 @@ enum struct PixelFormat : uint32_t {
 }
 
 template<typename T>
-[[nodiscard]] constexpr PixelFormat pixel_storage_to_format(PixelStorage storage) noexcept {
+[[nodiscard]] constexpr auto pixel_storage_to_format(PixelStorage storage) noexcept {
     if constexpr (std::is_same_v<T, float>) {
         switch (storage) {
             case PixelStorage::BYTE1: return PixelFormat::R8UNorm;

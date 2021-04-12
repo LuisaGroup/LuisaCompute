@@ -5,6 +5,7 @@
 #pragma once
 
 #include <runtime/command.h>
+#include <runtime/device.h>
 
 namespace luisa::compute {
 
