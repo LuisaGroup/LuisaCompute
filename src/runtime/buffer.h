@@ -9,6 +9,11 @@
 
 namespace luisa::compute {
 
+namespace detail {
+template<typename T>
+struct Expr;
+}
+
 template<typename T>
 class BufferView;
 
@@ -72,20 +77,15 @@ public:
     }
 };
 
-namespace detail {
-template<typename T>
-class Expr;
-}
-
 template<typename T>
 class BufferView {
 
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
-    uint64_t _handle{0u};
-    size_t _offset_bytes{0u};
-    size_t _size{0u};
+    uint64_t _handle;
+    size_t _offset_bytes;
+    size_t _size;
 
 private:
     friend class Buffer<T>;
@@ -153,7 +153,7 @@ public:
     }
 
     template<typename I>
-    [[nodiscard]] auto operator[](I &&i) const noexcept {
+    [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
         return detail::Expr<Buffer<T>>{*this}[std::forward<I>(i)];
     }
 };

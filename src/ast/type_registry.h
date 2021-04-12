@@ -25,11 +25,11 @@ class Buffer;
 template<typename T>
 class BufferView;
 
-//template<typename T>
-//class Image;
-//
-//template<typename T>
-//class ImageView;
+template<typename T>
+class Image;
+
+template<typename T>
+class ImageView;
 
 class TypeRegistry {
 
@@ -137,18 +137,18 @@ struct TypeDesc<Buffer<T>> {
 template<typename T>
 struct TypeDesc<BufferView<T>> : TypeDesc<Buffer<T>> {};
 
-//template<typename T>
-//struct TypeDesc<Image<T>> {
-//    static std::string_view description() noexcept {
-//        static thread_local auto s = fmt::format(
-//            FMT_STRING("image<{}>"),
-//            TypeDesc<T>::description());
-//        return s;
-//    }
-//};
-//
-//template<typename T>
-//struct TypeDesc<ImageView<T>> : TypeDesc<Image<T>> {};
+template<typename T>
+struct TypeDesc<Image<T>> {
+    static std::string_view description() noexcept {
+        static thread_local auto s = fmt::format(
+            FMT_STRING("image<{}>"),
+            TypeDesc<T>::description());
+        return s;
+    }
+};
+
+template<typename T>
+struct TypeDesc<ImageView<T>> : TypeDesc<Image<T>> {};
 
 // matrices
 template<>

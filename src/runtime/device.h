@@ -11,7 +11,7 @@
 
 #include <core/memory.h>
 #include <core/concepts.h>
-#include <runtime/pixel_format.h>
+#include <runtime/pixel.h>
 #include <runtime/command_buffer.h>
 
 namespace luisa::compute {

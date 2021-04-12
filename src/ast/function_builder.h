@@ -128,7 +128,7 @@ public:
     static auto define_callable(Def &&def) noexcept {
         return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
     }
-    
+
     // config
     void set_block_size(uint3 size) noexcept { _block_size = size; }
 
@@ -145,12 +145,12 @@ public:
 
     [[nodiscard]] const ConstantExpr *constant(const Type *type, uint64_t hash) noexcept;
     [[nodiscard]] const RefExpr *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
-    [[nodiscard]] const RefExpr *image_binding(uint64_t handle) noexcept;
+    [[nodiscard]] const RefExpr *image_binding(const Type *type, uint64_t handle) noexcept;
 
     // explicit arguments
     [[nodiscard]] const RefExpr *argument(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *buffer(const Type *type) noexcept;
-    [[nodiscard]] const RefExpr *image() noexcept;
+    [[nodiscard]] const RefExpr *image(const Type *type) noexcept;
 
     // expressions
     [[nodiscard]] const LiteralExpr *literal(const Type *type, LiteralExpr::Value value) noexcept;

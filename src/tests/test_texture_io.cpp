@@ -28,14 +28,14 @@ int main(int argc, char *argv[]) {
     auto device = std::make_unique<FakeDevice>(context);
 #endif
 
-    Kernel2D fill_image = [](ImageView<uchar4_sRGB> image) noexcept {
+    Kernel2D fill_image = [](ImageVar<float> image) noexcept {
         Var<uint2> coord{dispatch_id().x, dispatch_id().y};
         Var rg = Var<float2>{coord} / Var<float2>{launch_size().x, launch_size().y};
-        image[coord] = Var<float4>{rg, 1.0f, 1.0f};
+        image.write(coord, Var<float4>{rg, 1.0f, 1.0f});
     };
     fill_image.wait_for_compilation(*device);
 
-    Image<uchar4_sRGB> device_image{*device, {1024u, 1024u}};
+    Image<float> device_image{*device, PixelStorage::BYTE4, {1024u, 1024u}};
     cv::Mat host_image{1024u, 1024u, CV_8UC4, cv::Scalar::all(0)};
 
     Event event{*device};

@@ -63,7 +63,7 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
 
     auto offset = command->offset();
     auto size = command->size();
-    auto pixel_bytes = pixel_format_size(command->format());
+    auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y * size.z;
 
@@ -85,7 +85,7 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
 
     auto offset = command->offset();
     auto size = command->size();
-    auto pixel_bytes = pixel_format_size(command->format());
+    auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y * size.z;
     auto texture = _device->texture(command->handle());

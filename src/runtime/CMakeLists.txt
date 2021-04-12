@@ -3,10 +3,12 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
     device.h
     command.cpp command.h
     command_buffer.cpp command_buffer.h
-    pixel_format.h
+    pixel.h
     stream.cpp stream.h
     event.cpp event.h
-    buffer.h)
+    buffer.h
+    image.h
+    texture.cpp texture.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-core)

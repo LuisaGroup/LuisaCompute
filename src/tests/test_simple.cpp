@@ -7,7 +7,7 @@
 #include <core/clock.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
-#include <dsl/image.h>
+#include <runtime/image.h>
 #include <runtime/stream.h>
 #include <runtime/buffer.h>
 #include <dsl/syntax.h>

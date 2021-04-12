@@ -161,18 +161,33 @@ uint64_t MetalDevice::create_texture(
     desc.height = height;
     desc.depth = depth;
     switch (format) {
-        case PixelFormat::R8U:
-        case PixelFormat::R8U_SRGB:
-            desc.pixelFormat = MTLPixelFormatR8Unorm;
-            break;
-        case PixelFormat::RG8U:
-        case PixelFormat::RG8U_SRGB:
-            desc.pixelFormat = MTLPixelFormatRG8Unorm;
-            break;
-        case PixelFormat::RGBA8U:
-        case PixelFormat::RGBA8U_SRGB:
-            desc.pixelFormat = MTLPixelFormatRGBA8Unorm;
-            break;
+        case PixelFormat::R8SInt: desc.pixelFormat = MTLPixelFormatR8Sint  ; break;
+        case PixelFormat::R8UInt: desc.pixelFormat = MTLPixelFormatR8Uint  ; break;
+        case PixelFormat::R8UNorm: desc.pixelFormat = MTLPixelFormatR8Unorm; break;
+        case PixelFormat::RG8SInt: desc.pixelFormat = MTLPixelFormatRG8Sint ; break;
+        case PixelFormat::RG8UInt: desc.pixelFormat = MTLPixelFormatRG8Uint ; break;
+        case PixelFormat::RG8UNorm: desc.pixelFormat = MTLPixelFormatRG8Unorm; break;
+        case PixelFormat::RGBA8SInt: desc.pixelFormat = MTLPixelFormatRGBA8Sint ; break;
+        case PixelFormat::RGBA8UInt: desc.pixelFormat = MTLPixelFormatRGBA8Uint ; break;
+        case PixelFormat::RGBA8UNorm: desc.pixelFormat = MTLPixelFormatRGBA8Unorm; break;
+        case PixelFormat::R16SInt: desc.pixelFormat = MTLPixelFormatR16Sint ; break;
+        case PixelFormat::R16UInt: desc.pixelFormat = MTLPixelFormatR16Uint ; break;
+        case PixelFormat::R16UNorm: desc.pixelFormat = MTLPixelFormatR16Unorm; break;
+        case PixelFormat::RG16SInt: desc.pixelFormat = MTLPixelFormatRG16Sint ; break;
+        case PixelFormat::RG16UInt: desc.pixelFormat = MTLPixelFormatRG16Uint ; break;
+        case PixelFormat::RG16UNorm: desc.pixelFormat = MTLPixelFormatRG16Unorm; break;
+        case PixelFormat::RGBA16SInt: desc.pixelFormat = MTLPixelFormatRGBA16Sint ; break;
+        case PixelFormat::RGBA16UInt: desc.pixelFormat = MTLPixelFormatRGBA16Uint ; break;
+        case PixelFormat::RGBA16UNorm: desc.pixelFormat = MTLPixelFormatRGBA16Unorm; break;
+        case PixelFormat::R32SInt: desc.pixelFormat = MTLPixelFormatR32Sint; break;
+        case PixelFormat::R32UInt: desc.pixelFormat = MTLPixelFormatR32Uint; break;
+        case PixelFormat::RG32SInt: desc.pixelFormat = MTLPixelFormatRG32Sint; break;
+        case PixelFormat::RG32UInt: desc.pixelFormat = MTLPixelFormatRG32Uint; break;
+        case PixelFormat::RGBA32SInt: desc.pixelFormat = MTLPixelFormatRGBA32Sint; break;
+        case PixelFormat::RGBA32UInt: desc.pixelFormat = MTLPixelFormatRGBA32Uint; break;
+        case PixelFormat::R16F: desc.pixelFormat = MTLPixelFormatR16Float; break;
+        case PixelFormat::RG16F: desc.pixelFormat = MTLPixelFormatRG16Float; break;
+        case PixelFormat::RGBA16F: desc.pixelFormat = MTLPixelFormatRGBA16Float; break;
         case PixelFormat::R32F: desc.pixelFormat = MTLPixelFormatR32Float; break;
         case PixelFormat::RG32F: desc.pixelFormat = MTLPixelFormatRG32Float; break;
         case PixelFormat::RGBA32F: desc.pixelFormat = MTLPixelFormatRGBA32Float; break;

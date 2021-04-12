@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "runtime/pixel_format.h"
 #include <cstdint>
 #include <cstddef>
 #include <variant>
@@ -17,6 +16,7 @@
 #include <core/logging.h>
 #include <core/basic_types.h>
 #include <core/memory.h>
+#include <runtime/pixel.h>
 
 namespace luisa::compute {
 
@@ -202,7 +202,7 @@ class TextureUploadCommand : public Command {
 
 private:
     uint64_t _handle;
-    PixelFormat _format;
+    PixelStorage _storage;
     uint _level;
     uint3 _offset;
     uint3 _size;
@@ -210,16 +210,16 @@ private:
 
 public:
     TextureUploadCommand(
-        uint64_t handle, PixelFormat format, uint level,
+        uint64_t handle, PixelStorage storage, uint level,
         uint3 offset, uint3 size, const void *data) noexcept
         : _handle{handle},
-          _format{format},
+          _storage{storage},
           _level{level},
           _offset{offset},
           _size{size},
           _data{data} { _texture_write_only(_handle); }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto format() const noexcept { return _format; }
+    [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -231,7 +231,7 @@ class TextureDownloadCommand : public Command {
 
 private:
     uint64_t _handle;
-    PixelFormat _format;
+    PixelStorage _storage;
     uint _level;
     uint3 _offset;
     uint3 _size;
@@ -239,16 +239,16 @@ private:
 
 public:
     TextureDownloadCommand(
-        uint64_t handle, PixelFormat format, uint level,
+        uint64_t handle, PixelStorage storage, uint level,
         uint3 offset, uint3 size, void *data) noexcept
         : _handle{handle},
-          _format{format},
+          _storage{storage},
           _level{level},
           _offset{offset},
           _size{size},
           _data{data} { _texture_read_only(_handle); }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto format() const noexcept { return _format; }
+    [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }

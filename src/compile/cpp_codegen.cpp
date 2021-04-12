@@ -432,6 +432,8 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::STRUCTURE:
             _scratch << "S" << hash_to_string(type->hash());
             break;
+        case Type::Tag::BUFFER: break;
+        case Type::Tag::IMAGE: break;
     }
 }
 
@@ -443,7 +445,9 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << " *";
             break;
         case Variable::Tag::IMAGE:
-            _scratch << "image<float, ";
+            _scratch << "image<";
+            _emit_type_name(v.type()->element());
+            _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
                 usage == Variable::Usage::READ_WRITE) {
                 _scratch << "access::read_write> ";
