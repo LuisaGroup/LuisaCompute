@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
         buffer[v_int + 1] = 123.0f;
     };
-    kernel.prepare(*device);
+    kernel.wait_for_compilation(*device);
 
     Stream stream{*device};
 

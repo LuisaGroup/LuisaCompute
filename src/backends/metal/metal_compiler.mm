@@ -10,7 +10,7 @@
 
 namespace luisa::compute::metal {
 
-MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
+MetalCompiler::KernelItem MetalCompiler::_compile(uint32_t uid) noexcept {
 
     LUISA_INFO("Compiling kernel #{}.", uid);
 
@@ -27,17 +27,13 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
         "Generated source (hash = 0x{:016x}) for kernel #{} in {} ms:\n\n{}",
         hash, uid, clock.toc(), s);
 
-    // try cache
+    // try memory cache
     {
         std::scoped_lock lock{_cache_mutex};
-        if (auto iter = std::find_if(
-                _cache.cbegin(),
-                _cache.cend(),
-                [hash](auto &&item) noexcept { return item.hash == hash; });
-            iter != _cache.cend()) {
+        if (auto iter = _cache.find(hash); iter != _cache.cend()) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Cache hit for kernel #{}. Compilation skipped.", uid);
-            return {iter->pso, iter->encoder, iter->arguments};
+            return iter->second;
         }
     }
 
@@ -46,13 +42,10 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
                                         length:s.size()
                                       encoding:NSUTF8StringEncoding];
 
-    static auto options = [] {
-        auto o = [[MTLCompileOptions alloc] init];
-        o.fastMathEnabled = true;
-        o.languageVersion = MTLLanguageVersion2_3;
-        o.libraryType = MTLLibraryTypeExecutable;
-        return o;
-    }();
+    auto options = [[MTLCompileOptions alloc] init];
+    options.fastMathEnabled = true;
+    options.languageVersion = MTLLanguageVersion2_3;
+    options.libraryType = MTLLibraryTypeExecutable;
 
     __autoreleasing NSError *error = nullptr;
     auto library = [_device->handle() newLibraryWithSource:src options:options error:&error];
@@ -94,49 +87,26 @@ MetalCompiler::PipelineState MetalCompiler::_compile(uint32_t uid) noexcept {
     auto encoder = [func newArgumentEncoderWithBufferIndex:0 reflection:&reflection];
     auto members = reflection.bufferStructType.members;
 
-    if (std::scoped_lock lock{_cache_mutex};
-        std::none_of(
-            _cache.cbegin(),
-            _cache.cend(),
-            [hash](auto &&item) noexcept {
-                return item.hash == hash;
-            })) { _cache.emplace_back(hash, pso, encoder, members); }
-    return {pso, encoder, members};
+    std::scoped_lock lock{_cache_mutex};
+    return _cache.try_emplace(hash, pso, encoder, members).first->second;
 }
 
-void MetalCompiler::prepare(uint32_t uid) noexcept {
-
-    if (std::scoped_lock lock{_kernel_mutex};
-        std::any_of(_kernels.cbegin(),
-                    _kernels.cend(),
-                    [uid](auto &&handle) noexcept {
-                        return handle.uid == uid;
-                    })) { return; }
-
-    auto kernel = std::async(std::launch::async, [uid, this] {
-        Clock clock;
-        auto k = _compile(uid);
-        LUISA_VERBOSE_WITH_LOCATION(
-            "Compiled source for kernel #{} in {} ms.",
-            uid, clock.toc());
-        return PipelineState{k};
-    });
-
-    std::scoped_lock lock{_kernel_mutex};
-    if (std::none_of(
-            _kernels.cbegin(), _kernels.cend(),
-            [uid](auto &&handle) noexcept { return handle.uid == uid; })) {
-        _kernels.emplace_back(uid, std::move(kernel));
+MetalCompiler::KernelItem MetalCompiler::kernel(uint32_t uid) noexcept {
+    {
+        std::scoped_lock lock{_kernel_mutex};
+        if (auto iter = _kernels.find(uid); iter != _kernels.cend()) {
+            return iter->second;
+        }
     }
-}
 
-MetalCompiler::PipelineState MetalCompiler::kernel(uint32_t uid) noexcept {
-    prepare(uid);
+    Clock clock;
+    auto item = _compile(uid);
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Compiled source for kernel #{} in {} ms.",
+        uid, clock.toc());
+
     std::scoped_lock lock{_kernel_mutex};
-    auto iter = std::find_if(
-        _kernels.begin(), _kernels.end(),
-        [uid](auto &&handle) noexcept { return handle.uid == uid; });
-    return iter->pso.get();
+    return _kernels.try_emplace(uid, item).first->second;
 }
 
 }

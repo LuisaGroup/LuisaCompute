@@ -46,7 +46,7 @@ public:
     virtual void dispatch(uint64_t stream_handle, CommandBuffer) noexcept = 0;
 
     // kernel
-    virtual void prepare_kernel(uint32_t uid) noexcept = 0;
+    virtual void compile_kernel(uint32_t uid) noexcept = 0;
     
     // event
     [[nodiscard]] virtual uint64_t create_event() noexcept = 0;

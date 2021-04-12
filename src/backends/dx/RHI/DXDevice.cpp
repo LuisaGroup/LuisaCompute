@@ -71,8 +71,8 @@ public:
 
 	}
 	// kernel
-	void prepare_kernel(uint32_t uid) noexcept override {
-		// Implement async compilation here. DO NOT BLOCK.
+	void compile_kernel(uint32_t uid) noexcept override {
+		// Just block...
 	}
 	uint64_t create_event() noexcept override {
 		return 0;

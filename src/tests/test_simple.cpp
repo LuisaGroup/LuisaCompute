@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x.a));
     };
-    kernel.prepare(*device);
+    kernel.wait_for_compilation(*device);
 
     static constexpr auto n = 1024u * 1024u;
 
