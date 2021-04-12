@@ -1,4 +1,4 @@
-#include "BackBuffer.h"
+#include <RenderComponent/BackBuffer.h>
 BackBuffer ::~BackBuffer() {}
 
 GFXFormat BackBuffer::GetBackBufferFormat() const {

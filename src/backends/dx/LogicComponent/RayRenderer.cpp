@@ -1,6 +1,6 @@
-#include "RayRenderer.h"
-#include "../PipelineComponent/RayTracing/RayTracingManager.h"
-#include "../RenderComponent/Mesh.h"
+#include <LogicComponent/RayRenderer.h>
+#include <PipelineComponent/RayTracing/RayTracingManager.h>
+#include <RenderComponent/Mesh.h>
 
 RayRenderer::RayRenderer(Transform* tr)
 	: RendererBase(tr, true) {

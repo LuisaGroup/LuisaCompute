@@ -1,4 +1,4 @@
-#include "MathHelper.h"
+#include <Common/MathHelper.h>
 #include <float.h>
 #include <cmath>
 using namespace DirectX;

@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
 #include <Common/VObject.h>
-#include "../Struct/RenderPackage.h"
+#include <Struct/RenderPackage.h>
 class PSOContainer;
 class CBufferChunk;
 class Shader;

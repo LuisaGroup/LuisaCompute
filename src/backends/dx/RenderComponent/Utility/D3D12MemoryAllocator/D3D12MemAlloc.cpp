@@ -19,7 +19,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-#include "D3D12MemAlloc.h"
+#include <RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.h>
 #ifndef D3D12MA_D3D12_HEADERS_ALREADY_INCLUDED
 #include <dxgi.h>
 #if D3D12MA_DXGI_1_4

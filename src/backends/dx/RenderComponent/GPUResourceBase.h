@@ -1,5 +1,5 @@
 #pragma once
-#include "IGPUResourceState.h"
+#include <RenderComponent/IGPUResourceState.h>
 #include <Common/VObject.h>
 class ThreadCommand;
 enum class GPUResourceType : uint8_t {

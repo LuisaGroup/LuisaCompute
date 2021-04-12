@@ -1,10 +1,10 @@
 #pragma once
 #include <VEngineConfig.h>
-#include "vstring.h"
-#include "DLL.h"
-#include "Memory.h"
+#include <Common/vstring.h>
+#include <Common/DLL.h>
+#include <Common/Memory.h>
 #include <Windows.h>
-#include "Log.h"
+#include <Common/Log.h>
 class VENGINE_DLL_COMMON DynamicDLL final {
 	HINSTANCE inst;
 	template<typename T>

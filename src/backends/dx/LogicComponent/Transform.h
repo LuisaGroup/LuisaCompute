@@ -1,9 +1,9 @@
 #pragma once
 #include <VEngineConfig.h>
-#include "../Common/VObject.h"
-#include "../LogicComponent/Component.h"
-#include "../Common/RandomVector.h"
-#include "../Common/MetaLib.h"
+#include <Common/VObject.h>
+#include <LogicComponent/Component.h>
+#include <Common/RandomVector.h>
+#include <Common/MetaLib.h>
 class World;
 class AssetReference;
 class JobHandle;

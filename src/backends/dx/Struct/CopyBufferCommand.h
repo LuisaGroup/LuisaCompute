@@ -1,6 +1,6 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../RenderComponent/IBuffer.h"
+#include <Common/GFXUtil.h>
+#include <RenderComponent/IBuffer.h>
 struct CopyBufferCommand
 {
 	IBuffer* sourceBuffer;

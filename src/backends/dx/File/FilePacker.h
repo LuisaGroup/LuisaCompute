@@ -1,6 +1,6 @@
 #pragma once
-#include "MGUID.h"
-#include "MGUID.h"
+#include <File/MGUID.h>
+#include <File/MGUID.h>
 #include <Common/Common.h>
 class FilePacker
 {

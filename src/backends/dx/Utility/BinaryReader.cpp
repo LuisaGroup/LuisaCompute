@@ -1,4 +1,4 @@
-#include "BinaryReader.h"
+#include <Utility/BinaryReader.h>
 BinaryReader::BinaryReader(vengine::string const& path) {
 	currentPos = 0;
 	ifs = fopen(path.c_str(), "rb");

@@ -1,10 +1,10 @@
 #pragma once
-#include "../Common/TypeWiper.h"
+#include <Common/TypeWiper.h>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include "../Common/DLL.h"
-#include "../Common/Memory.h"
+#include <Common/DLL.h>
+#include <Common/Memory.h>
 class   TaskThread
 {
 private:

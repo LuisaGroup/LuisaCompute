@@ -1,5 +1,5 @@
 //#endif
-#include "ReadbackBuffer.h"
+#include <RenderComponent/ReadbackBuffer.h>
 ReadbackBuffer::ReadbackBuffer(GFXDevice* device, uint64 elementCount, size_t stride) {
 	mElementCount = elementCount;
 	mStride = stride;

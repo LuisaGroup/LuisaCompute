@@ -1,7 +1,7 @@
-#include "Camera.h"
-#include "../Utility/PassConstants.h"
-#include "../WorldManagement/World.h"
-#include "../PipelineComponent/IPipelineResource.h"
+#include <Common/Camera.h>
+#include <Utility/PassConstants.h>
+#include <WorldManagement/World.h>
+#include <PipelineComponent/IPipelineResource.h>
 using namespace DirectX;
 using namespace Math;
 Camera::Camera()

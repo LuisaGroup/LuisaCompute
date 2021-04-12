@@ -1,9 +1,9 @@
 //#endif
-#include "StructuredBuffer.h"
-#include "DescriptorHeap.h"
-#include "UploadBuffer.h"
-#include "../PipelineComponent/ThreadCommand.h"
-#include "../Singleton/Graphics.h"
+#include <RenderComponent/StructuredBuffer.h>
+#include <RenderComponent/DescriptorHeap.h>
+#include <RenderComponent/UploadBuffer.h>
+#include <PipelineComponent/ThreadCommand.h>
+#include <Singleton/Graphics.h>
 D3D12_RESOURCE_STATES StructuredBuffer::GetGFXResourceState(GPUResourceState gfxState) const {
 	if (usedAsMesh && gfxState == GPUResourceState_GenericRead) {
 		uint v = ((uint)D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER

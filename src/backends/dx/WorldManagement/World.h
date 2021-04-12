@@ -1,10 +1,10 @@
 #pragma once
 //#include "../RenderComponent/MeshRenderer.h"
-#include "../Common/Common.h"
-#include "../Common/VObject.h"
-#include "../Common/BitArray.h"
-#include "../Common/RandomVector.h"
-#include "../Utility/Actor.h"
+#include <Common/Common.h>
+#include <Common/VObject.h>
+#include <Common/BitArray.h>
+#include <Common/RandomVector.h>
+#include <Utility/Actor.h>
 #include <mutex>
 class GameTimer;
 class Transform;

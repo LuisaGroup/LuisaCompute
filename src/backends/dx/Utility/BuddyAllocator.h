@@ -1,6 +1,6 @@
 #pragma once
-#include "../Common/Common.h"
-#include "../Common/Runnable.h"
+#include <Common/Common.h>
+#include <Common/Runnable.h>
 using uint = uint32_t;
 class BuddyLinkedList;
 class BuddyBinaryTree;

@@ -1,18 +1,18 @@
 //#endif
-#include "Shader.h"
-#include "../Singleton/ShaderID.h"
-#include "TextureBase.h"
-#include "../RenderComponent/DescriptorHeap.h"
-#include "UploadBuffer.h"
-#include "TextureBase.h"
-#include "RenderTexture.h"
+#include <RenderComponent/Shader.h>
+#include <Singleton/ShaderID.h>
+#include <RenderComponent/TextureBase.h>
+#include <RenderComponent/DescriptorHeap.h>
+#include <RenderComponent/UploadBuffer.h>
+#include <RenderComponent/TextureBase.h>
+#include <RenderComponent/RenderTexture.h>
 #include <fstream>
-#include "../JobSystem/JobInclude.h"
-#include "Utility/ShaderIO.h"
-#include "StructuredBuffer.h"
+#include <JobSystem/JobInclude.h>
+#include <RenderComponent/Utility/ShaderIO.h>
+#include <RenderComponent/StructuredBuffer.h>
 #include <Singleton/Graphics.h>
-#include "Mesh.h"
-#include "../PipelineComponent/ThreadCommand.h"
+#include <RenderComponent/Mesh.h>
+#include <PipelineComponent/ThreadCommand.h>
 using Microsoft::WRL::ComPtr;
 Shader::~Shader() {
 }

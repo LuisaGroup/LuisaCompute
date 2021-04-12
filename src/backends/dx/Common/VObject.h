@@ -2,11 +2,11 @@
 #include <VEngineConfig.h>
 #include <atomic>
 #include <mutex>
-#include "Runnable.h"
-#include "MetaLib.h"
+#include <Common/Runnable.h>
+#include <Common/MetaLib.h>
 #include <assert.h>
-#include "vector.h"
-#include "Memory.h"
+#include <Common/vector.h>
+#include <Common/Memory.h>
 class PtrLink;
 
 class VENGINE_DLL_COMMON VObject {

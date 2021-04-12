@@ -1,6 +1,6 @@
 #pragma once
-#include "BuddyAllocator.h"
-#include "../Common/LinkedList.h"
+#include <Utility/BuddyAllocator.h>
+#include <Common/LinkedList.h>
 
 class  ElementAllocator
 {

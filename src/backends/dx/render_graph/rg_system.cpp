@@ -1,6 +1,6 @@
-#include "rg_system.h"
-#include "rg_executor.h"
-#include "rg_node.h"
+#include <render_graph/rg_system.h>
+#include <render_graph/rg_executor.h>
+#include <render_graph/rg_node.h>
 namespace luisa::compute {
 RGSystem::RGSystem() {
 }

@@ -1,6 +1,6 @@
 #pragma once
-#include "../IPipelineResource.h"
-#include "../../Common/GFXUtil.h"
+#include <PipelineComponent/IPipelineResource.h>
+#include <Common/GFXUtil.h>
 class RenderTexture;
 struct CameraTransformData : public IPipelineResource
 {

@@ -1,18 +1,18 @@
 //#endif
-#include "Texture.h"
-#include "../RenderComponent/DescriptorHeap.h"
+#include <RenderComponent/Texture.h>
+#include <RenderComponent/DescriptorHeap.h>
 #include <fstream>
-#include "ComputeShader.h"
-#include "../Singleton/ShaderLoader.h"
-#include "RenderCommand.h"
-#include "../Singleton/ShaderID.h"
-#include "../Singleton/Graphics.h"
-#include "TextureHeap.h"
+#include <RenderComponent/ComputeShader.h>
+#include <Singleton/ShaderLoader.h>
+#include <RenderComponent/RenderCommand.h>
+#include <Singleton/ShaderID.h>
+#include <Singleton/Graphics.h>
+#include <RenderComponent/TextureHeap.h>
 #include <Common/Pool.h>
-#include "Utility/ITextureAllocator.h"
-#include "../Utility/BinaryReader.h"
-#include "UploadBuffer.h"
-#include "../PipelineComponent/ThreadCommand.h"
+#include <RenderComponent/Utility/ITextureAllocator.h>
+#include <Utility/BinaryReader.h>
+#include <RenderComponent/UploadBuffer.h>
+#include <PipelineComponent/ThreadCommand.h>
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 namespace TextureGlobal {

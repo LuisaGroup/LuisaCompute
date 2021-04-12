@@ -1,8 +1,8 @@
 //#endif
-#include "UploadBuffer.h"
-#include "Utility/IBufferAllocator.h"
-#include "DescriptorHeap.h"
-#include "../Singleton/Graphics.h"
+#include <RenderComponent/UploadBuffer.h>
+#include <RenderComponent/Utility/IBufferAllocator.h>
+#include <RenderComponent/DescriptorHeap.h>
+#include <Singleton/Graphics.h>
 UploadBuffer::UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConstantBuffer, uint64_t stride, IBufferAllocator* allocator) : allocator(allocator) {
 	mIsConstantBuffer = isConstantBuffer;
 	// Constant buffer elements need to be multiples of 256 bytes.

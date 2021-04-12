@@ -1,7 +1,7 @@
 #pragma once
 #include <memory>
 #include <stdint.h>
-#include "Memory.h"
+#include <Common/Memory.h>
 class BitVector {
 public:
 	struct Iterator {

@@ -2,8 +2,8 @@
 #include <Common/GFXUtil.h>
 #include <Common/VObject.h>
 #include <Common/vector.h>
-#include "DescriptorHeapRoot.h"
-#include "../Utility/ElementAllocator.h"
+#include <RenderComponent/DescriptorHeapRoot.h>
+#include <Utility/ElementAllocator.h>
 class GPUResourceBase;
 class ThreadCommand;
 class VENGINE_DLL_RENDERER DescriptorHeap : public VObject

@@ -1,13 +1,13 @@
-#include "Transform.h"
-#include "../WorldManagement/World.h"
-#include "../Common/MetaLib.h"
-#include "../Common/RandomVector.h"
-#include "../JobSystem/JobInclude.h"
-#include "../Common/Runnable.h"
-#include "../CJsonObject/CJsonObject.hpp"
-#include "../CJsonObject/SerializedObject.h"
-#include "../LogicComponent/Component.h"
-#include "../Common/PoolAllocator.h"
+#include <LogicComponent/Transform.h>
+#include <WorldManagement/World.h>
+#include <Common/MetaLib.h>
+#include <Common/RandomVector.h>
+#include <JobSystem/JobInclude.h>
+#include <Common/Runnable.h>
+#include <CJsonObject/CJsonObject.hpp>
+#include <CJsonObject/SerializedObject.h>
+#include <LogicComponent/Component.h>
+#include <Common/PoolAllocator.h>
 ArrayList<JobHandle> Transform::moveWorldHandles;
 using namespace Math;
 using namespace neb;

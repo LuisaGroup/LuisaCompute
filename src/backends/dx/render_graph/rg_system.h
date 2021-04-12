@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <vector>
-#include "rg_enum.h"
+#include <render_graph/rg_enum.h>
 #include <span>
 namespace luisa::compute {
 class RGNode;

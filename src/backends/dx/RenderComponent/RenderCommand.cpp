@@ -1,5 +1,5 @@
 //#endif
-#include "RenderCommand.h"
+#include <RenderComponent/RenderCommand.h>
 LockFreeArrayQueue<RenderCommandExecutable, false> RenderCommand::queue(100);
 void RenderCommand::UpdateResState(
 	RenderCommand* ptr) {

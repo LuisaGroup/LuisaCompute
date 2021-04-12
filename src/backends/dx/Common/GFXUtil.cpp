@@ -1,8 +1,8 @@
-#include "GFXUtil.h"
+#include <Common/GFXUtil.h>
 #include <comdef.h>
 #include <fstream>
-#include "Camera.h"
-#include "../PipelineComponent/IPipelineResource.h"
+#include <Common/Camera.h>
+#include <PipelineComponent/IPipelineResource.h>
 
 using Microsoft::WRL::ComPtr;
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> const& GFXUtil::GetStaticSamplers() {

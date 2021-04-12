@@ -1,12 +1,12 @@
 //#endif
-#include "PSOContainer.h"
-#include "../Singleton/MeshLayout.h"
-#include "../Singleton/Graphics.h"
-#include "RenderTexture.h"
+#include <RenderComponent/PSOContainer.h>
+#include <Singleton/MeshLayout.h>
+#include <Singleton/Graphics.h>
+#include <RenderComponent/RenderTexture.h>
 #include <Common/Hash.h>
 #include <Common/LockFreeArrayQueue.h>
-#include "../Utility/TaskThread.h"
-#include "../PipelineComponent/ThreadCommand.h"
+#include <Utility/TaskThread.h>
+#include <PipelineComponent/ThreadCommand.h>
 namespace PSOGlobal {
 struct LoadCommand {
 	GFXDevice* device;

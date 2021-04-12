@@ -1,4 +1,4 @@
-#include "../Common/Memory.h"
+#include <Common/Memory.h>
 #include <cstring>
 #include <stdio.h>
 #include <math.h>
@@ -6,7 +6,7 @@
 #include <float.h>
 #include <limits.h>
 #include <ctype.h>
-#include "cJSON.h"
+#include <CJsonObject/cJSON.h>
 #ifndef INT_MAX
 #define INT_MAX 2147483647
 #define INT_MIN (-INT_MAX - 1)

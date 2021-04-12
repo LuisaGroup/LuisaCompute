@@ -1,12 +1,12 @@
-#include "ThreadCommand.h"
-#include "ThreadCommand.h"
+#include <PipelineComponent/ThreadCommand.h>
+#include <PipelineComponent/ThreadCommand.h>
 //#endif
-#include "ThreadCommand.h"
-#include "../RenderComponent/RenderTexture.h"
-#include "../RenderComponent/StructuredBuffer.h"
-#include "../Singleton/Graphics.h"
-#include "../RenderComponent/IShader.h"
-#include "../RenderComponent/DescriptorHeapRoot.h"
+#include <PipelineComponent/ThreadCommand.h>
+#include <RenderComponent/RenderTexture.h>
+#include <RenderComponent/StructuredBuffer.h>
+#include <Singleton/Graphics.h>
+#include <RenderComponent/IShader.h>
+#include <RenderComponent/DescriptorHeapRoot.h>
 void ThreadCommand::ResetCommand() {
 	shaderRootInstanceID = 0;
 	descHeapInstanceID = 0;

@@ -1,7 +1,7 @@
 //#endif
-#include "ShaderIO.h"
+#include <RenderComponent/Utility/ShaderIO.h>
 #include <fstream>
-#include "../RenderComponentInclude.h"
+#include <RenderComponent/RenderComponentInclude.h>
 #include <Utility/BinaryReader.h>
 #include <PipelineComponent/ThreadCommand.h>
 #include <Singleton/Graphics.h>

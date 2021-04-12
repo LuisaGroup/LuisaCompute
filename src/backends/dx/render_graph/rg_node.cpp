@@ -1,7 +1,7 @@
-#include "rg_node.h"
-#include "rg_system.h"
+#include <render_graph/rg_node.h>
+#include <render_graph/rg_system.h>
 #include <core/logging.h>
-#include "rg_executor.h"
+#include <render_graph/rg_executor.h>
 namespace luisa::compute {
 RGNode::~RGNode() {
 }

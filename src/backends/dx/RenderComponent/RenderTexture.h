@@ -1,9 +1,9 @@
 #pragma once
 #include <Common/VObject.h>
 #include <Common/GFXUtil.h>
-#include "TextureBase.h"
-#include "../RenderComponent/DescriptorHeap.h"
-#include "IBackBuffer.h"
+#include <RenderComponent/TextureBase.h>
+#include <RenderComponent/DescriptorHeap.h>
+#include <RenderComponent/IBackBuffer.h>
 class TextureHeap;
 class ITextureAllocator;
 class ThreadCommand;

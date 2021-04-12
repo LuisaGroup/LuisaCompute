@@ -1,4 +1,4 @@
-#include "Actor.h"
+#include <Utility/Actor.h>
 void* Actor::GetComponent(Type t) const {
 	auto ite = hash.Find(t);
 	if (ite) return ite.Value().ptr;

@@ -1,8 +1,8 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include "../Shader.h"
+#include <RenderComponent/Shader.h>
 #include <CJsonObject/SerializedObject.h>
-#include "../ComputeShader.h"
+#include <RenderComponent/ComputeShader.h>
 class SerializedObject;
 class ThreadCommand;
 class VENGINE_DLL_RENDERER ShaderIO {

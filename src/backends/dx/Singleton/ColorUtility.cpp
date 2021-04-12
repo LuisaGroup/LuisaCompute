@@ -1,4 +1,4 @@
-#include "ColorUtility.h"
+#include <Singleton/ColorUtility.h>
 using namespace Math;
 const float logC_cut = 0.011361f;
 const float logC_a = 5.555556f;

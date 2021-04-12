@@ -1,5 +1,5 @@
 #pragma once
-#include "GPUResourceBase.h"
+#include <RenderComponent/GPUResourceBase.h>
 class IBuffer : public GPUResourceBase {
 public:
 	IBuffer() : GPUResourceBase(GPUResourceType::Buffer) {}

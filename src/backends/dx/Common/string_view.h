@@ -1,9 +1,9 @@
 #pragma once
 #include <VEngineConfig.h>
 #include <stdint.h>
-#include "MetaLib.h"
+#include <Common/MetaLib.h>
 #include <iostream>
-#include "DLL.h"
+#include <Common/DLL.h>
 namespace vengine {
 class string;
 class wstring;

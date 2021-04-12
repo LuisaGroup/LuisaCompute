@@ -1,5 +1,5 @@
 #include <windows.h>
-#include "GameTimer.h"
+#include <Common/GameTimer.h>
 uint64_t GameTimer::frameCount = 0;
 double GameTimer::deltaTime = 1000;
 double GameTimer::time = 0;

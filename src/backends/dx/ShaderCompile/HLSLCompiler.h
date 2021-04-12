@@ -2,7 +2,7 @@
 #include <Common/GFXUtil.h>
 #include <Common/VObject.h>
 #include <Common/Runnable.h>
-#include "ShaderUniforms.h"
+#include <ShaderCompile/ShaderUniforms.h>
 #include <ast/function.h>
 namespace SCompile {
 class HLSLCompiler {

@@ -1,14 +1,14 @@
-#include "RayShader.h"
-#include "../Singleton/ShaderID.h"
-#include "Texture.h"
-#include "../RenderComponent/DescriptorHeap.h"
-#include "UploadBuffer.h"
+#include <RenderComponent/RayShader.h>
+#include <Singleton/ShaderID.h>
+#include <RenderComponent/Texture.h>
+#include <RenderComponent/DescriptorHeap.h>
+#include <RenderComponent/UploadBuffer.h>
 #include <fstream>
-#include "../JobSystem/JobInclude.h"
-#include "Utility/ShaderIO.h"
-#include "StructuredBuffer.h"
-#include "../PipelineComponent/ThreadCommand.h"
-#include "Mesh.h"
+#include <JobSystem/JobInclude.h>
+#include <RenderComponent/Utility/ShaderIO.h>
+#include <RenderComponent/StructuredBuffer.h>
+#include <PipelineComponent/ThreadCommand.h>
+#include <RenderComponent/Mesh.h>
 using Microsoft::WRL::ComPtr;
 RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 	vengine::vector<char> binaryData;

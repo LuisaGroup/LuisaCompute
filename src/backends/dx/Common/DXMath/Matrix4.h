@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "Matrix3.h"
+#include <Common/DXMath/Matrix3.h>
 namespace Math
 {
 	__declspec(align(16)) class Matrix4

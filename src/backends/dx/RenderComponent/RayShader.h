@@ -1,6 +1,6 @@
 #pragma once
-#include "IShader.h"
-#include "UploadBuffer.h"
+#include <RenderComponent/IShader.h>
+#include <RenderComponent/UploadBuffer.h>
 
 class JobBucket;
 class DescriptorHeap;

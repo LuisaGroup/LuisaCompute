@@ -1,4 +1,4 @@
-#include "ASTEncoder.h"
+#include <ShaderCompile/ASTEncoder.h>
 #include <Common/DLL.h>
 #include <Utility/MD5.h>
 namespace luisa::compute {

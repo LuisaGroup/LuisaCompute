@@ -1,10 +1,10 @@
-#include "RayTracingManager.h"
+#include <PipelineComponent/RayTracing/RayTracingManager.h>
 #include <RenderComponent/RenderComponentInclude.h>
 #include <LogicComponent/Transform.h>
 #include <Singleton/ShaderID.h>
 #include <Singleton/ShaderLoader.h>
 #include <Common/GameTimer.h>
-#include "../ThreadCommand.h"
+#include <PipelineComponent/ThreadCommand.h>
 RayTracingManager* RayTracingManager::current = nullptr;
 namespace RTAccStructUtil {
 

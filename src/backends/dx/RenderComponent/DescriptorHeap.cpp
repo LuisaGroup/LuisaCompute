@@ -1,9 +1,9 @@
-#include "DescriptorHeap.h"
+#include <RenderComponent/DescriptorHeap.h>
 //#endif
-#include "DescriptorHeap.h"
-#include "GPUResourceBase.h"
-#include "../Singleton/Graphics.h"
-#include "../PipelineComponent/ThreadCommand.h"
+#include <RenderComponent/DescriptorHeap.h>
+#include <RenderComponent/GPUResourceBase.h>
+#include <Singleton/Graphics.h>
+#include <PipelineComponent/ThreadCommand.h>
 DescriptorHeap::DescriptorHeap(
 	GFXDevice* pDevice,
 	D3D12_DESCRIPTOR_HEAP_TYPE Type,

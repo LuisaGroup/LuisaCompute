@@ -1,7 +1,7 @@
 #pragma once
-#include "GPUResourceBase.h"
+#include <RenderComponent/GPUResourceBase.h>
 #include <Common/IObjectReference.h>
-#include "IGPUResourceState.h"
+#include <RenderComponent/IGPUResourceState.h>
 struct SubMesh {
 	float3 boundingCenter;
 	float3 boundingExtent;

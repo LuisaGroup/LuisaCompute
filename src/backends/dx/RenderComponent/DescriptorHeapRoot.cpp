@@ -1,8 +1,8 @@
-#include "DescriptorHeapRoot.h"
+#include <RenderComponent/DescriptorHeapRoot.h>
 //#endif
-#include "DescriptorHeapRoot.h"
-#include "GPUResourceBase.h"
-#include "../PipelineComponent/ThreadCommand.h"
+#include <RenderComponent/DescriptorHeapRoot.h>
+#include <RenderComponent/GPUResourceBase.h>
+#include <PipelineComponent/ThreadCommand.h>
 DescriptorHeapRoot::DescriptorHeapRoot(
 	GFXDevice* pDevice,
 	D3D12_DESCRIPTOR_HEAP_TYPE Type,

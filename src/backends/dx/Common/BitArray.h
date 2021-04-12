@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <memory>
-#include "Memory.h"
+#include <Common/Memory.h>
 class BitArray {
 public:
 	struct Iterator {

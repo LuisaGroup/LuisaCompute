@@ -11,9 +11,9 @@
 #ifndef CAMERA_H
 #define CAMERA_H
 
-#include "Common.h"
-#include "../Common/VObject.h"
-#include "../Common/Runnable.h"
+#include <Common/Common.h>
+#include <Common/VObject.h>
+#include <Common/Runnable.h>
 class PipelineComponent;
 class RenderPipeline;
 class RenderTexture;

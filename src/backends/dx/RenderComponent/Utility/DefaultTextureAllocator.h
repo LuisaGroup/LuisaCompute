@@ -1,5 +1,5 @@
 #pragma once
-#include "ITextureAllocator.h"
+#include <RenderComponent/Utility/ITextureAllocator.h>
 namespace D3D12MA
 {
 	class Allocator;

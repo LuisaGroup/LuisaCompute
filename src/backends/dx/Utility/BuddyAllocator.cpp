@@ -1,4 +1,4 @@
-#include "BuddyAllocator.h"
+#include <Utility/BuddyAllocator.h>
 void BuddyLinkedList::Add(BuddyNode* node) noexcept {
 	node->left = nullptr;
 	node->right = firstNode;

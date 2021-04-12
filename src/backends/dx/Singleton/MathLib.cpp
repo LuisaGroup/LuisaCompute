@@ -1,5 +1,5 @@
-#include "MathLib.h"
-#include "../Common/MetaLib.h"
+#include <Singleton/MathLib.h>
+#include <Common/MetaLib.h>
 using namespace Math;
 #define GetVec(name, v) Vector4 name = XMLoadFloat3(&##v);
 #define StoreVec(ptr, v) XMStoreFloat3(ptr, v);

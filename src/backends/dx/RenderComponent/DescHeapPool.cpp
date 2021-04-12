@@ -1,5 +1,5 @@
 //#endif
-#include "DescHeapPool.h"
+#include <RenderComponent/DescHeapPool.h>
 DescHeapPool::DescHeapPool(
 	uint size, uint initCapacity, D3D12_DESCRIPTOR_HEAP_TYPE type) : size(size), capacity(initCapacity), type(type) {
 	poolValue.reserve(initCapacity);

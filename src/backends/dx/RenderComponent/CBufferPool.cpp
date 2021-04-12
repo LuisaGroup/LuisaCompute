@@ -1,5 +1,5 @@
 //#endif
-#include "CBufferPool.h"
+#include <RenderComponent/CBufferPool.h>
 #include <math.h>
 void CBufferPool::Add(GFXDevice* device) {
 	auto& newBuffer = arr.emplace_back(new UploadBuffer(device, capacity, isConstantBuffer, stride));

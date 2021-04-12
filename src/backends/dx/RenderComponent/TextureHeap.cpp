@@ -1,5 +1,5 @@
 //#endif
-#include "TextureHeap.h"
+#include <RenderComponent/TextureHeap.h>
 using namespace Microsoft::WRL;
 TextureHeap::TextureHeap(GFXDevice* device, uint64_t chunkSize, bool isRenderTexture) : chunkSize(chunkSize) {
 

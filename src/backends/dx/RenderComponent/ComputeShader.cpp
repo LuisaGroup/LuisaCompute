@@ -1,15 +1,15 @@
 //#endif
-#include "ComputeShader.h"
-#include "../Singleton/ShaderID.h"
-#include "UploadBuffer.h"
-#include "../RenderComponent/DescriptorHeap.h"
+#include <RenderComponent/ComputeShader.h>
+#include <Singleton/ShaderID.h>
+#include <RenderComponent/UploadBuffer.h>
+#include <RenderComponent/DescriptorHeap.h>
 #include <Common/GFXUtil.h>
 #include <fstream>
-#include "StructuredBuffer.h"
-#include "Mesh.h"
-#include "../JobSystem/JobInclude.h"
-#include "Utility/ShaderIO.h"
-#include "../PipelineComponent/ThreadCommand.h"
+#include <RenderComponent/StructuredBuffer.h>
+#include <RenderComponent/Mesh.h>
+#include <JobSystem/JobInclude.h>
+#include <RenderComponent/Utility/ShaderIO.h>
+#include <PipelineComponent/ThreadCommand.h>
 
 using Microsoft::WRL::ComPtr;
 uint ComputeShader::GetKernelIndex(const vengine::string& str) const {

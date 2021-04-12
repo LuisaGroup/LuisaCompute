@@ -1,20 +1,20 @@
-#include "Graphics.h"
-#include "../Singleton/ShaderLoader.h"
-#include "../Singleton/ShaderID.h"
-#include "../RenderComponent/Shader.h"
-#include "../RenderComponent/ComputeShader.h"
-#include "MeshLayout.h"
-#include "../RenderComponent/DescriptorHeap.h"
-#include "../RenderComponent/PSOContainer.h"
-#include "../RenderComponent/StructuredBuffer.h"
-#include "../RenderComponent/RenderTexture.h"
-#include "../RenderComponent/Texture.h"
-#include "../Common/Memory.h"
-#include "../Utility/QuickSort.h"
-#include "../RenderComponent/DescriptorHeapRoot.h"
-#include "../PipelineComponent/ThreadCommand.h"
-#include "../RenderComponent/UploadBuffer.h"
-#include "../Utility/QuickSort.h"
+#include <Singleton/Graphics.h>
+#include <Singleton/ShaderLoader.h>
+#include <Singleton/ShaderID.h>
+#include <RenderComponent/Shader.h>
+#include <RenderComponent/ComputeShader.h>
+#include <Singleton/MeshLayout.h>
+#include <RenderComponent/DescriptorHeap.h>
+#include <RenderComponent/PSOContainer.h>
+#include <RenderComponent/StructuredBuffer.h>
+#include <RenderComponent/RenderTexture.h>
+#include <RenderComponent/Texture.h>
+#include <Common/Memory.h>
+#include <Utility/QuickSort.h>
+#include <RenderComponent/DescriptorHeapRoot.h>
+#include <PipelineComponent/ThreadCommand.h>
+#include <RenderComponent/UploadBuffer.h>
+#include <Utility/QuickSort.h>
 #define MAXIMUM_HEAP_COUNT 32768
 /*
 namespace GraphicsGlobalN {

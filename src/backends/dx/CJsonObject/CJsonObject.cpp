@@ -1,4 +1,4 @@
-#include "CJsonObject.hpp"
+#include <CJsonObject/CJsonObject.hpp>
 namespace neb {
 CJsonObject::CJsonObject()
 	: m_pJsonData(NULL), m_pExternJsonDataRef(NULL), m_pKeyTravers(NULL) {

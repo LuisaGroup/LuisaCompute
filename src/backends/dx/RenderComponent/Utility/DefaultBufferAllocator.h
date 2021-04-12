@@ -1,6 +1,6 @@
 #pragma once
 #include <VEngineConfig.h>
-#include "IBufferAllocator.h"
+#include <RenderComponent/Utility/IBufferAllocator.h>
 #include <mutex>
 namespace D3D12MA
 {

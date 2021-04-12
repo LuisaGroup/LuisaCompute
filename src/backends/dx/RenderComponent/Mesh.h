@@ -1,5 +1,5 @@
 #pragma once
-#include "IMesh.h"
+#include <RenderComponent/IMesh.h>
 class IBufferAllocator;
 class DescriptorHeap;
 namespace MeshGlobal {

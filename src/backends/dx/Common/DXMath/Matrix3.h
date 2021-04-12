@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "Quaternion.h"
+#include <Common/DXMath/Quaternion.h>
 
 namespace Math
 {

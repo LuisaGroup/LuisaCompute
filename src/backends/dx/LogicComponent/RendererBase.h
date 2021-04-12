@@ -1,8 +1,8 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../RenderComponent/Utility/CullingMask.h"
-#include "Component.h"
-#include "../Common/RandomVector.h"
+#include <Common/GFXUtil.h>
+#include <RenderComponent/Utility/CullingMask.h>
+#include <LogicComponent/Component.h>
+#include <Common/RandomVector.h>
 class IMesh;
 class RendererBase : public Component {
 protected:

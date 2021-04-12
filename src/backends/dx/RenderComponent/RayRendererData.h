@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
 #include <Common/VObject.h>
-#include "IMesh.h"
+#include <RenderComponent/IMesh.h>
 #include <RenderComponent/Utility/SeparableRenderer.h>
 
 class Transform;

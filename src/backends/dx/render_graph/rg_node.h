@@ -3,7 +3,7 @@
 #include <type_traits>
 #include <functional>
 #include <stdint.h>
-#include "rg_enum.h"
+#include <render_graph/rg_enum.h>
 #include <span>
 #include <initializer_list>
 #include <runtime/command_buffer.h>

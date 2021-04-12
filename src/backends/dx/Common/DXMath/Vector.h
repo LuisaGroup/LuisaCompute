@@ -12,7 +12,7 @@
 //
 
 #pragma once
-#include "Scalar.h"
+#include <Common/DXMath/Scalar.h>
 using namespace DirectX;
 namespace Math {
 struct bool4;

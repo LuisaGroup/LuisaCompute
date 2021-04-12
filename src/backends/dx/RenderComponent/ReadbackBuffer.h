@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IBuffer.h"
+#include <RenderComponent/IBuffer.h>
 class VENGINE_DLL_RENDERER ReadbackBuffer final : public IBuffer {
 public:
 	ReadbackBuffer(GFXDevice* device, uint64 elementCount, size_t stride);

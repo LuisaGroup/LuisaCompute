@@ -1,6 +1,6 @@
 #pragma once
-#include "IShader.h"
-#include "../Struct/ShaderVariableType.h"
+#include <RenderComponent/IShader.h>
+#include <Struct/ShaderVariableType.h>
 class JobBucket;
 class DescriptorHeap;
 class CommandSignature;

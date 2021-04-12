@@ -1,11 +1,11 @@
-#include "HLSLCompiler.h"
+#include <ShaderCompile/HLSLCompiler.h>
 #include <CJsonObject/CJsonObject.hpp>
 #include <Windows.h>
 #include <Utility/StringUtility.h>
 #include <fstream>
 #include <Utility/BinaryReader.h>
 #include <File/Path.h>
-#include "ShaderUniforms.h"
+#include <ShaderCompile/ShaderUniforms.h>
 #include <Utility/BinaryReader.h>
 namespace SCompile {
 static constexpr bool g_needCommandOutput = false;

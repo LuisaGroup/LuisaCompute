@@ -1,10 +1,10 @@
-#include "JobSystem.h"
+#include <JobSystem/JobSystem.h>
 #include <thread>
 #include <condition_variable>
 #include <atomic>
-#include "JobBucket.h"
-#include "JobNode.h"
-#include "../Common/Memory.h"
+#include <JobSystem/JobBucket.h>
+#include <JobSystem/JobNode.h>
+#include <Common/Memory.h>
 void JobSystem::UpdateNewBucket() {
 	JobBucket* bucket;
 	while (true) {

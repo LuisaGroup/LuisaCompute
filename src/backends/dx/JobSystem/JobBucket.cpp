@@ -1,6 +1,6 @@
-#include "JobBucket.h"
-#include "JobNode.h"
-#include "JobSystem.h"
+#include <JobSystem/JobBucket.h>
+#include <JobSystem/JobNode.h>
+#include <JobSystem/JobSystem.h>
 JobBucket::JobBucket(JobSystem* sys) noexcept : sys(sys) {
 	jobNodesVec.reserve(20);
 }

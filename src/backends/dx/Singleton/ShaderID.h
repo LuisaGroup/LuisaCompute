@@ -1,8 +1,8 @@
 #pragma once
 #include <mutex>
-#include "../Common/HashMap.h"
-#include "../Common/vstring.h"
-#include "../Common/vector.h"
+#include <Common/HashMap.h>
+#include <Common/vstring.h>
+#include <Common/vector.h>
 class ShaderID
 {
 	static const uint32_t INIT_CAPACITY = 100;

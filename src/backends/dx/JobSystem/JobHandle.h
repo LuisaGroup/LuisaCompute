@@ -1,6 +1,6 @@
 #pragma once
 #include <VEngineConfig.h>
-#include "../Common/vector.h"
+#include <Common/vector.h>
 class JobNode;
 class JobBucket;
 using uint = uint32_t;
