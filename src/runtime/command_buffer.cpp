@@ -11,4 +11,4 @@ void CommandBuffer::append(CommandHandle cmd) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Added command to command buffer.");
 }
 
-}
+}// namespace luisa::compute

@@ -19,4 +19,4 @@ template struct Vector<uint, 2>;
 template struct Vector<uint, 3>;
 template struct Vector<uint, 4>;
 
-}
+}// namespace luisa

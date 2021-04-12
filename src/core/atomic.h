@@ -14,4 +14,4 @@ using atomic_uint = std::atomic<unsigned int>;
 static_assert(sizeof(atomic_int) == 4u);
 static_assert(sizeof(atomic_uint) == 4u);
 
-}
+}// namespace luisa

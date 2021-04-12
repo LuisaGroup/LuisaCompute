@@ -14,4 +14,4 @@ std::string_view hash_to_string(uint64_t hash) noexcept {
     return std::string_view{temp.data(), temp.size()};
 }
 
-}
+}// namespace luisa

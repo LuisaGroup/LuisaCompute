@@ -75,4 +75,4 @@ uint3 Function::block_size() const noexcept {
     return _builder->block_size();
 }
 
-}
+}// namespace luisa::compute

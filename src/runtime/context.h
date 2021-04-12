@@ -30,4 +30,4 @@ public:
     [[nodiscard]] DeviceHandle create_device(std::string_view backend_name, uint32_t index = 0u) noexcept;
 };
 
-}
+}// namespace luisa::compute
