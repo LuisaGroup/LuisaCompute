@@ -7,15 +7,15 @@
 #include "Memory.h"
 #include "string_view.h"
 namespace vengine {
-class string {
+class VENGINE_DLL_COMMON string {
 	friend std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
 	friend std::istream& operator>>(std::istream& in, string& obj) noexcept;
 
 private:
 	char* ptr = nullptr;
-	uint64_t lenSize = 0;
-	uint64_t capacity = 0;
-	bool Equal(char const* str, uint64_t count) const noexcept;
+	size_t lenSize = 0;
+	size_t capacity = 0;
+	bool Equal(char const* str, size_t count) const noexcept;
 
 public:
 	string(const string& a, const string& b) noexcept;
@@ -23,16 +23,16 @@ public:
 	string(const char* a, const string& b) noexcept;
 	string(const string& a, char b) noexcept;
 	string(char a, const string& b) noexcept;
-	uint64_t size() const noexcept { return lenSize; }
-	uint64_t length() const noexcept { return lenSize; }
-	uint64_t getCapacity() const noexcept { return capacity; }
+	size_t size() const noexcept { return lenSize; }
+	size_t length() const noexcept { return lenSize; }
+	size_t getCapacity() const noexcept { return capacity; }
 	string() noexcept;
 	string(const char* cstr) noexcept;
 	string(const char* cstrBegin, const char* cstrEnd) noexcept;
 	string(string_view tempView);
 	string(const string& data) noexcept;
 	string(string&& data) noexcept;
-	string(uint64_t size, char c) noexcept;
+	string(size_t size, char c) noexcept;
 	void clear() noexcept {
 		if (ptr)
 			ptr[0] = 0;
@@ -54,15 +54,15 @@ public:
 	string& assign(const char* data) noexcept {
 		return operator=(data);
 	}
-	void push_back_all(char const* c, uint64_t newStrLen) noexcept;
+	void push_back_all(char const* c, size_t newStrLen) noexcept;
 	string& assign(char data) noexcept {
 		return operator=(data);
 	}
-	void reserve(uint64_t targetCapacity) noexcept;
+	void reserve(size_t targetCapacity) noexcept;
 	char* data() const noexcept { return ptr; }
 	char const* begin() const noexcept { return ptr; }
 	char const* end() const noexcept { return ptr + lenSize; }
-	void resize(uint64_t newSize) noexcept;
+	void resize(size_t newSize) noexcept;
 	char const* c_str() const noexcept { return ptr; }
 	string operator+(const string& str) const noexcept {
 		return string(*this, str);
@@ -76,8 +76,21 @@ public:
 	string& operator+=(const string& str) noexcept;
 	string& operator+=(const char* str) noexcept;
 	string& operator+=(char str) noexcept;
-	char& operator[](uint64_t index) noexcept;
-	char const& operator[](uint64_t index) const noexcept;
+	string& operator+=(string_view str) noexcept;
+	string& operator<<(string_view str) noexcept {
+		return operator+=(str);
+	}
+	string& operator<<(const string& str) noexcept {
+		return operator+=(str);
+	}
+	string& operator<<(const char* str) noexcept {
+		return operator+=(str);
+	}
+	string& operator<<(char str) noexcept {
+		return operator+=(str);
+	}
+	char& operator[](size_t index) noexcept;
+	char const& operator[](size_t index) const noexcept;
 	bool operator==(const string& str) const noexcept {
 		if (str.lenSize != lenSize) return false;
 		return Equal(str.data(), str.lenSize);
@@ -97,17 +110,17 @@ public:
 	bool operator!=(const char* str) const noexcept {
 		return !operator==(str);
 	}
-	void erase(uint64_t index) noexcept;
+	void erase(size_t index) noexcept;
 	~string() noexcept;
 };
-class wstring {
+class VENGINE_DLL_COMMON wstring {
 private:
 	wchar_t* ptr = nullptr;
-	uint64_t lenSize = 0;
-	uint64_t capacity = 0;
-	bool Equal(wchar_t const* str, uint64_t count) const noexcept;
-	static uint64_t wstrLen(wchar_t const* ptr) {
-		uint64_t sz = 0;
+	size_t lenSize = 0;
+	size_t capacity = 0;
+	bool Equal(wchar_t const* str, size_t count) const noexcept;
+	static size_t wstrLen(wchar_t const* ptr) {
+		size_t sz = 0;
 		while (ptr[sz] != 0) {
 			sz++;
 		}
@@ -120,9 +133,9 @@ public:
 	wstring(const wchar_t* a, const wstring& b) noexcept;
 	wstring(const wstring& a, wchar_t b) noexcept;
 	wstring(wchar_t a, const wstring& b) noexcept;
-	uint64_t size() const noexcept { return lenSize; }
-	uint64_t length() const noexcept { return lenSize; }
-	uint64_t getCapacity() const noexcept { return capacity; }
+	size_t size() const noexcept { return lenSize; }
+	size_t length() const noexcept { return lenSize; }
+	size_t getCapacity() const noexcept { return capacity; }
 	wstring() noexcept;
 	wstring(const wchar_t* wchr) noexcept;
 	wstring(const wchar_t* wchr, const wchar_t* wchrEnd) noexcept;
@@ -132,7 +145,7 @@ public:
 	wstring(string_view chunk);
 	wstring(const wstring& data) noexcept;
 	wstring(wstring&& data) noexcept;
-	wstring(uint64_t size, wchar_t c) noexcept;
+	wstring(size_t size, wchar_t c) noexcept;
 	wstring(string const& str) noexcept;
 	void clear() noexcept {
 		if (ptr)
@@ -160,9 +173,9 @@ public:
 	}
 	wchar_t const* begin() const noexcept { return ptr; }
 	wchar_t const* end() const noexcept { return ptr + lenSize; }
-	void reserve(uint64_t targetCapacity) noexcept;
+	void reserve(size_t targetCapacity) noexcept;
 	wchar_t* data() const noexcept { return ptr; }
-	void resize(uint64_t newSize) noexcept;
+	void resize(size_t newSize) noexcept;
 	wchar_t const* c_str() const noexcept { return ptr; }
 	wstring operator+(const wstring& str) const noexcept {
 		return wstring(*this, str);
@@ -175,9 +188,22 @@ public:
 	}
 	wstring& operator+=(const wstring& str) noexcept;
 	wstring& operator+=(const wchar_t* str) noexcept;
+	wstring& operator+=(wstring_view str) noexcept;
 	wstring& operator+=(wchar_t str) noexcept;
-	wchar_t& operator[](uint64_t index) noexcept;
-	wchar_t const& operator[](uint64_t index) const noexcept;
+	wstring& operator<<(const wstring& str) noexcept {
+		return operator+=(str);
+	}
+	wstring& operator<<(const wchar_t* str) noexcept {
+		return operator+=(str);
+	}
+	wstring& operator<<(wstring_view str) noexcept {
+		return operator+=(str);
+	}
+	wstring& operator<<(wchar_t str) noexcept {
+		return operator+=(str);
+	}
+	wchar_t& operator[](size_t index) noexcept;
+	wchar_t const& operator[](size_t index) const noexcept;
 	bool operator==(const wstring& str) const noexcept {
 		if (str.lenSize != lenSize) return false;
 		return Equal(str.data(), str.lenSize);
@@ -197,7 +223,7 @@ public:
 	bool operator!=(const char* str) const noexcept {
 		return !operator==(str);
 	}
-	void erase(uint64_t index) noexcept;
+	void erase(size_t index) noexcept;
 	~wstring() noexcept;
 };
 
@@ -263,7 +289,6 @@ inline void IntegerToString(const _Ty _Val, string& str) noexcept {// convert _V
 		_RNext = UIntegral_to_buff(_RNext, _UVal);
 	}
 	str.push_back_all(_RNext, _Buff_end - _RNext);
-	
 }
 inline string to_string(double _Val) noexcept {
 	const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
@@ -307,7 +332,7 @@ inline string to_string(uint64_t _Val) noexcept {
 }
 
 inline void to_string(float _Val, vengine::string& str) noexcept {
-	 to_string((double)_Val, str);
+	to_string((double)_Val, str);
 }
 
 inline void to_string(int32_t _Val, vengine::string& str) noexcept {

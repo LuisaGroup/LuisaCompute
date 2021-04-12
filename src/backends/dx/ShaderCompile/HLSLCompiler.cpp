@@ -4,10 +4,11 @@
 #include <Utility/StringUtility.h>
 #include <fstream>
 #include <Utility/BinaryReader.h>
-
+#include <File/Path.h>
 #include "ShaderUniforms.h"
+#include <Utility/BinaryReader.h>
 namespace SCompile {
-static bool g_needCommandOutput = true;
+static constexpr bool g_needCommandOutput = false;
 static const HANDLE g_hChildStd_IN_Rd = NULL;
 static const HANDLE g_hChildStd_IN_Wr = NULL;
 static const HANDLE g_hChildStd_OUT_Rd = NULL;
@@ -17,7 +18,7 @@ struct ProcessorData {
 	bool bSuccess;
 };
 void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
-	if (g_needCommandOutput) {
+	if constexpr (g_needCommandOutput) {
 		std::cout << cmd << std::endl;
 		system(cmd.c_str());
 		memset(data, 0, sizeof(ProcessorData));
@@ -119,11 +120,15 @@ enum class Compiler : bool {
 Compiler computeCompilerUsage;
 Compiler rasterizeCompilerUsage;
 Compiler rayTracingCompilerUsage;
-void InitRegisteData() {
+void HLSLCompiler::InitRegisteData() {
+	shaderTypeCmd = " /T ";
+	funcName = " /E ";
+	output = " /Fo ";
+	macro_compile = " /D ";
 	using namespace neb;
 	std::unique_ptr<CJsonObject> obj(ReadJson("HLSLCompiler/register.json"_sv));
 	if (!obj) {
-		std::cout << "Register.txt not found in HLSLCompiler folder!"_sv << std::endl;
+		std::cout << "Register.json not found in HLSLCompiler folder!"_sv << std::endl;
 		system("pause");
 		exit(0);
 	}
@@ -176,6 +181,7 @@ void InitRegisteData() {
 	}
 	if (obj->Get("TempFolder"_sv, value)) {
 		tempPath = value;
+		Path(tempPath).TryCreateDirectory();
 	}
 	if (obj->Get("CompileResultFolder"_sv, pathFolder)) {
 		if (!pathFolder.empty()) {
@@ -246,7 +252,8 @@ void GenerateCompilerCommand(
 	shaderTypeName += *compileShaderVersion;
 	cmdResult.clear();
 	cmdResult.reserve(50);
-	cmdResult += *compilerPath + *start + shaderTypeCmd + shaderTypeName;
+	std::cout << "FFF " << shaderTypeCmd << std::endl;
+	cmdResult << *compilerPath << *start << shaderTypeCmd << shaderTypeName;
 	if (!functionName.empty()) {
 		cmdResult += funcName;
 		cmdResult += functionName;
@@ -323,7 +330,6 @@ void HLSLCompiler::CompileShader(
 	vengine::vector<ShaderVariable> const& vars,
 	vengine::vector<PassDescriptor> const& passDescs,
 	vengine::vector<char> const& customData,
-	vengine::string const& tempFilePath,
 	vengine::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
@@ -375,9 +381,9 @@ void HLSLCompiler::CompileShader(
 	ProcessorData data;
 	vengine::vector<vengine::string> strs(functionNames.size());
 	for (uint i = 0; i < functionNames.size(); ++i) {
-		strs[i] = tempFilePath + vengine::to_string(i);
+		strs[i] = tempPath + vengine::to_string(i);
 		GenerateCompilerCommand(
-			fileName, functionNames[i].name, strs[i],functionNames[i].type, rasterizeCompilerUsage, commandCache);
+			fileName, functionNames[i].name, strs[i], functionNames[i].type, rasterizeCompilerUsage, commandCache);
 		CreateChildProcess(commandCache, &data);
 		if (!func(&data, strs[i])) {
 			std::lock_guard<spin_mutex> lck(outputMtx);
@@ -409,9 +415,8 @@ void HLSLCompiler::CompileShader(
 void HLSLCompiler::CompileComputeShader(
 	vengine::string const& fileName,
 	vengine::vector<ShaderVariable> const& vars,
-	vengine::vector<vengine::string> const& passDescs,
+	vengine::string const& passDesc,
 	vengine::vector<char> const& customData,
-	vengine::string const& tempFilePath,
 	vengine::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
@@ -419,8 +424,6 @@ void HLSLCompiler::CompileComputeShader(
 		customData,
 		resultData,
 		vars);
-	using PassMap = HashMap<vengine::string, uint>;
-	PassMap passMap(passDescs.size() * 2);
 
 	auto func = [&](vengine::string const& str, ProcessorData* data) -> bool {
 		uint64_t fileSize;
@@ -429,74 +432,43 @@ void HLSLCompiler::CompileComputeShader(
 		//TODO
 		//system(command.c_str());
 		fileSize = 0;
-		std::ifstream ifs(str.data(), std::ios::binary);
+		BinaryReader ifs(str);
 		if (!ifs) return false;
-		ifs.seekg(0, std::ios::end);
-		fileSize = ifs.tellg();
-		ifs.seekg(0, std::ios::beg);
+		fileSize = ifs.GetLength();
 		PutIn<uint64_t>(resultData, fileSize);
 		if (fileSize == 0) return false;
 		uint64 originSize = resultData.size();
 		resultData.resize(fileSize + originSize);
-		ifs.read(resultData.data() + originSize, fileSize);
+		ifs.Read(resultData.data() + originSize, fileSize);
 		return true;
 	};
 	vengine::string kernelCommand;
 
-	vengine::vector<std::pair<PassMap::Iterator, vengine::string>> strs;
-	strs.reserve(passDescs.size());
-	for (auto&& i : passDescs) {
-		auto ite = passMap.Find(i);
-		if (ite) continue;
-		uint index = strs.size();
-		ite = passMap.Insert(i, index);
-		strs.push_back({ite, std::move(tempFilePath + vengine::to_string(index))});
-	}
-	PutIn<uint>(resultData, strs.size());
-	for (auto&& i : strs) {
-		auto const& pass = i.first.Key();
-		GenerateCompilerCommand(
-			fileName,
-			pass,
-			i.second,
-			ShaderType::ComputeShader,
-			computeCompilerUsage,
-			kernelCommand);
-		ProcessorData data;
-		CreateChildProcess(kernelCommand, &data);
-		if (!func(i.second, &data)) {
-			std::lock_guard<spin_mutex> lck(outputMtx);
-			errorMessage.emplace_back(std::move(
-				vengine::string("ComputeShader "_sv) + fileName + " Failed!"_sv));
+	PutIn<uint>(resultData, 1);
+	static std::atomic_uint temp_count = 0;
+	vengine::string tempFile = tempPath;
+	tempFile << vengine::to_string(temp_count++)
+			 << ".obj"_sv;
+	GenerateCompilerCommand(
+		fileName,
+		passDesc,
+		tempFile,
+		ShaderType::ComputeShader,
+		computeCompilerUsage,
+		kernelCommand);
+	ProcessorData data;
+	CreateChildProcess(kernelCommand, &data);
+	if (!func(tempFile, &data)) {
+		std::lock_guard<spin_mutex> lck(outputMtx);
+		std::cout << vengine::string("ComputeShader "_sv) + fileName + " Failed!"_sv << std::endl;
 
-			return;
-		}
+		return;
 	}
-	PutIn<uint>(resultData, (uint)passDescs.size());
-	for (auto&& i : passDescs) {
-		vengine::string func(
-			i);
-		auto ite = passMap.Find(func);
-		PutIn(resultData, i);
-		PutIn<uint>(resultData, ite.Value());
-	}
-	/*
-	for (auto i = passDescs.begin(); i != passDescs.end(); ++i) {
-		strs[i.GetIndex()] = tempFilePath + vengine::to_string(i.GetIndex());
-		GenerateCompilerCommand(
-			fileName, i->name, strs[i.GetIndex()], i->macros, ShaderType::ComputeShader, computeCompilerUsage, kernelCommand);
-		ProcessorData data;
-		CreateChildProcess(kernelCommand, &data);
-		if (!func(strs[i.GetIndex()], i->name, &data)) {
-			std::lock_guard<spin_mutex> lck(outputMtx);
-			errorMessage.push_back(
-				"ComputeShader " + fileName + " Failed!"_sv);
 
-			return;
-		}
-	}*/
-	for (auto i = strs.begin(); i != strs.end(); ++i)
-		remove(i->second.c_str());
+	PutIn<uint>(resultData, 1);
+	PutIn(resultData, passDesc);
+	PutIn<uint>(resultData, 0);
+	remove(tempFile.c_str());
 }
 void HLSLCompiler::CompileDXRShader(
 	vengine::string const& fileName,
@@ -505,7 +477,6 @@ void HLSLCompiler::CompileDXRShader(
 	uint64 raypayloadMaxSize,
 	uint64 recursiveCount,
 	vengine::vector<char> const& customData,
-	vengine::string const& tempFilePath,
 	vengine::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
@@ -549,15 +520,15 @@ void HLSLCompiler::CompileDXRShader(
 	};
 	vengine::string kernelCommand;
 	GenerateCompilerCommand(
-		fileName, vengine::string(), tempFilePath, ShaderType::RayTracingShader, rayTracingCompilerUsage, kernelCommand);
+		fileName, vengine::string(), tempPath, ShaderType::RayTracingShader, rayTracingCompilerUsage, kernelCommand);
 	ProcessorData data;
 	CreateChildProcess(kernelCommand, &data);
-	if (!func(tempFilePath, &data)) {
+	if (!func(tempPath, &data)) {
 		std::lock_guard<spin_mutex> lck(outputMtx);
 		errorMessage.emplace_back(std::move(
 			vengine::string("DXRShader "_sv) + fileName + " Failed!"_sv));
 	}
-	remove(tempFilePath.c_str());
+	remove(tempPath.c_str());
 }
 
 void HLSLCompiler::GetShaderVariables(

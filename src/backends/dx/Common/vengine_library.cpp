@@ -183,6 +183,15 @@ string& string::operator+=(char str) noexcept {
 	ptr[lenSize] = 0;
 	return *this;
 }
+string& string::operator+=(string_view str) noexcept {
+	size_t newStrLen = str.size();
+	size_t newCapacity = lenSize + newStrLen + 1;
+	reserve(newCapacity);
+	memcpy(ptr + lenSize, str.c_str(), newStrLen);
+	lenSize = newCapacity - 1;
+	ptr[lenSize] = 0;
+	return *this;
+}
 string::string(const string& a, const string& b) noexcept {
 	if (!a.ptr && !b.ptr) {
 		ptr = nullptr;
@@ -458,6 +467,15 @@ wstring& wstring::operator+=(const wchar_t* str) noexcept {
 	size_t newCapacity = lenSize + newStrLen + 1;
 	reserve(newCapacity);
 	memcpy(ptr + lenSize, str, newStrLen * 2);
+	lenSize = newCapacity - 1;
+	ptr[lenSize] = 0;
+	return *this;
+}
+wstring& wstring::operator+=(wstring_view str) noexcept {
+	size_t newStrLen = str.size();
+	size_t newCapacity = lenSize + newStrLen + 1;
+	reserve(newCapacity);
+	memcpy(ptr + lenSize, str.c_str(), newStrLen * 2);
 	lenSize = newCapacity - 1;
 	ptr[lenSize] = 0;
 	return *this;
