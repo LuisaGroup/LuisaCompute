@@ -1,8 +1,8 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/HashMap.h"
-#include "../CJsonObject/CJsonObject.hpp"
-#include "../JobSystem/JobInclude.h"
+#include <Common/GFXUtil.h>
+#include <Common/HashMap.h>
+#include <CJsonObject/CJsonObject.hpp>
+#include <JobSystem/JobInclude.h>
 class Shader;
 class ComputeShader;
 class RayShader;

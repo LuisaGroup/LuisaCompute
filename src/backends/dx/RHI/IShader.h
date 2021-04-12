@@ -1,6 +1,6 @@
 #pragma once
 #include <string_view>
-#include "../Common/Common.h"
+#include <Common/Common.h>
 namespace lc_rhi {
 class ITexture;
 class IBuffer;

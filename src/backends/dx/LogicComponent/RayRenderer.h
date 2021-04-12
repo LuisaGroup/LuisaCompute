@@ -1,5 +1,5 @@
 #pragma once
-#include "RendererBase.h"
+#include <LogicComponent/RendererBase.h>
 class IMesh;
 class RayRendererData;
 class RayRenderer final : public RendererBase {

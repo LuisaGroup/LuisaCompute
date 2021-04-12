@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include "Memory.h"
+#include <Common/Memory.h>
 using uint = uint32_t;
 template <typename T, bool isPureValueType = false, bool useVEngineMalloc = true>
 class RandomVector;

@@ -1,6 +1,6 @@
 #pragma once
-#include "../Common/Common.h"
-#include "SerializeStruct.h"
+#include <Common/Common.h>
+#include <CJsonObject/SerializeStruct.h>
 namespace SerializeStruct {
 class SerializedData;
 }

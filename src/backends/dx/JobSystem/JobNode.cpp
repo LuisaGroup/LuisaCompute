@@ -1,6 +1,6 @@
-#include "JobNode.h"
-#include "JobSystem.h"
-#include "JobBucket.h"
+#include <JobSystem/JobNode.h>
+#include <JobSystem/JobSystem.h>
+#include <JobSystem/JobBucket.h>
 JobNode::~JobNode()
 {
 	Dispose();

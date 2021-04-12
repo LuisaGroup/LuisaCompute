@@ -2,7 +2,7 @@
 #include <Common/GFXUtil.h>
 #include <runtime/device.h>
 #include <RenderComponent/RenderComponentInclude.h>
-#include "DXStream.hpp"
+#include <RHI/DXStream.hpp>
 namespace luisa::compute {
 using namespace Microsoft::WRL;
 

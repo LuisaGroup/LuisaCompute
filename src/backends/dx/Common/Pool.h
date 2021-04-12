@@ -6,10 +6,10 @@
 #include <atomic>
 #include <type_traits>
 #include <mutex>
-#include "MetaLib.h"
-#include "vector.h"
-#include "Memory.h"
-#include "RandomVector.h"
+#include <Common/MetaLib.h>
+#include <Common/vector.h>
+#include <Common/Memory.h>
+#include <Common/RandomVector.h>
 class PoolBase {
 public:
 	virtual void Delete(void* ptr) = 0;

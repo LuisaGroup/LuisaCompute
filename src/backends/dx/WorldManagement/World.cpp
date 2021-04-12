@@ -1,9 +1,9 @@
-#include "World.h"
-#include "../Common/Camera.h"
-#include "../LogicComponent/Transform.h"
-#include "../CJsonObject/CJsonObject.hpp"
-#include "../JobSystem/JobInclude.h"
-#include "../Singleton/MathLib.h"
+#include <WorldManagement/World.h>
+#include <Common/Camera.h>
+#include <LogicComponent/Transform.h>
+#include <CJsonObject/CJsonObject.hpp>
+#include <JobSystem/JobInclude.h>
+#include <Singleton/MathLib.h>
 using namespace Math;
 using namespace neb;
 World* World::current = nullptr;

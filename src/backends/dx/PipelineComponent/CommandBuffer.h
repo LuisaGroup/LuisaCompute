@@ -1,6 +1,6 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/vector.h"
+#include <Common/GFXUtil.h>
+#include <Common/vector.h>
 class CommandBuffer
 {
 private:

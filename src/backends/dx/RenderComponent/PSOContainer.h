@@ -1,10 +1,10 @@
 #pragma once
-#include "../RenderComponent/Shader.h"
-#include "../Struct/RenderTarget.h"
+#include <RenderComponent/Shader.h>
+#include <Struct/RenderTarget.h>
 #include <Common/HashMap.h>
 #include <Common/vector.h>
-#include "../JobSystem/JobInclude.h"
-#include "IMesh.h"
+#include <JobSystem/JobInclude.h>
+#include <RenderComponent/IMesh.h>
 #include <mutex>
 #include <atomic>
 class ThreadCommand;

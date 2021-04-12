@@ -1,4 +1,4 @@
-#include "ThreadResetEvent.h"
+#include <Utility/ThreadResetEvent.h>
 std::atomic<uint64_t> ThreadResetEvent::uID = 0;
 void ThreadResetEvent::Wait() {
 	std::unique_lock<std::mutex> lck(mtx);

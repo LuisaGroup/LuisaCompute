@@ -2,7 +2,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
-#include "../Common/DLL.h"
+#include <Common/DLL.h>
 class  ThreadResetEvent {
 private:
 	static std::atomic<uint64_t> uID;

@@ -1,5 +1,5 @@
-#include "SeparableRendererManager.h"
-#include "SeparableRenderer.h"
+#include <RenderComponent/Utility/SeparableRendererManager.h>
+#include <RenderComponent/Utility/SeparableRenderer.h>
 #include <Common/GameTimer.h>
 SeparableRendererManager::SeparableRendererManager() {}
 

@@ -1,5 +1,5 @@
 #pragma once
-#include "../Common/Common.h"
+#include <Common/Common.h>
 namespace lc_rhi {
 class IGFXDevice;
 class IGpuResource;

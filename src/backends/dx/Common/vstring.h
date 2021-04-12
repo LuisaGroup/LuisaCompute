@@ -2,10 +2,10 @@
 #include <stdint.h>
 #include <xhash>
 #include <iostream>
-#include "DLL.h"
-#include "Hash.h"
-#include "Memory.h"
-#include "string_view.h"
+#include <Common/DLL.h>
+#include <Common/Hash.h>
+#include <Common/Memory.h>
+#include <Common/string_view.h>
 namespace vengine {
 class VENGINE_DLL_COMMON string {
 	friend std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
@@ -432,7 +432,7 @@ inline vengine::wstring operator+(const wchar_t* c, const vengine::wstring& str)
 	return vengine::wstring(c, str);
 }
 
-#include "Hash.h"
+#include <Common/Hash.h>
 namespace vengine {
 template<>
 struct hash<vengine::string> {

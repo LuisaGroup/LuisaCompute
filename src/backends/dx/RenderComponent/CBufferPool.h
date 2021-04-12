@@ -3,7 +3,7 @@
 #include <Common/VObject.h>
 #include <Common/MetaLib.h>
 #include <Common/vector.h>
-#include "UploadBuffer.h"
+#include <RenderComponent/UploadBuffer.h>
 struct ConstBufferElement
 {
 	UploadBuffer const* const buffer;

@@ -1,6 +1,6 @@
 #pragma once
-#include "IBuffer.h"
-#include "Utility/IBufferAllocator.h"
+#include <RenderComponent/IBuffer.h>
+#include <RenderComponent/Utility/IBufferAllocator.h>
 class FrameResource;
 class ThreadCommand;
 class DescriptorHeap;

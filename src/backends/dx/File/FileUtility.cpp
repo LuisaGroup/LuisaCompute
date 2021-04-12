@@ -1,8 +1,8 @@
-#include "FileUtility.h"
+#include <File/FileUtility.h>
 #include <io.h>
 #include <stdio.h>
 #include <direct.h>
-#include "../Utility/StringUtility.h"
+#include <Utility/StringUtility.h>
 void FileUtility::GetFiles(vengine::string const& path, vengine::vector<vengine::string>& files, HashMap<vengine::string, bool> const& ignoreFolders) {
 	uint64 hFile = 0;
 	struct _finddata_t fileinfo;
@@ -140,7 +140,7 @@ void FileUtility::GetFolders(vengine::vector<vengine::string>& files) {
 	auto str = GetProgramPath();
 	str += "\\*";
 	uint64 hFile = 0;
-	//�ļ���Ϣ
+	//??????
 	struct _finddata_t fileinfo;
 
 	if ((hFile = _findfirst(str.c_str(), &fileinfo)) != -1) {

@@ -1,8 +1,8 @@
 //#endif
-#include "DefaultTextureAllocator.h"
-#include "D3D12MemoryAllocator/D3D12MemAlloc.h"
-#include "../RenderTexture.h"
-#include "../Texture.h"
+#include <RenderComponent/Utility/DefaultTextureAllocator.h>
+#include <RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.h>
+#include <RenderComponent/RenderTexture.h>
+#include <RenderComponent/Texture.h>
 DefaultTextureAllocator::~DefaultTextureAllocator() {
 	if (allocator)
 		allocator->Release();

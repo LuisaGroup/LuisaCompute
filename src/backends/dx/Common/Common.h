@@ -12,8 +12,8 @@
 #include <fstream>
 #include <sstream>
 #include <cassert>
-#include "DLL.h"
-#include "MCollection.h"
-#include "Log.h"
-#include "DXMath/DXMath.h"
-#include "MathHelper.h"
+#include <Common/DLL.h>
+#include <Common/MCollection.h>
+#include <Common/Log.h>
+#include <Common/DXMath/DXMath.h>
+#include <Common/MathHelper.h>

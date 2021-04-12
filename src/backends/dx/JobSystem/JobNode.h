@@ -3,12 +3,12 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
-#include "../Common/LockFreeArrayQueue.h"
-#include "../Common/Pool.h"
+#include <Common/LockFreeArrayQueue.h>
+#include <Common/Pool.h>
 #include <DirectXMath.h>
-#include "../Common/TypeWiper.h"
-#include "../Common/MetaLib.h"
-#include "../Common/Runnable.h"
+#include <Common/TypeWiper.h>
+#include <Common/MetaLib.h>
+#include <Common/Runnable.h>
 class JobHandle;
 class JobThreadRunnable;
 class JobBucket;

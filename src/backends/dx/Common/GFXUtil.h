@@ -12,8 +12,8 @@
 #include <D3Dcompiler.h>
 #include <DirectXColors.h>
 #include <DirectXCollision.h>
-#include "Common.h"
-#include "../Struct/CameraRenderPath.h"
+#include <Common/Common.h>
+#include <Struct/CameraRenderPath.h>
 using GFXCommandList = ID3D12GraphicsCommandList;
 using GFXDevice = ID3D12Device;
 using GFXCommandQueue = ID3D12CommandQueue;
@@ -232,7 +232,7 @@ enum GFXFormat {
 	GFXFormat_Force_UInt = DXGI_FORMAT_FORCE_UINT,
 
 };
-#include "d3dx12.h"
+#include <Common/d3dx12.h>
 
 //////////Configures
 

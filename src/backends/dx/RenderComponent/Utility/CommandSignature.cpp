@@ -1,6 +1,6 @@
 //#endif
-#include "CommandSignature.h"
-#include "../Shader.h"
+#include <RenderComponent/Utility/CommandSignature.h>
+#include <RenderComponent/Shader.h>
 #include <Singleton/ShaderID.h>
 CommandSignature::CommandSignature(GFXDevice* device, SignatureType sigType, Shader const* drawShader) : sigType(sigType) {
 	switch (sigType) {

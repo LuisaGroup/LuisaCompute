@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include "UploadBuffer.h"
-#include "../Utility/ElementAllocator.h"
+#include <RenderComponent/UploadBuffer.h>
+#include <Utility/ElementAllocator.h>
 class BuddyAllocator;
 class BuddyNode;
 class CBufferAllocator;

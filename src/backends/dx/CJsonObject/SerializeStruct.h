@@ -1,5 +1,5 @@
 #pragma once
-#include "../Common/Common.h"
+#include <Common/Common.h>
 namespace SerializeStruct
 {
 	enum class ObjectType : uint8_t

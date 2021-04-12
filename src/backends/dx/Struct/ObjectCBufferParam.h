@@ -1,5 +1,5 @@
 #pragma once
-#include "../Common/GFXUtil.h"
+#include <Common/GFXUtil.h>
 struct ObjectCBufferParam
 {
 	float4x4 _LastLocalToWorld;

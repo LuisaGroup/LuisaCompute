@@ -1,6 +1,6 @@
 #pragma once
-#include "GPUResourceBase.h"
-#include "IBackBuffer.h"
+#include <RenderComponent/GPUResourceBase.h>
+#include <RenderComponent/IBackBuffer.h>
 class VEngine;
 class VENGINE_DLL_RENDERER BackBuffer final : public GPUResourceBase, public IBackBuffer {
 private:

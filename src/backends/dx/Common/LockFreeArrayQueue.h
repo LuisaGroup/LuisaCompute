@@ -1,7 +1,7 @@
 #pragma once
 #include <thread>
-#include "MetaLib.h"
-#include "Memory.h"
+#include <Common/MetaLib.h>
+#include <Common/Memory.h>
 
 template<typename T, bool useVAlloc = true>
 class LockFreeArrayQueue {

@@ -1,8 +1,8 @@
 #pragma once
-#include "../Common/GFXUtil.h"
-#include "../Common/HashMap.h"
-#include "../Common/vector.h"
-#include "../Common/DLL.h"
+#include <Common/GFXUtil.h>
+#include <Common/HashMap.h>
+#include <Common/vector.h>
+#include <Common/DLL.h>
 //Mesh layout generate key
 //input buffer slot, -1 for nothing
 struct MeshLayoutKey {

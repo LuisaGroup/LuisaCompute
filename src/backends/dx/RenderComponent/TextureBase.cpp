@@ -1,5 +1,5 @@
-#include "TextureBase.h"
-#include "../Singleton/Graphics.h"
+#include <RenderComponent/TextureBase.h>
+#include <Singleton/Graphics.h>
 TextureBase::TextureBase()
 	: GPUResourceBase(GPUResourceType::Texture) {
 	srvDescID = Graphics::GetDescHeapIndexFromPool();

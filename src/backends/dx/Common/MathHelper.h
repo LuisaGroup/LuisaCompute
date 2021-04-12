@@ -9,8 +9,8 @@
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <cstdint>
-#include "DLL.h"
-#include "Common.h"
+#include <Common/DLL.h>
+#include <Common/Common.h>
 
 class MathHelper
 {

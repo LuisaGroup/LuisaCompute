@@ -1,6 +1,6 @@
 #pragma once
 #include <VEngineConfig.h>
-#include "GPUResourceBase.h"
+#include <RenderComponent/GPUResourceBase.h>
 enum class TextureDimension : uint {
 	Tex2D = 0,
 	Tex3D = 1,

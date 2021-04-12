@@ -1,5 +1,5 @@
 #pragma once
-#include "IGpuResource.h"
+#include <RHI/IGpuResource.h>
 namespace lc_rhi {
 class ICommandBuffer;
 class IBuffer : public IGpuResource {

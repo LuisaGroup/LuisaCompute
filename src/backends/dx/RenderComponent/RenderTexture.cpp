@@ -1,10 +1,10 @@
-#include "RenderTexture.h"
+#include <RenderComponent/RenderTexture.h>
 //#endif
-#include "RenderTexture.h"
-#include "../Singleton/Graphics.h"
-#include "TextureHeap.h"
-#include "../PipelineComponent/ThreadCommand.h"
-#include "Utility/ITextureAllocator.h"
+#include <RenderComponent/RenderTexture.h>
+#include <Singleton/Graphics.h>
+#include <RenderComponent/TextureHeap.h>
+#include <PipelineComponent/ThreadCommand.h>
+#include <RenderComponent/Utility/ITextureAllocator.h>
 void RenderTexture::ClearRenderTarget(ThreadCommand* commandList, uint slice, uint mip) const {
 #ifndef NDEBUG
 	if (dimension == TextureDimension::Tex3D) {

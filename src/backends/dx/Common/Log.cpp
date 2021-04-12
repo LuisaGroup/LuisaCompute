@@ -1,4 +1,4 @@
-#include "Log.h"
+#include <Common/Log.h>
 #include <mutex>
 #include <cstdio>
 namespace LogGlobal {

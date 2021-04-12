@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IBuffer.h"
+#include <RenderComponent/IBuffer.h>
 class IBufferAllocator;
 class DescriptorHeap;
 class VENGINE_DLL_RENDERER UploadBuffer final : public IBuffer {

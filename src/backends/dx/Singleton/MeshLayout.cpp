@@ -1,4 +1,4 @@
-#include "MeshLayout.h"
+#include <Singleton/MeshLayout.h>
 MeshLayout* MeshLayout::current = nullptr;
 ArrayList<D3D12_INPUT_ELEMENT_DESC>* MeshLayout::GetMeshLayoutValue(uint index) {
 	return current->layoutValues[index];

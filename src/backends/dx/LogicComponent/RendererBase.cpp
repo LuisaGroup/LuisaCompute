@@ -1,6 +1,6 @@
-#include "RendererBase.h"
-#include "Transform.h"
-#include "../RenderComponent/IMesh.h"
+#include <LogicComponent/RendererBase.h>
+#include <LogicComponent/Transform.h>
+#include <RenderComponent/IMesh.h>
 RendererBase::RendererBase(Transform* trans, bool transformUpdate, bool moveTheWorldUpdate) noexcept :
 	Component(trans, transformUpdate, moveTheWorldUpdate)
 {

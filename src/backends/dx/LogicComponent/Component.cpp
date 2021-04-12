@@ -1,6 +1,6 @@
-#include "Component.h"
-#include "Transform.h"
-#include "../Common/RandomVector.h"
+#include <LogicComponent/Component.h>
+#include <LogicComponent/Transform.h>
+#include <Common/RandomVector.h>
 Component::Component(Transform* trans, bool onTransformUpdateEvent, bool onMoveTheWorldUpdateEvent)
 	: transform(trans) {
 	assert(trans);

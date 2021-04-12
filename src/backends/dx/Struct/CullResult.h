@@ -1,7 +1,7 @@
 #pragma once
-#include "../Common/HashMap.h"
-#include "DrawCommand.h"
-#include "../Common/BitVector.h"
+#include <Common/HashMap.h>
+#include <Struct/DrawCommand.h>
+#include <Common/BitVector.h>
 class Shader;
 namespace RenderCull
 {

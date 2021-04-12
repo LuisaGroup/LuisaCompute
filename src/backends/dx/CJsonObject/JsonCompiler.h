@@ -1,7 +1,7 @@
 #pragma once
-#include "../Common/Common.h"
-#include "CJsonObject.hpp"
-#include "SerializeStruct.h"
+#include <Common/Common.h>
+#include <CJsonObject/CJsonObject.hpp>
+#include <CJsonObject/SerializeStruct.h>
 class  JsonCompiler
 {
 	JsonCompiler() = delete;

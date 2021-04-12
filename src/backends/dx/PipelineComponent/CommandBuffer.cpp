@@ -1,5 +1,5 @@
 //#endif
-#include "CommandBuffer.h"
+#include <PipelineComponent/CommandBuffer.h>
 #include <RHI\ICommandBuffer.h>
 void CommandBuffer::Clear() {
 	executeCommands.clear();

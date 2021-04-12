@@ -1,6 +1,6 @@
 
-#include "StringUtility.h"
-#include "../Common/BitArray.h"
+#include <Utility/StringUtility.h>
+#include <Common/BitArray.h>
 void StringUtil::IndicesOf(const vengine::string& str, const vengine::string& sign, vengine::vector<uint>& v) {
 	v.clear();
 	if (str.empty()) return;

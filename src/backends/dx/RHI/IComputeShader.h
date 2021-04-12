@@ -1,5 +1,5 @@
 #pragma once
-#include "IShader.h"
+#include <RHI/IShader.h>
 namespace lc_rhi {
 class IComputeShader : public IShader {
 public:

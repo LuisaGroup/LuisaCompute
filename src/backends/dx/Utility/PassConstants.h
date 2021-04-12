@@ -1,6 +1,6 @@
 #pragma once
-#include "../Common/Common.h"
-#include "../Common/MathHelper.h"
+#include <Common/Common.h>
+#include <Common/MathHelper.h>
 struct PassConstants
 {
 	float4x4 View = MathHelper::Identity4x4();

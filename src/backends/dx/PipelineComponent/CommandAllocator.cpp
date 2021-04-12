@@ -1,4 +1,4 @@
-#include "CommandAllocator.h"
+#include <PipelineComponent/CommandAllocator.h>
 CommandAllocator::CommandAllocator(GFXDevice* device, GFXCommandListType type) {
 	ThrowIfFailed(
 		device->CreateCommandAllocator((D3D12_COMMAND_LIST_TYPE)type, IID_PPV_ARGS(allocator.GetAddressOf())));

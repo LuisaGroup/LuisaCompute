@@ -1,12 +1,12 @@
-#include "Mesh.h"
-#include "../RenderComponent/RenderCommand.h"
-#include "../Singleton/MeshLayout.h"
-#include "../Singleton/Graphics.h"
+#include <RenderComponent/Mesh.h>
+#include <RenderComponent/RenderCommand.h>
+#include <Singleton/MeshLayout.h>
+#include <Singleton/Graphics.h>
 #include <Common/vector.h>
-#include "../Utility/BinaryReader.h"
-#include "../PipelineComponent/ThreadCommand.h"
-#include "Utility/IBufferAllocator.h"
-#include "DescriptorHeap.h"
+#include <Utility/BinaryReader.h>
+#include <PipelineComponent/ThreadCommand.h>
+#include <RenderComponent/Utility/IBufferAllocator.h>
+#include <RenderComponent/DescriptorHeap.h>
 using namespace DirectX;
 using Microsoft::WRL::ComPtr;
 namespace MeshGlobal {

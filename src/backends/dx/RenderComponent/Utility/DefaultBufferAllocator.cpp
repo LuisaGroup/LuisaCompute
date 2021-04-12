@@ -1,6 +1,6 @@
-#include "DefaultBufferAllocator.h"
-#include "D3D12MemoryAllocator/D3D12MemAlloc.h"
-#include "../GPUResourceBase.h"
+#include <RenderComponent/Utility/DefaultBufferAllocator.h>
+#include <RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.h>
+#include <RenderComponent/GPUResourceBase.h>
 DefaultBufferAllocator::DefaultBufferAllocator(GFXDevice* device, IDXGIAdapter* adapter) : allocatedTexs(32) {
 	D3D12MA::ALLOCATOR_DESC desc;
 	desc.Flags = D3D12MA::ALLOCATOR_FLAGS::ALLOCATOR_FLAG_SINGLETHREADED;

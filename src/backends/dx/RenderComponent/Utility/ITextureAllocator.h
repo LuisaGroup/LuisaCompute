@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
 #include <Common/MetaLib.h>
-#include "../TextureBase.h"
+#include <RenderComponent/TextureBase.h>
 class ITextureAllocator
 {
 public:

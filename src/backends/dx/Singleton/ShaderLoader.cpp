@@ -1,10 +1,10 @@
 //#endif
-#include "ShaderLoader.h"
-#include "../Utility/StringUtility.h"
-#include "../RenderComponent/PSOContainer.h"
-#include "../RenderComponent/Shader.h"
-#include "../RenderComponent/ComputeShader.h"
-#include "../RenderComponent/RayShader.h"
+#include <Singleton/ShaderLoader.h>
+#include <Utility/StringUtility.h>
+#include <RenderComponent/PSOContainer.h>
+#include <RenderComponent/Shader.h>
+#include <RenderComponent/ComputeShader.h>
+#include <RenderComponent/RayShader.h>
 
 using namespace neb;
 #define StructuredBuffer SCompile::StructuredBuffer_S

@@ -2,10 +2,10 @@
 #include <Common/GFXUtil.h>
 #include <mutex>
 #include <atomic>
-#include "CommandAllocator.h"
+#include <PipelineComponent/CommandAllocator.h>
 #include <Common/LockFreeArrayQueue.h>
-#include "../Singleton/Graphics.h"
-#include "../RenderComponent/PSOContainer.h"
+#include <Singleton/Graphics.h>
+#include <RenderComponent/PSOContainer.h>
 class PipelineComponent;
 class StructuredBuffer;
 class RenderTexture;

@@ -2,7 +2,7 @@
 #include <Common/GFXUtil.h>
 #include <Common/VObject.h>
 #include <Common/MetaLib.h>
-#include "DescriptorHeap.h"
+#include <RenderComponent/DescriptorHeap.h>
 struct DescHeapElement
 {
 	DescriptorHeap* heap;

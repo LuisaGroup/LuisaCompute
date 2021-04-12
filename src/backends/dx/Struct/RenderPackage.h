@@ -1,5 +1,5 @@
 #pragma once
-#include "../Common/GFXUtil.h"
+#include <Common/GFXUtil.h>
 class ThreadCommand;
 struct RenderPackage {
 	GFXDevice* device;

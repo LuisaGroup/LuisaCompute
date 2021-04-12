@@ -1,6 +1,6 @@
 #pragma once
-#include "IShader.h"
-#include "Utility/CommandSignature.h"
+#include <RenderComponent/IShader.h>
+#include <RenderComponent/Utility/CommandSignature.h>
 #include <Singleton/ShaderLoader.h>
 class JobBucket;
 struct ComputeKernel

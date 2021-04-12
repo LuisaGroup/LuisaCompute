@@ -1,6 +1,6 @@
 #pragma once
-#include "../Common/VObject.h"
-#include "../Common/Common.h"
+#include <Common/VObject.h>
+#include <Common/Common.h>
 class Transform;
 class World;
 class Component : public VObject

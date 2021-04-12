@@ -1,4 +1,4 @@
-#include "CBufferAllocator.h"
+#include <RenderComponent/CBufferAllocator.h>
 CBufferChunk CBufferAllocator::Allocate(uint64_t size) noexcept {
 	if (size > D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT)
 		throw "Too Large!";

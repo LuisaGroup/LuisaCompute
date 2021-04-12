@@ -1,8 +1,8 @@
 #pragma once
 #include <VEngineConfig.h>
 #include <stdint.h>
-#include "Hash.h"
-#include "Memory.h"
+#include <Common/Hash.h>
+#include <Common/Memory.h>
 #include <type_traits>
 template<typename T>
 struct RunnableHash;

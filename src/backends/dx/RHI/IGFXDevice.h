@@ -1,7 +1,7 @@
 #pragma once
 #include <string_view>
-#include "ITexture.h"
-#include "IMesh.h"
+#include <RHI/ITexture.h>
+#include <RHI/IMesh.h>
 namespace lc_rhi {
 class IRayTracingShader;
 class IComputeShader;

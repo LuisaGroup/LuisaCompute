@@ -1,4 +1,4 @@
-#include "IShader.h"
+#include <RenderComponent/IShader.h>
 int32_t IShader::GetPropertyRootSigPos(uint id) const {
 	auto ite = mVariablesDict.Find(id);
 	if (!ite) return -1;
