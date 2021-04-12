@@ -634,6 +634,9 @@ void CodegenUtility::ClearStructType() {
 void CodegenUtility::RegistStructType(Type const* type) {
 	if (type->is_structure())
 		codegenStructType->Insert(type, true);
+	else if (type->is_buffer()) {
+		RegistStructType(type->element());
+	}
 }
 struct BuiltIn_RunTypeVisitor : public TypeVisitor {
 	TypeVisitor* vis;
@@ -688,7 +691,7 @@ void CodegenUtility::PrintUniform(
 		} else {
 			result += "StructuredBuffer<"_sv;
 		}
-		GetTypeName(*var.type(), result);
+		GetTypeName(*var.type()->element(), result);
 		result += "> v"_sv;
 		vengine::to_string(var.uid(), result);
 		if (enableRandomWrite) {
@@ -706,17 +709,15 @@ void CodegenUtility::PrintUniform(
 		for (auto& var : args) {
 			switch (var.tag()) {
 				case Variable::Tag::BUFFER:
-					//TODO: buffer writable
 					ProcessBuffer(var);
 					break;
 				case Variable::Tag::IMAGE:
-
+					//TODO: Texture Binding
 					break;
 			}
 		}
 	}
 	for (size_t i = 0; i < buffers.size(); ++i) {
-		//TODO: buffer writable
 		ProcessBuffer(buffers[i].variable);
 	}
 	//TODO: Texture Binding
@@ -787,7 +788,6 @@ size_t CodegenUtility::PrintGlobalVariables(
 					GetUniform(type, var);
 					break;
 			};
-
 		}
 	}
 	for (auto& vec4 : vec4Arr) {
