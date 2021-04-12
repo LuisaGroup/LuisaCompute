@@ -105,6 +105,9 @@ const Type *Type::from(std::string_view description) noexcept {
             info._tag = Tag::ARRAY;
             match('<');
             data.members.emplace_back(from_desc_impl(s));
+            if (data.members.back()->is_buffer() || data.members.back()->is_image()) {
+                LUISA_ERROR_WITH_LOCATION("Arrays are not allowed to hold buffers or images.");
+            }
             match(',');
             info._element_count = read_number();
             match('>');
@@ -121,6 +124,10 @@ const Type *Type::from(std::string_view description) noexcept {
             match('>');
             info._size = 0u;
             for (auto member : data.members) {
+                if (member->is_buffer() || member->is_image()) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Structures are not allowed to have buffers or images as members.");
+                }
                 auto ma = member->alignment();
                 if (info._alignment < ma) {
                     LUISA_ERROR_WITH_LOCATION(
@@ -130,6 +137,25 @@ const Type *Type::from(std::string_view description) noexcept {
                 info._size = (info._size + ma - 1u) / ma * ma + member->size();
             }
             info._size = (info._size + info._alignment - 1u) / info._alignment * info._alignment;
+        } else if (type_identifier == "buffer"sv) {
+            info._tag = Tag::BUFFER;
+            match('<');
+            auto m = data.members.emplace_back(from_desc_impl(s));
+            if (m->is_buffer() || m->is_image()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Buffers are not allowed to hold buffers or images.");
+            }
+            match('>');
+            info._alignment = 8u;
+            info._size = 8u;
+        } else if (type_identifier == "image"sv) {
+            info._tag = Tag::IMAGE;
+            match('<');
+            auto m = data.members.emplace_back(from_desc_impl(s));
+            if (!m->is_scalar()) { LUISA_ERROR_WITH_LOCATION("Images can only hold scalars."); }
+            match('>');
+            info._size = 0u;
+            info._alignment = 0u;
         } else {
             LUISA_ERROR_WITH_LOCATION("Unknown type identifier: {}.", type_identifier);
         }
@@ -152,7 +178,11 @@ const Type *Type::from(std::string_view description) noexcept {
     };
 
     auto info = from_desc_impl(description);
-    assert(description.empty());
+    if (!description.empty()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Unexpected tokens after parsing type description: {}",
+            description);
+    }
     return info;
 }
 
@@ -164,7 +194,7 @@ std::span<const Type *const> Type::members() const noexcept {
 }
 
 const Type *Type::element() const noexcept {
-    assert(is_array() || is_atomic() || is_vector() || is_matrix());
+    assert(is_array() || is_atomic() || is_vector() || is_matrix() || is_buffer() || is_image());
     return _data->members.front();
 }
 

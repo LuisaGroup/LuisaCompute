@@ -9,7 +9,7 @@
 #include <runtime/context.h>
 #include <dsl/image.h>
 #include <runtime/stream.h>
-#include <dsl/buffer.h>
+#include <runtime/buffer.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
@@ -38,11 +38,11 @@ int main(int argc, char *argv[]) {
     auto device = std::make_unique<FakeDevice>(context);
 #endif
 
-    auto load = LUISA_CALLABLE(BufferView<float> buffer, Var<uint> index) noexcept {
+    auto load = LUISA_CALLABLE(BufferVar<float> buffer, Var<uint> index) noexcept {
         return buffer[index];
     };
 
-    auto store = LUISA_CALLABLE(BufferView<float> buffer, Var<uint> index, Var<float> value) noexcept {
+    auto store = LUISA_CALLABLE(BufferVar<float> buffer, Var<uint> index, Var<float> value) noexcept {
         buffer[index] = value;
     };
 
@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
         return a + b;
     };
 
-    auto kernel = LUISA_KERNEL1D(BufferView<float> source, BufferView<float> result, Var<Test> x) noexcept {
+    auto kernel = LUISA_KERNEL1D(BufferVar<float> source, BufferVar<float> result, Var<Test> x) noexcept {
         set_block_size(256u);
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x.a));

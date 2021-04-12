@@ -10,11 +10,10 @@
 namespace luisa::compute {
 
 template<typename T>
-class Var : public detail::Expr<T> {
+struct Var : public detail::Expr<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
-public:
     // for local variables
     template<typename... Args>
     requires concepts::constructible<T, detail::expr_value_t<Args>...>
@@ -34,12 +33,37 @@ public:
 };
 
 template<typename T>
+struct Var<Buffer<T>> : public detail::Expr<Buffer<T>> {
+    explicit Var(detail::ArgumentCreation) noexcept
+        : detail::Expr<Buffer<T>>{
+            FunctionBuilder::current()->buffer(
+                Type::of<Buffer<T>>())} {}
+    Var(Var &&) noexcept = default;
+    Var(const Var &) noexcept = delete;
+    Var &operator=(Var &&) noexcept = delete;
+    Var &operator=(const Var &) noexcept = delete;
+};
+
+template<typename T>
+struct Var<BufferView<T>> : public detail::Expr<Buffer<T>> {
+    explicit Var(detail::ArgumentCreation) noexcept
+        : detail::Expr<Buffer<T>>{FunctionBuilder::buffer(Type::of<Buffer<T>>())} {}
+    Var(Var &&) noexcept = default;
+    Var(const Var &) noexcept = delete;
+    Var &operator=(Var &&) noexcept = delete;
+    Var &operator=(const Var &) noexcept = delete;
+};
+
+template<typename T>
 Var(detail::Expr<T>) -> Var<T>;
 
 template<typename T>
 Var(T &&) -> Var<T>;
 
 template<typename T, size_t N>
-using VarArray = Var<std::array<T, N>>;
+using ArrayVar = Var<std::array<T, N>>;
+
+template<typename T>
+using BufferVar = Var<Buffer<T>>;
 
 }// namespace luisa::compute

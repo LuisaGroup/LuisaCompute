@@ -19,6 +19,18 @@
 
 namespace luisa::compute {
 
+template<typename T>
+class Buffer;
+
+template<typename T>
+class BufferView;
+
+//template<typename T>
+//class Image;
+//
+//template<typename T>
+//class ImageView;
+
 class TypeRegistry {
 
 private:
@@ -111,6 +123,32 @@ struct TypeDesc<std::atomic<uint>> {
         return "atomic<uint>"sv;
     }
 };
+
+template<typename T>
+struct TypeDesc<Buffer<T>> {
+    static std::string_view description() noexcept {
+        static thread_local auto s = fmt::format(
+            FMT_STRING("buffer<{}>"),
+            TypeDesc<T>::description());
+        return s;
+    }
+};
+
+template<typename T>
+struct TypeDesc<BufferView<T>> : TypeDesc<Buffer<T>> {};
+
+//template<typename T>
+//struct TypeDesc<Image<T>> {
+//    static std::string_view description() noexcept {
+//        static thread_local auto s = fmt::format(
+//            FMT_STRING("image<{}>"),
+//            TypeDesc<T>::description());
+//        return s;
+//    }
+//};
+//
+//template<typename T>
+//struct TypeDesc<ImageView<T>> : TypeDesc<Image<T>> {};
 
 // matrices
 template<>

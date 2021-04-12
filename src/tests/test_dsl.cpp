@@ -25,33 +25,6 @@ struct Test {
     float a;
 };
 
-template<typename T>
-struct GetKernelArgType;
-
-template<typename T>
-struct GetKernelArgType<Var<T>> {
-    using Type = T;
-};
-
-template<typename T>
-struct GetKernelArgType<BufferView<T>> {
-    using Type = Buffer<T>;
-};
-
-template<typename T>
-struct GetKernelType;
-
-template<typename Ret, typename... Args>
-struct GetKernelType<Ret(Args...)> {
-    using KernelType = Ret(typename GetKernelArgType<Args>::Type...);
-};
-
-template<typename Func>
-decltype(auto) CompileKernel(Func &&func) {
-    using FuncType = MFunctorType<std::remove_cvref_t<Func>>;//void(BufferView<float>, Var<uint>)
-    return Kernel1D<typename GetKernelType<FuncType>::KernelType>(func);
-}
-
 LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
@@ -87,8 +60,8 @@ int main(int argc, char *argv[]) {
 
     // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
     // >>> Kernel kernel = [&](...) { ... }
-    //auto func = [&](BufferView<float> buffer_float, Var<uint> count) noexcept {
-    Kernel1D<void(Buffer<float>, uint)> kernel = CompileKernel([&](BufferView<float> buffer_float, Var<uint> count) noexcept -> void {
+    //auto func = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept {
+    Kernel1D<void(Buffer<float>, uint)> kernel = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
@@ -150,7 +123,7 @@ int main(int argc, char *argv[]) {
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
         buffer[v_int + 1] = 123;
-    });
+    };
     auto t1 = clock.toc();
 
     auto command = kernel(float_buffer, 12u).launch(1024u);

@@ -34,10 +34,10 @@
 #define $float4 $<float4>
 #define $bool4 $<bool4>
 
-#define $array ::luisa::compute::VarArray
+#define $array ::luisa::compute::ArrayVar
 #define $constant ::luisa::compute::Constant
 #define $shared ::luisa::compute::Shared
-#define $buffer ::luisa::compute::BufferView
+#define $buffer ::luisa::compute::BufferVar
 
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()
