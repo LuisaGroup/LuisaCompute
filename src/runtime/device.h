@@ -70,14 +70,14 @@ public:
     using Handle = std::unique_ptr<Interface, Deleter *>;
 
 private:
-    Handle _interface;
+    Handle _impl;
 
 public:
     explicit Device(Handle handle) noexcept
-        : _interface{std::move(handle)} {}
+        : _impl{std::move(handle)} {}
 
-    [[nodiscard]] decltype(auto) context() const noexcept { return _interface->context(); }
-    [[nodiscard]] auto interface() const noexcept { return _interface.get(); }
+    [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
+    [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
     template<typename T, typename... Args>
     [[nodiscard]] auto create(Args &&...args) noexcept {

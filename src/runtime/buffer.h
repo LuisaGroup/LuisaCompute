@@ -36,9 +36,9 @@ private:
 private:
     friend class Device;
     Buffer(Device &device, size_t size) noexcept
-        : _device{device.interface()},
+        : _device{device.impl()},
           _size{size},
-          _handle{device.interface()->create_buffer(size * sizeof(T))} {}
+          _handle{device.impl()->create_buffer(size * sizeof(T))} {}
 
 public:
     Buffer(Buffer &&another) noexcept

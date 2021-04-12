@@ -45,8 +45,8 @@ private:
 private:
     friend class Device;
     Image(Device &device, PixelStorage storage, uint2 size) noexcept
-        : _device{device.interface()},
-          _handle{device.interface()->create_texture(
+        : _device{device.impl()},
+          _handle{device.impl()->create_texture(
               pixel_storage_to_format<T>(storage), 2u,
               size.x, size.y, 1u,
               1u, false)},

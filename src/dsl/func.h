@@ -196,7 +196,7 @@ template<size_t N>
         }                                                                                                      \
                                                                                                                \
         void wait_for_compilation(Device &device) const noexcept {                                             \
-            device.interface()->compile_kernel(_function.uid());                                               \
+            device.impl()->compile_kernel(_function.uid());                                                    \
         }                                                                                                      \
     };
 

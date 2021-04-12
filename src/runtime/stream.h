@@ -41,8 +41,8 @@ private:
     void _dispatch(CommandBuffer command_buffer) noexcept;
     
     explicit Stream(Device &device) noexcept
-        : _device{device.interface()},
-          _handle{device.interface()->create_stream()} {}
+        : _device{device.impl()},
+          _handle{device.impl()->create_stream()} {}
 
 public:
     Stream(Stream &&s) noexcept;
