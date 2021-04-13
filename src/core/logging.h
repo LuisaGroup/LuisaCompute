@@ -18,7 +18,7 @@ template<typename... Args>
 inline void log_warning(Args &&...args) noexcept { spdlog::warn(std::forward<Args>(args)...); }
 
 template<typename... Args>
-inline void log_error(Args &&...args) noexcept {
+[[noreturn]] inline void log_error(Args &&...args) noexcept {
     spdlog::error(std::forward<Args>(args)...);
     std::abort();
 }

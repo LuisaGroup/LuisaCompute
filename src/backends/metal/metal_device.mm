@@ -107,10 +107,10 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
 }
 
 MetalDevice::~MetalDevice() noexcept {
-    auto name = fmt::format(
-        "{}", [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
+    LUISA_INFO(
+        "Destroyed Metal device with name: {}.",
+        [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
     _handle = nullptr;
-    LUISA_INFO("Destroyed Metal device with name: {}.", name);
 }
 
 void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {

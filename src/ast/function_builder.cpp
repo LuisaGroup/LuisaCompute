@@ -75,7 +75,7 @@ void FunctionBuilder::while_(const Expression *cond, const ScopeStmt *body) noex
     _append(_arena().create<WhileStmt>(cond, body));
 }
 
-void FunctionBuilder::void_(const Expression *expr) noexcept {
+void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
     _append(_arena().create<ExprStmt>(expr));
 }
 
@@ -194,20 +194,6 @@ const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *se
 
 const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
     return _arena().create<AccessExpr>(type, range, index);
-}
-
-const CallExpr *FunctionBuilder::call(const Type *type, std::string_view func, std::initializer_list<const Expression *> args) noexcept {
-    ArenaString func_name{_arena(), func};
-    ArenaVector func_args{_arena(), args};
-    auto expr = _arena().create<CallExpr>(type, func_name, func_args);
-    if (expr->is_builtin()) {
-        if (auto iter = std::find(_used_builtin_callables.cbegin(), _used_builtin_callables.cend(), func_name);
-            iter == _used_builtin_callables.cend()) { _used_builtin_callables.emplace_back(func_name); }
-    } else {
-        if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), expr->uid());
-            iter == _used_custom_callables.cend()) { _used_custom_callables.emplace_back(expr->uid()); }
-    }
-    return expr;
 }
 
 const CastExpr *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
@@ -330,6 +316,43 @@ const RefExpr *FunctionBuilder::image_binding(const Type *type, uint64_t handle)
     Variable v{type, Variable::Tag::IMAGE, _next_variable_uid()};
     _captured_images.emplace_back(ImageBinding{v, handle});
     return _ref(v);
+}
+
+const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
+    if (call_op == CallOp::CUSTOM) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Custom functions are not allowed to "
+            "be called with enum CallOp.");
+    }
+    ArenaVector func_args{_arena(), args};
+    auto expr = _arena().create<CallExpr>(type, call_op, func_args);
+    if (std::find(_used_builtin_callables.cbegin(),
+                  _used_builtin_callables.cend(),
+                  call_op)
+        == _used_builtin_callables.cend()) {
+        _used_builtin_callables.emplace_back(call_op);
+    }
+    return expr;
+}
+
+const CallExpr *FunctionBuilder::call(const Type *type, uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept {
+    ArenaVector func_args{_arena(), args};
+    auto expr = _arena().create<CallExpr>(type, func_uid, func_args);
+    if (std::find(_used_custom_callables.cbegin(),
+                  _used_custom_callables.cend(),
+                  func_uid)
+        == _used_custom_callables.cend()) {
+        _used_custom_callables.emplace_back(expr->uid());
+    }
+    return expr;
+}
+
+void FunctionBuilder::call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
+    _void_expr(call(nullptr, call_op, args));
+}
+
+void FunctionBuilder::call(uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept {
+    _void_expr(call(nullptr, func_uid, args));
 }
 
 }// namespace luisa::compute

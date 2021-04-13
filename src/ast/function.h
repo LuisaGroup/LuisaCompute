@@ -5,6 +5,7 @@
 
 #include <core/basic_types.h>
 #include <ast/variable.h>
+#include <ast/expression.h>
 #include <ast/constant_data.h>
 
 namespace luisa::compute {
@@ -53,7 +54,7 @@ public:
     [[nodiscard]] std::span<const ImageBinding> captured_images() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const uint32_t> custom_callables() const noexcept;
-    [[nodiscard]] std::span<const std::string_view> builtin_callables() const noexcept;
+    [[nodiscard]] std::span<const CallOp> builtin_callables() const noexcept;
     [[nodiscard]] uint3 block_size() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
     [[nodiscard]] uint32_t uid() const noexcept;

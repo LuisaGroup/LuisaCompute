@@ -227,24 +227,38 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+enum struct CallOp {
+    
+    CUSTOM,
+    
+    ALL,
+    ANY,
+    NONE,
+
+    IMAGE_READ,
+    IMAGE_WRITE
+};
+
 class CallExpr : public Expression {
 
 public:
     using ArgumentList = std::span<const Expression *>;
-    static constexpr auto uid_npos = std::numeric_limits<uint32_t>::max();
 
 private:
-    std::string_view _name;
     ArgumentList _arguments;
-    uint32_t _uid{uid_npos};
+    CallOp _op;
+    uint32_t _uid;
     void _mark(Variable::Usage) const noexcept override;
 
 public:
-    CallExpr(const Type *type, std::string_view name, ArgumentList args) noexcept;
-    [[nodiscard]] auto name() const noexcept { return _name; }
+    CallExpr(const Type *type, uint32_t uid, ArgumentList args) noexcept
+        : Expression{type}, _op{CallOp::CUSTOM}, _uid{uid}, _arguments{args} {}
+    CallExpr(const Type *type, CallOp op, ArgumentList args) noexcept
+        : Expression{type}, _op{op}, _uid{}, _arguments{args} {}
+    [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto arguments() const noexcept { return _arguments; }
-    [[nodiscard]] auto is_builtin() const noexcept { return _uid == uid_npos; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
+    [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 

@@ -15,7 +15,7 @@ void RefExpr::_mark(Variable::Usage usage) const noexcept {
 
 void CallExpr::_mark(Variable::Usage) const noexcept {
     if (is_builtin()) {
-        if (_name == "texture_write") {
+        if (_op == CallOp::IMAGE_WRITE) {
             _arguments[0]->mark(Variable::Usage::WRITE);
             for (auto i = 1u; i < _arguments.size(); i++) {
                 _arguments[i]->mark(Variable::Usage::READ);
@@ -34,18 +34,6 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
                 arg.tag() == Variable::Tag::BUFFER || arg.tag() == Variable::Tag::IMAGE
                     ? f.variable_usage(arg.uid())
                     : Variable::Usage::READ);
-        }
-    }
-}
-
-CallExpr::CallExpr(const Type *type, std::string_view name, CallExpr::ArgumentList args) noexcept
-    : Expression{type}, _name{name}, _arguments{args} {
-    using namespace std::string_view_literals;
-    if (auto prefix = "custom_"sv; _name.starts_with(prefix)) {
-        auto uid_str = _name.substr(prefix.size());
-        if (auto [p, ec] = std::from_chars(uid_str.data(), uid_str.data() + uid_str.size(), _uid);
-            ec != std::errc{}) {
-            LUISA_ERROR_WITH_LOCATION("Invalid custom callable function: {}.", _name);
         }
     }
 }

@@ -9,6 +9,7 @@ set(LUISA_COMPUTE_DSL_SOURCES
     struct.h
     stmt.h
     sugar.h
+    builtin.h
     dummy.cpp)
 
 add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})

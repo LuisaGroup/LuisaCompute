@@ -51,7 +51,7 @@ std::span<const uint32_t> Function::custom_callables() const noexcept {
     return _builder->custom_callables();
 }
 
-std::span<const std::string_view> Function::builtin_callables() const noexcept {
+std::span<const CallOp> Function::builtin_callables() const noexcept {
     return _builder->builtin_callables();
 }
 

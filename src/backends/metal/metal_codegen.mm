@@ -142,7 +142,15 @@ void MetalCodegen::visit(const RefExpr *expr) {
 }
 
 void MetalCodegen::visit(const CallExpr *expr) {
-    _scratch << expr->name() << "(";
+    switch (expr->op()) {
+        case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
+        case CallOp::ALL: _scratch << "all"; break;
+        case CallOp::ANY: _scratch << "any"; break;
+        case CallOp::NONE: _scratch << "none"; break;
+        case CallOp::IMAGE_READ: _scratch << "image_read"; break;
+        case CallOp::IMAGE_WRITE: _scratch << "image_write"; break;
+    }
+    _scratch << "(";
     if (!expr->arguments().empty()) {
         for (auto arg : expr->arguments()) {
             arg->accept(*this);
@@ -288,13 +296,16 @@ struct TextureHeap {
   bool srgb[65536u];
 };
 
+template<typename T>
+[[nodiscard]] auto none(T v) { return !any(v); }
+
 template<typename T, access a>
-[[nodiscard]] auto texture_read(texture2d<T, a> t, uint2 uv) {
+[[nodiscard]] auto image_read(texture2d<T, a> t, uint2 uv) {
   return t.read(uv);
 }
 
 template<typename T, access a, typename Value>
-void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
+void image_write(texture2d<T, a> t, uint2 uv, Value value) {
   t.write(value, uv);
 }
 

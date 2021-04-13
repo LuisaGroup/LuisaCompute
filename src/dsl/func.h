@@ -273,21 +273,19 @@ public:
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
-            auto expr = FunctionBuilder::current()->call(
-                nullptr,
-                fmt::format("custom_{}", _function.uid()),
+            FunctionBuilder::current()->call(
+                _function.uid(),
                 {args.expression()...});
-            FunctionBuilder::current()->void_(expr);
         } else if constexpr (detail::is_tuple_v<Ret>) {
             Var ret = detail::Expr<Ret>{FunctionBuilder::current()->call(
                 Type::of<Ret>(),
-                fmt::format("custom_{}", _function.uid()),
+                _function.uid(),
                 {args.expression()...})};
             return detail::var_to_tuple(ret);
         } else {
             return detail::Expr<Ret>{FunctionBuilder::current()->call(
                 Type::of<Ret>(),
-                fmt::format("custom_{}", _function.uid()),
+                _function.uid(),
                 {args.expression()...})};
         }
     }

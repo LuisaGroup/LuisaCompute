@@ -55,7 +55,7 @@ private:
     ArenaVector<ImageBinding> _captured_images;
     ArenaVector<Variable> _arguments;
     ArenaVector<uint32_t> _used_custom_callables;
-    ArenaVector<std::string_view> _used_builtin_callables;
+    ArenaVector<CallOp> _used_builtin_callables;
     ArenaVector<Variable::Usage> _variable_usages;
     uint3 _block_size;
     Tag _tag;
@@ -72,6 +72,7 @@ protected:
 
     [[nodiscard]] const RefExpr *_builtin(Variable::Tag tag) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
+    void _void_expr(const Expression *expr) noexcept;
 
 private:
     explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept;
@@ -115,7 +116,7 @@ public:
             auto gid = f->dispatch_id();
             auto gs = f->launch_size();
             auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
-            auto cond = f->call(Type::of<bool>(), "all", {less});
+            auto cond = f->call(Type::of<bool>(), CallOp::ALL, {less});
             auto ret_cond = f->unary(Type::of<bool>(), UnaryOp::NOT, cond);
             auto if_body = f->scope();
             f->with(if_body, [f] { f->return_(); });
@@ -158,7 +159,10 @@ public:
     [[nodiscard]] const BinaryExpr *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const MemberExpr *member(const Type *type, const Expression *self, size_t member_index) noexcept;
     [[nodiscard]] const AccessExpr *access(const Type *type, const Expression *range, const Expression *index) noexcept;
-    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, std::string_view func, std::initializer_list<const Expression *> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept;
+    void call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
+    void call(uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept;
     [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
 
     // statements
@@ -167,7 +171,6 @@ public:
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
     void if_(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept;
     void while_(const Expression *cond, const ScopeStmt *body) noexcept;
-    void void_(const Expression *expr) noexcept;
     void switch_(const Expression *expr, const ScopeStmt *body) noexcept;
     void case_(const Expression *expr, const ScopeStmt *body) noexcept;
     void default_(const ScopeStmt *body) noexcept;
