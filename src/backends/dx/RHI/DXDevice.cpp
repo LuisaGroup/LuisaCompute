@@ -1,8 +1,10 @@
 #include <codecvt>
 #include <Common/GFXUtil.h>
+#include <Common/LockFreeArrayQueue.h>
 #include <runtime/device.h>
 #include <RenderComponent/RenderComponentInclude.h>
 #include <RHI/DXStream.hpp>
+#include <RHI/ShaderCompiler.h>
 namespace luisa::compute {
 using namespace Microsoft::WRL;
 
@@ -13,6 +15,7 @@ static GFXFormat LCFormatToVEngineFormat(PixelFormat format) {
 			return GFXFormat_R8G8B8A8_SNorm;
 	}
 }
+class FrameResource;
 class DXDevice final : public Device {
 public:
 	DXDevice(const Context& ctx, uint32_t index) : Device(ctx) {// TODO: support device selection?
@@ -65,14 +68,25 @@ public:
 	}
 	void synchronize_stream(uint64 stream_handle) noexcept override {
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
-		stream->Sync(cpuFence.Get());
+		stream->Sync(cpuFence.Get(), mtx);
 	}
 	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
-
+		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
+		stream->Execute(
+			dxDevice,
+			std::move(cmd_buffer),
+			mComputeCommandQueue.Get(),
+			cpuFence.Get(),
+			[&](GFXDevice* device, GFXCommandListType type) {
+				return GetFrameResource(device, type);
+			},
+			usingQueue[GetQueueIndex(stream->GetType())],
+			mtx,
+			signalCount);
 	}
 	// kernel
 	void compile_kernel(uint32_t uid) noexcept override {
-		// Just block...
+		ShaderCompiler::TryCompileCompute(uid);
 	}
 	uint64_t create_event() noexcept override {
 		return 0;
@@ -87,6 +101,18 @@ public:
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 private:
 	///////////// D3D
+	ComPtr<IDXGIFactory4> mdxgiFactory;
+	ComPtr<ID3D12Device> md3dDevice;
+	IDXGIAdapter1* adapter{nullptr};
+	ComPtr<ID3D12Fence> cpuFence;
+	uint64 signalCount = 1;
+
+	ComPtr<GFXCommandQueue> mComputeCommandQueue;
+	ComPtr<GFXCommandQueue> mCopyCommandQueue;
+	LockFreeArrayQueue<FrameResource*> waitingRes[1];
+	SingleThreadArrayQueue<FrameResource*> usingQueue[1];
+	std::mutex mtx;
+	uint64 finishedFence = 1;
 	void InitD3D(uint32_t index) {
 #if defined(DEBUG) || defined(_DEBUG)
 		// Enable the D3D12 debug layer.
@@ -138,19 +164,40 @@ private:
 		queueDesc.Type = (D3D12_COMMAND_LIST_TYPE)GFXCommandListType_Copy;
 		ThrowIfFailed(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&mCopyCommandQueue)));
 	}
-	ComPtr<IDXGIFactory4> mdxgiFactory;
-	ComPtr<ID3D12Device> md3dDevice;
-	IDXGIAdapter1* adapter{nullptr};
-	ComPtr<ID3D12Fence> cpuFence;
-	uint64 signalCount = 1;
 
-	ComPtr<GFXCommandQueue> mComputeCommandQueue;
-	ComPtr<GFXCommandQueue> mCopyCommandQueue;
+	FrameResource* GetFrameResource(GFXDevice* device, GFXCommandListType type) {
+		FrameResource* result = nullptr;
+		size_t index = GetQueueIndex(type);
+		if (waitingRes[index].Pop(&result))
+			return result;
+		{
+			std::lock_guard lck(mtx);
+			uint64 diff = cpuFence->GetCompletedValue() - finishedFence;
+			if (diff > 0) {
+				usingQueue[index].Pop(&result);
+				for (uint64 i = 1; i < diff; ++i) {
+					FrameResource* temp;
+					usingQueue[index].Pop(&temp);
+					waitingRes[index].Push(temp);
+				}
+				return result;
+			}
+		}
+		return new FrameResource(device, type);
+	}
+	size_t GetQueueIndex(GFXCommandListType lstType) {
+		switch (lstType) {
+			case GFXCommandListType_Compute:
+				return 0;
+				break;
+		}
+		//TODO
+		return 0;
+	}
 };
 }// namespace luisa::compute
 
 LUISA_EXPORT luisa::compute::Device* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
-	//TODO: device not finished;
 	return new luisa::compute::DXDevice{ctx, id};
 }
 
