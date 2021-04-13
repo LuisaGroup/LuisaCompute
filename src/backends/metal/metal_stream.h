@@ -23,14 +23,18 @@ private:
 public:
     explicit MetalStream(id<MTLCommandQueue> handle) noexcept
         : _handle{handle} {}
+    ~MetalStream() noexcept { _handle = nullptr; }
     
     template<typename Encode>
     void with_command_buffer(Encode &&encode) noexcept {
         auto command_buffer = [_handle commandBuffer];
+        {
+            std::scoped_lock lock{_mutex};
+            [command_buffer enqueue];
+            _last = command_buffer;
+        }
         encode(command_buffer);
-        std::scoped_lock lock{_mutex};
         [command_buffer commit];
-        _last = command_buffer;
     }
     
     void synchronize() noexcept {
