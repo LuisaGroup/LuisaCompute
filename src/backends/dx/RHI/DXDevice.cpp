@@ -181,6 +181,7 @@ private:
 				for (uint64 i = 1; i < diff; ++i) {
 					FrameResource* temp;
 					usingQueue[index].Pop(&temp);
+					temp->ReleaseTemp();
 					waitingRes[index].Push(temp);
 				}
 				return result;

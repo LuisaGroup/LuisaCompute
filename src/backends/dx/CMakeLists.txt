@@ -31,6 +31,7 @@ if (WIN32)
         PipelineComponent/CommandBuffer.cpp
         PipelineComponent/RayTracing/RayTracingManager.cpp
         PipelineComponent/ThreadCommand.cpp
+        PipelineComponent/FrameResource.cpp
         RenderComponent/BackBuffer.cpp
         RenderComponent/CBufferAllocator.cpp
         RenderComponent/CBufferPool.cpp

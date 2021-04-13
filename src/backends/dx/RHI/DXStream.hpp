@@ -20,7 +20,8 @@ public:
 	}
 	void Sync(ID3D12Fence* fence, std::mutex& mtx) {
 		std::lock_guard lck(mtx);
-		if (!lastRes) return;
+		if (dispatchedRes.empty()) return;
+		auto lastRes = *(dispatchedRes.end() - 1);
 		if (fence->GetCompletedValue() < lastRes->signalIndex) {
 #ifdef UNICODE
 			LPCWSTR falseValue = (LPCWSTR) false;
@@ -34,7 +35,10 @@ public:
 			WaitForSingleObject(eventHandle, INFINITE);
 			CloseHandle(eventHandle);
 		}
-		lastRes = nullptr;
+		for (auto& i : dispatchedRes) {
+			i->ReleaseTemp();
+		}
+		dispatchedRes.clear();
 	}
 
 	void Execute(
@@ -57,14 +61,14 @@ public:
 		queue->ExecuteCommandLists(cmd.size(), cmd.begin());
 		queue->Signal(fence, cpuSignalIndex);
 		tempRes->signalIndex = cpuSignalIndex;
-		lastRes = tempRes;
+		dispatchedRes.push_back(tempRes);
 		cpuSignalIndex++;
 		res.Push(tempRes);
 	}
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 
 private:
-	FrameResource* lastRes = nullptr;
+	vengine::vector<FrameResource*> dispatchedRes;
 	GFXCommandListType listType;
 };
 }// namespace luisa::compute
