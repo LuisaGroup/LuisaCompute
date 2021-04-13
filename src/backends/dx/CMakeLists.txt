@@ -29,9 +29,9 @@ if (WIN32)
         LogicComponent/Transform.cpp
         PipelineComponent/CommandAllocator.cpp
         PipelineComponent/CommandBuffer.cpp
+        PipelineComponent/FrameResource.cpp
         PipelineComponent/RayTracing/RayTracingManager.cpp
         PipelineComponent/ThreadCommand.cpp
-        PipelineComponent/FrameResource.cpp
         RenderComponent/BackBuffer.cpp
         RenderComponent/CBufferAllocator.cpp
         RenderComponent/CBufferPool.cpp

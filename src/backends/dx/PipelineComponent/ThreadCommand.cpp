@@ -227,11 +227,14 @@ void ThreadCommand::Clear() {
 	aliasBarriersDict.Clear();
 	backToInitState.Clear();
 }
-void ThreadCommand::UpdateResState(GPUResourceState beforeState, GPUResourceState afterState, GPUResourceBase const* resource) {
+void ThreadCommand::UpdateResState(GPUResourceState beforeState, GPUResourceState afterState, GPUResourceBase const* resource, bool toInit) {
 	containedResources = true;
 	auto ite = barrierRecorder.Find(resource->GetInstanceID());
 	if (!ite) {
 		barrierRecorder.Insert(resource->GetInstanceID(), ResourceBarrierCommand(resource, afterState, resourceBarrierCommands.size()));
+		if (toInit) {
+			backToInitState.Insert(resource, beforeState);
+		}
 		resourceBarrierCommands.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
 			resource->GetResource(),
 			resource->GetGFXResourceState(beforeState),
@@ -239,10 +242,7 @@ void ThreadCommand::UpdateResState(GPUResourceState beforeState, GPUResourceStat
 	} else if (ite.Value().index < 0) {
 		auto&& cmd = ite.Value();
 		cmd.index = resourceBarrierCommands.size();
-		if (cmd.targetState != beforeState) {
-			VEngine_Log("TransitionBarrier add ResourceBarrierCommand error! before state unmatched!\n");
-			VENGINE_EXIT;
-		} else if (cmd.targetState != afterState) {
+		if (cmd.targetState != afterState) {
 			resourceBarrierCommands.push_back(CD3DX12_RESOURCE_BARRIER::Transition(
 				resource->GetResource(),
 				resource->GetGFXResourceState(cmd.targetState),

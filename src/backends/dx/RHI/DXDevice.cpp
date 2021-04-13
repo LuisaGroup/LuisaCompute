@@ -6,7 +6,9 @@
 #include <RHI/DXStream.hpp>
 #include <RHI/ShaderCompiler.h>
 #include <ShaderCompile/HLSLCompiler.h>
-
+#include <PipelineComponent/DXAllocator.h>
+#include <Singleton/Graphics.h>
+#include <Singleton/ShaderLoader.h>
 namespace luisa::compute {
 using namespace Microsoft::WRL;
 
@@ -24,14 +26,17 @@ public:
 		InitD3D(index);
 		dxDevice = md3dDevice.Get();
 		SCompile::HLSLCompiler::InitRegisteData();
+		graphicsInstance.New(dxDevice);
+		shaderGlobal = ShaderLoader::Init(dxDevice);
 	}
 	uint64 create_buffer(size_t size_bytes) noexcept override {
+		Graphics::current = graphicsInstance;
 		return reinterpret_cast<uint64>(
 			new StructuredBuffer(
 				dxDevice,
 				{StructuredBufferElement::Get(1, size_bytes)},
 				GPUResourceState_Common,
-				nullptr//TODO: allocator
+				DXAllocator::GetBufferAllocator()//TODO: allocator
 				));
 	}
 	void dispose_buffer(uint64 handle) noexcept override {
@@ -42,10 +47,11 @@ public:
 	uint64 create_texture(
 		PixelFormat format, uint dimension, uint width, uint height, uint depth,
 		uint mipmap_levels, bool is_bindless) override {
+		Graphics::current = graphicsInstance;
 		return reinterpret_cast<uint64>(
 			new RenderTexture(
 				dxDevice,
-				nullptr,//TODO: allocator
+				DXAllocator::GetTextureAllocator(),//TODO: allocator
 				width,
 				height,
 				RenderTextureFormat::GetColorFormat(LCFormatToVEngineFormat(format)),
@@ -75,6 +81,8 @@ public:
 	}
 	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
+		Graphics::current = graphicsInstance;
+		ShaderLoader::current = shaderGlobal;
 		stream->Execute(
 			dxDevice,
 			std::move(cmd_buffer),
@@ -98,6 +106,7 @@ public:
 	void synchronize_event(uint64_t handle) noexcept override {}
 
 	~DXDevice() {
+		ShaderLoader::Dispose(shaderGlobal);
 	}
 	//////////// Variables
 	GFXDevice* dxDevice{nullptr};
@@ -116,6 +125,8 @@ private:
 	SingleThreadArrayQueue<FrameResource*> usingQueue[1];
 	std::mutex mtx;
 	uint64 finishedFence = 1;
+	StackObject<Graphics, true> graphicsInstance;
+	ShaderLoaderGlobal* shaderGlobal;
 	void InitD3D(uint32_t index) {
 #if defined(DEBUG) || defined(_DEBUG)
 		// Enable the D3D12 debug layer.
@@ -205,6 +216,6 @@ LUISA_EXPORT luisa::compute::Device::Interface* create(const luisa::compute::Con
 	return new luisa::compute::DXDevice{ctx, id};
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device::Interface *device) noexcept {
+LUISA_EXPORT void destroy(luisa::compute::Device::Interface* device) noexcept {
 	delete device;
 }

@@ -1,7 +1,6 @@
 #pragma once
 #include <RenderComponent/IBuffer.h>
 #include <RenderComponent/Utility/IBufferAllocator.h>
-class FrameResource;
 class ThreadCommand;
 class DescriptorHeap;
 struct StructuredBufferElement {

@@ -1,20 +1,9 @@
 PP = {
     "Debug": [
-        "DEBUG",
         "_DEBUG",
-        "_CONSOLE",
-        "_CRT_SECURE_NO_WARNINGS",
-        # "CLANG_COMPILER",
-        "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
-        "NOMINMAX"
     ],
     "Release": [
         "NDEBUG",
-        "_CONSOLE",
-        "_CRT_SECURE_NO_WARNINGS",
-        "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
-        # "CLANG_COMPILER",
-        "NOMINMAX"
     ]
 }
 

@@ -19,21 +19,23 @@ public:
 		return listType;
 	}
 	void Sync(ID3D12Fence* fence, std::mutex& mtx) {
-		std::lock_guard lck(mtx);
-		if (dispatchedRes.empty()) return;
-		auto lastRes = *(dispatchedRes.end() - 1);
-		if (fence->GetCompletedValue() < lastRes->signalIndex) {
+		{
+			std::lock_guard lck(mtx);
+			if (dispatchedRes.empty()) return;
+			auto lastRes = *(dispatchedRes.end() - 1);
+			if (fence->GetCompletedValue() < lastRes->signalIndex) {
 #ifdef UNICODE
-			LPCWSTR falseValue = (LPCWSTR) false;
+				LPCWSTR falseValue = (LPCWSTR) false;
 #else
-			LPCSTR falseValue = (LPCSTR) false;
+				LPCSTR falseValue = (LPCSTR) false;
 #endif
-			HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-			// Fire event when GPU hits current fence.
-			ThrowIfFailed(fence->SetEventOnCompletion(lastRes->signalIndex, eventHandle));
-			// Wait until the GPU hits current fence event is fired.
-			WaitForSingleObject(eventHandle, INFINITE);
-			CloseHandle(eventHandle);
+				HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
+				// Fire event when GPU hits current fence.
+				ThrowIfFailed(fence->SetEventOnCompletion(lastRes->signalIndex, eventHandle));
+				// Wait until the GPU hits current fence event is fired.
+				WaitForSingleObject(eventHandle, INFINITE);
+				CloseHandle(eventHandle);
+			}
 		}
 		for (auto& i : dispatchedRes) {
 			i->ReleaseTemp();
@@ -57,11 +59,11 @@ public:
 		tempRes->tCmd.CloseCommand();
 		///////////// Global-Sync
 		std::lock_guard lck(mtx);
+		dispatchedRes.push_back(tempRes);
 		std::initializer_list<ID3D12CommandList*> cmd = {tempRes->tCmd.GetCmdList()};
 		queue->ExecuteCommandLists(cmd.size(), cmd.begin());
 		queue->Signal(fence, cpuSignalIndex);
 		tempRes->signalIndex = cpuSignalIndex;
-		dispatchedRes.push_back(tempRes);
 		cpuSignalIndex++;
 		res.Push(tempRes);
 	}

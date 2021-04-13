@@ -81,7 +81,7 @@ public:
 		const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
 	void RegistInitState(GPUResourceState initState, GPUResourceBase const* resource, bool backToInitAfterRender = false);
 	void UpdateResState(GPUResourceState newState, GPUResourceBase const* resource);
-	void UpdateResState(GPUResourceState beforeState, GPUResourceState afterState, GPUResourceBase const* resource);
+	void UpdateResState(GPUResourceState beforeState, GPUResourceState afterState, GPUResourceBase const* resource, bool backToInitAfterRender = false);
 	void ExecuteResBarrier();
 	void UAVBarrier(GPUResourceBase const*);
 	void UAVBarriers(const std::initializer_list<GPUResourceBase const*>&);

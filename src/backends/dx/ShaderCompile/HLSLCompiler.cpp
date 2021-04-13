@@ -1,6 +1,5 @@
 #include <ShaderCompile/HLSLCompiler.h>
 #include <CJsonObject/CJsonObject.hpp>
-#include <Windows.h>
 #include <Utility/StringUtility.h>
 #include <fstream>
 #include <Utility/BinaryReader.h>

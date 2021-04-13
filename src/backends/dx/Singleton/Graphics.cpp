@@ -16,25 +16,8 @@
 #include <RenderComponent/UploadBuffer.h>
 #include <Utility/QuickSort.h>
 #define MAXIMUM_HEAP_COUNT 32768
-/*
-namespace GraphicsGlobalN {
-ComputeShader const* copyBufferCS;
-uint _ReadBuffer_K;
-uint _WriteBuffer_K;
-uint _ReadBuffer;
-uint _WriteBuffer;
-}// namespace GraphicsGlobalN*/
-StackObject<Mesh, true> Graphics::fullScreenMesh;
-std::unique_ptr<DescriptorHeap> Graphics::globalDescriptorHeap;
-StackObject<BitArray, true> Graphics::usedDescs;
-ArrayList<uint, false> Graphics::unusedDescs(MAXIMUM_HEAP_COUNT);
-spin_mutex Graphics::mtx;
-StackObject<ElementAllocator> Graphics::srvAllocator;
-StackObject<ElementAllocator> Graphics::rtvAllocator;
-StackObject<ElementAllocator> Graphics::dsvAllocator;
-ObjectPtr<Mesh> Graphics::cubeMesh = nullptr;
-bool Graphics::enabled = false;
-void Graphics::Initialize(GFXDevice* device, ThreadCommand* commandList) {
+thread_local Graphics* Graphics::current = nullptr;
+Graphics::Graphics(GFXDevice* device) {
 	usedDescs.New(MAXIMUM_HEAP_COUNT);
 	//using namespace GraphicsGlobalN;
 	/*_ReadBuffer_K = ShaderID::PropertyToID("_ReadBuffer_K");
@@ -66,7 +49,6 @@ void Graphics::Initialize(GFXDevice* device, ThreadCommand* commandList) {
 		[](void* ptr) -> void {
 			delete reinterpret_cast<DescriptorHeapRoot*>(ptr);
 		});
-	enabled = true;
 	MeshLayout::Initialize();
 	globalDescriptorHeap = std::unique_ptr<DescriptorHeap>(new DescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, MAXIMUM_HEAP_COUNT, true));
 	static constexpr uint INIT_RTV_SIZE = 2048;
@@ -104,14 +86,13 @@ void Graphics::Initialize(GFXDevice* device, ThreadCommand* commandList) {
 		device, true, true, false, true, true, false, false, false);
 }
 uint Graphics::GetDescHeapIndexFromPool() {
-	if (!enabled) return -1;
-	std::lock_guard lck(mtx);
-	if (unusedDescs.empty()) {
+	std::lock_guard lck(current->mtx);
+	if (current->unusedDescs.empty()) {
 		VEngine_Log("No Global Descriptor Index Lefted!\n");
 		throw 0;
 	}
-	uint value = unusedDescs.erase_last();
-	(*usedDescs)[value] = true;
+	uint value = current->unusedDescs.erase_last();
+	(*current->usedDescs)[value] = true;
 	return value;
 }
 void Graphics::CopyTexture(
@@ -204,7 +185,7 @@ void Graphics::Blit(
 	D3D12_VIEWPORT mViewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f};
 	D3D12_RECT mScissorRect = {0, 0, (int32_t)width, (int32_t)height};
 	PSODescriptor psoDesc;
-	psoDesc.meshLayoutIndex = fullScreenMesh->GetLayoutIndex();
+	psoDesc.meshLayoutIndex = current->fullScreenMesh->GetLayoutIndex();
 	psoDesc.shaderPass = pass;
 	psoDesc.shaderPtr = shader;
 	commandList->psoContainer.rtFormats.rtCount = renderTargetCount;
@@ -217,13 +198,13 @@ void Graphics::Blit(
 	commandList->psoContainer.UpdateHash();
 	auto pso = commandList->psoContainer.GetPSOState(psoDesc, device);
 	commandList->UpdatePSO(pso);
-	auto vbv = fullScreenMesh->VertexBufferViews();
-	auto ibv = fullScreenMesh->IndexBufferView();
-	commandList->GetCmdList()->IASetVertexBuffers(0, fullScreenMesh->VertexBufferViewCount(), vbv);
+	auto vbv = current->fullScreenMesh->VertexBufferViews();
+	auto ibv = current->fullScreenMesh->IndexBufferView();
+	commandList->GetCmdList()->IASetVertexBuffers(0, current->fullScreenMesh->VertexBufferViewCount(), vbv);
 	commandList->GetCmdList()->IASetIndexBuffer(&ibv);
 	commandList->GetCmdList()->IASetPrimitiveTopology(GetD3DTopology(psoDesc.topology));
 	commandList->ExecuteResBarrier();
-	commandList->GetCmdList()->DrawIndexedInstanced(fullScreenMesh->GetIndexCount(), 1, 0, 0, 0);
+	commandList->GetCmdList()->DrawIndexedInstanced(current->fullScreenMesh->GetIndexCount(), 1, 0, 0, 0);
 }
 void Graphics::Blit(
 	ThreadCommand* commandList,
@@ -259,36 +240,36 @@ void Graphics::Blit(
 	D3D12_VIEWPORT mViewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f};
 	D3D12_RECT mScissorRect = {0, 0, (int32_t)width, (int32_t)height};
 	PSODescriptor psoDesc;
-	psoDesc.meshLayoutIndex = fullScreenMesh->GetLayoutIndex();
+	psoDesc.meshLayoutIndex = current->fullScreenMesh->GetLayoutIndex();
 	psoDesc.shaderPass = pass;
 	psoDesc.shaderPtr = shader;
 	commandList->SetRenderTarget(rt, renderTargetCount, depthTarget);
 	auto pso = commandList->GetPSOState(psoDesc, device);
 	commandList->UpdatePSO(pso);
-	auto vbv = fullScreenMesh->VertexBufferViews();
-	auto ibv = fullScreenMesh->IndexBufferView();
-	commandList->GetCmdList()->IASetVertexBuffers(0, fullScreenMesh->VertexBufferViewCount(), vbv);
+	auto vbv = current->fullScreenMesh->VertexBufferViews();
+	auto ibv = current->fullScreenMesh->IndexBufferView();
+	commandList->GetCmdList()->IASetVertexBuffers(0, current->fullScreenMesh->VertexBufferViewCount(), vbv);
 	commandList->GetCmdList()->IASetIndexBuffer(&ibv);
 	commandList->GetCmdList()->IASetPrimitiveTopology(GetD3DTopology(psoDesc.topology));
 	commandList->ExecuteResBarrier();
-	commandList->GetCmdList()->DrawIndexedInstanced(fullScreenMesh->GetIndexCount(), 1, 0, 0, 0);
+	commandList->GetCmdList()->DrawIndexedInstanced(current->fullScreenMesh->GetIndexCount(), 1, 0, 0, 0);
 }
 void Graphics::ReturnDescHeapIndexToPool(uint target) {
-	if (!enabled) return;
-	std::lock_guard lck(mtx);
-	auto ite = (*usedDescs)[target];
+
+	std::lock_guard lck(current->mtx);
+	auto ite = (*current->usedDescs)[target];
 	if (ite) {
-		unusedDescs.push_back(target);
+		current->unusedDescs.push_back(target);
 		ite = false;
 	}
 }
 void Graphics::ForceCollectAllHeapIndex() {
-	if (!enabled) return;
-	std::lock_guard lck(mtx);
+
+	std::lock_guard lck(current->mtx);
 	for (uint i = 0; i < MAXIMUM_HEAP_COUNT; ++i) {
-		unusedDescs[i] = i;
+		current->unusedDescs[i] = i;
 	}
-	usedDescs->Reset(false);
+	current->usedDescs->Reset(false);
 }
 void Graphics::DrawMesh(
 	GFXDevice* device,
@@ -358,6 +339,8 @@ void Graphics::CopyBufferRegion(
 		source->GetResource(),
 		sourceOffset,
 		byteSize);
+}
+Graphics::~Graphics() {
 }
 void Graphics::SetRenderTarget(
 	ThreadCommand* commandList,
@@ -441,16 +424,5 @@ void Graphics::SetRenderTarget(
 	const RenderTarget* renderTargets = init.begin();
 	const size_t rtCount = init.size();
 	SetRenderTarget(commandList, renderTargets, rtCount);
-}
-void Graphics::Dispose() {
-	enabled = false;
-	cubeMesh.Destroy();
-	globalDescriptorHeap = nullptr;
-	unusedDescs.dispose();
-	MeshLayout::Dispose();
-	fullScreenMesh.Delete();
-	srvAllocator.Delete();
-	rtvAllocator.Delete();
-	dsvAllocator.Delete();
 }
 #undef MAXIMUM_HEAP_COUNT
