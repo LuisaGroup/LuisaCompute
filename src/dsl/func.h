@@ -6,9 +6,8 @@
 
 #include <runtime/command.h>
 #include <runtime/device.h>
-#include <dsl/var.h>
-#include <runtime/buffer.h>
-#include <dsl/image.h>
+#include <dsl/arg.h>
+#include <dsl/expr.h>
 
 namespace luisa::compute {
 
@@ -24,24 +23,9 @@ struct definition_to_prototype<Var<T>> {
     using type = T;
 };
 
-template<PixelFormat format>
-struct definition_to_prototype<ImageView<format>> {
-    using type = ImageView<format>;
-};
-
 template<typename T>
 struct prototype_to_creation {
     using type = Var<T>;
-};
-
-template<PixelFormat format>
-struct prototype_to_creation<Image<format>> {
-    using type = ImageView<format>;
-};
-
-template<PixelFormat format>
-struct prototype_to_creation<ImageView<format>> {
-    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -54,29 +38,14 @@ struct prototype_to_kernel_invocation<Buffer<T>> {
     using type = BufferView<T>;
 };
 
-template<PixelFormat format>
-struct prototype_to_kernel_invocation<Image<format>> {
-    using type = ImageView<format>;
-};
-
-template<PixelFormat format>
-struct prototype_to_kernel_invocation<ImageView<format>> {
-    using type = ImageView<format>;
+template<typename T>
+struct prototype_to_kernel_invocation<Image<T>> {
+    using type = ImageView<T>;
 };
 
 template<typename T>
 struct prototype_to_callable_invocation {
     using type = Expr<T>;
-};
-
-template<PixelFormat format>
-struct prototype_to_callable_invocation<Image<format>> {
-    using type = ImageView<format>;
-};
-
-template<PixelFormat format>
-struct prototype_to_callable_invocation<ImageView<format>> {
-    using type = ImageView<format>;
 };
 
 template<typename T>
@@ -135,8 +104,8 @@ public:
         return *this;
     }
 
-    template<PixelFormat format>
-    KernelInvoke &operator<<(ImageView<format> image) noexcept {
+    template<typename T>
+    KernelInvoke &operator<<(ImageView<T> image) noexcept {
         auto usage = _function.variable_usage(
             _function.arguments()[_argument_index++].uid());
         _launch_command()->encode_texture(
@@ -225,7 +194,10 @@ template<size_t N>
             (invoke << ... << args);                                                                           \
             return invoke;                                                                                     \
         }                                                                                                      \
-        void wait_for_compilation(Device &device) const noexcept { device.compile_kernel(_function.uid()); }   \
+                                                                                                               \
+        void wait_for_compilation(Device &device) const noexcept {                                             \
+            device.impl()->compile_kernel(_function.uid());                                                    \
+        }                                                                                                      \
     };
 
 LUISA_MAKE_KERNEL_ND(1)

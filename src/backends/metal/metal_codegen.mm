@@ -288,13 +288,13 @@ struct TextureHeap {
   bool srgb[65536u];
 };
 
-template<access a>
-[[nodiscard]] auto texture_read(texture2d<float, a> t, uint2 uv) {
+template<typename T, access a>
+[[nodiscard]] auto texture_read(texture2d<T, a> t, uint2 uv) {
   return t.read(uv);
 }
 
-template<access a>
-void texture_write(texture2d<float, a> t, uint2 uv, float4 value) {
+template<typename T, access a, typename Value>
+void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
   t.write(value, uv);
 }
 
@@ -390,7 +390,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _scratch << ",";
         }
         for (auto tex : f.captured_images()) {
-            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            _scratch << "\n    ";
+            _emit_variable_decl(tex.variable);
+            _scratch << ",";
         }
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
@@ -498,7 +500,9 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::IMAGE:
-            _scratch << "texture2d<float, ";
+            _scratch << "texture2d<";
+            _emit_type_name(v.type()->element());
+            _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
                 usage == Variable::Usage::READ_WRITE) {
                 _scratch << "access::read_write> ";

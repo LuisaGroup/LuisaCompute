@@ -5,6 +5,8 @@
 #include <RenderComponent/RenderComponentInclude.h>
 #include <RHI/DXStream.hpp>
 #include <RHI/ShaderCompiler.h>
+#include <ShaderCompile/HLSLCompiler.h>
+
 namespace luisa::compute {
 using namespace Microsoft::WRL;
 
@@ -16,11 +18,12 @@ static GFXFormat LCFormatToVEngineFormat(PixelFormat format) {
 	}
 }
 class FrameResource;
-class DXDevice final : public Device {
+class DXDevice final : public Device::Interface {
 public:
-	DXDevice(const Context& ctx, uint32_t index) : Device(ctx) {// TODO: support device selection?
+	DXDevice(const Context& ctx, uint32_t index) : Device::Interface(ctx) {// TODO: support device selection?
 		InitD3D(index);
 		dxDevice = md3dDevice.Get();
+		SCompile::HLSLCompiler::InitRegisteData();
 	}
 	uint64 create_buffer(size_t size_bytes) noexcept override {
 		return reinterpret_cast<uint64>(
@@ -197,10 +200,10 @@ private:
 };
 }// namespace luisa::compute
 
-LUISA_EXPORT luisa::compute::Device* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
+LUISA_EXPORT luisa::compute::Device::Interface* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
 	return new luisa::compute::DXDevice{ctx, id};
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device* device) noexcept {
+LUISA_EXPORT void destroy(luisa::compute::Device::Interface *device) noexcept {
 	delete device;
 }

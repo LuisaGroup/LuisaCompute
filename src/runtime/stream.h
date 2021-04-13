@@ -33,16 +33,18 @@ public:
     };
 
 private:
-    Device *_device;
+    Device::Interface *_device;
     uint64_t _handle;
 
 private:
     friend class Device;
     void _dispatch(CommandBuffer command_buffer) noexcept;
+    
+    explicit Stream(Device &device) noexcept
+        : _device{device.impl()},
+          _handle{device.impl()->create_stream()} {}
 
 public:
-    explicit Stream(Device &device) noexcept
-        : _device{&device}, _handle{device.create_stream()} {}
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;

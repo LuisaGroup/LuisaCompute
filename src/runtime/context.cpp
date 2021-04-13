@@ -27,7 +27,7 @@ const std::filesystem::path &Context::cache_directory() const noexcept {
     return _cache_directory;
 }
 
-DeviceHandle Context::create_device(std::string_view backend_name, uint32_t index) noexcept {
+Device Context::create_device(std::string_view backend_name, uint32_t index) noexcept {
     auto [create, destroy] = [backend_name, this] {
         if (auto iter = std::find(_device_identifiers.cbegin(),
                                   _device_identifiers.cend(),
@@ -41,14 +41,14 @@ DeviceHandle Context::create_device(std::string_view backend_name, uint32_t inde
         auto &&m = _loaded_modules.emplace_back(
             _runtime_directory / "backends",
             fmt::format("luisa-compute-backend-{}", backend_name));
-        auto create = m.function<DeviceCreator>("create");
-        auto destroy = m.function<DeviceDeleter>("destroy");
+        auto create = m.function<Device::Creator>("create");
+        auto destroy = m.function<Device::Deleter>("destroy");
         _device_identifiers.emplace_back(backend_name);
         _device_creators.emplace_back(create);
         _device_deleters.emplace_back(destroy);
         return std::make_pair(create, destroy);
     }();
-    return {create(*this, index), destroy};
+    return Device{Device::Handle{create(*this, index), destroy}};
 }
 
 }// namespace luisa::compute

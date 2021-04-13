@@ -38,6 +38,7 @@
 #define $constant ::luisa::compute::Constant
 #define $shared ::luisa::compute::Shared
 #define $buffer ::luisa::compute::BufferVar
+#define $image ::luisa::compute::ImageVar
 
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()

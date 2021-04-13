@@ -306,19 +306,28 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag, uint32_t uid) noexcep
       _tag{tag},
       _uid{uid} {}
 
-const RefExpr *FunctionBuilder::image() noexcept {
-    Variable v{nullptr, Variable::Tag::IMAGE, _next_variable_uid()};
+const RefExpr *FunctionBuilder::image(const Type *type) noexcept {
+    Variable v{type, Variable::Tag::IMAGE, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::image_binding(uint64_t handle) noexcept {
+const RefExpr *FunctionBuilder::image_binding(const Type *type, uint64_t handle) noexcept {
     if (auto iter = std::find_if(
             _captured_images.cbegin(),
             _captured_images.cend(),
             [handle](auto &&binding) { return binding.handle == handle; });
-        iter != _captured_images.cend()) { return _ref(iter->variable); }
-    Variable v{nullptr, Variable::Tag::IMAGE, _next_variable_uid()};
+        iter != _captured_images.cend()) {
+        auto v = iter->variable;
+        if (*v.type() != *type) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Aliasing in implicitly captured image "
+                "(handle = {}, original type = {}, requested type = {}).",
+                handle, v.type()->description(), type->description());
+        }
+        return _ref(v);
+    }
+    Variable v{type, Variable::Tag::IMAGE, _next_variable_uid()};
     _captured_images.emplace_back(ImageBinding{v, handle});
     return _ref(v);
 }

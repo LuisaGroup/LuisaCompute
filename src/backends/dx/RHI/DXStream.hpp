@@ -6,7 +6,6 @@
 #include <runtime/command_buffer.h>
 #include <PipelineComponent/FrameResource.h>
 #include <Common/Runnable.h>
-#include <ShaderCompile/HLSLCompiler.h>
 namespace luisa::compute {
 class DXStream {
 public:
@@ -15,7 +14,6 @@ public:
 		GFXDevice* device,
 		GFXCommandListType listType)
 		: listType(listType) {
-		SCompile::HLSLCompiler::InitRegisteData();
 	}
 	GFXCommandListType GetType() const {
 		return listType;

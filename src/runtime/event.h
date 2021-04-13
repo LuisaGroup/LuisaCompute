@@ -5,6 +5,7 @@
 #pragma once
 
 #include <runtime/command.h>
+#include <runtime/device.h>
 
 namespace luisa::compute {
 
@@ -13,11 +14,14 @@ class Device;
 class Event : concepts::Noncopyable {
 
 private:
-    Device *_device;
+    Device::Interface *_device;
     uint64_t _handle;
+    
+private:
+    friend class Device;
+    explicit Event(Device &device) noexcept;
 
 public:
-    explicit Event(Device &device) noexcept;
     ~Event() noexcept;
     
     Event(Event &&another) noexcept;

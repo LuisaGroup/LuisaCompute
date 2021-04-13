@@ -47,7 +47,33 @@ struct Var<Buffer<T>> : public detail::Expr<Buffer<T>> {
 template<typename T>
 struct Var<BufferView<T>> : public detail::Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Buffer<T>>{FunctionBuilder::buffer(Type::of<Buffer<T>>())} {}
+        : detail::Expr<Buffer<T>>{
+            FunctionBuilder::buffer(
+                Type::of<Buffer<T>>())} {}
+    Var(Var &&) noexcept = default;
+    Var(const Var &) noexcept = delete;
+    Var &operator=(Var &&) noexcept = delete;
+    Var &operator=(const Var &) noexcept = delete;
+};
+
+template<typename T>
+struct Var<Image<T>> : public detail::Expr<Image<T>> {
+    explicit Var(detail::ArgumentCreation) noexcept
+        : detail::Expr<Image<T>>{
+            FunctionBuilder::current()->image(
+                Type::of<Image<T>>())} {}
+    Var(Var &&) noexcept = default;
+    Var(const Var &) noexcept = delete;
+    Var &operator=(Var &&) noexcept = delete;
+    Var &operator=(const Var &) noexcept = delete;
+};
+
+template<typename T>
+struct Var<ImageView<T>> : public detail::Expr<Image<T>> {
+    explicit Var(detail::ArgumentCreation) noexcept
+        : detail::Expr<Image<T>>{
+            FunctionBuilder::image(
+                Type::of<Image<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
     Var &operator=(Var &&) noexcept = delete;
@@ -65,5 +91,8 @@ using ArrayVar = Var<std::array<T, N>>;
 
 template<typename T>
 using BufferVar = Var<Buffer<T>>;
+
+template<typename T>
+using ImageVar = Var<Image<T>>;
 
 }// namespace luisa::compute

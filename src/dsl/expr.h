@@ -7,6 +7,7 @@
 #include <array>
 #include <string_view>
 
+#include <runtime/image.h>
 #include <runtime/buffer.h>
 #include <ast/function_builder.h>
 
@@ -186,7 +187,7 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
 };
 
 template<typename T>
-class Expr<Buffer<T>> {
+struct Expr<Buffer<T>> {
 
 public:
     using ValueType = Buffer<T>;
@@ -201,6 +202,7 @@ public:
         : _expression{FunctionBuilder::current()->buffer_binding(
             Type::of<Buffer<T>>(),
             buffer.handle(), buffer.offset_bytes())} {}
+    
     Expr &operator=(Expr) = delete;
 
     [[nodiscard]] const Expression *expression() const noexcept { return _expression; }
@@ -222,6 +224,46 @@ struct Expr<BufferView<T>> : public Expr<Buffer<T>> {
     using Expr<Buffer<T>>::Expr;
 };
 
+template<typename T>
+struct Expr<Image<T>> {
+
+public:
+    using ValueType = Image<T>;
+
+private:
+    const RefExpr *_expression{nullptr};
+
+public:
+    explicit Expr(const RefExpr *expr) noexcept
+        : _expression{expr} {}
+    explicit Expr(ImageView<T> image) noexcept
+        : _expression{FunctionBuilder::current()->image_binding(
+            Type::of<Image<T>>(), image.handle(), image.offset())} {}
+
+    Expr &operator=(Expr) = delete;
+
+    [[nodiscard]] const Expression *expression() const noexcept { return _expression; }
+
+    [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
+        auto expr = Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
+            Type::of<Vector<T, 4>>(), "texture_read",
+            {_expression, uv.expression()})};
+        return Var{expr};
+    };
+
+    void write(Expr<uint2> uv, Expr<Vector<T, 4>> value) const noexcept {
+        auto f = FunctionBuilder::current();
+        f->void_(f->call(
+            nullptr, "texture_write",
+            {_expression, uv.expression(), value.expression()}));
+    }
+};
+
+template<typename T>
+struct Expr<ImageView<T>> : public Expr<Image<T>> {
+    using Expr<Image<T>>::Expr;
+};
+
 // deduction guides
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;
@@ -234,6 +276,12 @@ Expr(const Buffer<T> &) -> Expr<Buffer<T>>;
 
 template<typename T>
 Expr(BufferView<T>) -> Expr<Buffer<T>>;
+
+template<typename T>
+Expr(const Image<T> &) -> Expr<Image<T>>;
+
+template<typename T>
+Expr(ImageView<T>) -> Expr<Image<T>>;
 
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept {

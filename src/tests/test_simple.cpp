@@ -7,7 +7,7 @@
 #include <core/clock.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
-#include <dsl/image.h>
+#include <runtime/image.h>
 #include <runtime/stream.h>
 #include <runtime/buffer.h>
 #include <dsl/syntax.h>
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
-    auto device = std::make_unique<FakeDevice>(context);
+    auto device = FakeDevice::create(context);
 #endif
 
     auto load = LUISA_CALLABLE(BufferVar<float> buffer, Var<uint> index) noexcept {
@@ -55,13 +55,13 @@ int main(int argc, char *argv[]) {
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x.a));
     };
-    kernel.wait_for_compilation(*device);
+    device.compile(kernel);
 
     static constexpr auto n = 1024u * 1024u;
 
-    Stream stream{*device};
-    Buffer<float> buffer{*device, n};
-    Buffer<float> result_buffer{*device, n};
+    auto stream = device.create<Stream>();
+    auto buffer = device.create<Buffer<float>>(n);
+    auto result_buffer = device.create<Buffer<float>>(n);
 
     std::vector<float> data(n);
     std::vector<float> results(n);

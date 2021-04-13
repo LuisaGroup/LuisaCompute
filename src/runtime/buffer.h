@@ -9,6 +9,11 @@
 
 namespace luisa::compute {
 
+namespace detail {
+template<typename T>
+struct Expr;
+}
+
 template<typename T>
 class BufferView;
 
@@ -24,16 +29,18 @@ class Buffer : public concepts::Noncopyable {
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
-    Device *_device;
+    Device::Interface *_device;
     size_t _size;
     uint64_t _handle;
 
-public:
+private:
+    friend class Device;
     Buffer(Device &device, size_t size) noexcept
-        : _device{&device},
+        : _device{device.impl()},
           _size{size},
-          _handle{device.create_buffer(size * sizeof(T))} {}
+          _handle{device.impl()->create_buffer(size * sizeof(T))} {}
 
+public:
     Buffer(Buffer &&another) noexcept
         : _device{another._device},
           _handle{another._handle},
@@ -72,20 +79,13 @@ public:
     }
 };
 
-namespace detail {
-template<typename T>
-class Expr;
-}
-
 template<typename T>
 class BufferView {
 
-    LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
-
 private:
-    uint64_t _handle{0u};
-    size_t _offset_bytes{0u};
-    size_t _size{0u};
+    uint64_t _handle;
+    size_t _offset_bytes;
+    size_t _size;
 
 private:
     friend class Buffer<T>;
@@ -153,7 +153,7 @@ public:
     }
 
     template<typename I>
-    [[nodiscard]] auto operator[](I &&i) const noexcept {
+    [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
         return detail::Expr<Buffer<T>>{*this}[std::forward<I>(i)];
     }
 };

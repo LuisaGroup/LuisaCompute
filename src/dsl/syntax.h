@@ -10,5 +10,5 @@
 #include <dsl/struct.h>
 #include <dsl/stmt.h>
 #include <runtime/buffer.h>
-#include <dsl/image.h>
+#include <runtime/image.h>
 #include <dsl/var.h>

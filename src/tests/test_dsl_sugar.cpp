@@ -21,9 +21,9 @@ LUISA_STRUCT(Test, something, a)
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    FakeDevice device{context};
-    Buffer<float4> buffer{device, 1024u};
-    Buffer<float> float_buffer{device, 1024u};
+    auto device = FakeDevice::create(context);
+    auto buffer = device.create<Buffer<float4>>(1024u);
+    auto float_buffer = device.create<Buffer<float>>(1024u);
 
     std::vector<int> const_vector{1, 2, 3, 4};
 
