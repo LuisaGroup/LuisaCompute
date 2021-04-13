@@ -12,10 +12,6 @@ namespace vengine {
 template<typename T, bool useVEngineAlloc = true, bool forceTrivial = std::is_trivial_v<T>>
 class vector {
 private:
-	struct ValueType {
-		T value;
-		~ValueType() {}
-	};
 	T* arr;
 	size_t mSize;
 	size_t mCapacity;
@@ -58,14 +54,14 @@ public:
 				memcpy(newArr, arr, sizeof(T) * mSize);
 				if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
 					for (size_t i = 0; i < mSize; ++i) {
-						(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
+						(arr + i)->~T();
 					}
 				}
 			} else {
 				for (size_t i = 0; i < mSize; ++i) {
 					new (newArr + i) T(static_cast<T&&>(arr[i]));
 					if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
-						(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
+						(arr + i)->~T();
 					}
 				}
 			}
@@ -236,7 +232,7 @@ public:
 		if (arr) {
 			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
 				for (size_t i = 0; i < mSize; ++i) {
-					(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
+					(arr + i)->~T();
 				}
 			}
 			Free(arr);
@@ -288,7 +284,7 @@ public:
 				}
 			}
 			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial))
-				(reinterpret_cast<ValueType*>(arr + mSize - 1))->~ValueType();
+				(arr + mSize - 1)->~T();
 		} else {
 			if (ite.index < mSize - 1) {
 				memmove(arr + ite.index, arr + ite.index + 1, (mSize - ite.index - 1) * sizeof(T));
@@ -301,7 +297,7 @@ public:
 		mSize--;
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
 			T tempValue = arr[mSize];
-			(reinterpret_cast<ValueType*>(arr + mSize))->~ValueType();
+			(arr + mSize)->~T();
 			return tempValue;
 		} else {
 			return (T const&)arr[mSize];
@@ -310,7 +306,7 @@ public:
 	void clear() noexcept {
 		if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
 			for (size_t i = 0; i < mSize; ++i) {
-				(reinterpret_cast<ValueType*>(arr + i))->~ValueType();
+				(arr + i)->~T();
 			}
 		}
 		mSize = 0;

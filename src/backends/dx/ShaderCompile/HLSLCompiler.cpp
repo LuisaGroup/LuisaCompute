@@ -120,7 +120,9 @@ enum class Compiler : bool {
 Compiler computeCompilerUsage;
 Compiler rasterizeCompilerUsage;
 Compiler rayTracingCompilerUsage;
+std::atomic_bool inited = false;
 void HLSLCompiler::InitRegisteData() {
+	if (inited.exchange(true)) return;
 	shaderTypeCmd = " /T ";
 	funcName = " /E ";
 	output = " /Fo ";
