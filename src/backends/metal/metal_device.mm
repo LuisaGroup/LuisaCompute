@@ -44,17 +44,17 @@ void MetalDevice::dispose_buffer(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::create_stream() noexcept {
     Clock clock;
-    auto stream = [_handle newCommandQueue];
+    auto stream = std::make_unique<MetalStream>([_handle newCommandQueue]);
     LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
     std::scoped_lock lock{_stream_mutex};
     if (_available_stream_slots.empty()) {
         auto s = _stream_slots.size();
-        _stream_slots.emplace_back(stream);
+        _stream_slots.emplace_back(std::move(stream));
         return s;
     }
     auto s = _available_stream_slots.back();
     _available_stream_slots.pop_back();
-    _stream_slots[s] = stream;
+    _stream_slots[s] = std::move(stream);
     return s;
 }
 
@@ -90,7 +90,8 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     std::iota(_available_buffer_slots.rbegin(), _available_buffer_slots.rend(), 0u);
 
     static constexpr auto initial_stream_count = 4u;
-    _stream_slots.resize(initial_stream_count, nullptr);
+    _stream_slots.reserve(initial_stream_count);
+    for (auto i = 0u; i < initial_stream_count; i++) { _stream_slots.emplace_back(nullptr); }
     _available_stream_slots.resize(initial_stream_count);
     std::iota(_available_stream_slots.rbegin(), _available_stream_slots.rend(), 0u);
 
@@ -113,9 +114,7 @@ MetalDevice::~MetalDevice() noexcept {
 }
 
 void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {
-    auto command_buffer = [stream(stream_handle) commandBuffer];
-    [command_buffer commit];
-    [command_buffer waitUntilCompleted];
+    stream(stream_handle)->synchronize();
 }
 
 id<MTLBuffer> MetalDevice::buffer(uint64_t handle) const noexcept {
@@ -123,9 +122,9 @@ id<MTLBuffer> MetalDevice::buffer(uint64_t handle) const noexcept {
     return _buffer_slots[handle];
 }
 
-id<MTLCommandQueue> MetalDevice::stream(uint64_t handle) const noexcept {
+MetalStream *MetalDevice::stream(uint64_t handle) const noexcept {
     std::scoped_lock lock{_stream_mutex};
-    return _stream_slots[handle];
+    return _stream_slots[handle].get();
 }
 
 id<MTLDevice> MetalDevice::handle() const noexcept {
@@ -161,23 +160,23 @@ uint64_t MetalDevice::create_texture(
     desc.height = height;
     desc.depth = depth;
     switch (format) {
-        case PixelFormat::R8SInt: desc.pixelFormat = MTLPixelFormatR8Sint  ; break;
-        case PixelFormat::R8UInt: desc.pixelFormat = MTLPixelFormatR8Uint  ; break;
+        case PixelFormat::R8SInt: desc.pixelFormat = MTLPixelFormatR8Sint; break;
+        case PixelFormat::R8UInt: desc.pixelFormat = MTLPixelFormatR8Uint; break;
         case PixelFormat::R8UNorm: desc.pixelFormat = MTLPixelFormatR8Unorm; break;
-        case PixelFormat::RG8SInt: desc.pixelFormat = MTLPixelFormatRG8Sint ; break;
-        case PixelFormat::RG8UInt: desc.pixelFormat = MTLPixelFormatRG8Uint ; break;
+        case PixelFormat::RG8SInt: desc.pixelFormat = MTLPixelFormatRG8Sint; break;
+        case PixelFormat::RG8UInt: desc.pixelFormat = MTLPixelFormatRG8Uint; break;
         case PixelFormat::RG8UNorm: desc.pixelFormat = MTLPixelFormatRG8Unorm; break;
-        case PixelFormat::RGBA8SInt: desc.pixelFormat = MTLPixelFormatRGBA8Sint ; break;
-        case PixelFormat::RGBA8UInt: desc.pixelFormat = MTLPixelFormatRGBA8Uint ; break;
+        case PixelFormat::RGBA8SInt: desc.pixelFormat = MTLPixelFormatRGBA8Sint; break;
+        case PixelFormat::RGBA8UInt: desc.pixelFormat = MTLPixelFormatRGBA8Uint; break;
         case PixelFormat::RGBA8UNorm: desc.pixelFormat = MTLPixelFormatRGBA8Unorm; break;
-        case PixelFormat::R16SInt: desc.pixelFormat = MTLPixelFormatR16Sint ; break;
-        case PixelFormat::R16UInt: desc.pixelFormat = MTLPixelFormatR16Uint ; break;
+        case PixelFormat::R16SInt: desc.pixelFormat = MTLPixelFormatR16Sint; break;
+        case PixelFormat::R16UInt: desc.pixelFormat = MTLPixelFormatR16Uint; break;
         case PixelFormat::R16UNorm: desc.pixelFormat = MTLPixelFormatR16Unorm; break;
-        case PixelFormat::RG16SInt: desc.pixelFormat = MTLPixelFormatRG16Sint ; break;
-        case PixelFormat::RG16UInt: desc.pixelFormat = MTLPixelFormatRG16Uint ; break;
+        case PixelFormat::RG16SInt: desc.pixelFormat = MTLPixelFormatRG16Sint; break;
+        case PixelFormat::RG16UInt: desc.pixelFormat = MTLPixelFormatRG16Uint; break;
         case PixelFormat::RG16UNorm: desc.pixelFormat = MTLPixelFormatRG16Unorm; break;
-        case PixelFormat::RGBA16SInt: desc.pixelFormat = MTLPixelFormatRGBA16Sint ; break;
-        case PixelFormat::RGBA16UInt: desc.pixelFormat = MTLPixelFormatRGBA16Uint ; break;
+        case PixelFormat::RGBA16SInt: desc.pixelFormat = MTLPixelFormatRGBA16Sint; break;
+        case PixelFormat::RGBA16UInt: desc.pixelFormat = MTLPixelFormatRGBA16Uint; break;
         case PixelFormat::RGBA16UNorm: desc.pixelFormat = MTLPixelFormatRGBA16Unorm; break;
         case PixelFormat::R32SInt: desc.pixelFormat = MTLPixelFormatR32Sint; break;
         case PixelFormat::R32UInt: desc.pixelFormat = MTLPixelFormatR32Uint; break;
@@ -281,10 +280,11 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
 }
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept {
-    auto command_buffer = [stream(stream_handle) commandBuffer];
-    MetalCommandEncoder encoder{this, command_buffer};
-    for (auto &&command : buffer) { command->accept(encoder); }
-    [command_buffer commit];
+    auto s = stream(stream_handle);
+    s->with_command_buffer([this, buffer = std::move(buffer)](id<MTLCommandBuffer> command_buffer) noexcept {
+        MetalCommandEncoder encoder{this, command_buffer};
+        for (auto &&command : buffer) { command->accept(encoder); }
+    });
 }
 
 void MetalDevice::signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept {

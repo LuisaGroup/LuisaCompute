@@ -14,6 +14,7 @@
 #import <core/spin_mutex.h>
 #import <runtime/device.h>
 #import <backends/metal/metal_event.h>
+#import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
 #import <backends/metal/metal_argument_buffer.h>
 
@@ -33,7 +34,7 @@ private:
 
     // for streams
     mutable spin_mutex _stream_mutex;
-    std::vector<id<MTLCommandQueue>> _stream_slots;
+    std::vector<std::unique_ptr<MetalStream>> _stream_slots;
     std::vector<size_t> _available_stream_slots;
 
     // for textures
@@ -51,7 +52,7 @@ public:
     ~MetalDevice() noexcept override;
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
-    [[nodiscard]] id<MTLCommandQueue> stream(uint64_t handle) const noexcept;
+    [[nodiscard]] MetalStream *stream(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalCompiler::KernelItem kernel(uint32_t uid) const noexcept;
