@@ -13,6 +13,7 @@
 class IBuffer;
 class Shader;
 class RenderTexture;
+class ReadbackBuffer;
 class UploadBuffer;
 
 enum BackBufferState {
@@ -143,6 +144,11 @@ public:
 	static void CopyBufferToTexture(
 		ThreadCommand* commandList,
 		UploadBuffer* sourceBuffer, size_t sourceBufferOffset,
+		GFXResource* textureResource, uint targetMip,
+		uint width, uint height, uint depth, GFXFormat targetFormat, uint pixelSize);
+	static void CopyTextureToBuffer(
+		ThreadCommand* commandList,
+		ReadbackBuffer* destBuffer, size_t destBufferOffset,
 		GFXResource* textureResource, uint targetMip,
 		uint width, uint height, uint depth, GFXFormat targetFormat, uint pixelSize);
 	static void CopyBufferToBCTexture(

@@ -14,6 +14,7 @@
 #include <RenderComponent/DescriptorHeapRoot.h>
 #include <PipelineComponent/ThreadCommand.h>
 #include <RenderComponent/UploadBuffer.h>
+#include <RenderComponent/ReadbackBuffer.h>
 #include <Utility/QuickSort.h>
 #define MAXIMUM_HEAP_COUNT 32768
 thread_local Graphics* Graphics::current = nullptr;
@@ -144,12 +145,19 @@ void Graphics::CopyBufferToBCTexture(
 		&sourceLocation,
 		nullptr);
 }
-void Graphics::CopyBufferToTexture(
-	ThreadCommand* commandList,
-	UploadBuffer* sourceBuffer, size_t sourceBufferOffset,
-	GFXResource* textureResource, uint targetMip,
-	uint width, uint height, uint depth, GFXFormat targetFormat, uint pixelSize) {
-	commandList->ExecuteResBarrier();
+static D3D12_TEXTURE_COPY_LOCATION Graphics_GetTextureCopy(GFXResource* textureResource, uint targetMip) {
+	D3D12_TEXTURE_COPY_LOCATION destLocation;
+	destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	destLocation.SubresourceIndex = targetMip;
+	destLocation.pResource = textureResource;
+	return destLocation;
+}
+static D3D12_TEXTURE_COPY_LOCATION Graphics_GetBufferCopy(
+	GFXFormat targetFormat,
+	GPUResourceBase* sourceBuffer,
+	size_t sourceBufferOffset,
+	uint width, uint height, uint depth,
+	uint pixelSize) {
 	D3D12_TEXTURE_COPY_LOCATION sourceLocation;
 	sourceLocation.pResource = sourceBuffer->GetResource();
 	sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -162,10 +170,42 @@ void Graphics::CopyBufferToTexture(
 			depth,												  //uint Depth;
 			GFXUtil::CalcConstantBufferByteSize(width * pixelSize)//uint RowPitch;
 		};
-	D3D12_TEXTURE_COPY_LOCATION destLocation;
-	destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-	destLocation.SubresourceIndex = targetMip;
-	destLocation.pResource = textureResource;
+	return sourceLocation;
+}
+void Graphics::CopyTextureToBuffer(
+	ThreadCommand* commandList,
+	ReadbackBuffer* destBuffer, size_t destBufferOffset,
+	GFXResource* textureResource, uint targetMip,
+	uint width, uint height, uint depth, GFXFormat targetFormat, uint pixelSize) {
+	commandList->ExecuteResBarrier();
+	D3D12_TEXTURE_COPY_LOCATION destLocation = Graphics_GetBufferCopy(
+		targetFormat,
+		destBuffer,
+		destBufferOffset,
+		width, height, depth,
+		pixelSize);
+	D3D12_TEXTURE_COPY_LOCATION sourceLocation = Graphics_GetTextureCopy(
+		textureResource, targetMip);
+	commandList->GetCmdList()->CopyTextureRegion(
+		&destLocation,
+		0, 0, 0,
+		&sourceLocation,
+		nullptr);
+}
+void Graphics::CopyBufferToTexture(
+	ThreadCommand* commandList,
+	UploadBuffer* sourceBuffer, size_t sourceBufferOffset,
+	GFXResource* textureResource, uint targetMip,
+	uint width, uint height, uint depth, GFXFormat targetFormat, uint pixelSize) {
+	commandList->ExecuteResBarrier();
+	D3D12_TEXTURE_COPY_LOCATION sourceLocation = Graphics_GetBufferCopy(
+		targetFormat,
+		sourceBuffer,
+		sourceBufferOffset,
+		width, height, depth,
+		pixelSize);
+	D3D12_TEXTURE_COPY_LOCATION destLocation = Graphics_GetTextureCopy(
+		textureResource, targetMip);
 	commandList->GetCmdList()->CopyTextureRegion(
 		&destLocation,
 		0, 0, 0,

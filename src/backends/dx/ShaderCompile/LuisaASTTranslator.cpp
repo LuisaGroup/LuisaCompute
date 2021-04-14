@@ -268,7 +268,9 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			   expr->value());
 }
 void StringExprVisitor::visit(const CallExpr* expr) {
-	str->push_back_all(expr->name().data(), expr->name().size());
+	vengine::string name;
+	CodegenUtility::GetFunctionName(expr, name);
+	str->push_back_all(name.data(), name.size());
 	(*str) += '(';
 	auto&& args = expr->arguments();
 	StringExprVisitor vis(*str);
@@ -630,6 +632,32 @@ static thread_local StackObject<HashMap<Type const*, bool>, true> codegenStructT
 void CodegenUtility::ClearStructType() {
 	codegenStructType.New();
 	codegenStructType->Clear();
+}
+
+void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& result) {
+	switch (expr->op()) {
+		case CallOp::CUSTOM:
+			result << "custom_"_sv << vengine::to_string(expr->uid());
+			break;
+		case CallOp::ALL:
+			result << "all"_sv;
+			break;
+		case CallOp::ANY:
+			result << "any"_sv;
+			break;
+		case CallOp::NONE:
+			result << "!any"_sv;
+			break;
+		case CallOp::IMAGE_READ:
+			result << "HLSL_SampleTex"_sv;
+			break;
+		case CallOp::IMAGE_WRITE:
+			result << "HLSL_WriteTex"_sv;
+			break;
+		default:
+			VEngine_Log("Function Not Implemented"_sv);
+			VENGINE_EXIT;
+	}
 }
 void CodegenUtility::RegistStructType(Type const* type) {
 	if (type->is_structure())

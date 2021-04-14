@@ -65,7 +65,6 @@ if (WIN32)
         RHI/DXDevice.cpp
         RHI/ICommandBuffer.cpp
         RHI/ShaderCompiler.cpp
-        ShaderCompile/ASTEncoder.cpp
         ShaderCompile/HLSLCompiler.cpp
         ShaderCompile/LuisaASTTranslator.cpp
         Singleton/ColorUtility.cpp
