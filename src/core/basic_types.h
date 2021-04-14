@@ -62,10 +62,11 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
     constexpr VectorStorage(VectorStorage<T, 3> v) noexcept : x{v.x}, y{v.y} {}
     constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y} {}
-    
-    template<typename U>
+
+    template<typename U, std::enable_if_t<std::negation_v<std::is_same<T, U>>, int> = 0>
     constexpr explicit VectorStorage(VectorStorage<U, 2> v) noexcept
-        : VectorStorage{v.x, v.y} {}
+        : VectorStorage{static_cast<T>(v.x),
+                        static_cast<T>(v.y)} {}
 };
 
 template<typename T>
@@ -77,10 +78,12 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     constexpr VectorStorage(VectorStorage<T, 2> xy, T z) noexcept : x{xy.x}, y{xy.y}, z{z} {}
     constexpr VectorStorage(T x, VectorStorage<T, 2> yz) noexcept : x{x}, y{yz.x}, z{yz.y} {}
     constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y}, z{v.z} {}
-    
-    template<typename U>
+
+    template<typename U, std::enable_if_t<std::negation_v<std::is_same<T, U>>, int> = 0>
     constexpr explicit VectorStorage(VectorStorage<U, 3> v) noexcept
-        : VectorStorage{v.x, v.y, v.z} {}
+        : VectorStorage{static_cast<T>(v.x),
+                        static_cast<T>(v.y),
+                        static_cast<T>(v.z)} {}
 };
 
 template<typename T>
@@ -95,10 +98,13 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     constexpr VectorStorage(T x, T y, VectorStorage<T, 2> zw) noexcept : x{x}, y{y}, z{zw.x}, w{zw.y} {}
     constexpr VectorStorage(VectorStorage<T, 3> xyz, T w) noexcept : x{xyz.x}, y{xyz.y}, z{xyz.z}, w{w} {}
     constexpr VectorStorage(T x, VectorStorage<T, 3> yzw) noexcept : x{x}, y{yzw.x}, z{yzw.y}, w{yzw.z} {}
-    
-    template<typename U>
+
+    template<typename U, std::enable_if_t<std::negation_v<std::is_same<T, U>>, int> = 0>
     constexpr explicit VectorStorage(VectorStorage<U, 4> v) noexcept
-        : VectorStorage{v.x, v.y, v.z, v.w} {}
+        : VectorStorage{static_cast<T>(v.x),
+                        static_cast<T>(v.y),
+                        static_cast<T>(v.z),
+                        static_cast<T>(v.w)} {}
 };
 
 }// namespace detail
@@ -115,7 +121,7 @@ struct Vector : public detail::VectorStorage<T, N> {
                   "Invalid vector type");
 
     template<typename... Args, std::enable_if_t<std::is_constructible_v<Storage, Args...>, int> = 0>
-    constexpr Vector(Args... args) noexcept : Storage{args...} {}
+    constexpr Vector(Args... args) noexcept : Storage(args...) {}
 
     [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
     [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
@@ -185,7 +191,7 @@ struct Vector : public detail::VectorStorage<T, N> {
     LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(-, std::negation<is_boolean<T>>)
     LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(*, std::negation<is_boolean<T>>)
     LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(/, std::negation<is_boolean<T>>)
-    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(%,  is_integral<T>)
+    LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(%, is_integral<T>)
     LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(<<, is_integral<T>)
     LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(>>, is_integral<T>)
     LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(|, std::negation<is_floating_point<T>>)
