@@ -321,3 +321,5 @@ CMakeSettings.json
 #white list
 !out/build/x64-Release/bin/HLSLCompiler/*.*
 !out/build/x64-Release/bin/Temp/*.*
+!src/backends/dx/VEngineCompiler/*.*
+!src/backends/dx/VEngineCompiler/CompilerToolkit/*.*

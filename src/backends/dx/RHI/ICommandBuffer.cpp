@@ -58,6 +58,8 @@ void DXCommandVisitor::visit(BufferCopyCommand const* cmd) noexcept {
 void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 }
 void DXCommandVisitor::visit(TextureUploadCommand const* cmd) noexcept {
+	uint3 res = cmd->size();
+	//UploadBuffer* middleBuffer = new UploadBuffer(device,, false, 1, DXAllocator::GetBufferAllocator());
 }
 void DXCommandVisitor::visit(TextureDownloadCommand const* cmd) noexcept {}
 void DXCommandVisitor::visit(EventSignalCommand const* cmd) noexcept {}
