@@ -1,7 +1,7 @@
 cbuffer Params : register(b0)
-StructuredBuffer<uint> _Buffer : register(t0)
 RWTexture2D<TEX_TYPE> _Tex2D : register(u0)
 RWTexture3D<TEX_TYPE> _Tex3D : register(u1)
+StructuredBuffer<BUFFER_TYPE> _Buffer : register(t0)
 
 #pragma Copy DIMENSION_2D R8SInt WRITE_4 INT_1
 #pragma Copy DIMENSION_2D R8UInt WRITE_4 INT_1
