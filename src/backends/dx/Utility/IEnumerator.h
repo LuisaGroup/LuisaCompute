@@ -13,9 +13,6 @@ private:
 		template <typename Func>
 		Executor(const Func& f)
 		{
-#if _DEBUG
-			static_assert(sizeof(Func) <= sizeof(size_t));
-#endif
 			new (c)Func(f);
 			funcPtr = [](void* ptr)->bool
 			{

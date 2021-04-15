@@ -10,6 +10,11 @@
 #define _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
 #define NOMINMAX
 #define UNICODE
+
+#ifdef NDEBUG
+#define DEBUG
+#endif
+
 #ifdef _DEBUG
 #define DEBUG
 #endif

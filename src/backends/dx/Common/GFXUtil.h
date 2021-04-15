@@ -22,7 +22,7 @@ using GFXResource = ID3D12Resource;
 using GFXPipelineState = ID3D12PipelineState;
 using GFXVertexBufferView = D3D12_VERTEX_BUFFER_VIEW;
 using GFXIndexBufferView = D3D12_INDEX_BUFFER_VIEW;
-#ifdef _DEBUG
+#ifdef DEBUG
 #include <comdef.h>
 
 class DxException {
@@ -261,7 +261,7 @@ INLINE vengine::wstring AnsiToWString(const vengine::string& str) {
 }
 
 /*
-#if defined(_DEBUG)
+#if defined(DEBUG)
 	#ifndef Assert
 	#define Assert(x, description)                                  \
 	{                                                               \

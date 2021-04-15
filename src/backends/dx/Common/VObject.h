@@ -164,7 +164,7 @@ public:
 	}
 
 	inline operator T*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -200,7 +200,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -208,7 +208,7 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -216,7 +216,7 @@ public:
 	}
 
 	inline T const& operator*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -273,7 +273,7 @@ public:
 	}
 
 	inline operator T*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -303,7 +303,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -311,7 +311,7 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -319,7 +319,7 @@ public:
 	}
 
 	inline T const& operator*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -372,7 +372,7 @@ public:
 	}
 
 	inline operator T*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -412,7 +412,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -420,7 +420,7 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -428,7 +428,7 @@ public:
 	}
 
 	inline T const& operator*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -474,7 +474,7 @@ public:
 	}
 
 	inline operator T*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -507,7 +507,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -515,14 +515,14 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
 		return *GetPtr();
 	}
 	inline T const& operator*() const noexcept {
-#ifdef _DEBUG
+#ifdef DEBUG
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
