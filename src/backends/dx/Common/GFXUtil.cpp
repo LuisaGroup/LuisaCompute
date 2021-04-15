@@ -162,7 +162,7 @@ UINT64 GetRequiredIntermediateSize(
 	_In_range_(0, D3D12_REQ_SUBRESOURCES - FirstSubresource) uint NumSubresources) noexcept {
 	auto Desc = pDestinationResource->GetDesc();
 	UINT64 RequiredSize = 0;
-	GFXDevice* pDevice = nullptr;
+	ID3D12Device* pDevice = nullptr;
 	pDestinationResource->GetDevice(IID_PPV_ARGS(&pDevice));
 	pDevice->GetCopyableFootprints(&Desc, FirstSubresource, NumSubresources, 0, nullptr, nullptr, nullptr, &RequiredSize);
 	pDevice->Release();
@@ -276,7 +276,7 @@ UINT64 UpdateSubresources(
 	UINT64* pRowSizesInBytes = reinterpret_cast<UINT64*>(pLayouts + NumSubresources);
 	uint* pNumRows = reinterpret_cast<uint*>(pRowSizesInBytes + NumSubresources);
 	auto Desc = pDestinationResource->GetDesc();
-	GFXDevice* pDevice = nullptr;
+	ID3D12Device* pDevice = nullptr;
 	pDestinationResource->GetDevice(IID_PPV_ARGS(&pDevice));
 	pDevice->GetCopyableFootprints(&Desc, FirstSubresource, NumSubresources, IntermediateOffset, pLayouts, pNumRows, pRowSizesInBytes, &RequiredSize);
 	pDevice->Release();
@@ -392,7 +392,7 @@ UINT64 UpdateSubresources(
 	UINT64* pRowSizesInBytes = reinterpret_cast<UINT64*>(pLayouts + NumSubresources);
 	uint* pNumRows = reinterpret_cast<uint*>(pRowSizesInBytes + NumSubresources);
 	auto Desc = pDestinationResource->GetDesc();
-	GFXDevice* pDevice = nullptr;
+	ID3D12Device* pDevice = nullptr;
 	pDestinationResource->GetDevice(IID_PPV_ARGS(&pDevice));
 	pDevice->GetCopyableFootprints(&Desc, FirstSubresource, NumSubresources, IntermediateOffset, pLayouts, pNumRows, pRowSizesInBytes, &RequiredSize);
 	pDevice->Release();

@@ -272,7 +272,7 @@ ThreadCommand::ThreadCommand(GFXDevice* device, GFXCommandListType type, ObjectP
 		cmdAllocator = MakeObjectPtr(
 			new CommandAllocator(device, type));
 	}
-	ThrowIfFailed(device->CreateCommandList(
+	ThrowIfFailed(device->device()->CreateCommandList(
 		0,
 		(D3D12_COMMAND_LIST_TYPE)type,
 		cmdAllocator->GetAllocator().Get(),// Associated command allocator

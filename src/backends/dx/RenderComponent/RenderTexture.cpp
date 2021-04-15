@@ -164,7 +164,7 @@ uint64_t RenderTexture::GetSizeFromProperty(
 		texDesc.SampleDesc.Quality = 0;
 		texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 		texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-		auto allocateInfo = device->GetResourceAllocationInfo(
+		auto allocateInfo = device->device()->GetResourceAllocationInfo(
 			0, 1, &texDesc);
 		return allocateInfo.SizeInBytes;
 	} else {
@@ -202,7 +202,7 @@ uint64_t RenderTexture::GetSizeFromProperty(
 			depthStencilDesc.SampleDesc.Quality = 0;
 			depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 			depthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-			return device->GetResourceAllocationInfo(
+			return device->device()->GetResourceAllocationInfo(
 							 0, 1, &depthStencilDesc)
 				.SizeInBytes;
 		}
@@ -285,12 +285,12 @@ RenderTexture::RenderTexture(
 					this->initState = GPUResourceState_RenderTarget;
 				break;
 		}
-		resourceSize = device->GetResourceAllocationInfo(
+		resourceSize = device->device()->GetResourceAllocationInfo(
 								 0, 1, &texDesc)
 						   .SizeInBytes;
 		if (!allocator) {
 			auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-			ThrowIfFailed(device->CreateCommittedResource(
+			ThrowIfFailed(device->device()->CreateCommittedResource(
 				&prop,
 				D3D12_HEAP_FLAG_NONE,
 				&texDesc,
@@ -312,7 +312,7 @@ RenderTexture::RenderTexture(
 				&offset,
 				true,
 				this);
-			ThrowIfFailed(device->CreatePlacedResource(
+			ThrowIfFailed(device->device()->CreatePlacedResource(
 				heap,
 				offset,
 				&texDesc,
@@ -413,12 +413,12 @@ RenderTexture::RenderTexture(
 					this->initState = GPUResourceState_RenderTarget;
 					break;
 			}
-			resourceSize = device->GetResourceAllocationInfo(
+			resourceSize = device->device()->GetResourceAllocationInfo(
 									 0, 1, &depthStencilDesc)
 							   .SizeInBytes;
 			if (!allocator) {
 				auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-				ThrowIfFailed(device->CreateCommittedResource(
+				ThrowIfFailed(device->device()->CreateCommittedResource(
 					&heap,
 					D3D12_HEAP_FLAG_NONE,
 					&depthStencilDesc,
@@ -440,7 +440,7 @@ RenderTexture::RenderTexture(
 					&offset,
 					true,
 					this);
-				ThrowIfFailed(device->CreatePlacedResource(
+				ThrowIfFailed(device->device()->CreatePlacedResource(
 					heap,
 					offset,
 					&depthStencilDesc,
@@ -555,12 +555,12 @@ RenderTexture::RenderTexture(
 					this->initState = GPUResourceState_RenderTarget;
 				break;
 		}
-		resourceSize = device->GetResourceAllocationInfo(
+		resourceSize = device->device()->GetResourceAllocationInfo(
 								 0, 1, &texDesc)
 						   .SizeInBytes;
 		if (!targetHeap) {
 			auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-			ThrowIfFailed(device->CreateCommittedResource(
+			ThrowIfFailed(device->device()->CreateCommittedResource(
 				&prop,
 				D3D12_HEAP_FLAG_NONE,
 				&texDesc,
@@ -568,7 +568,7 @@ RenderTexture::RenderTexture(
 				&clearValue,
 				IID_PPV_ARGS(&Resource)));
 		} else {
-			ThrowIfFailed(device->CreatePlacedResource(
+			ThrowIfFailed(device->device()->CreatePlacedResource(
 				targetHeap->GetHeap(),
 				placedOffset,
 				&texDesc,
@@ -669,12 +669,12 @@ RenderTexture::RenderTexture(
 					this->initState = GPUResourceState_RenderTarget;
 					break;
 			}
-			resourceSize = device->GetResourceAllocationInfo(
+			resourceSize = device->device()->GetResourceAllocationInfo(
 									 0, 1, &depthStencilDesc)
 							   .SizeInBytes;
 			if (!targetHeap) {
 				auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-				ThrowIfFailed(device->CreateCommittedResource(
+				ThrowIfFailed(device->device()->CreateCommittedResource(
 					&heap,
 					D3D12_HEAP_FLAG_NONE,
 					&depthStencilDesc,
@@ -682,7 +682,7 @@ RenderTexture::RenderTexture(
 					&depthClearValue,
 					IID_PPV_ARGS(&Resource)));
 			} else {
-				ThrowIfFailed(device->CreatePlacedResource(
+				ThrowIfFailed(device->device()->CreatePlacedResource(
 					targetHeap->GetHeap(),
 					placedOffset,
 					&depthStencilDesc,

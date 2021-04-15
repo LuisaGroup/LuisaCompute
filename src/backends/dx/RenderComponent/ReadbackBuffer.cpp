@@ -5,7 +5,7 @@ ReadbackBuffer::ReadbackBuffer(GFXDevice* device, uint64 elementCount, size_t st
 	mStride = stride;
 	auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK);
 	auto buf = CD3DX12_RESOURCE_DESC::Buffer(stride * elementCount);
-	ThrowIfFailed(device->CreateCommittedResource(
+	ThrowIfFailed(device->device()->CreateCommittedResource(
 		&prop,
 		D3D12_HEAP_FLAG_NONE,
 		&buf,
@@ -21,7 +21,7 @@ void ReadbackBuffer::Create(GFXDevice* device, uint64 elementCount, size_t strid
 	mStride = stride;
 	auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK);
 	auto buf = CD3DX12_RESOURCE_DESC::Buffer(stride * elementCount);
-	ThrowIfFailed(device->CreateCommittedResource(
+	ThrowIfFailed(device->device()->CreateCommittedResource(
 		&prop,
 		D3D12_HEAP_FLAG_NONE,
 		&buf,

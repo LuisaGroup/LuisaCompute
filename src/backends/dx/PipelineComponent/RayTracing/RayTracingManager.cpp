@@ -190,7 +190,7 @@ void RayTracingManager::BuildTopLevelRTStruct(
 	isTopLevelDirty = false;
 	topLevelBuildDesc.Inputs.NumDescs = sepManager.GetElementCount();
 	ID3D12GraphicsCommandList4* cmdList = static_cast<ID3D12GraphicsCommandList4*>(pack.tCmd->GetCmdList());
-	ID3D12Device5* device = static_cast<ID3D12Device5*>(this->device);
+	ID3D12Device5* device = static_cast<ID3D12Device5*>(this->device->device());
 	D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo = {};
 	device->GetRaytracingAccelerationStructurePrebuildInfo(&topLevelBuildDesc.Inputs, &topLevelPrebuildInfo);
 	uint64 scratchSize = 0;
@@ -248,7 +248,7 @@ RayTracingManager::RayTracingManager(
 	current = this;
 	rtUtilcs = ShaderLoader::GetComputeShader("RTUtility");
 	static constexpr uint64 ACC_ALIGN = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT;
-	ID3D12Device5* device = static_cast<ID3D12Device5*>(originDevice);
+	ID3D12Device5* device = static_cast<ID3D12Device5*>(originDevice->device());
 	memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));
 	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS& topLevelInputs = topLevelBuildDesc.Inputs;
 
@@ -422,7 +422,7 @@ void RayTracingManager::BuildRTStruct(
 	this->allocatedElements = &allocatedElements;
 	this->pack = &pack;
 	//////// Init
-	ID3D12Device5* device = static_cast<ID3D12Device5*>(pack.device);
+	ID3D12Device5* device = static_cast<ID3D12Device5*>(pack.device->device());
 	ID3D12GraphicsCommandList4* cmdList = static_cast<ID3D12GraphicsCommandList4*>(pack.tCmd->GetCmdList());
 	for (auto& i : allocatedElements.instanceUploadElements) {
 		instanceUploadPool.Return(i);
@@ -508,7 +508,7 @@ void RayTracingManager::BuildRTStruct(
 		}
 	}
 	sepManager.Execute(
-		device,
+		pack.device,
 		lastFrameUpdateFunction,
 		addFunction,
 		removeFunction,
@@ -553,13 +553,13 @@ void RayTracingManager::AddMesh(
 			&geometryDesc,
 			meshInterface, subMeshIndex);
 		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
-		ID3D12Device5* device = static_cast<ID3D12Device5*>(this->device);
+		ID3D12Device5* device = static_cast<ID3D12Device5*>(this->device->device());
 		device->GetRaytracingAccelerationStructurePrebuildInfo(
 			&bottomInput,
 			&bottomLevelPrebuildInfo);
 		subMesh->bottomBufferChunk = sbuffers.New_Lock(
 			bottomAllocMtx,
-			device,
+			this->device,
 			std::initializer_list<StructuredBufferElement>{StructuredBufferElement::Get(1, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes)},
 			GPUResourceState_RayTracingStruct,
 			nullptr);//TODO: allocator
@@ -570,7 +570,7 @@ void RayTracingManager::AddMesh(
 
 		auto bottomScratchChunk = sbuffers.New_Lock(
 			bottomAllocMtx,
-			device,
+			this->device,
 			std::initializer_list<StructuredBufferElement>{StructuredBufferElement::Get(1, bottomLevelPrebuildInfo.ScratchDataSizeInBytes)},
 			GPUResourceState_UnorderedAccess,
 			nullptr);//TODO: allocator

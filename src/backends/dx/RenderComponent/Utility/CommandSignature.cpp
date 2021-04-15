@@ -19,7 +19,7 @@ CommandSignature::CommandSignature(GFXDevice* device, SignatureType sigType, Sha
 			desc.NodeMask = 0;
 			desc.NumArgumentDescs = 4;
 			desc.pArgumentDescs = indDesc;
-			ThrowIfFailed(device->CreateCommandSignature(&desc, drawShader->mRootSignature.Get(), IID_PPV_ARGS(&mCommandSignature)));
+			ThrowIfFailed(device->device()->CreateCommandSignature(&desc, drawShader->mRootSignature.Get(), IID_PPV_ARGS(&mCommandSignature)));
 		} break;
 		case SignatureType::DrawInstanceIndirect: {
 			D3D12_COMMAND_SIGNATURE_DESC desc;
@@ -31,7 +31,7 @@ CommandSignature::CommandSignature(GFXDevice* device, SignatureType sigType, Sha
 			desc.NodeMask = 0;
 			desc.NumArgumentDescs = 1;
 			desc.pArgumentDescs = &indDesc;
-			ThrowIfFailed(device->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(&mCommandSignature)));
+			ThrowIfFailed(device->device()->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(&mCommandSignature)));
 		} break;
 		case SignatureType::DispatchComputeIndirect: {
 			D3D12_COMMAND_SIGNATURE_DESC desc;
@@ -43,7 +43,7 @@ CommandSignature::CommandSignature(GFXDevice* device, SignatureType sigType, Sha
 			desc.NodeMask = 0;
 			desc.NumArgumentDescs = 1;
 			desc.pArgumentDescs = &indDesc;
-			ThrowIfFailed(device->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(&mCommandSignature)));
+			ThrowIfFailed(device->device()->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(&mCommandSignature)));
 		} break;
 	}
 }

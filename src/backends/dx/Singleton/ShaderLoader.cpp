@@ -31,7 +31,7 @@ Shader* ShaderLoader::LoadShader(const vengine::string& name, GFXDevice* device,
 }
 RayShader* ShaderLoader::LoadRayShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
 
-	RayShader* sh = new RayShader(static_cast<ID3D12Device5*>(device), path);
+	RayShader* sh = new RayShader(device, path);
 	current->rayShaderMap.Insert(name, sh);
 	return sh;
 }
@@ -49,25 +49,18 @@ ComputeShader* ShaderLoader::LoadComputeShader(const vengine::string& name, GFXD
 	return current->computeShaderMap.Insert(name, sh).Value();
 }
 Shader const* ShaderLoader::GetShader(const vengine::string& name) {
-
 	std::lock_guard lck(current->mtx);
 	auto ite = current->shaderMap.Find(name);
 	if (ite && ite.Value()) return ite.Value();
-	
 	return LoadShader(name, current->device, name);
-	
 }
 ComputeShader const* ShaderLoader::GetComputeShader(const vengine::string& name) {
-
 	std::lock_guard lck(current->mtx);
 	auto ite = current->computeShaderMap.Find(name);
 	if (ite && ite.Value()) return ite.Value();
-	
 	return LoadComputeShader(name, current->device, name);
-	
 }
 void ShaderLoader::ReleaseShader(Shader const* shader) {
-
 	std::lock_guard lck(current->mtx);
 	auto ite = current->shaderMap.Find(shader->GetName());
 	if (!ite || shader != ite.Value()) return;

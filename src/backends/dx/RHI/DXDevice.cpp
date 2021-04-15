@@ -24,7 +24,7 @@ class DXDevice final : public Device::Interface {
 public:
 	DXDevice(const Context& ctx, uint32_t index) : Device::Interface(ctx) {// TODO: support device selection?
 		InitD3D(index);
-		dxDevice = md3dDevice.Get();
+		dxDevice.New(md3dDevice.Get());
 		SCompile::HLSLCompiler::InitRegisteData();
 		graphicsInstance.New(dxDevice);
 		shaderGlobal = ShaderLoader::Init(dxDevice);
@@ -109,7 +109,7 @@ public:
 		ShaderLoader::Dispose(shaderGlobal);
 	}
 	//////////// Variables
-	GFXDevice* dxDevice{nullptr};
+	StackObject<GFXDevice, true> dxDevice;
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 private:
 	///////////// D3D

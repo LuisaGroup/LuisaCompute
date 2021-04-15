@@ -41,7 +41,7 @@ ComputeShader::ComputeShader(
 		OutputDebugStringA((char*)errorBlob->GetBufferPointer());
 	}
 	ThrowIfFailed(hr);
-	ThrowIfFailed(device->CreateRootSignature(
+	ThrowIfFailed(device->device()->CreateRootSignature(
 		0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
@@ -55,7 +55,7 @@ ComputeShader::ComputeShader(
 				reinterpret_cast<BYTE*>(csShaders[i].datas->GetBufferPointer()),
 				csShaders[i].datas->GetBufferSize()};
 		psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-		ThrowIfFailed(device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&pso[i])));
+		ThrowIfFailed(device->device()->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&pso[i])));
 	}
 }
 ComputeShader::~ComputeShader() {}

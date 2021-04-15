@@ -29,7 +29,7 @@ UploadBuffer::UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConsta
 		allocator->AllocateTextureHeap(
 			device, size, D3D12_HEAP_TYPE_UPLOAD, &heap, &offset, GetInstanceID());
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(size);
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			heap, offset,
 			&buffer,
 			D3D12_RESOURCE_STATE_GENERIC_READ,
@@ -38,7 +38,7 @@ UploadBuffer::UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConsta
 	} else {
 		auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(size);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&prop,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
@@ -96,7 +96,7 @@ void UploadBuffer::Create(GFXDevice* device, uint64 elementCount, bool isConstan
 		allocator->AllocateTextureHeap(
 			device, size, D3D12_HEAP_TYPE_UPLOAD, &heap, &offset, GetInstanceID());
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(size);
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			heap, offset,
 			&buffer,
 			D3D12_RESOURCE_STATE_GENERIC_READ,
@@ -105,7 +105,7 @@ void UploadBuffer::Create(GFXDevice* device, uint64 elementCount, bool isConstan
 	} else {
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(size);
 		auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&prop,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
