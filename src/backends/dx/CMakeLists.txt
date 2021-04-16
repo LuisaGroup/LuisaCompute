@@ -62,8 +62,8 @@ if (WIN32)
         RenderComponent/Utility/ShaderIO.cpp
         render_graph/rg_node.cpp
         render_graph/rg_system.cpp
+        RHI/DXCommandVisitor.cpp
         RHI/DXDevice.cpp
-        RHI/ICommandBuffer.cpp
         RHI/ShaderCompiler.cpp
         ShaderCompile/HLSLCompiler.cpp
         ShaderCompile/LuisaASTTranslator.cpp
@@ -73,6 +73,7 @@ if (WIN32)
         Singleton/MeshLayout.cpp
         Singleton/ShaderID.cpp
         Singleton/ShaderLoader.cpp
+        Struct/ConstBuffer.cpp
         TestMain.cpp
         Utility/Actor.cpp
         Utility/BinaryReader.cpp

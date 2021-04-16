@@ -1,17 +1,12 @@
 #pragma once
 
 #include <RenderComponent/IBuffer.h>
+#include <RenderComponent/Utility/IBufferAllocator.h>
+
 class VENGINE_DLL_RENDERER ReadbackBuffer final : public IBuffer {
 public:
-	ReadbackBuffer(GFXDevice* device, uint64 elementCount, size_t stride);
-	ReadbackBuffer() : mMappedData(0),
-					   mStride(0),
-					   mElementCount(0) {}
-	void Create(GFXDevice* device, uint64 elementCount, size_t stride);
-	virtual ~ReadbackBuffer() {
-		if (Resource != nullptr && mMappedData != nullptr)
-			Resource->Unmap(0, nullptr);
-	}
+	ReadbackBuffer(GFXDevice* device, uint64 elementCount, size_t stride, IBufferAllocator* allocator = nullptr);
+	~ReadbackBuffer();
 
 	inline GpuAddress GetAddress(uint64 elementCount) const {
 		return {Resource->GetGPUVirtualAddress() + elementCount * mStride};
@@ -39,4 +34,5 @@ private:
 	void const* mMappedData = nullptr;
 	size_t mStride;
 	uint64 mElementCount;
+	IBufferAllocator* allocator;
 };

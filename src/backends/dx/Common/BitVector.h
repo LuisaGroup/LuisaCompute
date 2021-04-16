@@ -137,7 +137,7 @@ public:
 		Set(last, value);
 	}
 	bool RemoveLast() noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 		if (Empty()) {
 			throw "Empty can not move!";
 		}

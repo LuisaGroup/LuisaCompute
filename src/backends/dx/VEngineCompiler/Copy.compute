@@ -21,6 +21,9 @@ cbuffer Params : register(b0){
 RWTexture2D<TEX_TYPE> _Tex2D : register(u0);
 RWTexture3D<TEX_TYPE> _Tex3D : register(u1);
 
+Texture2D<TEX_TYPE> _Read_Tex2D : register(t0);
+Texture3D<TEX_TYPE> _Read_Tex3D : register(t1);
+
 #if defined(WRITE_4)
     #define TEX_RATE 4
     #define BUFFER_TYPE uint
@@ -37,8 +40,8 @@ RWTexture3D<TEX_TYPE> _Tex3D : register(u1);
         #define BUFFER_TYPE uint
     #endif
 #endif
-StructuredBuffer<BUFFER_TYPE> _Buffer : register(t0);
-
+StructuredBuffer<BUFFER_TYPE> _Buffer : register(t2);
+RWStructuredBuffer<BUFFER_TYPE> _Write_Buffer : register(u2);
 #if defined (DIMENSION_2D)
     #define UVType uint2
     #define THREAD_X 8
@@ -53,7 +56,11 @@ StructuredBuffer<BUFFER_TYPE> _Buffer : register(t0);
         }
         return nextType;
     }
-    #define _Tex _Tex2D
+    #ifdef DOWNLOAD
+        #define _Tex _Read_Tex2D
+    #else
+        #define _Tex _Tex2D
+    #endif
     inline uint DownDimension(UVType current){
         return current.x + current.y * _Resolution.x;
     }
@@ -61,12 +68,8 @@ StructuredBuffer<BUFFER_TYPE> _Buffer : register(t0);
         uint y = id / _Resolution.x;
         return UVType(id - y * _Resolution.x, y);
     }
-    inline uint2 GetDispatchCount(){
-        return _Resolution.xy;
-    }
-    inline uint2 GetPixelOffset(){
-        return _PixelOffset.xy;
-    }
+    #define DISP_COUNT (_Resolution.xy)
+    #define PIXEL_OFFSET (_PixelOffset.xy)
 #elif defined (DIMENSION_3D)
     #define THREAD_X 4
     #define THREAD_Y 4
@@ -84,7 +87,11 @@ StructuredBuffer<BUFFER_TYPE> _Buffer : register(t0);
         }
         return nextType;
     }
-    #define _Tex _Tex3D
+    #ifdef DOWNLOAD
+        #define _Tex _Read_Tex3D
+    #else
+        #define _Tex _Tex3D
+    #endif
     inline uint DownDimension(UVType current){
         return current.x + current.y * _Resolution.x + current.z * _Resolution.x * _Resolution.y;
     }
@@ -95,18 +102,17 @@ StructuredBuffer<BUFFER_TYPE> _Buffer : register(t0);
         uint y = id / _Resolution.x;
         return UVType(id - y * _Resolution.x, y, z);
     }
-    inline uint3 GetDispatchCount(){
-        return _Resolution.xyz;
-    }
-    inline uint3 GetPixelOffset(){
-        return _PixelOffset.xyz;
-    }
+    #define DISP_COUNT (_Resolution.xyz)
+    #define PIXEL_OFFSET (_PixelOffset.xyz)
 #endif
-
-void WritePixel(UVType id, uint bufferOffset);
+#ifdef DOWNLOAD
+    void ReadPixel(UVType id, uint bufferOffset);
+#else
+    void WritePixel(UVType id, uint bufferOffset);
+#endif
 [numthreads(THREAD_X,THREAD_Y,THREAD_Z)]
 void Copy(UVType id : SV_DISPATCHTHREADID){
-    if(any(id >= GetDispatchCount())) return;
+    if(any(id >= DISP_COUNT)) return;
     #if (TEX_RATE != 1)
         uint pixelID = DownDimension(id);
         pixelID *= TEX_RATE;
@@ -114,135 +120,277 @@ void Copy(UVType id : SV_DISPATCHTHREADID){
     #else
         UVType pixelIndex = id;
     #endif
-    WritePixel(pixelIndex + GetPixelOffset(), DownDimension(id));
+    #ifdef DOWNLOAD
+        ReadPixel(pixelIndex + PIXEL_OFFSET, DownDimension(id));
+    #else
+        WritePixel(pixelIndex + PIXEL_OFFSET, DownDimension(id));
+    #endif
 }
 
-inline uint4 GetByte(uint value){
-    uint4 r;
-    r.w = value & 255;
-    value >>= 8;
-    r.z = value & 255;
-    value >>= 8;
-    r.y = value & 255;
-    value >>= 8;
-    r.x = value;
-    return r;
-}
-inline uint2 GetShort(uint value){
-    uint2 r;
-    r.y = value & 65535;
-    value >>= 16;
-    r.x = value;
-    return r;
-}
-inline uint4 GetShort(uint2 value){
-    uint4 r;
-    r.yw = value & 65535;
-    value >>= 16;
-    r.xz = value;
-    return r;
-}
-#if defined(R8SInt) || defined(R8UInt)
-    void WritePixel(UVType id, uint bufferOffset){
-        uint4 v = GetByte(_Buffer[bufferOffset]);
-        _Tex[id] = v.x;
-        id = GetNextPixel(id);
-        _Tex[id] = v.y;
-        id = GetNextPixel(id);
-        _Tex[id] = v.z;
-        id = GetNextPixel(id);
-        _Tex[id] = v.w;
-    }
-#endif
-#ifdef R8UNorm
-    void WritePixel(UVType id, uint bufferOffset){
-        float4 v = GetByte(_Buffer[bufferOffset]) / 255.0;
-        _Tex[id] = v.x;
-        id = GetNextPixel(id);
-        _Tex[id] = v.y;
-        id = GetNextPixel(id);
-        _Tex[id] = v.z;
-        id = GetNextPixel(id);
-        _Tex[id] = v.w;
-    }
-#endif
-#if defined(RG8SInt) || defined(RG8UInt)
-    void WritePixel(UVType id, uint bufferOffset){
-        uint4 v = GetByte(_Buffer[bufferOffset]);
-        _Tex[id] = v.xy;
-        id = GetNextPixel(id);
-        _Tex[id] = v.zw;
-    }
-#endif
-#ifdef RG8UNorm
-    void WritePixel(UVType id, uint bufferOffset){
-        float4 v = GetByte(_Buffer[bufferOffset]) / 255.0;
-        _Tex[id] = v.xy;
-        id = GetNextPixel(id);
-        _Tex[id] = v.zw;
-    }
-#endif
-#if defined(RGBA8SInt) || defined(RGBA8UInt)
-    void WritePixel(UVType id, uint bufferOffset){
-        uint4 v = GetByte(_Buffer[bufferOffset]);
-        _Tex[id] = v;
-    }
-#endif
-#ifdef RGBA8UNorm
-    void WritePixel(UVType id, uint bufferOffset){
-        float4 v = GetByte(_Buffer[bufferOffset]) / 255.0;
-        _Tex[id] = v;
-    }
-#endif
-#if defined(R16SInt) || defined(R16UInt)
-    void WritePixel(UVType id, uint bufferOffset){
-        uint2 v = GetShort(_Buffer[bufferOffset]);
-        _Tex[id] = v.x;
-        id = GetNextPixel(id);
-        _Tex[id] = v.y;
-    }
-#endif
-#ifdef R16UNorm
-    void WritePixel(UVType id, uint bufferOffset){
-        float2 v = GetShort(_Buffer[bufferOffset]) / 65535.0;
-        _Tex[id] = v.x;
-        id = GetNextPixel(id);
-        _Tex[id] = v.y;
-    }
-#endif
 
-#if defined(RGBA16SInt) || defined(RGBA16UInt) || defined(RG16SInt) || defined(RG16UInt)
-    void WritePixel(UVType id, uint bufferOffset){
-        _Tex[id] = GetShort(_Buffer[bufferOffset]);
+#ifdef DOWNLOAD
+    inline uint PackByte(uint4 v){
+        uint result = v.x;
+        result <<= 8;
+        result |= v.y;
+        result <<= 8;
+        result |= v.z;
+        result <<= 8;
+        result |= v.w;
+        return result;
     }
-#endif
-#if defined(RGBA16UNorm) || defined(RG16UNorm)
-    void WritePixel(UVType id, uint bufferOffset){
-        _Tex[id] = GetShort(_Buffer[bufferOffset]) / 65535.0;
+    inline uint PackShort(uint2 value){
+        uint result = value.x;
+        result <<= 16;
+        result |= value.y;
+        return result;
     }
-#endif
+    inline uint2 PackShort(uint4 value){
+        uint2 result = value.xz;
+        result <<= 16;
+        result |= value.yw;
+        return result;
+    }
+    #if defined(R8SInt) || defined(R8UInt)
+        void ReadPixel(UVType id, uint bufferOffset){
+            uint4 v;
+            v.x = _Tex[id];
+            id = GetNextPixel(id);
+            v.y = _Tex[id];
+            id = GetNextPixel(id);
+            v.z = _Tex[id];
+            id = GetNextPixel(id);
+            v.w = _Tex[id];
+            _Write_Buffer[bufferOffset] = PackByte(v);
+        }
+    #endif
+    #ifdef R8UNorm
+        void ReadPixel(UVType id, uint bufferOffset){
+            float4 v;
+            v.x = _Tex[id];
+            id = GetNextPixel(id);
+            v.y = _Tex[id];
+            id = GetNextPixel(id);
+            v.z = _Tex[id];
+            id = GetNextPixel(id);
+            v.w = _Tex[id];
+            _Write_Buffer[bufferOffset] = asuint(PackByte((uint4)(v * 255)));
+        }
+    #endif
+    #if defined(RG8SInt) || defined(RG8UInt)
+        void ReadPixel(UVType id, uint bufferOffset){
+            uint4 v ;//= GetByte();
+            v.xy = _Tex[id];
+            id = GetNextPixel(id);
+            v.zw = _Tex[id];
+            _Write_Buffer[bufferOffset] = PackByte(v);
+        }
+    #endif
+    #ifdef RG8UNorm
+        void ReadPixel(UVType id, uint bufferOffset){
+            float4 v ;//= GetByte();
+            v.xy = _Tex[id];
+            id = GetNextPixel(id);
+            v.zw = _Tex[id];
+            _Write_Buffer[bufferOffset] = asuint(PackByte((uint4)(v * 255)));
+        }
+    #endif
+    #if defined(RGBA8SInt) || defined(RGBA8UInt)
+        void ReadPixel(UVType id, uint bufferOffset){
+            uint4 v = _Tex[id];
+            _Write_Buffer[bufferOffset] = PackByte(v);
+            
+        }
+    #endif
+    #ifdef RGBA8UNorm
+        void ReadPixel(UVType id, uint bufferOffset){
+            float4 v = _Tex[id];
+            _Write_Buffer[bufferOffset] = asuint(PackByte((uint4)(v * 255)));
+        }
+    #endif
+    #if defined(R16SInt) || defined(R16UInt)
+        void ReadPixel(UVType id, uint bufferOffset){
+            uint2 v;
+            v.x = _Tex[id];
+            id = GetNextPixel(id);
+            v.y = _Tex[id];
+            _Write_Buffer[bufferOffset] = PackShort(v);
+        }
+    #endif
+    #ifdef R16UNorm
+        void ReadPixel(UVType id, uint bufferOffset){
+            float2 v;
+            v.x = _Tex[id];
+            id = GetNextPixel(id);
+            v.y = _Tex[id];
+            _Write_Buffer[bufferOffset] = PackShort((uint2)(v * 65535));
+        }
+    #endif
 
-#if defined(R32SInt) || defined(R32UInt) || defined(RG32SInt) || defined(RG32UInt) || defined(RGBA32SInt) || defined(RGBA32UInt)
-    void WritePixel(UVType id, uint bufferOffset){
-        _Tex[id] =  _Buffer[bufferOffset];
-    }
-#endif
+    #if defined(RGBA16SInt) || defined(RGBA16UInt) || defined(RG16SInt) || defined(RG16UInt)
+        void ReadPixel(UVType id, uint bufferOffset){
+            _Write_Buffer[bufferOffset] = PackShort(_Tex[id]);
+        }
+    #endif
+    #if defined(RGBA16UNorm) || defined(RG16UNorm)
+        void ReadPixel(UVType id, uint bufferOffset){
+            _Write_Buffer[bufferOffset] = PackShort(_Tex[id] * 65535);
+        }
+    #endif
 
-#ifdef R16F
-    void WritePixel(UVType id, uint bufferOffset){
-        uint2 v = GetShort(_Buffer[bufferOffset]);
-        _Tex[id] = f16tof32(v.x);
-        id = GetNextPixel(id);
-        _Tex[id] = f16tof32(v.y);
+    #if defined(R32SInt) || defined(R32UInt) || defined(RG32SInt) || defined(RG32UInt) || defined(RGBA32SInt) || defined(RGBA32UInt)
+        void ReadPixel(UVType id, uint bufferOffset){
+            _Write_Buffer[bufferOffset] = _Tex[id];
+        }
+    #endif
+
+    #ifdef R16F
+        void ReadPixel(UVType id, uint bufferOffset){
+            uint2 v;
+            v.x = f32tof16(_Tex[id]);
+            id = GetNextPixel(id);
+            v.y = f32tof16(_Tex[id]);
+            _Write_Buffer[bufferOffset] = PackShort(v);
+        }
+    #endif
+    #if defined(RG16F) || defined(RGBA16F) 
+        void ReadPixel(UVType id, uint bufferOffset){
+            _Write_Buffer[bufferOffset] = PackShort(f16tof32(_Tex[id]));
+        }
+    #endif
+    #if defined(R32F) || defined(RGBA32F) || defined(RG32F)
+        void ReadPixel(UVType id, uint bufferOffset){
+            _Write_Buffer[bufferOffset] = f16tof32(_Tex[id]);
+        }
+    #endif
+#else
+    inline uint4 GetByte(uint value){
+        uint4 r;
+        r.w = value & 255;
+        value >>= 8;
+        r.z = value & 255;
+        value >>= 8;
+        r.y = value & 255;
+        value >>= 8;
+        r.x = value;
+        return r;
     }
-#endif
-#if defined(RG16F) || defined(RGBA16F) 
-    void WritePixel(UVType id, uint bufferOffset){
-        _Tex[id] = f16tof32(GetShort(_Buffer[bufferOffset]));
+    inline uint2 GetShort(uint value){
+        uint2 r;
+        r.y = value & 65535;
+        value >>= 16;
+        r.x = value;
+        return r;
     }
-#endif
-#if defined(R32F) || defined(RGBA32F) || defined(RG32F)
-    void WritePixel(UVType id, uint bufferOffset){
-        _Tex[id] = asfloat(_Buffer[bufferOffset]);
+    inline uint4 GetShort(uint2 value){
+        uint4 r;
+        r.yw = value & 65535;
+        value >>= 16;
+        r.xz = value;
+        return r;
     }
+    #if defined(R8SInt) || defined(R8UInt)
+        void WritePixel(UVType id, uint bufferOffset){
+            uint4 v = GetByte(_Buffer[bufferOffset]);
+            _Tex[id] = v.x;
+            id = GetNextPixel(id);
+            _Tex[id] = v.y;
+            id = GetNextPixel(id);
+            _Tex[id] = v.z;
+            id = GetNextPixel(id);
+            _Tex[id] = v.w;
+        }
+    #endif
+    #ifdef R8UNorm
+        void WritePixel(UVType id, uint bufferOffset){
+            float4 v = GetByte(_Buffer[bufferOffset]) / 255.0;
+            _Tex[id] = v.x;
+            id = GetNextPixel(id);
+            _Tex[id] = v.y;
+            id = GetNextPixel(id);
+            _Tex[id] = v.z;
+            id = GetNextPixel(id);
+            _Tex[id] = v.w;
+        }
+    #endif
+    #if defined(RG8SInt) || defined(RG8UInt)
+        void WritePixel(UVType id, uint bufferOffset){
+            uint4 v = GetByte(_Buffer[bufferOffset]);
+            _Tex[id] = v.xy;
+            id = GetNextPixel(id);
+            _Tex[id] = v.zw;
+        }
+    #endif
+    #ifdef RG8UNorm
+        void WritePixel(UVType id, uint bufferOffset){
+            float4 v = GetByte(_Buffer[bufferOffset]) / 255.0;
+            _Tex[id] = v.xy;
+            id = GetNextPixel(id);
+            _Tex[id] = v.zw;
+        }
+    #endif
+    #if defined(RGBA8SInt) || defined(RGBA8UInt)
+        void WritePixel(UVType id, uint bufferOffset){
+            uint4 v = GetByte(_Buffer[bufferOffset]);
+            _Tex[id] = v;
+        }
+    #endif
+    #ifdef RGBA8UNorm
+        void WritePixel(UVType id, uint bufferOffset){
+            float4 v = GetByte(_Buffer[bufferOffset]) / 255.0;
+            _Tex[id] = v;
+        }
+    #endif
+    #if defined(R16SInt) || defined(R16UInt)
+        void WritePixel(UVType id, uint bufferOffset){
+            uint2 v = GetShort(_Buffer[bufferOffset]);
+            _Tex[id] = v.x;
+            id = GetNextPixel(id);
+            _Tex[id] = v.y;
+        }
+    #endif
+    #ifdef R16UNorm
+        void WritePixel(UVType id, uint bufferOffset){
+            float2 v = GetShort(_Buffer[bufferOffset]) / 65535.0;
+            _Tex[id] = v.x;
+            id = GetNextPixel(id);
+            _Tex[id] = v.y;
+        }
+    #endif
+
+    #if defined(RGBA16SInt) || defined(RGBA16UInt) || defined(RG16SInt) || defined(RG16UInt)
+        void WritePixel(UVType id, uint bufferOffset){
+            _Tex[id] = GetShort(_Buffer[bufferOffset]);
+        }
+    #endif
+    #if defined(RGBA16UNorm) || defined(RG16UNorm)
+        void WritePixel(UVType id, uint bufferOffset){
+            _Tex[id] = GetShort(_Buffer[bufferOffset]) / 65535.0;
+        }
+    #endif
+
+    #if defined(R32SInt) || defined(R32UInt) || defined(RG32SInt) || defined(RG32UInt) || defined(RGBA32SInt) || defined(RGBA32UInt)
+        void WritePixel(UVType id, uint bufferOffset){
+            _Tex[id] =  _Buffer[bufferOffset];
+        }
+    #endif
+
+    #ifdef R16F
+        void WritePixel(UVType id, uint bufferOffset){
+            uint2 v = GetShort(_Buffer[bufferOffset]);
+            _Tex[id] = f16tof32(v.x);
+            id = GetNextPixel(id);
+            _Tex[id] = f16tof32(v.y);
+        }
+    #endif
+    #if defined(RG16F) || defined(RGBA16F) 
+        void WritePixel(UVType id, uint bufferOffset){
+            _Tex[id] = f16tof32(GetShort(_Buffer[bufferOffset]));
+        }
+    #endif
+    #if defined(R32F) || defined(RGBA32F) || defined(RG32F)
+        void WritePixel(UVType id, uint bufferOffset){
+            _Tex[id] = asfloat(_Buffer[bufferOffset]);
+        }
+    #endif
 #endif

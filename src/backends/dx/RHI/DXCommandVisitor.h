@@ -4,6 +4,7 @@
 class ThreadCommand;
 namespace luisa::compute {
 class FrameResource;
+class InternalShaders;
 class DXCommandVisitor final : public CommandVisitor {
 public:
 	//VENGINE_CODEGEN [copy] [	void visit(## const* cmd) noexcept override;] [BufferUploadCommand] [BufferDownloadCommand] [BufferCopyCommand] [KernelLaunchCommand] [TextureUploadCommand] [TextureDownloadCommand] [EventSignalCommand] [EventWaitCommand]
@@ -22,5 +23,6 @@ private:
 	GFXDevice* device;
 	ThreadCommand* tCmd;
 	FrameResource* res;
+	InternalShaders* internalShaders;
 };
 }// namespace luisa::compute

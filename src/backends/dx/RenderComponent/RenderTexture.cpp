@@ -782,7 +782,7 @@ uint RenderTexture::GetGlobalUAVDescIndex(uint mipLevel) const {
 		mipLevel = Min<uint>(mipLevel, mipCount - 1);
 		return uavDescIndices[mipLevel];
 	} else {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 		throw "Depth UAV Not Allowed!";
 #else
 		return 0;

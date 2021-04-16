@@ -28,7 +28,9 @@ enum struct PixelStorage : uint32_t {
 
     FLOAT1,
     FLOAT2,
-    FLOAT4
+    FLOAT4,
+
+    NUM
 };
 
 enum struct PixelFormat : uint32_t {
@@ -72,7 +74,9 @@ enum struct PixelFormat : uint32_t {
 
     R32F,
     RG32F,
-    RGBA32F
+    RGBA32F,
+
+    NUM
 };
 
 [[nodiscard]] constexpr auto pixel_format_to_storage(PixelFormat format) noexcept {

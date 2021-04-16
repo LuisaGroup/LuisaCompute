@@ -71,7 +71,7 @@ void DefaultTextureAllocator::ReturnTexture(TextureBase* tex) {
 	lockGuard lck(mtx);
 	auto ite = allocatedTexs.Find(tex->GetInstanceID());
 	if (!ite) {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 		throw "Non Exist Resource!";
 #endif
 		return;

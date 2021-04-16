@@ -36,6 +36,27 @@ void vengine_init_malloc(
 	Alloc::mallocFunc = mallocFunc;
 	Alloc::freeFunc = freeFunc;
 }
+void* string::string_malloc(size_t sz) {
+	if (sz <= PLACEHOLDERSIZE) {
+		return &localStorage;
+	}
+	return vengine_malloc(sz);
+}
+void string::string_free(void* freeMem) {
+	if (freeMem != reinterpret_cast<void*>(&localStorage))
+		vengine_free(freeMem);
+}
+void* wstring::wstring_malloc(size_t sz) {
+	if (sz <= PLACEHOLDERSIZE) {
+		return &localStorage;
+	}
+	return vengine_malloc(sz);
+}
+void wstring::wstring_free(void* freeMem) {
+	if (freeMem != reinterpret_cast<void*>(&localStorage))
+		vengine_free(freeMem);
+}
+
 string::string() noexcept {
 	ptr = nullptr;
 	capacity = 0;
@@ -43,7 +64,7 @@ string::string() noexcept {
 }
 string::~string() noexcept {
 	if (ptr) {
-		vengine_free(ptr);
+		string_free(ptr);
 	}
 }
 string::string(char const* chr) noexcept {
@@ -81,10 +102,10 @@ void string::push_back_all(char const* c, size_t newStrLen) noexcept {
 }
 void string::reserve(size_t targetCapacity) noexcept {
 	if (capacity >= targetCapacity) return;
-	char* newPtr = (char*)vengine_malloc(targetCapacity);
+	char* newPtr = (char*)string_malloc(targetCapacity);
 	if (ptr) {
 		memcpy(newPtr, ptr, lenSize + 1);
-		vengine_free(ptr);
+		string_free(ptr);
 	}
 	ptr = newPtr;
 	capacity = targetCapacity;
@@ -102,7 +123,12 @@ string::string(const string& data) noexcept {
 	}
 }
 string::string(string&& data) noexcept {
-	ptr = data.ptr;
+	if (data.ptr == reinterpret_cast<void*>(&data.localStorage)) {
+		ptr = reinterpret_cast<char*>(&localStorage);
+		localStorage = data.localStorage;
+	} else {
+		ptr = data.ptr;
+	}
 	lenSize = data.lenSize;
 	capacity = data.capacity;
 	data.ptr = nullptr;
@@ -128,7 +154,7 @@ string& string::operator=(const string& data) noexcept {
 		ptr[lenSize] = 0;
 	} else {
 		if (ptr)
-			vengine_free(ptr);
+			string_free(ptr);
 		ptr = nullptr;
 		capacity = 0;
 		lenSize = 0;
@@ -247,14 +273,14 @@ string::string(char a, const string& b) noexcept {
 	ptr[newLenSize] = 0;
 }
 char& string::operator[](size_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
 	return ptr[index];
 }
 void string::erase(size_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
@@ -262,7 +288,7 @@ void string::erase(size_t index) noexcept {
 	lenSize--;
 }
 char const& string::operator[](size_t index) const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
@@ -305,7 +331,7 @@ wstring::wstring() noexcept {
 }
 wstring::~wstring() noexcept {
 	if (ptr)
-		vengine_free(ptr);
+		wstring_free(ptr);
 }
 wstring::wstring(wchar_t const* chr) noexcept {
 	size_t size = wstrLen(chr);
@@ -370,11 +396,11 @@ wstring::wstring(string_view chunk) {
 void wstring::reserve(size_t targetCapacity) noexcept {
 	if (capacity >= targetCapacity) return;
 	targetCapacity *= 2;
-	wchar_t* newPtr = (wchar_t*)(char*)vengine_malloc(targetCapacity);
+	wchar_t* newPtr = (wchar_t*)(char*)wstring_malloc(targetCapacity);
 	targetCapacity /= 2;
 	if (ptr) {
 		memcpy(newPtr, ptr, (lenSize + 1) * 2);
-		vengine_free(ptr);
+		wstring_free(ptr);
 	}
 	ptr = newPtr;
 	capacity = targetCapacity;
@@ -392,7 +418,13 @@ wstring::wstring(const wstring& data) noexcept {
 	}
 }
 wstring::wstring(wstring&& data) noexcept {
-	ptr = data.ptr;
+	if (data.ptr == reinterpret_cast<void*>(&data.localStorage)) {
+		ptr = reinterpret_cast<wchar_t*>(&localStorage);
+		localStorage = data.localStorage;
+	} else {
+		ptr = data.ptr;
+	}
+
 	lenSize = data.lenSize;
 	capacity = data.capacity;
 	data.ptr = nullptr;
@@ -425,7 +457,7 @@ wstring& wstring::operator=(const wstring& data) noexcept {
 		ptr[lenSize] = 0;
 	} else {
 		if (ptr)
-			vengine_free(ptr);
+			wstring_free(ptr);
 		ptr = nullptr;
 		capacity = 0;
 		lenSize = 0;
@@ -545,14 +577,14 @@ wstring::wstring(wchar_t a, const wstring& b) noexcept {
 }
 
 wchar_t& wstring::operator[](size_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
 	return ptr[index];
 }
 void wstring::erase(size_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif
@@ -560,7 +592,7 @@ void wstring::erase(size_t index) noexcept {
 	lenSize--;
 }
 wchar_t const& wstring::operator[](size_t index) const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 	if (index >= lenSize)
 		throw "Out of Range Exception!";
 #endif

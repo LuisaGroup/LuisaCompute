@@ -2,10 +2,11 @@
 #include <Common/GFXUtil.h>
 #include <RenderComponent/UploadBuffer.h>
 #include <Utility/ElementAllocator.h>
+#include <Struct/ConstBuffer.h>
 class BuddyAllocator;
 class BuddyNode;
 class CBufferAllocator;
-class CBufferChunk {
+class VENGINE_DLL_RENDERER CBufferChunk {
 	friend class CBufferAllocator;
 
 private:
@@ -14,9 +15,7 @@ private:
 	CBufferChunk(
 		ElementAllocator::AllocateHandle node)
 		: node(node) {}
-	void CopyData(void const* ptr, size_t sz) const noexcept {
-		node.GetBlockResource<UploadBuffer>()->CopyData(node.GetPosition(), ptr, sz);
-	}
+	void CopyData(void const* ptr, size_t sz) const noexcept;
 
 public:
 	CBufferChunk() noexcept {}
@@ -29,9 +28,16 @@ public:
 	uint64 GetSize() const noexcept {
 		return size;
 	}
+
+	void CopyConstBuffer(ConstBuffer const* ptr);
+
 	template<typename T>
 	void CopyData(T const* ptr) const noexcept {
-		CopyData(ptr, sizeof(T));
+		if constexpr (std::is_base_of_v<ConstBuffer, T>) {
+			CopyConstBuffer(ptr);
+		} else {
+			CopyData(ptr, sizeof(T));
+		}
 	}
 };
 class VENGINE_DLL_RENDERER CBufferAllocator {

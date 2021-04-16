@@ -15,8 +15,17 @@ CBufferChunk CBufferAllocator::Allocate(uint64_t size) noexcept {
 	cb.size = size;
 	return cb;
 }
+void CBufferChunk::CopyConstBuffer(ConstBuffer const* ptr) {
+	void* ff = node.GetBlockResource<UploadBuffer>()->GetMappedDataPtr(node.GetPosition());
+	ptr->CopyDataTo(ff);
+}
+
+void CBufferChunk::CopyData(void const* ptr, size_t sz) const noexcept {
+	node.GetBlockResource<UploadBuffer>()->CopyData(node.GetPosition(), ptr, sz);
+}
+
 void CBufferAllocator::Release(CBufferChunk const& chunk) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 	if (!chunk.GetBuffer() || !chunk.node)
 		throw "Null Chunk!";
 #endif

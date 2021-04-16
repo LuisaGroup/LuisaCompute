@@ -1,6 +1,6 @@
 //#endif
 #include <PipelineComponent/CommandBuffer.h>
-#include <RHI\ICommandBuffer.h>
+#include <RHI\DXCommandVisitor.h>
 void CommandBuffer::Clear() {
 	executeCommands.clear();
 	graphicsCmdLists.clear();
