@@ -1,3 +1,4 @@
+#include <VEngineConfig.h>
 #include <windows.h>
 #include <Common/GameTimer.h>
 uint64_t GameTimer::frameCount = 0;

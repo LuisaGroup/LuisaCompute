@@ -14,7 +14,7 @@ TextureHeap::TextureHeap(GFXDevice* device, uint64_t chunkSize, bool isRenderTex
 	heapDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 	heapDesc.Flags = isRenderTexture ? D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES : D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
 	heapDesc.SizeInBytes = (uint64_t)chunkSize;
-	device->CreateHeap(
+	device->device()->CreateHeap(
 		&heapDesc,
 		IID_PPV_ARGS(&heap));
 }
@@ -31,7 +31,7 @@ void TextureHeap::Create(GFXDevice* device, uint64_t chunkSize, bool isRenderTex
 	heapDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
 	heapDesc.Flags = isRenderTexture ? D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES : D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
 	heapDesc.SizeInBytes = (uint64_t)chunkSize;
-	device->CreateHeap(
+	device->device()->CreateHeap(
 		&heapDesc,
 		IID_PPV_ARGS(&heap));
 }

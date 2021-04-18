@@ -62,7 +62,7 @@ struct CD3DX12_VIEWPORT : public D3D12_VIEWPORT {
 		MaxDepth = maxDepth;
 	}
 	explicit CD3DX12_VIEWPORT(
-		_In_ GFXResource* pResource,
+		_In_ ID3D12Resource* pResource,
 		uint mipSlice = 0,
 		FLOAT topLeftX = 0.0f,
 		FLOAT topLeftY = 0.0f,
@@ -634,7 +634,7 @@ struct CD3DX12_RESOURCE_BARRIER : public D3D12_RESOURCE_BARRIER {
 	CD3DX12_RESOURCE_BARRIER() = default;
 	explicit CD3DX12_RESOURCE_BARRIER(const D3D12_RESOURCE_BARRIER& o) noexcept : D3D12_RESOURCE_BARRIER(o) {}
 	static inline CD3DX12_RESOURCE_BARRIER Transition(
-		_In_ GFXResource* pResource,
+		_In_ ID3D12Resource* pResource,
 		GFXResourceState stateBefore,
 		GFXResourceState stateAfter,
 		uint subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
@@ -650,8 +650,8 @@ struct CD3DX12_RESOURCE_BARRIER : public D3D12_RESOURCE_BARRIER {
 		return result;
 	}
 	static inline CD3DX12_RESOURCE_BARRIER Aliasing(
-		_In_ GFXResource* pResourceBefore,
-		_In_ GFXResource* pResourceAfter) noexcept {
+		_In_ ID3D12Resource* pResourceBefore,
+		_In_ ID3D12Resource* pResourceAfter) noexcept {
 		CD3DX12_RESOURCE_BARRIER result = {};
 		D3D12_RESOURCE_BARRIER& barrier = result;
 		result.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
@@ -660,7 +660,7 @@ struct CD3DX12_RESOURCE_BARRIER : public D3D12_RESOURCE_BARRIER {
 		return result;
 	}
 	static inline CD3DX12_RESOURCE_BARRIER UAV(
-		_In_ GFXResource* pResource) noexcept {
+		_In_ ID3D12Resource* pResource) noexcept {
 		CD3DX12_RESOURCE_BARRIER result = {};
 		D3D12_RESOURCE_BARRIER& barrier = result;
 		result.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
@@ -718,19 +718,19 @@ struct CD3DX12_SUBRESOURCE_FOOTPRINT : public D3D12_SUBRESOURCE_FOOTPRINT {
 struct CD3DX12_TEXTURE_COPY_LOCATION : public D3D12_TEXTURE_COPY_LOCATION {
 	CD3DX12_TEXTURE_COPY_LOCATION() = default;
 	explicit CD3DX12_TEXTURE_COPY_LOCATION(const D3D12_TEXTURE_COPY_LOCATION& o) noexcept : D3D12_TEXTURE_COPY_LOCATION(o) {}
-	CD3DX12_TEXTURE_COPY_LOCATION(_In_ GFXResource* pRes)
+	CD3DX12_TEXTURE_COPY_LOCATION(_In_ ID3D12Resource* pRes)
 	noexcept {
 		pResource = pRes;
 		Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
 		PlacedFootprint = {};
 	}
-	CD3DX12_TEXTURE_COPY_LOCATION(_In_ GFXResource* pRes, D3D12_PLACED_SUBRESOURCE_FOOTPRINT const& Footprint)
+	CD3DX12_TEXTURE_COPY_LOCATION(_In_ ID3D12Resource* pRes, D3D12_PLACED_SUBRESOURCE_FOOTPRINT const& Footprint)
 	noexcept {
 		pResource = pRes;
 		Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 		PlacedFootprint = Footprint;
 	}
-	CD3DX12_TEXTURE_COPY_LOCATION(_In_ GFXResource* pRes, uint Sub)
+	CD3DX12_TEXTURE_COPY_LOCATION(_In_ ID3D12Resource* pRes, uint Sub)
 	noexcept {
 		pResource = pRes;
 		Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -1489,7 +1489,7 @@ inline void D3D12DecomposeSubresource(uint Subresource, uint MipLevels, uint Arr
 
 //------------------------------------------------------------------------------------------------
 inline UINT8 D3D12GetFormatPlaneCount(
-	_In_ GFXDevice* pDevice,
+	_In_ ID3D12Device* pDevice,
 	DXGI_FORMAT Format) noexcept {
 	D3D12_FEATURE_DATA_FORMAT_INFO formatInfo = {Format, 0};
 	if (FAILED(pDevice->CheckFeatureSupport(D3D12_FEATURE_FORMAT_INFO, &formatInfo, sizeof(formatInfo)))) {
@@ -1579,8 +1579,8 @@ struct CD3DX12_RESOURCE_DESC : public D3D12_RESOURCE_DESC {
 	}
 	inline UINT16 Depth() const noexcept { return (Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? DepthOrArraySize : 1); }
 	inline UINT16 ArraySize() const noexcept { return (Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? DepthOrArraySize : 1); }
-	inline UINT8 PlaneCount(_In_ GFXDevice* pDevice) const noexcept { return D3D12GetFormatPlaneCount(pDevice, Format); }
-	inline uint Subresources(_In_ GFXDevice* pDevice) const noexcept { return MipLevels * ArraySize() * PlaneCount(pDevice); }
+	inline UINT8 PlaneCount(_In_ ID3D12Device* pDevice) const noexcept { return D3D12GetFormatPlaneCount(pDevice, Format); }
+	inline uint Subresources(_In_ ID3D12Device* pDevice) const noexcept { return MipLevels * ArraySize() * PlaneCount(pDevice); }
 	inline uint CalcSubresource(uint MipSlice, uint ArraySlice, uint PlaneSlice) noexcept { return D3D12CalcSubresource(MipSlice, ArraySlice, PlaneSlice, MipLevels, ArraySize()); }
 };
 inline bool operator==(const D3D12_RESOURCE_DESC& l, const D3D12_RESOURCE_DESC& r) noexcept {
@@ -1679,8 +1679,8 @@ struct CD3DX12_RESOURCE_DESC1 : public D3D12_RESOURCE_DESC1 {
 	}
 	inline UINT16 Depth() const noexcept { return (Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? DepthOrArraySize : 1); }
 	inline UINT16 ArraySize() const noexcept { return (Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D ? DepthOrArraySize : 1); }
-	inline UINT8 PlaneCount(_In_ GFXDevice* pDevice) const noexcept { return D3D12GetFormatPlaneCount(pDevice, Format); }
-	inline uint Subresources(_In_ GFXDevice* pDevice) const noexcept { return MipLevels * ArraySize() * PlaneCount(pDevice); }
+	inline UINT8 PlaneCount(_In_ ID3D12Device* pDevice) const noexcept { return D3D12GetFormatPlaneCount(pDevice, Format); }
+	inline uint Subresources(_In_ ID3D12Device* pDevice) const noexcept { return MipLevels * ArraySize() * PlaneCount(pDevice); }
 	inline uint CalcSubresource(uint MipSlice, uint ArraySlice, uint PlaneSlice) noexcept { return D3D12CalcSubresource(MipSlice, ArraySlice, PlaneSlice, MipLevels, ArraySize()); }
 };
 inline bool operator==(const D3D12_RESOURCE_DESC1& l, const D3D12_RESOURCE_DESC1& r) noexcept {
@@ -1729,7 +1729,7 @@ struct CD3DX12_VIEW_INSTANCING_DESC : public D3D12_VIEW_INSTANCING_DESC {
 //------------------------------------------------------------------------------------------------
 // Returns required size of a buffer to be used for data upload
  UINT64 GetRequiredIntermediateSize(
-	_In_ GFXResource* pDestinationResource,
+	_In_ ID3D12Resource* pDestinationResource,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES) uint FirstSubresource,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES - FirstSubresource) uint NumSubresources) noexcept;
 
@@ -1737,8 +1737,8 @@ struct CD3DX12_VIEW_INSTANCING_DESC : public D3D12_VIEW_INSTANCING_DESC {
 // All arrays must be populated (e.g. by calling GetCopyableFootprints)
  UINT64 UpdateSubresources(
 	_In_ GFXCommandList* pCmdList,
-	_In_ GFXResource* pDestinationResource,
-	_In_ GFXResource* pIntermediate,
+	_In_ ID3D12Resource* pDestinationResource,
+	_In_ ID3D12Resource* pIntermediate,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES) uint FirstSubresource,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES - FirstSubresource) uint NumSubresources,
 	UINT64 RequiredSize,
@@ -1751,8 +1751,8 @@ struct CD3DX12_VIEW_INSTANCING_DESC : public D3D12_VIEW_INSTANCING_DESC {
 // All arrays must be populated (e.g. by calling GetCopyableFootprints)
  UINT64 UpdateSubresources(
 	_In_ GFXCommandList* pCmdList,
-	_In_ GFXResource* pDestinationResource,
-	_In_ GFXResource* pIntermediate,
+	_In_ ID3D12Resource* pDestinationResource,
+	_In_ ID3D12Resource* pIntermediate,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES) uint FirstSubresource,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES - FirstSubresource) uint NumSubresources,
 	UINT64 RequiredSize,
@@ -1766,8 +1766,8 @@ struct CD3DX12_VIEW_INSTANCING_DESC : public D3D12_VIEW_INSTANCING_DESC {
 // Heap-allocating UpdateSubresources implementation
  UINT64 UpdateSubresources(
 	_In_ GFXCommandList* pCmdList,
-	_In_ GFXResource* pDestinationResource,
-	_In_ GFXResource* pIntermediate,
+	_In_ ID3D12Resource* pDestinationResource,
+	_In_ ID3D12Resource* pIntermediate,
 	UINT64 IntermediateOffset,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES) uint FirstSubresource,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES - FirstSubresource) uint NumSubresources,
@@ -1777,8 +1777,8 @@ struct CD3DX12_VIEW_INSTANCING_DESC : public D3D12_VIEW_INSTANCING_DESC {
 // Heap-allocating UpdateSubresources implementation
  UINT64 UpdateSubresources(
 	_In_ GFXCommandList* pCmdList,
-	_In_ GFXResource* pDestinationResource,
-	_In_ GFXResource* pIntermediate,
+	_In_ ID3D12Resource* pDestinationResource,
+	_In_ ID3D12Resource* pIntermediate,
 	UINT64 IntermediateOffset,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES) uint FirstSubresource,
 	_In_range_(0, D3D12_REQ_SUBRESOURCES - FirstSubresource) uint NumSubresources,
@@ -1790,8 +1790,8 @@ struct CD3DX12_VIEW_INSTANCING_DESC : public D3D12_VIEW_INSTANCING_DESC {
 template<uint MaxSubresources>
 inline UINT64 UpdateSubresources(
 	_In_ GFXCommandList* pCmdList,
-	_In_ GFXResource* pDestinationResource,
-	_In_ GFXResource* pIntermediate,
+	_In_ ID3D12Resource* pDestinationResource,
+	_In_ ID3D12Resource* pIntermediate,
 	UINT64 IntermediateOffset,
 	_In_range_(0, MaxSubresources) uint FirstSubresource,
 	_In_range_(1, MaxSubresources - FirstSubresource) uint NumSubresources,
@@ -1802,7 +1802,7 @@ inline UINT64 UpdateSubresources(
 	UINT64 RowSizesInBytes[MaxSubresources];
 
 	auto Desc = pDestinationResource->GetDesc();
-	GFXDevice* pDevice = nullptr;
+	ID3D12Device* pDevice = nullptr;
 	pDestinationResource->GetDevice(IID_PPV_ARGS(&pDevice));
 	pDevice->GetCopyableFootprints(&Desc, FirstSubresource, NumSubresources, IntermediateOffset, Layouts, NumRows, RowSizesInBytes, &RequiredSize);
 	pDevice->Release();
@@ -1815,8 +1815,8 @@ inline UINT64 UpdateSubresources(
 template<uint MaxSubresources>
 inline UINT64 UpdateSubresources(
 	_In_ GFXCommandList* pCmdList,
-	_In_ GFXResource* pDestinationResource,
-	_In_ GFXResource* pIntermediate,
+	_In_ ID3D12Resource* pDestinationResource,
+	_In_ ID3D12Resource* pIntermediate,
 	UINT64 IntermediateOffset,
 	_In_range_(0, MaxSubresources) uint FirstSubresource,
 	_In_range_(1, MaxSubresources - FirstSubresource) uint NumSubresources,
@@ -1828,7 +1828,7 @@ inline UINT64 UpdateSubresources(
 	UINT64 RowSizesInBytes[MaxSubresources];
 
 	auto Desc = pDestinationResource->GetDesc();
-	GFXDevice* pDevice = nullptr;
+	ID3D12Device* pDevice = nullptr;
 	pDestinationResource->GetDevice(IID_PPV_ARGS(&pDevice));
 	pDevice->GetCopyableFootprints(&Desc, FirstSubresource, NumSubresources, IntermediateOffset, Layouts, NumRows, RowSizesInBytes, &RequiredSize);
 	pDevice->Release();

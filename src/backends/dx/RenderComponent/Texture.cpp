@@ -353,7 +353,7 @@ uint64_t Texture::GetSizeFromProperty(
 	texDesc.SampleDesc.Quality = 0;
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-	return device->GetResourceAllocationInfo(
+	return device->device()->GetResourceAllocationInfo(
 					 0, 1, &texDesc)
 		.SizeInBytes;
 }
@@ -393,11 +393,11 @@ Texture::Texture(
 	texDesc.SampleDesc.Quality = 0;
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-	resourceSize = device->GetResourceAllocationInfo(
+	resourceSize = device->device()->GetResourceAllocationInfo(
 							 0, 1, &texDesc)
 					   .SizeInBytes;
 	if (placedHeap) {
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
@@ -406,7 +406,7 @@ Texture::Texture(
 			IID_PPV_ARGS(&Resource)));
 	} else {
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
@@ -475,7 +475,7 @@ D3D12_RESOURCE_DESC Texture::CreateWithoutResource(
 	texDesc.SampleDesc.Quality = 0;
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-	resourceSize = device->GetResourceAllocationInfo(
+	resourceSize = device->device()->GetResourceAllocationInfo(
 							 0, 1, &texDesc)
 					   .SizeInBytes;
 	return texDesc;
@@ -534,11 +534,11 @@ Texture::Texture(
 	texDesc.SampleDesc.Quality = 0;
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-	resourceSize = device->GetResourceAllocationInfo(
+	resourceSize = device->device()->GetResourceAllocationInfo(
 							 0, 1, &texDesc)
 					   .SizeInBytes;
 	if (placedHeap) {
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
@@ -547,7 +547,7 @@ Texture::Texture(
 			IID_PPV_ARGS(&Resource)));
 	} else {
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
@@ -577,7 +577,7 @@ Texture::Texture(
 	auto texDesc = CreateWithoutResource(data, device, filePath, startLoading, false, datasPtr, type, maximumLoadMipmap, startMipMap);
 	fileLoadFormat = data.format;
 	allocator->AllocateTextureHeap(device, mFormat, mWidth, mHeight, data.depth, type, data.mipCount, &placedHeap, &placedOffset, false, this);
-	ThrowIfFailed(device->CreatePlacedResource(
+	ThrowIfFailed(device->device()->CreatePlacedResource(
 		placedHeap,
 		placedOffset,
 		&texDesc,
@@ -607,7 +607,7 @@ Texture::Texture(
 	auto texDesc = CreateWithoutResource(data, device, filePath, startLoading, false, datasPtr, type, maximumLoadMipmap, startMipMap);
 	fileLoadFormat = data.format;
 	if (placedHeap) {
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
@@ -616,7 +616,7 @@ Texture::Texture(
 			IID_PPV_ARGS(&Resource)));
 	} else {
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
@@ -648,7 +648,7 @@ Texture::Texture(
 	auto texDesc = CreateWithoutResource(data, device, filePath, startLoading, true, datasPtr, data.textureType, maximumLoadMipmap, startMipMap);
 	fileLoadFormat = data.format;
 	if (placedHeap) {
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			placedHeap->GetHeap(),
 			placedOffset,
 			&texDesc,
@@ -657,7 +657,7 @@ Texture::Texture(
 			IID_PPV_ARGS(&Resource)));
 	} else {
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&texDesc,
@@ -691,7 +691,7 @@ Texture::Texture(
 	auto texDesc = CreateWithoutResource(data, device, filePath, startLoading, true, datasPtr, data.textureType, maximumLoadMipmap, startMipMap);
 	fileLoadFormat = data.format;
 	allocator->AllocateTextureHeap(device, mFormat, mWidth, mHeight, data.depth, data.textureType, data.mipCount, &placedHeap, &placedOffset, false, this);
-	ThrowIfFailed(device->CreatePlacedResource(
+	ThrowIfFailed(device->device()->CreatePlacedResource(
 		placedHeap,
 		placedOffset,
 		&texDesc,

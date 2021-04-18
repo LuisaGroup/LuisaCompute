@@ -28,13 +28,13 @@ void DescriptorHeap::InternalCreate(
 	ElementAllocator* allocator;
 	switch (Type) {
 		case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-			allocator = Graphics::srvAllocator;
+			allocator = Graphics::current->srvAllocator;
 			break;
 		case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
-			allocator = Graphics::rtvAllocator;
+			allocator = Graphics::current->rtvAllocator;
 			break;
 		default:
-			allocator = Graphics::dsvAllocator;
+			allocator = Graphics::current->dsvAllocator;
 			break;
 	}
 	this->allocator = allocator;

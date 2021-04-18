@@ -42,7 +42,7 @@ void CreateDefaultBuffer(
 				&heap,
 				&offset,
 				(uint64)mesh);
-			ThrowIfFailed(device->CreatePlacedResource(
+			ThrowIfFailed(device->device()->CreatePlacedResource(
 				heap,
 				offset,
 				&buffer,
@@ -52,7 +52,7 @@ void CreateDefaultBuffer(
 		} else {
 			// Create the actual default buffer resource.
 			auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-			ThrowIfFailed(device->CreateCommittedResource(
+			ThrowIfFailed(device->device()->CreateCommittedResource(
 				&heap,
 				D3D12_HEAP_FLAG_NONE,
 				&buffer,
@@ -75,7 +75,7 @@ void CreateDefaultBuffer(
 				&heap,
 				&offset,
 				(uint64)mesh + 1);
-			ThrowIfFailed(device->CreatePlacedResource(
+			ThrowIfFailed(device->device()->CreatePlacedResource(
 				heap,
 				offset,
 				&buffer,
@@ -84,7 +84,7 @@ void CreateDefaultBuffer(
 				IID_PPV_ARGS(uploadBuffer.GetAddressOf())));
 		} else {
 			auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-			ThrowIfFailed(device->CreateCommittedResource(
+			ThrowIfFailed(device->device()->CreateCommittedResource(
 				&prop,
 				D3D12_HEAP_FLAG_NONE,
 				&buffer,
@@ -1080,7 +1080,7 @@ void Mesh::LoadMeshFromFiles(
 	// Create the actual default buffer resource.
 	auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
 	auto buf = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_NONE);
-	ThrowIfFailed(device->CreateCommittedResource(
+	ThrowIfFailed(device->device()->CreateCommittedResource(
 		&prop,
 		D3D12_HEAP_FLAG_NONE,
 		&buf,
@@ -1091,7 +1091,7 @@ void Mesh::LoadMeshFromFiles(
 	// an intermediate upload heap.
 	prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 	buf = CD3DX12_RESOURCE_DESC::Buffer(bufferSize);
-	ThrowIfFailed(device->CreateCommittedResource(
+	ThrowIfFailed(device->device()->CreateCommittedResource(
 		&prop,
 		D3D12_HEAP_FLAG_NONE,
 		&buf,

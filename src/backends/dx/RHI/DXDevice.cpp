@@ -6,6 +6,14 @@
 #include <RHI/DXStream.hpp>
 #include <RHI/ShaderCompiler.h>
 #include <ShaderCompile/HLSLCompiler.h>
+#include <PipelineComponent/DXAllocator.h>
+#include <Singleton/Graphics.h>
+#include <Singleton/ShaderLoader.h>
+#include <RenderComponent/ComputeShader.h>
+#include <RHI/InternalShaders.h>
+#include <RHI/RenderTexturePackage.h>
+#include <Singleton/ShaderID.h>
+#include <RenderComponent/CBufferAllocator.h>
 
 namespace luisa::compute {
 using namespace Microsoft::WRL;
@@ -20,18 +28,24 @@ static GFXFormat LCFormatToVEngineFormat(PixelFormat format) {
 class FrameResource;
 class DXDevice final : public Device::Interface {
 public:
-	DXDevice(const Context& ctx, uint32_t index) : Device::Interface(ctx) {// TODO: support device selection?
+	DXDevice(const Context& ctx, uint32_t index)
+		: Device::Interface(ctx) {// TODO: support device selection?
 		InitD3D(index);
-		dxDevice = md3dDevice.Get();
+		dxDevice.New(md3dDevice.Get());
 		SCompile::HLSLCompiler::InitRegisteData();
+		graphicsInstance.New(dxDevice);
+		shaderGlobal = ShaderLoader::Init(dxDevice);
+		cbAlloc.New(dxDevice, false);
+		ShaderID::Init();
 	}
 	uint64 create_buffer(size_t size_bytes) noexcept override {
+		Graphics::current = graphicsInstance;
 		return reinterpret_cast<uint64>(
 			new StructuredBuffer(
 				dxDevice,
 				{StructuredBufferElement::Get(1, size_bytes)},
 				GPUResourceState_Common,
-				nullptr//TODO: allocator
+				DXAllocator::GetBufferAllocator()//TODO: allocator
 				));
 	}
 	void dispose_buffer(uint64 handle) noexcept override {
@@ -42,18 +56,22 @@ public:
 	uint64 create_texture(
 		PixelFormat format, uint dimension, uint width, uint height, uint depth,
 		uint mipmap_levels, bool is_bindless) override {
-		return reinterpret_cast<uint64>(
-			new RenderTexture(
-				dxDevice,
-				nullptr,//TODO: allocator
-				width,
-				height,
-				RenderTextureFormat::GetColorFormat(LCFormatToVEngineFormat(format)),
-				dimension > 2 ? TextureDimension::Tex3D : TextureDimension::Tex2D,
-				depth,
-				mipmap_levels,
-				RenderTextureState::Common,
-				0));
+		Graphics::current = graphicsInstance;
+		RenderTexturePackage* pack = new RenderTexturePackage();
+		pack->bindless = is_bindless;
+		pack->format = format;
+		pack->rt.New(
+			dxDevice,
+			DXAllocator::GetTextureAllocator(),//TODO: allocator
+			width,
+			height,
+			RenderTextureFormat::GetColorFormat(LCFormatToVEngineFormat(format)),
+			dimension > 2 ? TextureDimension::Tex3D : TextureDimension::Tex2D,
+			depth,
+			mipmap_levels,
+			RenderTextureState::Common,
+			0);
+		return reinterpret_cast<uint64>(pack);
 	}
 	void dispose_texture(uint64 handle) noexcept override {
 		delete reinterpret_cast<RenderTexture*>(handle);
@@ -74,6 +92,7 @@ public:
 		stream->Sync(cpuFence.Get(), mtx);
 	}
 	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
+		EnableThreadLocal();
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		stream->Execute(
 			dxDevice,
@@ -95,12 +114,15 @@ public:
 		return 0;
 	}
 	void dispose_event(uint64_t handle) noexcept override {}
-	void synchronize_event(uint64_t handle) noexcept override {}
+	void synchronize_event(uint64_t handle) noexcept override {
+		EnableThreadLocal();
+	}
 
 	~DXDevice() {
+		ShaderLoader::Dispose(shaderGlobal);
 	}
 	//////////// Variables
-	GFXDevice* dxDevice{nullptr};
+	StackObject<GFXDevice, true> dxDevice;
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 private:
 	///////////// D3D
@@ -115,9 +137,15 @@ private:
 	LockFreeArrayQueue<FrameResource*> waitingRes[1];
 	SingleThreadArrayQueue<FrameResource*> usingQueue[1];
 	std::mutex mtx;
+	InternalShaders internalShaders;
 	uint64 finishedFence = 1;
+	StackObject<Graphics, true> graphicsInstance;
+	ShaderLoaderGlobal* shaderGlobal;
+	ComputeShader* copyShader;
+	StackObject<CBufferAllocator, true> cbAlloc;
+
 	void InitD3D(uint32_t index) {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 		// Enable the D3D12 debug layer.
 		{
 			ComPtr<ID3D12Debug> debugController;
@@ -167,7 +195,15 @@ private:
 		queueDesc.Type = (D3D12_COMMAND_LIST_TYPE)GFXCommandListType_Copy;
 		ThrowIfFailed(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&mCopyCommandQueue)));
 	}
-
+	void EnableThreadLocal() {
+		Graphics::current = graphicsInstance;
+		ShaderLoader::current = shaderGlobal;
+	}
+	void InitInternal() {
+		EnableThreadLocal();
+		internalShaders.copyShader = ShaderLoader::GetComputeShader(
+			"DXCompiledShader/Internal/Copy.compute.cso"_sv);
+	}
 	FrameResource* GetFrameResource(GFXDevice* device, GFXCommandListType type) {
 		FrameResource* result = nullptr;
 		size_t index = GetQueueIndex(type);
@@ -187,7 +223,7 @@ private:
 				return result;
 			}
 		}
-		return new FrameResource(device, type);
+		return new FrameResource(device, type, cbAlloc);
 	}
 	size_t GetQueueIndex(GFXCommandListType lstType) {
 		switch (lstType) {
@@ -205,6 +241,6 @@ LUISA_EXPORT luisa::compute::Device::Interface* create(const luisa::compute::Con
 	return new luisa::compute::DXDevice{ctx, id};
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device::Interface *device) noexcept {
+LUISA_EXPORT void destroy(luisa::compute::Device::Interface* device) noexcept {
 	delete device;
 }

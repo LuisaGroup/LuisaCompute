@@ -46,7 +46,7 @@ void GeneratePSO(
 	opaquePsoDesc.SampleDesc.Quality = 0;
 	opaquePsoDesc.DSVFormat = (DXGI_FORMAT)set.depthFormat;
 	//compile PSO, very costly function
-	HRESULT testResult = device->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&pso->obj));
+	HRESULT testResult = device->device()->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&pso->obj));
 	pso->loadState = (uint8_t)PSOContainer::PSOLoadState::Loaded;
 	ThrowIfFailed(testResult);
 }

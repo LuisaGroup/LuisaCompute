@@ -38,7 +38,7 @@ RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
 	}
 	ThrowIfFailed(hr);
-	ThrowIfFailed(device->CreateRootSignature(
+	ThrowIfFailed(device->device()->CreateRootSignature(
 		0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
@@ -78,7 +78,7 @@ RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 	globalRootSignature->SetRootSignature(mRootSignature.Get());
 	auto pipelineConfig = raytracingPipeline.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
 	pipelineConfig->Config(recursiveCount);
-	ThrowIfFailed(static_cast<ID3D12Device5*>(device)->CreateStateObject(raytracingPipeline, IID_PPV_ARGS(&mStateObj)));
+	ThrowIfFailed(static_cast<ID3D12Device5*>(device->device())->CreateStateObject(raytracingPipeline, IID_PPV_ARGS(&mStateObj)));
 	ComPtr<ID3D12StateObjectProperties> stateObjectProperties;
 	ThrowIfFailed(mStateObj.As(&stateObjectProperties));
 	auto BindIdentifier = [&](uint64 bufferIndex, vengine::string const& name) -> std::pair<GpuAddress, uint64> {

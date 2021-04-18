@@ -26,7 +26,7 @@ may get their alignment 4K and their size a multiply of 4K instead of 64K.
 #define D3D12MA_USE_SMALL_RESOURCE_PLACEMENT_ALIGNMENT 2
     Enables query for small alignment to D3D12 (based on Microsoft sample) which will
     enable small alignment for more textures, but will also generate D3D Debug Layer
-    error #721 on call to GFXDevice::GetResourceAllocationInfo, which you should just
+    error #721 on call to ID3D12Device::GetResourceAllocationInfo, which you should just
     ignore.
 */
 #ifndef D3D12MA_USE_SMALL_RESOURCE_PLACEMENT_ALIGNMENT
@@ -220,7 +220,7 @@ public:
     If it's a render-target or depth-stencil texture, it then needs proper
     initialization with `ClearRenderTargetView`, `ClearDepthStencilView`, `DiscardResource`,
     or a copy operation, as described on page:
-    [GFXDevice::CreatePlacedResource method - Notes on the required resource initialization](https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createplacedresource#notes-on-the-required-resource-initialization).
+    [ID3D12Device::CreatePlacedResource method - Notes on the required resource initialization](https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createplacedresource#notes-on-the-required-resource-initialization).
     Please note that rendering a fullscreen triangle or quad to the texture as
     a render target is not a proper way of initialization!
 
@@ -440,7 +440,7 @@ struct ALLOCATOR_DESC {
 
     Allocator is doing `AddRef`/`Release` on this object.
     */
-	GFXDevice* pDevice;
+	ID3D12Device* pDevice;
 
 	/** \brief Preferred size of a single `ID3D12Heap` block to be allocated.
     
@@ -539,12 +539,12 @@ struct Budget {
 };
 
 /**
-\brief Represents main object of this library initialized for particular `GFXDevice`.
+\brief Represents main object of this library initialized for particular `ID3D12Device`.
 
 Fill structure D3D12MA::ALLOCATOR_DESC and call function CreateAllocator() to create it.
 Call method Allocator::Release to destroy it.
 
-It is recommended to create just one object of this type per `GFXDevice` object,
+It is recommended to create just one object of this type per `ID3D12Device` object,
 right after Direct3D 12 is initialized and keep it alive until before Direct3D device is destroyed.
 */
 class Allocator {
@@ -561,8 +561,8 @@ public:
 
 	/** \brief Allocates memory and creates a D3D12 resource (buffer or texture). This is the main allocation function.
 
-    The function is similar to `GFXDevice::CreateCommittedResource`, but it may
-    really call `GFXDevice::CreatePlacedResource` to assign part of a larger,
+    The function is similar to `ID3D12Device::CreateCommittedResource`, but it may
+    really call `ID3D12Device::CreatePlacedResource` to assign part of a larger,
     existing memory heap to the new resource, which is the main purpose of this
     whole library.
 
@@ -594,7 +594,7 @@ public:
 
 	/** \brief Allocates memory without creating any resource placed in it.
 
-    This function is similar to `GFXDevice::CreateHeap`, but it may really assign
+    This function is similar to `ID3D12Device::CreateHeap`, but it may really assign
     part of a larger, existing heap to the allocation.
 
     `pAllocDesc->heapFlags` should contain one of these values, depending on type of resources you are going to create in this memory:
@@ -715,7 +715,7 @@ private:
 
 /** \brief Creates new main Allocator object and returns it through `ppAllocator`.
 
-You normally only need to call it once and keep a single Allocator object for your `GFXDevice`.
+You normally only need to call it once and keep a single Allocator object for your `ID3D12Device`.
 */
 HRESULT CreateAllocator(const ALLOCATOR_DESC* pDesc, Allocator** ppAllocator);
 

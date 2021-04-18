@@ -20,7 +20,7 @@ private:
 	FunctionPtrType funcPtr;
 	void (*disposeFunc)(void*);
 	void (*constructFunc)(void*, void*);
-	static constexpr size_t PLACEHOLDERSIZE = 16;
+	static constexpr size_t PLACEHOLDERSIZE = 24;
 	std::aligned_storage_t<PLACEHOLDERSIZE, sizeof(size_t)> funcPtrPlaceHolder;
 	void AllocateFunctor(size_t targetSize) noexcept {
 		if (targetSize <= allocatedSize) return;

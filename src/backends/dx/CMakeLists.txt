@@ -29,9 +29,9 @@ if (WIN32)
         LogicComponent/Transform.cpp
         PipelineComponent/CommandAllocator.cpp
         PipelineComponent/CommandBuffer.cpp
+        PipelineComponent/FrameResource.cpp
         PipelineComponent/RayTracing/RayTracingManager.cpp
         PipelineComponent/ThreadCommand.cpp
-        PipelineComponent/FrameResource.cpp
         RenderComponent/BackBuffer.cpp
         RenderComponent/CBufferAllocator.cpp
         RenderComponent/CBufferPool.cpp
@@ -62,10 +62,9 @@ if (WIN32)
         RenderComponent/Utility/ShaderIO.cpp
         render_graph/rg_node.cpp
         render_graph/rg_system.cpp
+        RHI/DXCommandVisitor.cpp
         RHI/DXDevice.cpp
-        RHI/ICommandBuffer.cpp
         RHI/ShaderCompiler.cpp
-        ShaderCompile/ASTEncoder.cpp
         ShaderCompile/HLSLCompiler.cpp
         ShaderCompile/LuisaASTTranslator.cpp
         Singleton/ColorUtility.cpp
@@ -74,6 +73,7 @@ if (WIN32)
         Singleton/MeshLayout.cpp
         Singleton/ShaderID.cpp
         Singleton/ShaderLoader.cpp
+        Struct/ConstBuffer.cpp
         TestMain.cpp
         Utility/Actor.cpp
         Utility/BinaryReader.cpp

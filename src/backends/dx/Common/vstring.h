@@ -15,7 +15,11 @@ private:
 	char* ptr = nullptr;
 	size_t lenSize = 0;
 	size_t capacity = 0;
+	static constexpr size_t PLACEHOLDERSIZE = 32;
+	std::aligned_storage_t<PLACEHOLDERSIZE, 1> localStorage;
 	bool Equal(char const* str, size_t count) const noexcept;
+	void* string_malloc(size_t sz);
+	void string_free(void* freeMem);
 
 public:
 	string(const string& a, const string& b) noexcept;
@@ -126,6 +130,10 @@ private:
 		}
 		return sz;
 	}
+	static constexpr size_t PLACEHOLDERSIZE = 32;
+	std::aligned_storage_t<PLACEHOLDERSIZE, 1> localStorage;
+	void* wstring_malloc(size_t sz);
+	void wstring_free(void* freeMem);
 
 public:
 	wstring(const wstring& a, const wstring& b) noexcept;

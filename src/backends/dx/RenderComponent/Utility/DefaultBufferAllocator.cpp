@@ -6,7 +6,7 @@ DefaultBufferAllocator::DefaultBufferAllocator(GFXDevice* device, IDXGIAdapter* 
 	desc.Flags = D3D12MA::ALLOCATOR_FLAGS::ALLOCATOR_FLAG_SINGLETHREADED;
 	desc.pAdapter = adapter;
 	desc.pAllocationCallbacks = nullptr;
-	desc.pDevice = device;
+	desc.pDevice = device->device();
 	desc.PreferredBlockSize = 1;
 	desc.PreferredBlockSize <<= 30;//1G
 	D3D12MA::CreateAllocator(&desc, &allocator);

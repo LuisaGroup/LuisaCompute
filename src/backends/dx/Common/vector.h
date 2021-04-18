@@ -121,13 +121,13 @@ public:
 			return *this;
 		}
 		T* operator->() const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 			if (index >= lst->mSize) throw "Out of Range!";
 #endif
 			return &(*lst).arr[index];
 		}
 		T& operator*() const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 			if (index >= lst->mSize) throw "Out of Range!";
 #endif
 			return (*lst).arr[index];
@@ -272,7 +272,7 @@ public:
 	}
 
 	void erase(const Iterator& ite) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 		if (ite.index >= mSize) throw "Out of Range!";
 #endif
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
@@ -329,13 +329,13 @@ public:
 		mSize = newSize;
 	}
 	T& operator[](size_t index) noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 		if (index >= mSize) throw "Out of Range!";
 #endif
 		return arr[index];
 	}
 	const T& operator[](size_t index) const noexcept {
-#if defined(DEBUG) || defined(_DEBUG)
+#if defined(DEBUG)
 		if (index >= mSize) throw "Out of Range!";
 #endif
 		return arr[index];

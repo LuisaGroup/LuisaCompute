@@ -83,7 +83,7 @@ Shader::Shader(vengine::string const& name, GFXDevice* device, const vengine::st
 		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
 	}
 	ThrowIfFailed(hr);
-	ThrowIfFailed(device->CreateRootSignature(
+	ThrowIfFailed(device->device()->CreateRootSignature(
 		0,
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),

@@ -38,7 +38,7 @@ StructuredBuffer::StructuredBuffer(
 		allocator->AllocateTextureHeap(
 			device, byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, GetInstanceID());
 		auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			heap, offset,
 			&bufferDesc,
 			GetGFXResourceState(initState),
@@ -47,7 +47,7 @@ StructuredBuffer::StructuredBuffer(
 	} else {
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
@@ -128,7 +128,7 @@ StructuredBuffer::StructuredBuffer(
 		allocator->AllocateTextureHeap(
 			device, byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, GetInstanceID());
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			heap, offset,
 			&buffer,
 			GetGFXResourceState(initState),
@@ -137,7 +137,7 @@ StructuredBuffer::StructuredBuffer(
 	} else {
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
@@ -172,7 +172,7 @@ StructuredBuffer::StructuredBuffer(
 		allocator->AllocateTextureHeap(
 			device, byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, GetInstanceID());
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			heap, offset,
 			&buffer,
 			GetGFXResourceState(initState),
@@ -181,7 +181,7 @@ StructuredBuffer::StructuredBuffer(
 	} else {
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,
@@ -209,7 +209,7 @@ StructuredBuffer::StructuredBuffer(
 		allocator->AllocateTextureHeap(
 			device, byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, GetInstanceID());
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-		ThrowIfFailed(device->CreatePlacedResource(
+		ThrowIfFailed(device->device()->CreatePlacedResource(
 			heap, offset,
 			&buffer,
 			GetGFXResourceState(initState),
@@ -218,7 +218,7 @@ StructuredBuffer::StructuredBuffer(
 	} else {
 		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 		auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
+		ThrowIfFailed(device->device()->CreateCommittedResource(
 			&heap,
 			D3D12_HEAP_FLAG_NONE,
 			&buffer,

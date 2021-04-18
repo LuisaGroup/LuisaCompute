@@ -46,7 +46,7 @@
 // Assert that will be called very often, like inside data structures e.g. operator[].
 // Making it non-empty can make program slow.
 #ifndef D3D12MA_HEAVY_ASSERT
-#ifdef _DEBUG
+#ifdef DEBUG
 #define D3D12MA_HEAVY_ASSERT(expr)//D3D12MA_ASSERT(expr)
 #else
 #define D3D12MA_HEAVY_ASSERT(expr)
@@ -1937,7 +1937,7 @@ public:
 	AllocatorPimpl(const ALLOCATION_CALLBACKS& allocationCallbacks, const ALLOCATOR_DESC& desc);
 	HRESULT Init(const ALLOCATOR_DESC& desc);
 	~AllocatorPimpl();
-	GFXDevice* GetDevice() const { return m_Device; }
+	ID3D12Device* GetDevice() const { return m_Device; }
 	// Shortcut for "Allocation Callbacks", because this function is called so often.
 	const ALLOCATION_CALLBACKS& GetAllocs() const { return m_AllocationCallbacks; }
 	const D3D12_FEATURE_DATA_D3D12_OPTIONS& GetD3D12Options() const { return m_D3D12Options; }
@@ -1996,7 +1996,7 @@ private:
 	static bool PrefersCommittedAllocation(const D3D12_RESOURCE_DESC& resourceDesc);
 	const bool m_UseMutex;
 	const bool m_AlwaysCommitted;
-	GFXDevice* m_Device; // AddRef
+	ID3D12Device* m_Device; // AddRef
 	IDXGIAdapter* m_Adapter;// AddRef
 #if D3D12MA_DXGI_1_4
 	IDXGIAdapter3* m_Adapter3;// AddRef, optional

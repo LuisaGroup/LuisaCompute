@@ -15,14 +15,13 @@
 #include <Common/Common.h>
 #include <Struct/CameraRenderPath.h>
 using GFXCommandList = ID3D12GraphicsCommandList;
-using GFXDevice = ID3D12Device;
 using GFXCommandQueue = ID3D12CommandQueue;
 using GFXCommandAllocator = ID3D12CommandAllocator;
 using GFXResource = ID3D12Resource;
 using GFXPipelineState = ID3D12PipelineState;
 using GFXVertexBufferView = D3D12_VERTEX_BUFFER_VIEW;
 using GFXIndexBufferView = D3D12_INDEX_BUFFER_VIEW;
-#ifdef _DEBUG
+#ifdef DEBUG
 #include <comdef.h>
 
 class DxException {
@@ -56,6 +55,18 @@ public:
 	int32_t LineNumber = -1;
 };
 #endif
+class GFXDevice {
+public:
+	ID3D12Device* device() const {
+		return mDevice;
+	}
+	GFXDevice(ID3D12Device* dev)
+		: mDevice(dev) {
+	}
+
+private:
+	ID3D12Device* mDevice;
+};
 struct GpuAddress {
 	uint64 address;
 };
@@ -245,7 +256,7 @@ INLINE void d3dSetDebugName(IDXGIObject* obj, const char* name) {
 }
 INLINE void d3dSetDebugName(GFXDevice* obj, const char* name) {
 	if (obj) {
-		obj->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
+		obj->device()->SetPrivateData(WKPDID_D3DDebugObjectName, lstrlenA(name), name);
 	}
 }
 INLINE void d3dSetDebugName(ID3D12DeviceChild* obj, const char* name) {
@@ -261,7 +272,7 @@ INLINE vengine::wstring AnsiToWString(const vengine::string& str) {
 }
 
 /*
-#if defined(_DEBUG)
+#if defined(DEBUG)
 	#ifndef Assert
 	#define Assert(x, description)                                  \
 	{                                                               \

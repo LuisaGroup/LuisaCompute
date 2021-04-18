@@ -319,5 +319,8 @@ _deps
 CMakeSettings.json
 
 #white list
+!src/backends/dx/VEngineCompiler/*.*
+!src/backends/dx/VEngineCompiler/CompilerToolkit/*.*
+!out/build/x64-Release/bin/DXCompiledShader/*.*
+!out/build/x64-Release/bin/DXCompiledShader/Internal/*.*
 !out/build/x64-Release/bin/HLSLCompiler/*.*
-!out/build/x64-Release/bin/Temp/*.*
