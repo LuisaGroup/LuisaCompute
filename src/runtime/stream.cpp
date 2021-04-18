@@ -38,6 +38,16 @@ Stream &Stream::operator=(Stream &&rhs) noexcept {
 
 void Stream::synchronize() noexcept { _device->synchronize_stream(_handle); }
 
+Stream &Stream::operator<<(Event::Signal signal) noexcept {
+    _device->signal_event(signal.handle, _handle);
+    return *this;
+}
+
+Stream &Stream::operator<<(Event::Wait wait) noexcept {
+    _device->wait_event(wait.handle, _handle);
+    return *this;
+}
+
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 Stream::Delegate &Stream::Delegate::operator<<(CommandHandle cmd) noexcept {
@@ -71,6 +81,18 @@ Stream::Delegate &Stream::Delegate::operator=(Stream::Delegate &&rhs)  noexcept 
         rhs._stream = nullptr;
     }
     return *this;
+}
+
+Stream &Stream::Delegate::operator<<(Event::Signal signal) noexcept {
+    auto &&stream = *_stream;
+    _commit();
+    return stream << signal;
+}
+
+Stream &Stream::Delegate::operator<<(Event::Wait wait) noexcept {
+    auto &&stream = *_stream;
+    _commit();
+    return stream << wait;
 }
 
 }// namespace luisa::compute

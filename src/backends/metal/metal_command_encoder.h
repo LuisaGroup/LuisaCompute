@@ -27,8 +27,6 @@ public:
     void visit(const KernelLaunchCommand *command) noexcept override;
     void visit(const TextureUploadCommand *command) noexcept override;
     void visit(const TextureDownloadCommand *command) noexcept override;
-    void visit(const EventSignalCommand *command) noexcept override;
-    void visit(const EventWaitCommand *command) noexcept override;
 };
 
 }// namespace luisa::compute::metal

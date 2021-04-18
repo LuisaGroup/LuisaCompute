@@ -8,6 +8,7 @@
 
 #include <core/spin_mutex.h>
 #include <runtime/device.h>
+#include <runtime/event.h>
 #include <runtime/command_buffer.h>
 
 namespace luisa::compute {
@@ -30,6 +31,8 @@ public:
         Delegate &operator=(Delegate &&) noexcept;
         ~Delegate() noexcept;
         Delegate &operator<<(CommandHandle cmd) noexcept;
+        Stream &operator<<(Event::Signal signal) noexcept;
+        Stream &operator<<(Event::Wait wait) noexcept;
     };
 
 private:
@@ -48,6 +51,8 @@ public:
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
+    Stream &operator<<(Event::Signal signal) noexcept;
+    Stream &operator<<(Event::Wait wait) noexcept;
     Delegate operator<<(CommandHandle cmd) noexcept;
     void synchronize() noexcept;
 };

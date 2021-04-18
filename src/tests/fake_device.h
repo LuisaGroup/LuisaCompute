@@ -34,7 +34,8 @@ public:
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};
     }
-    
+    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
+    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
 };
 
 }// namespace luisa::compute

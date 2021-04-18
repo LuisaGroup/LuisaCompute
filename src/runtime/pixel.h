@@ -28,9 +28,7 @@ enum struct PixelStorage : uint32_t {
 
     FLOAT1,
     FLOAT2,
-    FLOAT4,
-
-    NUM
+    FLOAT4
 };
 
 enum struct PixelFormat : uint32_t {
@@ -74,10 +72,11 @@ enum struct PixelFormat : uint32_t {
 
     R32F,
     RG32F,
-    RGBA32F,
-
-    NUM
+    RGBA32F
 };
+
+constexpr auto pixel_storage_count = static_cast<uint32_t>(PixelStorage::FLOAT4) + 1u;
+constexpr auto pixel_format_count = static_cast<uint32_t>(PixelFormat::RGBA32F) + 1u;
 
 [[nodiscard]] constexpr auto pixel_format_to_storage(PixelFormat format) noexcept {
     switch (format) {
@@ -126,6 +125,8 @@ enum struct PixelFormat : uint32_t {
             return PixelStorage::FLOAT2;
         case PixelFormat::RGBA32F:
             return PixelStorage::FLOAT4;
+        default:
+            break;
     }
     return PixelStorage{};
 }
@@ -147,6 +148,7 @@ enum struct PixelFormat : uint32_t {
         case PixelStorage::FLOAT1: return sizeof(float) * 1u;
         case PixelStorage::FLOAT2: return sizeof(float) * 2u;
         case PixelStorage::FLOAT4: return sizeof(float) * 4u;
+        default: break;
     }
     return static_cast<size_t>(0u);
 }

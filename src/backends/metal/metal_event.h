@@ -5,17 +5,47 @@
 #pragma once
 
 #import <Metal/Metal.h>
+#import <core/spin_mutex.h>
 
 namespace luisa::compute::metal {
 
-struct MetalEvent {
+class MetalEvent {
 
-    id<MTLSharedEvent> handle;
-    MTLSharedEventListener *listener{nullptr};
-    uint64_t counter{0u};
+private:
+    id<MTLEvent> _handle;
+    __weak id<MTLCommandBuffer> _last{nullptr};
+    uint64_t _counter{0u};
+    spin_mutex _mutex;
 
-    explicit MetalEvent(id<MTLSharedEvent> h) noexcept
-        : handle{h} { handle.signaledValue = 0u; }
+public:
+    explicit MetalEvent(id<MTLEvent> handle) noexcept
+        : _handle{handle} {}
+    ~MetalEvent() noexcept { _handle = nullptr; }
+    
+    void signal(id<MTLCommandBuffer> command_buffer) noexcept {
+        auto value = [this, command_buffer]{
+            std::scoped_lock lock{_mutex};
+            _last = command_buffer;
+            return ++_counter;
+        }();
+        [command_buffer encodeSignalEvent:_handle value:value];
+    }
+    
+    void wait(id<MTLCommandBuffer> command_buffer) noexcept {
+        [command_buffer encodeWaitForEvent:_handle
+                             value:[this] {
+                                 std::scoped_lock lock{_mutex};
+                                 return _counter;
+                             }()];
+    }
+    
+    void synchronize() noexcept {
+        if (auto last = [this]() noexcept
+            -> id<MTLCommandBuffer> {
+          std::scoped_lock lock{_mutex};
+          return _last;
+        }()) { [last waitUntilCompleted]; }
+    }
 };
 
 }// namespace luisa::compute::metal

@@ -26,9 +26,7 @@ namespace luisa::compute {
         BufferCopyCommand,      \
         KernelLaunchCommand,    \
         TextureUploadCommand,   \
-        TextureDownloadCommand, \
-        EventSignalCommand,     \
-        EventWaitCommand
+        TextureDownloadCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
@@ -346,30 +344,6 @@ public:
         }
     }
     LUISA_MAKE_COMMAND_COMMON(KernelLaunchCommand)
-};
-
-class EventSignalCommand : public Command {
-
-private:
-    uint64_t _handle;
-
-public:
-    explicit EventSignalCommand(uint64_t handle) noexcept
-        : _handle{handle} {}
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    LUISA_MAKE_COMMAND_COMMON(EventSignalCommand)
-};
-
-class EventWaitCommand : public Command {
-
-private:
-    uint64_t _handle;
-
-public:
-    explicit EventWaitCommand(uint64_t handle) noexcept
-        : _handle{handle} {}
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    LUISA_MAKE_COMMAND_COMMON(EventWaitCommand)
 };
 
 #undef LUISA_MAKE_COMMAND_COMMON

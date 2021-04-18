@@ -195,12 +195,4 @@ id<MTLBuffer> MetalCommandEncoder::_allocate_input_buffer(const void *data, size
     return temporary;
 }
 
-void MetalCommandEncoder::visit(const EventSignalCommand *command) noexcept {
-    _device->signal_event(command->handle(), _command_buffer);
-}
-
-void MetalCommandEncoder::visit(const EventWaitCommand *command) noexcept {
-    _device->wait_event(command->handle(), _command_buffer);
-}
-
 }

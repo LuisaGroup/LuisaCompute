@@ -97,7 +97,7 @@ void DXCommandVisitor::visit(TextureUploadCommand const* cmd) noexcept {
 	res->deferredDeleteObj.emplace_back(MakeObjectPtr(middleBuffer).CastTo<VObject>());
 	RenderTexturePackage* rt = reinterpret_cast<RenderTexturePackage*>(cmd->handle());
 	bool dim = rt->rt->GetDimension() == TextureDimension::Tex2D;
-	uint kernel = (uint)PixelFormat::NUM * (dim ? 0 : 1) + (uint)(rt->format);
+	uint kernel = pixel_format_count * (dim ? 0 : 1) + (uint)(rt->format);
 	uint3 dispKernel;
 
 	auto cs = internalShaders->copyShader;
@@ -153,7 +153,7 @@ void DXCommandVisitor::visit(TextureDownloadCommand const* cmd) noexcept {
 
 	RenderTexturePackage* rt = reinterpret_cast<RenderTexturePackage*>(cmd->handle());
 	bool dim = rt->rt->GetDimension() == TextureDimension::Tex2D;
-	uint kernel = (uint)PixelFormat::NUM * (dim ? 2 : 3) + (uint)(rt->format);
+	uint kernel = pixel_format_count * (dim ? 2 : 3) + (uint)(rt->format);
 	uint3 dispKernel;
 
 	tCmd->UpdateResState(

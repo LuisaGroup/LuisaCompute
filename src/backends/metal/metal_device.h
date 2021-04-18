@@ -44,7 +44,7 @@ private:
 
     // for events
     mutable spin_mutex _event_mutex;
-    std::vector<MetalEvent> _event_slots;
+    std::vector<std::unique_ptr<MetalEvent>> _event_slots;
     std::vector<size_t> _available_event_slots;
 
 public:
@@ -53,11 +53,10 @@ public:
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
     [[nodiscard]] MetalStream *stream(uint64_t handle) const noexcept;
+    [[nodiscard]] MetalEvent *event(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalCompiler::KernelItem kernel(uint32_t uid) const noexcept;
-    void signal_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept;
-    void wait_event(uint64_t handle, id<MTLCommandBuffer> cmd) noexcept;
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) override;
@@ -70,6 +69,8 @@ public:
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void compile_kernel(uint32_t uid) noexcept override;
     uint64_t create_event() noexcept override;
+    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
+    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void dispose_event(uint64_t handle) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
 };

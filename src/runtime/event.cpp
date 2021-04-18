@@ -31,14 +31,6 @@ Event &Event::operator=(Event &&rhs) noexcept {
     return *this;
 }
 
-CommandHandle Event::signal() const noexcept {
-    return EventSignalCommand::create(_handle);
-}
-
-CommandHandle Event::wait() const noexcept {
-    return EventWaitCommand::create(_handle);
-}
-
 void Event::synchronize() const noexcept {
     _device->synchronize_event(_handle);
 }

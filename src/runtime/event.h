@@ -13,6 +13,10 @@ class Device;
 
 class Event : concepts::Noncopyable {
 
+public:
+    struct Signal { uint64_t handle; };
+    struct Wait { uint64_t handle; };
+
 private:
     Device::Interface *_device;
     uint64_t _handle;
@@ -27,8 +31,8 @@ public:
     Event(Event &&another) noexcept;
     Event &operator=(Event &&rhs) noexcept;
     
-    [[nodiscard]] CommandHandle signal() const noexcept;
-    [[nodiscard]] CommandHandle wait() const noexcept;
+    [[nodiscard]] auto signal() const noexcept { return Signal{_handle}; }
+    [[nodiscard]] auto wait() const noexcept { return Wait{_handle}; }
     void synchronize() const noexcept;
 };
 

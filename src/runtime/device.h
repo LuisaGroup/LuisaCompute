@@ -62,6 +62,8 @@ public:
         // event
         [[nodiscard]] virtual uint64_t create_event() noexcept = 0;
         virtual void dispose_event(uint64_t handle) noexcept = 0;
+        virtual void signal_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
+        virtual void wait_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
     };
 
