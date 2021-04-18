@@ -32,12 +32,7 @@ public:
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto usage() const noexcept { return _usage; }
     virtual void accept(ExprVisitor &) const = 0;
-    void mark(Variable::Usage usage) const noexcept {
-        if (auto a = static_cast<uint32_t>(_usage), b = static_cast<uint32_t>(usage); (a & b) == 0u) {
-            _usage = static_cast<Variable::Usage>(a | b);
-            _mark(usage);
-        }
-    }
+    void mark(Variable::Usage usage) const noexcept;
 };
 
 class UnaryExpr;
@@ -234,9 +229,101 @@ enum struct CallOp {
     ALL,
     ANY,
     NONE,
+    
+    SELECT,
+    
+    CLAMP,
+    LERP,
+    SATURATE,
+    SIGN,
+    
+    STEP,
+    SMOOTHSTEP,
+    
+    ABS,
+    MIN,
+    MIN3,
+    MAX,
+    MAX3,
+    
+    CLZ,
+    CTZ,
+    POPCOUNT,
+    REVERSEBITS,
+    ROTATE,
+    
+    ISINF,
+    ISNAN,
+    
+    ACOS,
+    ACOSH,
+    ASIN,
+    ASINH,
+    ATAN,
+    ATAN2,
+    ATANH,
+    
+    COS,
+    COSH,
+    SIN,
+    SINH,
+    TAN,
+    TANH,
+    
+    EXP,
+    EXP2,
+    EXP10,
+    LOG,
+    LOG2,
+    LOG10,
+    
+    SQRT,
+    RSQRT,
+    
+    CEIL,
+    FLOOR,
+    FRACT,
+    TRUNC,
+    ROUND,
+    FMOD,
+    
+    DEGREES,
+    RADIANS,
+    
+    FMA,
+    COPYSIGN,
+    
+    CROSS,
+    DOT,
+    DISTANCE,
+    DISTANCE_SQUARED,
+    LENGTH,
+    LENGTH_SQUARED,
+    NORMALIZE,
+    FACEFORWARD,
 
+    DETERMINANT,
+    TRANSPOSE,
+    INVERSE,
+    
+    GROUP_MEMORY_BARRIER,
+    DEVICE_MEMORY_BARRIER,
+    ALL_MEMORY_BARRIER,
+    
+    ATOMIC_LOAD,
+    ATOMIC_STORE,
+    ATOMIC_EXCHANGE,
+    ATOMIC_COMPARE_EXCHANGE,
+    ATMOIC_FETCH_ADD,
+    ATMOIC_FETCH_SUB,
+    ATMOIC_FETCH_AND,
+    ATMOIC_FETCH_OR,
+    ATMOIC_FETCH_XOR,
+    ATMOIC_FETCH_MIN,
+    ATMOIC_FETCH_MAX,
+    
     IMAGE_READ,
-    IMAGE_WRITE
+    IMAGE_WRITE,
 };
 
 class CallExpr : public Expression {

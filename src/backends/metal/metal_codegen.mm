@@ -78,7 +78,7 @@ public:
     void operator()(float v) const noexcept {
         if (std::isnan(v)) { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         if (std::isinf(v)) {
-            _s << (v < 0.0f ? "(1.0f/-0.0f)" : "1.0f/+0.0f");
+            _s << (v < 0.0f ? "(-INFINITY)" : "(+INFINITY)");
         } else {
             _s << v << "f";
         }
@@ -291,24 +291,6 @@ void MetalCodegen::emit(Function f) {
 
 using namespace metal;
 
-struct TextureHeap {
-  texture2d<float, access::sample> t[65536u];
-  bool srgb[65536u];
-};
-
-template<typename T>
-[[nodiscard]] auto none(T v) { return !any(v); }
-
-template<typename T, access a>
-[[nodiscard]] auto image_read(texture2d<T, a> t, uint2 uv) {
-  return t.read(uv);
-}
-
-template<typename T, access a, typename Value>
-void image_write(texture2d<T, a> t, uint2 uv, Value value) {
-  t.write(value, uv);
-}
-
 [[nodiscard]] auto srgb_to_linear(float4 c) {
   auto srgb = saturate(c.rgb);
   auto rgb = select(
@@ -334,10 +316,15 @@ void image_write(texture2d<T, a> t, uint2 uv, Value value) {
 
 void MetalCodegen::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find(
-            _generated_functions.cbegin(), _generated_functions.cend(), f.uid());
-        iter != _generated_functions.cend()) { return; }
+    if (std::find(_generated_functions.cbegin(),
+                  _generated_functions.cend(),
+                  f.uid())
+        != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f.uid());
+
+    for (auto intrinsic : f.builtin_callables()) {
+        _emit_intrinsic(intrinsic);
+    }
 
     for (auto callable : f.custom_callables()) {
         _emit_function(Function::callable(callable));
@@ -650,6 +637,44 @@ void MetalCodegen::visit(const ForStmt *stmt) {
 
     _scratch << ") ";
     stmt->body()->accept(*this);
+}
+
+void MetalCodegen::_emit_intrinsic(CallOp intrinsic) noexcept {
+    
+    if (std::find(_generated_intrinsics.cbegin(),
+                  _generated_intrinsics.cend(),
+                  intrinsic)
+        != _generated_intrinsics.cend()) { return; }
+    _generated_intrinsics.emplace_back(intrinsic);
+    
+    switch (intrinsic) {
+        case CallOp::CUSTOM:
+            LUISA_ERROR_WITH_LOCATION("Invalid built-in function with custom tag.");
+        case CallOp::ALL:
+        case CallOp::ANY: break;
+        case CallOp::NONE:
+            _scratch << R"(template<typename T>
+[[nodiscard]] auto none(T v) { return !any(v); }
+
+)";
+            break;
+        case CallOp::IMAGE_READ:
+            _scratch << R"(template<typename T, access a>
+[[nodiscard]] auto image_read(texture2d<T, a> t, uint2 uv) {
+  return t.read(uv);
+}
+
+)";
+            break;
+        case CallOp::IMAGE_WRITE:
+            _scratch << R"(template<typename T, access a, typename Value>
+void image_write(texture2d<T, a> t, uint2 uv, Value value) {
+  t.write(value, uv);
+}
+
+)";
+            break;
+    }
 }
 
 }

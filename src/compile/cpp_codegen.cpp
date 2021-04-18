@@ -135,18 +135,13 @@ void CppCodegen::visit(const RefExpr *expr) {
 }
 
 void CppCodegen::visit(const CallExpr *expr) {
-    if (expr->is_builtin()) {
-        switch (expr->op()) {
-            case CallOp::CUSTOM:
-                LUISA_ERROR_WITH_LOCATION("Invalid built-in device function.");
-            case CallOp::ALL: break;
-            case CallOp::ANY: break;
-            case CallOp::NONE: break;
-            case CallOp::IMAGE_READ: break;
-            case CallOp::IMAGE_WRITE: break;
-        }
-    } else {
-        _scratch << "custom_" << expr->uid();
+    switch (expr->op()) {// TODO...
+        case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
+        case CallOp::ALL: break;
+        case CallOp::ANY: break;
+        case CallOp::NONE: break;
+        case CallOp::IMAGE_READ: break;
+        case CallOp::IMAGE_WRITE: break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {

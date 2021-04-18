@@ -24,7 +24,7 @@ public:
     explicit MetalStream(id<MTLCommandQueue> handle) noexcept
         : _handle{handle} {}
     ~MetalStream() noexcept { _handle = nullptr; }
-    
+
     template<typename Encode>
     void with_command_buffer(Encode &&encode) noexcept {
         auto command_buffer = [_handle commandBuffer];
@@ -36,16 +36,13 @@ public:
         encode(command_buffer);
         [command_buffer commit];
     }
-    
+
     void synchronize() noexcept {
-        auto last = [this] {
-            std::scoped_lock lock{_mutex};
-            __strong id<MTLCommandBuffer> cb = _last;
-            return cb;
-        }();
-        if (last != nullptr) {
-            [last waitUntilCompleted];
-        }
+        if (auto last = [this]() noexcept
+            -> id<MTLCommandBuffer> {
+                std::scoped_lock lock{_mutex};
+                return _last;
+            }()) { [last waitUntilCompleted]; }
     }
 };
 

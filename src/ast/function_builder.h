@@ -159,11 +159,11 @@ public:
     [[nodiscard]] const BinaryExpr *binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] const MemberExpr *member(const Type *type, const Expression *self, size_t member_index) noexcept;
     [[nodiscard]] const AccessExpr *access(const Type *type, const Expression *range, const Expression *index) noexcept;
+    [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept;
     void call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
     void call(uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept;
-    [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
 
     // statements
     void break_() noexcept;
