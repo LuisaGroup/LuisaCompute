@@ -5,13 +5,15 @@
 #include <RenderComponent/RenderComponentInclude.h>
 #include <RHI/DXStream.hpp>
 #include <RHI/ShaderCompiler.h>
+#include <RHI/DXEvent.h>
+#include <RHI/InternalShaders.h>
+#include <RHI/RenderTexturePackage.h>
 #include <ShaderCompile/HLSLCompiler.h>
 #include <PipelineComponent/DXAllocator.h>
 #include <Singleton/Graphics.h>
 #include <Singleton/ShaderLoader.h>
 #include <RenderComponent/ComputeShader.h>
-#include <RHI/InternalShaders.h>
-#include <RHI/RenderTexturePackage.h>
+
 #include <Singleton/ShaderID.h>
 #include <RenderComponent/CBufferAllocator.h>
 
@@ -90,6 +92,7 @@ public:
 	void synchronize_stream(uint64 stream_handle) noexcept override {
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		stream->Sync(cpuFence.Get(), mtx);
+		FreeFrameResource(stream->GetSignal());
 	}
 	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
 		EnableThreadLocal();
@@ -98,8 +101,8 @@ public:
 			dxDevice,
 			std::move(cmd_buffer),
 			cpuFence.Get(),
-			[&](GFXDevice* device, GFXCommandListType type) {
-				return GetFrameResource(device, type);
+			[&](GFXCommandListType type) {
+				return GetFrameResource(type);
 			},
 			usingQueue[GetQueueIndex(stream->GetType())],
 			mtx,
@@ -110,30 +113,37 @@ public:
 		ShaderCompiler::TryCompileCompute(uid);
 	}
 	uint64 create_event() noexcept override {
-		return reinterpret_cast<uint64>(vengine_malloc(sizeof(uint64)));
+		return reinterpret_cast<uint64>(new DXEvent());
 	}
 	void dispose_event(uint64 handle) noexcept override {
-		vengine_free(reinterpret_cast<void*>(handle));
+		delete reinterpret_cast<DXEvent*>(handle);
 	}
 	void signal_event(uint64 handle, uint64 stream_handle) noexcept override {
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
-		uint64* evt = reinterpret_cast<uint64*>(handle);
-		*evt = stream->GetSignal();
+		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
+		evt->AddSignal(
+			reinterpret_cast<uint64>(stream->GetQueue()),
+			stream->GetSignal());
 	}
 	void wait_event(uint64 handle, uint64 stream_handle) noexcept override {
-		uint64* evt = reinterpret_cast<uint64*>(handle);
+		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
-		stream->WaitToFence(
-			mtx,
-			cpuFence.Get(),
-			*evt);
+		std::lock_guard lck(mtx);
+		evt->GPUWaitEvent(
+			stream->GetQueue(),
+			cpuFence.Get());
 	}
 	/*
 	uint64 signal_event(uint64 handle, uint64 stream_handle);
 	void wait_event(uint64 signal, uint64 stream_handle)
 	*/
 	void synchronize_event(uint64 handle) noexcept override {
-		EnableThreadLocal();
+		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
+		evt->Sync([&](uint64 signal) {
+			DXStream::WaitFence(
+				cpuFence.Get(),
+				signal);
+		});
 	}
 
 	~DXDevice() {
@@ -152,11 +162,11 @@ private:
 
 	ComPtr<GFXCommandQueue> mComputeCommandQueue;
 	ComPtr<GFXCommandQueue> mCopyCommandQueue;
-	LockFreeArrayQueue<FrameResource*> waitingRes[1];
-	SingleThreadArrayQueue<FrameResource*> usingQueue[1];
+	static constexpr uint QUEUE_COUNT = 1;
+	LockFreeArrayQueue<FrameResource*> waitingRes[QUEUE_COUNT];
+	SingleThreadArrayQueue<FrameResource*> usingQueue[QUEUE_COUNT];
 	std::mutex mtx;
 	InternalShaders internalShaders;
-	uint64 finishedFence = 1;
 	StackObject<Graphics, true> graphicsInstance;
 	ShaderLoaderGlobal* shaderGlobal;
 	ComputeShader* copyShader;
@@ -223,32 +233,39 @@ private:
 		internalShaders.copyShader = ShaderLoader::GetComputeShader(
 			"DXCompiledShader/Internal/Copy.compute.cso"_sv);
 	}
-	FrameResource* GetFrameResource(GFXDevice* device, GFXCommandListType type) {
+
+	void FreeFrameResource(uint64 lastSignal = 0) {
+		std::lock_guard lck(mtx);
+		if (lastSignal == 0)
+			lastSignal = cpuFence->GetCompletedValue();
+		for (uint index = 0; index < QUEUE_COUNT; ++index) {
+			for (uint i = 0; i < QUEUE_COUNT; ++i) {
+				auto& queue = usingQueue[index];
+				auto& waitingQueue = waitingRes[index];
+				FrameResource* res;
+				while (queue.GetLast(&res)) {
+					if (lastSignal >= res->signalIndex) {
+						queue.Pop();
+						res->ReleaseTemp();
+						waitingQueue.Push(res);
+					}
+				}
+			}
+		}
+	}
+
+	FrameResource* GetFrameResource(GFXCommandListType type) {
+		FreeFrameResource();
 		FrameResource* result = nullptr;
 		size_t index = GetQueueIndex(type);
 		if (waitingRes[index].Pop(&result))
 			return result;
-		{
-			std::lock_guard lck(mtx);
-			uint64 diff = cpuFence->GetCompletedValue() - finishedFence;
-			if (diff > 0) {
-				usingQueue[index].Pop(&result);
-				for (uint64 i = 1; i < diff; ++i) {
-					FrameResource* temp;
-					usingQueue[index].Pop(&temp);
-					temp->ReleaseTemp();
-					waitingRes[index].Push(temp);
-				}
-				return result;
-			}
-		}
-		return new FrameResource(device, type, cbAlloc);
+		return new FrameResource(dxDevice, type, cbAlloc);
 	}
 	size_t GetQueueIndex(GFXCommandListType lstType) {
 		switch (lstType) {
 			case GFXCommandListType_Compute:
 				return 0;
-				break;
 		}
 		//TODO
 		return 0;

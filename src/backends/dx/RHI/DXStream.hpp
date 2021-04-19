@@ -9,7 +9,7 @@
 namespace luisa::compute {
 class DXStream {
 public:
-	using GetFrameResourceFunc = Runnable<FrameResource*(GFXDevice*, GFXCommandListType)>;
+	using GetFrameResourceFunc = Runnable<FrameResource*(GFXCommandListType)>;
 	DXStream(
 		GFXDevice* device,
 		GFXCommandQueue* queue,
@@ -41,26 +41,8 @@ public:
 		}
 	}
 	void Sync(ID3D12Fence* fence, std::mutex& mtx) {
-		{
-			std::lock_guard lck(mtx);
-			if (dispatchedRes.empty()) return;
-			auto lastRes = *(dispatchedRes.end() - 1);
-			WaitFence(fence, lastRes->signalIndex);
-		}
-		for (auto& i : dispatchedRes) {
-			i->ReleaseTemp();
-		}
-		dispatchedRes.clear();
-	}
-
-	void WaitToFence(
-		std::mutex& mtx,
-		ID3D12Fence* fence,
-		uint64 signal) {
 		std::lock_guard lck(mtx);
-		if (signal > 0)
-			queue->Wait(
-				fence, signal);
+		WaitFence(fence, lastSignal);
 	}
 
 	void Execute(
@@ -72,13 +54,12 @@ public:
 		std::mutex& mtx,
 		uint64& cpuSignalIndex) {
 		///////////// Local-Thread
-		FrameResource* tempRes = getResource(device, listType);
+		FrameResource* tempRes = getResource(listType);
 		tempRes->tCmd.ResetCommand();
 		//TODO: execute buffer
 		tempRes->tCmd.CloseCommand();
 		///////////// Global-Sync
 		std::lock_guard lck(mtx);
-		dispatchedRes.push_back(tempRes);
 		std::initializer_list<ID3D12CommandList*> cmd = {tempRes->tCmd.GetCmdList()};
 		queue->ExecuteCommandLists(cmd.size(), cmd.begin());
 		queue->Signal(fence, cpuSignalIndex);
@@ -91,9 +72,11 @@ public:
 	uint64 GetSignal() const {
 		return lastSignal;
 	}
+	GFXCommandQueue* GetQueue() const {
+		return queue;
+	}
 
 private:
-	vengine::vector<FrameResource*> dispatchedRes;
 	GFXCommandListType listType;
 	GFXCommandQueue* queue;
 	uint64 lastSignal = 0;

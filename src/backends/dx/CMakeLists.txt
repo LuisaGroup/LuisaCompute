@@ -64,6 +64,7 @@ if (WIN32)
         render_graph/rg_system.cpp
         RHI/DXCommandVisitor.cpp
         RHI/DXDevice.cpp
+        RHI/DXEvent.cpp
         RHI/ShaderCompiler.cpp
         ShaderCompile/HLSLCompiler.cpp
         ShaderCompile/LuisaASTTranslator.cpp
