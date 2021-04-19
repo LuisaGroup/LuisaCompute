@@ -537,6 +537,7 @@ void HLSLCompiler::GetShaderVariables(
 	vengine::vector<ShaderVariable>& result) {
 
 	uint registPos = 0;
+	uint rwRegistPos = 0;
 	//CBuffer
 	result.emplace_back(
 		"Params"_sv,
@@ -549,17 +550,45 @@ void HLSLCompiler::GetShaderVariables(
 	for (auto& i : func.captured_buffers()) {
 		auto& buffer = i.variable;
 		vengine::string name = 'v' + vengine::to_string(buffer.uid());
-		auto& var = result.emplace_back(
-			std::move(name),
-			ShaderVariableType::StructuredBuffer,
-			1,
-			registPos,
-			0);
-		registPos++;
+		if (((uint)func.variable_usage(i.variable.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
+			auto& var = result.emplace_back(
+				std::move(name),
+				ShaderVariableType::RWStructuredBuffer,
+				1,
+				rwRegistPos,
+				0);
+			rwRegistPos++;
+		} else {
+			auto& var = result.emplace_back(
+				std::move(name),
+				ShaderVariableType::StructuredBuffer,
+				1,
+				registPos,
+				0);
+			registPos++;
+
+		}
 	}
 	for (auto& i : func.captured_images()) {
-		//TODO
-		registPos++;
+		auto& buffer = i.variable;
+		vengine::string name = 'v' + vengine::to_string(buffer.uid());
+		if (((uint)func.variable_usage(i.variable.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
+			auto& var = result.emplace_back(
+				std::move(name),
+				ShaderVariableType::UAVDescriptorHeap,
+				1,
+				rwRegistPos,
+				0);
+			rwRegistPos++;
+		} else {
+			auto& var = result.emplace_back(
+				std::move(name),
+				ShaderVariableType::SRVDescriptorHeap,
+				1,
+				registPos,
+				0);
+			registPos++;
+		}
 	}
 }
 bool HLSLCompiler::CheckNeedReCompile(std::array<uint8_t, 16> const& md5, vengine::string const& shaderFileName) {

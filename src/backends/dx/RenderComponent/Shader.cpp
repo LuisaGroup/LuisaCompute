@@ -64,8 +64,8 @@ uint Shader::GetPassIndex(const vengine::string& name) const {
 }
 Shader::Shader(vengine::string const& name, GFXDevice* device, const vengine::string& csoFilePath) : name(name) {
 	ShaderIO::DecodeShader(csoFilePath, mVariablesVector, allPasses, serObj);
-	for (auto ite = allPasses.begin(); ite != allPasses.end(); ite++) {
-		passName.Insert(ite->name, ite.GetIndex());
+	for (size_t i = 0; i < allPasses.size(); ++i) {
+		passName.Insert(allPasses[i].name, i);
 	}
 	mVariablesDict.Reserve(mVariablesVector.size() + 2);
 	for (int32_t i = 0; i < mVariablesVector.size(); ++i) {

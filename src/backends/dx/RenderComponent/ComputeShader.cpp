@@ -22,8 +22,8 @@ ComputeShader::ComputeShader(
 	const vengine::string& csoFilePath,
 	GFXDevice* device) : cmdSig(device, CommandSignature::SignatureType::DispatchComputeIndirect), name(name) {
 	ShaderIO::DecodeComputeShader(csoFilePath, mVariablesVector, csShaders, serObj);
-	for (auto ite = csShaders.begin(); ite != csShaders.end(); ++ite) {
-		kernelNames.Insert(ite->name, ite.GetIndex());
+	for (size_t i = 0; i < csShaders.size(); ++i) {
+		kernelNames.Insert(csShaders[i].name, i);
 	}
 	mVariablesDict.Reserve(mVariablesVector.size() + 2);
 	for (int32_t i = 0; i < mVariablesVector.size(); ++i) {

@@ -80,7 +80,7 @@ public:
 	// stream
 	uint64 create_stream() noexcept override {
 		return reinterpret_cast<uint64>(
-			new DXStream(dxDevice, GFXCommandListType_Compute)//TODO: need support copy
+			new DXStream(dxDevice, mComputeCommandQueue.Get(), GFXCommandListType_Compute)//TODO: need support copy
 		);
 	}
 	void dispose_stream(uint64 handle) noexcept override {
@@ -97,7 +97,6 @@ public:
 		stream->Execute(
 			dxDevice,
 			std::move(cmd_buffer),
-			mComputeCommandQueue.Get(),
 			cpuFence.Get(),
 			[&](GFXDevice* device, GFXCommandListType type) {
 				return GetFrameResource(device, type);
@@ -110,11 +109,30 @@ public:
 	void compile_kernel(uint32_t uid) noexcept override {
 		ShaderCompiler::TryCompileCompute(uid);
 	}
-	uint64_t create_event() noexcept override {
-		return 0;
+	uint64 create_event() noexcept override {
+		return reinterpret_cast<uint64>(vengine_malloc(sizeof(uint64)));
 	}
-	void dispose_event(uint64_t handle) noexcept override {}
-	void synchronize_event(uint64_t handle) noexcept override {
+	void dispose_event(uint64 handle) noexcept override {
+		vengine_free(reinterpret_cast<void*>(handle));
+	}
+	void signal_event(uint64 handle, uint64 stream_handle) noexcept override {
+		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
+		uint64* evt = reinterpret_cast<uint64*>(handle);
+		*evt = stream->GetSignal();
+	}
+	void wait_event(uint64 handle, uint64 stream_handle) noexcept override {
+		uint64* evt = reinterpret_cast<uint64*>(handle);
+		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
+		stream->WaitToFence(
+			mtx,
+			cpuFence.Get(),
+			*evt);
+	}
+	/*
+	uint64 signal_event(uint64 handle, uint64 stream_handle);
+	void wait_event(uint64 signal, uint64 stream_handle)
+	*/
+	void synchronize_event(uint64 handle) noexcept override {
 		EnableThreadLocal();
 	}
 
@@ -161,8 +179,9 @@ private:
 			DXGI_ADAPTER_DESC1 desc;
 			adapter->GetDesc1(&desc);
 			if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
-				HRESULT hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_1,
-											   IID_PPV_ARGS(&md3dDevice));
+				HRESULT hr = D3D12CreateDevice(
+					adapter, D3D_FEATURE_LEVEL_12_1,
+					IID_PPV_ARGS(&md3dDevice));
 				if (SUCCEEDED(hr) && suitableIndex++ == index) {
 					adapterFound = true;
 					std::wstring description{desc.Description};

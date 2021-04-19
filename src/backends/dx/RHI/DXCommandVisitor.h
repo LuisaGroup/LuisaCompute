@@ -15,8 +15,6 @@ public:
 	void visit(KernelLaunchCommand const* cmd) noexcept override;
 	void visit(TextureUploadCommand const* cmd) noexcept override;
 	void visit(TextureDownloadCommand const* cmd) noexcept override;
-	void visit(EventSignalCommand const* cmd) noexcept override;
-	void visit(EventWaitCommand const* cmd) noexcept override;
 	//VENGINE_CODEGEN end
 
 private:
