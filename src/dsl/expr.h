@@ -8,6 +8,7 @@
 #include <string_view>
 
 #include <runtime/image.h>
+#include <runtime/volume.h>
 #include <runtime/buffer.h>
 #include <ast/function_builder.h>
 
@@ -263,6 +264,45 @@ struct Expr<ImageView<T>> : public Expr<Image<T>> {
     using Expr<Image<T>>::Expr;
 };
 
+template<typename T>
+struct Expr<Volume<T>> {
+
+public:
+    using ValueType = Volume<T>;
+
+private:
+    const RefExpr *_expression{nullptr};
+
+public:
+    explicit Expr(const RefExpr *expr) noexcept
+        : _expression{expr} {}
+    explicit Expr(VolumeView<T> image) noexcept
+        : _expression{FunctionBuilder::current()->image_binding(
+            Type::of<Volume<T>>(), image.handle(), image.offset())} {}
+
+    Expr &operator=(Expr) = delete;
+
+    [[nodiscard]] const Expression *expression() const noexcept { return _expression; }
+
+    [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept {
+        auto expr = Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
+            Type::of<Vector<T, 4>>(), CallOp::IMAGE_READ,
+            {_expression, uvw.expression()})};
+        return Var{expr};
+    };
+
+    void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value) const noexcept {
+        FunctionBuilder::current()->call(
+            CallOp::IMAGE_WRITE,
+            {_expression, uvw.expression(), value.expression()});
+    }
+};
+
+template<typename T>
+struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
+    using Expr<Volume<T>>::Expr;
+};
+
 // deduction guides
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;
@@ -281,6 +321,12 @@ Expr(const Image<T> &) -> Expr<Image<T>>;
 
 template<typename T>
 Expr(ImageView<T>) -> Expr<Image<T>>;
+
+template<typename T>
+Expr(const Volume<T> &) -> Expr<Volume<T>>;
+
+template<typename T>
+Expr(VolumeView<T>) -> Expr<Volume<T>>;
 
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept {

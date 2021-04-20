@@ -44,6 +44,11 @@ struct prototype_to_kernel_invocation<Image<T>> {
 };
 
 template<typename T>
+struct prototype_to_kernel_invocation<Volume<T>> {
+    using type = VolumeView<T>;
+};
+
+template<typename T>
 struct prototype_to_callable_invocation {
     using type = Expr<T>;
 };
@@ -83,40 +88,41 @@ public:
 
         for (auto buffer : _function.captured_buffers()) {
             _launch_command()->encode_buffer(
-                buffer.handle, buffer.offset_bytes,
+                buffer.variable.uid(), buffer.handle, buffer.offset_bytes,
                 static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
         }
 
         for (auto image : _function.captured_images()) {
             _launch_command()->encode_texture(
-                image.handle,
+                image.variable.uid(), image.handle,
                 static_cast<Command::Resource::Usage>(_function.variable_usage(image.variable.uid())));
         }
     }
 
     template<typename T>
     KernelInvoke &operator<<(BufferView<T> buffer) noexcept {
-        auto usage = _function.variable_usage(
-            _function.arguments()[_argument_index++].uid());
+        auto variable_uid = _function.arguments()[_argument_index++].uid();
+        auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_buffer(
-            buffer.handle(), buffer.offset_bytes(),
+            variable_uid, buffer.handle(), buffer.offset_bytes(),
             static_cast<Command::Resource::Usage>(usage));
         return *this;
     }
 
     template<typename T>
     KernelInvoke &operator<<(ImageView<T> image) noexcept {
-        auto usage = _function.variable_usage(
-            _function.arguments()[_argument_index++].uid());
+        auto variable_uid = _function.arguments()[_argument_index++].uid();
+        auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_texture(
-            image.handle(), static_cast<Command::Resource::Usage>(usage));
+            variable_uid, image.handle(),
+            static_cast<Command::Resource::Usage>(usage));
         return *this;
     }
 
     template<typename T>
     KernelInvoke &operator<<(T data) noexcept {
-        _launch_command()->encode_uniform(&data, sizeof(T));
-        _argument_index++;
+        auto variable_uid = _function.arguments()[_argument_index++].uid();
+        _launch_command()->encode_uniform(variable_uid, &data, sizeof(T));
         return *this;
     }
 

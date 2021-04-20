@@ -264,16 +264,15 @@ public:
             UNIFORM
         };
         Tag tag;
+        uint32_t variable_uid;
     };
 
     struct BufferArgument : Argument {
-        Resource::Usage usage;
         uint64_t handle;
         size_t offset;
     };
 
     struct TextureArgument : Argument {
-        Resource::Usage usage;
         uint64_t handle;
     };
 
@@ -302,9 +301,9 @@ public:
     //   1. captured buffers
     //   2. captured textures
     //   3. arguments
-    void encode_buffer(uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
-    void encode_texture(uint64_t handle, Resource::Usage usage) noexcept;
-    void encode_uniform(const void *data, size_t size) noexcept;
+    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
+    void encode_texture(uint32_t variable_uid, uint64_t handle, Resource::Usage usage) noexcept;
+    void encode_uniform(uint32_t variable_uid, const void *data, size_t size) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
@@ -316,14 +315,14 @@ public:
                 case Argument::Tag::BUFFER: {
                     BufferArgument buffer_argument{};
                     std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
-                    visit(buffer_argument);
+                    visit(argument.variable_uid, buffer_argument);
                     p += sizeof(BufferArgument);
                     break;
                 }
                 case Argument::Tag::TEXTURE: {
                     TextureArgument texture_argument{};
                     std::memcpy(&texture_argument, p, sizeof(TextureArgument));
-                    visit(texture_argument);
+                    visit(argument.variable_uid, texture_argument);
                     p += sizeof(TextureArgument);
                     break;
                 }
@@ -332,7 +331,7 @@ public:
                     std::memcpy(&uniform_argument, p, sizeof(UniformArgument));
                     p += sizeof(UniformArgument);
                     std::span data{p, uniform_argument.size};
-                    visit(data);
+                    visit(argument.variable_uid, data);
                     p += uniform_argument.size;
                     break;
                 }

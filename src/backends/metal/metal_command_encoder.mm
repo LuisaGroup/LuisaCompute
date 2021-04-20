@@ -109,19 +109,19 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:kernel.handle];
     [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
-    command->decode([&](auto argument) noexcept {
+    command->decode([&](auto vid, auto argument) noexcept {
         using T = decltype(argument);
         auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
             switch (usage) {
-                case Command::Resource::Usage::READ:
+                case Variable::Usage::READ:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead];
                     break;
-                case Command::Resource::Usage::WRITE:
+                case Variable::Usage::WRITE:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageWrite];
                     break;
-                case Command::Resource::Usage::READ_WRITE:
+                case Variable::Usage::READ_WRITE:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead
                                                  | MTLResourceUsageWrite];
@@ -136,7 +136,7 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
             [argument_encoder setBuffer:buffer
                                  offset:argument.offset
                                 atIndex:kernel.arguments[argument_index++].argumentIndex];
-            mark_usage(buffer, argument.usage);
+            mark_usage(buffer, function.variable_usage(vid));
         } else if constexpr (std::is_same_v<T, KernelLaunchCommand::TextureArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture #{} at index {}.",
@@ -144,7 +144,7 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
             auto texture = _device->texture(argument.handle);
             [argument_encoder setTexture:texture
                                  atIndex:kernel.arguments[argument_index++].argumentIndex];
-            mark_usage(texture, argument.usage);
+            mark_usage(texture, function.variable_usage(vid));
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());

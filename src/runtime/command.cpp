@@ -58,15 +58,17 @@ void Command::_texture_read_write(uint64_t handle) noexcept {
 }
 
 void KernelLaunchCommand::encode_buffer(
+    uint32_t variable_uid,
     uint64_t handle,
     size_t offset,
     Command::Resource::Usage usage) noexcept {
 
     BufferArgument argument{};
     argument.tag = Argument::Tag::BUFFER;
+    argument.variable_uid = variable_uid;
     argument.handle = handle;
     argument.offset = offset;
-    argument.usage = usage;
+    
     if (_argument_buffer_size + sizeof(BufferArgument) > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode buffer. "
@@ -82,13 +84,14 @@ void KernelLaunchCommand::encode_buffer(
 }
 
 void KernelLaunchCommand::encode_texture(
+    uint32_t variable_uid,
     uint64_t handle,
     Command::Resource::Usage usage) noexcept {
 
     TextureArgument argument{};
     argument.tag = Argument::Tag::TEXTURE;
+    argument.variable_uid = variable_uid;
     argument.handle = handle;
-    argument.usage = usage;
 
     if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
@@ -104,9 +107,14 @@ void KernelLaunchCommand::encode_texture(
     _argument_count++;
 }
 
-void KernelLaunchCommand::encode_uniform(const void *data, size_t size) noexcept {
+void KernelLaunchCommand::encode_uniform(
+    uint32_t variable_uid,
+    const void *data,
+    size_t size) noexcept {
+    
     UniformArgument argument{};
     argument.tag = Argument::Tag::UNIFORM;
+    argument.variable_uid = variable_uid;
     argument.size = size;
     if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(

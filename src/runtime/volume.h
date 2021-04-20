@@ -1,16 +1,16 @@
 //
-// Created by Mike Smith on 2021/3/29.
+// Created by Mike Smith on 2021/4/18.
 //
 
 #pragma once
 
-#include <runtime/command.h>
+#include <runtime/pixel.h>
 #include <runtime/device.h>
 
 namespace luisa::compute {
 
 template<typename T>
-class ImageView;
+class VolumeView;
 
 namespace detail {
 
@@ -19,9 +19,9 @@ struct Expr;
 
 }// namespace detail
 
-// Images are textures without sampling.
+// Volumes are 3D textures without sampling.
 template<typename T>
-class Image : concepts::Noncopyable {
+class Volume : concepts::Noncopyable {
 
     static_assert(std::disjunction_v<
                   std::is_same<T, int>,
@@ -31,37 +31,36 @@ class Image : concepts::Noncopyable {
 private:
     Device::Interface *_device;
     uint64_t _handle;
-    uint2 _size;
     PixelStorage _storage;
+    uint3 _size;
 
 private:
     friend class Device;
-    Image(Device &device, PixelStorage storage, uint2 size) noexcept
+    Volume(Device &device, PixelStorage storage, uint width, uint height, uint depth) noexcept
         : _device{device.impl()},
           _handle{device.impl()->create_texture(
-              pixel_storage_to_format<T>(storage), 2u,
-              size.x, size.y, 1u,
+              pixel_storage_to_format<T>(storage), 3u,
+              width, height, depth,
               1u, false)},
-          _size{size},
-          _storage{storage} {}
-
-    Image(Device &device, PixelStorage storage, uint width, uint height) noexcept
-        : Image{device, storage, uint2{width, height}} {}
+          _storage{storage},
+          _size{width, height, depth} {}
+    Volume(Device &device, PixelStorage storage, uint3 size) noexcept
+        : Volume{device, storage, size.x, size.y, size.z} {}
 
 public:
-    Image(Image &&another) noexcept
+    Volume(Volume &&another) noexcept
         : _device{another._device},
           _handle{another._handle},
           _size{another._size},
           _storage{another._storage} { another._device = nullptr; }
 
-    ~Image() noexcept {
+    ~Volume() noexcept {
         if (_device != nullptr) {
             _device->dispose_texture(_handle);
         }
     }
 
-    Image &operator=(Image &&rhs) noexcept {
+    Volume &operator=(Volume &&rhs) noexcept {
         if (&rhs != this) {
             _device->dispose_texture(_handle);
             _device = rhs._device;
@@ -76,17 +75,17 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return ImageView<T>{_handle, _storage, _size}; }
+    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{_handle, _storage, _size}; }
 
-    template<typename UV>
-    [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
-        return this->view().read(std::forward<UV>(uv));
+    template<typename UVW>
+    [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
+        return this->view().read(std::forward<UVW>(uvw));
     }
 
-    template<typename UV, typename Value>
-    [[nodiscard]] decltype(auto) write(UV &&uv, Value &&value) const noexcept {
+    template<typename UVW, typename Value>
+    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value) const noexcept {
         return this->view().write(
-            std::forward<UV>(uv),
+            std::forward<UVW>(uvw),
             std::forward<Value>(value));
     }
 
@@ -95,26 +94,26 @@ public:
 };
 
 template<typename T>
-class ImageView {
+class VolumeView {
 
 private:
     uint64_t _handle;
-    uint2 _size;
     PixelStorage _storage;
+    uint3 _size;
 
 private:
-    friend class Image<T>;
+    friend class Volume<T>;
 
-    constexpr explicit ImageView(
+    constexpr explicit VolumeView(
         uint64_t handle,
         PixelStorage storage,
-        uint2 size) noexcept
+        uint3 size) noexcept
         : _handle{handle},
-          _size{size},
-          _storage{storage} {}
+          _storage{storage},
+          _size{size} {}
 
 public:
-    ImageView(const Image<T> &image) noexcept : ImageView{image.view()} {}
+    VolumeView(const Volume<T> &volume) noexcept : VolumeView{volume.view()} {}
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -124,33 +123,33 @@ public:
         return TextureUploadCommand::create(
             _handle, _storage,
             0u, uint3{},
-            uint3{_size, 1u}, data);
+            _size, data);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return TextureDownloadCommand::create(
             _handle, _storage,
             0u, uint3{},
-            uint3{_size, 1u}, data);
+            _size, data);
     }
 
-    template<typename UV>
-    [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
-        return detail::Expr<Image<T>>{*this}.read(std::forward<UV>(uv));
+    template<typename UVW>
+    [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
+        return detail::Expr<Volume<T>>{*this}.read(std::forward<UVW>(uvw));
     }
 
-    template<typename UV, typename Value>
-    [[nodiscard]] decltype(auto) write(UV &&uv, Value &&value) const noexcept {
-        return detail::Expr<Image<T>>{*this}.write(
-            std::forward<UV>(uv),
+    template<typename UVW, typename Value>
+    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value) const noexcept {
+        return detail::Expr<Volume<T>>{*this}.write(
+            std::forward<UVW>(uvw),
             std::forward<Value>(value));
     }
 };
 
 template<typename T>
-ImageView(const Image<T> &) -> ImageView<T>;
+VolumeView(const Volume<T> &) -> VolumeView<T>;
 
 template<typename T>
-ImageView(ImageView<T>) -> ImageView<T>;
+VolumeView(VolumeView<T>) -> VolumeView<T>;
 
 }// namespace luisa::compute

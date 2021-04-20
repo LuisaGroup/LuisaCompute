@@ -27,6 +27,9 @@ class Buffer;
 template<typename T>
 class Image;
 
+template<typename T>
+class Volume;
+
 class Device {
 
 public:
@@ -97,6 +100,16 @@ public:
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size) noexcept {
         return create<Image<T>>(pixel, size);
+    }
+    
+    template<typename T>
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth) noexcept {
+        return create<Volume<T>>(pixel, width, height, depth);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size) noexcept {
+        return create<Volume<T>>(pixel, size);
     }
 
     template<typename T>

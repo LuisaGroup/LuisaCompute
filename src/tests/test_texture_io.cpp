@@ -52,4 +52,6 @@ int main(int argc, char *argv[]) {
     event.synchronize();
     cv::cvtColor(host_image, host_image, cv::COLOR_RGBA2BGR);
     cv::imwrite("result.png", host_image);
+    
+    auto volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
 }

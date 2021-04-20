@@ -13,7 +13,7 @@
 
 namespace luisa::compute {
 
-class Stream : public concepts::Noncopyable {
+class Stream {
 
 public:
     class Delegate {
@@ -28,7 +28,9 @@ public:
     public:
         explicit Delegate(Stream *s) noexcept;
         Delegate(Delegate &&) noexcept;
-        Delegate &operator=(Delegate &&) noexcept;
+        Delegate(const Delegate &) noexcept = delete;
+        Delegate &operator=(Delegate &&) noexcept = delete;
+        Delegate &operator=(const Delegate &) noexcept = delete;
         ~Delegate() noexcept;
         Delegate &operator<<(CommandHandle cmd) noexcept;
         Stream &operator<<(Event::Signal signal) noexcept;

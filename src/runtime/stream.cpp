@@ -73,16 +73,6 @@ Stream::Delegate::Delegate(Stream::Delegate &&s) noexcept
     : _stream{s._stream},
       _command_buffer{std::move(s._command_buffer)} { s._stream = nullptr; }
 
-Stream::Delegate &Stream::Delegate::operator=(Stream::Delegate &&rhs)  noexcept {
-    if (this != &rhs) {
-        _commit();
-        _stream = rhs._stream;
-        _command_buffer = std::move(rhs._command_buffer);
-        rhs._stream = nullptr;
-    }
-    return *this;
-}
-
 Stream &Stream::Delegate::operator<<(Event::Signal signal) noexcept {
     auto &&stream = *_stream;
     _commit();

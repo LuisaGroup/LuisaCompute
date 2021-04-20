@@ -8,7 +8,6 @@ namespace luisa::compute {
 
 void CommandBuffer::append(CommandHandle cmd) noexcept {
     _commands.emplace_back(std::move(cmd));
-    LUISA_VERBOSE_WITH_LOCATION("Added command to command buffer.");
 }
 
 }// namespace luisa::compute

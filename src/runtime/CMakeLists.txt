@@ -8,6 +8,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
     event.cpp event.h
     buffer.h
     image.h
+    volume.h
     texture.cpp texture.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
