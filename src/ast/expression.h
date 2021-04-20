@@ -321,9 +321,9 @@ enum struct CallOp {
     ATMOIC_FETCH_XOR,
     ATMOIC_FETCH_MIN,
     ATMOIC_FETCH_MAX,
-    
-    IMAGE_READ,
-    IMAGE_WRITE,
+
+    TEXTURE_READ,
+    TEXTURE_WRITE,
 };
 
 class CallExpr : public Expression {

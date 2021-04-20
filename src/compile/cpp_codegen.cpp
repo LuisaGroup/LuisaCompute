@@ -140,8 +140,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::ALL: break;
         case CallOp::ANY: break;
         case CallOp::NONE: break;
-        case CallOp::IMAGE_READ: break;
-        case CallOp::IMAGE_WRITE: break;
+        case CallOp::TEXTURE_READ: break;
+        case CallOp::TEXTURE_WRITE: break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {

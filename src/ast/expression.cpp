@@ -15,7 +15,7 @@ void RefExpr::_mark(Variable::Usage usage) const noexcept {
 
 void CallExpr::_mark(Variable::Usage) const noexcept {
     if (is_builtin()) {
-        if (_op == CallOp::IMAGE_WRITE) {
+        if (_op == CallOp::TEXTURE_WRITE) {
             _arguments[0]->mark(Variable::Usage::WRITE);
             for (auto i = 1u; i < _arguments.size(); i++) {
                 _arguments[i]->mark(Variable::Usage::READ);

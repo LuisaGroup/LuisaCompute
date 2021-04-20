@@ -247,14 +247,14 @@ public:
 
     [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
         auto expr = Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
-            Type::of<Vector<T, 4>>(), CallOp::IMAGE_READ,
+            Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
             {_expression, uv.expression()})};
         return Var{expr};
     };
 
     void write(Expr<uint2> uv, Expr<Vector<T, 4>> value) const noexcept {
         FunctionBuilder::current()->call(
-            CallOp::IMAGE_WRITE,
+            CallOp::TEXTURE_WRITE,
             {_expression, uv.expression(), value.expression()});
     }
 };
@@ -286,14 +286,14 @@ public:
 
     [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept {
         auto expr = Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
-            Type::of<Vector<T, 4>>(), CallOp::IMAGE_READ,
+            Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
             {_expression, uvw.expression()})};
         return Var{expr};
     };
 
     void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value) const noexcept {
         FunctionBuilder::current()->call(
-            CallOp::IMAGE_WRITE,
+            CallOp::TEXTURE_WRITE,
             {_expression, uvw.expression(), value.expression()});
     }
 };

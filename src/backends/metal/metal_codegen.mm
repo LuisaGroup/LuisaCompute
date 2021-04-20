@@ -147,8 +147,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::NONE: _scratch << "none"; break;
-        case CallOp::IMAGE_READ: _scratch << "image_read"; break;
-        case CallOp::IMAGE_WRITE: _scratch << "image_write"; break;
+        case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
+        case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
@@ -658,18 +658,28 @@ void MetalCodegen::_emit_intrinsic(CallOp intrinsic) noexcept {
 
 )";
             break;
-        case CallOp::IMAGE_READ:
+        case CallOp::TEXTURE_READ:
             _scratch << R"(template<typename T, access a>
-[[nodiscard]] auto image_read(texture2d<T, a> t, uint2 uv) {
+[[nodiscard]] auto texture_read(texture2d<T, a> t, uint2 uv) {
   return t.read(uv);
+}
+
+template<typename T, access a>
+[[nodiscard]] auto texture_read(texture3d<T, a> t, uint3 uvw) {
+  return t.read(uvw);
 }
 
 )";
             break;
-        case CallOp::IMAGE_WRITE:
+        case CallOp::TEXTURE_WRITE:
             _scratch << R"(template<typename T, access a, typename Value>
-void image_write(texture2d<T, a> t, uint2 uv, Value value) {
+void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
   t.write(value, uv);
+}
+
+template<typename T, access a, typename Value>
+void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
+  t.write(value, uvw);
 }
 
 )";
