@@ -120,6 +120,16 @@ public:
     }
 
     template<typename T>
+    KernelInvoke &operator<<(VolumeView<T> image) noexcept {
+        auto variable_uid = _function.arguments()[_argument_index++].uid();
+        auto usage = _function.variable_usage(variable_uid);
+        _launch_command()->encode_texture(
+            variable_uid, image.handle(),
+            static_cast<Command::Resource::Usage>(usage));
+        return *this;
+    }
+
+    template<typename T>
     KernelInvoke &operator<<(T data) noexcept {
         auto variable_uid = _function.arguments()[_argument_index++].uid();
         _launch_command()->encode_uniform(variable_uid, &data, sizeof(T));

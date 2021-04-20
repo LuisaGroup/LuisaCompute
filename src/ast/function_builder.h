@@ -151,7 +151,7 @@ public:
     // explicit arguments
     [[nodiscard]] const RefExpr *argument(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *buffer(const Type *type) noexcept;
-    [[nodiscard]] const RefExpr *image(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
 
     // expressions
     [[nodiscard]] const LiteralExpr *literal(const Type *type, LiteralExpr::Value value) noexcept;

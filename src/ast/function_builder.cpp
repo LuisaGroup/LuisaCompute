@@ -292,7 +292,7 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag, uint32_t uid) noexcep
       _tag{tag},
       _uid{uid} {}
 
-const RefExpr *FunctionBuilder::image(const Type *type) noexcept {
+const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
