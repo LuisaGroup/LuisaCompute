@@ -8,7 +8,7 @@ class FrameResource final {
 public:
 	CBufferAllocator* cbAlloc;
 	ThreadCommand tCmd;
-	uint64 signalIndex;
+	uint64 signalIndex = 0;
 	vengine::vector<ObjectPtr<VObject>> deferredDeleteObj;
 	vengine::vector<Runnable<void()>> afterSyncTask;
 	vengine::vector<CBufferChunk> deferredReleaseCBuffer;

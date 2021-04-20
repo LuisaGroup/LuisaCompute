@@ -29,12 +29,19 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str) {
 		for (auto& i : func.constants()) {
 			CodegenUtility::PrintConstant(i, str);
 		}
-
+		for (auto& i : func.shared_variables()) {
+			str << "groupshared "_sv;
+			CodegenUtility::GetTypeName(*i.type(), str);
+			str << '['
+				<< i.type()->dimension()
+				<< "];\n"_sv;
+		}
 		CodegenUtility::PrintUniform(func, str);
 		CodegenUtility::PrintGlobalVariables(
 			{func.builtin_variables(),
 			 func.arguments()},
 			str);
+
 		str << function_buffer;
 	}
 	str << "[numthreads(8,8,1)]\nvoid CSMain(uint3 thd_id:SV_GROUPTHREADID,uint3 blk_id:SV_GROUPID,uint3 dsp_id:SV_DISPATCHTHREADID){\n_kernel_"_sv;
@@ -252,11 +259,7 @@ void StringExprVisitor::visit(const AccessExpr* expr) {
 void StringExprVisitor::visit(const RefExpr* expr) {
 	Variable v = expr->variable();
 	CodegenUtility::RegistStructType(v.type());
-	if (v.type()->is_vector() && v.type()->element()->size() < 4) {
-		//TODO
-	} else {
-		CodegenUtility::GetVariableName(v, *str);
-	}
+	CodegenUtility::GetVariableName(v, *str);
 }
 void StringExprVisitor::visit(const LiteralExpr* expr) {
 	LiteralExpr::Value const& value = expr->value();
@@ -385,7 +388,6 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 			}
 		}
 	}
-	//TODO: Different Declare in Fxxking HLSL
 }
 
 void StringStateVisitor::visit(const IfStmt* state) {
@@ -594,7 +596,6 @@ void CodegenUtility::GetFunctionDecl(Function func, vengine::string& data) {
 			data += " _kernel_"_sv;
 			vengine::to_string(func.uid(), data);
 			data += "(uint3 thd_id,uint3 blk_id,uint3 dsp_id)"_sv;
-			//TODO: kernel specific declare
 			break;
 	}
 }
@@ -733,6 +734,29 @@ void CodegenUtility::PrintUniform(
 		}
 		result += ");\n"_sv;
 	};
+	auto ProcessTexture = [&](Variable const& var) {
+		bool enableRandomWrite = ((uint)func.variable_usage(var.uid()) & (uint)Variable::Usage::WRITE) != 0;
+		if (enableRandomWrite) {
+			result += "RWTexture"_sv;
+		} else {
+			result += "Texture"_sv;
+		}
+		vengine::to_string(var.type()->dimension(), result);
+		result += "D<"_sv;
+		GetTypeName(*var.type()->element(), result);
+		result += "> v"_sv;
+		vengine::to_string(var.uid(), result);
+		if (enableRandomWrite) {
+			result += ":register(u"_sv;
+			vengine::to_string(uCount, result);
+			uCount++;
+		} else {
+			result += ":register(t"_sv;
+			vengine::to_string(tCount, result);
+			tCount++;
+		}
+		result += ");\n"_sv;
+	};
 	for (auto& args : argss) {
 		for (auto& var : args) {
 			switch (var.tag()) {
@@ -741,6 +765,7 @@ void CodegenUtility::PrintUniform(
 					break;
 				case Variable::Tag::IMAGE:
 					//TODO: Texture Binding
+					ProcessTexture(var);
 					break;
 			}
 		}

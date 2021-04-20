@@ -80,57 +80,49 @@ public:
 		friend class vector;
 
 	private:
-		const vector* lst;
-		size_t index;
-		Iterator(const vector* lst, size_t index) noexcept : lst(lst), index(index) {}
+		T* ptr;
+		Iterator(T* ptr)
+			: ptr(ptr) {
+		}
 
 	public:
 		bool operator==(const Iterator& ite) const noexcept {
-			return index == ite.index;
+			return ptr == ite.ptr;
 		}
 		bool operator!=(const Iterator& ite) const noexcept {
-			return index != ite.index;
+			return ptr != ite.ptr;
 		}
 		void operator++() noexcept {
-			index++;
+			++ptr;
 		}
 		void operator--() noexcept {
-			index--;
-		}
-		size_t GetIndex() const noexcept {
-			return index;
+			--ptr;
 		}
 		void operator++(int32_t) noexcept {
-			index++;
+			ptr++;
 		}
 		void operator--(int32_t) noexcept {
-			index--;
+			ptr--;
 		}
 		Iterator operator+(size_t value) const noexcept {
-			return Iterator(lst, index + value);
+			return Iterator(ptr + value);
 		}
 		Iterator operator-(size_t value) const noexcept {
-			return Iterator(lst, index - value);
+			return Iterator(ptr - value);
 		}
 		Iterator& operator+=(size_t value) noexcept {
-			index += value;
+			ptr += value;
 			return *this;
 		}
 		Iterator& operator-=(size_t value) noexcept {
-			index -= value;
+			ptr -= value;
 			return *this;
 		}
 		T* operator->() const noexcept {
-#if defined(DEBUG)
-			if (index >= lst->mSize) throw "Out of Range!";
-#endif
-			return &(*lst).arr[index];
+			return ptr;
 		}
 		T& operator*() const noexcept {
-#if defined(DEBUG)
-			if (index >= lst->mSize) throw "Out of Range!";
-#endif
-			return (*lst).arr[index];
+			return *ptr;
 		}
 	};
 	vector(size_t mSize) noexcept : mSize(mSize), mCapacity(mSize) {
@@ -265,20 +257,23 @@ public:
 	}
 
 	Iterator begin() const noexcept {
-		return Iterator(this, 0);
+		return Iterator(arr);
 	}
 	Iterator end() const noexcept {
-		return Iterator(this, mSize);
+		return Iterator(arr + mSize);
 	}
 
 	void erase(const Iterator& ite) noexcept {
+		size_t index = reinterpret_cast<size_t>(ite.ptr)
+					   - reinterpret_cast<size_t>(arr);
+		index /= sizeof(T);
 #if defined(DEBUG)
-		if (ite.index >= mSize) throw "Out of Range!";
+		if (index >= mSize) throw "Out of Range!";
 #endif
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
 			if constexpr (!(std::is_trivially_copyable_v<T> || forceTrivial)) {
-				if (ite.index < mSize - 1) {
-					for (size_t i = ite.index; i < mSize - 1; ++i) {
+				if (index < mSize - 1) {
+					for (size_t i = index; i < mSize - 1; ++i) {
 						arr[i] = arr[i + 1];
 					}
 				}
@@ -286,8 +281,8 @@ public:
 			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial))
 				(arr + mSize - 1)->~T();
 		} else {
-			if (ite.index < mSize - 1) {
-				memmove(arr + ite.index, arr + ite.index + 1, (mSize - ite.index - 1) * sizeof(T));
+			if (index < mSize - 1) {
+				memmove(ite.ptr, ite.ptr + 1, (mSize - index - 1) * sizeof(T));
 			}
 		}
 		mSize--;
@@ -340,7 +335,6 @@ public:
 #endif
 		return arr[index];
 	}
-	
 };
 }// namespace vengine
 template<typename T, bool useVEngineAlloc = true>

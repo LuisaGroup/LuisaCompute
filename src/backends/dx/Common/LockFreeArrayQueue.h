@@ -219,10 +219,32 @@ public:
 		}
 		new (arr + GetIndex(index, capacity)) T{std::forward<Args>(args)...};
 	}
+	bool Pop() {
+		if (head - tail == 0)
+			return false;
+		if constexpr (!std::is_trivially_destructible_v<T>) {
+			auto&& value = arr[GetIndex(tail++, capacity)];
+			value.~T();
+		} else {
+			tail++;
+		}
+		return true;
+	}
 	bool Pop(T* ptr) {
 		if (head - tail == 0)
 			return false;
 		auto&& value = arr[GetIndex(tail++, capacity)];
+		*ptr = value;
+		if constexpr (!std::is_trivially_destructible_v<T>) {
+			value.~T();
+		}
+		return true;
+	}
+
+	bool GetLast(T* ptr) {
+		if (head - tail == 0)
+			return false;
+		auto&& value = arr[GetIndex(tail, capacity)];
 		*ptr = value;
 		if constexpr (!std::is_trivially_destructible_v<T>) {
 			value.~T();

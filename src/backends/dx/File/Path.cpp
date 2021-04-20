@@ -95,9 +95,9 @@ bool Path::IsParentPathOf(Path const& subPath) const
 	SeparatePath(pathData, parentSplit);
 	SeparatePath(otherPath, subSplit);
 	if (parentSplit.size() >= subSplit.size()) return false;
-	for (auto ite = parentSplit.begin(); ite != parentSplit.end(); ++ite)
-	{
-		if (*ite != subSplit[ite.GetIndex()]) return false;
+	for (size_t ite = 0; ite < parentSplit.size(); ++ite) {
+		if (parentSplit[ite] != subSplit[ite]) return false;
+
 	}
 	return true;
 }
@@ -109,13 +109,13 @@ vengine::string Path::TryGetSubPath(Path const& subPath) const
 	SeparatePath(pathData, parentSplit);
 	SeparatePath(otherPath, subSplit);
 	if (parentSplit.size() >= subSplit.size()) return vengine::string();
-	auto ite = parentSplit.begin();
-	for (; ite != parentSplit.end(); ++ite)
+	size_t ite = 0;
+	for (; ite < parentSplit.size(); ++ite)
 	{
-		if (*ite != subSplit[ite.GetIndex()]) return vengine::string();
+		if (parentSplit[ite] != subSplit[ite]) return vengine::string();
 	}
 	vengine::string str;
-	for (uint i = ite.GetIndex(); i < subSplit.size() - 1; ++i)
+	for (size_t i = ite; i < subSplit.size() - 1; ++i)
 	{
 		str += subSplit[i] + '/';
 	}

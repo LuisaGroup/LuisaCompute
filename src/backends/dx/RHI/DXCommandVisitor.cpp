@@ -197,7 +197,5 @@ void DXCommandVisitor::visit(TextureDownloadCommand const* cmd) noexcept {
 			delete readBuffer;
 		})));
 }
-void DXCommandVisitor::visit(EventSignalCommand const* cmd) noexcept {}
-void DXCommandVisitor::visit(EventWaitCommand const* cmd) noexcept {}
 //VENGINE_CODEGEN end
 }// namespace luisa::compute

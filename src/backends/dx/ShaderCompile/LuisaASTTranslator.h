@@ -18,6 +18,7 @@ public:
 	static void GetTypeName(Type const& type, vengine::string& str);
 	static void GetFunctionDecl(Function func, vengine::string& str);
 	static void PrintConstant(Function::ConstantBinding const& binding, vengine::string& result);
+
 	static void ClearStructType();
 	static void RegistStructType(Type const* type);
 	static void IterateStructType(TypeVisitor* visitor);

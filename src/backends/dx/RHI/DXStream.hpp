@@ -9,68 +9,76 @@
 namespace luisa::compute {
 class DXStream {
 public:
-	using GetFrameResourceFunc = Runnable<FrameResource*(GFXDevice*, GFXCommandListType)>;
+	using GetFrameResourceFunc = Runnable<FrameResource*(GFXCommandListType)>;
 	DXStream(
 		GFXDevice* device,
+		GFXCommandQueue* queue,
 		GFXCommandListType listType)
-		: listType(listType) {
+		: listType(listType),
+		  queue(queue)
+
+	{
 	}
 	GFXCommandListType GetType() const {
 		return listType;
 	}
-	void Sync(ID3D12Fence* fence, std::mutex& mtx) {
-		{
-			std::lock_guard lck(mtx);
-			if (dispatchedRes.empty()) return;
-			auto lastRes = *(dispatchedRes.end() - 1);
-			if (fence->GetCompletedValue() < lastRes->signalIndex) {
+
+	static void WaitFence(
+		ID3D12Fence* fence,
+		uint64 signalIndex) {
+		if (signalIndex > 0 && (fence->GetCompletedValue() < signalIndex)) {
 #ifdef UNICODE
-				LPCWSTR falseValue = (LPCWSTR) false;
+			LPCWSTR falseValue = (LPCWSTR) false;
 #else
-				LPCSTR falseValue = (LPCSTR) false;
+			LPCSTR falseValue = (LPCSTR) false;
 #endif
-				HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-				// Fire event when GPU hits current fence.
-				ThrowIfFailed(fence->SetEventOnCompletion(lastRes->signalIndex, eventHandle));
-				// Wait until the GPU hits current fence event is fired.
-				WaitForSingleObject(eventHandle, INFINITE);
-				CloseHandle(eventHandle);
-			}
+			HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
+			// Fire event when GPU hits current fence.
+			ThrowIfFailed(fence->SetEventOnCompletion(signalIndex, eventHandle));
+			// Wait until the GPU hits current fence event is fired.
+			WaitForSingleObject(eventHandle, INFINITE);
+			CloseHandle(eventHandle);
 		}
-		for (auto& i : dispatchedRes) {
-			i->ReleaseTemp();
-		}
-		dispatchedRes.clear();
+	}
+	void Sync(ID3D12Fence* fence, std::mutex& mtx) {
+		std::lock_guard lck(mtx);
+		WaitFence(fence, lastSignal);
 	}
 
 	void Execute(
 		GFXDevice* device,
 		CommandBuffer&& buffer,
-		GFXCommandQueue* queue,
 		ID3D12Fence* fence,
 		GetFrameResourceFunc const& getResource,
 		SingleThreadArrayQueue<FrameResource*>& res,
 		std::mutex& mtx,
 		uint64& cpuSignalIndex) {
 		///////////// Local-Thread
-		FrameResource* tempRes = getResource(device, listType);
+		FrameResource* tempRes = getResource(listType);
 		tempRes->tCmd.ResetCommand();
 		//TODO: execute buffer
 		tempRes->tCmd.CloseCommand();
 		///////////// Global-Sync
 		std::lock_guard lck(mtx);
-		dispatchedRes.push_back(tempRes);
 		std::initializer_list<ID3D12CommandList*> cmd = {tempRes->tCmd.GetCmdList()};
 		queue->ExecuteCommandLists(cmd.size(), cmd.begin());
 		queue->Signal(fence, cpuSignalIndex);
 		tempRes->signalIndex = cpuSignalIndex;
+		lastSignal = cpuSignalIndex;
 		cpuSignalIndex++;
 		res.Push(tempRes);
 	}
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	uint64 GetSignal() const {
+		return lastSignal;
+	}
+	GFXCommandQueue* GetQueue() const {
+		return queue;
+	}
 
 private:
-	vengine::vector<FrameResource*> dispatchedRes;
 	GFXCommandListType listType;
+	GFXCommandQueue* queue;
+	uint64 lastSignal = 0;
 };
 }// namespace luisa::compute
