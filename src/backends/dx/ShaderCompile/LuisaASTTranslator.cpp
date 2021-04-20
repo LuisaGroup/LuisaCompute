@@ -649,10 +649,10 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::NONE:
 			result << "!any"_sv;
 			break;
-		case CallOp::IMAGE_READ:
+		case CallOp::TEXTURE_READ:
 			result << "HLSL_SampleTex"_sv;
 			break;
-		case CallOp::IMAGE_WRITE:
+		case CallOp::TEXTURE_WRITE:
 			result << "HLSL_WriteTex"_sv;
 			break;
 		default:
@@ -763,7 +763,7 @@ void CodegenUtility::PrintUniform(
 				case Variable::Tag::BUFFER:
 					ProcessBuffer(var);
 					break;
-				case Variable::Tag::IMAGE:
+				case Variable::Tag::TEXTURE:
 					//TODO: Texture Binding
 					ProcessTexture(var);
 					break;
