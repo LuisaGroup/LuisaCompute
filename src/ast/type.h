@@ -44,7 +44,7 @@ public:
         STRUCTURE,
         
         BUFFER,
-        IMAGE
+        TEXTURE
     };
 
 private:
@@ -52,7 +52,7 @@ private:
     size_t _size;
     size_t _index;
     size_t _alignment;
-    uint32_t _element_count;
+    uint32_t _dimension;
     Tag _tag;
     std::unique_ptr<TypeData> _data;
 
@@ -80,8 +80,8 @@ public:
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
     [[nodiscard]] std::string_view description() const noexcept;
     [[nodiscard]] constexpr size_t dimension() const noexcept {
-        assert(is_array() || is_vector() || is_matrix());
-        return _element_count;
+        assert(is_array() || is_vector() || is_matrix() || is_texture());
+        return _dimension;
     }
 
     [[nodiscard]] std::span<const Type *const> members() const noexcept;
@@ -100,7 +100,7 @@ public:
     [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
     [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == Tag::ATOMIC; }
     [[nodiscard]] constexpr bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
-    [[nodiscard]] constexpr bool is_image() const noexcept { return _tag == Tag::IMAGE; }
+    [[nodiscard]] constexpr bool is_texture() const noexcept { return _tag == Tag::TEXTURE; }
 };
 
 }// namespace luisa::compute

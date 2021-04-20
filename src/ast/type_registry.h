@@ -31,6 +31,12 @@ class Image;
 template<typename T>
 class ImageView;
 
+template<typename T>
+class Volume;
+
+template<typename T>
+class VolumeView;
+
 class TypeRegistry {
 
 private:
@@ -141,7 +147,7 @@ template<typename T>
 struct TypeDesc<Image<T>> {
     static std::string_view description() noexcept {
         static thread_local auto s = fmt::format(
-            FMT_STRING("image<{}>"),
+            FMT_STRING("texture<2,{}>"),
             TypeDesc<T>::description());
         return s;
     }
@@ -149,6 +155,19 @@ struct TypeDesc<Image<T>> {
 
 template<typename T>
 struct TypeDesc<ImageView<T>> : TypeDesc<Image<T>> {};
+
+template<typename T>
+struct TypeDesc<Volume<T>> {
+    static std::string_view description() noexcept {
+        static thread_local auto s = fmt::format(
+            FMT_STRING("texture<3,{}>"),
+            TypeDesc<T>::description());
+        return s;
+    }
+};
+
+template<typename T>
+struct TypeDesc<VolumeView<T>> : TypeDesc<Volume<T>> {};
 
 // matrices
 template<>

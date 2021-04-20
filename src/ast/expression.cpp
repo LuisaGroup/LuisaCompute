@@ -31,7 +31,7 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
         for (auto i = 0u; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
-                arg.tag() == Variable::Tag::BUFFER || arg.tag() == Variable::Tag::IMAGE
+                arg.tag() == Variable::Tag::BUFFER || arg.tag() == Variable::Tag::TEXTURE
                     ? f.variable_usage(arg.uid())
                     : Variable::Usage::READ);
         }

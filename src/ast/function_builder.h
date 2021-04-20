@@ -42,7 +42,7 @@ public:
     using Tag = Function::Tag;
     using ConstantBinding = Function::ConstantBinding;
     using BufferBinding = Function::BufferBinding;
-    using ImageBinding = Function::ImageBinding;
+    using TextureBinding = Function::TextureBinding;
 
 private:
     ScopeStmt _body;
@@ -52,7 +52,7 @@ private:
     ArenaVector<Variable> _shared_variables;
     ArenaVector<ConstantBinding> _captured_constants;
     ArenaVector<BufferBinding> _captured_buffers;
-    ArenaVector<ImageBinding> _captured_images;
+    ArenaVector<TextureBinding> _captured_textures;
     ArenaVector<Variable> _arguments;
     ArenaVector<uint32_t> _used_custom_callables;
     ArenaVector<CallOp> _used_builtin_callables;
@@ -94,7 +94,7 @@ public:
     [[nodiscard]] auto shared_variables() const noexcept { return std::span{_shared_variables.data(), _shared_variables.size()}; }
     [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants.data(), _captured_constants.size()}; }
     [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
-    [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_images.data(), _captured_images.size()}; }
+    [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }

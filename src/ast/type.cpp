@@ -78,41 +78,41 @@ const Type *Type::from(std::string_view description) noexcept {
             match('<');
             data.members.emplace_back(from_desc_impl(s));
             match(',');
-            info._element_count = read_number();
+            info._dimension = read_number();
             match('>');
             auto elem = data.members.front();
             if (!elem->is_scalar()) { LUISA_ERROR_WITH_LOCATION("Invalid vector element: {}.", elem->description()); }
-            if (info._element_count != 2 && info._element_count != 3 && info._element_count != 4) {
+            if (info._dimension != 2 && info._dimension != 3 && info._dimension != 4) {
                 LUISA_ERROR_WITH_LOCATION("Invalid vector dimension: {}.", info.dimension());
             }
-            info._size = info._alignment = elem->size() * (info._element_count == 3 ? 4 : info._element_count);
+            info._size = info._alignment = elem->size() * (info._dimension == 3 ? 4 : info._dimension);
         } else if (type_identifier == "matrix"sv) {
             info._tag = Tag::MATRIX;
             match('<');
             data.members.emplace_back(Type::of<float>());
-            info._element_count = read_number();
+            info._dimension = read_number();
             match('>');
-            if (info._element_count == 3) {
+            if (info._dimension == 3) {
                 info._size = sizeof(float3x3);
                 info._alignment = alignof(float3x3);
-            } else if (info._element_count == 4) {
+            } else if (info._dimension == 4) {
                 info._size = sizeof(float4x4);
                 info._alignment = alignof(float4x4);
             } else {
-                LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension: {}.", info._element_count);
+                LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension: {}.", info._dimension);
             }
         } else if (type_identifier == "array"sv) {
             info._tag = Tag::ARRAY;
             match('<');
             data.members.emplace_back(from_desc_impl(s));
-            if (data.members.back()->is_buffer() || data.members.back()->is_image()) {
+            if (data.members.back()->is_buffer() || data.members.back()->is_texture()) {
                 LUISA_ERROR_WITH_LOCATION("Arrays are not allowed to hold buffers or images.");
             }
             match(',');
-            info._element_count = read_number();
+            info._dimension = read_number();
             match('>');
             info._alignment = data.members.front()->alignment();
-            info._size = data.members.front()->size() * info._element_count;
+            info._size = data.members.front()->size() * info._dimension;
         } else if (type_identifier == "struct"sv) {
             info._tag = Tag::STRUCTURE;
             match('<');
@@ -124,7 +124,7 @@ const Type *Type::from(std::string_view description) noexcept {
             match('>');
             info._size = 0u;
             for (auto member : data.members) {
-                if (member->is_buffer() || member->is_image()) {
+                if (member->is_buffer() || member->is_texture()) {
                     LUISA_ERROR_WITH_LOCATION(
                         "Structures are not allowed to have buffers or images as members.");
                 }
@@ -141,16 +141,18 @@ const Type *Type::from(std::string_view description) noexcept {
             info._tag = Tag::BUFFER;
             match('<');
             auto m = data.members.emplace_back(from_desc_impl(s));
-            if (m->is_buffer() || m->is_image()) {
+            if (m->is_buffer() || m->is_texture()) {
                 LUISA_ERROR_WITH_LOCATION(
                     "Buffers are not allowed to hold buffers or images.");
             }
             match('>');
             info._alignment = 8u;
             info._size = 8u;
-        } else if (type_identifier == "image"sv) {
-            info._tag = Tag::IMAGE;
+        } else if (type_identifier == "texture"sv) {
+            info._tag = Tag::TEXTURE;
             match('<');
+            info._dimension = read_number();
+            match(',');
             auto m = data.members.emplace_back(from_desc_impl(s));
             if (!m->is_scalar()) { LUISA_ERROR_WITH_LOCATION("Images can only hold scalars."); }
             match('>');
@@ -194,7 +196,7 @@ std::span<const Type *const> Type::members() const noexcept {
 }
 
 const Type *Type::element() const noexcept {
-    assert(is_array() || is_atomic() || is_vector() || is_matrix() || is_buffer() || is_image());
+    assert(is_array() || is_atomic() || is_vector() || is_matrix() || is_buffer() || is_texture());
     return _data->members.front();
 }
 

@@ -134,7 +134,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
     if (_function.tag() == Function::Tag::KERNEL
         && (v.tag() == Variable::Tag::UNIFORM
             || v.tag() == Variable::Tag::BUFFER
-            || v.tag() == Variable::Tag::IMAGE
+            || v.tag() == Variable::Tag::TEXTURE
             || v.tag() == Variable::Tag::LAUNCH_SIZE)) {
         _scratch << "arg.";
     }
@@ -425,7 +425,7 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
-        case Variable::Tag::IMAGE: _scratch << "i" << v.uid(); break;
+        case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
@@ -497,8 +497,8 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << " *";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::IMAGE:
-            _scratch << "texture2d<";
+        case Variable::Tag::TEXTURE:
+            _scratch << "texture" << v.type()->dimension() << "d<";
             _emit_type_name(v.type()->element());
             _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
@@ -640,13 +640,13 @@ void MetalCodegen::visit(const ForStmt *stmt) {
 }
 
 void MetalCodegen::_emit_intrinsic(CallOp intrinsic) noexcept {
-    
+
     if (std::find(_generated_intrinsics.cbegin(),
                   _generated_intrinsics.cend(),
                   intrinsic)
         != _generated_intrinsics.cend()) { return; }
     _generated_intrinsics.emplace_back(intrinsic);
-    
+
     switch (intrinsic) {
         case CallOp::CUSTOM:
             LUISA_ERROR_WITH_LOCATION("Invalid built-in function with custom tag.");

@@ -20,7 +20,7 @@ public:
 
         // resources
         BUFFER,
-        IMAGE,
+        TEXTURE,
         
         // TODO: Bindless Textures
 

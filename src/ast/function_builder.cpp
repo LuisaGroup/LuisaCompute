@@ -284,7 +284,7 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag, uint32_t uid) noexcep
       _shared_variables{_arena()},
       _captured_constants{_arena()},
       _captured_buffers{_arena()},
-      _captured_images{_arena()},
+      _captured_textures{_arena()},
       _arguments{_arena()},
       _used_custom_callables{_arena()},
       _used_builtin_callables{_arena()},
@@ -293,17 +293,17 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag, uint32_t uid) noexcep
       _uid{uid} {}
 
 const RefExpr *FunctionBuilder::image(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::IMAGE, _next_variable_uid()};
+    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::image_binding(const Type *type, uint64_t handle) noexcept {
     if (auto iter = std::find_if(
-            _captured_images.cbegin(),
-            _captured_images.cend(),
+            _captured_textures.cbegin(),
+            _captured_textures.cend(),
             [handle](auto &&binding) { return binding.handle == handle; });
-        iter != _captured_images.cend()) {
+        iter != _captured_textures.cend()) {
         auto v = iter->variable;
         if (*v.type() != *type) {
             LUISA_ERROR_WITH_LOCATION(
@@ -313,8 +313,8 @@ const RefExpr *FunctionBuilder::image_binding(const Type *type, uint64_t handle)
         }
         return _ref(v);
     }
-    Variable v{type, Variable::Tag::IMAGE, _next_variable_uid()};
-    _captured_images.emplace_back(ImageBinding{v, handle});
+    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
+    _captured_textures.emplace_back(TextureBinding{v, handle});
     return _ref(v);
 }
 

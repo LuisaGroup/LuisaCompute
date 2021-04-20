@@ -382,7 +382,7 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
-        case Variable::Tag::IMAGE: _scratch << "i" << v.uid(); break;
+        case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
@@ -441,7 +441,7 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << "S" << hash_to_string(type->hash());
             break;
         case Type::Tag::BUFFER: break;
-        case Type::Tag::IMAGE: break;
+        case Type::Tag::TEXTURE: break;
     }
 }
 
@@ -452,7 +452,7 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_type_name(v.type()->element());
             _scratch << " *";
             break;
-        case Variable::Tag::IMAGE:
+        case Variable::Tag::TEXTURE:
             _scratch << "image<";
             _emit_type_name(v.type()->element());
             _scratch << ", ";
