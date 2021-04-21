@@ -171,7 +171,7 @@ private:
 	ShaderLoaderGlobal* shaderGlobal;
 	ComputeShader* copyShader;
 	StackObject<CBufferAllocator, true> cbAlloc;
-
+	HashMap<uint, IShader*> loadShaders;
 	void InitD3D(uint32_t index) {
 #if defined(DEBUG)
 		// Enable the D3D12 debug layer.

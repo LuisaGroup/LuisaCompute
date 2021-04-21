@@ -1,9 +1,11 @@
 PP = {
     "Debug": [
         "_DEBUG",
+        "_CRT_SECURE_NO_WARNINGS"
     ],
     "Release": [
         "NDEBUG",
+        "_CRT_SECURE_NO_WARNINGS"
     ]
 }
 

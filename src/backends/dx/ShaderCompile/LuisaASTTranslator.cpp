@@ -709,8 +709,8 @@ void CodegenUtility::PrintUniform(
 	//Buffer Binding
 	vengine::string& result) {
 	auto argss = {func.builtin_variables(), func.arguments()};
-	std::span<const Function::BufferBinding> buffers = func.captured_buffers();
-	std::span<const Function::ImageBinding> texs = func.captured_images();
+	auto buffers = func.captured_buffers();
+	auto texs = func.captured_images();
 	uint tCount = 0;
 	uint uCount = 0;
 	auto ProcessBuffer = [&](Variable const& var) {

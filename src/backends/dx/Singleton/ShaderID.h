@@ -5,12 +5,13 @@
 class VENGINE_DLL_RENDERER ShaderID {
 public:
 	static void Init();
-	static uint32_t GetPerCameraBufferID();
-	static uint32_t GetPerMaterialBufferID();
-	static uint32_t GetPerObjectBufferID();
-	static uint32_t GetMainTex();
-	static uint32_t GetParams();
+	static uint GetPerCameraBufferID();
+	static uint GetPerMaterialBufferID();
+	static uint GetPerObjectBufferID();
+	static uint GetMainTex();
+	static uint GetParams();
 
-	static uint32_t PropertyToID(const vengine::string& str);
+	static uint PropertyToID(const vengine::string& str);
+	static uint PropertyToID(uint uid);
 };
 

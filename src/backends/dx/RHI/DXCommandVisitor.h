@@ -1,7 +1,9 @@
 #pragma once
 #include <runtime/command.h>
 #include <Common/GFXUtil.h>
+#include <Common/Runnable.h>
 class ThreadCommand;
+class IShader;
 namespace luisa::compute {
 class FrameResource;
 class InternalShaders;
@@ -22,5 +24,6 @@ private:
 	ThreadCommand* tCmd;
 	FrameResource* res;
 	InternalShaders* internalShaders;
+	Runnable<IShader*(uint)> getFunction;
 };
 }// namespace luisa::compute

@@ -1,4 +1,5 @@
 #include <RHI/DXCommandVisitor.h>
+#include <ast/function.h>
 #include <iostream>
 #include <PipelineComponent/ThreadCommand.h>
 #include <RenderComponent/RenderComponentInclude.h>
@@ -75,6 +76,21 @@ void DXCommandVisitor::visit(BufferCopyCommand const* cmd) noexcept {
 		cmd->size());
 }
 void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
+	IShader* funcShader = getFunction(cmd->kernel_uid());
+	if (funcShader->GetType() == typeid(ComputeShader)) {//Common compute
+		ComputeShader* cs = static_cast<ComputeShader*>(funcShader);
+		cs->BindShader(tCmd);
+		struct Functor {
+			void operator()(uint varID, KernelLaunchCommand::BufferArgument arg) {
+			}
+			void operator()(uint varID, KernelLaunchCommand::TextureArgument arg) {
+			}
+			void operator()(uint varID, std::span<const std::byte> arg) {
+			}
+		};
+		cmd->decode(Functor());
+	} else {//Other Type Shaders
+	}
 }
 void DXCommandVisitor::visit(TextureUploadCommand const* cmd) noexcept {
 	struct Params {
