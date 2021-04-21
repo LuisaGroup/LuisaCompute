@@ -62,7 +62,7 @@ public:
 			return node == nullptr;
 		}
 		operator bool() const noexcept {
-			return node;
+			return node != nullptr;
 		}
 		bool operator!=(const Iterator& a) const noexcept {
 			return !operator==(a);

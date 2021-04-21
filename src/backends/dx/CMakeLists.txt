@@ -87,8 +87,8 @@ if (WIN32)
         Utility/TaskThread.cpp
         Utility/ThreadResetEvent.cpp
         WorldManagement/World.cpp
-    )
-##[[[]]]
+        )
+    ##[[[]]]
     luisa_compute_add_backend(dx SOURCES ${DX_BACKEND_SOURCES})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     
@@ -107,7 +107,7 @@ if (WIN32)
                                /std:c++latest /FC
                                /nologo
                                /Ot)
-
+        
         target_link_options(luisa-compute-backend-dx PRIVATE
                             /MANIFEST
                             $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/LTCG:incremental>
@@ -116,19 +116,34 @@ if (WIN32)
                             /NOLOGO
                             /TLBID:1
                             /OPT:ICF /ERRORREPORT:PROMPT)
-                            target_compile_definitions(luisa-compute-backend-dx PRIVATE
-                            UNICODE)
+        target_compile_definitions(luisa-compute-backend-dx PRIVATE
+                                   UNICODE)
     endif ()
     
-    target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-ast D3D12 d3dcompiler dxgi)
+    target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-ast mimalloc D3D12 d3dcompiler dxgi)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_definitions(luisa-compute-backend-dx PRIVATE
                                    _XM_NO_INTRINSICS_
-
+        
                                    m128_f32=vector4_f32
                                    m128_u32=vector4_u32)
     endif ()
     set_target_properties(luisa-compute-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-
+    
+    # Copy compiler toolkits
+    add_custom_target(luisa-compute-backend-dx-copy-compiler ALL
+                      COMMAND ${CMAKE_COMMAND} -E copy_directory
+                      "${CMAKE_CURRENT_SOURCE_DIR}/VEngineCompiler"
+                      "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/VEngineCompiler")
+    add_dependencies(luisa-compute-backend-dx luisa-compute-backend-dx-copy-compiler)
+    foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
+        string(TOLOWER ${CONFIG} config_lower)
+        string(TOUPPER ${CONFIG} CONFIG_UPPER)
+        add_custom_target(luisa-compute-backend-dx-copy-compiler-${config_lower} ALL
+                          COMMAND ${CMAKE_COMMAND} -E copy_directory
+                          "${CMAKE_CURRENT_SOURCE_DIR}/VEngineCompiler"
+                          "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/VEngineCompiler")
+        add_dependencies(luisa-compute-backend-dx luisa-compute-backend-dx-copy-compiler-${config_lower})
+    endforeach ()
 endif ()
 
