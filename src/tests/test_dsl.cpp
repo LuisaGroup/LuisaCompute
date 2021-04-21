@@ -133,9 +133,7 @@ int main(int argc, char *argv[]) {
 
 #if defined(LUISA_BACKEND_DX_ENABLED)
     DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
-    auto hlsl_serialize = dll.function<void(Function)>("SerializeMD5");
     auto hlsl_codegen = dll.function<void(Function, const Context &ctx)>("CodegenBody");
-    // hlsl_serialize(function);
     hlsl_codegen(function, context);
 #else
     clock.tic();

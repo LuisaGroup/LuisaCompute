@@ -25,7 +25,7 @@ static bool ShaderCompiler_NeedCodegen(Function kernel, vengine::string const& p
 void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 	using namespace SCompile;
 	auto kernel = Function::kernel(uid);
-	vengine::string path = "DXCompiledShader/"_sv;
+	vengine::string path = ".cache/"_sv;
 	Path folder(path);
 	folder.TryCreateDirectory();
 	vengine::string fileStrPath = path;
