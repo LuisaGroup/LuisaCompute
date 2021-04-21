@@ -1,5 +1,6 @@
 #include <RHI/ShaderCompiler.h>
 #include <ast/function.h>
+#include <runtime/context.h>
 #include <ShaderCompile/HLSLCompiler.h>
 #include <File/Path.h>
 #include <Utility/BinaryReader.h>
@@ -60,9 +61,9 @@ void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 	//TODO: read
 }
 #ifdef NDEBUG
-DLL_EXPORT void CodegenBody(Function func) {
+DLL_EXPORT void CodegenBody(Function func, const Context &ctx) {
 	vengine::vengine_init_malloc();
-	SCompile::HLSLCompiler::InitRegisteData();
+	SCompile::HLSLCompiler::InitRegisterData(ctx);
 	luisa::compute::ShaderCompiler::TryCompileCompute(func.uid());
 }
 #endif
