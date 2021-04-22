@@ -6,9 +6,34 @@
 #include <Utility/BinaryReader.h>
 #include <ShaderCompile/LuisaASTTranslator.h>
 namespace luisa::compute {
+namespace ShaderCompiler_Global {
+struct Data {
+	HashMap<uint, ShaderCompiler::ConstBufferData> globalVarOffsets;
+	std::mutex mtx;
+};
+static StackObject<Data, true> data;
+
+ShaderCompiler::ConstBufferData* GetCBufferData(uint kernel_uid) {
+	using namespace ShaderCompiler_Global;
+	data.New();
+	ShaderCompiler::ConstBufferData* curData = nullptr;
+	{
+		std::lock_guard lck(data->mtx);
+		auto ite = data->globalVarOffsets.Find(kernel_uid);
+		if (!ite) {
+			ite = data->globalVarOffsets.Emplace(
+				kernel_uid);
+		}
+		curData = &ite.Value();
+	}
+	return curData;
+}
 static bool ShaderCompiler_NeedCodegen(Function kernel, vengine::string const& path, vengine::string& codegenResult) {
+	data.New();
+	ShaderCompiler::ConstBufferData* curData = GetCBufferData(kernel.uid());
 	Path filePath(path);
-	CodegenUtility::GetCodegen(kernel, codegenResult);
+
+	CodegenUtility::GetCodegen(kernel, codegenResult, curData->offsets, curData->cbufferSize);
 	if (filePath.Exists()) {
 		BinaryReader reader(path);
 		if (reader.GetLength() != codegenResult.length())
@@ -21,6 +46,8 @@ static bool ShaderCompiler_NeedCodegen(Function kernel, vengine::string const& p
 	}
 	return true;
 }
+};// namespace ShaderCompiler_Global
+
 
 void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 	using namespace SCompile;
@@ -34,7 +61,7 @@ void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 				<< ".compute"_sv;
 	vengine::string codegenResult;
 	//Whether need re-compile
-	if (ShaderCompiler_NeedCodegen(kernel, fileStrPath, codegenResult)){
+	if (ShaderCompiler_Global::ShaderCompiler_NeedCodegen(kernel, fileStrPath, codegenResult)) {
 		{
 			std::ofstream ofs(fileStrPath.data(), std::ios::binary);
 			ofs.write(codegenResult.data(), codegenResult.size());
@@ -60,8 +87,11 @@ void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 	}
 	//TODO: read
 }
+ShaderCompiler::ConstBufferData const& ShaderCompiler::GetCBufferData(uint kernel_uid) {
+	return *ShaderCompiler_Global::GetCBufferData(kernel_uid);
+}
 #ifdef NDEBUG
-DLL_EXPORT void CodegenBody(Function func, const Context &ctx) {
+DLL_EXPORT void CodegenBody(Function func, const Context& ctx) {
 	vengine::vengine_init_malloc();
 	SCompile::HLSLCompiler::InitRegisterData(ctx);
 	luisa::compute::ShaderCompiler::TryCompileCompute(func.uid());

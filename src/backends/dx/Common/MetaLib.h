@@ -28,7 +28,6 @@ public:
 	}
 };
 
-
 template<typename T, uint32_t size>
 class Storage {
 	alignas(T) char c[size * sizeof(T)];
@@ -44,7 +43,7 @@ class StackObject;
 template<typename T>
 class StackObject<T, false> {
 private:
-	alignas(T) bool storage[sizeof(T)];
+	alignas(T) uint8_t storage[sizeof(T)];
 
 public:
 	template<typename... Args>
@@ -57,12 +56,7 @@ public:
 		if constexpr (!std::is_trivially_constructible_v<T>)
 			new (storage) T{std::forward<Args>(args)...};
 	}
-	inline void operator=(const StackObject<T>& value) {
-		*(T*)storage = value.operator*();
-	}
-	inline void operator=(StackObject<T>&& value) {
-		*(T*)storage = std::move(*value);
-	}
+
 	inline void Delete() noexcept {
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			((T*)storage)->~T();
@@ -103,54 +97,34 @@ template<typename T>
 class StackObject<T, true> {
 private:
 	StackObject<T, false> stackObj;
-	bool initialized = false;
+	std::atomic_flag initialized;
 
 public:
 	template<typename... Args>
 	inline void New(Args&&... args) noexcept {
-		if (initialized) return;
+		if (initialized.test_and_set(std::memory_order_relaxed)) return;
 		stackObj.New(std::forward<Args>(args)...);
-		initialized = true;
 	}
 	template<typename... Args>
 	inline void InPlaceNew(Args&&... args) noexcept {
-		if (initialized) return;
-		stackObj.InPlaceNew(std::forward<Args>(args)...);
-		initialized = true;
-	}
-	operator bool() const noexcept {
-		return initialized;
-	}
-	operator bool() noexcept {
-		return initialized;
+		if (initialized.test_and_set(std::memory_order_relaxed)) return;
+		-stackObj.InPlaceNew(std::forward<Args>(args)...);
 	}
 	bool Initialized() const noexcept {
-		return initialized;
+		return initialized.test(std::memory_order_relaxed);
+	}
+	operator bool() const noexcept {
+		return Initialized();
+	}
+	operator bool() noexcept {
+		return Initialized();
 	}
 	inline void Delete() noexcept {
-		if (initialized) {
-			initialized = false;
-			stackObj.Delete();
-		}
+		if (!Initialized()) return;
+		initialized.clear();
+		stackObj.Delete();
 	}
-	inline void operator=(const StackObject<T, true>& value) noexcept {
-		if (initialized) {
-			stackObj.Delete();
-		}
-		initialized = value.initialized;
-		if (initialized) {
-			stackObj = value.stackObj;
-		}
-	}
-	inline void operator=(StackObject<T>&& value) noexcept {
-		if (initialized) {
-			stackObj.Delete();
-		}
-		initialized = value.initialized;
-		if (initialized) {
-			stackObj = std::move(value.stackObj);
-		}
-	}
+
 	T& operator*() noexcept {
 		return *stackObj;
 	}
@@ -177,12 +151,15 @@ public:
 	}
 	bool operator==(const StackObject<T>&) const noexcept = delete;
 	bool operator!=(const StackObject<T>&) const noexcept = delete;
-	StackObject() noexcept {}
+	StackObject() noexcept {
+		initialized.clear();
+	}
 	StackObject(const StackObject<T, true>& value) noexcept {
+		initialized.clear();
 		stackObj.New(value.operator*());
 	}
 	~StackObject() noexcept {
-		if (initialized)
+		if (Initialized())
 			stackObj.Delete();
 	}
 };
@@ -226,8 +203,6 @@ bool InnerLoopEarlyBreak(const F& function) noexcept {
 
 template<typename T>
 using PureType_t = typename std::remove_pointer_t<std::remove_cvref_t<T>>;
-
-
 
 static constexpr bool BinaryEqualTo_Size(void const* a, void const* b, uint64_t size) noexcept {
 	const uint64_t bit64Count = size / sizeof(uint64_t);

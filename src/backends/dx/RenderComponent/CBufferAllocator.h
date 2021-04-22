@@ -15,7 +15,6 @@ private:
 	CBufferChunk(
 		ElementAllocator::AllocateHandle node)
 		: node(node) {}
-	void CopyData(void const* ptr, size_t sz) const noexcept;
 
 public:
 	CBufferChunk() noexcept {}
@@ -30,6 +29,7 @@ public:
 	}
 
 	void CopyConstBuffer(ConstBuffer const* ptr);
+	void CopyData(void const* ptr, size_t sz) const noexcept;
 
 	template<typename T>
 	void CopyData(T const* ptr) const noexcept {

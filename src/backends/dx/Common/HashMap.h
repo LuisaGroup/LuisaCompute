@@ -24,8 +24,8 @@ private:
 		LinkNode* next = nullptr;
 		size_t arrayIndex;
 		LinkNode() noexcept {}
-		template<typename A, typename B>
-		LinkNode(size_t arrayIndex, A&& key, B&& value) noexcept : key(std::forward<A>(key)), value(std::forward<B>(value)), arrayIndex(arrayIndex) {}
+		template<typename A, typename... B>
+		LinkNode(size_t arrayIndex, A&& key, B&&... args) noexcept : key(std::forward<A>(key)), value(std::forward<B>(args)...), arrayIndex(arrayIndex) {}
 		template<typename A>
 		LinkNode(size_t arrayIndex, A&& key) noexcept : key(std::forward<A>(key)), arrayIndex(arrayIndex) {}
 
@@ -58,11 +58,11 @@ public:
 		bool operator==(const Iterator& a) const noexcept {
 			return node == a.node;
 		}
-		bool operator!() const noexcept{
-			return node == nullptr;
-		}
 		operator bool() const noexcept {
-			return node != nullptr;
+			return node;
+		}
+		bool operator!() const noexcept {
+			return !operator bool();
 		}
 		bool operator!=(const Iterator& a) const noexcept {
 			return !operator==(a);
@@ -145,9 +145,9 @@ private:
 	Pool<LinkNode, useVEngineAlloc, true> pool;
 	inline static const Hash hsFunc;
 	inline static const Equal eqFunc;
-	template<typename A, typename B>
-	LinkNode* GetNewLinkNode(A&& key, B&& value) {
-		LinkNode* newNode = pool.New(allocatedNodes.size(), std::forward<A>(key), std::forward<B>(value));
+	template<typename A, typename... B>
+	LinkNode* GetNewLinkNode(A&& key, B&&... args) {
+		LinkNode* newNode = pool.New(allocatedNodes.size(), std::forward<A>(key), std::forward<B>(args)...);
 		allocatedNodes.push_back(newNode);
 		return newNode;
 	}
@@ -294,6 +294,32 @@ public:
 			hashValue = GetHash(hashOriginValue, nodeVec.size());
 		}
 		LinkNode* newNode = GetNewLinkNode(key, std::move(value));
+		LinkNode::Add(nodeVec[hashValue], newNode);
+		return Iterator(this, hashOriginValue, newNode);
+	}
+	template<typename... ARGS>
+	Iterator Emplace(const K& key, ARGS&&... args) {
+		size_t hashOriginValue = hsFunc(key);
+		size_t hashValue;
+
+		auto a = nodeVec.size();
+		hashValue = GetHash(hashOriginValue, nodeVec.size());
+		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
+			if (eqFunc(node->key, key)) {
+				//node->value = std::move(value);
+				node->value.~V();
+				new (&node->value) V(std::forward<ARGS>(args)...);
+				return Iterator(this, hashOriginValue, node);
+			}
+		}
+
+		size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
+		if (targetCapacity < 16) targetCapacity = 16;
+		if (targetCapacity >= nodeVec.size()) {
+			Resize(GetPow2Size(targetCapacity));
+			hashValue = GetHash(hashOriginValue, nodeVec.size());
+		}
+		LinkNode* newNode = GetNewLinkNode(key, std::forward<ARGS>(args)...);
 		LinkNode::Add(nodeVec[hashValue], newNode);
 		return Iterator(this, hashOriginValue, newNode);
 	}
