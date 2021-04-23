@@ -13,7 +13,7 @@ template<class _Ret,
 class Runnable<_Ret(_Types...)> {
 	friend class RunnableHash<_Ret(_Types...)>;
 	using FunctionPtrType = funcPtr_t<_Ret(void*, _Types&&...)>;
-	static constexpr size_t PLACEHOLDERSIZE = 32;
+	static constexpr size_t PLACEHOLDERSIZE = 24;
 	using PlaceHolderType = std::aligned_storage_t<PLACEHOLDERSIZE, sizeof(size_t)>;
 
 private:
@@ -21,6 +21,7 @@ private:
 	FunctionPtrType funcPtr;
 	funcPtr_t<void(void*)> disposeFunc;
 	funcPtr_t<void(void*&, void const*, PlaceHolderType*)> constructFunc;
+	funcPtr_t<void(void*&, void*)> moveFunc;
 	PlaceHolderType funcPtrPlaceHolder;
 
 public:
@@ -61,6 +62,9 @@ public:
 			dest = placeHolder;
 			*(size_t*)dest = *(size_t const*)source;
 		};
+		moveFunc = [](void*& dest, void* source) -> void {
+			*(size_t*)dest = *(size_t const*)source;
+		};
 		*(size_t*)placePtr = *(reinterpret_cast<size_t const*>(&p));
 		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
 			_Ret (*fp)(_Types...) = (_Ret(*)(_Types...))(*(void**)pp);
@@ -71,6 +75,7 @@ public:
 	Runnable(const Runnable<_Ret(_Types...)>& f) noexcept
 		: funcPtr(f.funcPtr),
 		  constructFunc(f.constructFunc),
+		  moveFunc(f.moveFunc),
 		  disposeFunc(f.disposeFunc) {
 		if (constructFunc) {
 			constructFunc(placePtr, f.placePtr, &funcPtrPlaceHolder);
@@ -83,18 +88,23 @@ public:
 	Runnable(Runnable<_Ret(_Types...)>&& f) noexcept
 		: funcPtr(f.funcPtr),
 		  disposeFunc(f.disposeFunc),
+		  moveFunc(f.moveFunc),
 		  constructFunc(f.constructFunc)
 
 	{
 		if (f.placePtr == &f.funcPtrPlaceHolder) {
 			placePtr = &funcPtrPlaceHolder;
-			funcPtrPlaceHolder = f.funcPtrPlaceHolder;
+			moveFunc(
+				placePtr,
+				f.placePtr);
+			//TODO: place holder
 		} else {
 			placePtr = f.placePtr;
 		}
 		f.placePtr = nullptr;
 		f.disposeFunc = nullptr;
 		f.constructFunc = nullptr;
+		f.moveFunc = nullptr;
 	}
 
 	template<typename Functor>
@@ -111,7 +121,10 @@ public:
 		};
 		func(placePtr, &f, &funcPtrPlaceHolder);
 		constructFunc = func;
-
+		moveFunc = [](void*& dest, void* source) -> void {
+			new (dest) PureType(
+				std::move(*reinterpret_cast<PureType*>(source)));
+		};
 		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
 			PureType* ff = (PureType*)pp;
 			return (*ff)(std::forward<_Types>(tt)...);

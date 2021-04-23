@@ -24,6 +24,9 @@ public:
 	operator bool() const noexcept {
 		return start != -1;
 	}
+	bool operator!() const {
+		return !operator bool();
+	}
 	uint Count() const {
 		return end + 1 - start;
 	}
