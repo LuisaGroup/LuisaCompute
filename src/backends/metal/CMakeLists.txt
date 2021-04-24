@@ -15,7 +15,13 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         metal_stream.h)
     
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
-    
+    set_target_properties(luisa-compute-backend-metal PROPERTIES
+                          OBJC_STANDARD 11
+                          OBJCXX_STANDARD 20
+                          OBJC_STANDARD_REQUIRED ON
+                          OBJCXX_STANDARD_REQUIRED ON
+                          OBJC_EXTENSIONS OFF
+                          OBJCXX_EXTENSIONS OFF)
     target_compile_options(luisa-compute-backend-metal PRIVATE -fobjc-arc)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
                           "-framework Foundation"

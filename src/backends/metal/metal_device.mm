@@ -2,6 +2,10 @@
 // Created by Mike Smith on 2021/3/17.
 //
 
+#if !__has_feature(objc_arc)
+#error failed to compile the Metal backend with ARC off.
+#endif
+
 #import <chrono>
 #import <numeric>
 

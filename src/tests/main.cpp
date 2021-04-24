@@ -99,8 +99,25 @@ struct Once {
     [[nodiscard]] auto end() const noexcept { return OnceIter{2u}; }
 };
 
+template<typename F>
+struct Runnable {
+    
+    template<typename Func>
+    Runnable(Func &&f) noexcept {}
+    
+    void operator()() const noexcept {}
+};
+
+void test(Runnable<void()> &&runnable) noexcept {
+    runnable();
+}
+
 int main() {
 
+    test([] {
+    
+    });
+    
     for (auto i : Once()) {
         std::cout << "\nDo some AST construction here...\n"
                   << std::endl;

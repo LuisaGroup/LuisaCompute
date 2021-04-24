@@ -173,11 +173,11 @@ void CppCodegen::visit(const CastExpr *expr) {
     _scratch << ")";
 }
 
-void CppCodegen::visit(const BreakStmt *stmt) {
+void CppCodegen::visit(const BreakStmt *) {
     _scratch << "break;";
 }
 
-void CppCodegen::visit(const ContinueStmt *stmt) {
+void CppCodegen::visit(const ContinueStmt *) {
     _scratch << "continue;";
 }
 

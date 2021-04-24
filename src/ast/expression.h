@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <utility>
 #include <variant>
 #include <charconv>
 
@@ -122,7 +123,7 @@ private:
 
 public:
     BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
-        : Expression{type}, _op{op}, _lhs{lhs}, _rhs{rhs} {}
+        : Expression{type}, _lhs{lhs}, _rhs{rhs}, _op{op} {}
 
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
     [[nodiscard]] auto rhs() const noexcept { return _rhs; }
@@ -191,8 +192,8 @@ private:
 
 public:
     LiteralExpr(const Type *type, Value v) noexcept
-        : Expression{type}, _value{v} {}
-    [[nodiscard]] const Value &value() const noexcept { return _value; }
+        : Expression{type}, _value{std::move(v)} {}
+    [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
@@ -324,6 +325,7 @@ enum struct CallOp {
 
     TEXTURE_READ,
     TEXTURE_WRITE,
+    TEXTURE_SAMPLE,
 };
 
 class CallExpr : public Expression {
@@ -339,9 +341,9 @@ private:
 
 public:
     CallExpr(const Type *type, uint32_t uid, ArgumentList args) noexcept
-        : Expression{type}, _op{CallOp::CUSTOM}, _uid{uid}, _arguments{args} {}
+        : Expression{type}, _arguments{args}, _op{CallOp::CUSTOM}, _uid{uid} {}
     CallExpr(const Type *type, CallOp op, ArgumentList args) noexcept
-        : Expression{type}, _op{op}, _uid{}, _arguments{args} {}
+        : Expression{type}, _arguments{args}, _op{op}, _uid{} {}
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto arguments() const noexcept { return _arguments; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }

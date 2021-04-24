@@ -20,8 +20,8 @@
 
 namespace luisa::compute {
 
-struct Statement;
-struct Expression;
+class Statement;
+class Expression;
 
 class FunctionBuilder {
 
