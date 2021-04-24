@@ -46,6 +46,9 @@ using is_scalar = std::disjunction<
 template<typename T>
 constexpr auto is_scalar_v = is_scalar<T>::value;
 
+template<typename T, size_t N>
+struct Vector;
+
 // vectors
 namespace detail {
 
@@ -67,6 +70,7 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     constexpr explicit VectorStorage(VectorStorage<U, 2> v) noexcept
         : VectorStorage{static_cast<T>(v.x),
                         static_cast<T>(v.y)} {}
+#include <core/swizzle_2.inl>
 };
 
 template<typename T>
@@ -84,6 +88,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
         : VectorStorage{static_cast<T>(v.x),
                         static_cast<T>(v.y),
                         static_cast<T>(v.z)} {}
+#include <core/swizzle_3.inl>
 };
 
 template<typename T>
@@ -105,6 +110,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
                         static_cast<T>(v.y),
                         static_cast<T>(v.z),
                         static_cast<T>(v.w)} {}
+#include <core/swizzle_4.inl>
 };
 
 }// namespace detail

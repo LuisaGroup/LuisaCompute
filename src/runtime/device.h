@@ -116,10 +116,20 @@ public:
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
         return create<Buffer<T>>(size);
     }
+    
+private:
+    struct Compile {
+        Device &d;
+        decltype(auto) operator<<(auto &&k) const noexcept {
+            k.wait_for_compilation(d);
+            return *this;
+        }
+    };
 
-    template<typename Kernel>
-    void compile(Kernel &&kernel) noexcept {
-        kernel.wait_for_compilation(*this);
+public:
+    template<typename... Kernel>
+    void compile(Kernel &&...kernel) noexcept {
+        (Compile{*this} << ... << std::forward<Kernel>(kernel));
     }
 };
 

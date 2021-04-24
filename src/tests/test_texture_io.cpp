@@ -28,13 +28,18 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    Kernel2D fill_image = [](ImageVar<float> image) noexcept {
+    Kernel2D clear_image = [](ImageVar<float> image) noexcept {
         Var<uint2> coord{dispatch_id().x, dispatch_id().y};
-        Var rg = Var<float2>{coord} / Var<float2>{launch_size().x, launch_size().y};
-        image.write(coord, Var<float4>{rg, 1.0f, 1.0f});
+        image.write(coord, float4{});
     };
-    
-    device.compile(fill_image);
+
+    Kernel2D fill_image = [](ImageVar<float> image) noexcept {
+        Var coord = dispatch_id().xy();
+        Var rg = make_float2(coord) / make_float2(launch_size().xy());
+        image.write(coord, make_float4(rg, 1.0f, 1.0f));
+    };
+
+    device.compile(clear_image, fill_image);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     cv::Mat host_image{1024u, 1024u, CV_8UC4, cv::Scalar::all(0)};
 
@@ -42,7 +47,8 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto copy_stream = device.create_stream();
 
-    stream << fill_image(device_image.view(256u, 512u)).launch(512u, 512u)
+    stream << clear_image(device_image).launch(1024u, 1024u)
+           << fill_image(device_image.view(256u, 512u)).launch(512u, 512u)
            << event.signal();
 
     copy_stream << event.wait()
@@ -52,6 +58,6 @@ int main(int argc, char *argv[]) {
     event.synchronize();
     cv::cvtColor(host_image, host_image, cv::COLOR_RGBA2BGR);
     cv::imwrite("result.png", host_image);
-    
+
     auto volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
 }
