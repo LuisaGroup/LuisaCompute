@@ -63,18 +63,14 @@ void KernelLaunchCommand::encode_buffer(
     size_t offset,
     Command::Resource::Usage usage) noexcept {
 
-    BufferArgument argument{};
-    argument.tag = Argument::Tag::BUFFER;
-    argument.variable_uid = variable_uid;
-    argument.handle = handle;
-    argument.offset = offset;
-    
     if (_argument_buffer_size + sizeof(BufferArgument) > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode buffer. "
             "Kernel argument buffer exceeded size limit {}.",
             _argument_buffer.size());
     }
+    
+    BufferArgument argument{variable_uid, handle, offset};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(BufferArgument));
@@ -89,18 +85,14 @@ void KernelLaunchCommand::encode_texture(
     uint3 offset,
     Command::Resource::Usage usage) noexcept {
 
-    TextureArgument argument{};
-    argument.tag = Argument::Tag::TEXTURE;
-    argument.variable_uid = variable_uid;
-    argument.handle = handle;
-    argument.offset = offset;
-
     if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode texture. "
             "Kernel argument buffer exceeded size limit {}.",
             _argument_buffer.size());
     }
+    
+    TextureArgument argument{variable_uid, handle, offset};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureArgument));
@@ -112,18 +104,17 @@ void KernelLaunchCommand::encode_texture(
 void KernelLaunchCommand::encode_uniform(
     uint32_t variable_uid,
     const void *data,
-    size_t size) noexcept {
+    size_t size,
+    size_t alignment) noexcept {
     
-    UniformArgument argument{};
-    argument.tag = Argument::Tag::UNIFORM;
-    argument.variable_uid = variable_uid;
-    argument.size = size;
     if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode argument with size {}. "
             "Kernel argument buffer exceeded size limit {}.",
             size, _argument_buffer.size());
     }
+    
+    UniformArgument argument{variable_uid, size, alignment};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(UniformArgument));

@@ -584,7 +584,7 @@ void HLSLCompiler::GetShaderVariables(
 
 		}
 	}
-	for (auto& i : func.captured_images()) {
+	for (auto& i : func.captured_textures()) {
 		auto& buffer = i.variable;
 		vengine::string name = 'v' + vengine::to_string(buffer.uid());
 		if (((uint)func.variable_usage(i.variable.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {

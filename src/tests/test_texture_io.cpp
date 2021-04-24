@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
 #endif
 
     Kernel2D clear_image = [](ImageVar<float> image) noexcept {
-        Var<uint2> coord{dispatch_id().x, dispatch_id().y};
+        Var coord = dispatch_id().xy();
         image.write(coord, float4{});
     };
 

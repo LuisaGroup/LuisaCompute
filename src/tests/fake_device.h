@@ -29,13 +29,13 @@ public:
     uint64_t create_event() noexcept override { return _handle++; }
     void synchronize_event(uint64_t handle) noexcept override {}
     void dispose_event(uint64_t handle) noexcept override {}
+    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
+    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
     
     [[nodiscard]] static auto create(const Context &ctx) noexcept {
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};
     }
-    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
-    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
 };
 
 }// namespace luisa::compute

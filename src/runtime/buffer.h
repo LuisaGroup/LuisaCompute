@@ -18,7 +18,6 @@ template<typename T>
 class BufferView;
 
 #define LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)                    \
-    static_assert(alignof(T) <= 16u);                         \
     static_assert(std::is_same_v<T, std::remove_cvref_t<T>>); \
     static_assert(std::is_trivially_copyable_v<T>);           \
     static_assert(std::is_trivially_destructible_v<T>);

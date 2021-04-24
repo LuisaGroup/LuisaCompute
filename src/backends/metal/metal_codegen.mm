@@ -372,7 +372,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_variable_decl(buffer.variable);
             _scratch << ";";
         }
-        for (auto image : f.captured_images()) {
+        for (auto image : f.captured_textures()) {
             _scratch << "\n  ";
             _emit_variable_decl(image.variable);
             _scratch << ";";
@@ -411,7 +411,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_variable_decl(buffer.variable);
             _scratch << ",";
         }
-        for (auto tex : f.captured_images()) {
+        for (auto tex : f.captured_textures()) {
             _scratch << "\n    ";
             _emit_variable_decl(tex.variable);
             _scratch << ",";
@@ -422,7 +422,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _scratch << ",";
         }
         if (!f.arguments().empty()
-            || !f.captured_images().empty()
+            || !f.captured_textures().empty()
             || !f.captured_buffers().empty()) {
             _scratch.pop_back();
         }

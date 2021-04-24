@@ -330,7 +330,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
         }
         _scratch << ",";
     }
-    for (auto image : f.captured_images()) {
+    for (auto image : f.captured_textures()) {
         _scratch << "\n    ";
         _emit_variable_decl(image.variable);
         _scratch << " ";
@@ -357,7 +357,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
         _scratch << ",";
     }
     if (!f.arguments().empty()
-        || !f.captured_images().empty()
+        || !f.captured_textures().empty()
         || !f.captured_buffers().empty()
         || !f.builtin_variables().empty()) {
         _scratch.pop_back();
