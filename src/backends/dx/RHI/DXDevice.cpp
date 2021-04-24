@@ -22,9 +22,70 @@ using namespace Microsoft::WRL;
 
 static GFXFormat LCFormatToVEngineFormat(PixelFormat format) {
 	switch (format) {
-		//TODO:
-		default:
-			return GFXFormat_R8G8B8A8_SNorm;
+		case PixelFormat::R8SInt:
+			return GFXFormat_R8_SInt;
+		case PixelFormat::R8UInt:
+			return GFXFormat_R8_UInt;
+		case PixelFormat::R8UNorm:
+			return GFXFormat_R8_UNorm;
+		case PixelFormat::RG8SInt:
+			return GFXFormat_R8G8_SInt;
+		case PixelFormat::RG8UInt:
+			return GFXFormat_R8G8_UInt;
+		case PixelFormat::RG8UNorm:
+			return GFXFormat_R8G8B8A8_UNorm;
+		case PixelFormat::RGBA8SInt:
+			return GFXFormat_R8G8B8A8_SInt;
+		case PixelFormat::RGBA8UInt:
+			return GFXFormat_R8G8B8A8_UInt;
+		case PixelFormat::RGBA8UNorm:
+			return GFXFormat_R8G8B8A8_UNorm;
+
+		case PixelFormat::R16SInt:
+			return GFXFormat_R16_SInt;
+		case PixelFormat::R16UInt:
+			return GFXFormat_R16_UInt;
+		case PixelFormat::R16UNorm:
+			return GFXFormat_R16_UNorm;
+		case PixelFormat::RG16SInt:
+			return GFXFormat_R16G16_SInt;
+		case PixelFormat::RG16UInt:
+			return GFXFormat_R16G16_UInt;
+		case PixelFormat::RG16UNorm:
+			return GFXFormat_R16G16B16A16_UNorm;
+		case PixelFormat::RGBA16SInt:
+			return GFXFormat_R16G16B16A16_SInt;
+		case PixelFormat::RGBA16UInt:
+			return GFXFormat_R16G16B16A16_UInt;
+		case PixelFormat::RGBA16UNorm:
+			return GFXFormat_R16G16B16A16_UNorm;
+
+		case PixelFormat::R32SInt:
+			return GFXFormat_R32_SInt;
+		case PixelFormat::R32UInt:
+			return GFXFormat_R32_UInt;
+		case PixelFormat::RG32SInt:
+			return GFXFormat_R32G32_SInt;
+		case PixelFormat::RG32UInt:
+			return GFXFormat_R32G32_UInt;
+		case PixelFormat::RGBA32SInt:
+			return GFXFormat_R32G32B32A32_SInt;
+		case PixelFormat::RGBA32UInt:
+			return GFXFormat_R32G32B32A32_UInt;
+
+		case PixelFormat::R16F:
+			return GFXFormat_R16_Float;
+		case PixelFormat::RG16F:
+			return GFXFormat_R16G16_Float;
+		case PixelFormat::RGBA16F:
+			return GFXFormat_R16G16B16A16_Float;
+
+		case PixelFormat::R32F:
+			return GFXFormat_R32_Float;
+		case PixelFormat::RG32F:
+			return GFXFormat_R32G32_Float;
+		case PixelFormat::RGBA32F:
+			return GFXFormat_R32G32B32A32_Float;
 	}
 }
 class FrameResource;
@@ -47,8 +108,7 @@ public:
 				dxDevice,
 				{StructuredBufferElement::Get(1, size_bytes)},
 				GPUResourceState_Common,
-				DXAllocator::GetBufferAllocator()//TODO: allocator
-				));
+				DXAllocator::GetBufferAllocator()));
 	}
 	void dispose_buffer(uint64 handle) noexcept override {
 		delete reinterpret_cast<StructuredBuffer*>(handle);
@@ -64,7 +124,7 @@ public:
 		pack->format = format;
 		pack->rt.New(
 			dxDevice,
-			DXAllocator::GetTextureAllocator(),//TODO: allocator
+			DXAllocator::GetTextureAllocator(),
 			width,
 			height,
 			RenderTextureFormat::GetColorFormat(LCFormatToVEngineFormat(format)),
@@ -139,13 +199,13 @@ public:
 	*/
 	void synchronize_event(uint64 handle) noexcept override {
 		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
-		evt->Sync([&](uint64 signal) {
+		evt->Sync(std::move(Runnable<void(uint64)>([&](uint64 signal) {
 			DXStream::WaitFence(
 				cpuFence.Get(),
 				signal);
-		});
+		})));
 	}
-
+	
 	~DXDevice() {
 		ShaderLoader::Dispose(shaderGlobal);
 	}
