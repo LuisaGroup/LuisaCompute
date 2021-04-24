@@ -238,7 +238,7 @@ public:
     explicit Expr(const RefExpr *expr) noexcept
         : _expression{expr} {}
     explicit Expr(ImageView<T> image) noexcept
-        : _expression{FunctionBuilder::current()->image_binding(
+        : _expression{FunctionBuilder::current()->texture_binding(
             Type::of<Image<T>>(), image.handle(), image.offset())} {}
 
     Expr &operator=(Expr) = delete;
@@ -276,9 +276,9 @@ private:
 public:
     explicit Expr(const RefExpr *expr) noexcept
         : _expression{expr} {}
-    explicit Expr(VolumeView<T> image) noexcept
-        : _expression{FunctionBuilder::current()->image_binding(
-            Type::of<Volume<T>>(), image.handle(), image.offset())} {}
+    explicit Expr(VolumeView<T> volume) noexcept
+        : _expression{FunctionBuilder::current()->texture_binding(
+            Type::of<Volume<T>>(), volume.handle(), volume.offset())} {}
 
     Expr &operator=(Expr) = delete;
 

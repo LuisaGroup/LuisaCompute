@@ -75,7 +75,17 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{_handle, _storage, _size}; }
+    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{_handle, _storage, {}, _size}; }
+    [[nodiscard]] auto view(uint3 offset, uint3 size) const noexcept {
+        if (any(offset + size >= _size)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid offset[{}, {}, {}] and size[{}, {}, {}] of view "
+                "for volume #{} with size[{}, {}, {}].",
+                offset.x, offset.y, offset.z, size.x, size.y, size.z,
+                _handle, _size.x, _size.y, _size.z);
+        }
+        return VolumeView<T>{_handle, _storage, offset, size};
+    }
 
     template<typename UVW>
     [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
@@ -99,6 +109,7 @@ class VolumeView {
 private:
     uint64_t _handle;
     PixelStorage _storage;
+    uint3 _offset;
     uint3 _size;
 
 private:
@@ -107,10 +118,19 @@ private:
     constexpr explicit VolumeView(
         uint64_t handle,
         PixelStorage storage,
+        uint3 offset,
         uint3 size) noexcept
         : _handle{handle},
           _storage{storage},
-          _size{size} {}
+          _offset{offset},
+          _size{size} {
+        
+        if (any(_offset >= _size)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid offset[{}, {}, {}] and size[{}, {}, {}] for volume #{}.",
+                _offset.x, _offset.y, _offset.z, _size.x, _size.y, _size.z, _handle);
+        }
+    }
 
 public:
     VolumeView(const Volume<T> &volume) noexcept : VolumeView{volume.view()} {}
@@ -118,18 +138,23 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
+    
+    [[nodiscard]] auto subview(uint3 offset, uint3 size) const noexcept {
+        return VolumeView{_handle, _storage, _offset + offset, size};
+    }
 
     [[nodiscard]] auto copy_from(const void *data) const noexcept {
         return TextureUploadCommand::create(
             _handle, _storage,
-            0u, uint3{},
+            0u, _offset,
             _size, data);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return TextureDownloadCommand::create(
             _handle, _storage,
-            0u, uint3{},
+            0u, _offset,
             _size, data);
     }
 

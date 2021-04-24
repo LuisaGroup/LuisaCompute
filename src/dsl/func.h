@@ -92,10 +92,10 @@ public:
                 static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
         }
 
-        for (auto image : _function.captured_images()) {
+        for (auto texture : _function.captured_images()) {
             _launch_command()->encode_texture(
-                image.variable.uid(), image.handle,
-                static_cast<Command::Resource::Usage>(_function.variable_usage(image.variable.uid())));
+                texture.variable.uid(), texture.handle, texture.offset,
+                static_cast<Command::Resource::Usage>(_function.variable_usage(texture.variable.uid())));
         }
     }
 
@@ -114,17 +114,17 @@ public:
         auto variable_uid = _function.arguments()[_argument_index++].uid();
         auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_texture(
-            variable_uid, image.handle(),
+            variable_uid, image.handle(), uint3{image.offset(), 0u},
             static_cast<Command::Resource::Usage>(usage));
         return *this;
     }
 
     template<typename T>
-    KernelInvoke &operator<<(VolumeView<T> image) noexcept {
+    KernelInvoke &operator<<(VolumeView<T> volume) noexcept {
         auto variable_uid = _function.arguments()[_argument_index++].uid();
         auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_texture(
-            variable_uid, image.handle(),
+            variable_uid, volume.handle(), volume.offset(),
             static_cast<Command::Resource::Usage>(usage));
         return *this;
     }

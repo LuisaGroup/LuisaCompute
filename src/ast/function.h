@@ -31,6 +31,9 @@ public:
     struct TextureBinding {
         Variable variable;
         uint64_t handle;
+        uint3 offset;
+        TextureBinding(Variable v, uint64_t handle, uint3 offset) noexcept
+            : variable{v}, handle{handle}, offset{offset} {}
     };
     
     struct ConstantBinding {

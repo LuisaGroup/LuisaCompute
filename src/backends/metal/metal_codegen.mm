@@ -291,6 +291,18 @@ void MetalCodegen::emit(Function f) {
 
 using namespace metal;
 
+template<typename T, access a>
+struct Image {
+  texture2d<T, a> handle;
+  uint2 offset;
+};
+
+template<typename T, access a>
+struct Volume {
+  texture3d<T, a> handle;
+  uint3 offset;
+};
+
 [[nodiscard]] auto srgb_to_linear(float4 c) {
   auto srgb = saturate(c.rgb);
   auto rgb = select(
@@ -498,7 +510,11 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "texture" << v.type()->dimension() << "d<";
+            if (auto d = v.type()->dimension(); d == 2u) {
+                _scratch << "Image<";
+            } else {  // d == 3u
+                _scratch << "Volume<";
+            }
             _emit_type_name(v.type()->element());
             _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
@@ -660,26 +676,26 @@ void MetalCodegen::_emit_intrinsic(CallOp intrinsic) noexcept {
             break;
         case CallOp::TEXTURE_READ:
             _scratch << R"(template<typename T, access a>
-[[nodiscard]] auto texture_read(texture2d<T, a> t, uint2 uv) {
-  return t.read(uv);
+[[nodiscard]] auto texture_read(Image<T, a> t, uint2 uv) {
+  return t.handle.read(uv + t.offset);
 }
 
 template<typename T, access a>
-[[nodiscard]] auto texture_read(texture3d<T, a> t, uint3 uvw) {
-  return t.read(uvw);
+[[nodiscard]] auto texture_read(Volume<T, a> t, uint3 uvw) {
+  return t.handle.read(uvw + t.offset);
 }
 
 )";
             break;
         case CallOp::TEXTURE_WRITE:
             _scratch << R"(template<typename T, access a, typename Value>
-void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
-  t.write(value, uv);
+void texture_write(Image<T, a> t, uint2 uv, Value value) {
+  t.handle.write(value, uv + t.offset);
 }
 
 template<typename T, access a, typename Value>
-void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
-  t.write(value, uvw);
+void texture_write(Volume<T, a> t, uint3 uvw, Value value) {
+  t.handle.write(value, uvw + t.offset);
 }
 
 )";

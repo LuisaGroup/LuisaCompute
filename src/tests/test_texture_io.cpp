@@ -42,11 +42,11 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto copy_stream = device.create_stream();
 
-    stream << fill_image(device_image).launch(1024u, 1024u)
+    stream << fill_image(device_image.view(256u, 512u)).launch(512u, 512u)
            << event.signal();
 
     copy_stream << event.wait()
-                << device_image.copy_to(host_image.data)
+                << device_image.view().copy_to(host_image.data)
                 << event.signal();
 
     event.synchronize();

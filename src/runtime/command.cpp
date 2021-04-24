@@ -86,12 +86,14 @@ void KernelLaunchCommand::encode_buffer(
 void KernelLaunchCommand::encode_texture(
     uint32_t variable_uid,
     uint64_t handle,
+    uint3 offset,
     Command::Resource::Usage usage) noexcept {
 
     TextureArgument argument{};
     argument.tag = Argument::Tag::TEXTURE;
     argument.variable_uid = variable_uid;
     argument.handle = handle;
+    argument.offset = offset;
 
     if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) {
         LUISA_ERROR_WITH_LOCATION(

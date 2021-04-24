@@ -257,7 +257,7 @@ public:
 class KernelLaunchCommand : public Command {
 
 public:
-    struct Argument {
+    struct alignas(16) Argument {
         enum struct Tag : uint32_t {
             BUFFER,
             TEXTURE,
@@ -274,6 +274,7 @@ public:
 
     struct TextureArgument : Argument {
         uint64_t handle;
+        uint3 offset{};
         //TODO: Texture-write target miplevel, useless in read-only binding
         //uint writeLevel;
     };
@@ -304,7 +305,7 @@ public:
     //   2. captured textures
     //   3. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, Resource::Usage usage) noexcept;
+    void encode_texture(uint32_t variable_uid, uint64_t handle, uint3 offset, Resource::Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size) noexcept;
 
     template<typename Visit>

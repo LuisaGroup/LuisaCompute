@@ -98,7 +98,8 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     auto block_size = function.block_size();
     auto blocks = (launch_size + block_size - 1u) / block_size;
     LUISA_VERBOSE_WITH_LOCATION(
-        "Dispatch kernel #{} in ({}, {}, {}) blocks with block_size ({}, {}, {}).",
+        "Dispatch kernel #{} in ({}, {}, {}) blocks "
+        "with block_size ({}, {}, {}).",
         command->kernel_uid(),
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
@@ -142,9 +143,15 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
                 "Encoding texture #{} at index {}.",
                 argument.handle, argument_index);
             auto texture = _device->texture(argument.handle);
-            [argument_encoder setTexture:texture
-                                 atIndex:kernel.arguments[argument_index++].argumentIndex];
+            auto arg_id = kernel.arguments[argument_index++].argumentIndex;
+            [argument_encoder setTexture:texture atIndex:arg_id];
             mark_usage(texture, function.variable_usage(vid));
+            auto ptr = [argument_encoder constantDataAtIndex:arg_id + 1];
+            if (texture.textureType == MTLTextureType3D) {
+                std::memcpy(ptr, &argument.offset, sizeof(uint3));
+            } else {
+                std::memcpy(ptr, &argument.offset, sizeof(uint2));
+            }
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());

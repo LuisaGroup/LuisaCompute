@@ -76,7 +76,17 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return ImageView<T>{_handle, _storage, _size}; }
+    [[nodiscard]] auto view() const noexcept { return ImageView<T>{_handle, _storage, {}, _size}; }
+    [[nodiscard]] auto view(uint2 offset, uint2 size) const noexcept {
+        if (any(offset + size >= _size)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid offset[{}, {}] and size[{}, {}] of view "
+                "for image #{} with size[{}, {}].",
+                offset.x, offset.y, size.x, size.y,
+                _handle, _size.x, _size.y);
+        }
+        return ImageView<T>{_handle, _storage, offset, size};
+    }
 
     template<typename UV>
     [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
@@ -100,6 +110,7 @@ class ImageView {
 private:
     uint64_t _handle;
     uint2 _size;
+    uint2 _offset;
     PixelStorage _storage;
 
 private:
@@ -108,29 +119,43 @@ private:
     constexpr explicit ImageView(
         uint64_t handle,
         PixelStorage storage,
+        uint2 offset,
         uint2 size) noexcept
         : _handle{handle},
           _size{size},
-          _storage{storage} {}
+          _offset{offset},
+          _storage{storage} {
+
+        if (any(_offset >= _size)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid offset[{}, {}] and size[{}, {}] for image #{}.",
+                _offset.x, _offset.y, _size.x, _size.y, _handle);
+        }
+    }
 
 public:
     ImageView(const Image<T> &image) noexcept : ImageView{image.view()} {}
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
+
+    [[nodiscard]] auto subview(uint2 offset, uint2 size) const noexcept {
+        return ImageView{_handle, _storage, _offset + offset, size};
+    }
 
     [[nodiscard]] auto copy_from(const void *data) const noexcept {
         return TextureUploadCommand::create(
             _handle, _storage,
-            0u, uint3{},
+            0u, uint3{_offset, 0u},
             uint3{_size, 1u}, data);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return TextureDownloadCommand::create(
             _handle, _storage,
-            0u, uint3{},
+            0u, uint3{_offset, 0u},
             uint3{_size, 1u}, data);
     }
 
@@ -140,8 +165,8 @@ public:
     }
 
     template<typename UV, typename Value>
-    [[nodiscard]] decltype(auto) write(UV &&uv, Value &&value) const noexcept {
-        return detail::Expr<Image<T>>{*this}.write(
+    void write(UV uv, Value &&value) const noexcept {
+        detail::Expr<Image<T>>{*this}.write(
             std::forward<UV>(uv),
             std::forward<Value>(value));
     }

@@ -298,7 +298,7 @@ const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::image_binding(const Type *type, uint64_t handle) noexcept {
+const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handle, uint3 offset) noexcept {
     if (auto iter = std::find_if(
             _captured_textures.cbegin(),
             _captured_textures.cend(),
@@ -307,14 +307,21 @@ const RefExpr *FunctionBuilder::image_binding(const Type *type, uint64_t handle)
         auto v = iter->variable;
         if (*v.type() != *type) {
             LUISA_ERROR_WITH_LOCATION(
-                "Aliasing in implicitly captured image "
+                "Aliasing in implicitly captured texture "
                 "(handle = {}, original type = {}, requested type = {}).",
                 handle, v.type()->description(), type->description());
+        }
+        if (auto o = iter->offset; any(o != offset)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Aliasing in implicitly captured texture "
+                "(handle = {}, original offset = [{}, {}, {}],"
+                " requested offset = [{}, {}, {}]).",
+                handle, o.x, o.y, o.z, offset.x, offset.y, offset.z);
         }
         return _ref(v);
     }
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
-    _captured_textures.emplace_back(TextureBinding{v, handle});
+    _captured_textures.emplace_back(TextureBinding{v, handle, offset});
     return _ref(v);
 }
 

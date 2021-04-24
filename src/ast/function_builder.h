@@ -146,7 +146,7 @@ public:
 
     [[nodiscard]] const ConstantExpr *constant(const Type *type, uint64_t hash) noexcept;
     [[nodiscard]] const RefExpr *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
-    [[nodiscard]] const RefExpr *image_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle, uint3 offset) noexcept;
 
     // explicit arguments
     [[nodiscard]] const RefExpr *argument(const Type *type) noexcept;
