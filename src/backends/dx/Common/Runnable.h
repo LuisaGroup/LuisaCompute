@@ -4,6 +4,7 @@
 #include <Common/Hash.h>
 #include <Common/Memory.h>
 #include <type_traits>
+#include <new>
 template<typename T>
 struct RunnableHash;
 template<class T>
@@ -11,131 +12,135 @@ class Runnable;
 template<class _Ret,
 		 class... _Types>
 class Runnable<_Ret(_Types...)> {
+	/////////////////////Define
 	friend class RunnableHash<_Ret(_Types...)>;
-	using FunctionPtrType = funcPtr_t<_Ret(void*, _Types&&...)>;
-	static constexpr size_t PLACEHOLDERSIZE = 24;
-	using PlaceHolderType = std::aligned_storage_t<PLACEHOLDERSIZE, sizeof(size_t)>;
-
-private:
+	static constexpr size_t PLACEHOLDERSIZE = 40;
+	using PlaceHolderType = std::aligned_storage_t<PLACEHOLDERSIZE, alignof(size_t)>;
+	struct IProcessFunctor {
+		virtual void Delete(void* ptr) const = 0;
+		virtual void CopyConstruct(void*& dst, void const* src, PlaceHolderType* holder) const = 0;
+		virtual void MoveConstruct(void*& dst, void* src, PlaceHolderType* holder) const = 0;
+		virtual _Ret Run(void*, _Types&&...) const = 0;
+	};
+	using ProcessorHolder = std::aligned_storage_t<sizeof(IProcessFunctor), alignof(IProcessFunctor)>;
+	/////////////////////Data
 	void* placePtr;
-	FunctionPtrType funcPtr;
-	funcPtr_t<void(void*)> disposeFunc;
-	funcPtr_t<void(void*&, void const*, PlaceHolderType*)> constructFunc;
-	funcPtr_t<void(void*&, void*)> moveFunc;
+	ProcessorHolder logicPlaceHolder;
 	PlaceHolderType funcPtrPlaceHolder;
 
 public:
-	bool operator==(const Runnable<_Ret(_Types...)>& obj) const noexcept {
-		return funcPtr == obj.funcPtr;
-	}
-	bool operator!=(const Runnable<_Ret(_Types...)>& obj) const noexcept {
-		return funcPtr != obj.funcPtr;
-	}
-
 	operator bool() const noexcept {
-		return funcPtr;
+		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
+		return *logicHolder != 0;
 	}
 
 	void Dispose() noexcept {
-		if (disposeFunc) {
-			disposeFunc(placePtr);
-			disposeFunc = nullptr;
+		size_t* logicHolder = reinterpret_cast<size_t*>(&logicPlaceHolder);
+		if (*logicHolder != 0) {
+			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->Delete(placePtr);
+			*logicHolder = 0;
 		}
 		placePtr = nullptr;
-		constructFunc = nullptr;
-		funcPtr = nullptr;
 	}
 
 	Runnable() noexcept
-		: funcPtr(nullptr),
-		  disposeFunc(nullptr),
-		  constructFunc(nullptr),
-		  placePtr(nullptr) {
+		: placePtr(nullptr) {
+		size_t* logicHolder = reinterpret_cast<size_t*>(&logicPlaceHolder);
+		*logicHolder = 0;
 	}
 
 	Runnable(std::nullptr_t) noexcept
 		: Runnable() {
 	}
 
-	Runnable(_Ret (*p)(_Types...)) noexcept : disposeFunc(nullptr) {
-		constructFunc = [](void*& dest, void const* source, PlaceHolderType* placeHolder) -> void {
-			dest = placeHolder;
-			*(size_t*)dest = *(size_t const*)source;
+	Runnable(funcPtr_t<_Ret(_Types...)> p) noexcept {
+		struct FuncPtrLogic final : public IProcessFunctor {
+			void Delete(void* ptr) const override {
+			}
+			void CopyConstruct(void*& dest, void const* source, PlaceHolderType* placeHolder) const override {
+				dest = placeHolder;
+				*reinterpret_cast<size_t*>(dest) = *reinterpret_cast<size_t const*>(source);
+			}
+			void MoveConstruct(void*& dst, void* src, PlaceHolderType* placeHolder) const override {
+				*reinterpret_cast<size_t*>(dst) = *reinterpret_cast<size_t const*>(src);
+			}
+			_Ret Run(void* pp, _Types&&... tt) const override {
+				funcPtr_t<_Ret(_Types...)> fp = reinterpret_cast<funcPtr_t<_Ret(_Types...)>>(*(void**)pp);
+				return fp(std::forward<_Types>(tt)...);
+			}
 		};
-		moveFunc = [](void*& dest, void* source) -> void {
-			*(size_t*)dest = *(size_t const*)source;
-		};
-		*(size_t*)placePtr = *(reinterpret_cast<size_t const*>(&p));
-		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
-			_Ret (*fp)(_Types...) = (_Ret(*)(_Types...))(*(void**)pp);
-			return fp(std::forward<_Types>(tt)...);
-		};
+		new (&logicPlaceHolder) FuncPtrLogic();
+		*reinterpret_cast<size_t*>(placePtr) = *(reinterpret_cast<size_t const*>(&p));
 	}
 
 	Runnable(const Runnable<_Ret(_Types...)>& f) noexcept
-		: funcPtr(f.funcPtr),
-		  constructFunc(f.constructFunc),
-		  moveFunc(f.moveFunc),
-		  disposeFunc(f.disposeFunc) {
-		if (constructFunc) {
-			constructFunc(placePtr, f.placePtr, &funcPtrPlaceHolder);
+		: logicPlaceHolder(f.logicPlaceHolder) {
+		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
+		if (*logicHolder != 0) {
+			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->CopyConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
 		}
 	}
-	Runnable(Runnable<_Ret(_Types...)>& f) noexcept
-		: Runnable(static_cast<Runnable<_Ret(_Types...)> const&>(f)) {
-	}
-
 	Runnable(Runnable<_Ret(_Types...)>&& f) noexcept
-		: funcPtr(f.funcPtr),
-		  disposeFunc(f.disposeFunc),
-		  moveFunc(f.moveFunc),
-		  constructFunc(f.constructFunc)
-
-	{
-		if (f.placePtr == &f.funcPtrPlaceHolder) {
-			placePtr = &funcPtrPlaceHolder;
-			moveFunc(
-				placePtr,
-				f.placePtr);
-			//TODO: place holder
-		} else {
-			placePtr = f.placePtr;
+		: logicPlaceHolder(f.logicPlaceHolder) {
+		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
+		if (*logicHolder != 0) {
+			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->MoveConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
 		}
 		f.placePtr = nullptr;
-		f.disposeFunc = nullptr;
-		f.constructFunc = nullptr;
-		f.moveFunc = nullptr;
+		size_t* flogicHolder = reinterpret_cast<size_t*>(&f.logicPlaceHolder);
+		*flogicHolder = 0;
 	}
 
 	template<typename Functor>
 	Runnable(Functor&& f) noexcept {
-		using PureType = std::remove_cvref_t<Functor>;
-		constexpr bool USE_HEAP = (sizeof(PureType) > PLACEHOLDERSIZE);
-		auto func = [](void*& dest, void const* source, PlaceHolderType* placeHolder) -> void {
+		if constexpr (std::is_same_v<Functor&&, Runnable<_Ret(_Types...)>&>) {
+			logicPlaceHolder = f.logicPlaceHolder;
+			size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
+			if (*logicHolder != 0) {
+				reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->CopyConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
+			}
+		} else {
+
+			using PureType = std::remove_cvref_t<Functor>;
+			constexpr bool USE_HEAP = (sizeof(PureType) > PLACEHOLDERSIZE);
+			struct FuncPtrLogic final : public IProcessFunctor {
+				void Delete(void* pp) const override {
+					PureType* ff = (PureType*)pp;
+					ff->~PureType();
+					if constexpr (USE_HEAP) {
+						vengine_free(pp);
+					}
+				}
+				void CopyConstruct(void*& dest, void const* source, PlaceHolderType* placeHolder) const override {
+					if constexpr (USE_HEAP) {
+						dest = vengine_malloc(sizeof(PureType));
+					} else {
+						dest = placeHolder;
+					}
+					new (dest) PureType(*(PureType const*)source);
+				}
+				void MoveConstruct(void*& dest, void* source, PlaceHolderType* placeHolder) const override {
+					if constexpr (USE_HEAP) {
+						dest = source;
+					} else {
+						dest = placeHolder;
+						new (dest) PureType(
+							std::move(*reinterpret_cast<PureType*>(source)));
+					}
+				}
+				_Ret Run(void* pp, _Types&&... tt) const override {
+					PureType* ff = (PureType*)pp;
+					return (*ff)(std::forward<_Types>(tt)...);
+				}
+			};
+			new (&logicPlaceHolder) FuncPtrLogic();
 			if constexpr (USE_HEAP) {
-				dest = vengine_malloc(sizeof(PureType));
+				placePtr = vengine_malloc(sizeof(PureType));
 			} else {
-				dest = placeHolder;
+				placePtr = &funcPtrPlaceHolder;
 			}
-			new (dest) PureType(*(PureType const*)source);
-		};
-		func(placePtr, &f, &funcPtrPlaceHolder);
-		constructFunc = func;
-		moveFunc = [](void*& dest, void* source) -> void {
-			new (dest) PureType(
-				std::move(*reinterpret_cast<PureType*>(source)));
-		};
-		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
-			PureType* ff = (PureType*)pp;
-			return (*ff)(std::forward<_Types>(tt)...);
-		};
-		disposeFunc = [](void* pp) -> void {
-			PureType* ff = (PureType*)pp;
-			ff->~PureType();
-			if constexpr (USE_HEAP) {
-				vengine_free(pp);
-			}
-		};
+			new (placePtr) PureType(std::forward<Functor>(f));
+		}
 	}
 
 	void operator=(std::nullptr_t) noexcept {
@@ -148,14 +153,12 @@ public:
 	}
 
 	_Ret operator()(_Types... t) const noexcept {
-		return funcPtr(placePtr, std::forward<_Types>(t)...);
-	}
-	bool isAvaliable() const noexcept {
-		return funcPtr;
+		return reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->Run(placePtr, std::forward<_Types>(t)...);
 	}
 	~Runnable() noexcept {
-		if (disposeFunc) {
-			disposeFunc(placePtr);
+		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
+		if (*logicHolder != 0) {
+			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->Delete(placePtr);
 		}
 	}
 };
@@ -164,6 +167,6 @@ template<typename T>
 struct RunnableHash {
 	size_t operator()(const Runnable<T>& runnable) const noexcept {
 		vengine::hash<size_t> h;
-		return h((size_t)runnable.funcPtr);
+		return h(*reinterpret_cast<size_t const*>(&runnable.logicPlaceHolder));
 	}
 };

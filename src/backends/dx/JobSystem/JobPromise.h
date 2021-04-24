@@ -8,7 +8,7 @@ class JobPromise {
 
 public:
 	template<typename Func, typename... Args>
-	JobPromise(JobBucket* bucket, Func&& f, Args&&... promiseArgs) {
+	JobPromise(JobBucket* bucket, Func&& f, JobPromise<Args> const&... promiseArgs) {
 		std::initializer_list<JobHandle> handles = {
 			(promiseArgs.handle)...};
 		handle = bucket->GetTask(
