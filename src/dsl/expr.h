@@ -171,7 +171,7 @@ struct Expr<Vector<T, 2>> : public ExprBase<Vector<T, 2>> {
     void operator=(const Expr &rhs) noexcept { ExprBase<Vector<T, 2>>::operator=(rhs); }
     Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 0)};
     Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 1)};
-#include <dsl/swizzle_2.inl>
+#include <dsl/swizzle_2.inl.h>
 };
 
 template<typename T>
@@ -184,7 +184,7 @@ struct Expr<Vector<T, 3>> : public ExprBase<Vector<T, 3>> {
     Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 0)};
     Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 1)};
     Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 2)};
-#include <dsl/swizzle_3.inl>
+#include <dsl/swizzle_3.inl.h>
 };
 
 template<typename T>
@@ -198,7 +198,7 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
     Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 1)};
     Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 2)};
     Expr<T> w{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 3)};
-#include <dsl/swizzle_4.inl>
+#include <dsl/swizzle_4.inl.h>
 };
 
 template<typename T>

@@ -16,6 +16,6 @@ def generate(file, dim):
 
 if __name__ == "__main__":
     for dim in range(2, 5):
-        with open(f"swizzle_{dim}.inl", "w") as file:
+        with open(f"swizzle_{dim}.inl.h", "w") as file:
             print("#pragma once", file=file)
             generate(file, dim)
