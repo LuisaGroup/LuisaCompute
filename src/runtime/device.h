@@ -120,7 +120,8 @@ public:
 private:
     struct Compile {
         Device &d;
-        decltype(auto) operator<<(auto &&k) const noexcept {
+        template<typename Kernel>
+        decltype(auto) operator<<(Kernel &&k) const noexcept {
             k.wait_for_compilation(d);
             return *this;
         }
