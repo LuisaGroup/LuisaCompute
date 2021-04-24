@@ -274,6 +274,8 @@ public:
 
     struct TextureArgument : Argument {
         uint64_t handle;
+        //TODO: Texture-write target miplevel, useless in read-only binding
+        //uint writeLevel;
     };
 
     struct UniformArgument : Argument {

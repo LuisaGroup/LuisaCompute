@@ -7,6 +7,11 @@
 #include <ShaderCompile/ShaderUniforms.h>
 #include <Utility/BinaryReader.h>
 namespace SCompile {
+
+const luisa::compute::Context *HLSLCompiler::context;
+std::filesystem::path HLSLCompiler::compiler_root;
+std::filesystem::path HLSLCompiler::toolkit_root;
+
 static constexpr bool g_needCommandOutput = false;
 static const HANDLE g_hChildStd_IN_Rd = NULL;
 static const HANDLE g_hChildStd_IN_Wr = NULL;
@@ -120,14 +125,20 @@ Compiler computeCompilerUsage;
 Compiler rasterizeCompilerUsage;
 Compiler rayTracingCompilerUsage;
 std::atomic_bool inited = false;
-void HLSLCompiler::InitRegisteData() {
+void HLSLCompiler::InitRegisterData(const luisa::compute::Context &ctx) {
+	
+	context = &ctx;
+	compiler_root = std::filesystem::canonical(ctx.runtime_directory() / "backends" / "VEngineCompiler");
+	toolkit_root = compiler_root / "CompilerToolkit";
+	LUISA_INFO("DirectX compiler root: {}.", compiler_root.string());
+	
 	if (inited.exchange(true)) return;
 	shaderTypeCmd = " /T ";
 	funcName = " /E ";
 	output = " /Fo ";
 	macro_compile = " /D ";
 	using namespace neb;
-	std::unique_ptr<CJsonObject> obj(ReadJson("HLSLCompiler/register.json"_sv));
+	std::unique_ptr<CJsonObject> obj(ReadJson((toolkit_root / "register.json").string().c_str()));
 	if (!obj) {
 		std::cout << "Register.json not found in HLSLCompiler folder!"_sv << std::endl;
 		system("pause");
@@ -135,6 +146,8 @@ void HLSLCompiler::InitRegisteData() {
 	}
 	vengine::string value;
 	CJsonObject sonObj;
+	tempPath = context->cache_directory().string().c_str();
+	pathFolder = context->cache_directory().string().c_str();
 	auto GenerateSettings = [&](vengine::string& settings) -> void {
 		settings.clear();
 		int sz = sonObj.GetArraySize();
@@ -149,7 +162,8 @@ void HLSLCompiler::InitRegisteData() {
 			dxcversion = value;
 		}
 		if (sonObj.Get("Path"_sv, value)) {
-			dxcpath = vengine::string("HLSLCompiler\\"_sv) + value;
+			dxcpath = (toolkit_root / value.c_str()).string().c_str();
+//			dxcpath = vengine::string("HLSLCompiler\\"_sv) + value;
 		}
 		if (sonObj.Get("Settings"_sv, sonObj) && sonObj.IsArray()) {
 			GenerateSettings(dxcStart);
@@ -160,7 +174,8 @@ void HLSLCompiler::InitRegisteData() {
 			fxcversion = value;
 		}
 		if (sonObj.Get("Path"_sv, value)) {
-			fxcpath = vengine::string("HLSLCompiler\\"_sv) + value;
+			fxcpath = (toolkit_root / value.c_str()).string().c_str();
+//			fxcpath = vengine::string("HLSLCompiler\\"_sv) + value;
 		}
 		if (sonObj.Get("Settings"_sv, sonObj) && sonObj.IsArray()) {
 			GenerateSettings(fxcStart);
@@ -180,19 +195,19 @@ void HLSLCompiler::InitRegisteData() {
 			computeCompilerUsage = (Compiler)(value == "fxc");
 		}
 	}
-	if (obj->Get("TempFolder"_sv, value)) {
-		tempPath = value;
-		Path(tempPath).TryCreateDirectory();
-	}
-	if (obj->Get("CompileResultFolder"_sv, pathFolder)) {
-		if (!pathFolder.empty()) {
-			char lst = pathFolder.end()[-1];
-			if (lst != '/' && lst != '\\') {
-				pathFolder += '/';
-			}
-		}
-	} else
-		pathFolder.clear();
+//	if (obj->Get("TempFolder"_sv, value)) {
+//		tempPath = value;
+//		Path(tempPath).TryCreateDirectory();
+//	}
+//	if (obj->Get("CompileResultFolder"_sv, pathFolder)) {
+//		if (!pathFolder.empty()) {
+//			char lst = pathFolder.end()[-1];
+//			if (lst != '/' && lst != '\\') {
+//				pathFolder += '/';
+//			}
+//		}
+//	} else
+//		pathFolder.clear();
 }
 struct CompileFunctionCommand {
 	vengine::string name;

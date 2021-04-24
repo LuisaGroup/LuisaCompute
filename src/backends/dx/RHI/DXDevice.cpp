@@ -34,7 +34,7 @@ public:
 		: Device::Interface(ctx) {// TODO: support device selection?
 		InitD3D(index);
 		dxDevice.New(md3dDevice.Get());
-		SCompile::HLSLCompiler::InitRegisteData();
+		SCompile::HLSLCompiler::InitRegisterData(ctx);
 		graphicsInstance.New(dxDevice);
 		shaderGlobal = ShaderLoader::Init(dxDevice);
 		cbAlloc.New(dxDevice, false);

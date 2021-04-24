@@ -21,8 +21,8 @@ void RenderTexture::ClearRenderTarget(ThreadCommand* commandList, uint slice, ui
 void RenderTexture::SetViewport(ThreadCommand* commandList, uint mipCount) const {
 	uint currentWidth = mWidth >> mipCount;
 	uint currentHeight = mHeight >> mipCount;
-	D3D12_VIEWPORT Viewport({0.0f, 0.0f, (float)(currentWidth), (float)(currentHeight), 0.0f, 1.0f});
-	D3D12_RECT ScissorRect({0, 0, (LONG)currentWidth, (LONG)currentHeight});
+	D3D12_VIEWPORT Viewport{0.0f, 0.0f, (float)(currentWidth), (float)(currentHeight), 0.0f, 1.0f};
+	D3D12_RECT ScissorRect{0, 0, (LONG)currentWidth, (LONG)currentHeight};
 	commandList->GetCmdList()->RSSetViewports(1, &Viewport);
 	commandList->GetCmdList()->RSSetScissorRects(1, &ScissorRect);
 }

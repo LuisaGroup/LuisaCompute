@@ -12,37 +12,17 @@ template<class _Ret,
 		 class... _Types>
 class Runnable<_Ret(_Types...)> {
 	friend class RunnableHash<_Ret(_Types...)>;
-	using FunctionPtrType = typename _Ret (*)(void*, _Types&&...);
+	using FunctionPtrType = funcPtr_t<_Ret(void*, _Types&&...)>;
+	static constexpr size_t PLACEHOLDERSIZE = 24;
+	using PlaceHolderType = std::aligned_storage_t<PLACEHOLDERSIZE, sizeof(size_t)>;
 
 private:
 	void* placePtr;
-	size_t allocatedSize;
 	FunctionPtrType funcPtr;
-	void (*disposeFunc)(void*);
-	void (*constructFunc)(void*, void*);
-	static constexpr size_t PLACEHOLDERSIZE = 24;
-	std::aligned_storage_t<PLACEHOLDERSIZE, sizeof(size_t)> funcPtrPlaceHolder;
-	void AllocateFunctor(size_t targetSize) noexcept {
-		if (targetSize <= allocatedSize) return;
-		FreeFunctor();
-		allocatedSize = targetSize;
-		if (targetSize <= PLACEHOLDERSIZE) {
-			placePtr = &funcPtrPlaceHolder;
-		} else {
-			placePtr = vengine_malloc(allocatedSize);
-		}
-	}
-	void InitAllocateFunctor(size_t targetSize) noexcept {
-		allocatedSize = targetSize;
-		if (targetSize <= PLACEHOLDERSIZE) {
-			placePtr = &funcPtrPlaceHolder;
-		} else {
-			placePtr = vengine_malloc(allocatedSize);
-		}
-	}
-	void FreeFunctor() noexcept {
-		if (allocatedSize > PLACEHOLDERSIZE) vengine_free(placePtr);
-	}
+	funcPtr_t<void(void*)> disposeFunc;
+	funcPtr_t<void(void*&, void const*, PlaceHolderType*)> constructFunc;
+	funcPtr_t<void(void*&, void*)> moveFunc;
+	PlaceHolderType funcPtrPlaceHolder;
 
 public:
 	bool operator==(const Runnable<_Ret(_Types...)>& obj) const noexcept {
@@ -57,12 +37,12 @@ public:
 	}
 
 	void Dispose() noexcept {
-		if (disposeFunc) disposeFunc(placePtr);
-		FreeFunctor();
+		if (disposeFunc) {
+			disposeFunc(placePtr);
+			disposeFunc = nullptr;
+		}
 		placePtr = nullptr;
-		disposeFunc = nullptr;
 		constructFunc = nullptr;
-		allocatedSize = 0;
 		funcPtr = nullptr;
 	}
 
@@ -70,8 +50,7 @@ public:
 		: funcPtr(nullptr),
 		  disposeFunc(nullptr),
 		  constructFunc(nullptr),
-		  placePtr(nullptr),
-		  allocatedSize(0) {
+		  placePtr(nullptr) {
 	}
 
 	Runnable(std::nullptr_t) noexcept
@@ -79,55 +58,72 @@ public:
 	}
 
 	Runnable(_Ret (*p)(_Types...)) noexcept : disposeFunc(nullptr) {
-		InitAllocateFunctor(PLACEHOLDERSIZE);
-		constructFunc = [](void* dest, void* source) -> void {
-			*(size_t*)dest = *(size_t*)source;
+		constructFunc = [](void*& dest, void const* source, PlaceHolderType* placeHolder) -> void {
+			dest = placeHolder;
+			*(size_t*)dest = *(size_t const*)source;
 		};
-		memcpy(placePtr, &p, sizeof(size_t));
+		moveFunc = [](void*& dest, void* source) -> void {
+			*(size_t*)dest = *(size_t const*)source;
+		};
+		*(size_t*)placePtr = *(reinterpret_cast<size_t const*>(&p));
 		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
 			_Ret (*fp)(_Types...) = (_Ret(*)(_Types...))(*(void**)pp);
 			return fp(std::forward<_Types>(tt)...);
 		};
 	}
 
-	Runnable(const Runnable<_Ret(_Types...)>& f) noexcept {
-		funcPtr = f.funcPtr;
-		constructFunc = f.constructFunc;
-		disposeFunc = f.disposeFunc;
+	Runnable(const Runnable<_Ret(_Types...)>& f) noexcept
+		: funcPtr(f.funcPtr),
+		  constructFunc(f.constructFunc),
+		  moveFunc(f.moveFunc),
+		  disposeFunc(f.disposeFunc) {
 		if (constructFunc) {
-			InitAllocateFunctor(f.allocatedSize);
-			constructFunc(placePtr, (char*)f.placePtr);
-		} else {
-			allocatedSize = 0;
+			constructFunc(placePtr, f.placePtr, &funcPtrPlaceHolder);
 		}
 	}
 	Runnable(Runnable<_Ret(_Types...)>& f) noexcept
 		: Runnable(static_cast<Runnable<_Ret(_Types...)> const&>(f)) {
 	}
 
-	Runnable(Runnable<_Ret(_Types...)>&& f) noexcept {
-		allocatedSize = f.allocatedSize;
-		if (allocatedSize <= PLACEHOLDERSIZE) {
+	Runnable(Runnable<_Ret(_Types...)>&& f) noexcept
+		: funcPtr(f.funcPtr),
+		  disposeFunc(f.disposeFunc),
+		  moveFunc(f.moveFunc),
+		  constructFunc(f.constructFunc)
+
+	{
+		if (f.placePtr == &f.funcPtrPlaceHolder) {
 			placePtr = &funcPtrPlaceHolder;
-			funcPtrPlaceHolder = f.funcPtrPlaceHolder;
-		} else
+			moveFunc(
+				placePtr,
+				f.placePtr);
+			//TODO: place holder
+		} else {
 			placePtr = f.placePtr;
-		funcPtr = f.funcPtr;
-		disposeFunc = f.disposeFunc;
-		constructFunc = f.constructFunc;
+		}
 		f.placePtr = nullptr;
 		f.disposeFunc = nullptr;
 		f.constructFunc = nullptr;
-		f.allocatedSize = 0;
+		f.moveFunc = nullptr;
 	}
 
 	template<typename Functor>
 	Runnable(Functor&& f) noexcept {
-		using PureType = typename std::remove_cvref_t<Functor>;
-		InitAllocateFunctor(sizeof(PureType));
-		new (placePtr) PureType{std::forward<Functor>(f)};
-		constructFunc = [](void* dest, void* source) -> void {
-			new (dest) PureType(std::forward<Functor>(*(PureType*)source));
+		using PureType = std::remove_cvref_t<Functor>;
+		constexpr bool USE_HEAP = (sizeof(PureType) > PLACEHOLDERSIZE);
+		auto func = [](void*& dest, void const* source, PlaceHolderType* placeHolder) -> void {
+			if constexpr (USE_HEAP) {
+				dest = vengine_malloc(sizeof(PureType));
+			} else {
+				dest = placeHolder;
+			}
+			new (dest) PureType(*(PureType const*)source);
+		};
+		func(placePtr, &f, &funcPtrPlaceHolder);
+		constructFunc = func;
+		moveFunc = [](void*& dest, void* source) -> void {
+			new (dest) PureType(
+				std::move(*reinterpret_cast<PureType*>(source)));
 		};
 		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
 			PureType* ff = (PureType*)pp;
@@ -136,81 +132,19 @@ public:
 		disposeFunc = [](void* pp) -> void {
 			PureType* ff = (PureType*)pp;
 			ff->~PureType();
+			if constexpr (USE_HEAP) {
+				vengine_free(pp);
+			}
 		};
-	}
-
-	void operator=(const Runnable<_Ret(_Types...)>& f) noexcept {
-		if (disposeFunc) disposeFunc(placePtr);
-		AllocateFunctor(f.allocatedSize);
-		funcPtr = f.funcPtr;
-		constructFunc = f.constructFunc;
-		disposeFunc = f.disposeFunc;
-		if (constructFunc) {
-			constructFunc(placePtr, (char*)f.placePtr);
-		}
-	}
-	void operator=(Runnable<_Ret(_Types...)>& f) noexcept {
-		operator()(static_cast<Runnable<_Ret(_Types...)> const&>(f));
-	}
-	void operator=(Runnable<_Ret(_Types...)>&& f) noexcept {
-		~Runnable();
-		new (this) Runnable(std::move(f));
-		/*
-				if (disposeFunc) disposeFunc(placePtr);
-		FreeFunctor();
-		allocatedSize = f.allocatedSize;
-		if (allocatedSize <= PLACEHOLDERSIZE) {
-			placePtr = &funcPtrPlaceHolder;
-			funcPtrPlaceHolder = f.funcPtrPlaceHolder;
-		} else
-			placePtr = f.placePtr;
-		funcPtr = f.funcPtr;
-		disposeFunc = f.disposeFunc;
-		constructFunc = f.constructFunc;
-		f.placePtr = nullptr;
-		f.disposeFunc = nullptr;
-		f.constructFunc = nullptr;
-		f.allocatedSize = 0;
-		*/
 	}
 
 	void operator=(std::nullptr_t) noexcept {
-		if (disposeFunc) disposeFunc(placePtr);
 		Dispose();
 	}
-
-	void operator=(_Ret (*p)(_Types...)) noexcept {
-		if (disposeFunc) disposeFunc(placePtr);
-		disposeFunc = nullptr;
-		AllocateFunctor(PLACEHOLDERSIZE);
-		constructFunc = [](void* dest, void* source) -> void {
-			*(size_t*)dest = *(size_t*)source;
-		};
-		memcpy(placePtr, &p, sizeof(size_t));
-		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
-			_Ret (*fp)(_Types...) = (_Ret(*)(_Types...))(*(void**)pp);
-			return fp(std::forward<_Types>(tt)...);
-		};
-	}
-
 	template<typename Functor>
 	void operator=(Functor&& f) noexcept {
-		using PureType = typename std::remove_cvref_t<Functor>;
-
-		if (disposeFunc) disposeFunc(placePtr);
-		AllocateFunctor(sizeof(PureType));
-		new (placePtr) PureType{std::forward<Functor>(f)};
-		constructFunc = [](void* dest, void* source) -> void {
-			new (dest) PureType(std::forward<Functor>(*(PureType*)source));
-		};
-		funcPtr = [](void* pp, _Types&&... tt) -> _Ret {
-			PureType* ff = (PureType*)pp;
-			return (*ff)(std::forward<_Types>(tt)...);
-		};
-		disposeFunc = [](void* pp) -> void {
-			PureType* ff = (PureType*)pp;
-			ff->~PureType();
-		};
+		~Runnable();
+		new (this) Runnable(std::forward<Functor>(f));
 	}
 
 	_Ret operator()(_Types... t) const noexcept {
@@ -220,8 +154,9 @@ public:
 		return funcPtr;
 	}
 	~Runnable() noexcept {
-		if (disposeFunc) disposeFunc(placePtr);
-		FreeFunctor();
+		if (disposeFunc) {
+			disposeFunc(placePtr);
+		}
 	}
 };
 

@@ -3,16 +3,17 @@
 namespace ShaderIDGlobalNamespace {
 
 struct ShaderIDGlobal {
-	const uint INIT_CAPACITY = 100;
-	uint currentCount;
-	HashMap<vengine::string, uint> allShaderIDs;
-	HashMap<uint, uint> lcShaderIndices;
-	uint mPerCameraBuffer;
-	uint mPerMaterialBuffer;
-	uint mPerObjectBuffer;
-	uint mainTex;
-	uint params;
+	static constexpr uint INIT_CAPACITY = 128;
+	uint currentCount{};
+	HashMap<vengine::string, uint> allShaderIDs{INIT_CAPACITY};
+	HashMap<uint, uint> lcShaderIndices{INIT_CAPACITY};
+	uint mPerCameraBuffer{};
+	uint mPerMaterialBuffer{};
+	uint mPerObjectBuffer{};
+	uint mainTex{};
+	uint params{};
 	spin_mutex mtx;
+	ShaderIDGlobal() noexcept = default;
 };
 static StackObject<ShaderIDGlobal, true> glb;
 }// namespace ShaderIDGlobalNamespace

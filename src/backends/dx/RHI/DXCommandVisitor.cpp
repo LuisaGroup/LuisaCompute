@@ -9,6 +9,8 @@
 #include <RHI/InternalShaders.h>
 #include <RHI/RenderTexturePackage.h>
 #include <Struct/ConstBuffer.h>
+#include <Singleton/ShaderID.h>
+#include <RHI/ShaderCompiler.h>
 
 namespace luisa::compute {
 //VENGINE_CODEGEN [copy] [	void DXCommandVisitor::visit(## const* cmd) noexcept {}] [BufferUploadCommand] [BufferDownloadCommand] [BufferCopyCommand] [KernelLaunchCommand] [TextureUploadCommand] [TextureDownloadCommand] [EventSignalCommand] [EventWaitCommand]
@@ -79,16 +81,87 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 	IShader* funcShader = getFunction(cmd->kernel_uid());
 	if (funcShader->GetType() == typeid(ComputeShader)) {//Common compute
 		ComputeShader* cs = static_cast<ComputeShader*>(funcShader);
+		auto&& cbData = ShaderCompiler::GetCBufferData(cmd->kernel_uid());
+		vengine::vector<uint8_t> cbufferData(cbData.cbufferSize);
+		memset(cbufferData.data(), 0, cbufferData.size());
 		cs->BindShader(tCmd);
 		struct Functor {
-			void operator()(uint varID, KernelLaunchCommand::BufferArgument arg) {
+			ComputeShader* cs;
+			Function func;
+			ThreadCommand* tCmd;
+			uint8_t* cbuffer;
+			ShaderCompiler::ConstBufferData const* cbData;
+			void operator()(uint varID, KernelLaunchCommand::BufferArgument const& arg) {
+				StructuredBuffer* buffer = reinterpret_cast<StructuredBuffer*>(arg.handle);
+				bool isUAV = ((uint)func.variable_usage(varID) & (uint)Variable::Usage::WRITE) != 0;
+				if (isUAV) {
+					tCmd->UpdateResState(
+						buffer->GetInitState(),
+						GPUResourceState_UnorderedAccess,
+						buffer, true);
+					tCmd->UAVBarrier(buffer);
+				} else {
+					tCmd->UpdateResState(
+						buffer->GetInitState(),
+						GPUResourceState_NonPixelShaderRes,
+						buffer, true);
+				}
+
+				cs->SetResource(
+					tCmd,
+					ShaderID::PropertyToID(varID),
+					buffer,
+					arg.offset);
 			}
-			void operator()(uint varID, KernelLaunchCommand::TextureArgument arg) {
+			void operator()(uint varID, KernelLaunchCommand::TextureArgument const& arg) {
+				RenderTexture* tex = reinterpret_cast<RenderTexture*>(arg.handle);
+				bool isUAV = ((uint)func.variable_usage(varID) & (uint)Variable::Usage::WRITE) != 0;
+				if (isUAV) {
+					tCmd->UpdateResState(
+						tex->GetInitState(),
+						GPUResourceState_UnorderedAccess,
+						tex, true);
+					tCmd->UAVBarrier(tex);
+					cs->SetResource(
+						tCmd,
+						ShaderID::PropertyToID(varID),
+						tex, 0);//TODO: uav mip level
+
+				} else {
+					tCmd->UpdateResState(
+						tex->GetInitState(),
+						GPUResourceState_NonPixelShaderRes,
+						tex, true);
+					cs->SetResource(
+						tCmd,
+						ShaderID::PropertyToID(varID),
+						tex);
+				}
 			}
-			void operator()(uint varID, std::span<const std::byte> arg) {
+			void operator()(uint varID, std::span<const std::byte> const& arg) {
+				auto ite = cbData->offsets.Find(varID);
+				if (!ite) return;
+				memcpy(cbuffer + ite.Value(), arg.data(), arg.size_bytes());
 			}
 		};
-		cmd->decode(Functor());
+		Functor f{
+			cs,
+			Function::kernel(cmd->kernel_uid()),
+			tCmd,
+			cbufferData.data(),
+			&cbData
+		};
+		cmd->decode(f);
+		auto cbufferChunk = res->AllocateCBuffer(cbufferData.size());
+		cbufferChunk.CopyData(cbufferData.data(), cbufferData.size());
+
+		auto launchSize = cmd->launch_size();
+		cs->Dispatch(
+			tCmd,
+			0,
+			launchSize.x,
+			launchSize.y,
+			launchSize.z);
 	} else {//Other Type Shaders
 	}
 }

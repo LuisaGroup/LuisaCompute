@@ -7,7 +7,7 @@
 
 namespace luisa::compute {
 
-void CodegenUtility::GetCodegen(Function func, vengine::string& str) {
+void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uint, size_t>& varOffsets, size_t& cbufferSize) {
 	{
 		vengine::string function_buffer;
 		function_buffer.reserve(65535 * 4);
@@ -37,9 +37,10 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str) {
 				<< "];\n"_sv;
 		}
 		CodegenUtility::PrintUniform(func, str);
-		CodegenUtility::PrintGlobalVariables(
+		cbufferSize = CodegenUtility::PrintGlobalVariables(
 			{func.builtin_variables(),
 			 func.arguments()},
+			varOffsets,
 			str);
 
 		str << function_buffer;
@@ -777,6 +778,7 @@ void CodegenUtility::PrintUniform(
 }
 size_t CodegenUtility::PrintGlobalVariables(
 	std::initializer_list<std::span<const Variable>> values,
+	HashMap<uint, size_t>& varOffsets,
 	vengine::string& result) {
 	vengine::vector<Variable const*> scalarArr;
 	vengine::vector<Variable const*> vec2Arr;
@@ -807,6 +809,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 				result += " v"_sv;
 				vengine::to_string(var.uid(), result);
 				result += ";\n"_sv;
+				varOffsets.Insert(var.uid(), cbufferSize);
 				cbufferSize += ELE_SIZE * 4 * 4;
 				break;
 			case Type::Tag::VECTOR:
@@ -844,6 +847,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 		}
 	}
 	for (auto& vec4 : vec4Arr) {
+		varOffsets.Insert(vec4->uid(), cbufferSize);
 		cbufferSize += ELE_SIZE * 4;
 		GetTypeName(*vec4->type(), result);
 		result += ' ';
@@ -859,13 +863,15 @@ size_t CodegenUtility::PrintGlobalVariables(
 	};
 
 	for (auto& vec3 : vec3Arr) {
-		cbufferSize += ELE_SIZE * 4;
+		varOffsets.Insert(vec3->uid(), cbufferSize);
+		cbufferSize += ELE_SIZE * 3;
 		GetTypeName(*vec3->type(), result);
 		result += ' ';
 		CodegenUtility::GetVariableName(*vec3, result);
 		result += ";\n"_sv;
 		if (!scalarArr.empty()) {
 			auto v = scalarArr.erase_last();
+			varOffsets.Insert(v->uid(), cbufferSize);
 			PrintScalar(v);
 		} else {
 			result += "float __a"_sv;
@@ -873,9 +879,11 @@ size_t CodegenUtility::PrintGlobalVariables(
 			result += ";\n"_sv;
 			alignCount++;
 		}
+		cbufferSize += ELE_SIZE;
 	}
 
 	for (auto& vec2 : vec2Arr) {
+		varOffsets.Insert(vec2->uid(), cbufferSize);
 		cbufferSize += ELE_SIZE * 2;
 		GetTypeName(*vec2->type(), result);
 		result += ' ';
@@ -884,6 +892,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 	}
 
 	for (auto& vec : scalarArr) {
+		varOffsets.Insert(vec->uid(), cbufferSize);
 		cbufferSize += ELE_SIZE;
 		PrintScalar(vec);
 	}
