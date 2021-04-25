@@ -18,8 +18,9 @@
 #include <Utility/QuickSort.h>
 #define MAXIMUM_HEAP_COUNT 32768
 thread_local Graphics* Graphics::current = nullptr;
-Graphics::Graphics(GFXDevice* device) {
-	usedDescs.New(MAXIMUM_HEAP_COUNT);
+Graphics::Graphics(GFXDevice* device)
+	: usedDescs(MAXIMUM_HEAP_COUNT),
+	  unusedDescs(MAXIMUM_HEAP_COUNT) {
 	//using namespace GraphicsGlobalN;
 	/*_ReadBuffer_K = ShaderID::PropertyToID("_ReadBuffer_K");
 	_WriteBuffer_K = ShaderID::PropertyToID("_WriteBuffer_K");
@@ -50,6 +51,7 @@ Graphics::Graphics(GFXDevice* device) {
 		[](void* ptr) -> void {
 			delete reinterpret_cast<DescriptorHeapRoot*>(ptr);
 		});
+
 	MeshLayout::Initialize();
 	globalDescriptorHeap = std::unique_ptr<DescriptorHeap>(new DescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, MAXIMUM_HEAP_COUNT, true));
 	static constexpr uint INIT_RTV_SIZE = 2048;
@@ -93,7 +95,7 @@ uint Graphics::GetDescHeapIndexFromPool() {
 		throw 0;
 	}
 	uint value = current->unusedDescs.erase_last();
-	(*current->usedDescs)[value] = true;
+	current->usedDescs[value] = true;
 	return value;
 }
 void Graphics::CopyTexture(
@@ -297,7 +299,7 @@ void Graphics::Blit(
 void Graphics::ReturnDescHeapIndexToPool(uint target) {
 
 	std::lock_guard lck(current->mtx);
-	auto ite = (*current->usedDescs)[target];
+	auto ite = current->usedDescs[target];
 	if (ite) {
 		current->unusedDescs.push_back(target);
 		ite = false;
@@ -309,7 +311,7 @@ void Graphics::ForceCollectAllHeapIndex() {
 	for (uint i = 0; i < MAXIMUM_HEAP_COUNT; ++i) {
 		current->unusedDescs[i] = i;
 	}
-	current->usedDescs->Reset(false);
+	current->usedDescs.Reset(false);
 }
 void Graphics::DrawMesh(
 	GFXDevice* device,

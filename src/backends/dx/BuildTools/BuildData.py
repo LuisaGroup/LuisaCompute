@@ -52,6 +52,7 @@ IgnoreFolders = {
     "Doc": 1,
     "lib": 1,
     "BuildTools": 1,
+    "VEngineCompiler": 1,
     "HLSLCompiler": 1
 }
 IgnoreFile = {

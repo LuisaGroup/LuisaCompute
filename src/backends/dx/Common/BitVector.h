@@ -77,11 +77,11 @@ private:
 		if (length <= capacity) return;
 		size_t capa = length * 1.5 + 8;
 		const size_t charSize = (capa % 8 > 0) ? capa / 8 + 1 : capa / 8;
-		uint8_t* newPtr = (uint8_t*)malloc(sizeof(uint8_t) * charSize);
+		uint8_t* newPtr = (uint8_t*)vengine_malloc(sizeof(uint8_t) * charSize);
 		if (ptr) {
 			const size_t oldCharSize = (length % 8 > 0) ? length / 8 + 1 : length / 8;
 			memcpy(newPtr, ptr, oldCharSize);
-			free(ptr);
+			vengine_free(ptr);
 		}
 		ptr = newPtr;
 		capacity = charSize * 8;
@@ -113,11 +113,11 @@ public:
 	void Reserve(size_t capa) noexcept {
 		if (capa <= capacity) return;
 		const size_t charSize = (capa % 8 > 0) ? capa / 8 + 1 : capa / 8;
-		uint8_t* newPtr = (uint8_t*)malloc(sizeof(uint8_t) * charSize);
+		uint8_t* newPtr = (uint8_t*)vengine_malloc(sizeof(uint8_t) * charSize);
 		if (ptr) {
 			const size_t oldCharSize = (length % 8 > 0) ? length / 8 + 1 : length / 8;
 			memcpy(newPtr, ptr, oldCharSize);
-			free(ptr);
+			vengine_free(ptr);
 		}
 		ptr = newPtr;
 		capacity = charSize * 8;
@@ -156,7 +156,7 @@ public:
 	}
 	~BitVector() noexcept {
 		if (ptr) {
-			free(ptr);
+			vengine_free(ptr);
 		}
 	}
 };

@@ -89,19 +89,24 @@ static GFXFormat LCFormatToVEngineFormat(PixelFormat format) {
 	}
 }
 class FrameResource;
-class DXDevice final : public Device::Interface {
+class DXDevice final /*: public Device::Interface */ {
 public:
-	DXDevice(const Context& ctx, uint32_t index)
-		: Device::Interface(ctx) {// TODO: support device selection?
+	DXDevice(/*const Context& ctx,*/ uint32_t index) {//: Device::Interface(ctx) {// TODO: support device selection?
+		EnableThreadLocal();
 		InitD3D(index);
 		dxDevice.New(md3dDevice.Get());
-		SCompile::HLSLCompiler::InitRegisterData(ctx);
+
+		SCompile::HLSLCompiler::InitRegisterData();
+
 		graphicsInstance.New(dxDevice);
 		shaderGlobal = ShaderLoader::Init(dxDevice);
 		cbAlloc.New(dxDevice, false);
 		ShaderID::Init();
+
+		internalShaders.New();
+
 	}
-	uint64 create_buffer(size_t size_bytes) noexcept override {
+	uint64 create_buffer(size_t size_bytes) noexcept /*override*/ {
 		Graphics::current = graphicsInstance;
 		return reinterpret_cast<uint64>(
 			new StructuredBuffer(
@@ -110,14 +115,14 @@ public:
 				GPUResourceState_Common,
 				DXAllocator::GetBufferAllocator()));
 	}
-	void dispose_buffer(uint64 handle) noexcept override {
+	void dispose_buffer(uint64 handle) noexcept /*override*/ {
 		delete reinterpret_cast<StructuredBuffer*>(handle);
 	}
 
 	// texture
 	uint64 create_texture(
 		PixelFormat format, uint dimension, uint width, uint height, uint depth,
-		uint mipmap_levels, bool is_bindless) override {
+		uint mipmap_levels, bool is_bindless) /*override*/ {
 		Graphics::current = graphicsInstance;
 		RenderTexturePackage* pack = new RenderTexturePackage();
 		pack->bindless = is_bindless;
@@ -135,26 +140,26 @@ public:
 			0);
 		return reinterpret_cast<uint64>(pack);
 	}
-	void dispose_texture(uint64 handle) noexcept override {
+	void dispose_texture(uint64 handle) noexcept /*override*/ {
 		delete reinterpret_cast<RenderTexture*>(handle);
 	}
 
 	// stream
-	uint64 create_stream() noexcept override {
+	uint64 create_stream() noexcept /*override*/ {
 		return reinterpret_cast<uint64>(
 			new DXStream(dxDevice, mComputeCommandQueue.Get(), GFXCommandListType_Compute)//TODO: need support copy
 		);
 	}
-	void dispose_stream(uint64 handle) noexcept override {
+	void dispose_stream(uint64 handle) noexcept /*override*/ {
 		synchronize_stream(handle);
 		delete reinterpret_cast<DXStream*>(handle);
 	}
-	void synchronize_stream(uint64 stream_handle) noexcept override {
+	void synchronize_stream(uint64 stream_handle) noexcept /*override*/ {
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		stream->Sync(cpuFence.Get(), mtx);
 		FreeFrameResource(stream->GetSignal());
 	}
-	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
+	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept /*override*/ {
 		EnableThreadLocal();
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		stream->Execute(
@@ -169,23 +174,23 @@ public:
 			signalCount);
 	}
 	// kernel
-	void compile_kernel(uint32_t uid) noexcept override {
+	void compile_kernel(uint32_t uid) noexcept /*override*/ {
 		ShaderCompiler::TryCompileCompute(uid);
 	}
-	uint64 create_event() noexcept override {
+	uint64 create_event() noexcept /*override*/ {
 		return reinterpret_cast<uint64>(new DXEvent());
 	}
-	void dispose_event(uint64 handle) noexcept override {
+	void dispose_event(uint64 handle) noexcept /*override*/ {
 		delete reinterpret_cast<DXEvent*>(handle);
 	}
-	void signal_event(uint64 handle, uint64 stream_handle) noexcept override {
+	void signal_event(uint64 handle, uint64 stream_handle) noexcept /*override*/ {
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
 		evt->AddSignal(
 			reinterpret_cast<uint64>(stream->GetQueue()),
 			stream->GetSignal());
 	}
-	void wait_event(uint64 handle, uint64 stream_handle) noexcept override {
+	void wait_event(uint64 handle, uint64 stream_handle) noexcept /*override*/ {
 		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		std::lock_guard lck(mtx);
@@ -197,7 +202,7 @@ public:
 	uint64 signal_event(uint64 handle, uint64 stream_handle);
 	void wait_event(uint64 signal, uint64 stream_handle)
 	*/
-	void synchronize_event(uint64 handle) noexcept override {
+	void synchronize_event(uint64 handle) noexcept /*override*/ {
 		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
 		evt->Sync(std::move(Runnable<void(uint64)>([&](uint64 signal) {
 			DXStream::WaitFence(
@@ -205,7 +210,7 @@ public:
 				signal);
 		})));
 	}
-	
+
 	~DXDevice() {
 		ShaderLoader::Dispose(shaderGlobal);
 	}
@@ -226,7 +231,7 @@ private:
 	LockFreeArrayQueue<FrameResource*> waitingRes[QUEUE_COUNT];
 	SingleThreadArrayQueue<FrameResource*> usingQueue[QUEUE_COUNT];
 	std::mutex mtx;
-	InternalShaders internalShaders;
+	StackObject<InternalShaders> internalShaders;
 	StackObject<Graphics, true> graphicsInstance;
 	ShaderLoaderGlobal* shaderGlobal;
 	ComputeShader* copyShader;
@@ -242,7 +247,6 @@ private:
 		}
 #endif
 		ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
-		auto suitableIndex = 0u;
 		int32_t adapterIndex = 0; // we'll start looking for directx 12  compatible graphics devices starting at index 0
 		bool adapterFound = false;// set this to true when a good one was found
 		while (mdxgiFactory->EnumAdapters1(adapterIndex, &adapter) != DXGI_ERROR_NOT_FOUND) {
@@ -252,7 +256,7 @@ private:
 				HRESULT hr = D3D12CreateDevice(
 					adapter, D3D_FEATURE_LEVEL_12_1,
 					IID_PPV_ARGS(&md3dDevice));
-				if (SUCCEEDED(hr) && suitableIndex++ == index) {
+				if (SUCCEEDED(hr)) {
 					adapterFound = true;
 					std::wstring description{desc.Description};
 					std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
@@ -290,7 +294,7 @@ private:
 	}
 	void InitInternal() {
 		EnableThreadLocal();
-		internalShaders.copyShader = ShaderLoader::GetComputeShader(
+		internalShaders->copyShader = ShaderLoader::GetComputeShader(
 			"DXCompiledShader/Internal/Copy.compute.cso"_sv);
 	}
 
@@ -332,11 +336,44 @@ private:
 	}
 };
 }// namespace luisa::compute
-
+/*
 LUISA_EXPORT luisa::compute::Device::Interface* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
 	return new luisa::compute::DXDevice{ctx, id};
 }
 
 LUISA_EXPORT void destroy(luisa::compute::Device::Interface* device) noexcept {
 	delete device;
+}*/
+
+void CreateDevice_Test() {
+	using namespace luisa::compute;
+	auto dev = new DXDevice(0);
+
+	auto stream = dev->create_stream();
+
+	dev->synchronize_stream(stream);
+
+	dev->dispose_stream(stream);
+
+	auto buffer = dev->create_buffer(
+		64);
+
+	dev->dispose_buffer(buffer);
+
+	auto tex = dev->create_texture(
+		PixelFormat::RGBA32F,
+		2,
+		1024,
+		1024,
+		1,
+		0,
+		true
+	);
+
+	dev->dispose_texture(
+		tex
+	);
+
+	delete dev;
+	std::cout << "Finish\n";
 }

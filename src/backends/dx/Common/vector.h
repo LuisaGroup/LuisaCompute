@@ -16,33 +16,18 @@ private:
 	size_t mSize;
 	size_t mCapacity;
 	static size_t GetNewVectorSize(size_t oldSize) {
-		if constexpr (useVEngineAlloc) {
-			return oldSize * 1.5 + 8;
-
-		} else {
-			if (oldSize == 0)
-				oldSize = 8;
-			oldSize *= 2;
-			return oldSize;
-		}
+		return oldSize * 1.5 + 8;
 	}
 	static T* Allocate(size_t& capacity) noexcept {
-		if constexpr (useVEngineAlloc) {
-			capacity *= sizeof(T);
-			auto ptr = (T*)vengine_malloc(capacity);
-			capacity /= sizeof(T);
-			return ptr;
-		} else {
-			return (T*)malloc(sizeof(T) * capacity);
-		}
+		capacity *= sizeof(T);
+		auto ptr = (T*)vengine_malloc(capacity);
+		capacity /= sizeof(T);
+		return ptr;
 	}
 
 	void Free(T* ptr) noexcept {
-		if constexpr (useVEngineAlloc) {
-			vengine_free(ptr);
-		} else {
-			free(ptr);
-		}
+		vengine_free(ptr);
+
 	}
 
 public:

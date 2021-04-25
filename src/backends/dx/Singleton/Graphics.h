@@ -46,7 +46,7 @@ private:
 	spin_mutex mtx;
 	StackObject<Mesh, true> fullScreenMesh;
 	std::unique_ptr<DescriptorHeap> globalDescriptorHeap;
-	StackObject<BitArray, true> usedDescs;
+	BitArray usedDescs;
 	ArrayList<uint, false> unusedDescs;
 	ObjectPtr<Mesh> cubeMesh;
 	StackObject<ElementAllocator, true> srvAllocator;

@@ -51,7 +51,6 @@ public:
 	uint GetHeight() const { return height; }
 	uint GetVolumeDepth() const { return volumeDepth; }
 	uint GetMipCount() const { return mipCount; }
-	uint GetMipCount() const { return mipCount; }
 	TextureFormat GetFormat() const { return format; }
 	TextureDimension GetDimension() const { return dimension; }
 };
