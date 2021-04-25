@@ -120,7 +120,7 @@ if (WIN32)
                                    UNICODE)
     endif ()
     
-    target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-ast mimalloc D3D12 d3dcompiler dxgi)
+    target_link_libraries(luisa-compute-backend-dx PRIVATE mimalloc-static D3D12 d3dcompiler dxgi)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_definitions(luisa-compute-backend-dx PRIVATE
                                    _XM_NO_INTRINSICS_
