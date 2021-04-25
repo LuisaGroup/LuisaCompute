@@ -27,14 +27,14 @@ public:
 
     template<typename False>
     void else_(False &&f) noexcept {
-        if (!_true_set || _false_set) { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
+        if (!_true_set || _false_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
         _false_set = true;
         FunctionBuilder::current()->with(_false, std::forward<False>(f));
     }
 
     template<typename True>
     auto operator%(True &&t) noexcept {
-        if (_true_set) { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
+        if (_true_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
         _true_set = true;
         FunctionBuilder::current()->with(_true, std::forward<True>(t));
         return *this;
@@ -42,7 +42,7 @@ public:
 
     template<typename Body>
     [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) noexcept {
-        if (!_true_set || _false_set) { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
+        if (!_true_set || _false_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
         _false_set = true;
         return FunctionBuilder::current()->with(_false, [condition] { return IfStmtBuilder{condition}; })
                % std::forward<Body>(body);
@@ -52,7 +52,7 @@ public:
     void operator/(False &&f) noexcept { else_(std::forward<False>(f)); }
 
     [[nodiscard]] auto operator/(Expr<bool> elif_cond) noexcept {
-        if (!_true_set || _false_set) { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
+        if (!_true_set || _false_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
         _false_set = true;
         return FunctionBuilder::current()->with(_false, [elif_cond] {
             return IfStmtBuilder{elif_cond};
@@ -74,7 +74,7 @@ public:
 
     template<typename Body>
     void operator%(Body &&body) noexcept {
-        if (_body_set) { LUISA_ERROR_WITH_LOCATION("Invalid WhileStmtBuilder state."); }
+        if (_body_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid WhileStmtBuilder state."); }
         _body_set = true;
         FunctionBuilder::current()->with(_body, std::forward<Body>(body));
     }
@@ -177,7 +177,7 @@ public:
             : _begin{begin}, _end{end}, _step{step} {}
 
         [[nodiscard]] auto operator*() noexcept {
-            if (_time != 0u) { LUISA_ERROR_WITH_LOCATION(
+            if (_time != 0u) [[unlikely]] { LUISA_ERROR_WITH_LOCATION(
                 "Invalid RangeForIter state (with _time = {}).", _time); }
             auto f = FunctionBuilder::current();
             auto scope = f->scope();

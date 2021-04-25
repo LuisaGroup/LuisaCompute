@@ -49,10 +49,10 @@ MetalCompiler::KernelItem MetalCompiler::_compile(uint32_t uid) noexcept {
 
     __autoreleasing NSError *error = nullptr;
     auto library = [_device->handle() newLibraryWithSource:src options:options error:&error];
-    if (error != nullptr) {
+    if (error != nullptr) [[unlikely]] {
         auto error_msg = [error.description cStringUsingEncoding:NSUTF8StringEncoding];
         LUISA_WARNING("Output while compiling kernel #{}: {}", uid, error_msg);
-        if (library == nullptr || error.code == MTLLibraryErrorCompileFailure) {
+        if (library == nullptr || error.code == MTLLibraryErrorCompileFailure) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Failed to compile kernel #{}.", uid);
         }
         error = nullptr;
@@ -61,7 +61,7 @@ MetalCompiler::KernelItem MetalCompiler::_compile(uint32_t uid) noexcept {
     auto name = fmt::format("kernel_{}", uid);
     __autoreleasing auto objc_name = @(name.c_str());
     auto func = [library newFunctionWithName:objc_name];
-    if (func == nullptr) {
+    if (func == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to find function '{}' in compiled Metal library for kernel #{}.",
             name, uid);
@@ -77,7 +77,7 @@ MetalCompiler::KernelItem MetalCompiler::_compile(uint32_t uid) noexcept {
                                                                 options:MTLPipelineOptionNone
                                                              reflection:nullptr
                                                                   error:&error];
-    if (error != nullptr) {
+    if (error != nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to create pipeline state object for kernel #{}: {}.",
             uid, [error.description cStringUsingEncoding:NSUTF8StringEncoding]);

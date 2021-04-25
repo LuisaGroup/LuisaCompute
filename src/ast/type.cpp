@@ -25,11 +25,11 @@ const Type *Type::from(std::string_view description) noexcept {
         using namespace std::string_view_literals;
         auto read_identifier = [&s] {
             auto p = s.cbegin();
-            if (p == s.cend() || (*p != '_' && !std::isalpha(*p))) {
+            if (p == s.cend() || (*p != '_' && !std::isalpha(*p))) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Failed to parse identifier from '{}'.", s);
             }
             for (; p != s.cend() && (std::isalpha(*p) || std::isdigit(*p) || *p == '_'); p++) {}
-            if (p == s.cbegin()) {
+            if (p == s.cbegin()) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Failed to parse identifier from '{}'.", s);
             }
             auto identifier = s.substr(0, p - s.cbegin());
@@ -40,7 +40,7 @@ const Type *Type::from(std::string_view description) noexcept {
         auto read_number = [&s] {
             size_t number;
             auto result = std::from_chars(s.data(), s.data() + s.size(), number);
-            if (result.ec != std::errc{}) {
+            if (result.ec != std::errc{}) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Failed to parse number from '{}'.", s);
             }
             s = s.substr(result.ptr - s.data());
@@ -48,7 +48,7 @@ const Type *Type::from(std::string_view description) noexcept {
         };
 
         auto match = [&s](char c) {
-            if (!s.starts_with(c)) { LUISA_ERROR_WITH_LOCATION("Expected '{}' from '{}'.", c, s); }
+            if (!s.starts_with(c)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Expected '{}' from '{}'.", c, s); }
             s = s.substr(1);
         };
 
@@ -81,8 +81,8 @@ const Type *Type::from(std::string_view description) noexcept {
             info._dimension = read_number();
             match('>');
             auto elem = data.members.front();
-            if (!elem->is_scalar()) { LUISA_ERROR_WITH_LOCATION("Invalid vector element: {}.", elem->description()); }
-            if (info._dimension != 2 && info._dimension != 3 && info._dimension != 4) {
+            if (!elem->is_scalar()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid vector element: {}.", elem->description()); }
+            if (info._dimension != 2 && info._dimension != 3 && info._dimension != 4) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Invalid vector dimension: {}.", info.dimension());
             }
             info._size = info._alignment = elem->size() * (info._dimension == 3 ? 4 : info._dimension);
@@ -98,14 +98,14 @@ const Type *Type::from(std::string_view description) noexcept {
             } else if (info._dimension == 4) {
                 info._size = sizeof(float4x4);
                 info._alignment = alignof(float4x4);
-            } else {
+            } else [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension: {}.", info._dimension);
             }
         } else if (type_identifier == "array"sv) {
             info._tag = Tag::ARRAY;
             match('<');
             data.members.emplace_back(from_desc_impl(s));
-            if (data.members.back()->is_buffer() || data.members.back()->is_texture()) {
+            if (data.members.back()->is_buffer() || data.members.back()->is_texture()) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Arrays are not allowed to hold buffers or images.");
             }
             match(',');
@@ -124,12 +124,12 @@ const Type *Type::from(std::string_view description) noexcept {
             match('>');
             info._size = 0u;
             for (auto member : data.members) {
-                if (member->is_buffer() || member->is_texture()) {
+                if (member->is_buffer() || member->is_texture()) [[unlikely]] {
                     LUISA_ERROR_WITH_LOCATION(
                         "Structures are not allowed to have buffers or images as members.");
                 }
                 auto ma = member->alignment();
-                if (info._alignment < ma) {
+                if (info._alignment < ma) [[unlikely]] {
                     LUISA_ERROR_WITH_LOCATION(
                         "Struct alignment {} is smaller than member (description = {}, alignment = {}).",
                         info._alignment, member->description(), member->alignment());
@@ -141,7 +141,7 @@ const Type *Type::from(std::string_view description) noexcept {
             info._tag = Tag::BUFFER;
             match('<');
             auto m = data.members.emplace_back(from_desc_impl(s));
-            if (m->is_buffer() || m->is_texture()) {
+            if (m->is_buffer() || m->is_texture()) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION(
                     "Buffers are not allowed to hold buffers or images.");
             }
@@ -154,11 +154,11 @@ const Type *Type::from(std::string_view description) noexcept {
             info._dimension = read_number();
             match(',');
             auto m = data.members.emplace_back(from_desc_impl(s));
-            if (!m->is_scalar()) { LUISA_ERROR_WITH_LOCATION("Images can only hold scalars."); }
+            if (!m->is_scalar()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Images can only hold scalars."); }
             match('>');
             info._size = 0u;
             info._alignment = 0u;
-        } else {
+        } else [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Unknown type identifier: {}.", type_identifier);
         }
 
@@ -180,7 +180,7 @@ const Type *Type::from(std::string_view description) noexcept {
     };
 
     auto info = from_desc_impl(description);
-    if (!description.empty()) {
+    if (!description.empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Unexpected tokens after parsing type description: {}",
             description);
@@ -202,7 +202,7 @@ const Type *Type::element() const noexcept {
 
 const Type *Type::at(uint32_t uid) noexcept {
     return _registry().with_types([uid](auto &&types) {
-        if (uid >= types.size()) { LUISA_ERROR_WITH_LOCATION("Invalid type uid {}.", uid); }
+        if (uid >= types.size()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid type uid {}.", uid); }
         return types[uid].get();
     });
 }

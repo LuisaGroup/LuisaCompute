@@ -138,7 +138,7 @@ public:
 
     template<typename U, std::enable_if_t<contains<U>, int> = 0>
     [[nodiscard]] const U &as() const noexcept {
-        if (auto required_index = index_of<U>; _index != required_index) {
+        if (auto required_index = index_of<U>; _index != required_index) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Invalid type #{} required from union holding type #{}.", required_index, _index);
         }
         return *std::launder(reinterpret_cast<const U *>(&_storage));

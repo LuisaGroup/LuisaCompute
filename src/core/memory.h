@@ -57,7 +57,7 @@ public:
         auto do_allocate = [this, byte_size] {
             auto aligned_p = reinterpret_cast<std::byte *>(
                 (_current_address + alignment - 1u) / alignment * alignment);
-            if (_head == nullptr || aligned_p + byte_size > _head->data + block_size) {
+            if (_head == nullptr || aligned_p + byte_size > _head->data + block_size) [[unlikely]] {
                 static constexpr auto alloc_alignment = std::max(alignment, static_cast<size_t>(16u));
                 static_assert((alloc_alignment & (alloc_alignment - 1u)) == 0, "Alignment should be power of two.");
                 auto alloc_size = std::max(block_size, byte_size);
@@ -66,7 +66,7 @@ public:
                 auto alloc_size_with_link = link_offset + sizeof(Link);
                 Clock clock;
                 auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_link));
-                if (storage == nullptr) {
+                if (storage == nullptr) [[unlikely]] {
                     LUISA_ERROR_WITH_LOCATION(
                         "Failed to allocate memory: size = {}, alignment = {}.",
                         alloc_size_with_link, alloc_alignment);

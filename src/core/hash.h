@@ -24,12 +24,12 @@ namespace luisa {
 struct Hash {
 
     [[nodiscard]] uint64_t operator()(std::string_view s) const noexcept {
-        if (s.empty()) { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::string_view."); }
+        if (s.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::string_view."); }
         return xxh3_hash64(s.data(), s.size());
     }
 
     [[nodiscard]] uint64_t operator()(const std::string &s) const noexcept {
-        if (s.empty()) { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::string."); }
+        if (s.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::string."); }
         return xxh3_hash64(s.data(), s.size());
     }
 
@@ -40,13 +40,13 @@ struct Hash {
 
     template<typename T, std::enable_if_t<std::is_standard_layout_v<T>, int> = 0>
     [[nodiscard]] uint64_t operator()(const std::vector<T> &v) const noexcept {
-        if (v.empty()) { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::vector."); }
+        if (v.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::vector."); }
         return xxh3_hash64(v.data(), v.size() * sizeof(T));
     }
 
     template<typename T, size_t extent, std::enable_if_t<std::is_standard_layout_v<T>, int> = 0>
     [[nodiscard]] uint64_t operator()(const std::span<T, extent> &v) const noexcept {
-        if (v.empty()) { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::span."); }
+        if (v.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::span."); }
         return xxh3_hash64(v.data(), v.size_bytes());
     }
 };

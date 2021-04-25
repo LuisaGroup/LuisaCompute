@@ -43,7 +43,7 @@ void RGNode::execute_self(std::span<RGExecutor*> executors) {
 }
 void RGNode::add_depend_node(RGNode* node) {
 	if (node->_rg_system != nullptr
-		|| _rg_system != nullptr) {
+		|| _rg_system != nullptr) [[unlikely]] {
 		LUISA_ERROR_WITH_LOCATION("Invalid depend node");
 	}
 	node->_depended_job.push_back(this);

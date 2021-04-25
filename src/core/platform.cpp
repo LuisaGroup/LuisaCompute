@@ -58,14 +58,14 @@ size_t pagesize() noexcept {
 }
 
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
-    if (!std::filesystem::exists(path)) {
+    if (!std::filesystem::exists(path)) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}.", path.string());
-    } else {
+    } else [[likely]] {
         LUISA_INFO("Loading dynamic module: '{}'.", path.string());
     }
     auto canonical_path = std::filesystem::canonical(path).string();
     auto module = LoadLibraryA(canonical_path.c_str());
-    if (module == nullptr) {
+    if (module == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
             canonical_path, detail::win32_last_error_message());
@@ -82,9 +82,9 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     name = name_view;
     LUISA_INFO("Loading dynamic symbol: {}.", name);
     auto symbol = GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str());
-    if (symbol == nullptr) {
-        LUISA_ERROR("Failed to load symbol '{}', reason: {}.",
-                    name, detail::win32_last_error_message());
+    if (symbol == nullptr) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
+                                  name, detail::win32_last_error_message());
     }
     return reinterpret_cast<void *>(symbol);
 }
@@ -114,13 +114,13 @@ size_t pagesize() noexcept {
 }
 
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
-    if (!std::filesystem::exists(path)) {
+    if (!std::filesystem::exists(path)) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}.", path.string());
     }
     auto canonical_path = std::filesystem::canonical(path).string();
     Clock clock;
     auto module = dlopen(canonical_path.c_str(), RTLD_LAZY);
-    if (module == nullptr) {
+    if (module == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
             canonical_path, dlerror());
@@ -140,9 +140,9 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     name = name_view;
     Clock clock;
     auto symbol = dlsym(handle, name.c_str());
-    if (symbol == nullptr) {
-        LUISA_ERROR("Failed to load symbol '{}', reason: {}.",
-                    name, dlerror());
+    if (symbol == nullptr) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
+                                  name, dlerror());
     }
     LUISA_INFO(
         "Loading dynamic symbol '{}' in {} ms.",

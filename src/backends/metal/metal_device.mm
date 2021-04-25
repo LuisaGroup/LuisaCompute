@@ -75,7 +75,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     : Device::Interface{ctx} {
 
     auto devices = MTLCopyAllDevices();
-    if (auto count = devices.count; index >= count) {
+    if (auto count = devices.count; index >= count) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid Metal device index {} (#device = {}).",
             index, count);

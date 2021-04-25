@@ -51,7 +51,7 @@ ConstantData::View ConstantData::view(uint64_t hash) noexcept {
         detail::constant_registry().cend(),
         [hash](auto &&item) noexcept { return item._hash == hash; });
 
-    if (iter == detail::constant_registry().cend()) {
+    if (iter == detail::constant_registry().cend()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid constant data with hash {}.", hash);
     }

@@ -44,7 +44,7 @@ public:
             -> id<MTLCommandBuffer> {
           std::scoped_lock lock{_mutex};
           return _last;
-        }()) { [last waitUntilCompleted]; }
+        }()) [[likely]] { [last waitUntilCompleted]; }
     }
 };
 

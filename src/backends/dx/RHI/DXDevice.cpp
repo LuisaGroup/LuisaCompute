@@ -273,7 +273,7 @@ private:
 		// Check 4X MSAA quality support for our back buffer format.
 		// All Direct3D 11 capable devices support 4X MSAA for all render
 		// target formats, so we only need to check quality support.
-		if (!adapterFound) {
+		if (!adapterFound) [[unlikely]] {
 			LUISA_ERROR_WITH_LOCATION(
 				"Failed to create DirectX device with index {}.", index);
 		}

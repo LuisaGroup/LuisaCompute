@@ -77,7 +77,7 @@ public:
 
     [[nodiscard]] auto view() const noexcept { return VolumeView<T>{_handle, _storage, {}, _size}; }
     [[nodiscard]] auto view(uint3 offset, uint3 size) const noexcept {
-        if (any(offset + size >= _size)) {
+        if (any(offset + size >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid offset[{}, {}, {}] and size[{}, {}, {}] of view "
                 "for volume #{} with size[{}, {}, {}].",
@@ -125,7 +125,7 @@ private:
           _offset{offset},
           _size{size} {
         
-        if (any(_offset >= _size)) {
+        if (any(_offset >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid offset[{}, {}, {}] and size[{}, {}, {}] for volume #{}.",
                 _offset.x, _offset.y, _offset.z, _size.x, _size.y, _size.z, _handle);

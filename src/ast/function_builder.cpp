@@ -12,24 +12,24 @@ std::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
 }
 
 void FunctionBuilder::push(FunctionBuilder *func) noexcept {
-    if (func->tag() == Function::Tag::KERNEL && !_function_stack().empty()) {
+    if (func->tag() == Function::Tag::KERNEL && !_function_stack().empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Kernel definitions cannot be nested.");
     }
     _function_stack().emplace_back(func);
 }
 
 void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
-    if (_function_stack().empty()) {
+    if (_function_stack().empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid pop on empty function stack.");
     }
     auto f = _function_stack().back();
     _function_stack().pop_back();
-    if (f != func) { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
+    if (f != func) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
     if (f->tag() == Function::Tag::CALLABLE
         && !(f->builtin_variables().empty()
              && f->shared_variables().empty()
              && f->captured_buffers().empty()
-             && f->captured_textures().empty())) {
+             && f->captured_textures().empty())) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom callables may not have builtin, "
             "shared or captured variables.");
@@ -37,14 +37,14 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
-    if (_function_stack().empty()) {
+    if (_function_stack().empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Function stack is empty.");
     }
     return _function_stack().back();
 }
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {
-    if (_scope_stack.empty()) {
+    if (_scope_stack.empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Scope stack is empty.");
     }
     _scope_stack.back()->append(statement);
@@ -59,7 +59,7 @@ void FunctionBuilder::continue_() noexcept {
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
-    if (_ret != nullptr) {
+    if (_ret != nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Multiple non-void return statements are not allowed.");
     }
@@ -160,14 +160,14 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *element_type, uint64_
             _captured_buffers.cend(),
             [handle](auto &&binding) { return binding.handle == handle; });
         iter != _captured_buffers.cend()) {
-        if (iter->offset_bytes != offset_bytes) {
+        if (iter->offset_bytes != offset_bytes) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Aliasing in implicitly captured buffer "
                 "(handle = {}, original offset = {}, requested offset = {}).",
                 handle, iter->offset_bytes, offset_bytes);
         }
         auto v = iter->variable;
-        if (*v.type() != *element_type) {
+        if (*v.type() != *element_type) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Aliasing in implicitly captured buffer "
                 "(handle = {}, original type = {}, requested type = {}).",
@@ -211,7 +211,7 @@ std::vector<std::unique_ptr<FunctionBuilder>> &FunctionBuilder::_function_regist
 
 Function FunctionBuilder::callable(uint32_t uid) noexcept {
     auto f = at(uid);
-    if (f.tag() != Function::Tag::CALLABLE) {
+    if (f.tag() != Function::Tag::CALLABLE) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Requested function (with uid = {}) is not a callable function.", uid);
     }
@@ -220,7 +220,7 @@ Function FunctionBuilder::callable(uint32_t uid) noexcept {
 
 Function FunctionBuilder::kernel(uint32_t uid) noexcept {
     auto f = at(uid);
-    if (f.tag() != Function::Tag::KERNEL) {
+    if (f.tag() != Function::Tag::KERNEL) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Requested function (with uid = {}) is not a kernel function.", uid);
     }
@@ -237,7 +237,7 @@ ScopeStmt *FunctionBuilder::scope() noexcept {
 }
 
 const ConstantExpr *FunctionBuilder::constant(const Type *type, uint64_t hash) noexcept {
-    if (!type->is_array()) { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
+    if (!type->is_array()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
     _captured_constants.emplace_back(ConstantBinding{type, hash});
     return _arena().create<ConstantExpr>(type, hash);
 }
@@ -247,7 +247,7 @@ void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {
 }
 
 void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
-    if (_scope_stack.empty() || _scope_stack.back() != s) {
+    if (_scope_stack.empty() || _scope_stack.back() != s) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid scope stack pop.");
     }
     _scope_stack.pop_back();
@@ -271,7 +271,7 @@ FunctionBuilder *FunctionBuilder::create(Function::Tag tag) noexcept {
 Function FunctionBuilder::at(uint32_t uid) noexcept {
     std::scoped_lock lock{_function_registry_mutex()};
     const auto &registry = _function_registry();
-    if (uid >= registry.size()) { LUISA_ERROR_WITH_LOCATION("Invalid kernel function with uid {}.", uid); }
+    if (uid >= registry.size()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid kernel function with uid {}.", uid); }
     return Function{registry[uid].get()};
 }
 
@@ -305,13 +305,13 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
             [handle](auto &&binding) { return binding.handle == handle; });
         iter != _captured_textures.cend()) {
         auto v = iter->variable;
-        if (*v.type() != *type) {
+        if (*v.type() != *type) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Aliasing in implicitly captured texture "
                 "(handle = {}, original type = {}, requested type = {}).",
                 handle, v.type()->description(), type->description());
         }
-        if (auto o = iter->offset; any(o != offset)) {
+        if (auto o = iter->offset; any(o != offset)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Aliasing in implicitly captured texture "
                 "(handle = {}, original offset = [{}, {}, {}],"
@@ -326,7 +326,7 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
-    if (call_op == CallOp::CUSTOM) {
+    if (call_op == CallOp::CUSTOM) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom functions are not allowed to "
             "be called with enum CallOp.");

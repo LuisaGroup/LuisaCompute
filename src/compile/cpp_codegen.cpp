@@ -77,7 +77,7 @@ public:
     explicit LiteralPrinter(Codegen::Scratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
-        if (std::isnan(v)) { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
+        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         if (std::isinf(v)) {
             _s << (v < 0.0f ? "(1.0f/-0.0f)" : "1.0f/+0.0f");
         } else {
@@ -313,7 +313,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
             _scratch << "void";
         }
         _scratch << " custom_" << f.uid();
-    } else {
+    } else [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     // argument list

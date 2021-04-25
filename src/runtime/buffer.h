@@ -90,7 +90,7 @@ private:
     friend class Buffer<T>;
     BufferView(uint64_t handle, size_t offset_bytes, size_t size) noexcept
         : _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {
-        if (_offset_bytes % alignof(T) != 0u) {
+        if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid buffer view offset {} for elements with alignment {}.",
                 _offset_bytes, alignof(T));
@@ -106,7 +106,7 @@ public:
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
 
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
-        if (size_elements * sizeof(T) + offset_elements > _size) {
+        if (size_elements * sizeof(T) + offset_elements > _size) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Subview (with offset_elements = {}, size_elements = {}) "
                 "overflows buffer view (with size_elements = {}).",
@@ -118,7 +118,7 @@ public:
     template<typename U>
     [[nodiscard]] auto as() const noexcept {
         auto byte_size = this->size() * sizeof(T);
-        if (byte_size < sizeof(U)) {
+        if (byte_size < sizeof(U)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Unable to hold any element (with size = {}) in buffer view (with size = {}).",
                 sizeof(U), byte_size);
@@ -127,7 +127,7 @@ public:
     }
 
     [[nodiscard]] auto copy_to(T *data) const {
-        if (reinterpret_cast<size_t>(data) % alignof(T) != 0u) {
+        if (reinterpret_cast<size_t>(data) % alignof(T) != 0u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid host pointer {} for elements with alignment {}.",
                 fmt::ptr(data), alignof(T));
@@ -140,7 +140,7 @@ public:
     }
 
     [[nodiscard]] auto copy_from(BufferView<T> source) {
-        if (source.size() != this->size()) {
+        if (source.size() != this->size()) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Incompatible buffer views with different element counts (src = {}, dst = {}).",
                 source.size(), this->size());

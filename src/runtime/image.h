@@ -78,7 +78,7 @@ public:
 
     [[nodiscard]] auto view() const noexcept { return ImageView<T>{_handle, _storage, {}, _size}; }
     [[nodiscard]] auto view(uint2 offset, uint2 size) const noexcept {
-        if (any(offset + size >= _size)) {
+        if (any(offset + size >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid offset[{}, {}] and size[{}, {}] of view "
                 "for image #{} with size[{}, {}].",
@@ -126,7 +126,7 @@ private:
           _offset{offset},
           _storage{storage} {
 
-        if (any(_offset >= _size)) {
+        if (any(_offset >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid offset[{}, {}] and size[{}, {}] for image #{}.",
                 _offset.x, _offset.y, _size.x, _size.y, _handle);

@@ -15,7 +15,7 @@ inline void Command::_use_resource(
     uint64_t handle, Command::Resource::Tag tag,
     Command::Resource::Usage usage) noexcept {
 
-    if (_resource_count == max_resource_count) {
+    if (_resource_count == max_resource_count) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Number of resources in command exceeded limit {}.",
             max_resource_count);
@@ -24,7 +24,7 @@ inline void Command::_use_resource(
                     _resource_slots.cbegin() + _resource_count,
                     [handle, tag](auto b) noexcept {
                         return b.tag == tag && b.handle == handle;
-                    })) {
+                    })) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Aliasing in {} resource with handle {}.",
             tag == Resource::Tag::BUFFER ? "buffer" : "image",
@@ -63,7 +63,7 @@ void KernelLaunchCommand::encode_buffer(
     size_t offset,
     Command::Resource::Usage usage) noexcept {
 
-    if (_argument_buffer_size + sizeof(BufferArgument) > _argument_buffer.size()) {
+    if (_argument_buffer_size + sizeof(BufferArgument) > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode buffer. "
             "Kernel argument buffer exceeded size limit {}.",
@@ -85,7 +85,7 @@ void KernelLaunchCommand::encode_texture(
     uint3 offset,
     Command::Resource::Usage usage) noexcept {
 
-    if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) {
+    if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode texture. "
             "Kernel argument buffer exceeded size limit {}.",
@@ -107,7 +107,7 @@ void KernelLaunchCommand::encode_uniform(
     size_t size,
     size_t alignment) noexcept {
     
-    if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) {
+    if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode argument with size {}. "
             "Kernel argument buffer exceeded size limit {}.",
