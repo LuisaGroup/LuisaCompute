@@ -169,6 +169,7 @@ public:
 			[&](GFXCommandListType type) {
 				return GetFrameResource(type);
 			},
+			internalShaders,
 			usingQueue[GetQueueIndex(stream->GetType())],
 			mtx,
 			signalCount);

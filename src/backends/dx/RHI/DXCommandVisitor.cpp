@@ -149,8 +149,7 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 			Function::kernel(cmd->kernel_uid()),
 			tCmd,
 			cbufferData.data(),
-			&cbData
-		};
+			&cbData};
 		cmd->decode(f);
 		auto cbufferChunk = res->AllocateCBuffer(cbufferData.size());
 		cbufferChunk.CopyData(cbufferData.data(), cbufferData.size());
@@ -285,6 +284,18 @@ void DXCommandVisitor::visit(TextureDownloadCommand const* cmd) noexcept {
 			readBuffer->UnMap();
 			delete readBuffer;
 		})));
+}
+DXCommandVisitor::DXCommandVisitor(
+	GFXDevice* device,
+	ThreadCommand* tCmd,
+	FrameResource* res,
+	InternalShaders* internalShaders,
+	Runnable<IShader*(uint)>&& getFunction)
+	: device(device),
+	  tCmd(tCmd),
+	  res(res),
+	  internalShaders(internalShaders),
+	  getFunction(std::move(getFunction)) {
 }
 //VENGINE_CODEGEN end
 }// namespace luisa::compute

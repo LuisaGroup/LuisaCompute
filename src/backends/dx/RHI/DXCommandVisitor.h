@@ -18,6 +18,12 @@ public:
 	void visit(TextureUploadCommand const* cmd) noexcept override;
 	void visit(TextureDownloadCommand const* cmd) noexcept override;
 	//VENGINE_CODEGEN end
+	DXCommandVisitor(
+		GFXDevice* device,
+		ThreadCommand* tCmd,
+		FrameResource* res,
+		InternalShaders* internalShaders,
+		Runnable<IShader*(uint)>&& getFunction);
 
 private:
 	GFXDevice* device;

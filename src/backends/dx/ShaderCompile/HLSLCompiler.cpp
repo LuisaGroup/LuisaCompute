@@ -151,7 +151,7 @@ void HLSLCompiler::InitRegisterData() {
 			dxcversion = value;
 		}
 		if (sonObj.Get("Path"_sv, value)) {
-			dxcpath = vengine::string("VEngineCompiler/"_sv) + value;
+			dxcpath = vengine::string("VEngineCompiler/CompilerToolkit/"_sv) + value;
 		}
 		if (sonObj.Get("Settings"_sv, sonObj) && sonObj.IsArray()) {
 			GenerateSettings(dxcStart);
@@ -162,7 +162,7 @@ void HLSLCompiler::InitRegisterData() {
 			fxcversion = value;
 		}
 		if (sonObj.Get("Path"_sv, value)) {
-			fxcpath = vengine::string("VEngineCompiler/"_sv) + value;
+			fxcpath = vengine::string("VEngineCompiler/CompilerToolkit/"_sv) + value;
 		}
 		if (sonObj.Get("Settings"_sv, sonObj) && sonObj.IsArray()) {
 			GenerateSettings(fxcStart);
@@ -255,7 +255,6 @@ void GenerateCompilerCommand(
 	shaderTypeName += *compileShaderVersion;
 	cmdResult.clear();
 	cmdResult.reserve(50);
-	std::cout << "FFF " << shaderTypeCmd << std::endl;
 	cmdResult << *compilerPath << *start << shaderTypeCmd << shaderTypeName;
 	if (!functionName.empty()) {
 		cmdResult += funcName;
@@ -463,8 +462,8 @@ void HLSLCompiler::CompileComputeShader(
 	CreateChildProcess(kernelCommand, &data);
 	if (!func(tempFile, &data)) {
 		std::lock_guard<spin_mutex> lck(outputMtx);
+		std::cout << kernelCommand << '\n';
 		std::cout << vengine::string("ComputeShader "_sv) + fileName + " Failed!"_sv << std::endl;
-
 		return;
 	}
 
