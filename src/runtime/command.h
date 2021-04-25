@@ -258,30 +258,51 @@ class KernelLaunchCommand : public Command {
 
 public:
     struct alignas(16) Argument {
+        
         enum struct Tag : uint32_t {
             BUFFER,
             TEXTURE,
             UNIFORM
         };
+        
         Tag tag;
         uint32_t variable_uid;
+        
+        Argument() noexcept = default;
+        Argument(Tag tag, uint32_t vid) noexcept
+            : tag{tag}, variable_uid{vid} {}
     };
 
     struct BufferArgument : Argument {
-        uint64_t handle;
-        size_t offset;
+        uint64_t handle{};
+        size_t offset{};
+        BufferArgument() noexcept : Argument{Tag::BUFFER, 0u} {}
+        BufferArgument(uint32_t vid, uint64_t handle, size_t offset) noexcept
+            : Argument{Tag::BUFFER, vid},
+              handle{handle},
+              offset{offset} {}
     };
 
     struct TextureArgument : Argument {
-        uint64_t handle;
+        uint64_t handle{};
         uint3 offset{};
         //TODO: Texture-write target miplevel, useless in read-only binding
         //uint writeLevel;
+        TextureArgument() noexcept : Argument{Tag::TEXTURE, 0u} {}
+        TextureArgument(uint32_t vid, uint64_t handle, uint3 offset) noexcept
+            : Argument{Tag::TEXTURE, vid},
+              handle{handle},
+              offset{offset} {}
     };
 
     struct UniformArgument : Argument {
-        size_t size;
-        size_t alignment;
+        size_t size{};
+        size_t alignment{};
+        UniformArgument() noexcept : Argument{Tag::UNIFORM, 0u} {}
+        UniformArgument(uint32_t vid, size_t size, size_t alignment) noexcept
+            : Argument{Tag::UNIFORM, vid},
+              size{size},
+              alignment{alignment} {}
     };
 
     struct ArgumentBuffer : std::array<std::byte, 2048u> {};
@@ -306,7 +327,7 @@ public:
     //   3. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
     void encode_texture(uint32_t variable_uid, uint64_t handle, uint3 offset, Resource::Usage usage) noexcept;
-    void encode_uniform(uint32_t variable_uid, const void *data, size_t size) noexcept;
+    void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {

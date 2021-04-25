@@ -9,8 +9,17 @@
 #define $ ::luisa::compute::Var
 
 #define $thread_id ::luisa::compute::thread_id()
+#define $thread_x ::luisa::compute::thread_x()
+#define $thread_y ::luisa::compute::thread_y()
+#define $thread_z ::luisa::compute::thread_z()
 #define $block_id ::luisa::compute::block_id()
+#define $block_x ::luisa::compute::block_x()
+#define $block_y ::luisa::compute::block_y()
+#define $block_z ::luisa::compute::block_z()
 #define $dispatch_id ::luisa::compute::dispatch_id()
+#define $dispatch_x ::luisa::compute::dispatch_x()
+#define $dispatch_y ::luisa::compute::dispatch_y()
+#define $dispatch_z ::luisa::compute::dispatch_z()
 #define $launch_size ::luisa::compute::launch_size()
 #define $block_size ::luisa::compute::block_size()
 
@@ -39,6 +48,7 @@
 #define $shared ::luisa::compute::Shared
 #define $buffer ::luisa::compute::BufferVar
 #define $image ::luisa::compute::ImageVar
+#define $volume ::luisa::compute::VolumeVar
 
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()

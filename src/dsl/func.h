@@ -92,7 +92,7 @@ public:
                 static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
         }
 
-        for (auto texture : _function.captured_images()) {
+        for (auto texture : _function.captured_textures()) {
             _launch_command()->encode_texture(
                 texture.variable.uid(), texture.handle, texture.offset,
                 static_cast<Command::Resource::Usage>(_function.variable_usage(texture.variable.uid())));
@@ -132,7 +132,7 @@ public:
     template<typename T>
     KernelInvoke &operator<<(T data) noexcept {
         auto variable_uid = _function.arguments()[_argument_index++].uid();
-        _launch_command()->encode_uniform(variable_uid, &data, sizeof(T));
+        _launch_command()->encode_uniform(variable_uid, &data, sizeof(T), alignof(T));
         return *this;
     }
 

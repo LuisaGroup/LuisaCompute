@@ -13,14 +13,25 @@
 #include <ast/function_builder.h>
 
 namespace luisa::compute {
-template<typename T>
-struct Var;
-}
 
-namespace luisa::compute::detail {
-
+namespace detail {
 template<typename T>
 struct Expr;
+}
+
+template<typename T>
+struct Var;
+
+template<typename T>
+[[nodiscard]] inline auto make_vector(detail::Expr<T> x, detail::Expr<T> y) noexcept;
+
+template<typename T>
+[[nodiscard]] inline auto make_vector(detail::Expr<T> x, detail::Expr<T> y, detail::Expr<T> z) noexcept;
+
+template<typename T>
+[[nodiscard]] inline auto make_vector(detail::Expr<T> x, detail::Expr<T> y, detail::Expr<T> z, detail::Expr<T> w) noexcept;
+
+namespace detail {
 
 template<typename T>
 class ExprBase {
@@ -160,6 +171,7 @@ struct Expr<Vector<T, 2>> : public ExprBase<Vector<T, 2>> {
     void operator=(const Expr &rhs) noexcept { ExprBase<Vector<T, 2>>::operator=(rhs); }
     Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 0)};
     Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 1)};
+#include <dsl/swizzle_2.inl.h>
 };
 
 template<typename T>
@@ -172,6 +184,7 @@ struct Expr<Vector<T, 3>> : public ExprBase<Vector<T, 3>> {
     Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 0)};
     Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 1)};
     Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 2)};
+#include <dsl/swizzle_3.inl.h>
 };
 
 template<typename T>
@@ -185,6 +198,7 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
     Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 1)};
     Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 2)};
     Expr<T> w{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 3)};
+#include <dsl/swizzle_4.inl.h>
 };
 
 template<typename T>
@@ -355,7 +369,8 @@ using expr_value = expr_value_impl<std::remove_cvref_t<T>>;
 template<typename T>
 using expr_value_t = typename expr_value<T>::type;
 
-}// namespace luisa::compute::detail
+}// namespace detail
+}// namespace luisa::compute
 
 #define LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(op, op_concept, op_tag)                            \
     template<luisa::concepts::op_concept T>                                                \

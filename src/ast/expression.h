@@ -326,6 +326,19 @@ enum struct CallOp {
     TEXTURE_READ,
     TEXTURE_WRITE,
     TEXTURE_SAMPLE,
+    
+    MAKE_BOOL2,
+    MAKE_BOOL3,
+    MAKE_BOOL4,
+    MAKE_INT2,
+    MAKE_INT3,
+    MAKE_INT4,
+    MAKE_UINT2,
+    MAKE_UINT3,
+    MAKE_UINT4,
+    MAKE_FLOAT2,
+    MAKE_FLOAT3,
+    MAKE_FLOAT4
 };
 
 class CallExpr : public Expression {

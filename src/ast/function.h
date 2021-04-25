@@ -54,7 +54,7 @@ public:
     [[nodiscard]] std::span<const Variable> shared_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
-    [[nodiscard]] std::span<const TextureBinding> captured_images() const noexcept;
+    [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const uint32_t> custom_callables() const noexcept;
     [[nodiscard]] std::span<const CallOp> builtin_callables() const noexcept;

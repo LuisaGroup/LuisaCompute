@@ -148,7 +148,19 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::NONE: _scratch << "none"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
-        case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
+        case CallOp::TEXTURE_WRITE:
+            _scratch << "texture_write";
+            break;
+            // TODO...
+#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)               \
+    case CallOp::MAKE_##tag##2: _scratch << "make_" #type "2"; break; \
+    case CallOp::MAKE_##tag##3: _scratch << "make_" #type "3"; break; \
+    case CallOp::MAKE_##tag##4: _scratch << "make_" #type "4"; break;
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+#undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
@@ -360,7 +372,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_variable_decl(buffer.variable);
             _scratch << ";";
         }
-        for (auto image : f.captured_images()) {
+        for (auto image : f.captured_textures()) {
             _scratch << "\n  ";
             _emit_variable_decl(image.variable);
             _scratch << ";";
@@ -399,7 +411,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_variable_decl(buffer.variable);
             _scratch << ",";
         }
-        for (auto tex : f.captured_images()) {
+        for (auto tex : f.captured_textures()) {
             _scratch << "\n    ";
             _emit_variable_decl(tex.variable);
             _scratch << ",";
@@ -410,7 +422,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _scratch << ",";
         }
         if (!f.arguments().empty()
-            || !f.captured_images().empty()
+            || !f.captured_textures().empty()
             || !f.captured_buffers().empty()) {
             _scratch.pop_back();
         }
@@ -512,7 +524,7 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
         case Variable::Tag::TEXTURE:
             if (auto d = v.type()->dimension(); d == 2u) {
                 _scratch << "Image<";
-            } else {  // d == 3u
+            } else {// d == 3u
                 _scratch << "Volume<";
             }
             _emit_type_name(v.type()->element());
@@ -700,6 +712,29 @@ void texture_write(Volume<T, a> t, uint3 uvw, Value value) {
 
 )";
             break;
+            // TODO...
+
+#define LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(type, tag)                                                          \
+    case CallOp::MAKE_##tag##2:                                                                                  \
+        _scratch << "[[nodiscard]] auto make_" #type "2(" #type " x, " #type " y) {\n"                           \
+                    "  return " #type "2{x, y};\n"                                                               \
+                    "}\n\n";                                                                                     \
+        break;                                                                                                   \
+    case CallOp::MAKE_##tag##3:                                                                                  \
+        _scratch << "[[nodiscard]] auto make_" #type "3(" #type " x, " #type " y, " #type " z) {\n"              \
+                    "  return " #type "3{x, y, z};\n"                                                            \
+                    "}\n\n";                                                                                     \
+        break;                                                                                                   \
+    case CallOp::MAKE_##tag##4:                                                                                  \
+        _scratch << "[[nodiscard]] auto make_" #type "4(" #type " x, " #type " y, " #type " z, " #type " w) {\n" \
+                    "  return " #type "4{x, y, z, w};\n"                                                         \
+                    "}\n\n";                                                                                     \
+        break;
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(bool, BOOL)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(int, INT)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(uint, UINT)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(float, FLOAT)
+#undef LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL
     }
 }
 

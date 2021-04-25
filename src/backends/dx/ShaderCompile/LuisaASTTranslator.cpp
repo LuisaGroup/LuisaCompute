@@ -711,7 +711,7 @@ void CodegenUtility::PrintUniform(
 	vengine::string& result) {
 	auto argss = {func.builtin_variables(), func.arguments()};
 	auto buffers = func.captured_buffers();
-	auto texs = func.captured_images();
+	auto texs = func.captured_textures();
 	uint tCount = 0;
 	uint uCount = 0;
 	auto ProcessBuffer = [&](Variable const& var) {
