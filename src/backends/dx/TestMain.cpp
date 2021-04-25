@@ -7,8 +7,10 @@
 #include <render_graph/rg_executor.h>
 #include <Common/vstring.h>
 #include <Common/Runnable.h>
+
+/*
 void CreateDevice_Test();
 
 int main() {
 	CreateDevice_Test();
-}
+}*/
