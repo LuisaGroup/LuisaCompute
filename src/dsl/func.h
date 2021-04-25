@@ -202,7 +202,9 @@ template<size_t N>
             Kernel##N##D(Def &&def) noexcept                                                                   \
             : _function{FunctionBuilder::define_kernel([&def] {                                                \
                   FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());          \
-                  def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);                   \
+                  std::apply(                                                                                  \
+                      std::forward<Def>(def),                                                                  \
+                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});       \
               })} {}                                                                                           \
                                                                                                                \
         [[nodiscard]] auto operator()(detail::prototype_to_kernel_invocation_t<Args>... args) const noexcept { \
@@ -282,12 +284,19 @@ public:
     Callable(Def &&def) noexcept
         : _function{FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
-                  def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
+                  std::apply(
+                      std::forward<Def>(def),
+                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
               } else if constexpr (detail::is_tuple_v<Ret>) {
-                  auto ret = detail::tuple_to_var(def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...));
+                  auto ret = detail::tuple_to_var(
+                      std::apply(
+                          std::forward<Def>(def),
+                          std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
                   FunctionBuilder::current()->return_(ret.expression());
               } else {
-                  auto ret = def(detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...);
+                  auto ret = std::apply(
+                      std::forward<Def>(def),
+                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
                   FunctionBuilder::current()->return_(ret.expression());
               }
           })} {}
