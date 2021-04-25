@@ -178,4 +178,28 @@ ImageView(const Image<T> &) -> ImageView<T>;
 template<typename T>
 ImageView(ImageView<T>) -> ImageView<T>;
 
+template<typename T>
+struct is_image : std::false_type {};
+
+template<typename T>
+struct is_image<Image<T>> : std::true_type {};
+
+template<typename T>
+struct is_image_view : std::false_type {};
+
+template<typename T>
+struct is_image_view<ImageView<T>> : std::true_type {};
+
+template<typename T>
+using is_image_or_view = std::disjunction<is_image<T>, is_image_view<T>>;
+
+template<typename T>
+constexpr auto is_image_v = is_image<T>::value;
+
+template<typename T>
+constexpr auto is_image_view_v = is_image_view<T>::value;
+
+template<typename T>
+constexpr auto is_image_or_view_v = is_image_or_view<T>::view;
+
 }// namespace luisa::compute

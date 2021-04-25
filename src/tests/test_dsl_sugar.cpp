@@ -64,8 +64,7 @@ int main(int argc, char *argv[]) {
         $float2 w{v_int, v_float};
         w *= float2{1.2f};
 
-        $if(w.x < 5) {
-        }
+        $if(w.x < 5) {}
         $elif(w.x > 0) {
         }
         $else{

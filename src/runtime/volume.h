@@ -177,4 +177,28 @@ VolumeView(const Volume<T> &) -> VolumeView<T>;
 template<typename T>
 VolumeView(VolumeView<T>) -> VolumeView<T>;
 
+template<typename T>
+struct is_volume : std::false_type {};
+
+template<typename T>
+struct is_volume<Volume<T>> : std::true_type {};
+
+template<typename T>
+struct is_volume_view : std::false_type {};
+
+template<typename T>
+struct is_volume_view<VolumeView<T>> : std::true_type {};
+
+template<typename T>
+using is_volume_or_view = std::disjunction<is_volume<T>, is_volume_view<T>>;
+
+template<typename T>
+constexpr auto is_volume_v = is_volume<T>::value;
+
+template<typename T>
+constexpr auto is_volume_view_v = is_volume_view<T>::value;
+
+template<typename T>
+constexpr auto is_volume_or_view_v = is_volume_or_view<T>::view;
+
 }// namespace luisa::compute

@@ -262,8 +262,13 @@ class Callable {
 template<typename Ret, typename... Args>
 class Callable<Ret(Args...)> {
 
-    static_assert(std::negation_v<is_buffer_or_view<Ret>>,
-                  "Callables may not return buffers (or their views).");
+    static_assert(
+        std::negation_v<std::disjunction<
+            is_buffer_or_view<Ret>,
+            is_image_or_view<Ret>,
+            is_volume_or_view<Ret>>>,
+        "Callables may not return buffers, "
+        "images or volumes (or their views).");
 
 private:
     Function _function;
@@ -312,7 +317,7 @@ namespace detail {
 template<typename T>
 struct function {
     using type = typename function<
-        std::remove_cvref_t<decltype(std::function{std::declval<T>()})>>::type;
+        decltype(std::function{std::declval<T>()})>::type;
 };
 
 template<typename R, typename... A>
@@ -320,22 +325,30 @@ using function_signature_t = R(A...);
 
 template<typename... Args>
 struct function<std::function<void(Args...)>> {
-    using type = function_signature_t<void, definition_to_prototype_t<Args>...>;
+    using type = function_signature_t<
+        void,
+        definition_to_prototype_t<Args>...>;
 };
 
 template<typename Ret, typename... Args>
-struct function<std::function<Var<Ret>(Args...)>> {
-    using type = function_signature_t<Ret, definition_to_prototype_t<Args>...>;
-};
-
-template<typename Ret, typename... Args>
-struct function<std::function<Expr<Ret>(Args...)>> {
-    using type = function_signature_t<Ret, definition_to_prototype_t<Args>...>;
+struct function<std::function<Ret(Args...)>> {
+    using type = function_signature_t<
+        expr_value_t<Ret>,
+        definition_to_prototype_t<Args>...>;
 };
 
 template<typename... Ret, typename... Args>
 struct function<std::function<std::tuple<Ret...>(Args...)>> {
-    using type = function_signature_t<std::tuple<expr_value_t<Ret>...>, definition_to_prototype_t<Args>...>;
+    using type = function_signature_t<
+        std::tuple<expr_value_t<Ret>...>,
+        definition_to_prototype_t<Args>...>;
+};
+
+template<typename RA, typename RB, typename... Args>
+struct function<std::function<std::pair<RA, RB>(Args...)>> {
+    using type = function_signature_t<
+        std::tuple<expr_value_t<RA>, expr_value_t<RB>>,
+        definition_to_prototype_t<Args>...>;
 };
 
 template<typename T>
