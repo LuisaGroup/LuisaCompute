@@ -383,6 +383,13 @@ void Graphics::CopyBufferRegion(
 		byteSize);
 }
 Graphics::~Graphics() {
+	cubeMesh.Destroy();
+	globalDescriptorHeap = nullptr;
+	unusedDescs.dispose();
+	fullScreenMesh.Delete();
+	srvAllocator.Delete();
+	rtvAllocator.Delete();
+	dsvAllocator.Delete();
 }
 void Graphics::SetRenderTarget(
 	ThreadCommand* commandList,

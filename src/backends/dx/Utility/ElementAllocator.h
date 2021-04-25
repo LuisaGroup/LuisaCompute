@@ -18,7 +18,6 @@ public:
 		friend class ElementAllocator;
 
 	private:
-		LinkedNode<AllocatedElement>* node;
 		AllocateHandle(
 			LinkedNode<AllocatedElement>* node
 		) : node(node)
@@ -26,6 +25,8 @@ public:
 
 		}
 	public:
+		LinkedNode<AllocatedElement>* node;
+
 		AllocateHandle(AllocateHandle const& ele)
 		{
 			node = ele.node;
