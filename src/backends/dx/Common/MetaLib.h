@@ -78,7 +78,7 @@ class Storage {
 template<typename T>
 class Storage<T, 0> {};
 
-using lockGuard = typename std::lock_guard<std::mutex>;
+using lockGuard = std::lock_guard<std::mutex>;
 
 template<typename T, bool autoDispose = false>
 class StackObject;
@@ -237,7 +237,7 @@ public:
 //Declare Tuple
 
 template<typename T>
-using PureType_t = typename std::remove_pointer_t<std::remove_cvref_t<T>>;
+using PureType_t = std::remove_pointer_t<std::remove_cvref_t<T>>;
 
 struct Type {
 private:
@@ -346,7 +346,7 @@ namespace FunctionTemplateGlobal {
 template<typename T, typename... Args>
 struct FunctionRetAndArgs {
 	static constexpr size_t ArgsCount = sizeof...(Args);
-	using RetType = typename T;
+	using RetType = T;
 	inline static const Type retTypes = typeid(T);
 	inline static const Type argTypes[ArgsCount] =
 		{
@@ -355,22 +355,6 @@ struct FunctionRetAndArgs {
 
 template<typename T>
 struct memFuncPtr;
-template<typename Class, typename _Ret, typename... Args>
-struct memFuncPtr<_Ret (Class::*)(Args...) const> {
-	using RetAndArgsType = FunctionRetAndArgs<_Ret, Args...>;
-	static constexpr size_t ArgsCount = sizeof...(Args);
-	using FuncType = _Ret(Args...);
-	using RetType = _Ret;
-	using FuncPtrType = _Ret (*)(Args...);
-};
-template<typename Class, typename _Ret, typename... Args>
-struct memFuncPtr<_Ret (Class::*)(Args...)> {
-	using RetAndArgsType = FunctionRetAndArgs<_Ret, Args...>;
-	static constexpr size_t ArgsCount = sizeof...(Args);
-	using FuncType = _Ret(Args...);
-	using RetType = _Ret;
-	using FuncPtrType = _Ret (*)(Args...);
-};
 
 template<typename T>
 struct FunctionPointerData;
@@ -383,45 +367,49 @@ struct FunctionPointerData<_Ret(Args...)> {
 
 template<typename T>
 struct FunctionType {
-	using RetAndArgsType = typename memFuncPtr<decltype(&T::operator())>::RetAndArgsType;
-	using FuncType = typename memFuncPtr<decltype(&T::operator())>::FuncType;
-	using RetType = typename memFuncPtr<decltype(&T::operator())>::RetType;
-	static constexpr size_t ArgsCount = memFuncPtr<decltype(&T::operator())>::ArgsCount;
-	using FuncPtrType = typename memFuncPtr<decltype(&T::operator())>::FuncPtrType;
+	using Type = typename memFuncPtr<decltype(&T::operator())>::Type;
 };
 
 template<typename Ret, typename... Args>
 struct FunctionType<Ret(Args...)> {
+	using Type = FunctionType<Ret(Args...)>;
 	using RetAndArgsType = typename FunctionPointerData<Ret(Args...)>::RetAndArgsType;
 	using FuncType = Ret(Args...);
 	using RetType = Ret;
 	static constexpr size_t ArgsCount = sizeof...(Args);
 	using FuncPtrType = Ret (*)(Args...);
 };
+
+template<typename Class, typename _Ret, typename... Args>
+struct memFuncPtr<_Ret (Class::*)(Args...)> {
+	using Type = FunctionType<_Ret(Args...)>;
+};
+
+template<typename Class, typename _Ret, typename... Args>
+struct memFuncPtr<_Ret (Class::*)(Args...) const> {
+	using Type = FunctionType<_Ret(Args...)>;
+};
+
 template<typename Ret, typename... Args>
 struct FunctionType<Ret (*)(Args...)> {
-	using RetAndArgsType = typename FunctionPointerData<Ret(Args...)>::RetAndArgsType;
-	using FuncType = Ret(Args...);
-	using RetType = Ret;
-	static constexpr size_t ArgsCount = sizeof...(Args);
-	using FuncPtrType = Ret (*)(Args...);
+	using Type = FunctionType<Ret(Args...)>;
 };
 }// namespace FunctionTemplateGlobal
 
 template<typename T>
-using FunctionDataType = typename FunctionTemplateGlobal::FunctionType<T>::RetAndArgsType;
+using FunctionDataType = typename FunctionTemplateGlobal::FunctionType<T>::Type::RetAndArgsType;
 
 template<typename T>
-using FuncPtrType = typename FunctionTemplateGlobal::FunctionType<T>::FuncPtrType;
+using FuncPtrType = typename FunctionTemplateGlobal::FunctionType<T>::Type::FuncPtrType;
 
 template<typename T>
-using FuncType = typename FunctionTemplateGlobal::FunctionType<T>::FuncType;
+using FuncType = typename FunctionTemplateGlobal::FunctionType<T>::Type::FuncType;
 
 template<typename T>
-using FuncRetType = typename FunctionTemplateGlobal::FunctionType<T>::RetType;
+using FuncRetType = typename FunctionTemplateGlobal::FunctionType<T>::Type::RetType;
 
 template<typename T>
-constexpr size_t FuncArgCount = FunctionTemplateGlobal::FunctionType<T>::ArgsCount;
+constexpr size_t FuncArgCount = FunctionTemplateGlobal::FunctionType<T>::Type::ArgsCount;
 
 template<typename Func, typename Target>
 static constexpr bool IsFunctionTypeOf = std::is_same_v<FuncType<Func>, Target>;

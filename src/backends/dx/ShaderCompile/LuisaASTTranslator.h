@@ -15,7 +15,9 @@ class CodegenUtility {
 public:
 	static void GetCodegen(Function func, vengine::string& str, HashMap<uint, size_t>& varOffsets, size_t& cbufferSize);
 	static void GetVariableName(Variable const& type, vengine::string& str);
-	static void GetTypeName(Type const& type, vengine::string& str);
+	static void GetVariableName(Variable::Tag type, uint id, vengine::string& str);
+	static void GetVariableName(Type::Tag type, uint id, vengine::string& str);
+	static void GetTypeName(Type const& type, vengine::string& str, bool isWritable = false);
 	static void GetFunctionDecl(Function func, vengine::string& str);
 	static void PrintConstant(Function::ConstantBinding const& binding, vengine::string& result);
 
@@ -29,6 +31,7 @@ public:
 		vengine::string& result);
 
 	static size_t PrintGlobalVariables(
+		Function func,
 		std::initializer_list<std::span<const Variable>> values,
 		HashMap<uint, size_t>& varOffsets,
 		vengine::string& result);
@@ -75,10 +78,11 @@ public:
 	void visit(const SwitchDefaultStmt* state) override;
 	void visit(const AssignStmt* state) override;
 	void visit(const ForStmt*) override;
-	StringStateVisitor(vengine::string& str);
+	StringStateVisitor(vengine::string& str, Function func);
 	~StringStateVisitor();
 
 private:
 	vengine::string* str;
+	Function func;
 };
 }// namespace luisa::compute

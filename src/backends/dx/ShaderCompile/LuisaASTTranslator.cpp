@@ -6,7 +6,9 @@
 #include <ShaderCompile/LuisaASTTranslator.h>
 
 namespace luisa::compute {
-
+static bool _IsVarWritable(Function func, Variable i) {
+	return ((uint)func.variable_usage(i.uid()) & (uint)Variable::Usage::WRITE) != 0;
+}
 void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uint, size_t>& varOffsets, size_t& cbufferSize) {
 	{
 		vengine::string function_buffer;
@@ -14,16 +16,19 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 		str.reserve(65535 * 4);
 
 		CodegenUtility::ClearStructType();
-		StringStateVisitor vis(function_buffer);
 
 		for (auto cust : func.custom_callables()) {
 			auto&& callable = Function::callable(cust);
+			StringStateVisitor vis(function_buffer, callable);
 			CodegenUtility::GetFunctionDecl(callable, function_buffer);
 			callable.body()->accept(vis);
 		}
-		CodegenUtility::GetFunctionDecl(func, function_buffer);
-		func.body()->accept(vis);
 
+		CodegenUtility::GetFunctionDecl(func, function_buffer);
+		{
+			StringStateVisitor vis(function_buffer, func);
+			func.body()->accept(vis);
+		}
 		CodegenUtility::PrintStructType(str);
 
 		for (auto& i : func.constants()) {
@@ -31,14 +36,16 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 		}
 		for (auto& i : func.shared_variables()) {
 			str << "groupshared "_sv;
-			CodegenUtility::GetTypeName(*i.type(), str);
-			str << " v"_sv << vengine::to_string(i.uid())
-				<< '['
+			CodegenUtility::GetTypeName(*i.type(), str, _IsVarWritable(func, i));
+			str << ' ';
+			CodegenUtility::GetVariableName(i, str);
+			str				<< '['
 				<< vengine::to_string(i.type()->dimension())
 				<< "];\n"_sv;
 		}
 		CodegenUtility::PrintUniform(func, str);
 		cbufferSize = CodegenUtility::PrintGlobalVariables(
+			func,
 			{func.builtin_variables(),
 			 func.arguments()},
 			varOffsets,
@@ -332,7 +339,7 @@ void StringStateVisitor::visit(const ReturnStmt* state) {
 
 void StringStateVisitor::visit(const ScopeStmt* state) {
 	(*str) += "{\n"_sv;
-	StringStateVisitor sonVisitor(*str);
+	StringStateVisitor sonVisitor(*str, func);
 	for (auto&& i : state->statements()) {
 		i->accept(sonVisitor);
 	}
@@ -342,7 +349,7 @@ void StringStateVisitor::visit(const ScopeStmt* state) {
 void StringStateVisitor::visit(const DeclareStmt* state) {
 	auto var = state->variable();
 	CodegenUtility::RegistStructType(var.type());
-	CodegenUtility::GetTypeName(*var.type(), *str);
+	CodegenUtility::GetTypeName(*var.type(), *str, _IsVarWritable(func, var));
 	(*str) += ' ';
 	vengine::string varTempName;
 	CodegenUtility::GetVariableName(var, varTempName);
@@ -358,7 +365,7 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 			}
 		} else if (!state->initializer().empty()) {
 			(*str) += '=';
-			CodegenUtility::GetTypeName(*var.type(), (*str));
+			CodegenUtility::GetTypeName(*var.type(), (*str), _IsVarWritable(func, var));
 			(*str) += '(';
 			for (auto&& i : state->initializer()) {
 				i->accept(vis);
@@ -394,7 +401,7 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 
 void StringStateVisitor::visit(const IfStmt* state) {
 	StringExprVisitor exprVisitor(*str);
-	StringStateVisitor stateVisitor(*str);
+	StringStateVisitor stateVisitor(*str, func);
 	(*str) += "if ("_sv;
 	state->condition()->accept(exprVisitor);
 	(*str) += ')';
@@ -406,7 +413,7 @@ void StringStateVisitor::visit(const IfStmt* state) {
 }
 
 void StringStateVisitor::visit(const WhileStmt* state) {
-	StringStateVisitor stateVisitor(*str);
+	StringStateVisitor stateVisitor(*str, func);
 	StringExprVisitor exprVisitor(*str);
 
 	(*str) += "[loop]\nwhile ("_sv;
@@ -423,7 +430,7 @@ void StringStateVisitor::visit(const ExprStmt* state) {
 
 void StringStateVisitor::visit(const SwitchStmt* state) {
 	(*str) += "switch ("_sv;
-	StringStateVisitor stateVisitor(*str);
+	StringStateVisitor stateVisitor(*str, func);
 	StringExprVisitor exprVisitor(*str);
 	state->expression()->accept(exprVisitor);
 	(*str) += ')';
@@ -432,7 +439,7 @@ void StringStateVisitor::visit(const SwitchStmt* state) {
 
 void StringStateVisitor::visit(const SwitchCaseStmt* state) {
 	(*str) += "case "_sv;
-	StringStateVisitor stateVisitor(*str);
+	StringStateVisitor stateVisitor(*str, func);
 	StringExprVisitor exprVisitor(*str);
 	state->expression()->accept(exprVisitor);
 	(*str) += ":\n"_sv;
@@ -441,7 +448,7 @@ void StringStateVisitor::visit(const SwitchCaseStmt* state) {
 
 void StringStateVisitor::visit(const SwitchDefaultStmt* state) {
 	(*str) += "default:\n"_sv;
-	StringStateVisitor stateVisitor(*str);
+	StringStateVisitor stateVisitor(*str, func);
 	state->body()->accept(stateVisitor);
 }
 
@@ -488,7 +495,7 @@ void StringStateVisitor::visit(const AssignStmt* state) {
 }
 
 void StringStateVisitor::visit(ForStmt const* expr) {
-	StringStateVisitor stmtVis(*str);
+	StringStateVisitor stmtVis(*str, func);
 	StringExprVisitor expVis(*str);
 	(*str) += "[loop]\nfor("_sv;
 	expr->initialization()->accept(stmtVis);
@@ -499,15 +506,15 @@ void StringStateVisitor::visit(ForStmt const* expr) {
 	expr->body()->accept(stmtVis);
 }
 
-StringStateVisitor::StringStateVisitor(vengine::string& str)
-	: str(&str) {
+StringStateVisitor::StringStateVisitor(vengine::string& str, Function func)
+	: str(&str), func(func) {
 }
 
 StringStateVisitor::~StringStateVisitor() {
 }
 
-void CodegenUtility::GetVariableName(Variable const& type, vengine::string& str) {
-	switch (type.tag()) {
+void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vengine::string& str) {
+	switch (type) {
 		case Variable::Tag::BLOCK_ID:
 			str += "blk_id"_sv;
 			break;
@@ -519,22 +526,51 @@ void CodegenUtility::GetVariableName(Variable const& type, vengine::string& str)
 			break;
 		case Variable::Tag::LOCAL:
 			str += "_v"_sv;
-			vengine::to_string(type.uid(), str);
+			vengine::to_string(id, str);
+			break;
+		case Variable::Tag::BUFFER:
+			str += "_b"_sv;
+			vengine::to_string(id, str);
+			break;
+		case Variable::Tag::TEXTURE:
+			str += "_t"_sv;
+			vengine::to_string(id, str);
 			break;
 		default:
 			str += 'v';
-			vengine::to_string(type.uid(), str);
+			vengine::to_string(id, str);
 			break;
 	}
 }
 
-void CodegenUtility::GetTypeName(Type const& type, vengine::string& str) {
+void CodegenUtility::GetVariableName(Type::Tag type, uint id, vengine::string& str) {
+	switch (type) {
+		case Type::Tag::BUFFER:
+			str += "_b"_sv;
+			vengine::to_string(id, str);
+			break;
+		case Type::Tag::TEXTURE:
+			str += "_t"_sv;
+			vengine::to_string(id, str);
+			break;
+		default:
+			str += 'v';
+			vengine::to_string(id, str);
+			break;
+	}
+}
+
+void CodegenUtility::GetVariableName(Variable const& type, vengine::string& str) {
+	GetVariableName(type.tag(), type.uid(), str);
+}
+
+void CodegenUtility::GetTypeName(Type const& type, vengine::string& str, bool isWritable) {
 	switch (type.tag()) {
 		case Type::Tag::ARRAY:
-			CodegenUtility::GetTypeName(*type.element(), str);
+			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
 			return;
 		case Type::Tag::ATOMIC:
-			CodegenUtility::GetTypeName(*type.element(), str);
+			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
 			return;
 		case Type::Tag::BOOL:
 			str += "bool"_sv;
@@ -548,17 +584,16 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str) {
 		case Type::Tag::UINT:
 			str += "uint"_sv;
 			return;
-
 		case Type::Tag::MATRIX: {
 			auto dim = vengine::to_string(type.dimension());
-			CodegenUtility::GetTypeName(*type.element(), str);
+			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
 			str += dim;
 			str += 'x';
 			str += dim;
 		}
 			return;
 		case Type::Tag::VECTOR: {
-			CodegenUtility::GetTypeName(*type.element(), str);
+			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
 			vengine::to_string(type.dimension(), str);
 		}
 			return;
@@ -566,6 +601,26 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str) {
 			str += 'T';
 			vengine::to_string(type.index(), str);
 			return;
+		case Type::Tag::BUFFER:
+			if (isWritable) {
+				str += "RWStructuredBuffer<"_sv;
+			} else {
+				str += "StructuredBuffer<"_sv;
+			}
+			GetTypeName(*type.element(), str, isWritable);
+			str += '>';
+			break;
+		case Type::Tag::TEXTURE: {
+			if (isWritable) {
+				str += "RWTexture"_sv;
+			} else {
+				str += "Texture"_sv;
+			}
+			vengine::to_string(type.dimension(), str);
+			str += "D<"_sv;
+			GetTypeName(*type.element(), str, isWritable);
+			str += '>';
+		} break;
 	}
 }
 
@@ -586,7 +641,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vengine::string& data) {
 				data += '(';
 				for (auto&& i : func.arguments()) {
 					RegistStructType(i.type());
-					CodegenUtility::GetTypeName(*i.type(), data);
+					CodegenUtility::GetTypeName(*i.type(), data, _IsVarWritable(func, i));
 					data += ' ';
 					CodegenUtility::GetVariableName(i, data);
 					data += ',';
@@ -688,8 +743,8 @@ struct Print_RunTypeVisitor : public TypeVisitor {
 		size_t count = 0;
 		for (auto&& mem : t->members()) {
 			CodegenUtility::GetTypeName(*mem, str);
-			str += " v"_sv;
-			vengine::to_string(count, str);
+			str << ' ';
+			CodegenUtility::GetVariableName(mem->tag(), count, str);
 			count++;
 			str += ";\n"_sv;
 		}
@@ -716,38 +771,10 @@ void CodegenUtility::PrintUniform(
 	uint tCount = 0;
 	uint uCount = 0;
 	auto ProcessBuffer = [&](Variable const& var) {
-		bool enableRandomWrite = ((uint)func.variable_usage(var.uid()) & (uint)Variable::Usage::WRITE) != 0;
-		if (enableRandomWrite) {
-			result += "RWStructuredBuffer<"_sv;
-		} else {
-			result += "StructuredBuffer<"_sv;
-		}
-		GetTypeName(*var.type()->element(), result);
-		result += "> v"_sv;
-		vengine::to_string(var.uid(), result);
-		if (enableRandomWrite) {
-			result += ":register(u"_sv;
-			vengine::to_string(uCount, result);
-			uCount++;
-		} else {
-			result += ":register(t"_sv;
-			vengine::to_string(tCount, result);
-			tCount++;
-		}
-		result += ");\n"_sv;
-	};
-	auto ProcessTexture = [&](Variable const& var) {
-		bool enableRandomWrite = ((uint)func.variable_usage(var.uid()) & (uint)Variable::Usage::WRITE) != 0;
-		if (enableRandomWrite) {
-			result += "RWTexture"_sv;
-		} else {
-			result += "Texture"_sv;
-		}
-		vengine::to_string(var.type()->dimension(), result);
-		result += "D<"_sv;
-		GetTypeName(*var.type()->element(), result);
-		result += "> v"_sv;
-		vengine::to_string(var.uid(), result);
+		bool enableRandomWrite = _IsVarWritable(func, var);
+		GetTypeName(*var.type(), result, enableRandomWrite);
+		result << ' ';
+		CodegenUtility::GetVariableName(var, result);
 		if (enableRandomWrite) {
 			result += ":register(u"_sv;
 			vengine::to_string(uCount, result);
@@ -763,11 +790,8 @@ void CodegenUtility::PrintUniform(
 		for (auto& var : args) {
 			switch (var.tag()) {
 				case Variable::Tag::BUFFER:
-					ProcessBuffer(var);
-					break;
 				case Variable::Tag::TEXTURE:
-					//TODO: Texture Binding
-					ProcessTexture(var);
+					ProcessBuffer(var);
 					break;
 			}
 		}
@@ -778,6 +802,7 @@ void CodegenUtility::PrintUniform(
 	//TODO: Texture Binding
 }
 size_t CodegenUtility::PrintGlobalVariables(
+	Function func,
 	std::initializer_list<std::span<const Variable>> values,
 	HashMap<uint, size_t>& varOffsets,
 	vengine::string& result) {
@@ -806,9 +831,9 @@ size_t CodegenUtility::PrintGlobalVariables(
 					VEngine_Log("Uniform Matrix Only Allow 4x4 Matrix!\n"_sv);
 					throw 0;
 				}
-				CodegenUtility::GetTypeName(type, result);
-				result += " v"_sv;
-				vengine::to_string(var.uid(), result);
+				CodegenUtility::GetTypeName(type, result, _IsVarWritable(func, var));
+				result << ' ';
+				CodegenUtility::GetVariableName(var, result);
 				result += ";\n"_sv;
 				varOffsets.Insert(var.uid(), cbufferSize);
 				cbufferSize += ELE_SIZE * 4 * 4;
