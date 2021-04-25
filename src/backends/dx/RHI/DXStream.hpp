@@ -6,6 +6,7 @@
 #include <runtime/command_buffer.h>
 #include <PipelineComponent/FrameResource.h>
 #include <Common/Runnable.h>
+#include <RHI/DXCommandVisitor.h>
 namespace luisa::compute {
 class DXStream {
 public:
@@ -50,6 +51,7 @@ public:
 		CommandBuffer&& buffer,
 		ID3D12Fence* fence,
 		GetFrameResourceFunc const& getResource,
+		InternalShaders* internalShader,
 		SingleThreadArrayQueue<FrameResource*>& res,
 		std::mutex& mtx,
 		uint64& cpuSignalIndex) {
@@ -57,6 +59,16 @@ public:
 		FrameResource* tempRes = getResource(listType);
 		tempRes->tCmd.ResetCommand();
 		//TODO: execute buffer
+		DXCommandVisitor vis(
+			device,
+			&tempRes->tCmd,
+			tempRes,
+			internalShader,
+			[](uint i) { return nullptr; }
+		);
+		for (auto& i : buffer) {
+			i->accept(vis);
+		}
 		tempRes->tCmd.CloseCommand();
 		///////////// Global-Sync
 		std::lock_guard lck(mtx);
@@ -77,6 +89,7 @@ public:
 	}
 
 private:
+	StackObject<DXCommandVisitor, true> visitor;
 	GFXCommandListType listType;
 	GFXCommandQueue* queue;
 	uint64 lastSignal = 0;

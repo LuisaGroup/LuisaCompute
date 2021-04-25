@@ -22,4 +22,4 @@
 #define VENGINE_DLL_COMMON
 #define VENGINE_DLL_RENDERER
 #include <cstdlib>
-#define VENGINE_EXIT exit(1)
+#define VENGINE_EXIT throw 0

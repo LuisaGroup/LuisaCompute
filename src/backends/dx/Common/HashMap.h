@@ -91,26 +91,13 @@ private:
 			memset(nodesPtr, 0, sizeof(LinkNode*) * mSize);
 		}
 		template<bool value>
-		static void* Allocate(size_t s) noexcept;
-		template<>
-		static void* Allocate<true>(size_t s) noexcept {
+		static void* Allocate(size_t s) noexcept {
 			return vengine_malloc(s);
-		}
-		template<>
-		static void* Allocate<false>(size_t s) noexcept {
-			return malloc(s);
 		}
 
 		template<bool value>
-		static void Free(void* ptr) noexcept;
-
-		template<>
-		static void Free<true>(void* ptr) noexcept {
+		static void Free(void* ptr) noexcept {
 			vengine_free(ptr);
-		}
-		template<>
-		static void Free<false>(void* ptr) noexcept {
-			free(ptr);
 		}
 
 		HashArray(size_t mSize) noexcept : mSize(mSize) {

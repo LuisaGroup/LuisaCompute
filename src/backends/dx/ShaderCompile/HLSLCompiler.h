@@ -11,7 +11,7 @@ class HLSLCompiler {
 public:
 	static bool ErrorHappened();
 	static void PrintErrorMessages();
-	static void InitRegisterData(const luisa::compute::Context &ctx);
+	static void InitRegisterData();
 	static void CompileShader(
 		vengine::string const& fileName,
 		vengine::vector<ShaderVariable> const& vars,
@@ -41,8 +41,5 @@ public:
 		vengine::string const& shaderFileName);
 
 private:
-	static const luisa::compute::Context *context;
-	static std::filesystem::path compiler_root;
-	static std::filesystem::path toolkit_root;
 };
 }// namespace SCompile

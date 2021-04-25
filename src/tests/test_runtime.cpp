@@ -80,6 +80,7 @@ int main(int argc, char *argv[]) {
         }
 
         Var vv_int = int_consts[v_int];
+        vv_int = 0;
         Var v_float = buffer_float[count + thread_id().x];
         Var vv_float = float_consts[vv_int];
         Var call_ret = callable(10, v_int, v_float);
@@ -103,10 +104,6 @@ int main(int argc, char *argv[]) {
                   Var b = 1.0f;
               }).else_([] {
                 Var c = 2.0f;
-            });
-
-            while_(true, [&] {
-                z += 1;
             });
 
             switch_(123)
@@ -134,7 +131,7 @@ int main(int argc, char *argv[]) {
     Clock clock;
     stream << buffer.copy_from(data.data())
            << buffer.copy_to(results.data());
-    stream.synchronize();
+    stream.synchronize();   
     LUISA_INFO("Finished in {} ms.", clock.toc());
 
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",

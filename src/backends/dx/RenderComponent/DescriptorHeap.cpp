@@ -38,8 +38,10 @@ void DescriptorHeap::InternalCreate(
 			break;
 	}
 	this->allocator = allocator;
+
 	handle = allocator->Allocate(
 		NumDescriptors);
+	std::cout << handle.node->obj.avaliable;
 	rootPtr = handle.GetBlockResource<DescriptorHeapRoot>();
 	size = NumDescriptors;
 	offset = handle.GetPosition();

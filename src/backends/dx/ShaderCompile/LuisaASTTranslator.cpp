@@ -32,8 +32,9 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 		for (auto& i : func.shared_variables()) {
 			str << "groupshared "_sv;
 			CodegenUtility::GetTypeName(*i.type(), str);
-			str << '['
-				<< i.type()->dimension()
+			str << " v"_sv << vengine::to_string(i.uid())
+				<< '['
+				<< vengine::to_string(i.type()->dimension())
 				<< "];\n"_sv;
 		}
 		CodegenUtility::PrintUniform(func, str);

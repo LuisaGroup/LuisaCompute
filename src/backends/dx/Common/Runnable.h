@@ -20,33 +20,33 @@ class Runnable<_Ret(_Types...)> {
 		virtual void Delete(void* ptr) const = 0;
 		virtual void CopyConstruct(void*& dst, void const* src, PlaceHolderType* holder) const = 0;
 		virtual void MoveConstruct(void*& dst, void* src, PlaceHolderType* holder) const = 0;
-		virtual _Ret Run(void*, _Types&&...) const = 0;
 	};
 	using ProcessorHolder = std::aligned_storage_t<sizeof(IProcessFunctor), alignof(IProcessFunctor)>;
 	/////////////////////Data
 	void* placePtr;
+	funcPtr_t<_Ret(void*, _Types&&...)> runFunc;
 	ProcessorHolder logicPlaceHolder;
 	PlaceHolderType funcPtrPlaceHolder;
+	IProcessFunctor const* GetPtr() const noexcept {
+		return reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder);
+	}
 
 public:
 	operator bool() const noexcept {
-		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
-		return *logicHolder != 0;
+		return placePtr;
 	}
 
 	void Dispose() noexcept {
-		size_t* logicHolder = reinterpret_cast<size_t*>(&logicPlaceHolder);
-		if (*logicHolder != 0) {
-			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->Delete(placePtr);
-			*logicHolder = 0;
+		if (placePtr) {
+			GetPtr()->Delete(placePtr);
+			placePtr = nullptr;
 		}
-		placePtr = nullptr;
+		runFunc = nullptr;
 	}
 
 	Runnable() noexcept
-		: placePtr(nullptr) {
-		size_t* logicHolder = reinterpret_cast<size_t*>(&logicPlaceHolder);
-		*logicHolder = 0;
+		: placePtr(nullptr),
+		  runFunc(nullptr) {
 	}
 
 	Runnable(std::nullptr_t) noexcept
@@ -64,40 +64,39 @@ public:
 			void MoveConstruct(void*& dst, void* src, PlaceHolderType* placeHolder) const override {
 				*reinterpret_cast<size_t*>(dst) = *reinterpret_cast<size_t const*>(src);
 			}
-			_Ret Run(void* pp, _Types&&... tt) const override {
-				funcPtr_t<_Ret(_Types...)> fp = reinterpret_cast<funcPtr_t<_Ret(_Types...)>>(*(void**)pp);
-				return fp(std::forward<_Types>(tt)...);
-			}
+		};
+		runFunc = [](void* pp, _Types&&... tt) -> _Ret {
+			funcPtr_t<_Ret(_Types...)> fp = reinterpret_cast<funcPtr_t<_Ret(_Types...)>>(pp);
+			return fp(std::forward<_Types>(tt)...);
 		};
 		new (&logicPlaceHolder) FuncPtrLogic();
-		*reinterpret_cast<size_t*>(placePtr) = *(reinterpret_cast<size_t const*>(&p));
+		*reinterpret_cast<size_t*>(&placePtr) = *(reinterpret_cast<size_t const*>(&p));
 	}
 
 	Runnable(const Runnable<_Ret(_Types...)>& f) noexcept
-		: logicPlaceHolder(f.logicPlaceHolder) {
-		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
-		if (*logicHolder != 0) {
-			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->CopyConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
+		: logicPlaceHolder(f.logicPlaceHolder),
+		  runFunc(f.runFunc) {
+		if (f.placePtr) {
+			GetPtr()->CopyConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
 		}
 	}
 	Runnable(Runnable<_Ret(_Types...)>&& f) noexcept
-		: logicPlaceHolder(f.logicPlaceHolder) {
-		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
-		if (*logicHolder != 0) {
-			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->MoveConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
+		: logicPlaceHolder(f.logicPlaceHolder),
+		  runFunc(f.runFunc) {
+		if (f.placePtr) {
+			GetPtr()->MoveConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
+			f.placePtr = nullptr;
 		}
-		f.placePtr = nullptr;
-		size_t* flogicHolder = reinterpret_cast<size_t*>(&f.logicPlaceHolder);
-		*flogicHolder = 0;
+		f.runFunc = nullptr;
 	}
 
 	template<typename Functor>
 	Runnable(Functor&& f) noexcept {
 		if constexpr (std::is_same_v<Functor&&, Runnable<_Ret(_Types...)>&>) {
 			logicPlaceHolder = f.logicPlaceHolder;
-			size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
-			if (*logicHolder != 0) {
-				reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->CopyConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
+			runFunc = f.runFunc;
+			if (f.placePtr) {
+				GetPtr()->CopyConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder);
 			}
 		} else {
 
@@ -128,10 +127,10 @@ public:
 							std::move(*reinterpret_cast<PureType*>(source)));
 					}
 				}
-				_Ret Run(void* pp, _Types&&... tt) const override {
-					PureType* ff = (PureType*)pp;
-					return (*ff)(std::forward<_Types>(tt)...);
-				}
+			};
+			runFunc = [](void* pp, _Types&&... tt) -> _Ret {
+				PureType* ff = (PureType*)pp;
+				return (*ff)(std::forward<_Types>(tt)...);
 			};
 			new (&logicPlaceHolder) FuncPtrLogic();
 			if constexpr (USE_HEAP) {
@@ -153,20 +152,11 @@ public:
 	}
 
 	_Ret operator()(_Types... t) const noexcept {
-		return reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->Run(placePtr, std::forward<_Types>(t)...);
+		return runFunc(placePtr, std::forward<_Types>(t)...);
 	}
 	~Runnable() noexcept {
-		size_t const* logicHolder = reinterpret_cast<size_t const*>(&logicPlaceHolder);
-		if (*logicHolder != 0) {
-			reinterpret_cast<IProcessFunctor const*>(&logicPlaceHolder)->Delete(placePtr);
+		if (placePtr) {
+			GetPtr()->Delete(placePtr);
 		}
-	}
-};
-
-template<typename T>
-struct RunnableHash {
-	size_t operator()(const Runnable<T>& runnable) const noexcept {
-		vengine::hash<size_t> h;
-		return h(*reinterpret_cast<size_t const*>(&runnable.logicPlaceHolder));
 	}
 };
