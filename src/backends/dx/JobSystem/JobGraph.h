@@ -71,7 +71,10 @@ class GraphNodeData {
 		va.tp = typeid(Ret);
 		if constexpr (!std::is_same_v<Ret, void>) {
 			va.disposer = [](void* pp) {
-				delete reinterpret_cast<Ret*>(pp);
+				if constexpr (!std::is_pointer_v<Ret>) {
+					reinterpret_cast<Ret*>(pp)->~Ret();
+					vengine_free(pp);
+				}
 			};
 		}
 		va.getJobHandle = [&]() {
@@ -112,8 +115,13 @@ class ResourceName {
 					 .Value());
 		}
 	}
-	T& Get(GraphNodeData* glb) const {
-		return *reinterpret_cast<T*>(glb->vec[index]->ptr);
+	decltype(auto) Get(GraphNodeData* glb) const {
+		if constexpr (std::is_pointer_v<T>) {
+			return reinterpret_cast<T>(glb->vec[index]->ptr);
+		} else {
+			T& pp = *reinterpret_cast<T*>(glb->vec[index]->ptr);
+			return pp;
+		}
 	}
 
 public:
@@ -131,7 +139,11 @@ public:
 			if constexpr (std::is_same_v<Ret, void>) {
 				f();
 			} else {
-				glb->retValue->ptr = new Ret(std::move(f()));
+				if constexpr (std::is_pointer_v<Ret>) {
+					glb->retValue->ptr = reinterpret_cast<void*>(std::move(f()));
+				} else {
+					glb->retValue->ptr = new (vengine_malloc(sizeof(Ret))) Ret(std::move(f()));
+				}
 			}
 		};
 	}
@@ -148,8 +160,13 @@ public:
 			if constexpr (std::is_same_v<Ret, void>) {
 				f(frontArgs.Get(glb)..., t.Get(glb));
 			} else {
-				glb->retValue->ptr = new Ret(std::move(
-					f(frontArgs.Get(glb)..., t.Get(glb))));
+				if constexpr (std::is_pointer_v<Ret>) {
+					glb->retValue->ptr = reinterpret_cast<void*>(std::move(
+						f(frontArgs.Get(glb)..., t.Get(glb))));
+				} else {
+					glb->retValue->ptr = new (vengine_malloc(sizeof(Ret))) Ret(std::move(
+						f(frontArgs.Get(glb)..., t.Get(glb))));
+				}
 			}
 		};
 	}
