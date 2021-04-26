@@ -2,14 +2,15 @@
 // Created by Mike Smith on 2021/4/6.
 //
 
-#include <opencv2/opencv.hpp>
-
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <tests/stb_image_write.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -30,7 +31,7 @@ int main(int argc, char *argv[]) {
 
     Kernel2D clear_image = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        image.write(coord, float4{});
+        image.write(coord, float4{float3{}, 1.0f});
     };
 
     Kernel2D fill_image = [](ImageVar<float> image) noexcept {
@@ -41,7 +42,7 @@ int main(int argc, char *argv[]) {
 
     device.compile(clear_image, fill_image);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
-    cv::Mat host_image{1024u, 1024u, CV_8UC4, cv::Scalar::all(0)};
+    std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
     auto event = device.create_event();
     auto stream = device.create_stream();
@@ -52,12 +53,11 @@ int main(int argc, char *argv[]) {
            << event.signal();
 
     copy_stream << event.wait()
-                << device_image.view().copy_to(host_image.data)
+                << device_image.view().copy_to(host_image.data())
                 << event.signal();
 
     event.synchronize();
-    cv::cvtColor(host_image, host_image, cv::COLOR_RGBA2BGR);
-    cv::imwrite("result.png", host_image);
+    stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
 
     auto volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
 }

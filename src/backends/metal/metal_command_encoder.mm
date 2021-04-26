@@ -146,12 +146,6 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
             auto arg_id = kernel.arguments[argument_index++].argumentIndex;
             [argument_encoder setTexture:texture atIndex:arg_id];
             mark_usage(texture, function.variable_usage(vid));
-            auto ptr = [argument_encoder constantDataAtIndex:arg_id + 1];
-            if (texture.textureType == MTLTextureType3D) {
-                std::memcpy(ptr, &argument.offset, sizeof(uint3));
-            } else {
-                std::memcpy(ptr, &argument.offset, sizeof(uint2));
-            }
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());

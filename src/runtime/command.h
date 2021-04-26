@@ -20,12 +20,12 @@
 
 namespace luisa::compute {
 
-#define LUISA_ALL_COMMANDS      \
-    BufferUploadCommand,        \
-        BufferDownloadCommand,  \
-        BufferCopyCommand,      \
-        KernelLaunchCommand,    \
-        TextureUploadCommand,   \
+#define LUISA_ALL_COMMANDS     \
+    BufferUploadCommand,       \
+        BufferDownloadCommand, \
+        BufferCopyCommand,     \
+        KernelLaunchCommand,   \
+        TextureUploadCommand,  \
         TextureDownloadCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
@@ -258,16 +258,16 @@ class KernelLaunchCommand : public Command {
 
 public:
     struct alignas(16) Argument {
-        
+
         enum struct Tag : uint32_t {
             BUFFER,
             TEXTURE,
             UNIFORM
         };
-        
+
         Tag tag;
         uint32_t variable_uid;
-        
+
         Argument() noexcept = default;
         Argument(Tag tag, uint32_t vid) noexcept
             : tag{tag}, variable_uid{vid} {}
@@ -285,14 +285,12 @@ public:
 
     struct TextureArgument : Argument {
         uint64_t handle{};
-        uint3 offset{};
         //TODO: Texture-write target miplevel, useless in read-only binding
         //uint writeLevel;
         TextureArgument() noexcept : Argument{Tag::TEXTURE, 0u} {}
-        TextureArgument(uint32_t vid, uint64_t handle, uint3 offset) noexcept
+        TextureArgument(uint32_t vid, uint64_t handle) noexcept
             : Argument{Tag::TEXTURE, vid},
-              handle{handle},
-              offset{offset} {}
+              handle{handle} {}
     };
 
     struct UniformArgument : Argument {
@@ -326,7 +324,7 @@ public:
     //   2. captured textures
     //   3. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, uint3 offset, Resource::Usage usage) noexcept;
+    void encode_texture(uint32_t variable_uid, uint64_t handle, Resource::Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
 
     template<typename Visit>

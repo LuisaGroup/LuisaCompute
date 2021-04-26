@@ -94,7 +94,7 @@ public:
 
         for (auto texture : _function.captured_textures()) {
             _launch_command()->encode_texture(
-                texture.variable.uid(), texture.handle, texture.offset,
+                texture.variable.uid(), texture.handle,
                 static_cast<Command::Resource::Usage>(_function.variable_usage(texture.variable.uid())));
         }
     }
@@ -114,9 +114,9 @@ public:
         auto variable_uid = _function.arguments()[_argument_index++].uid();
         auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_texture(
-            variable_uid, image.handle(), uint3{image.offset(), 0u},
+            variable_uid, image.handle(),
             static_cast<Command::Resource::Usage>(usage));
-        return *this;
+        return *this << image.offset();
     }
 
     template<typename T>
@@ -124,9 +124,9 @@ public:
         auto variable_uid = _function.arguments()[_argument_index++].uid();
         auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_texture(
-            variable_uid, volume.handle(), volume.offset(),
+            variable_uid, volume.handle(),
             static_cast<Command::Resource::Usage>(usage));
-        return *this;
+        return *this << volume.offset();
     }
 
     template<typename T>
@@ -136,7 +136,8 @@ public:
         return *this;
     }
 
-    [[nodiscard]] auto parallelize(uint3 launch_size) noexcept {
+protected:
+    [[nodiscard]] auto _parallelize(uint3 launch_size) noexcept {
         _launch_command()->set_launch_size(launch_size);
         auto command = std::move(_command);
         _command = nullptr;
@@ -147,21 +148,21 @@ public:
 struct KernelInvoke1D : public KernelInvoke {
     explicit KernelInvoke1D(uint32_t uid) noexcept : KernelInvoke{uid} {}
     [[nodiscard]] auto launch(uint size_x) noexcept {
-        return parallelize(uint3{size_x, 1u, 1u});
+        return _parallelize(uint3{size_x, 1u, 1u});
     }
 };
 
 struct KernelInvoke2D : public KernelInvoke {
     explicit KernelInvoke2D(uint32_t uid) noexcept : KernelInvoke{uid} {}
     [[nodiscard]] auto launch(uint size_x, uint size_y) noexcept {
-        return parallelize(uint3{size_x, size_y, 1u});
+        return _parallelize(uint3{size_x, size_y, 1u});
     }
 };
 
 struct KernelInvoke3D : public KernelInvoke {
     explicit KernelInvoke3D(uint32_t uid) noexcept : KernelInvoke{uid} {}
     [[nodiscard]] auto launch(uint size_x, uint size_y, uint size_z) noexcept {
-        return parallelize(uint3{size_x, size_y, size_z});
+        return _parallelize(uint3{size_x, size_y, size_z});
     }
 };
 
