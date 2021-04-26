@@ -1,8 +1,6 @@
 //#endif
 #include <Singleton/ShaderLoader.h>
 #include <Utility/StringUtility.h>
-#include <RenderComponent/PSOContainer.h>
-#include <RenderComponent/Shader.h>
 #include <RenderComponent/ComputeShader.h>
 #include <RenderComponent/RayShader.h>
 
@@ -24,11 +22,7 @@ public:
 		  rayShaderMap(256) {}
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };
-Shader* ShaderLoader::LoadShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
 
-	Shader* sh = new Shader(name, device, path);
-	return current->shaderMap.Insert(name, sh).Value();
-}
 RayShader* ShaderLoader::LoadRayShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
 
 	RayShader* sh = new RayShader(device, path);
@@ -48,26 +42,14 @@ ComputeShader* ShaderLoader::LoadComputeShader(const vengine::string& name, GFXD
 	ComputeShader* sh = new ComputeShader(name, path, device);
 	return current->computeShaderMap.Insert(name, sh).Value();
 }
-Shader const* ShaderLoader::GetShader(const vengine::string& name) {
-	std::lock_guard lck(current->mtx);
-	auto ite = current->shaderMap.Find(name);
-	if (ite && ite.Value()) return ite.Value();
-	return LoadShader(name, current->device, name);
-}
+
 ComputeShader const* ShaderLoader::GetComputeShader(const vengine::string& name) {
 	std::lock_guard lck(current->mtx);
 	auto ite = current->computeShaderMap.Find(name);
 	if (ite && ite.Value()) return ite.Value();
 	return LoadComputeShader(name, current->device, name);
 }
-void ShaderLoader::ReleaseShader(Shader const* shader) {
-	std::lock_guard lck(current->mtx);
-	auto ite = current->shaderMap.Find(shader->GetName());
-	if (!ite || shader != ite.Value()) return;
-	PSOContainer::ReleasePSO(shader);
-	delete ite.Value();
-	current->shaderMap.Remove(ite);
-}
+
 void ShaderLoader::ReleaseComputeShader(ComputeShader const* shader) {
 
 	std::lock_guard lck(current->mtx);
@@ -82,18 +64,12 @@ ShaderLoaderGlobal* ShaderLoader::Init(GFXDevice* device) {
 	glb->device = device;
 	return glb;
 }
-void ShaderLoader::Reload(GFXDevice* device, JobBucket* bucket, HashMap<Shader const*, vengine::vector<JobHandle>>& shaderHandles) {
-
-	current->shaderMap.IterateAll([&](vengine::string const& name, Shader*& shader) -> void {
-		shaderHandles.Insert(shader).Value().push_back(bucket->GetTask({}, [&name, &shader]() -> void {
-			shader->~Shader();
-			new (shader) Shader(name, current->device, name);
-		}));
-	});
+void ShaderLoader::Reload(GFXDevice* device, JobBucket* bucket) {
 	current->rayShaderMap.IterateAll(([&](vengine::string const& name, RayShader*& shader) -> void {
-		
-		shader->~RayShader();
-		new (shader) RayShader(current->device, name);
+		bucket->GetTask({}, [&name, &shader]() -> void {
+			shader->~RayShader();
+			new (shader) RayShader(current->device, name);
+		});
 	}));
 	current->computeShaderMap.IterateAll([&](vengine::string const& name, ComputeShader*& shader) -> void {
 		bucket->GetTask({}, [&name, &shader]() -> void {

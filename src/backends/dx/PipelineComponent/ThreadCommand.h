@@ -5,7 +5,6 @@
 #include <PipelineComponent/CommandAllocator.h>
 #include <Common/LockFreeArrayQueue.h>
 #include <Singleton/Graphics.h>
-#include <RenderComponent/PSOContainer.h>
 class PipelineComponent;
 class StructuredBuffer;
 class RenderTexture;
@@ -31,7 +30,6 @@ private:
 	void const* pso;
 	vengine::vector<D3D12_CPU_DESCRIPTOR_HANDLE> colorHandles;
 	D3D12_CPU_DESCRIPTOR_HANDLE depthHandle;
-	PSOContainer psoContainer;
 	ObjectPtr<CommandAllocator> cmdAllocator;
 	Microsoft::WRL::ComPtr<GFXCommandList> cmdList;
 	uint64 frameCount;
@@ -87,65 +85,7 @@ public:
 	void UAVBarriers(const std::initializer_list<GPUResourceBase const*>&);
 	void AliasBarrier(GPUResourceBase const* before, GPUResourceBase const* after);
 	void AliasBarriers(std::initializer_list<std::pair<GPUResourceBase const*, GPUResourceBase const*>> const&);
-	void SetRenderTarget(
-		RenderTexture const* const* renderTargets,
-		uint rtCount,
-		RenderTexture const* depthTex = nullptr) {
-		psoContainer.SetRenderTarget(
-			this,
-			renderTargets,
-			rtCount,
-			depthTex);
-	}
-	void SetRenderTarget(
-		const std::initializer_list<RenderTexture const*>& renderTargets,
-		RenderTexture const* depthTex = nullptr) {
-		psoContainer.SetRenderTarget(
-			this,
-			renderTargets,
-			depthTex);
-	}
-	void SetRenderTarget(
-		const RenderTarget* renderTargets,
-		uint rtCount,
-		const RenderTarget& depth) {
-		psoContainer.SetRenderTarget(
-			this,
-			renderTargets,
-			rtCount,
-			depth);
-	}
-	void SetRenderTarget(
-		const std::initializer_list<RenderTarget>& init,
-		const RenderTarget& depth) {
-		psoContainer.SetRenderTarget(
-			this,
-			init,
-			depth);
-	}
-	void SetRenderTarget(
-		const RenderTarget* renderTargets,
-		uint rtCount) {
-		psoContainer.SetRenderTarget(
-			this,
-			renderTargets,
-			rtCount);
-	}
-	void SetRenderTarget(
-		const std::initializer_list<RenderTarget>& init) {
-		psoContainer.SetRenderTarget(
-			this,
-			init);
-	}
-
-	GFXPipelineState* GetPSOState(PSODescriptor const& desc, GFXDevice* device) {
-		return psoContainer.GetPSOState(desc, device);
-	}
-	GFXPipelineState* TryGetPSOStateAsync(
-		PSODescriptor const& desc, GFXDevice* device) {
-		return psoContainer.TryGetPSOStateAsync(
-			desc, device);
-	}
+	
 	KILL_COPY_CONSTRUCT(ThreadCommand)
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };

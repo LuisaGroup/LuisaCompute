@@ -1,17 +1,11 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <RenderComponent/Shader.h>
 #include <CJsonObject/SerializedObject.h>
 #include <RenderComponent/ComputeShader.h>
 class SerializedObject;
 class ThreadCommand;
 class VENGINE_DLL_RENDERER ShaderIO {
 public:
-	static void DecodeShader(
-		const vengine::string& fileName,
-		vengine::vector<ShaderVariable>& vars,
-		vengine::vector<ShaderPass>& passes,
-		StackObject<SerializedObject, true>& serObj);
 	static void DecodeComputeShader(
 		const vengine::string& fileName,
 		vengine::vector<ShaderVariable>& vars,

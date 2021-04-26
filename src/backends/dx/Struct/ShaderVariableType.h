@@ -34,28 +34,18 @@ struct CompileDXRHitGroup {
 	vengine::string functions[(uint8_t)HitGroupFunctionType::Num];
 };
 struct ShaderVariable {
-	vengine::string name;
+	uint varID;
 	ShaderVariableType type;
 	uint tableSize;
 	uint registerPos;
 	uint space;
 	ShaderVariable() {}
 	ShaderVariable(
-		const vengine::string& name,
+		uint varID,
 		ShaderVariableType type,
 		uint tableSize,
 		uint registerPos,
-		uint space) : name(name),
-					  type(type),
-					  tableSize(tableSize),
-					  registerPos(registerPos),
-					  space(space) {}
-	ShaderVariable(
-		vengine::string&& name,
-		ShaderVariableType type,
-		uint tableSize,
-		uint registerPos,
-		uint space) : name(std::move(name)),
+		uint space) : varID(varID),
 					  type(type),
 					  tableSize(tableSize),
 					  registerPos(registerPos),

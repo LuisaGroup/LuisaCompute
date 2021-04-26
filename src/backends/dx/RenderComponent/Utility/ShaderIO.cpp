@@ -31,7 +31,7 @@ void GetShaderVariable(
 	DragData<uint>(ifs, varSize);
 	vars.resize(varSize);
 	for (auto i = vars.begin(); i != vars.end(); ++i) {
-		DragData<vengine::string>(ifs, i->name);
+		DragData<uint>(ifs, i->varID);
 		DragData<ShaderVariableType>(ifs, i->type);
 		DragData<uint>(ifs, i->tableSize);
 		DragData<uint>(ifs, i->registerPos);
@@ -52,49 +52,7 @@ void GetShaderSerializedObject(
 	}
 }
 }// namespace ShaderIOGlobal
-void ShaderIO::DecodeShader(
-	const vengine::string& fileName,
-	vengine::vector<ShaderVariable>& vars,
-	vengine::vector<ShaderPass>& passes,
-	StackObject<SerializedObject, true>& serObj) {
-	using namespace ShaderIOGlobal;
-	vars.clear();
-	passes.clear();
-	BinaryReader ifs(fileName);
-	if (!ifs) return;
-	GetShaderSerializedObject(ifs, serObj);
-	GetShaderVariable(vars, ifs);
-	uint functionCount = 0;
-	DragData<uint>(ifs, functionCount);
-	vengine::vector<Microsoft::WRL::ComPtr<ID3DBlob>> functions(functionCount);
-	for (uint i = 0; i < functionCount; ++i) {
-		uint64_t codeSize = 0;
-		DragData(ifs, codeSize);
-		if (codeSize > 0) {
-			D3DCreateBlob(codeSize, &functions[i]);
-			ifs.Read((char*)functions[i]->GetBufferPointer(), codeSize);
-		}
-	}
-	uint passSize = 0;
-	DragData<uint>(ifs, passSize);
-	passes.resize(passSize);
-	for (auto i = passes.begin(); i != passes.end(); ++i) {
-		DragData(ifs, i->name);
-		auto& name = i->name;
-		DragData(ifs, i->rasterizeState);
-		DragData(ifs, i->depthStencilState);
-		DragData(ifs, i->blendState);
-		int32_t vertIndex = 0, fragIndex = 0, hullIndex = 0, domainIndex = 0;
-		DragData(ifs, vertIndex);
-		DragData(ifs, hullIndex);
-		DragData(ifs, domainIndex);
-		DragData(ifs, fragIndex);
-		i->vsShader = vertIndex >= 0 ? functions[vertIndex] : nullptr;
-		i->hsShader = hullIndex >= 0 ? functions[hullIndex] : nullptr;
-		i->dsShader = domainIndex >= 0 ? functions[domainIndex] : nullptr;
-		i->psShader = fragIndex >= 0 ? functions[fragIndex] : nullptr;
-	}
-}
+
 void ShaderIO::DecodeComputeShader(
 	const vengine::string& fileName,
 	vengine::vector<ShaderVariable>& vars,

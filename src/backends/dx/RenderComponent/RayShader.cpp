@@ -25,7 +25,7 @@ RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 	mVariablesDict.Reserve(mVariablesVector.size() + 2);
 	for (int32_t i = 0; i < mVariablesVector.size(); ++i) {
 		ShaderVariable& variable = mVariablesVector[i];
-		mVariablesDict.Insert(ShaderID::PropertyToID(variable.name), i);
+		mVariablesDict.Insert(ShaderID::PropertyToID(variable.varID), i);
 	}
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;

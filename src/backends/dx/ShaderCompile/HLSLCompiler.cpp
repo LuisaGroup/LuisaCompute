@@ -125,10 +125,10 @@ void HLSLCompiler::InitRegisterData() {
 	vengine::string folderPath = "VEngineCompiler/CompilerToolkit"_sv;
 	
 
-	shaderTypeCmd = " /T ";
-	funcName = " /E ";
-	output = " /Fo ";
-	macro_compile = " /D ";
+	shaderTypeCmd = " /T "_sv;
+	funcName = " /E "_sv;
+	output = " /Fo "_sv;
+	macro_compile = " /D "_sv;
 	using namespace neb;
 	std::unique_ptr<CJsonObject> obj(ReadJson(folderPath + "/register.json"_sv));
 	if (!obj) {
@@ -171,15 +171,15 @@ void HLSLCompiler::InitRegisterData() {
 	if (obj->Get("CompilerUsage"_sv, sonObj)) {
 		if (sonObj.Get("Rasterize"_sv, value)) {
 			StringUtil::ToLower(value);
-			rasterizeCompilerUsage = (Compiler)(value == "fxc");
+			rasterizeCompilerUsage = (Compiler)(value == "fxc"_sv);
 		}
 		if (sonObj.Get("RayTracing"_sv, value)) {
 			StringUtil::ToLower(value);
-			rayTracingCompilerUsage = (Compiler)(value == "fxc");
+			rayTracingCompilerUsage = (Compiler)(value == "fxc"_sv);
 		}
 		if (sonObj.Get("Compute"_sv, value)) {
 			StringUtil::ToLower(value);
-			computeCompilerUsage = (Compiler)(value == "fxc");
+			computeCompilerUsage = (Compiler)(value == "fxc"_sv);
 		}
 	}
 	//	if (obj->Get("TempFolder"_sv, value)) {
@@ -302,13 +302,13 @@ void DragData<vengine::string>(std::ifstream& ifs, vengine::string& str) {
 void PutInSerializedObjectAndData(
 	vengine::vector<char> const& serializeObj,
 	vengine::vector<char>& resultData,
-	vengine::vector<ShaderVariable> vars) {
+	vengine::vector<ShaderVariable> const& vars) {
 	PutIn<uint64_t>(resultData, serializeObj.size());
 	PutIn(resultData, serializeObj.data(), serializeObj.size());
 
 	PutIn<uint>(resultData, (uint)vars.size());
 	for (auto i = vars.begin(); i != vars.end(); ++i) {
-		PutIn<vengine::string>(resultData, i->name);
+		PutIn<uint>(resultData, i->varID);
 		PutIn<ShaderVariableType>(resultData, i->type);
 		PutIn<uint>(resultData, i->tableSize);
 		PutIn<uint>(resultData, i->registerPos);
@@ -327,93 +327,6 @@ void HLSLCompiler::PrintErrorMessages() {
 	errorMessage.clear();
 }
 
-void HLSLCompiler::CompileShader(
-	vengine::string const& fileName,
-	vengine::vector<ShaderVariable> const& vars,
-	vengine::vector<PassDescriptor> const& passDescs,
-	vengine::vector<char> const& customData,
-	vengine::vector<char>& resultData) {
-	resultData.clear();
-	resultData.reserve(65536);
-	PutInSerializedObjectAndData(
-		customData,
-		resultData,
-		vars);
-	auto func = [&](ProcessorData* pData, vengine::string const& str) -> bool {
-		//TODO
-		uint64_t fileSize;
-		WaitChildProcess(pData);
-		//CreateChildProcess(,);
-		//system(command.c_str());
-		fileSize = 0;
-		std::ifstream ifs(str.data(), std::ios::binary);
-		if (!ifs) return false;
-		ifs.seekg(0, std::ios::end);
-		fileSize = ifs.tellg();
-		ifs.seekg(0, std::ios::beg);
-		PutIn<uint64_t>(resultData, fileSize);
-		if (fileSize == 0) return false;
-		uint64 originSize = resultData.size();
-		resultData.resize(fileSize + originSize);
-		ifs.read(resultData.data() + originSize, fileSize);
-		return true;
-	};
-	HashMap<vengine::string, std::pair<ShaderType, uint>> passMap(passDescs.size() * 2);
-	for (auto i = passDescs.begin(); i != passDescs.end(); ++i) {
-		auto findFunc = [&](vengine::string const& namestr, ShaderType type) -> void {
-			if (namestr.empty()) return;
-			if (!passMap.Contains(namestr)) {
-				passMap.Insert(namestr, std::pair<ShaderType, uint>(type, (uint)passMap.Size()));
-			}
-		};
-		findFunc(i->vertex, ShaderType::VertexShader);
-		findFunc(i->hull, ShaderType::HullShader);
-		findFunc(i->domain, ShaderType::DomainShader);
-		findFunc(i->fragment, ShaderType::PixelShader);
-	}
-	vengine::vector<CompileFunctionCommand> functionNames(passMap.Size());
-	PutIn<uint>(resultData, (uint)passMap.Size());
-	passMap.IterateAll([&](vengine::string const& key, std::pair<ShaderType, uint>& value) -> void {
-		CompileFunctionCommand cmd;
-		cmd.name = key;
-		cmd.type = value.first;
-		functionNames[value.second] = std::move(cmd);
-	});
-	vengine::string commandCache;
-	ProcessorData data;
-	vengine::vector<vengine::string> strs(functionNames.size());
-	for (uint i = 0; i < functionNames.size(); ++i) {
-		strs[i] = tempPath + vengine::to_string(i);
-		GenerateCompilerCommand(
-			fileName, functionNames[i].name, strs[i], functionNames[i].type, rasterizeCompilerUsage, commandCache);
-		CreateChildProcess(commandCache, &data);
-		if (!func(&data, strs[i])) {
-			std::lock_guard<spin_mutex> lck(outputMtx);
-			errorMessage.emplace_back(std::move(vengine::string("Shader "_sv) + fileName + " Failed!"_sv));
-			return;
-		}
-	}
-
-	PutIn<uint>(resultData, (uint)passDescs.size());
-	for (auto i = passDescs.begin(); i != passDescs.end(); ++i) {
-		PutIn(resultData, i->name);
-		PutIn(resultData, i->rasterizeState);
-		PutIn(resultData, i->depthStencilState);
-		PutIn(resultData, i->blendState);
-		auto PutInFunc = [&](vengine::string const& value) -> void {
-			if (value.empty() || !passMap.Contains(value))
-				PutIn<int>(resultData, -1);
-			else
-				PutIn<int>(resultData, (int)passMap[value].second);
-		};
-		PutInFunc(i->vertex);
-		PutInFunc(i->hull);
-		PutInFunc(i->domain);
-		PutInFunc(i->fragment);
-	}
-	for (auto i = strs.begin(); i != strs.end(); ++i)
-		remove(i->c_str());
-}
 void HLSLCompiler::CompileComputeShader(
 	vengine::string const& fileName,
 	vengine::vector<ShaderVariable> const& vars,
@@ -536,24 +449,20 @@ void HLSLCompiler::CompileDXRShader(
 void HLSLCompiler::GetShaderVariables(
 	luisa::compute::Function const& func,
 	vengine::vector<ShaderVariable>& result) {
-
+	using namespace luisa::compute;
 	uint registPos = 0;
 	uint rwRegistPos = 0;
 	//CBuffer
 	result.emplace_back(
-		"Params"_sv,
+		(uint)-1,
 		ShaderVariableType::ConstantBuffer,
 		1,
 		0,
 		0);
-
-	//Buffer
-	for (auto& i : func.captured_buffers()) {
-		auto& buffer = i.variable;
-		vengine::string name = 'v' + vengine::to_string(buffer.uid());
-		if (((uint)func.variable_usage(i.variable.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
+	auto ProcessBuffer = [&](Variable const& buffer) {
+		if (((uint)func.variable_usage(buffer.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
 			auto& var = result.emplace_back(
-				std::move(name),
+				buffer.uid(),
 				ShaderVariableType::RWStructuredBuffer,
 				1,
 				rwRegistPos,
@@ -561,20 +470,18 @@ void HLSLCompiler::GetShaderVariables(
 			rwRegistPos++;
 		} else {
 			auto& var = result.emplace_back(
-				std::move(name),
+				buffer.uid(),
 				ShaderVariableType::StructuredBuffer,
 				1,
 				registPos,
 				0);
 			registPos++;
 		}
-	}
-	for (auto& i : func.captured_textures()) {
-		auto& buffer = i.variable;
-		vengine::string name = 'v' + vengine::to_string(buffer.uid());
-		if (((uint)func.variable_usage(i.variable.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
+	};
+	auto ProcessTexture = [&](Variable const& buffer) {
+		if (((uint)func.variable_usage(buffer.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
 			auto& var = result.emplace_back(
-				std::move(name),
+				buffer.uid(),
 				ShaderVariableType::UAVDescriptorHeap,
 				1,
 				rwRegistPos,
@@ -582,12 +489,31 @@ void HLSLCompiler::GetShaderVariables(
 			rwRegistPos++;
 		} else {
 			auto& var = result.emplace_back(
-				std::move(name),
+				buffer.uid(),
 				ShaderVariableType::SRVDescriptorHeap,
 				1,
 				registPos,
 				0);
 			registPos++;
+		}
+	};
+	//Buffer
+	for (auto& i : func.captured_buffers()) {
+		auto& buffer = i.variable;
+		ProcessBuffer(buffer);
+	}
+	for (auto& i : func.captured_textures()) {
+		auto& buffer = i.variable;
+		ProcessTexture(buffer);
+	}
+	for (auto& i : func.arguments()) {
+		switch (i.tag()) {
+			case Variable::Tag::BUFFER:
+				ProcessBuffer(i);
+				break;
+			case Variable::Tag::TEXTURE:
+				ProcessTexture(i);
+				break;
 		}
 	}
 }

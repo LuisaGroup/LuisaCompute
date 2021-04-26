@@ -19,9 +19,7 @@ class VENGINE_DLL_RENDERER CommandSignature
 public:
 	enum class SignatureType : uint
 	{
-		MultiDrawIndirect = 0,
-		DrawInstanceIndirect = 1,
-		DispatchComputeIndirect = 2
+		DispatchComputeIndirect = 0
 	};
 private:
 	Microsoft::WRL::ComPtr<ID3D12CommandSignature> mCommandSignature;

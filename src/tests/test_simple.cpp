@@ -69,12 +69,12 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     stream << buffer.copy_from(data.data());
-    /*{
-        auto s = stream << kernel(buffer, result_buffer, Test{1.0f, 0.0f, {}}).launch(n);
+    {
+        auto s = stream << kernel(buffer, result_buffer, 2).launch(n);
         for (auto i = 0; i < 10; i++) {
-            s << kernel(buffer, result_buffer, Test{2.0f + i, 0.0f, {}}).launch(n);
+            s << kernel(buffer, result_buffer, 3).launch(n);
         }
-    }*/
+    }
     stream << result_buffer.copy_to(results.data());
     auto t1 = clock.toc();
     stream.synchronize();

@@ -78,15 +78,15 @@ void DXCommandVisitor::visit(BufferCopyCommand const* cmd) noexcept {
 		cmd->size());
 }
 void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
-	IShader* funcShader = getFunction(cmd->kernel_uid());
+	IShader const* funcShader = getFunction(cmd->kernel_uid());
 	if (funcShader->GetType() == typeid(ComputeShader)) {//Common compute
-		ComputeShader* cs = static_cast<ComputeShader*>(funcShader);
+		ComputeShader const* cs = static_cast<ComputeShader const*>(funcShader);
 		auto&& cbData = ShaderCompiler::GetCBufferData(cmd->kernel_uid());
 		vengine::vector<uint8_t> cbufferData(cbData.cbufferSize);
 		memset(cbufferData.data(), 0, cbufferData.size());
 		cs->BindShader(tCmd);
 		struct Functor {
-			ComputeShader* cs;
+			ComputeShader const* cs;
 			Function func;
 			ThreadCommand* tCmd;
 			uint8_t* cbuffer;
@@ -144,17 +144,35 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 				memcpy(cbuffer + ite.Value(), arg.data(), arg.size_bytes());
 			}
 		};
+		Function func = Function::kernel(cmd->kernel_uid());
 		Functor f{
 			cs,
-			Function::kernel(cmd->kernel_uid()),
+			func,
 			tCmd,
 			cbufferData.data(),
 			&cbData};
+		auto launchSize = cmd->launch_size();
+
+		//Copy launch size
+		{
+			for (auto& i : func.builtin_variables()) {
+				if (i.tag() != Variable::Tag::LAUNCH_SIZE)
+					continue;
+				auto ite = cbData.offsets.Find(i.uid());
+				if (!ite) continue;
+				uint3* cbufferPtr = reinterpret_cast<uint3*>(cbufferData.data() + ite.Value());
+				*cbufferPtr = launchSize;
+				break;
+			}
+		}
 		cmd->decode(f);
 		auto cbufferChunk = res->AllocateCBuffer(cbufferData.size());
 		cbufferChunk.CopyData(cbufferData.data(), cbufferData.size());
-
-		auto launchSize = cmd->launch_size();
+		cs->SetResource(
+			tCmd,
+			ShaderID::PropertyToID((uint)-1),
+			cbufferChunk.GetBuffer(),
+			cbufferChunk.GetOffset());
 		cs->Dispatch(
 			tCmd,
 			0,
@@ -290,7 +308,7 @@ DXCommandVisitor::DXCommandVisitor(
 	ThreadCommand* tCmd,
 	FrameResource* res,
 	InternalShaders* internalShaders,
-	Runnable<IShader*(uint)>&& getFunction)
+	Runnable<IShader const*(uint)>&& getFunction)
 	: device(device),
 	  tCmd(tCmd),
 	  res(res),
