@@ -94,7 +94,7 @@ public:
 
         for (auto texture : _function.captured_textures()) {
             _launch_command()->encode_texture(
-                texture.variable.uid(), texture.handle, texture.offset,
+                texture.variable.uid(), texture.handle,
                 static_cast<Command::Resource::Usage>(_function.variable_usage(texture.variable.uid())));
         }
     }
@@ -114,9 +114,9 @@ public:
         auto variable_uid = _function.arguments()[_argument_index++].uid();
         auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_texture(
-            variable_uid, image.handle(), uint3{image.offset(), 0u},
+            variable_uid, image.handle(),
             static_cast<Command::Resource::Usage>(usage));
-        return *this;
+        return *this << image.offset();
     }
 
     template<typename T>
@@ -124,9 +124,9 @@ public:
         auto variable_uid = _function.arguments()[_argument_index++].uid();
         auto usage = _function.variable_usage(variable_uid);
         _launch_command()->encode_texture(
-            variable_uid, volume.handle(), volume.offset(),
+            variable_uid, volume.handle(),
             static_cast<Command::Resource::Usage>(usage));
-        return *this;
+        return *this << volume.offset();
     }
 
     template<typename T>

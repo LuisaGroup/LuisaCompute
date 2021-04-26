@@ -82,7 +82,6 @@ void KernelLaunchCommand::encode_buffer(
 void KernelLaunchCommand::encode_texture(
     uint32_t variable_uid,
     uint64_t handle,
-    uint3 offset,
     Command::Resource::Usage usage) noexcept {
 
     if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) [[unlikely]] {
@@ -92,7 +91,7 @@ void KernelLaunchCommand::encode_texture(
             _argument_buffer.size());
     }
     
-    TextureArgument argument{variable_uid, handle, offset};
+    TextureArgument argument{variable_uid, handle};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureArgument));

@@ -220,7 +220,7 @@ public:
 
     Expr &operator=(Expr) = delete;
 
-    [[nodiscard]] const Expression *expression() const noexcept { return _expression; }
+    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
     template<concepts::integral I>
     [[nodiscard]] auto operator[](Expr<I> i) const noexcept {
@@ -247,29 +247,40 @@ public:
 
 private:
     const RefExpr *_expression{nullptr};
+    const Expression *_offset{nullptr};
+
+    [[nodiscard]] auto _offset_uv(const Expression *uv) const noexcept -> const Expression * {
+        if (_offset == nullptr) { return uv; }
+        auto f = FunctionBuilder::current();
+        return f->binary(Type::of<uint2>(), BinaryOp::ADD, uv, _offset);
+    }
 
 public:
-    explicit Expr(const RefExpr *expr) noexcept
-        : _expression{expr} {}
+    explicit Expr(const RefExpr *expr, const Expression *offset) noexcept
+        : _expression{expr}, _offset{offset} {}
     explicit Expr(ImageView<T> image) noexcept
         : _expression{FunctionBuilder::current()->texture_binding(
-            Type::of<Image<T>>(), image.handle(), image.offset())} {}
+            Type::of<Image<T>>(), image.handle())},
+          _offset{any(image.offset())
+                      ? FunctionBuilder::current()->literal(Type::of<uint2>(), image.offset())
+                      : nullptr} {}
 
     Expr &operator=(Expr) = delete;
 
-    [[nodiscard]] const Expression *expression() const noexcept { return _expression; }
+    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
-    [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
-        auto expr = Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
+    [[nodiscard]] auto read(Expr<uint2> uv) const noexcept -> Expr<float4> {
+        auto f = FunctionBuilder::current();
+        auto expr = Expr<Vector<T, 4>>{f->call(
             Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
-            {_expression, uv.expression()})};
+            {_expression, _offset_uv(uv.expression())})};
         return Var{expr};
     };
 
     void write(Expr<uint2> uv, Expr<Vector<T, 4>> value) const noexcept {
         FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
-            {_expression, uv.expression(), value.expression()});
+            {_expression, _offset_uv(uv.expression()), value.expression()});
     }
 };
 
@@ -286,29 +297,39 @@ public:
 
 private:
     const RefExpr *_expression{nullptr};
+    const Expression *_offset{nullptr};
+
+    [[nodiscard]] auto _offset_uvw(const Expression *uvw) const noexcept -> const Expression * {
+        if (_offset == nullptr) { return uvw; }
+        auto f = FunctionBuilder::current();
+        return f->binary(Type::of<uint3>(), BinaryOp::ADD, uvw, _offset);
+    }
 
 public:
-    explicit Expr(const RefExpr *expr) noexcept
-        : _expression{expr} {}
+    explicit Expr(const RefExpr *expr, const Expression *offset) noexcept
+        : _expression{expr}, _offset{offset} {}
     explicit Expr(VolumeView<T> volume) noexcept
         : _expression{FunctionBuilder::current()->texture_binding(
-            Type::of<Volume<T>>(), volume.handle(), volume.offset())} {}
+            Type::of<Volume<T>>(), volume.handle())},
+          _offset{any(volume.offset())
+                      ? FunctionBuilder::current()->literal(Type::of<uint3>(), volume.offset())
+                      : nullptr} {}
 
     Expr &operator=(Expr) = delete;
 
-    [[nodiscard]] const Expression *expression() const noexcept { return _expression; }
+    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
-    [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept {
+    [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept -> Expr<float4> {
         auto expr = Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
             Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
-            {_expression, uvw.expression()})};
+            {_expression, _offset_uvw(uvw.expression())})};
         return Var{expr};
     };
 
     void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value) const noexcept {
         FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
-            {_expression, uvw.expression(), value.expression()});
+            {_expression, _offset_uvw(uvw.expression()), value.expression()});
     }
 };
 
