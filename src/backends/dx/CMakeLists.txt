@@ -23,6 +23,7 @@ if (WIN32)
         JobSystem/JobBucket.cpp
         JobSystem/JobNode.cpp
         JobSystem/JobSystem.cpp
+        JobSystem/JobGraph.cpp
         LogicComponent/Component.cpp
         LogicComponent/RayRenderer.cpp
         LogicComponent/RendererBase.cpp
