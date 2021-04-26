@@ -96,46 +96,7 @@ public:
 		return current->fullScreenMesh;
 	}
 	Graphics(GFXDevice* device);
-	static void Blit(
-		ThreadCommand* commandList,
-		GFXDevice* device,
-		D3D12_CPU_DESCRIPTOR_HANDLE* renderTarget,
-		GFXFormat* renderTargetFormats,
-		uint renderTargetCount,
-		D3D12_CPU_DESCRIPTOR_HANDLE* depthTarget,
-		GFXFormat depthFormat,
-		uint width, uint height,
-		const Shader* shader, uint pass);
-	static void Blit(
-		ThreadCommand* commandList,
-		GFXDevice* device,
-		const std::initializer_list<RenderTarget>& renderTarget,
-		const RenderTarget& depthTarget,
-		const Shader* shader, uint pass);
-	static void Blit(
-		ThreadCommand* commandList,
-		GFXDevice* device,
-		RenderTarget const* renderTargets,
-		uint renderTargetCount,
-		const RenderTarget& depthTarget,
-		const Shader* shader, uint pass);
-	/*
-	template <uint count>
-	inline  static void UAVBarriers(
-		ThreadCommand* commandList,
-		const std::initializer_list<GFXResource*>& resources)
-	{
-		D3D12_RESOURCE_BARRIER barrier[count];
-		GFXResource* const* ptr = resources.begin();
-		auto func = [&](uint i)->void
-		{
-			barrier[i].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-			barrier[i].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-			barrier[i].UAV = { ptr[i] };
-		};
-		InnerLoop<decltype(func), count>(func);
-		commandList->ResourceBarrier(count, barrier);
-	}*/
+
 	static void CopyTexture(
 		ThreadCommand* commandList,
 		RenderTexture const* source, uint sourceSlice, uint sourceMipLevel,
@@ -156,17 +117,7 @@ public:
 		UploadBuffer* sourceBuffer, size_t sourceBufferOffset,
 		GFXResource* textureResource, uint targetMip,
 		uint width, uint height, uint depth, GFXFormat targetFormat, uint pixelSize);
-	static void DrawMesh(
-		GFXDevice* device,
-		ThreadCommand* commandList,
-		const IMesh* mesh,
-		const Shader* shader, uint pass, uint instanceCount = 1);
-
-	static void DrawMeshes(
-		GFXDevice* device,
-		ThreadCommand* commandList,
-		IMesh const** mesh, uint meshCount,
-		const Shader* shader, uint pass, bool sort);
+	
 	static void CopyBufferRegion(
 		ThreadCommand* commandList,
 		IBuffer const* dest,

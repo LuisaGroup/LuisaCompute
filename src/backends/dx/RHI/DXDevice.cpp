@@ -89,7 +89,7 @@ static GFXFormat LCFormatToVEngineFormat(PixelFormat format) {
 	}
 }
 class FrameResource;
-class DXDevice final : public Device::Interface  {
+class DXDevice final : public Device::Interface {
 public:
 	DXDevice(const Context& ctx, uint32_t index) : Device::Interface(ctx) {// TODO: support device selection?
 		EnableThreadLocal();
@@ -104,7 +104,6 @@ public:
 		ShaderID::Init();
 
 		internalShaders.New();
-
 	}
 	uint64 create_buffer(size_t size_bytes) noexcept override {
 		Graphics::current = graphicsInstance;
@@ -313,7 +312,8 @@ private:
 						queue.Pop();
 						res->ReleaseTemp();
 						waitingQueue.Push(res);
-					}
+					} else
+						break;
 				}
 			}
 		}

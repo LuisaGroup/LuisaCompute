@@ -1,11 +1,9 @@
 #include <Singleton/Graphics.h>
 #include <Singleton/ShaderLoader.h>
 #include <Singleton/ShaderID.h>
-#include <RenderComponent/Shader.h>
 #include <RenderComponent/ComputeShader.h>
 #include <Singleton/MeshLayout.h>
 #include <RenderComponent/DescriptorHeap.h>
-#include <RenderComponent/PSOContainer.h>
 #include <RenderComponent/StructuredBuffer.h>
 #include <RenderComponent/RenderTexture.h>
 #include <RenderComponent/Texture.h>
@@ -214,88 +212,6 @@ void Graphics::CopyBufferToTexture(
 		&sourceLocation,
 		nullptr);
 }
-void Graphics::Blit(
-	ThreadCommand* commandList,
-	GFXDevice* device,
-	D3D12_CPU_DESCRIPTOR_HANDLE* renderTarget,
-	GFXFormat* renderTargetFormats,
-	uint renderTargetCount,
-	D3D12_CPU_DESCRIPTOR_HANDLE* depthTarget,
-	GFXFormat depthFormat,
-	uint width, uint height,
-	const Shader* shader, uint pass) {
-	D3D12_VIEWPORT mViewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f};
-	D3D12_RECT mScissorRect = {0, 0, (int32_t)width, (int32_t)height};
-	PSODescriptor psoDesc;
-	psoDesc.meshLayoutIndex = current->fullScreenMesh->GetLayoutIndex();
-	psoDesc.shaderPass = pass;
-	psoDesc.shaderPtr = shader;
-	commandList->psoContainer.rtFormats.rtCount = renderTargetCount;
-	memcpy(commandList->psoContainer.rtFormats.rtFormat, renderTargetFormats, sizeof(GFXFormat) * renderTargetCount);
-	commandList->psoContainer.rtFormats.depthFormat = depthFormat;
-	if (commandList->UpdateRenderTarget(renderTargetCount, renderTarget, depthTarget)) {
-		commandList->GetCmdList()->RSSetViewports(1, &mViewport);
-		commandList->GetCmdList()->RSSetScissorRects(1, &mScissorRect);
-	}
-	commandList->psoContainer.UpdateHash();
-	auto pso = commandList->psoContainer.GetPSOState(psoDesc, device);
-	commandList->UpdatePSO(pso);
-	auto vbv = current->fullScreenMesh->VertexBufferViews();
-	auto ibv = current->fullScreenMesh->IndexBufferView();
-	commandList->GetCmdList()->IASetVertexBuffers(0, current->fullScreenMesh->VertexBufferViewCount(), vbv);
-	commandList->GetCmdList()->IASetIndexBuffer(&ibv);
-	commandList->GetCmdList()->IASetPrimitiveTopology(GetD3DTopology(psoDesc.topology));
-	commandList->ExecuteResBarrier();
-	commandList->GetCmdList()->DrawIndexedInstanced(current->fullScreenMesh->GetIndexCount(), 1, 0, 0, 0);
-}
-void Graphics::Blit(
-	ThreadCommand* commandList,
-	GFXDevice* device,
-	const std::initializer_list<RenderTarget>& renderTarget,
-	const RenderTarget& depthTarget,
-	const Shader* shader, uint pass) {
-	Blit(
-		commandList,
-		device,
-		renderTarget.begin(),
-		renderTarget.size(),
-		depthTarget,
-		shader,
-		pass);
-}
-void Graphics::Blit(
-	ThreadCommand* commandList,
-	GFXDevice* device,
-	RenderTarget const* rt,
-	uint renderTargetCount,
-	const RenderTarget& depthTarget,
-	const Shader* shader, uint pass) {
-	uint width = 0;
-	uint height = 0;
-	if (renderTargetCount > 0) {
-		width = rt->rt->GetWidth() >> rt->mipCount;
-		height = rt->rt->GetHeight() >> rt->mipCount;
-	} else if (depthTarget.rt) {
-		width = depthTarget.rt->GetWidth() >> depthTarget.mipCount;
-		height = depthTarget.rt->GetHeight() >> depthTarget.mipCount;
-	}
-	D3D12_VIEWPORT mViewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f};
-	D3D12_RECT mScissorRect = {0, 0, (int32_t)width, (int32_t)height};
-	PSODescriptor psoDesc;
-	psoDesc.meshLayoutIndex = current->fullScreenMesh->GetLayoutIndex();
-	psoDesc.shaderPass = pass;
-	psoDesc.shaderPtr = shader;
-	commandList->SetRenderTarget(rt, renderTargetCount, depthTarget);
-	auto pso = commandList->GetPSOState(psoDesc, device);
-	commandList->UpdatePSO(pso);
-	auto vbv = current->fullScreenMesh->VertexBufferViews();
-	auto ibv = current->fullScreenMesh->IndexBufferView();
-	commandList->GetCmdList()->IASetVertexBuffers(0, current->fullScreenMesh->VertexBufferViewCount(), vbv);
-	commandList->GetCmdList()->IASetIndexBuffer(&ibv);
-	commandList->GetCmdList()->IASetPrimitiveTopology(GetD3DTopology(psoDesc.topology));
-	commandList->ExecuteResBarrier();
-	commandList->GetCmdList()->DrawIndexedInstanced(current->fullScreenMesh->GetIndexCount(), 1, 0, 0, 0);
-}
 void Graphics::ReturnDescHeapIndexToPool(uint target) {
 
 	std::lock_guard lck(current->mtx);
@@ -312,60 +228,6 @@ void Graphics::ForceCollectAllHeapIndex() {
 		current->unusedDescs[i] = i;
 	}
 	current->usedDescs.Reset(false);
-}
-void Graphics::DrawMesh(
-	GFXDevice* device,
-	ThreadCommand* commandList,
-	const IMesh* mesh,
-	const Shader* shader, uint pass, uint instanceCount) {
-	PSODescriptor desc;
-	desc.meshLayoutIndex = mesh->GetLayoutIndex();
-	desc.shaderPass = pass;
-	desc.shaderPtr = shader;
-	GFXPipelineState* pso = commandList->TryGetPSOStateAsync(desc, device);
-	if (!pso) return;
-	commandList->UpdatePSO(pso);
-	auto vbv = mesh->VertexBufferViews();
-	auto ibv = mesh->IndexBufferView();
-	commandList->GetCmdList()->IASetVertexBuffers(0, mesh->VertexBufferViewCount(), vbv);
-	commandList->GetCmdList()->IASetIndexBuffer(&ibv);
-	commandList->GetCmdList()->IASetPrimitiveTopology(GetD3DTopology(desc.topology));
-	commandList->ExecuteResBarrier();
-	commandList->GetCmdList()->DrawIndexedInstanced(mesh->GetIndexCount(), instanceCount, 0, 0, 0);
-}
-void Graphics::DrawMeshes(
-	GFXDevice* device,
-	ThreadCommand* commandList,
-	IMesh const** mesh, uint meshCount,
-	const Shader* shader, uint pass, bool sort) {
-	if (meshCount == 0) return;
-	if (sort) {
-		auto compareFunc = [](IMesh const* a, IMesh const* b) -> int32_t {
-			return (int32_t)a->GetLayoutIndex() - (int32_t)b->GetLayoutIndex();
-		};
-		QuicksortStackCustomCompare<IMesh const*, decltype(compareFunc)>(
-			mesh, compareFunc, 0, meshCount - 1);
-	}
-	PSODescriptor desc;
-	desc.meshLayoutIndex = -1;
-	desc.shaderPass = pass;
-	desc.shaderPtr = shader;
-	commandList->GetCmdList()->IASetPrimitiveTopology(GetD3DTopology(desc.topology));
-	GFXPipelineState* pso = nullptr;
-	commandList->ExecuteResBarrier();
-	for (uint i = 0; i < meshCount; ++i) {
-		IMesh const* m = mesh[i];
-		if (m->GetLayoutIndex() != desc.meshLayoutIndex) {
-			desc.meshLayoutIndex = m->GetLayoutIndex();
-			pso = commandList->GetPSOState(desc, device);
-			commandList->UpdatePSO(pso);
-		}
-		auto vbv = m->VertexBufferViews();
-		auto ibv = m->IndexBufferView();
-		commandList->GetCmdList()->IASetVertexBuffers(0, m->VertexBufferViewCount(), vbv);
-		commandList->GetCmdList()->IASetIndexBuffer(&ibv);
-		commandList->GetCmdList()->DrawIndexedInstanced(m->GetIndexCount(), 1, 0, 0, 0);
-	}
 }
 void Graphics::CopyBufferRegion(
 	ThreadCommand* commandList,

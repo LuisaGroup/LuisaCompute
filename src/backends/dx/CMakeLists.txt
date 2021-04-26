@@ -42,13 +42,10 @@ if (WIN32)
         RenderComponent/GPUResourceBase.cpp
         RenderComponent/IShader.cpp
         RenderComponent/Mesh.cpp
-        RenderComponent/PSOContainer.cpp
         RenderComponent/RayShader.cpp
         RenderComponent/ReadbackBuffer.cpp
         RenderComponent/RenderCommand.cpp
         RenderComponent/RenderTexture.cpp
-        RenderComponent/Shader.cpp
-        RenderComponent/Skybox.cpp
         RenderComponent/StructuredBuffer.cpp
         RenderComponent/Texture.cpp
         RenderComponent/TextureBase.cpp

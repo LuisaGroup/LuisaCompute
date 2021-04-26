@@ -12,12 +12,6 @@ public:
 	static bool ErrorHappened();
 	static void PrintErrorMessages();
 	static void InitRegisterData();
-	static void CompileShader(
-		vengine::string const& fileName,
-		vengine::vector<ShaderVariable> const& vars,
-		vengine::vector<PassDescriptor> const& passDescs,
-		vengine::vector<char> const& customData,
-		vengine::vector<char>& resultData);
 	static void CompileComputeShader(
 		vengine::string const& fileName,
 		vengine::vector<ShaderVariable> const& vars,

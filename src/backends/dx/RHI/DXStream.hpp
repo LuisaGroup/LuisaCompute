@@ -7,6 +7,7 @@
 #include <PipelineComponent/FrameResource.h>
 #include <Common/Runnable.h>
 #include <RHI/DXCommandVisitor.h>
+#include <Singleton/ShaderLoader.h>
 namespace luisa::compute {
 class DXStream {
 public:
@@ -64,8 +65,11 @@ public:
 			&tempRes->tCmd,
 			tempRes,
 			internalShader,
-			[](uint i) { return nullptr; }
-		);
+			[](uint i) {
+				vengine::string str = ".cache/"_sv;
+				str << vengine::to_string(i) << ".output"_sv;
+				return ShaderLoader::GetComputeShader(str);
+			});
 		for (auto& i : buffer) {
 			i->accept(vis);
 		}
