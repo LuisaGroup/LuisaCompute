@@ -557,7 +557,9 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:
-            if (_function.variable_usage(v.uid()) == Variable::Usage::READ) {
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Variable::Usage::READ
+                || usage == Variable::Usage::NONE) {
                 _scratch << "const ";
             }
             _emit_type_name(v.type());
