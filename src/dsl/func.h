@@ -136,7 +136,8 @@ public:
         return *this;
     }
 
-    [[nodiscard]] auto parallelize(uint3 launch_size) noexcept {
+protected:
+    [[nodiscard]] auto _parallelize(uint3 launch_size) noexcept {
         _launch_command()->set_launch_size(launch_size);
         auto command = std::move(_command);
         _command = nullptr;
@@ -147,21 +148,21 @@ public:
 struct KernelInvoke1D : public KernelInvoke {
     explicit KernelInvoke1D(uint32_t uid) noexcept : KernelInvoke{uid} {}
     [[nodiscard]] auto launch(uint size_x) noexcept {
-        return parallelize(uint3{size_x, 1u, 1u});
+        return _parallelize(uint3{size_x, 1u, 1u});
     }
 };
 
 struct KernelInvoke2D : public KernelInvoke {
     explicit KernelInvoke2D(uint32_t uid) noexcept : KernelInvoke{uid} {}
     [[nodiscard]] auto launch(uint size_x, uint size_y) noexcept {
-        return parallelize(uint3{size_x, size_y, 1u});
+        return _parallelize(uint3{size_x, size_y, 1u});
     }
 };
 
 struct KernelInvoke3D : public KernelInvoke {
     explicit KernelInvoke3D(uint32_t uid) noexcept : KernelInvoke{uid} {}
     [[nodiscard]] auto launch(uint size_x, uint size_y, uint size_z) noexcept {
-        return parallelize(uint3{size_x, size_y, size_z});
+        return _parallelize(uint3{size_x, size_y, size_z});
     }
 };
 
