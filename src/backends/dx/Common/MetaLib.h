@@ -20,14 +20,14 @@ inline
 #define AUTO_FUNC inline
 #endif
 
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(__x86_64__)
 #include <immintrin.h>
 #define VENGINE_INTRIN_PAUSE() _mm_pause()
 #elif defined(_M_X64)
 #include <windows.h>
 #define VENGINE_INTRIN_PAUSE() YieldProcessor()
 #elif defined(__aarch64__)
-#define VENGINE_INTRIN_PAUSE() asm volatile("isb"_sv)
+#define VENGINE_INTRIN_PAUSE() asm volatile("isb")
 #else
 #include <mutex>
 #define VENGINE_INTRIN_PAUSE() std::this_thread::yield()
