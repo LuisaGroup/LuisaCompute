@@ -13,10 +13,10 @@ public:
 			(promiseArgs.handle)...};
 		handle = bucket->GetTask(
 			handles,
-			std::move(Runnable<void()>([&, f]() {
+			[&,ff = std::forward<Func>(f)](){
 				std::lock_guard<spin_mutex> lck(finishLock);
-				result.New(f((*promiseArgs.result)...));
-			})));
+				result.New(ff((*promiseArgs.result)...));
+			});
 	}
 	JobPromise(JobPromise const& value) = delete;
 	JobPromise(JobPromise&& value) = delete;
