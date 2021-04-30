@@ -19,6 +19,7 @@
 #if defined(LUISA_PLATFORM_WINDOWS)
 
 #include <windows.h>
+#include <dbghelp.h>
 
 namespace luisa {
 
@@ -98,6 +99,47 @@ std::filesystem::path dynamic_module_path(
     return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
 }
 
+std::string demangle(const char *name) noexcept {
+    char buffer[256u];
+    auto length = UnDecorateSymbolName(name, buffer, 256, 0);
+    return std::string{buffer, length};
+}
+
+std::vector<TraceItem> backtrace() noexcept {
+
+    void *stack[100];
+    auto process = GetCurrentProcess();
+    SymInitialize(process, nullptr, true);
+    auto frame_count = CaptureStackBackTrace(0, 100, stack, nullptr);
+
+    struct Symbol : SYMBOL_INFO {
+        char name_storage[1023];
+    } symbol{};
+    symbol.MaxNameLen = 1024;
+    symbol.SizeOfStruct = sizeof(SYMBOL_INFO);
+    IMAGEHLP_MODULE64 module{};
+    module.SizeOfStruct = sizeof(IMAGEHLP_MODULE64);
+    std::vector<TraceItem> trace;
+    trace.reserve(frame_count - 1u);
+    for (auto i = 1u; i < frame_count; i++) {
+        auto address = reinterpret_cast<uint64_t>(stack[i]);
+        auto displacement = 0ull;
+        if (SymFromAddr(process, address, &displacement, &symbol)) {
+            TraceItem item{};
+            if (SymGetModuleInfo64(process, symbol.ModBase, &module)) {
+                item.module = module.ModuleName;
+            } else {
+                item.module = "unknown";
+            }
+            item.symbol = symbol.Name;
+            item.address = address;
+            item.offset = displacement;
+            trace.emplace_back(std::move(item));
+        }
+    }
+    return trace;
+}
+
 }// namespace luisa
 
 #elif defined(LUISA_PLATFORM_UNIX)
@@ -174,12 +216,12 @@ std::vector<TraceItem> backtrace() noexcept {
     auto count = ::backtrace(trace, 100);
     auto info = ::backtrace_symbols(trace, count);
     std::vector<TraceItem> trace_info;
-    trace_info.reserve(count);
+    trace_info.reserve(count - 1u);
     for (auto i = 1; i < count; i++) {
         std::istringstream iss{info[i]};
         auto index = 0;
         char plus = '+';
-        TraceItem item;
+        TraceItem item{};
         iss >> index >> item.module >> std::hex >> item.address >> item.symbol >> plus >> std::dec >> item.offset;
         item.symbol = demangle(item.symbol.c_str());
         trace_info.emplace_back(std::move(item));
