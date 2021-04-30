@@ -7,6 +7,8 @@
 #include <string>
 #include <type_traits>
 #include <filesystem>
+#include <sstream>
+#include <iostream>
 
 #include <fmt/format.h>
 
@@ -102,6 +104,8 @@ std::filesystem::path dynamic_module_path(
 
 #include <unistd.h>
 #include <dlfcn.h>
+#include <execinfo.h>
+#include <cxxabi.h>
 
 namespace luisa {
 
@@ -155,6 +159,33 @@ std::filesystem::path dynamic_module_path(
     const std::filesystem::path &search_path) noexcept {
     auto decorated_name = fmt::format("lib{}.so", name);
     return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
+}
+
+std::string demangle(const char *name) noexcept {
+    auto status = 0;
+    auto buffer = abi::__cxa_demangle(name, nullptr, nullptr, &status);
+    std::string demangled{buffer == nullptr ? name : buffer};
+    free(buffer);
+    return demangled;
+}
+
+std::vector<TraceItem> backtrace() noexcept {
+    void *trace[100u];
+    auto count = ::backtrace(trace, 100);
+    auto info = ::backtrace_symbols(trace, count);
+    std::vector<TraceItem> trace_info;
+    trace_info.reserve(count);
+    for (auto i = 1; i < count; i++) {
+        std::istringstream iss{info[i]};
+        auto index = 0;
+        char plus = '+';
+        TraceItem item;
+        iss >> index >> item.module >> std::hex >> item.address >> item.symbol >> plus >> std::dec >> item.offset;
+        item.symbol = demangle(item.symbol.c_str());
+        trace_info.emplace_back(std::move(item));
+    }
+    free(info);
+    return trace_info;
 }
 
 }// namespace luisa

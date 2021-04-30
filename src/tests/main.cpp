@@ -103,7 +103,9 @@ template<typename F>
 struct Runnable {
     
     template<typename Func>
-    Runnable(Func &&f) noexcept {}
+    Runnable(Func &&f) noexcept {
+        f();
+    }
     
     void operator()() const noexcept {}
 };
@@ -115,7 +117,7 @@ void test(Runnable<void()> &&runnable) noexcept {
 int main() {
 
     test([] {
-    
+        LUISA_ERROR_WITH_LOCATION("Bad!");
     });
     
     for (auto i : Once()) {

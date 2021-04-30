@@ -6,9 +6,11 @@
 
 #ifdef _MSC_VER
 #define LUISA_FORCE_INLINE __forceinline
+#define LUISA_NEVER_INLINE __declspec(noinline)
 #define LUISA_EXPORT extern "C" __declspec(dllexport)
 #else
 #define LUISA_FORCE_INLINE [[gnu::always_inline, gnu::hot]] inline
+#define LUISA_NEVER_INLINE [[gnu::noinline]]
 #define LUISA_EXPORT extern "C" [[gnu::visibility("default")]]
 #endif
 
@@ -18,6 +20,8 @@
 #define LUISA_PLATFORM_UNIX
 #endif
 
+#include <string>
+#include <vector>
 #include <string_view>
 #include <filesystem>
 
@@ -33,5 +37,15 @@ void aligned_free(void *p) noexcept;
 void dynamic_module_destroy(void *handle) noexcept;
 [[nodiscard]] void *dynamic_module_find_symbol(void *handle, std::string_view name) noexcept;
 [[nodiscard]] std::filesystem::path dynamic_module_path(std::string_view name, const std::filesystem::path &search_path) noexcept;
+[[nodiscard]] std::string demangle(const char *name) noexcept;
+
+struct TraceItem {
+    std::string module;
+    uint64_t address;
+    std::string symbol;
+    size_t offset;
+};
+
+[[nodiscard]] LUISA_NEVER_INLINE std::vector<TraceItem> backtrace() noexcept;
 
 }// namespace luisa

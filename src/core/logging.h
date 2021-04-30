@@ -4,7 +4,9 @@
 
 #pragma once
 
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
+#include <core/platform.h>
 
 namespace luisa {
 
@@ -18,8 +20,16 @@ template<typename... Args>
 inline void log_warning(Args &&...args) noexcept { spdlog::warn(std::forward<Args>(args)...); }
 
 template<typename... Args>
-[[noreturn]] inline void log_error(Args &&...args) noexcept {
-    spdlog::error(std::forward<Args>(args)...);
+[[noreturn]] LUISA_FORCE_INLINE void log_error(Args &&...args) noexcept {
+    std::string error_message = fmt::format(std::forward<Args>(args)...);
+    auto trace = luisa::backtrace();
+    for (auto i = 0u; i < trace.size(); i++) {
+        auto &&t = trace[i];
+        error_message.append(fmt::format(
+            FMT_STRING("\n    {:>2} [0x{:012x}]: {} :: {} + {}"),
+            i, t.address, t.module, t.symbol, t.offset));
+    }
+    spdlog::error("{}", error_message);
     std::abort();
 }
 
