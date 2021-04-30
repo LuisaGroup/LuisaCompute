@@ -129,12 +129,16 @@ std::vector<TraceItem> backtrace() noexcept {
             if (SymGetModuleInfo64(process, symbol.ModBase, &module)) {
                 item.module = module.ModuleName;
             } else {
-                item.module = "unknown";
+                item.module = "???";
             }
             item.symbol = symbol.Name;
             item.address = address;
             item.offset = displacement;
             trace.emplace_back(std::move(item));
+        } else {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Failed to get stacktrace at 0x{:012}: {}",
+                address, detail::win32_last_error_message());
         }
     }
     return trace;
