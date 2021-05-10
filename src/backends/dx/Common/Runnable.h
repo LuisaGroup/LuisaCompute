@@ -14,7 +14,7 @@ template<class _Ret,
 class Runnable<_Ret(_Types...)> {
 	/////////////////////Define
 	friend class RunnableHash<_Ret(_Types...)>;
-	static constexpr size_t PLACEHOLDERSIZE = 40;
+	static constexpr size_t PLACEHOLDERSIZE = 32;
 	using PlaceHolderType = std::aligned_storage_t<PLACEHOLDERSIZE, alignof(size_t)>;
 	struct IProcessFunctor {
 		virtual void Delete(void* ptr) const = 0;
@@ -58,11 +58,10 @@ public:
 			void Delete(void* ptr) const override {
 			}
 			void CopyConstruct(void*& dest, void const* source, PlaceHolderType* placeHolder) const override {
-				dest = placeHolder;
-				*reinterpret_cast<size_t*>(dest) = *reinterpret_cast<size_t const*>(source);
+				reinterpret_cast<size_t&>(dest) = reinterpret_cast<size_t>(source);
 			}
 			void MoveConstruct(void*& dst, void* src, PlaceHolderType* placeHolder) const override {
-				*reinterpret_cast<size_t*>(dst) = *reinterpret_cast<size_t const*>(src);
+				reinterpret_cast<size_t&>(dst) = reinterpret_cast<size_t>(src);
 			}
 		};
 		runFunc = [](void* pp, _Types&&... tt) -> _Ret {
@@ -70,7 +69,7 @@ public:
 			return fp(std::forward<_Types>(tt)...);
 		};
 		new (&logicPlaceHolder) FuncPtrLogic();
-		*reinterpret_cast<size_t*>(&placePtr) = *(reinterpret_cast<size_t const*>(&p));
+		reinterpret_cast<size_t&>(placePtr) = reinterpret_cast<size_t>(p);
 	}
 
 	Runnable(const Runnable<_Ret(_Types...)>& f) noexcept
@@ -160,3 +159,8 @@ public:
 		}
 	}
 };
+
+template <typename T>
+decltype(auto) MakeRunnable(T&& functor) {
+	return Runnable<FuncType<std::remove_cvref_t<T>>>(functor);
+}

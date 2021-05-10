@@ -1,0 +1,422 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
+	<ItemGroup Label="ProjectConfigurations">
+		<ProjectConfiguration Include="Debug|Win32">
+			<Configuration>Debug</Configuration>
+			<Platform>Win32</Platform>
+		</ProjectConfiguration>
+		<ProjectConfiguration Include="Release|Win32">
+			<Configuration>Release</Configuration>
+			<Platform>Win32</Platform>
+		</ProjectConfiguration>
+		<ProjectConfiguration Include="Debug|x64">
+			<Configuration>Debug</Configuration>
+			<Platform>x64</Platform>
+		</ProjectConfiguration>
+		<ProjectConfiguration Include="Release|x64">
+			<Configuration>Release</Configuration>
+			<Platform>x64</Platform>
+		</ProjectConfiguration>
+	</ItemGroup>
+	<PropertyGroup Label="Globals">
+		<VCProjectVersion>16.0</VCProjectVersion>
+		<Keyword>Win32Proj</Keyword>
+		<ProjectGuid>{43b49385-d853-460f-b95c-fd11747c25cc}</ProjectGuid>
+		<RootNamespace>LC_DXBackend</RootNamespace>
+		<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+		<ProjectName>LC_DXBackend</ProjectName>
+	</PropertyGroup>
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+		<ConfigurationType>Application</ConfigurationType>
+		<UseDebugLibraries>true</UseDebugLibraries>
+		<PlatformToolset>v142</PlatformToolset>
+		<CharacterSet>Unicode</CharacterSet>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+		<ConfigurationType>Application</ConfigurationType>
+		<UseDebugLibraries>false</UseDebugLibraries>
+		<PlatformToolset>v142</PlatformToolset>
+		<WholeProgramOptimization>true</WholeProgramOptimization>
+		<CharacterSet>Unicode</CharacterSet>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+		<ConfigurationType>Application</ConfigurationType>
+		<UseDebugLibraries>true</UseDebugLibraries>
+		<PlatformToolset>v142</PlatformToolset>
+		<CharacterSet>Unicode</CharacterSet>
+		<EnableUnitySupport>false</EnableUnitySupport>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+		<ConfigurationType>Application</ConfigurationType>
+		<UseDebugLibraries>false</UseDebugLibraries>
+		<PlatformToolset>v142</PlatformToolset>
+		<WholeProgramOptimization>true</WholeProgramOptimization>
+		<CharacterSet>Unicode</CharacterSet>
+		<EnableUnitySupport>false</EnableUnitySupport>
+	</PropertyGroup>
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+	<ImportGroup Label="Shared">
+  </ImportGroup>
+	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	</ImportGroup>
+	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	</ImportGroup>
+	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	</ImportGroup>
+	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	</ImportGroup>
+	<PropertyGroup Label="UserMacros" />
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+		<LinkIncremental>true</LinkIncremental>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+		<LinkIncremental>false</LinkIncremental>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+		<LinkIncremental>true</LinkIncremental>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+		<LinkIncremental>false</LinkIncremental>
+	</PropertyGroup>
+	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+		<ClCompile>
+			<WarningLevel>Level3</WarningLevel>
+			<SDLCheck>true</SDLCheck>
+			<PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);</PreprocessorDefinitions>
+			<ConformanceMode>true</ConformanceMode>
+			<AdditionalIncludeDirectories>.;../../;../../ext/spdlog/include;../../ext/mimalloc/include;%(AdditionalIncludeDirectories);</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+			<GenerateDebugInformation>true</GenerateDebugInformation>
+			<AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;d3dcompiler.lib;D3D12.lib;dxgi.lib;%(AdditionalDependencies);</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+		<ClCompile>
+			<WarningLevel>Level3</WarningLevel>
+			<FunctionLevelLinking>true</FunctionLevelLinking>
+			<IntrinsicFunctions>true</IntrinsicFunctions>
+			<SDLCheck>true</SDLCheck>
+			<PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);</PreprocessorDefinitions>
+			<ConformanceMode>true</ConformanceMode>
+			<AdditionalIncludeDirectories>.;../../;../../ext/spdlog/include;../../ext/mimalloc/include;%(AdditionalIncludeDirectories);</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+			<EnableCOMDATFolding>true</EnableCOMDATFolding>
+			<OptimizeReferences>true</OptimizeReferences>
+			<GenerateDebugInformation>true</GenerateDebugInformation>
+			<AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;d3dcompiler.lib;D3D12.lib;dxgi.lib;%(AdditionalDependencies);</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+		<ClCompile>
+			<WarningLevel>TurnOffAllWarnings</WarningLevel>
+			<SDLCheck>true</SDLCheck>
+			<PreprocessorDefinitions>_DEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);</PreprocessorDefinitions>
+			<ConformanceMode>true</ConformanceMode>
+			<LanguageStandard>stdcpplatest</LanguageStandard>
+			<CallingConvention>FastCall</CallingConvention>
+			<EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+			<MultiProcessorCompilation>true</MultiProcessorCompilation>
+			<EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+			<MinFilesInUnityFile>8</MinFilesInUnityFile>
+			<LanguageStandard_C>stdc17</LanguageStandard_C>
+			<AdditionalIncludeDirectories>.;../../;../../ext/spdlog/include;../../ext/mimalloc/include;%(AdditionalIncludeDirectories);</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+			<GenerateDebugInformation>true</GenerateDebugInformation>
+			<AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;d3dcompiler.lib;D3D12.lib;dxgi.lib;%(AdditionalDependencies);</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+		<ClCompile>
+			<WarningLevel>TurnOffAllWarnings</WarningLevel>
+			<FunctionLevelLinking>true</FunctionLevelLinking>
+			<IntrinsicFunctions>true</IntrinsicFunctions>
+			<SDLCheck>false</SDLCheck>
+			<PreprocessorDefinitions>NDEBUG;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);</PreprocessorDefinitions>
+			<ConformanceMode>true</ConformanceMode>
+			<LanguageStandard>stdcpplatest</LanguageStandard>
+			<CallingConvention>VectorCall</CallingConvention>
+			<InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+			<FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+			<OmitFramePointers>true</OmitFramePointers>
+			<EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+			<EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+			<MultiProcessorCompilation>true</MultiProcessorCompilation>
+			<ExceptionHandling>false</ExceptionHandling>
+			<MinFilesInUnityFile>8</MinFilesInUnityFile>
+			<LanguageStandard_C>stdc17</LanguageStandard_C>
+			<AdditionalIncludeDirectories>.;../../;../../ext/spdlog/include;../../ext/mimalloc/include;%(AdditionalIncludeDirectories);</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+			<EnableCOMDATFolding>true</EnableCOMDATFolding>
+			<OptimizeReferences>true</OptimizeReferences>
+			<GenerateDebugInformation>true</GenerateDebugInformation>
+			<AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;d3dcompiler.lib;D3D12.lib;dxgi.lib;%(AdditionalDependencies);</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+	<ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+	<ItemGroup>
+		<Library Include="Build/fmt.lib" />
+		<Library Include="Build/luisa-compute-ast.lib" />
+		<Library Include="Build/luisa-compute-core.lib" />
+		<Library Include="Build/luisa-compute-runtime.lib" />
+		<Library Include="Build/spdlog.lib" />
+	</ItemGroup>
+	<ItemGroup>
+		<ClCompile Include="CJsonObject/cJSON.cpp" />
+		<ClCompile Include="CJsonObject/CJsonObject.cpp" />
+		<ClCompile Include="CJsonObject/JsonCompiler.cpp" />
+		<ClCompile Include="CJsonObject/SerializedObject.cpp" />
+		<ClCompile Include="Common/Camera.cpp" />
+		<ClCompile Include="Common/Common.cpp" />
+		<ClCompile Include="Common/GameTimer.cpp" />
+		<ClCompile Include="Common/GFXUtil.cpp" />
+		<ClCompile Include="Common/Log.cpp" />
+		<ClCompile Include="Common/MathHelper.cpp" />
+		<ClCompile Include="Common/vengine_library.cpp" />
+		<ClCompile Include="Common/VObject.cpp" />
+		<ClCompile Include="File/CopyDir.cpp" />
+		<ClCompile Include="File/FilePacker.cpp" />
+		<ClCompile Include="File/FileUtility.cpp" />
+		<ClCompile Include="File/MGUID.cpp" />
+		<ClCompile Include="File/Path.cpp" />
+		<ClCompile Include="JobSystem/JobBucket.cpp" />
+		<ClCompile Include="JobSystem/JobGraph.cpp" />
+		<ClCompile Include="JobSystem/JobNode.cpp" />
+		<ClCompile Include="JobSystem/JobSystem.cpp" />
+		<ClCompile Include="LogicComponent/Component.cpp" />
+		<ClCompile Include="LogicComponent/RayRenderer.cpp" />
+		<ClCompile Include="LogicComponent/RendererBase.cpp" />
+		<ClCompile Include="LogicComponent/Transform.cpp" />
+		<ClCompile Include="PipelineComponent/CommandAllocator.cpp" />
+		<ClCompile Include="PipelineComponent/CommandBuffer.cpp" />
+		<ClCompile Include="PipelineComponent/FrameResource.cpp" />
+		<ClCompile Include="PipelineComponent/RayTracing/RayTracingManager.cpp" />
+		<ClCompile Include="PipelineComponent/ThreadCommand.cpp" />
+		<ClCompile Include="RenderComponent/BackBuffer.cpp" />
+		<ClCompile Include="RenderComponent/CBufferAllocator.cpp" />
+		<ClCompile Include="RenderComponent/CBufferPool.cpp" />
+		<ClCompile Include="RenderComponent/ComputeShader.cpp" />
+		<ClCompile Include="RenderComponent/DescHeapPool.cpp" />
+		<ClCompile Include="RenderComponent/DescriptorHeap.cpp" />
+		<ClCompile Include="RenderComponent/DescriptorHeapRoot.cpp" />
+		<ClCompile Include="RenderComponent/GPUResourceBase.cpp" />
+		<ClCompile Include="RenderComponent/IShader.cpp" />
+		<ClCompile Include="RenderComponent/Mesh.cpp" />
+		<ClCompile Include="RenderComponent/RayShader.cpp" />
+		<ClCompile Include="RenderComponent/ReadbackBuffer.cpp" />
+		<ClCompile Include="RenderComponent/RenderCommand.cpp" />
+		<ClCompile Include="RenderComponent/RenderTexture.cpp" />
+		<ClCompile Include="RenderComponent/StructuredBuffer.cpp" />
+		<ClCompile Include="RenderComponent/Texture.cpp" />
+		<ClCompile Include="RenderComponent/TextureBase.cpp" />
+		<ClCompile Include="RenderComponent/TextureHeap.cpp" />
+		<ClCompile Include="RenderComponent/UploadBuffer.cpp" />
+		<ClCompile Include="RenderComponent/Utility/CommandSignature.cpp" />
+		<ClCompile Include="RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.cpp" />
+		<ClCompile Include="RenderComponent/Utility/DefaultBufferAllocator.cpp" />
+		<ClCompile Include="RenderComponent/Utility/DefaultTextureAllocator.cpp" />
+		<ClCompile Include="RenderComponent/Utility/SeparableRendererManager.cpp" />
+		<ClCompile Include="RenderComponent/Utility/ShaderIO.cpp" />
+		<ClCompile Include="render_graph/rg_node.cpp" />
+		<ClCompile Include="render_graph/rg_system.cpp" />
+		<ClCompile Include="RHI/DXCommandVisitor.cpp" />
+		<ClCompile Include="RHI/DXDevice.cpp" />
+		<ClCompile Include="RHI/DXEvent.cpp" />
+		<ClCompile Include="RHI/ShaderCompiler.cpp" />
+		<ClCompile Include="ShaderCompile/HLSLCompiler.cpp" />
+		<ClCompile Include="ShaderCompile/LuisaASTTranslator.cpp" />
+		<ClCompile Include="Singleton/ColorUtility.cpp" />
+		<ClCompile Include="Singleton/Graphics.cpp" />
+		<ClCompile Include="Singleton/MathLib.cpp" />
+		<ClCompile Include="Singleton/MeshLayout.cpp" />
+		<ClCompile Include="Singleton/ShaderID.cpp" />
+		<ClCompile Include="Singleton/ShaderLoader.cpp" />
+		<ClCompile Include="Struct/ConstBuffer.cpp" />
+		<ClCompile Include="TestMain.cpp" />
+		<ClCompile Include="Utility/Actor.cpp" />
+		<ClCompile Include="Utility/BinaryReader.cpp" />
+		<ClCompile Include="Utility/BuddyAllocator.cpp" />
+		<ClCompile Include="Utility/ElementAllocator.cpp" />
+		<ClCompile Include="Utility/IEnumerator.cpp" />
+		<ClCompile Include="Utility/MD5.cpp" />
+		<ClCompile Include="Utility/Random.cpp" />
+		<ClCompile Include="Utility/StringUtility.cpp" />
+		<ClCompile Include="Utility/TaskThread.cpp" />
+		<ClCompile Include="Utility/ThreadResetEvent.cpp" />
+		<ClCompile Include="WorldManagement/World.cpp" />
+	</ItemGroup>
+	<ItemGroup>
+		<ClInclude Include="CJsonObject/cJSON.h" />
+		<ClInclude Include="CJsonObject/JsonCompiler.h" />
+		<ClInclude Include="CJsonObject/SerializedObject.h" />
+		<ClInclude Include="CJsonObject/SerializeStruct.h" />
+		<ClInclude Include="Common/BitArray.h" />
+		<ClInclude Include="Common/BitVector.h" />
+		<ClInclude Include="Common/Camera.h" />
+		<ClInclude Include="Common/Common.h" />
+		<ClInclude Include="Common/d3dx12.h" />
+		<ClInclude Include="Common/DLL.h" />
+		<ClInclude Include="Common/DXMath/Common.h" />
+		<ClInclude Include="Common/DXMath/DXMath.h" />
+		<ClInclude Include="Common/DXMath/Matrix3.h" />
+		<ClInclude Include="Common/DXMath/Matrix4.h" />
+		<ClInclude Include="Common/DXMath/Quaternion.h" />
+		<ClInclude Include="Common/DXMath/Scalar.h" />
+		<ClInclude Include="Common/DXMath/Vector.h" />
+		<ClInclude Include="Common/DynamicDLL.h" />
+		<ClInclude Include="Common/FunctorMeta.h" />
+		<ClInclude Include="Common/GameTimer.h" />
+		<ClInclude Include="Common/GFXUtil.h" />
+		<ClInclude Include="Common/Hash.h" />
+		<ClInclude Include="Common/HashMap.h" />
+		<ClInclude Include="Common/IObjectReference.h" />
+		<ClInclude Include="Common/LinkedList.h" />
+		<ClInclude Include="Common/LockFreeArrayQueue.h" />
+		<ClInclude Include="Common/Log.h" />
+		<ClInclude Include="Common/MathHelper.h" />
+		<ClInclude Include="Common/MCollection.h" />
+		<ClInclude Include="Common/Memory.h" />
+		<ClInclude Include="Common/MetaLib.h" />
+		<ClInclude Include="Common/Pool.h" />
+		<ClInclude Include="Common/PoolAllocator.h" />
+		<ClInclude Include="Common/RandomVector.h" />
+		<ClInclude Include="Common/Runnable.h" />
+		<ClInclude Include="Common/string_view.h" />
+		<ClInclude Include="Common/Tuple.h" />
+		<ClInclude Include="Common/TypeWiper.h" />
+		<ClInclude Include="Common/vector.h" />
+		<ClInclude Include="Common/VObject.h" />
+		<ClInclude Include="Common/vstring.h" />
+		<ClInclude Include="File/CopyDir.h" />
+		<ClInclude Include="File/FilePacker.h" />
+		<ClInclude Include="File/FileUtility.h" />
+		<ClInclude Include="File/MGUID.h" />
+		<ClInclude Include="File/Path.h" />
+		<ClInclude Include="JobSystem/JobBucket.h" />
+		<ClInclude Include="JobSystem/JobGraph.h" />
+		<ClInclude Include="JobSystem/JobHandle.h" />
+		<ClInclude Include="JobSystem/JobInclude.h" />
+		<ClInclude Include="JobSystem/JobNode.h" />
+		<ClInclude Include="JobSystem/JobPromise.h" />
+		<ClInclude Include="JobSystem/JobSystem.h" />
+		<ClInclude Include="LogicComponent/Component.h" />
+		<ClInclude Include="LogicComponent/RayRenderer.h" />
+		<ClInclude Include="LogicComponent/RendererBase.h" />
+		<ClInclude Include="LogicComponent/Transform.h" />
+		<ClInclude Include="PipelineComponent/CameraData/CameraTransformData.h" />
+		<ClInclude Include="PipelineComponent/CameraData/LightCBuffer.h" />
+		<ClInclude Include="PipelineComponent/CameraData/LightMacro.h" />
+		<ClInclude Include="PipelineComponent/CommandAllocator.h" />
+		<ClInclude Include="PipelineComponent/CommandBuffer.h" />
+		<ClInclude Include="PipelineComponent/CommandListType.h" />
+		<ClInclude Include="PipelineComponent/DXAllocator.h" />
+		<ClInclude Include="PipelineComponent/FrameResource.h" />
+		<ClInclude Include="PipelineComponent/IPipelineResource.h" />
+		<ClInclude Include="PipelineComponent/RayTracing/RayTracingManager.h" />
+		<ClInclude Include="PipelineComponent/ThreadCommand.h" />
+		<ClInclude Include="RenderComponent/BackBuffer.h" />
+		<ClInclude Include="RenderComponent/CBufferAllocator.h" />
+		<ClInclude Include="RenderComponent/CBufferPool.h" />
+		<ClInclude Include="RenderComponent/ComputeShader.h" />
+		<ClInclude Include="RenderComponent/DescHeapPool.h" />
+		<ClInclude Include="RenderComponent/DescriptorHeap.h" />
+		<ClInclude Include="RenderComponent/DescriptorHeapRoot.h" />
+		<ClInclude Include="RenderComponent/GPUResourceBase.h" />
+		<ClInclude Include="RenderComponent/IBackBuffer.h" />
+		<ClInclude Include="RenderComponent/IBuffer.h" />
+		<ClInclude Include="RenderComponent/IGPUResourceState.h" />
+		<ClInclude Include="RenderComponent/IMesh.h" />
+		<ClInclude Include="RenderComponent/IShader.h" />
+		<ClInclude Include="RenderComponent/Mesh.h" />
+		<ClInclude Include="RenderComponent/RayRendererData.h" />
+		<ClInclude Include="RenderComponent/RayShader.h" />
+		<ClInclude Include="RenderComponent/ReadbackBuffer.h" />
+		<ClInclude Include="RenderComponent/RenderCommand.h" />
+		<ClInclude Include="RenderComponent/RenderComponentInclude.h" />
+		<ClInclude Include="RenderComponent/RenderTexture.h" />
+		<ClInclude Include="RenderComponent/StructuredBuffer.h" />
+		<ClInclude Include="RenderComponent/Texture.h" />
+		<ClInclude Include="RenderComponent/TextureBase.h" />
+		<ClInclude Include="RenderComponent/TextureHeap.h" />
+		<ClInclude Include="RenderComponent/UploadBuffer.h" />
+		<ClInclude Include="RenderComponent/Utility/CommandSignature.h" />
+		<ClInclude Include="RenderComponent/Utility/CullingMask.h" />
+		<ClInclude Include="RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.h" />
+		<ClInclude Include="RenderComponent/Utility/DefaultBufferAllocator.h" />
+		<ClInclude Include="RenderComponent/Utility/DefaultTextureAllocator.h" />
+		<ClInclude Include="RenderComponent/Utility/IBufferAllocator.h" />
+		<ClInclude Include="RenderComponent/Utility/ITextureAllocator.h" />
+		<ClInclude Include="RenderComponent/Utility/RendererCull.h" />
+		<ClInclude Include="RenderComponent/Utility/SeparableRenderer.h" />
+		<ClInclude Include="RenderComponent/Utility/SeparableRendererManager.h" />
+		<ClInclude Include="RenderComponent/Utility/ShaderIO.h" />
+		<ClInclude Include="render_graph/rg_enum.h" />
+		<ClInclude Include="render_graph/rg_executor.h" />
+		<ClInclude Include="render_graph/rg_node.h" />
+		<ClInclude Include="render_graph/rg_system.h" />
+		<ClInclude Include="RHI/DXCommandVisitor.h" />
+		<ClInclude Include="RHI/DXEvent.h" />
+		<ClInclude Include="RHI/IBuffer.h" />
+		<ClInclude Include="RHI/IComputeShader.h" />
+		<ClInclude Include="RHI/IGFXDevice.h" />
+		<ClInclude Include="RHI/IGpuResource.h" />
+		<ClInclude Include="RHI/IMesh.h" />
+		<ClInclude Include="RHI/InternalShaders.h" />
+		<ClInclude Include="RHI/IRayTracingShader.h" />
+		<ClInclude Include="RHI/IShader.h" />
+		<ClInclude Include="RHI/ITexture.h" />
+		<ClInclude Include="RHI/RenderTexturePackage.h" />
+		<ClInclude Include="RHI/ShaderCompiler.h" />
+		<ClInclude Include="ShaderCompile/HLSLCompiler.h" />
+		<ClInclude Include="ShaderCompile/LuisaASTTranslator.h" />
+		<ClInclude Include="ShaderCompile/ShaderUniforms.h" />
+		<ClInclude Include="Singleton/ColorUtility.h" />
+		<ClInclude Include="Singleton/Graphics.h" />
+		<ClInclude Include="Singleton/MathLib.h" />
+		<ClInclude Include="Singleton/MeshLayout.h" />
+		<ClInclude Include="Singleton/ShaderID.h" />
+		<ClInclude Include="Singleton/ShaderLoader.h" />
+		<ClInclude Include="Struct/CameraRenderPath.h" />
+		<ClInclude Include="Struct/ConstBuffer.h" />
+		<ClInclude Include="Struct/CopyBufferCommand.h" />
+		<ClInclude Include="Struct/CullResult.h" />
+		<ClInclude Include="Struct/DrawCommand.h" />
+		<ClInclude Include="Struct/ObjectCBufferParam.h" />
+		<ClInclude Include="Struct/RenderPackage.h" />
+		<ClInclude Include="Struct/RenderTarget.h" />
+		<ClInclude Include="Struct/ShaderVariableType.h" />
+		<ClInclude Include="Utility/Actor.h" />
+		<ClInclude Include="Utility/BinaryReader.h" />
+		<ClInclude Include="Utility/BuddyAllocator.h" />
+		<ClInclude Include="Utility/ElementAllocator.h" />
+		<ClInclude Include="Utility/IEnumerator.h" />
+		<ClInclude Include="Utility/MD5.h" />
+		<ClInclude Include="Utility/PassConstants.h" />
+		<ClInclude Include="Utility/QuickSort.h" />
+		<ClInclude Include="Utility/Random.h" />
+		<ClInclude Include="Utility/StringUtility.h" />
+		<ClInclude Include="Utility/TaskThread.h" />
+		<ClInclude Include="Utility/ThreadResetEvent.h" />
+		<ClInclude Include="VEngineConfig.h" />
+		<ClInclude Include="WorldManagement/World.h" />
+	</ItemGroup>
+	<ItemGroup>
+		<ClInclude Include="CJsonObject/CJsonObject.hpp" />
+		<ClInclude Include="RHI/DXStream.hpp" />
+	</ItemGroup>
+</Project>

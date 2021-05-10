@@ -39,7 +39,7 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 			CodegenUtility::GetTypeName(*i.type(), str, _IsVarWritable(func, i));
 			str << ' ';
 			CodegenUtility::GetVariableName(i, str);
-			str				<< '['
+			str << '['
 				<< vengine::to_string(i.type()->dimension())
 				<< "];\n"_sv;
 		}
@@ -706,11 +706,283 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::NONE:
 			result << "!any"_sv;
 			break;
+		case CallOp::SELECT: {
+			const auto thirdArg = expr->arguments()[2]->type();
+			vengine::select(
+				[&]() { result << "_select_int"_sv; },
+				[&]() { result << "_select_bool"_sv; },
+				vengine::select(
+					[&](auto&& t) {
+						return t->element()->tag() == Type::Tag::BOOL;
+					},
+					[&](auto&& t) {
+						return t->tag() == Type::Tag::BOOL;
+					},
+					[](auto&& t) {
+						return t->is_scalar();
+					},
+					thirdArg))();
+		} break;
+		case CallOp::CLAMP:
+			result << "clamp"_sv;
+			break;
+		case CallOp::LERP:
+			result << "lerp"_sv;
+			break;
+		case CallOp::SATURATE:
+			result << "saturate"_sv;
+			break;
+		case CallOp::SIGN:
+			result << "sign"_sv;
+			break;
+		case CallOp::STEP:
+			result << "step"_sv;
+			break;
+		case CallOp::SMOOTHSTEP:
+			result << "smoothstep"_sv;
+			break;
+		case CallOp::ABS:
+			result << "abs"_sv;
+			break;
+		case CallOp::MIN:
+			result << "min"_sv;
+			break;
+		case CallOp::MIN3:
+			result << "_min3"_sv;
+			break;
+		case CallOp::CLZ:
+			result << "firstbithigh"_sv;
+			break;
+		case CallOp::CTZ:
+			result << "firstbitlow"_sv;
+			break;
+		case CallOp::POPCOUNT:
+			result << "countbits"_sv;
+			break;
+		case CallOp::REVERSEBITS:
+			result << "reversebits"_sv;
+			break;
+		case CallOp::ROTATE:
+			result << "_rotate"_sv;
+			break;
+		case CallOp::ISINF:
+			result << "isinf"_sv;
+			break;
+		case CallOp::ISNAN:
+			result << "isnan"_sv;
+			break;
+		case CallOp::ACOS:
+			result << "acos"_sv;
+			break;
+		case CallOp::ACOSH:
+			result << "_acosh"_sv;
+			break;
+		case CallOp::ASIN:
+			result << "asin"_sv;
+			break;
+		case CallOp::ASINH:
+			result << "_asinh"_sv;
+			break;
+		case CallOp::ATAN:
+			result << "atan"_sv;
+			break;
+		case CallOp::ATAN2:
+			result << "atan2"_sv;
+			break;
+		case CallOp::ATANH:
+			result << "_atanh"_sv;
+			break;
+		case CallOp::COS:
+			result << "cos"_sv;
+			break;
+		case CallOp::COSH:
+			result << "cosh"_sv;
+			break;
+		case CallOp::SIN:
+			result << "sin"_sv;
+			break;
+		case CallOp::SINH:
+			result << "sinh"_sv;
+			break;
+		case CallOp::TAN:
+			result << "tan"_sv;
+			break;
+		case CallOp::TANH:
+			result << "tanh"_sv;
+			break;
+		case CallOp::EXP:
+			result << "exp"_sv;
+			break;
+		case CallOp::EXP2:
+			result << "exp2"_sv;
+			break;
+		case CallOp::EXP10:
+			result << "_exp10"_sv;
+			break;
+		case CallOp::LOG:
+			result << "log"_sv;
+			break;
+		case CallOp::LOG2:
+			result << "log2"_sv;
+			break;
+		case CallOp::LOG10:
+			result << "log10"_sv;
+			break;
+		case CallOp::SQRT:
+			result << "sqrt"_sv;
+			break;
+		case CallOp::RSQRT:
+			result << "rsqrt"_sv;
+			break;
+		case CallOp::CEIL:
+			result << "ceil"_sv;
+			break;
+		case CallOp::FLOOR:
+			result << "floor"_sv;
+			break;
+		case CallOp::FRACT:
+			result << "fract"_sv;
+			break;
+		case CallOp::TRUNC:
+			result << "trunc"_sv;
+			break;
+		case CallOp::ROUND:
+			result << "round"_sv;
+			break;
+		case CallOp::FMOD:
+			result << "fmod"_sv;
+			break;
+		case CallOp::DEGREES:
+			result << "degrees"_sv;
+			break;
+		case CallOp::RADIANS:
+			result << "radians"_sv;
+			break;
+		case CallOp::FMA:
+			result << "fma"_sv;
+			break;
+		case CallOp::COPYSIGN:
+			result << "_copysign"_sv;
+			break;
+		case CallOp::CROSS:
+			result << "cross"_sv;
+			break;
+		case CallOp::DOT:
+			result << "dot"_sv;
+			break;
+		case CallOp::DISTANCE:
+			result << "distance"_sv;
+			break;
+		case CallOp::DISTANCE_SQUARED:
+			result << "_distance_sqr"_sv;
+			break;
+		case CallOp::LENGTH:
+			result << "length"_sv;
+			break;
+		case CallOp::LENGTH_SQUARED:
+			result << "_length_sqr"_sv;
+			break;
+		case CallOp::NORMALIZE:
+			result << "normalize"_sv;
+			break;
+		case CallOp::FACEFORWARD:
+			result << "faceforward"_sv;
+			break;
+		case CallOp::DETERMINANT:
+			result << "determinant"_sv;
+			break;
+		case CallOp::TRANSPOSE:
+			result << "transpose"_sv;
+			break;
+		case CallOp::INVERSE:
+			result << "_inverse"_sv;
+			break;
+		case CallOp::GROUP_MEMORY_BARRIER:
+			result << "GroupMemoryBarrierWithGroupSync"_sv;
+			break;
+		case CallOp::DEVICE_MEMORY_BARRIER:
+			result << "DeviceMemoryBarrierWithGroupSync"_sv;
+			break;
+		case CallOp::ALL_MEMORY_BARRIER:
+			result << "AllMemoryBarrierWithGroupSync"_sv;
+			break;
+		case CallOp::ATOMIC_LOAD:
+			result << "_atomic_load"_sv;
+			break;
+		case CallOp::ATOMIC_STORE:
+			result << "_atomic_store"_sv;
+			break;
+		case CallOp::ATOMIC_EXCHANGE:
+			result << "_atomic_exchange"_sv;
+			break;
+		case CallOp::ATOMIC_COMPARE_EXCHANGE:
+			result << "_atomic_compare_exchange"_sv;
+			break;
+		case CallOp::ATOMIC_FETCH_ADD:
+			result << "_atomic_add"_sv;
+			break;
+		case CallOp::ATOMIC_FETCH_SUB:
+			result << "_atomic_sub"_sv;
+			break;
+		case CallOp::ATOMIC_FETCH_AND:
+			result << "_atomic_and"_sv;
+			break;
+		case CallOp::ATOMIC_FETCH_OR:
+			result << "_atomic_or"_sv;
+			break;
+		case CallOp::ATOMIC_FETCH_XOR:
+			result << "_atomic_xor"_sv;
+			break;
+		case CallOp::ATOMIC_FETCH_MIN:
+			result << "_atomic_min"_sv;
+			break;
+		case CallOp::ATOMIC_FETCH_MAX:
+			result << "_atomic_max"_sv;
+			break;
 		case CallOp::TEXTURE_READ:
-			result << "HLSL_SampleTex"_sv;
+			result << "_read_tex"_sv;
 			break;
 		case CallOp::TEXTURE_WRITE:
-			result << "HLSL_WriteTex"_sv;
+			result << "_write_tex"_sv;
+			break;
+		case CallOp::TEXTURE_SAMPLE:
+			result << "_sample_tex"_sv;
+			break;
+		case CallOp::MAKE_BOOL2:
+			result << "bool2"_sv;
+			break;
+		case CallOp::MAKE_BOOL3:
+			result << "bool3"_sv;
+			break;
+		case CallOp::MAKE_BOOL4:
+			result << "bool4"_sv;
+			break;
+		case CallOp::MAKE_UINT2:
+			result << "uint2"_sv;
+			break;
+		case CallOp::MAKE_UINT3:
+			result << "uint3"_sv;
+			break;
+		case CallOp::MAKE_UINT4:
+			result << "uint4"_sv;
+			break;
+		case CallOp::MAKE_INT2:
+			result << "int2"_sv;
+			break;
+		case CallOp::MAKE_INT3:
+			result << "int3"_sv;
+			break;
+		case CallOp::MAKE_INT4:
+			result << "int4"_sv;
+			break;
+		case CallOp::MAKE_FLOAT2:
+			result << "float2"_sv;
+			break;
+		case CallOp::MAKE_FLOAT3:
+			result << "float3"_sv;
+			break;
+		case CallOp::MAKE_FLOAT4:
+			result << "float4"_sv;
 			break;
 		default:
 			VEngine_Log("Function Not Implemented"_sv);

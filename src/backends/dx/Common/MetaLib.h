@@ -413,3 +413,32 @@ constexpr size_t FuncArgCount = FunctionTemplateGlobal::FunctionType<T>::Type::A
 
 template<typename Func, typename Target>
 static constexpr bool IsFunctionTypeOf = std::is_same_v<FuncType<Func>, Target>;
+namespace vengine {
+template<typename A, typename B, typename C, typename... Args>
+decltype(auto) select(A&& a, B&& b, C&& c, Args&&... args) {
+	return [&]() {
+		if (c(std::forward<Args>(args)...)) {
+			return b(std::forward<Args>(args)...);
+		}
+		return a(std::forward<Args>(args)...);
+	};
+}
+template<typename A, typename B, typename C, typename... Args>
+decltype(auto) range(A&& startIndex, B&& endIndex, C&& func, Args&&... args) {
+	return [&]() {
+		auto&& end = endIndex();
+		for (auto v = std::move(startIndex()); v < end; ++v) {
+			func(std::forward<Args>(args)...);
+		}
+	};
+}
+template<typename A, typename B, typename C, typename... Args>
+decltype(auto) reverse_range(A&& startIndex, B&& endIndex, C&& func, Args&&... args) {
+	return [&]() {
+		auto&& start = startIndex();
+		for (auto v = std::move(endIndex()); v > start; v--) {
+			func(std::forward<Args>(args)...);
+		}
+	};
+}
+}// namespace vengine

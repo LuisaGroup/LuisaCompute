@@ -1,8 +1,5 @@
 Build/
 __pycache__/
-LC_DXBackend.sln
-LC_DXBackend.vcxproj
-LC_DXBackend.vcxproj.user
 LoggerFile.log
 x64/
 x86/
