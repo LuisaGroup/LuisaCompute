@@ -85,7 +85,7 @@ struct TransformMoveToEndStruct {
 	}
 };
 void Transform::MoveTheWorld(int3* worldBlockIndexPtr, const int3& moveBlock, const double3& moveDirection, JobBucket* bucket) noexcept {
-	JobHandle lockHandle = bucket->GetTask(nullptr, 0, [=]() -> void {
+	JobHandle lockHandle = bucket->GetTask([=]() -> void {
 		globalMtx.lock();
 		*worldBlockIndexPtr += moveBlock;
 	});
@@ -104,14 +104,18 @@ void Transform::MoveTheWorld(int3* worldBlockIndexPtr, const int3& moveBlock, co
 		end = PER_THREAD_TRANSFORM * (i + 1);
 		moveStruct.start = start;
 		moveStruct.end = end;
-		moveWorldHandles.push_back(bucket->GetTask({lockHandle}, moveStruct));
+		auto handle = bucket->GetTask(moveStruct);
+		handle.AddDependency(lockHandle);
+		moveWorldHandles.push_back(handle);
 	}
 	moveToEndStruct.start = end;
 	moveToEndStruct.moveBlock = *worldBlockIndexPtr;
-	moveWorldHandles.push_back(bucket->GetTask({lockHandle}, moveToEndStruct));
-	bucket->GetTask(moveWorldHandles.data(), moveWorldHandles.size(), []() -> void {
+	auto endHandle = bucket->GetTask(moveToEndStruct);
+	endHandle.AddDependency(lockHandle);
+	moveWorldHandles.push_back(endHandle);
+	bucket->GetTask([]() -> void {
 		globalMtx.unlock();
-	});
+	}).AddDependency(moveWorldHandles.data(), moveWorldHandles.size());
 }
 void Transform::CallAfterUpdateEvents() noexcept {
 	for (uint i = 0; i < allTransformUpdateComponents.Length(); ++i) {

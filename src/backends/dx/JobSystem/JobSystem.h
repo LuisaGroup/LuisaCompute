@@ -17,12 +17,12 @@ class VENGINE_DLL_COMMON JobSystem
 private:
 	std::mutex threadMtx;
 	void UpdateNewBucket();
-	uint32_t mThreadCount;
+	size_t mThreadCount;
 	JobPool<JobNode> jobNodePool;
 	LockFreeArrayQueue<JobNode*> executingNode;
 	ArrayList<std::thread*> allThreads;
-	std::atomic<int32_t> bucketMissionCount;
-	uint32_t currentBucketPos;
+	std::atomic<int64> bucketMissionCount;
+	size_t currentBucketPos;
 	ArrayList<JobBucket*> buckets;
 	std::condition_variable cv;
 	ArrayList<JobBucket*> usedBuckets;
@@ -35,12 +35,12 @@ private:
 	//void* AllocFuncMemory(uint64_t size);
 	//void FreeAllMemory();
 public:
-	uint32_t GetThreadCount() const noexcept {
+	size_t GetThreadCount() const noexcept {
 		return mThreadCount;
 	}
-	JobSystem(uint32_t threadCount) noexcept;
-	void ExecuteBucket(JobBucket** bucket, uint32_t bucketCount);
-	void ExecuteBucket(JobBucket* bucket, uint32_t bucketCount);
+	JobSystem(size_t threadCount) noexcept;
+	void ExecuteBucket(JobBucket** bucket, size_t bucketCount);
+	void ExecuteBucket(JobBucket* bucket, size_t bucketCount);
 	void Wait();
 	~JobSystem() noexcept;
 	JobBucket* GetJobBucket();

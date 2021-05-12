@@ -9,12 +9,12 @@
 #include <Common/TypeWiper.h>
 #include <Common/MetaLib.h>
 #include <Common/Runnable.h>
+#include <span>
 class JobHandle;
 class JobThreadRunnable;
 class JobBucket;
 class VectorPool;
 class JobSystem;
-typedef uint32_t uint;
 class VENGINE_DLL_COMMON JobNode
 {
 	friend class JobBucket;
@@ -28,17 +28,20 @@ private:
 		SingleTask = 1,
 		Parallel = 2
 	};
-	StackObject<ArrayList<JobNode*>> dependingEvent;
+	StackObject<ArrayList<JobNode*>, true> dependingEvent;
 	std::mutex* threadMtx;
 	StackObject<Runnable<void()>> runnable;
-	std::atomic<uint32_t> targetDepending;
-	uint parallelStart = 0;
-	uint parallelEnd = 0;
+	std::atomic<size_t> targetDepending;
+	size_t parallelStart = 0;
+	size_t parallelEnd = 0;
+	size_t executeIndex;
 	RunnableType runnableState = RunnableType::UnAvaliable;
-	bool dependedEventInitialized = false;
-	void Create(JobBucket* bucket, Runnable<void()>&& runnable, JobSystem* sys, JobHandle const* dependedJobs, uint dependCount);
-	void CreateParallel(JobBucket* bucket, Runnable<void()>&& runnable, uint parallelStart, uint parallelEnd, JobSystem* sys, JobHandle const* dependedJobs, uint dependCount);
-	void CreateEmpty(JobBucket* bucket, JobSystem* sys, JobHandle const* dependedJobs, uint dependCount);
+	void Create(JobBucket* bucket, Runnable<void()>&& runnable, JobSystem* sys);
+	void CreateParallel(JobBucket* bucket, Runnable<void()>&& runnable, size_t parallelStart, size_t parallelEnd, JobSystem* sys);
+	void CreateEmpty(JobBucket* bucket, JobSystem* sys);
+	void RemoveFromExecuteList(JobBucket* bucket);
+	void AddDependency(JobBucket* bucket, JobHandle const& handle);
+	void AddDependency(JobBucket* bucket, JobHandle const* handle, size_t handles);
 	JobNode* Execute(LockFreeArrayQueue<JobNode*>& taskList, std::condition_variable& cv);
 
 public:

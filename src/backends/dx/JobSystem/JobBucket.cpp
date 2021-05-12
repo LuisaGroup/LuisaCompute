@@ -2,48 +2,45 @@
 #include <JobSystem/JobNode.h>
 #include <JobSystem/JobSystem.h>
 JobBucket::JobBucket(JobSystem* sys) noexcept : sys(sys) {
-	jobNodesVec.reserve(20);
 }
-JobHandle JobBucket::_GetTask(JobHandle const* dependedJobs, uint32_t dependCount, Runnable<void()>&& runnable) {
+JobHandle JobBucket::_GetTask( Runnable<void()>&& runnable) {
 	JobNode* node = sys->jobNodePool.New();
-	node->Create(this, std::move(runnable), sys, dependedJobs, dependCount);
-	if (dependCount == 0) jobNodesVec.push_back(node);
-	uint value = allJobNodes.size();
+	node->Create(this, std::move(runnable), sys);
+	size_t value = allJobNodes.size();
 	allJobNodes.push_back(node);
-	return JobHandle(value, value);
+	return JobHandle(this, value, value);
 }
 JobHandle JobBucket::_GetParallelTask(
-	JobHandle const* dependedJobs, uint32_t dependCount, uint parallelCount, uint threadCount,
-	Runnable<void(uint)>&& runnable) {
-	auto ParallelTask = [&](Runnable<void()> copyedFunc, uint parallelStart, uint parallelEnd) {
+	 size_t parallelCount, size_t threadCount,
+	Runnable<void(size_t)>&& runnable) {
+	auto ParallelTask = [&](Runnable<void()> copyedFunc, size_t parallelStart, size_t parallelEnd) {
 		JobNode* node = sys->jobNodePool.New();
-		node->CreateParallel(this, std::move(copyedFunc), parallelStart, parallelEnd, sys, dependedJobs, dependCount);
-		if (dependCount == 0) jobNodesVec.push_back(node);
+		node->CreateParallel(this, std::move(copyedFunc), parallelStart, parallelEnd, sys);
 		allJobNodes.push_back(node);
 	};
 	if (threadCount > sys->GetThreadCount())
 		threadCount = sys->GetThreadCount();
-	uint eachJobCount = parallelCount / threadCount;
+	size_t eachJobCount = parallelCount / threadCount;
 	JobHandle handle;
-	for (uint i = 0; i < threadCount; ++i) {
+	for (size_t i = 0; i < threadCount; ++i) {
 		ParallelTask(
 			reinterpret_cast<Runnable<void()>&>(runnable), i * eachJobCount, (i + 1) * eachJobCount);
 	}
-	uint count = threadCount;
-	uint full = eachJobCount * threadCount;
-	uint lefted = parallelCount - full;
+	size_t count = threadCount;
+	size_t full = eachJobCount * threadCount;
+	size_t lefted = parallelCount - full;
 	if (lefted > 0) {
 		ParallelTask(
 			reinterpret_cast<Runnable<void()>&>(runnable), full, parallelCount);
 		count++;
 	}
-	return JobHandle(allJobNodes.size() - count, allJobNodes.size() - 1);
+	return JobHandle(this, allJobNodes.size() - count, allJobNodes.size() - 1);
 }
-JobHandle JobBucket::GetFence(JobHandle const* dependedJobs, uint32_t dependCount) {
+JobHandle JobBucket::GetFence() {
 	JobNode* node = sys->jobNodePool.New();
-	node->CreateEmpty(this, sys, dependedJobs, dependCount);
-	if (dependCount == 0) jobNodesVec.push_back(node);
-	uint value = allJobNodes.size();
+	node->CreateEmpty(this, sys);
+	size_t value = allJobNodes.size();
 	allJobNodes.push_back(node);
-	return JobHandle(value, value);
+	return JobHandle(this, value, value);
 }
+

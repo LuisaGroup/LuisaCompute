@@ -66,13 +66,13 @@ ShaderLoaderGlobal* ShaderLoader::Init(GFXDevice* device) {
 }
 void ShaderLoader::Reload(GFXDevice* device, JobBucket* bucket) {
 	current->rayShaderMap.IterateAll(([&](vengine::string const& name, RayShader*& shader) -> void {
-		bucket->GetTask({}, [&name, &shader]() -> void {
+		bucket->GetTask([&name, &shader]() -> void {
 			shader->~RayShader();
 			new (shader) RayShader(current->device, name);
 		});
 	}));
 	current->computeShaderMap.IterateAll([&](vengine::string const& name, ComputeShader*& shader) -> void {
-		bucket->GetTask({}, [&name, &shader]() -> void {
+		bucket->GetTask([&name, &shader]() -> void {
 			shader->~ComputeShader();
 			new (shader) ComputeShader(name, name, current->device);
 		});

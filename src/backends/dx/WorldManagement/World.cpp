@@ -73,21 +73,12 @@ void World::PrepareUpdateJob(
 		if (isMovingWorld) {
 			JobBucket* moveTheWorldBucket = buckets.emplace_back(sys->GetJobBucket());
 			int3* bIndex = &blockIndex;
-			moveTheWorldBucket->GetTask({}, [=]() -> void {
+			moveTheWorldBucket->GetTask([=]() -> void {
 				auto& cameras = GetCameras();
 				for (auto ite = cameras.begin(); ite != cameras.end(); ++ite) {
 					(*ite)->MoveTheWorld(moveDir);
 				}
 			});
-			/*mainDependedTasks.push_back(
-				bucket->GetTask({}, [=]()->void
-					{
-						if (grpRenderer)
-						{
-							grpRenderer->MoveTheWorld(
-								device, resource, moveDir, bucket);
-						}
-					}));*/
 			for (auto&& ite : moveTheWorldEvents) {
 				ite(moveTheWorldBucket, moveDirDouble);
 			}

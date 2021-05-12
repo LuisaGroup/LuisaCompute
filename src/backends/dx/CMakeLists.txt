@@ -21,7 +21,6 @@ if (WIN32)
         File/MGUID.cpp
         File/Path.cpp
         JobSystem/JobBucket.cpp
-        JobSystem/JobGraph.cpp
         JobSystem/JobNode.cpp
         JobSystem/JobSystem.cpp
         LogicComponent/Component.cpp

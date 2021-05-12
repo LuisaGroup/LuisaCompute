@@ -153,7 +153,7 @@ bool CopyDir::get_src_files_name(vengine::string const& srcFolder,
 void CopyDir::do_copy(const vengine::vector<vengine::string>& fileNameList, HashMap<vengine::string, bool> const& avaliableExtension, JobBucket* bucket) {
 	success = true;
 	for (int i = 0; i < fileNameList.size(); i++) {
-		bucket->GetTask({}, [&, i]() -> void {
+		bucket->GetTask([&, i]() -> void {
 			vengine::string nowSrcFilePath, nowDesFilePath;
 			vengine::string ext = FileUtility::GetFileExtension(fileNameList[i]);
 			if (!avaliableExtension.Contains(ext)) return;

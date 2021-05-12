@@ -17,22 +17,20 @@ void JobSystem::UpdateNewBucket() {
 			return;
 		}
 		bucket = buckets[currentBucketPos];
-		if (bucket->jobNodesVec.empty() || bucket->sys != this) {
+		if (bucket->allJobNodes.empty() || bucket->sys != this) {
 			currentBucketPos++;
 			continue;
 		}
 		break;
 	}
 	bucketMissionCount = bucket->allJobNodes.size();
-	for (auto node : bucket->jobNodesVec) {
-		if (node->targetDepending == 0) {
-			executingNode.Push(node);
-		}
+	for (auto& node : bucket->executeJobs) {
+		executingNode.Push(node);
 	}
-	bucket->jobNodesVec.clear();
+	bucket->executeJobs.clear();
 	bucket->allJobNodes.clear();
 	currentBucketPos++;
-	uint32_t size = executingNode.Length();
+	size_t size = executingNode.Length();
 	if (size < mThreadCount) {
 		lockGuard lck(threadMtx);
 		for (int64_t i = 0; i < size; ++i) {
@@ -49,7 +47,7 @@ public:
 	/*bool* JobSystemInitialized;
 	std::condition_variable* cv;
 	ConcurrentQueue<JobNode*>* executingNode;
-	std::atomic<int32_t>* bucketMissionCount;*/
+	std::atomic<int64>* bucketMissionCount;*/
 	void operator()() {
 		{
 			std::unique_lock<std::mutex> lck(sys->threadMtx);
@@ -57,7 +55,7 @@ public:
 				sys->cv.wait(lck);
 			}
 		}
-		int32_t value = (int32_t)-1;
+		int64 value = (int64)-1;
 		while ([&]() {
 			JobNode* node = nullptr;
 			while (sys->executingNode.Pop(&node)) {
@@ -94,16 +92,18 @@ JobBucket* JobSystem::GetJobBucket() {
 	} else {
 		auto ite = releasedBuckets.end() - 1;
 		JobBucket* cur = *ite;
-		cur->jobNodesVec.clear();
+		cur->executeJobs.clear();
+		cur->allJobNodes.clear();
 		releasedBuckets.erase(ite);
 		return cur;
 	}
 }
 void JobSystem::ReleaseJobBucket(JobBucket* node) {
-	node->jobNodesVec.clear();
+	node->executeJobs.clear();
+	node->allJobNodes.clear();
 	releasedBuckets.push_back(node);
 }
-JobSystem::JobSystem(uint32_t threadCount) noexcept
+JobSystem::JobSystem(size_t threadCount) noexcept
 	: executingNode(100),
 	  mainThreadFinished(true),
 	  jobNodePool(50) {
@@ -113,7 +113,7 @@ JobSystem::JobSystem(uint32_t threadCount) noexcept
 	usedBuckets.reserve(20);
 	releasedBuckets.reserve(20);
 	allThreads.resize(threadCount);
-	for (uint32_t i = 0; i < threadCount; ++i) {
+	for (size_t i = 0; i < threadCount; ++i) {
 		JobThreadRunnable j;
 		j.sys = this;
 		allThreads[i] = new std::thread(j);
@@ -125,7 +125,7 @@ JobSystem::~JobSystem() noexcept {
 		lockGuard lck(threadMtx);
 		cv.notify_all();
 	}
-	for (uint32_t i = 0; i < allThreads.size(); ++i) {
+	for (size_t i = 0; i < allThreads.size(); ++i) {
 		allThreads[i]->join();
 		delete allThreads[i];
 	}
@@ -142,14 +142,14 @@ void* JobSystem::AllocFuncMemory(uint64_t size)
 }
 void JobSystem::FreeAllMemory()
 {
-	for (uint i = 0; i < allocatedMemory[allocatorSwitcher].size(); ++i)
+	for (size_t i = 0; i < allocatedMemory[allocatorSwitcher].size(); ++i)
 	{
 		vengine_free(allocatedMemory[allocatorSwitcher][i]);
 	}
 	allocatedMemory[allocatorSwitcher].clear();
 }
 */
-void JobSystem::ExecuteBucket(JobBucket** bucket, uint32_t bucketCount) {
+void JobSystem::ExecuteBucket(JobBucket** bucket, size_t bucketCount) {
 	jobNodePool.UpdateSwitcher();
 	currentBucketPos = 0;
 	buckets.resize(bucketCount);
@@ -159,11 +159,11 @@ void JobSystem::ExecuteBucket(JobBucket** bucket, uint32_t bucketCount) {
 	UpdateNewBucket();
 	//FreeAllMemory();
 }
-void JobSystem::ExecuteBucket(JobBucket* bucket, uint32_t bucketCount) {
+void JobSystem::ExecuteBucket(JobBucket* bucket, size_t bucketCount) {
 	jobNodePool.UpdateSwitcher();
 	currentBucketPos = 0;
 	buckets.resize(bucketCount);
-	for (uint32_t i = 0; i < bucketCount; ++i) {
+	for (size_t i = 0; i < bucketCount; ++i) {
 		buckets[i] = bucket + i;
 	}
 	mainThreadFinished = false;

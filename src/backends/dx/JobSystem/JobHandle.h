@@ -1,34 +1,39 @@
 #pragma once
 #include <VEngineConfig.h>
 #include <Common/vector.h>
+#include <span>
 class JobNode;
 class JobBucket;
-using uint = uint32_t;
-class VENGINE_DLL_COMMON JobHandle
-{
+class VENGINE_DLL_COMMON JobHandle {
 	friend class JobBucket;
 	friend class JobNode;
+
 private:
-	uint start;
-	uint end;
+	JobBucket* bucket;
+	size_t start;
+	size_t end;
+
 public:
 	JobHandle(
-		uint start,
-		uint end
-	) : 
-		start(start),
-		end(end)
-	{
+		JobBucket* bucket,
+		size_t start,
+		size_t end)
+		: start(start),
+		  bucket(bucket),
+		  end(end) {
 	}
-	JobHandle() : start(-1), end(-1){}
+	JobHandle() : bucket(nullptr), start(-1), end(-1) {}
 	operator bool() const noexcept {
 		return start != -1;
 	}
 	bool operator!() const {
 		return !operator bool();
 	}
-	uint Count() const {
+	size_t Count() const {
 		return end + 1 - start;
 	}
 	void Reset() { start = -1; }
+	void AddDependency(JobHandle const& handle);
+	void AddDependency(std::initializer_list<JobHandle const> handle);
+	void AddDependency(JobHandle const* handles, size_t handleCount);
 };

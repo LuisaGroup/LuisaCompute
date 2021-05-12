@@ -195,7 +195,6 @@
 		<ClCompile Include="File/MGUID.cpp" />
 		<ClCompile Include="File/Path.cpp" />
 		<ClCompile Include="JobSystem/JobBucket.cpp" />
-		<ClCompile Include="JobSystem/JobGraph.cpp" />
 		<ClCompile Include="JobSystem/JobNode.cpp" />
 		<ClCompile Include="JobSystem/JobSystem.cpp" />
 		<ClCompile Include="LogicComponent/Component.cpp" />
@@ -306,11 +305,9 @@
 		<ClInclude Include="File/MGUID.h" />
 		<ClInclude Include="File/Path.h" />
 		<ClInclude Include="JobSystem/JobBucket.h" />
-		<ClInclude Include="JobSystem/JobGraph.h" />
 		<ClInclude Include="JobSystem/JobHandle.h" />
 		<ClInclude Include="JobSystem/JobInclude.h" />
 		<ClInclude Include="JobSystem/JobNode.h" />
-		<ClInclude Include="JobSystem/JobPromise.h" />
 		<ClInclude Include="JobSystem/JobSystem.h" />
 		<ClInclude Include="LogicComponent/Component.h" />
 		<ClInclude Include="LogicComponent/RendererBase.h" />
