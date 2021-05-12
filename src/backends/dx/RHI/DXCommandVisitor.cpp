@@ -84,7 +84,7 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 		auto&& cbData = ShaderCompiler::GetCBufferData(cmd->kernel_uid());
 		vengine::vector<uint8_t> cbufferData(cbData.cbufferSize);
 		memset(cbufferData.data(), 0, cbufferData.size());
-		cs->BindShader(tCmd);
+		cs->BindShader(tCmd, Graphics::GetGlobalDescHeap());
 		struct Functor {
 			ComputeShader const* cs;
 			Function func;
@@ -216,15 +216,16 @@ void DXCommandVisitor::visit(TextureUploadCommand const* cmd) noexcept {
 		rt->rt,
 		true);
 	tCmd->UAVBarrier(rt->rt);
-	cs->BindShader(tCmd);
-	cs->SetResource(tCmd, internalShaders->_Buffer, middleBuffer, 0);
+	cs->BindShader(tCmd, Graphics::GetGlobalDescHeap());
+	cs->SetResource(tCmd, InternalShaders::CopyShaderParam::_Buffer, middleBuffer, 0);
 	if (dim) {
 		dispKernel = uint3((resolution.x + 7) / 8, (resolution.y + 7) / 8, 1);
-		cs->SetResource(tCmd, internalShaders->_Tex2D, rt->rt);
+		cs->SetResource(tCmd, InternalShaders::CopyShaderParam::_Tex2D, rt->rt);
 	} else {
 		dispKernel = (resolution + 3u) / 4u;
-		cs->SetResource(tCmd, internalShaders->_Tex3D, rt->rt);
+		cs->SetResource(tCmd, InternalShaders::CopyShaderParam::_Tex3D, rt->rt);
 	}
+	cs->SetResource(tCmd, InternalShaders::CopyShaderParam::Params, chunk.GetBuffer(), chunk.GetOffset());
 	cs->Dispatch(
 		tCmd,
 		kernel,
@@ -268,15 +269,16 @@ void DXCommandVisitor::visit(TextureDownloadCommand const* cmd) noexcept {
 		rt->rt,
 		true);
 	auto cs = internalShaders->copyShader;
-	cs->BindShader(tCmd);
+	cs->BindShader(tCmd, Graphics::GetGlobalDescHeap());
 	if (dim) {
 		dispKernel = uint3((resolution.x + 7) / 8, (resolution.y + 7) / 8, 1);
-		cs->SetResource(tCmd, internalShaders->_Read_Tex2D, rt->rt);
+		cs->SetResource(tCmd, InternalShaders::CopyShaderParam::_Read_Tex2D, rt->rt);
 	} else {
 		dispKernel = (resolution + 3u) / 4u;
-		cs->SetResource(tCmd, internalShaders->_Read_Tex3D, rt->rt);
+		cs->SetResource(tCmd, InternalShaders::CopyShaderParam::_Read_Tex3D, rt->rt);
 	}
-	cs->SetResource(tCmd, internalShaders->_Write_Buffer, middleBuffer, 0);
+	cs->SetResource(tCmd, InternalShaders::CopyShaderParam::_Write_Buffer, middleBuffer, 0);
+	cs->SetResource(tCmd, InternalShaders::CopyShaderParam::Params, chunk.GetBuffer(), chunk.GetOffset());
 	cs->Dispatch(
 		tCmd,
 		kernel,
@@ -295,13 +297,13 @@ void DXCommandVisitor::visit(TextureDownloadCommand const* cmd) noexcept {
 		0,
 		byteSize);
 
-	res->afterSyncTask.emplace_back(std::move(Runnable<void()>(
+	res->afterSyncTask.emplace_back(
 		[=]() {
 			readBuffer->Map();
 			memcpy(cmd->data(), readBuffer->GetMappedPtr(0), byteSize);
 			readBuffer->UnMap();
 			delete readBuffer;
-		})));
+		});
 }
 DXCommandVisitor::DXCommandVisitor(
 	GFXDevice* device,

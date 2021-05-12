@@ -61,7 +61,7 @@ struct TransformMoveStruct {
 	uint start, end;
 	Vector3 moveDirection;
 	int3 moveBlock;
-	void operator()() noexcept {
+	void operator()() const noexcept {
 		auto&& arr = World::GetInstance()->allTransformsPtr;
 		uint len = arr.Length();
 		len = Min(len, end);
@@ -75,7 +75,7 @@ struct TransformMoveToEndStruct {
 	uint start;
 	Vector3 moveDirection;
 	int3 moveBlock;
-	void operator()() noexcept {
+	void operator()() const noexcept {
 		auto&& arr = World::GetInstance()->allTransformsPtr;
 		uint len = arr.Length();
 		if (len <= start) return;

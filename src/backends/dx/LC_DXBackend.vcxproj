@@ -199,13 +199,11 @@
 		<ClCompile Include="JobSystem/JobNode.cpp" />
 		<ClCompile Include="JobSystem/JobSystem.cpp" />
 		<ClCompile Include="LogicComponent/Component.cpp" />
-		<ClCompile Include="LogicComponent/RayRenderer.cpp" />
 		<ClCompile Include="LogicComponent/RendererBase.cpp" />
 		<ClCompile Include="LogicComponent/Transform.cpp" />
 		<ClCompile Include="PipelineComponent/CommandAllocator.cpp" />
 		<ClCompile Include="PipelineComponent/CommandBuffer.cpp" />
 		<ClCompile Include="PipelineComponent/FrameResource.cpp" />
-		<ClCompile Include="PipelineComponent/RayTracing/RayTracingManager.cpp" />
 		<ClCompile Include="PipelineComponent/ThreadCommand.cpp" />
 		<ClCompile Include="RenderComponent/BackBuffer.cpp" />
 		<ClCompile Include="RenderComponent/CBufferAllocator.cpp" />
@@ -315,7 +313,6 @@
 		<ClInclude Include="JobSystem/JobPromise.h" />
 		<ClInclude Include="JobSystem/JobSystem.h" />
 		<ClInclude Include="LogicComponent/Component.h" />
-		<ClInclude Include="LogicComponent/RayRenderer.h" />
 		<ClInclude Include="LogicComponent/RendererBase.h" />
 		<ClInclude Include="LogicComponent/Transform.h" />
 		<ClInclude Include="PipelineComponent/CameraData/CameraTransformData.h" />
@@ -327,7 +324,6 @@
 		<ClInclude Include="PipelineComponent/DXAllocator.h" />
 		<ClInclude Include="PipelineComponent/FrameResource.h" />
 		<ClInclude Include="PipelineComponent/IPipelineResource.h" />
-		<ClInclude Include="PipelineComponent/RayTracing/RayTracingManager.h" />
 		<ClInclude Include="PipelineComponent/ThreadCommand.h" />
 		<ClInclude Include="RenderComponent/BackBuffer.h" />
 		<ClInclude Include="RenderComponent/CBufferAllocator.h" />
@@ -343,7 +339,6 @@
 		<ClInclude Include="RenderComponent/IMesh.h" />
 		<ClInclude Include="RenderComponent/IShader.h" />
 		<ClInclude Include="RenderComponent/Mesh.h" />
-		<ClInclude Include="RenderComponent/RayRendererData.h" />
 		<ClInclude Include="RenderComponent/RayShader.h" />
 		<ClInclude Include="RenderComponent/ReadbackBuffer.h" />
 		<ClInclude Include="RenderComponent/RenderCommand.h" />

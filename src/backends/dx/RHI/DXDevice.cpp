@@ -104,6 +104,7 @@ public:
 		ShaderID::Init();
 
 		internalShaders.New();
+		InitInternal();
 	}
 	uint64 create_buffer(size_t size_bytes) noexcept override {
 		Graphics::current = graphicsInstance;
@@ -295,7 +296,7 @@ private:
 	void InitInternal() {
 		EnableThreadLocal();
 		internalShaders->copyShader = ShaderLoader::GetComputeShader(
-			"DXCompiledShader/Internal/Copy.compute.cso"_sv);
+			"VEngineCompiler/ShaderCompileResult/copy.compute.cso"_sv);
 	}
 
 	void FreeFrameResource(uint64 lastSignal = 0) {

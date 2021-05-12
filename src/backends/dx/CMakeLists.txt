@@ -21,17 +21,15 @@ if (WIN32)
         File/MGUID.cpp
         File/Path.cpp
         JobSystem/JobBucket.cpp
+        JobSystem/JobGraph.cpp
         JobSystem/JobNode.cpp
         JobSystem/JobSystem.cpp
-        JobSystem/JobGraph.cpp
         LogicComponent/Component.cpp
-        LogicComponent/RayRenderer.cpp
         LogicComponent/RendererBase.cpp
         LogicComponent/Transform.cpp
         PipelineComponent/CommandAllocator.cpp
         PipelineComponent/CommandBuffer.cpp
         PipelineComponent/FrameResource.cpp
-        PipelineComponent/RayTracing/RayTracingManager.cpp
         PipelineComponent/ThreadCommand.cpp
         RenderComponent/BackBuffer.cpp
         RenderComponent/CBufferAllocator.cpp

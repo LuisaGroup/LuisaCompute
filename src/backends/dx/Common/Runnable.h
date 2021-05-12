@@ -24,7 +24,7 @@ class Runnable<_Ret(_Types...)> {
 	using ProcessorHolder = std::aligned_storage_t<sizeof(IProcessFunctor), alignof(IProcessFunctor)>;
 	/////////////////////Data
 	void* placePtr;
-	funcPtr_t<_Ret(void*, _Types&&...)> runFunc;
+	funcPtr_t<_Ret(void const*, _Types&&...)> runFunc;
 	ProcessorHolder logicPlaceHolder;
 	PlaceHolderType funcPtrPlaceHolder;
 	IProcessFunctor const* GetPtr() const noexcept {
@@ -64,7 +64,7 @@ public:
 				reinterpret_cast<size_t&>(dst) = reinterpret_cast<size_t>(src);
 			}
 		};
-		runFunc = [](void* pp, _Types&&... tt) -> _Ret {
+		runFunc = [](void const* pp, _Types&&... tt) -> _Ret {
 			funcPtr_t<_Ret(_Types...)> fp = reinterpret_cast<funcPtr_t<_Ret(_Types...)>>(pp);
 			return fp(std::forward<_Types>(tt)...);
 		};
@@ -127,8 +127,8 @@ public:
 					}
 				}
 			};
-			runFunc = [](void* pp, _Types&&... tt) -> _Ret {
-				PureType* ff = (PureType*)pp;
+			runFunc = [](void const* pp, _Types&&... tt) -> _Ret {
+				PureType const* ff = reinterpret_cast<PureType const*>(pp);
 				return (*ff)(std::forward<_Types>(tt)...);
 			};
 			new (&logicPlaceHolder) FuncPtrLogic();

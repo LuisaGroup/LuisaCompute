@@ -1,10 +1,10 @@
 cbuffer Params : register(b0)
-RWTexture2D<TEX_TYPE> _Tex2D : register(u0)
-RWTexture3D<TEX_TYPE> _Tex3D : register(u1)
-Texture2D<TEX_TYPE> _Read_Tex2D : register(t0)
-Texture3D<TEX_TYPE> _Read_Tex3D : register(t1)
-StructuredBuffer<BUFFER_TYPE> _Buffer : register(t2)
-RWStructuredBuffer<BUFFER_TYPE> _Write_Buffer : register(u2)
+RWTexture2D<uint4> _Tex2D : register(u0)
+RWTexture3D<uint4> _Tex3D : register(u1)
+Texture2D<uint4> _Read_Tex2D : register(t0)
+Texture3D<uint4> _Read_Tex3D : register(t1)
+StructuredBuffer<uint4> _Buffer : register(t2)
+RWStructuredBuffer<uint4> _Write_Buffer : register(u2)
 
 #pragma Copy DIMENSION_2D R8SInt WRITE_4 INT_1
 #pragma Copy DIMENSION_2D R8UInt WRITE_4 INT_1

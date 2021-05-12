@@ -263,7 +263,7 @@ void Copy(UVType id : SV_DISPATCHTHREADID){
             _Write_Buffer[bufferOffset] = f16tof32(_Tex[id]);
         }
     #endif
-#else
+#else //!DOWNLOAD
     inline uint4 GetByte(uint value){
         uint4 r;
         r.w = value & 255;

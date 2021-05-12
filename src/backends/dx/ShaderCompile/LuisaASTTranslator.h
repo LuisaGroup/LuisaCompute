@@ -25,7 +25,7 @@ public:
 	static void RegistStructType(Type const* type);
 	static void IterateStructType(TypeVisitor* visitor);
 	static void PrintStructType(vengine::string& str);
-	static void GetFunctionName(CallExpr const* expr, vengine::string& result);
+	static void GetFunctionName(CallExpr const* expr, vengine::string& result, Runnable<void()>&& func);
 	static void PrintUniform(
 		Function func,
 		vengine::string& result);

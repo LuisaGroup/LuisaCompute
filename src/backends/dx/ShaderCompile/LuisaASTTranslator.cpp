@@ -14,7 +14,7 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 		vengine::string function_buffer;
 		function_buffer.reserve(65535 * 4);
 		str.reserve(65535 * 4);
-
+		str << "#include \"Include.cginc\"\n";
 		CodegenUtility::ClearStructType();
 
 		for (auto cust : func.custom_callables()) {
@@ -50,11 +50,10 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 			 func.arguments()},
 			varOffsets,
 			str);
-
 		str << function_buffer;
 	}
 	str << "[numthreads(8,8,1)]\nvoid CSMain(uint3 thd_id:SV_GROUPTHREADID,uint3 blk_id:SV_GROUPID,uint3 dsp_id:SV_DISPATCHTHREADID){\n_kernel_"_sv;
-	str += vengine::to_string(func.uid());
+	vengine::to_string(func.uid(), str);
 	str += "(thd_id,blk_id,dsp_id);\n}\n";
 }
 
@@ -280,17 +279,16 @@ void StringExprVisitor::visit(const LiteralExpr* expr) {
 			   expr->value());
 }
 void StringExprVisitor::visit(const CallExpr* expr) {
-	vengine::string name;
-	CodegenUtility::GetFunctionName(expr, name);
-	str->push_back_all(name.data(), name.size());
-	(*str) += '(';
-	auto&& args = expr->arguments();
-	StringExprVisitor vis(*str);
-	for (auto&& i : args) {
-		i->accept(vis);
-		(*str) += ',';
-	}
-	(*str)[str->size() - 1] = ')';
+	CodegenUtility::GetFunctionName(expr, *str, [&]() {
+		(*str) += '(';
+		auto&& args = expr->arguments();
+		StringExprVisitor vis(*str);
+		for (auto&& i : args) {
+			i->accept(vis);
+			(*str) += ',';
+		}
+		(*str)[str->size() - 1] = ')';
+	});
 }
 void StringExprVisitor::visit(const CastExpr* expr) {
 	BeforeVisit();
@@ -619,6 +617,9 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str, bool is
 			vengine::to_string(type.dimension(), str);
 			str += "D<"_sv;
 			GetTypeName(*type.element(), str, isWritable);
+			if (type.tag() != Type::Tag::VECTOR) {
+				str += '4';
+			}
 			str += '>';
 		} break;
 	}
@@ -692,7 +693,7 @@ void CodegenUtility::ClearStructType() {
 	codegenStructType->Clear();
 }
 
-void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& result) {
+void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& result, Runnable<void()>&& func) {
 	switch (expr->op()) {
 		case CallOp::CUSTOM:
 			result << "custom_"_sv << vengine::to_string(expr->uid());
@@ -906,48 +907,71 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::ALL_MEMORY_BARRIER:
 			result << "AllMemoryBarrierWithGroupSync"_sv;
 			break;
+			///TODO: atomic operation
 		case CallOp::ATOMIC_LOAD:
-			result << "_atomic_load"_sv;
+			//result << "_atomic_load"_sv;
 			break;
 		case CallOp::ATOMIC_STORE:
-			result << "_atomic_store"_sv;
+			//result << "_atomic_store"_sv;
 			break;
 		case CallOp::ATOMIC_EXCHANGE:
-			result << "_atomic_exchange"_sv;
+			result << "InterlockedExchange"_sv;
 			break;
 		case CallOp::ATOMIC_COMPARE_EXCHANGE:
-			result << "_atomic_compare_exchange"_sv;
+			result << "InterlockedCompareExchange"_sv;
 			break;
 		case CallOp::ATOMIC_FETCH_ADD:
-			result << "_atomic_add"_sv;
+			result << "InterlockedAdd"_sv;
 			break;
 		case CallOp::ATOMIC_FETCH_SUB:
-			result << "_atomic_sub"_sv;
+			result << "InterlockedAdd"_sv;
 			break;
 		case CallOp::ATOMIC_FETCH_AND:
-			result << "_atomic_and"_sv;
+			result << "InterlockedAnd"_sv;
 			break;
 		case CallOp::ATOMIC_FETCH_OR:
-			result << "_atomic_or"_sv;
+			result << "InterlockedOr"_sv;
 			break;
 		case CallOp::ATOMIC_FETCH_XOR:
-			result << "_atomic_xor"_sv;
+			result << "InterlockedXor"_sv;
 			break;
 		case CallOp::ATOMIC_FETCH_MIN:
-			result << "_atomic_min"_sv;
+			result << "InterlockedMin"_sv;
 			break;
 		case CallOp::ATOMIC_FETCH_MAX:
-			result << "_atomic_max"_sv;
+			result << "InterlockedMax"_sv;
 			break;
-		case CallOp::TEXTURE_READ:
-			result << "_read_tex"_sv;
-			break;
-		case CallOp::TEXTURE_WRITE:
-			result << "_write_tex"_sv;
-			break;
+		case CallOp::TEXTURE_READ: {
+			auto args = expr->arguments();
+			StringExprVisitor vis(result);
+			args[0]->accept(vis);
+			result << '[';
+			args[1]->accept(vis);
+			result << ']';
+		}
+			return;
+		case CallOp::TEXTURE_WRITE: {
+			auto args = expr->arguments();
+			StringExprVisitor vis(result);
+			result << '(';
+			args[0]->accept(vis);
+			result << '[';
+			args[1]->accept(vis);
+			result << "]=to_tex("_sv;
+			args[2]->accept(vis);
+			result << "))"_sv;
+		}
+			return;
 		case CallOp::TEXTURE_SAMPLE:
-			result << "_sample_tex"_sv;
-			break;
+			/*
+			auto args = expr->arguments();
+			result << '(';
+			StringExprVisitor vis(result);
+			args[0]->accept(vis);
+			result << ".SampleLevel("
+				   << ')';
+			*/
+			return;
 		case CallOp::MAKE_BOOL2:
 			result << "bool2"_sv;
 			break;
@@ -988,6 +1012,7 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 			VEngine_Log("Function Not Implemented"_sv);
 			VENGINE_EXIT;
 	}
+	func();
 }
 void CodegenUtility::RegistStructType(Type const* type) {
 	if (type->is_structure())
