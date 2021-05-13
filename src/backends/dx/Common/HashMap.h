@@ -44,18 +44,18 @@ private:
 	};
 
 public:
-	struct Iterator {
+	struct Index {
 		friend class HashMap<K, V, Hash, Equal, useVEngineAlloc>;
 
 	private:
 		const HashMap* map;
 		size_t hashValue;
 		HashMap::LinkNode* node;
-		Iterator(const HashMap* map, size_t hashValue, HashMap::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
+		Index(const HashMap* map, size_t hashValue, HashMap::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
 
 	public:
-		Iterator() : map(nullptr), hashValue(0), node(nullptr) {}
-		bool operator==(const Iterator& a) const noexcept {
+		Index() : map(nullptr), hashValue(0), node(nullptr) {}
+		bool operator==(const Index& a) const noexcept {
 			return node == a.node;
 		}
 		operator bool() const noexcept {
@@ -64,7 +64,7 @@ public:
 		bool operator!() const noexcept {
 			return !operator bool();
 		}
-		bool operator!=(const Iterator& a) const noexcept {
+		bool operator!=(const Index& a) const noexcept {
 			return !operator==(a);
 		}
 		inline K const& Key() const noexcept;
@@ -91,13 +91,26 @@ private:
 			memset(nodesPtr, 0, sizeof(LinkNode*) * mSize);
 		}
 		template<bool value>
-		static void* Allocate(size_t s) noexcept {
+		static void* Allocate(size_t s) noexcept;
+		template<>
+		static void* Allocate<true>(size_t s) noexcept {
 			return vengine_malloc(s);
+		}
+		template<>
+		static void* Allocate<false>(size_t s) noexcept {
+			return malloc(s);
 		}
 
 		template<bool value>
-		static void Free(void* ptr) noexcept {
+		static void Free(void* ptr) noexcept;
+
+		template<>
+		static void Free<true>(void* ptr) noexcept {
 			vengine_free(ptr);
+		}
+		template<>
+		static void Free<false>(void* ptr) noexcept {
+			free(ptr);
 		}
 
 		HashArray(size_t mSize) noexcept : mSize(mSize) {
@@ -125,6 +138,12 @@ private:
 		}
 		LinkNode*& operator[](size_t i) noexcept {
 			return nodesPtr[i];
+		}
+		decltype(auto) begin() const noexcept {
+			return allocatedNodes.begin();
+		}
+		decltype(auto) end() const noexcept {
+			return allocatedNodes.end();
 		}
 	};
 
@@ -167,8 +186,7 @@ private:
 		if (capacity >= newCapacity) return;
 		allocatedNodes.reserve(newCapacity);
 		HashArray newNode(newCapacity);
-		for (size_t i = 0; i < allocatedNodes.size(); ++i) {
-			LinkNode* node = allocatedNodes[i];
+		for (auto node : allocatedNodes) {
 			auto next = node->next;
 			node->last = nullptr;
 			node->next = nullptr;
@@ -185,8 +203,8 @@ private:
 		}
 		nodeVec = newNode;
 	}
-	static Iterator End() noexcept {
-		return Iterator(nullptr, -1, nullptr);
+	static Index EmptyIndex() noexcept {
+		return Index(nullptr, -1, nullptr);
 	}
 
 public:
@@ -208,14 +226,13 @@ public:
 		new (this) HashMap(std::move(map));
 	}
 	~HashMap() noexcept {
-
-		for (auto ite = allocatedNodes.begin(); ite != allocatedNodes.end(); ++ite) {
-			pool.Delete(*ite);
+		for (auto& ite : allocatedNodes) {
+			pool.Delete(ite);
 		}
 	}
 	HashMap() noexcept : HashMap(16) {}
 	///////////////////////
-	Iterator Insert(const K& key, const V& value) noexcept {
+	Index Insert(const K& key, const V& value) noexcept {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue;
 
@@ -224,7 +241,7 @@ public:
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
 			if (eqFunc(node->key, key)) {
 				node->value = value;
-				return Iterator(this, hashOriginValue, node);
+				return Index(this, hashOriginValue, node);
 			}
 		}
 
@@ -236,9 +253,10 @@ public:
 		}
 		LinkNode* newNode = GetNewLinkNode(key, value);
 		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Iterator(this, hashOriginValue, newNode);
+		return Index(this, hashOriginValue, newNode);
 	}
-	Iterator Insert(const K& key, V& value) noexcept {
+
+	Index Insert(const K& key, V& value) noexcept {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue;
 
@@ -247,7 +265,7 @@ public:
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
 			if (eqFunc(node->key, key)) {
 				node->value = value;
-				return Iterator(this, hashOriginValue, node);
+				return Index(this, hashOriginValue, node);
 			}
 		}
 
@@ -259,9 +277,9 @@ public:
 		}
 		LinkNode* newNode = GetNewLinkNode(key, value);
 		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Iterator(this, hashOriginValue, newNode);
+		return Index(this, hashOriginValue, newNode);
 	}
-	Iterator Insert(const K& key, V&& value) noexcept {
+	Index Insert(const K& key, V&& value) noexcept {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue;
 
@@ -270,7 +288,7 @@ public:
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
 			if (eqFunc(node->key, key)) {
 				node->value = std::move(value);
-				return Iterator(this, hashOriginValue, node);
+				return Index(this, hashOriginValue, node);
 			}
 		}
 
@@ -282,10 +300,10 @@ public:
 		}
 		LinkNode* newNode = GetNewLinkNode(key, std::move(value));
 		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Iterator(this, hashOriginValue, newNode);
+		return Index(this, hashOriginValue, newNode);
 	}
 	template<typename... ARGS>
-	Iterator Emplace(const K& key, ARGS&&... args) {
+	Index Emplace(const K& key, ARGS&&... args) {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue;
 
@@ -296,7 +314,7 @@ public:
 				//node->value = std::move(value);
 				node->value.~V();
 				new (&node->value) V(std::forward<ARGS>(args)...);
-				return Iterator(this, hashOriginValue, node);
+				return Index(this, hashOriginValue, node);
 			}
 		}
 
@@ -308,15 +326,15 @@ public:
 		}
 		LinkNode* newNode = GetNewLinkNode(key, std::forward<ARGS>(args)...);
 		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Iterator(this, hashOriginValue, newNode);
+		return Index(this, hashOriginValue, newNode);
 	}
-	Iterator Insert(const K& key) noexcept {
+	Index Insert(const K& key) noexcept {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue;
 		hashValue = GetHash(hashOriginValue, nodeVec.size());
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
 			if (eqFunc(node->key, key)) {
-				return Iterator(this, hashOriginValue, node);
+				return Index(this, hashOriginValue, node);
 			}
 		}
 
@@ -328,48 +346,28 @@ public:
 		}
 		LinkNode* newNode = GetNewLinkNode(key);
 		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Iterator(this, hashOriginValue, newNode);
+		return Index(this, hashOriginValue, newNode);
 	}
 
 	//void(size_t, K const&, V&)
 	template<typename Func>
 	void IterateAll(const Func& func) const noexcept {
 		using FuncType = std::remove_cvref_t<std::remove_pointer_t<Func>>;
-		static constexpr size_t ArgSize = FunctionDataType<FuncType>::ArgsCount;
+		static constexpr size_t ArgSize = FuncArgCount<FuncType>;
 		using ReturnType = typename FunctionDataType<FuncType>::RetType;
-		static constexpr bool noEarlyBreak = std::is_same_v<ReturnType, void>;
+		static_assert(std::is_same_v<ReturnType, void>, "Iterate functor must return void!");
 		if constexpr (ArgSize == 3) {
 			for (size_t i = 0; i < allocatedNodes.size(); ++i) {
-				LinkNode* vv = allocatedNodes[i];
-				if constexpr (noEarlyBreak) {
-					func(i, (K const&)vv->key, vv->value);
-				} else {
-					if (!func(i, (K const&)vv->key, vv->value)) {
-						return;
-					}
-				}
+				auto vv = allocatedNodes[i];
+				func(i, (K const&)vv->key, vv->value);
 			}
 		} else if constexpr (ArgSize == 2) {
-			for (size_t i = 0; i < allocatedNodes.size(); ++i) {
-				LinkNode* vv = allocatedNodes[i];
-				if constexpr (noEarlyBreak) {
-					func((K const&)vv->key, vv->value);
-				} else {
-					if (!func((K const&)vv->key, vv->value)) {
-						return;
-					}
-				}
+			for (auto vv : allocatedNodes) {
+				func((K const&)vv->key, vv->value);
 			}
 		} else if constexpr (ArgSize == 1) {
-			for (size_t i = 0; i < allocatedNodes.size(); ++i) {
-				LinkNode* vv = allocatedNodes[i];
-				if constexpr (noEarlyBreak) {
-					func(vv->value);
-				} else {
-					if (!func(vv->value)) {
-						return;
-					}
-				}
+			for (auto vv : allocatedNodes) {
+				func(vv->value);
 			}
 		} else {
 			static_assert(std::_Always_false<Func>, "Invalid Iterate Functions");
@@ -379,16 +377,16 @@ public:
 		size_t newCapacity = GetPow2Size(capacity);
 		Resize(newCapacity);
 	}
-	Iterator Find(const K& key) const noexcept {
+	Index Find(const K& key) const noexcept {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
 			if (eqFunc(node->key, key)) {
-				return Iterator(this, hashOriginValue, node);
+				return Index(this, hashOriginValue, node);
 			}
 		}
 
-		return End();
+		return EmptyIndex();
 	}
 	void Remove(const K& key) noexcept {
 
@@ -410,7 +408,7 @@ public:
 		}
 	}
 
-	void Remove(const Iterator& ite) noexcept {
+	void Remove(const Index& ite) noexcept {
 
 		size_t hashValue = GetHash(ite.hashValue, nodeVec.size());
 		if (nodeVec[hashValue] == ite.node) {
@@ -474,8 +472,8 @@ public:
 	void Clear() noexcept {
 		if (allocatedNodes.empty()) return;
 		nodeVec.ClearAll();
-		for (auto ite = allocatedNodes.begin(); ite != allocatedNodes.end(); ++ite) {
-			pool.Delete(*ite);
+		for (auto& ite : allocatedNodes) {
+			pool.Delete(ite);
 		}
 		allocatedNodes.clear();
 	}
@@ -484,10 +482,10 @@ public:
 	size_t GetCapacity() const noexcept { return nodeVec.size(); }
 };
 template<typename K, typename V, typename Hash, typename Equal, bool useVEngineAlloc>
-inline K const& HashMap<K, V, Hash, Equal, useVEngineAlloc>::Iterator::Key() const noexcept {
+inline K const& HashMap<K, V, Hash, Equal, useVEngineAlloc>::Index::Key() const noexcept {
 	return node->key;
 }
 template<typename K, typename V, typename Hash, typename Equal, bool useVEngineAlloc>
-inline V& HashMap<K, V, Hash, Equal, useVEngineAlloc>::Iterator::Value() const noexcept {
+inline V& HashMap<K, V, Hash, Equal, useVEngineAlloc>::Index::Value() const noexcept {
 	return node->value;
 }

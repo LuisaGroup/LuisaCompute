@@ -1003,14 +1003,20 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::MAKE_BOOL2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
 				result << "bool2"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_BOOL3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 3))
 				result << "bool3"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_BOOL4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 4))
 				result << "bool4"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_UINT2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 2))
