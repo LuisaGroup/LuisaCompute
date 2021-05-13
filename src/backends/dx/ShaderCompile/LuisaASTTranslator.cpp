@@ -694,6 +694,30 @@ void CodegenUtility::ClearStructType() {
 }
 
 void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& result, Runnable<void()>&& func) {
+	auto IsType = [](Type const* const type, Type::Tag const tag, uint const vecEle) {
+		return vengine::select(
+			[&]() {
+				return false;
+			},
+			vengine::select(
+				[&]() {
+					return type->tag() == tag;
+				},
+				[&]() {
+					return type->element()->tag() == tag && type->dimension() == vecEle;
+				},
+				[&]() {
+					return vecEle > 1;
+				}),
+			[&]() {
+				return (vecEle > 1) == (type->tag() == Type::Tag::VECTOR);
+			})();
+		/*
+		if (isVec != (type->tag() == Type::Tag::VECTOR))
+			return false;
+		auto typeTag = isVec ? type->element()->tag() : type->tag();
+		return typeTag == tag;*/
+	};
 	switch (expr->op()) {
 		case CallOp::CUSTOM:
 			result << "custom_"_sv << vengine::to_string(expr->uid());
@@ -953,13 +977,17 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::TEXTURE_WRITE: {
 			auto args = expr->arguments();
 			StringExprVisitor vis(result);
-			result << '(';
 			args[0]->accept(vis);
 			result << '[';
 			args[1]->accept(vis);
-			result << "]=to_tex("_sv;
-			args[2]->accept(vis);
-			result << "))"_sv;
+			if (args[2]->type()->is_vector()) {
+				result << "]=to_tex("_sv;
+				args[2]->accept(vis);
+				result << ')';
+			} else {
+				result << "]="_sv;
+				args[2]->accept(vis);
+			}
 		}
 			return;
 		case CallOp::TEXTURE_SAMPLE:
@@ -973,40 +1001,68 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 			*/
 			return;
 		case CallOp::MAKE_BOOL2:
-			result << "bool2"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
+				result << "bool2"_sv;
 			break;
 		case CallOp::MAKE_BOOL3:
-			result << "bool3"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 3))
+				result << "bool3"_sv;
 			break;
 		case CallOp::MAKE_BOOL4:
-			result << "bool4"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 4))
+				result << "bool4"_sv;
 			break;
 		case CallOp::MAKE_UINT2:
-			result << "uint2"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 2))
+				result << "uint2"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_UINT3:
-			result << "uint3"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 3))
+				result << "uint3"_sv;
 			break;
 		case CallOp::MAKE_UINT4:
-			result << "uint4"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 4))
+				result << "uint4"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_INT2:
-			result << "int2"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 2))
+				result << "int2"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_INT3:
-			result << "int3"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 3))
+				result << "int3"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_INT4:
-			result << "int4"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 4))
+				result << "int4"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_FLOAT2:
-			result << "float2"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 2))
+				result << "float2"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_FLOAT3:
-			result << "float3"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 3))
+				result << "float3"_sv;
+			else
+				return;
 			break;
 		case CallOp::MAKE_FLOAT4:
-			result << "float4"_sv;
+			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 4))
+				result << "float4"_sv;
+			else
+				return;
 			break;
 		default:
 			VEngine_Log("Function Not Implemented"_sv);

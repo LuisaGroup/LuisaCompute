@@ -129,17 +129,14 @@ int2 _min3(int2 x, int2 y, int2 z){return min(x, min(y,z));}
 int3 _min3(int3 x, int3 y, int3 z){return min(x, min(y,z));}
 int4 _min3(int4 x, int4 y, int4 z){return min(x, min(y,z));}
 
-float4 to_tex(float v){return v;}
 float4 to_tex(float4 v){return v;}
 float4 to_tex(float2 v){return float4(v,1,1);}
 float4 to_tex(float3 v){return float4(v,1);}
 
-uint4 to_tex(uint v){return v;}
 uint4 to_tex(uint4 v){return v;}
 uint4 to_tex(uint2 v){return uint4(v,1,1);}
 uint4 to_tex(uint3 v){return uint4(v,1);}
 
-int4 to_tex(int v){return v;}
 int4 to_tex(int4 v){return v;}
 int4 to_tex(int2 v){return int4(v,1,1);}
 int4 to_tex(int3 v){return int4(v,1);}

@@ -130,6 +130,7 @@ void Copy(UVType id : SV_DISPATCHTHREADID){
 
 #ifdef DOWNLOAD
     inline uint PackByte(uint4 v){
+        v = v.wzyx;
         uint result = v.x;
         result <<= 8;
         result |= v.y;
@@ -140,12 +141,14 @@ void Copy(UVType id : SV_DISPATCHTHREADID){
         return result;
     }
     inline uint PackShort(uint2 value){
+        value = value.yx;
         uint result = value.x;
         result <<= 16;
         result |= value.y;
         return result;
     }
     inline uint2 PackShort(uint4 value){
+        value = value.wzyx;
         uint2 result = value.xz;
         result <<= 16;
         result |= value.yw;
@@ -273,21 +276,21 @@ void Copy(UVType id : SV_DISPATCHTHREADID){
         r.y = value & 255;
         value >>= 8;
         r.x = value;
-        return r;
+        return r.wzyx;
     }
     inline uint2 GetShort(uint value){
         uint2 r;
         r.y = value & 65535;
         value >>= 16;
         r.x = value;
-        return r;
+        return r.yx;
     }
     inline uint4 GetShort(uint2 value){
         uint4 r;
         r.yw = value & 65535;
         value >>= 16;
         r.xz = value;
-        return r;
+        return r.wzyx;
     }
     #if defined(R8SInt) || defined(R8UInt)
         void WritePixel(UVType id, uint bufferOffset){

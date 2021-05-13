@@ -205,11 +205,12 @@ public:
 	*/
 	void synchronize_event(uint64 handle) noexcept override {
 		DXEvent* evt = reinterpret_cast<DXEvent*>(handle);
-		evt->Sync(std::move(Runnable<void(uint64)>([&](uint64 signal) {
+		evt->Sync([&](uint64 signal) {
 			DXStream::WaitFence(
 				cpuFence.Get(),
 				signal);
-		})));
+			FreeFrameResource(signal);
+		});
 	}
 
 	~DXDevice() {
