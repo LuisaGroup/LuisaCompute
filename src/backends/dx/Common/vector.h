@@ -15,19 +15,37 @@ private:
 	T* arr;
 	size_t mSize;
 	size_t mCapacity;
+	static constexpr bool TRIVIAL_DESTRUCT = std::is_trivially_destructible_v<T> || forceTrivial;
+	static constexpr bool TRIVIAL_CONSTRUCT = std::is_trivially_constructible_v<T> || forceTrivial;
+	static constexpr bool TRIVIAL_COPY = std::is_trivially_copy_constructible_v<T> || forceTrivial;
 	static size_t GetNewVectorSize(size_t oldSize) {
-		return oldSize * 1.5 + 8;
+		if constexpr (useVEngineAlloc) {
+			return oldSize * 1.5 + 8;
+
+		} else {
+			if (oldSize == 0)
+				oldSize = 8;
+			oldSize *= 2;
+			return oldSize;
+		}
 	}
 	static T* Allocate(size_t& capacity) noexcept {
-		capacity *= sizeof(T);
-		auto ptr = (T*)vengine_malloc(capacity);
-		capacity /= sizeof(T);
-		return ptr;
+		if constexpr (useVEngineAlloc) {
+			capacity *= sizeof(T);
+			auto ptr = (T*)vengine_malloc(capacity);
+			capacity /= sizeof(T);
+			return ptr;
+		} else {
+			return (T*)malloc(sizeof(T) * capacity);
+		}
 	}
 
 	void Free(T* ptr) noexcept {
-		vengine_free(ptr);
-
+		if constexpr (useVEngineAlloc) {
+			vengine_free(ptr);
+		} else {
+			free(ptr);
+		}
 	}
 
 public:
@@ -37,15 +55,15 @@ public:
 		if (arr) {
 			if constexpr (std::is_trivially_copyable_v<T> || forceTrivial) {
 				memcpy(newArr, arr, sizeof(T) * mSize);
-				if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+				if constexpr (!(TRIVIAL_DESTRUCT)) {
 					for (size_t i = 0; i < mSize; ++i) {
 						(arr + i)->~T();
 					}
 				}
 			} else {
 				for (size_t i = 0; i < mSize; ++i) {
-					new (newArr + i) T(static_cast<T&&>(arr[i]));
-					if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+					new (newArr + i) T(std::move(arr[i]));
+					if constexpr (!(TRIVIAL_DESTRUCT)) {
 						(arr + i)->~T();
 					}
 				}
@@ -112,7 +130,7 @@ public:
 	};
 	vector(size_t mSize) noexcept : mSize(mSize), mCapacity(mSize) {
 		arr = Allocate(mCapacity);
-		if constexpr (!(std::is_trivially_constructible_v<T> || forceTrivial)) {
+		if constexpr (!(TRIVIAL_CONSTRUCT)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T();
 			}
@@ -120,7 +138,7 @@ public:
 	}
 	vector(std::initializer_list<T> const& lst) : mSize(lst.size()), mCapacity(lst.size()) {
 		arr = Allocate(mCapacity);
-		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+		if constexpr (!(TRIVIAL_COPY)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(lst.begin()[i]);
 			}
@@ -130,7 +148,7 @@ public:
 	}
 	vector(const vector& another) noexcept : mSize(another.mSize), mCapacity(another.mCapacity) {
 		arr = Allocate(mCapacity);
-		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+		if constexpr (!(TRIVIAL_COPY)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(another.arr[i]);
 			}
@@ -148,7 +166,7 @@ public:
 		clear();
 		reserve(another.mSize);
 		mSize = another.mSize;
-		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+		if constexpr (!(TRIVIAL_COPY)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(another.arr[i]);
 			}
@@ -195,7 +213,7 @@ public:
 		clear();
 		reserve(list.size());
 		mSize = list.size();
-		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+		if constexpr (!(TRIVIAL_COPY)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(list.begin()[i]);
 			}
@@ -207,7 +225,7 @@ public:
 	}
 	~vector() noexcept {
 		if (arr) {
-			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+			if constexpr (!(TRIVIAL_DESTRUCT)) {
 				for (size_t i = 0; i < mSize; ++i) {
 					(arr + i)->~T();
 				}
@@ -263,7 +281,7 @@ public:
 					}
 				}
 			}
-			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial))
+			if constexpr (!(TRIVIAL_DESTRUCT))
 				(arr + mSize - 1)->~T();
 		} else {
 			if (index < mSize - 1) {
@@ -275,16 +293,14 @@ public:
 
 	decltype(auto) erase_last() noexcept {
 		mSize--;
-		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
-			T tempValue = arr[mSize];
+		if constexpr (!(TRIVIAL_DESTRUCT)) {
 			(arr + mSize)->~T();
-			return tempValue;
 		} else {
 			return (T const&)arr[mSize];
 		}
 	}
 	void clear() noexcept {
-		if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+		if constexpr (!(TRIVIAL_DESTRUCT)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				(arr + i)->~T();
 			}
@@ -301,7 +317,7 @@ public:
 	}
 	void resize(size_t newSize) noexcept {
 		reserve(newSize);
-		if constexpr (!(std::is_trivially_constructible_v<T> || forceTrivial)) {
+		if constexpr (!(TRIVIAL_CONSTRUCT)) {
 			for (size_t i = mSize; i < newSize; ++i) {
 				new (arr + i) T();
 			}

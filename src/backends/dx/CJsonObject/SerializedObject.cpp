@@ -182,7 +182,7 @@ SerializedObject::SerializedObject(vengine::string const& path) {
 	}
 }
 uint64 SerializedObject::GetArraySize() const {
-	if (!isArray) return keyValueDatas->Size();
+	if (!isArray) return keyValueDatas->size();
 	return arrayDatas->datas.size();
 }
 bool SerializedObject::Get(vengine::string const& name, vengine::string& str) const {

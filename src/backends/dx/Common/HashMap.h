@@ -477,7 +477,7 @@ public:
 		}
 		allocatedNodes.clear();
 	}
-	size_t Size() const noexcept { return allocatedNodes.size(); }
+	size_t size() const noexcept { return allocatedNodes.size(); }
 
 	size_t GetCapacity() const noexcept { return nodeVec.size(); }
 };

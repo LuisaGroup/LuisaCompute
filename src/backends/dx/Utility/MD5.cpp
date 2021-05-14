@@ -79,14 +79,18 @@ MD5::MD5(std::span<uint8_t> message) {
 	/* Initialization the object according to message. */
 	init(message.data(), message.size());
 }
-
+std::array<uint8_t, MD5::MD5_SIZE> MD5::GetMD5FromString(vengine::string const& str) {
+	MD5 md5({reinterpret_cast<uint8_t*>(str.data()), str.size()});
+	return md5.GetDigest();
+}
 /**
  * @Generate md5 digest.
  *
  * @return the message-digest.
  *
  */
-std::array<uint8_t, 16> const& MD5::GetDigest() {
+
+std::array<uint8_t, MD5::MD5_SIZE> const& MD5::GetDigest() {
 	if (!finished) {
 		finished = true;
 
@@ -96,7 +100,7 @@ std::array<uint8_t, 16> const& MD5::GetDigest() {
 		uint32_t index, padLen;
 
 		/* Save current state and count. */
-		memcpy(oldState, state, 16);
+		memcpy(oldState, state, MD5_SIZE);
 		memcpy(oldCount, count, 8);
 
 		/* Save number of bits */
@@ -111,10 +115,10 @@ std::array<uint8_t, 16> const& MD5::GetDigest() {
 		init(bits, 8);
 
 		/* Store state in digest */
-		encode(state, digest.data(), 16);
+		encode(state, digest.data(), MD5_SIZE);
 
 		/* Restore current state and count. */
-		memcpy(state, oldState, 16);
+		memcpy(state, oldState, MD5_SIZE);
 		memcpy(count, oldCount, 8);
 	}
 	return digest;

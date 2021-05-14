@@ -18,23 +18,26 @@
  * @return one uint32_t.
  */
 
-
 #include <stdint.h>
 #include <span>
 #include <array>
 
 /* Define of btye.*/
 /* Define of uint8_t. */
-
+#include <Common/Common.h>
 class MD5 {
 public:
+	static constexpr size_t MD5_SIZE = 16;
+	static std::array<uint8_t, MD5_SIZE> GetMD5FromString(vengine::string const& str);
+
+private:
 	/* Construct a MD5 object with a string. */
 	MD5(std::span<uint8_t> message);
 
 	/* Generate md5 digest. */
-	std::array<uint8_t, 16> const& GetDigest();
+	std::array<uint8_t, MD5_SIZE> const& GetDigest();
 
-private:
+
 	static constexpr uint32_t s11 = 7;
 	static constexpr uint32_t s12 = 12;
 	static constexpr uint32_t s13 = 17;
@@ -52,10 +55,6 @@ private:
 	static constexpr uint32_t s43 = 15;
 	static constexpr uint32_t s44 = 21;
 
-	/* Initialization the md5 object, processing another message block,
-   * and updating the context.*/
-	void init(const uint8_t* input, size_t len);
-
 	/* MD5 basic transformation. Transforms state based on block. */
 	void transform(const uint8_t block[64]);
 
@@ -65,7 +64,10 @@ private:
 	/* Decodes input (uint8_t) into output (usigned long). */
 	void decode(const uint8_t* input, uint32_t* output, size_t length);
 
-private:
+	/* Initialization the md5 object, processing another message block,
+   * and updating the context.*/
+	void init(const uint8_t* input, size_t len);
+
 	/* Flag for mark whether calculate finished. */
 	bool finished;
 
@@ -79,7 +81,7 @@ private:
 	uint8_t buffer[64];
 
 	/* message digest. */
-	std::array<uint8_t, 16> digest;
+	std::array<uint8_t, MD5_SIZE> digest;
 
 	/* padding for calculate. */
 	static const uint8_t PADDING[64];

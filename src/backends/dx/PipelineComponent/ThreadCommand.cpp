@@ -208,7 +208,7 @@ void ThreadCommand::ExecuteResBarrier() {
 	});
 }
 void ThreadCommand::Clear() {
-	if (backToInitState.Size() > 0) {
+	if (backToInitState.size() > 0) {
 		backToInitState.IterateAll([&](GPUResourceBase const* key, GPUResourceState value) -> void {
 			UpdateResState(value, key);
 		});

@@ -441,4 +441,28 @@ decltype(auto) reverse_range(A&& startIndex, B&& endIndex, C&& func, Args&&... a
 		}
 	};
 }
+template<typename T>
+decltype(auto) get_lvalue(T&& data) {
+	return static_cast<std::remove_reference_t<T>&>(data);
+}
+template<typename T>
+decltype(auto) get_const_lvalue(T&& data) {
+	return static_cast<std::remove_reference_t<T> const&>(data);
+}
+template <typename A, typename B>
+decltype(auto) array_same(A&& a, B&& b) {
+	auto aSize = a.size();
+	auto bSize = b.size();
+	if (aSize != bSize) return false;
+	auto ite = a.begin();
+	auto end = a.end();
+	auto oIte = b.begin();
+	auto oEnd = b.end();
+	while (ite != end && oIte != oEnd) {
+		if (*ite != *oIte) return false;
+		++ite;
+		++oIte;
+	}
+	return true;
+}
 }// namespace vengine

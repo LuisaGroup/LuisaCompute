@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
 
     Kernel2D clear_image = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        image.write(coord, float4{0,0,0,1});
+        image.write(coord, float4{0, 0, 0, 1});
     };
 
     Kernel2D fill_image = [](ImageVar<float> image) noexcept {
@@ -41,21 +41,17 @@ int main(int argc, char *argv[]) {
     };
 
     device.compile(clear_image, fill_image);
-    
+
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
     auto event = device.create_event();
     auto stream = device.create_stream();
-    auto copy_stream = device.create_stream();
 
     stream << clear_image(device_image).launch(1024u, 1024u)
            << fill_image(device_image.view(256u, 512u)).launch(512u, 512u)
+           << device_image.view().copy_to(host_image.data())
            << event.signal();
-
-    copy_stream << event.wait()
-                << device_image.view().copy_to(host_image.data())
-                << event.signal();
 
     event.synchronize();
     stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);

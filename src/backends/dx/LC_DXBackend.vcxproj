@@ -283,6 +283,7 @@
 		<ClInclude Include="Common/HashMap.h" />
 		<ClInclude Include="Common/IObjectReference.h" />
 		<ClInclude Include="Common/LinkedList.h" />
+		<ClInclude Include="Common/linq.h" />
 		<ClInclude Include="Common/LockFreeArrayQueue.h" />
 		<ClInclude Include="Common/Log.h" />
 		<ClInclude Include="Common/MathHelper.h" />
