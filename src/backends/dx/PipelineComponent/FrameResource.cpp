@@ -8,6 +8,7 @@ CBufferChunk FrameResource::AllocateCBuffer(size_t sz) {
 }
 void FrameResource::ReleaseTemp() {
 	deferredDeleteObj.clear();
+	deferredDeleteResource.clear();
 	for (auto& i : afterSyncTask) {
 		i();
 	}

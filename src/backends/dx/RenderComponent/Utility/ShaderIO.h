@@ -33,7 +33,6 @@ public:
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset);
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset);
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset);
-	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, Mesh const* mesh, uint64 byteOffset);
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, TextureBase const* texture);
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel);
 };

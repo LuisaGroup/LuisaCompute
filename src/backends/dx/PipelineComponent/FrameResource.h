@@ -9,6 +9,7 @@ public:
 	CBufferAllocator* cbAlloc;
 	ThreadCommand tCmd;
 	uint64 signalIndex = 0;
+	vengine::vector<Microsoft::WRL::ComPtr<GFXResource>> deferredDeleteResource;
 	vengine::vector<ObjectPtr<VObject>> deferredDeleteObj;
 	vengine::vector<Runnable<void()>> afterSyncTask;
 	vengine::vector<CBufferChunk> deferredReleaseCBuffer;

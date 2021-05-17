@@ -6,7 +6,6 @@
 class DescriptorHeap;
 class StructuredBuffer;
 class UploadBuffer;
-class Mesh;
 class TextureBase;
 class RenderTexture;
 class ShaderLoader;
@@ -33,7 +32,6 @@ public:
 	virtual bool SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset) const = 0;
 	virtual bool SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset) const = 0;
 	virtual bool SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset) const = 0;
-	virtual bool SetResource(ThreadCommand* commandList, uint id, Mesh const* mesh, uint64 byteOffset) const = 0;
 	virtual bool SetResource(ThreadCommand* commandList, uint id, TextureBase const* texture) const = 0;
 	virtual bool SetResource(ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel) const = 0;
 };

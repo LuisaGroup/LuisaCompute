@@ -363,13 +363,17 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 			}
 		} else if (!state->initializer().empty()) {
 			(*str) += '=';
-			CodegenUtility::GetTypeName(*var.type(), (*str), _IsVarWritable(func, var));
-			(*str) += '(';
-			for (auto&& i : state->initializer()) {
-				i->accept(vis);
-				(*str) += ',';
+			if (state->initializer().size() == 1 && *state->initializer()[0]->type() == *var.type()) {
+				state->initializer()[0]->accept(vis);
+			} else {
+				CodegenUtility::GetTypeName(*var.type(), (*str), _IsVarWritable(func, var));
+				(*str) += '(';
+				for (auto&& i : state->initializer()) {
+					i->accept(vis);
+					(*str) += ',';
+				}
+				(*str)[str->size() - 1] = ')';
 			}
-			(*str)[str->size() - 1] = ')';
 		}
 		(*str) += ";\n"_sv;
 	} else {

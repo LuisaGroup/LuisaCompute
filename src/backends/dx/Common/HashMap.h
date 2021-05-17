@@ -15,6 +15,7 @@ public:
 	using ValueType = V;
 	using HashType = Hash;
 	using EqualType = Equal;
+	using SelfType = HashMap<K, V, Hash, Equal, useVEngineAlloc>;
 
 private:
 	struct LinkNode {
@@ -45,13 +46,13 @@ private:
 
 public:
 	struct Index {
-		friend class HashMap<K, V, Hash, Equal, useVEngineAlloc>;
+		friend class SelfType;
 
 	private:
-		const HashMap* map;
+		const SelfType* map;
 		size_t hashValue;
-		HashMap::LinkNode* node;
-		Index(const HashMap* map, size_t hashValue, HashMap::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
+		SelfType::LinkNode* node;
+		Index(const SelfType* map, size_t hashValue, SelfType::LinkNode* node) noexcept : map(map), hashValue(hashValue), node(node) {}
 
 	public:
 		Index() : map(nullptr), hashValue(0), node(nullptr) {}
@@ -215,15 +216,15 @@ public:
 		nodeVec = HashArray(capacity);
 		allocatedNodes.reserve(capacity);
 	}
-	HashMap(HashMap&& map)
+	HashMap(SelfType&& map)
 		: allocatedNodes(std::move(map.allocatedNodes)),
 		  nodeVec(std::move(map.nodeVec)),
 		  pool(std::move(map.pool)) {
 	}
 
-	void operator=(HashMap&& map) {
-		this->~HashMap();
-		new (this) HashMap(std::move(map));
+	void operator=(SelfType&& map) {
+		this->~SelfType();
+		new (this) SelfType(std::move(map));
 	}
 	~HashMap() noexcept {
 		for (auto& ite : allocatedNodes) {

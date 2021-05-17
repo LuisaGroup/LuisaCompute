@@ -3,7 +3,7 @@
 #include <RenderComponent/Utility/IBufferAllocator.h>
 #include <RenderComponent/DescriptorHeap.h>
 #include <Singleton/Graphics.h>
-UploadBuffer::UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConstantBuffer, uint64_t stride, IBufferAllocator* allocator) : allocator(allocator) {
+UploadBuffer::UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConstantBuffer, uint64_t stride, IBufferAllocator* allocator) : allocator(allocator), IBuffer(device, allocator) {
 	mIsConstantBuffer = isConstantBuffer;
 	// Constant buffer elements need to be multiples of 256 bytes.
 	// This is because the hardware can only view constant data
@@ -65,60 +65,10 @@ void UploadBuffer::BindSRVToHeap(DescriptorHeap* targetHeap, uint64 index, GFXDe
 	srvDesc.Buffer.StructureByteStride = mStride;
 	targetHeap->CreateSRV(device, this, &srvDesc, index);
 }
-void UploadBuffer::Create(GFXDevice* device, uint64 elementCount, bool isConstantBuffer, uint64_t stride, IBufferAllocator* allocator) {
-	ReturnGlobalDesc();
-	if (this->allocator) {
-		this->allocator->ReturnBuffer(GetInstanceID());
-	}
-	this->allocator = allocator;
-	mIsConstantBuffer = isConstantBuffer;
-	// Constant buffer elements need to be multiples of 256 bytes.
-	// This is because the hardware can only view constant data
-	// at m*256 byte offsets and of n*256 byte lengths.
-	// typedef struct D3D12_CONSTANT_BUFFER_VIEW_DESC {
-	// UINT64 OffsetInBytes; // multiple of 256
-	// uint   SizeInBytes;   // multiple of 256
-	// } D3D12_CONSTANT_BUFFER_VIEW_DESC;
-	mElementCount = elementCount;
-	if (isConstantBuffer)
-		mElementByteSize = GFXUtil::CalcConstantBufferByteSize(stride);
-	else
-		mElementByteSize = stride;
-	mStride = stride;
-	if (Resource) {
-		Resource->Unmap(0, nullptr);
-		Resource = nullptr;
-	}
-	uint64 size = (uint64)mElementByteSize * (uint64)elementCount;
-	if (allocator) {
-		ID3D12Heap* heap;
-		uint64 offset;
-		allocator->AllocateTextureHeap(
-			device, size, D3D12_HEAP_TYPE_UPLOAD, &heap, &offset, GetInstanceID());
-		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(size);
-		ThrowIfFailed(device->device()->CreatePlacedResource(
-			heap, offset,
-			&buffer,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(&Resource)));
-	} else {
-		auto buffer = CD3DX12_RESOURCE_DESC::Buffer(size);
-		auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-		ThrowIfFailed(device->device()->CreateCommittedResource(
-			&prop,
-			D3D12_HEAP_FLAG_NONE,
-			&buffer,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(&Resource)));
-	}
-	ThrowIfFailed(Resource->Map(0, nullptr, reinterpret_cast<void**>(&mMappedData)));
-}
 UploadBuffer::~UploadBuffer() {
 	ReturnGlobalDesc();
 	if (allocator) {
-		allocator->ReturnBuffer(GetInstanceID());
+		allocator->Release(GetInstanceID());
 	}
 	if (Resource != nullptr)
 		Resource->Unmap(0, nullptr);

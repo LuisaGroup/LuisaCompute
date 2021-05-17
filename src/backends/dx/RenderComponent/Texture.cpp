@@ -354,7 +354,7 @@ uint64_t Texture::GetSizeFromProperty(
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 	return device->device()->GetResourceAllocationInfo(
-					 0, 1, &texDesc)
+							   0, 1, &texDesc)
 		.SizeInBytes;
 }
 Texture::Texture(
@@ -368,7 +368,7 @@ Texture::Texture(
 	uint mipCount,
 	TextureData::LoadFormat format,
 	TextureHeap* placedHeap,
-	uint64_t placedOffset) : TextureBase() {
+	uint64_t placedOffset) : TextureBase(device, nullptr) {
 	dimension = textureType;
 	fileLoadFormat = format;
 	if (textureType == TextureDimension::Cubemap)
@@ -394,7 +394,7 @@ Texture::Texture(
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 	resourceSize = device->device()->GetResourceAllocationInfo(
-							 0, 1, &texDesc)
+									   0, 1, &texDesc)
 					   .SizeInBytes;
 	if (placedHeap) {
 		ThrowIfFailed(device->device()->CreatePlacedResource(
@@ -476,7 +476,7 @@ D3D12_RESOURCE_DESC Texture::CreateWithoutResource(
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 	resourceSize = device->device()->GetResourceAllocationInfo(
-							 0, 1, &texDesc)
+									   0, 1, &texDesc)
 					   .SizeInBytes;
 	return texDesc;
 }
@@ -511,7 +511,7 @@ Texture::Texture(
 	uint mipCount,
 	GFXFormat format,
 	TextureHeap* placedHeap,
-	uint64_t placedOffset) {
+	uint64_t placedOffset) : TextureBase(device, nullptr) {
 	dimension = textureType;
 	if (textureType == TextureDimension::Cubemap)
 		depth = 6;
@@ -535,7 +535,7 @@ Texture::Texture(
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 	resourceSize = device->device()->GetResourceAllocationInfo(
-							 0, 1, &texDesc)
+									   0, 1, &texDesc)
 					   .SizeInBytes;
 	if (placedHeap) {
 		ThrowIfFailed(device->device()->CreatePlacedResource(
@@ -566,7 +566,7 @@ Texture::Texture(
 	TextureDimension type,
 	uint32_t maximumLoadMipmap,
 	uint32_t startMipMap,
-	ArrayList<char>* datasPtr) : allocator(allocator) {
+	ArrayList<char>* datasPtr) : allocator(allocator), TextureBase(device, allocator) {
 	ArrayList<char> datas;
 	if (!datasPtr) datasPtr = &datas;
 	else
@@ -576,7 +576,7 @@ Texture::Texture(
 	TextureData data;
 	auto texDesc = CreateWithoutResource(data, device, filePath, startLoading, false, datasPtr, type, maximumLoadMipmap, startMipMap);
 	fileLoadFormat = data.format;
-	allocator->AllocateTextureHeap(device, mFormat, mWidth, mHeight, data.depth, type, data.mipCount, &placedHeap, &placedOffset, false, this);
+	allocator->AllocateTextureHeap(device, mFormat, mWidth, mHeight, data.depth, type, data.mipCount, &placedHeap, &placedOffset, false, GetInstanceID());
 	ThrowIfFailed(device->device()->CreatePlacedResource(
 		placedHeap,
 		placedOffset,
@@ -598,7 +598,7 @@ Texture::Texture(
 	uint32_t startMipMap,
 	TextureHeap* placedHeap,
 	uint64_t placedOffset,
-	ArrayList<char>* datasPtr) {
+	ArrayList<char>* datasPtr) : TextureBase(device, nullptr) {
 	TextureData data;
 	ArrayList<char> datas;
 	if (!datasPtr) datasPtr = &datas;
@@ -638,7 +638,7 @@ Texture::Texture(
 	uint32_t startMipMap,
 	TextureHeap* placedHeap,
 	uint64_t placedOffset,
-	ArrayList<char>* datasPtr) {
+	ArrayList<char>* datasPtr) : TextureBase(device, nullptr) {
 	TextureData data;
 	memcpy(&data, &texData, sizeof(TextureData));
 	ArrayList<char> datas;
@@ -679,7 +679,7 @@ Texture::Texture(
 	bool startLoading,
 	uint32_t maximumLoadMipmap,
 	uint32_t startMipMap,
-	ArrayList<char>* datasPtr) : allocator(allocator) {
+	ArrayList<char>* datasPtr) : allocator(allocator), TextureBase(device, allocator) {
 	ID3D12Heap* placedHeap;
 	uint64_t placedOffset;
 	TextureData data;
@@ -690,7 +690,7 @@ Texture::Texture(
 		datasPtr->clear();
 	auto texDesc = CreateWithoutResource(data, device, filePath, startLoading, true, datasPtr, data.textureType, maximumLoadMipmap, startMipMap);
 	fileLoadFormat = data.format;
-	allocator->AllocateTextureHeap(device, mFormat, mWidth, mHeight, data.depth, data.textureType, data.mipCount, &placedHeap, &placedOffset, false, this);
+	allocator->AllocateTextureHeap(device, mFormat, mWidth, mHeight, data.depth, data.textureType, data.mipCount, &placedHeap, &placedOffset, false, GetInstanceID());
 	ThrowIfFailed(device->device()->CreatePlacedResource(
 		placedHeap,
 		placedOffset,
@@ -705,7 +705,7 @@ Texture::Texture(
 }
 Texture::~Texture() {
 	if (allocator) {
-		allocator->ReturnTexture(this);
+		allocator->Release(GetInstanceID());
 	}
 }
 void Texture::GetResourceViewDescriptor(D3D12_SHADER_RESOURCE_VIEW_DESC& srvDesc) const {

@@ -1,7 +1,7 @@
 //#endif
 #include <RenderComponent/ReadbackBuffer.h>
 ReadbackBuffer::ReadbackBuffer(GFXDevice* device, uint64 elementCount, size_t stride, IBufferAllocator* allocator)
-	: allocator(allocator) {
+	: allocator(allocator), IBuffer(device, allocator) {
 	mElementCount = elementCount;
 	mStride = stride;
 	auto byteSize = stride * elementCount;
@@ -36,7 +36,7 @@ ReadbackBuffer::ReadbackBuffer(GFXDevice* device, uint64 elementCount, size_t st
 }
 ReadbackBuffer ::~ReadbackBuffer() {
 	if (allocator) {
-		allocator->ReturnBuffer(GetInstanceID());
+		allocator->Release(GetInstanceID());
 	}
 	if (Resource != nullptr && mMappedData != nullptr)
 		Resource->Unmap(0, nullptr);

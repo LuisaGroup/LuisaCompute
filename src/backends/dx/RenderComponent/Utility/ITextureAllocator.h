@@ -2,8 +2,8 @@
 #include <Common/GFXUtil.h>
 #include <Common/MetaLib.h>
 #include <RenderComponent/TextureBase.h>
-class ITextureAllocator
-{
+#include <RenderComponent/Utility/IGPUAllocator.h>
+class ITextureAllocator : public IGPUAllocator {
 public:
 	virtual void AllocateTextureHeap(
 		GFXDevice* device,
@@ -15,7 +15,6 @@ public:
 		uint32_t mipCount,
 		ID3D12Heap** heap, uint64_t* offset,
 		bool isRenderTexture,
-		TextureBase* currentPtr) = 0;
-	virtual void ReturnTexture(TextureBase* tex) = 0;
+		uint64 instanceID) = 0;
 	virtual ~ITextureAllocator() {}
 };

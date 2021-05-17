@@ -6,7 +6,6 @@
 #include <Common/GFXUtil.h>
 #include <fstream>
 #include <RenderComponent/StructuredBuffer.h>
-#include <RenderComponent/Mesh.h>
 #include <JobSystem/JobInclude.h>
 #include <RenderComponent/Utility/ShaderIO.h>
 #include <PipelineComponent/ThreadCommand.h>
@@ -84,9 +83,6 @@ bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, UploadBuffe
 	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
 }
 bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* obj, uint64 offset) const {
-	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
-}
-bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, Mesh const* obj, uint64 offset) const {
 	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
 }
 bool ComputeShader::SetResource(ThreadCommand* commandList, uint id, TextureBase const* obj) const {

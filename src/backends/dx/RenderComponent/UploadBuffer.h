@@ -6,13 +6,6 @@ class DescriptorHeap;
 class VENGINE_DLL_RENDERER UploadBuffer final : public IBuffer {
 public:
 	UploadBuffer(GFXDevice* device, uint64 elementCount, bool isConstantBuffer, uint64_t stride, IBufferAllocator* allocator = nullptr);
-	UploadBuffer() : mMappedData(0),
-					 mStride(0),
-					 mElementCount(0),
-					 mElementByteSize(0),
-					 mIsConstantBuffer(false),
-					 allocator(nullptr) {}
-	void Create(GFXDevice* device, uint64 elementCount, bool isConstantBuffer, uint64_t stride, IBufferAllocator* allocator = nullptr);
 	~UploadBuffer();
 	void CopyData(uint64 elementIndex, const void* data) const;
 	void CopyData(uint64 elementIndex, const void* data, uint64 byteSize) const;

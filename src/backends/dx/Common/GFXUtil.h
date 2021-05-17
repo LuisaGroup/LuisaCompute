@@ -60,12 +60,16 @@ public:
 	ID3D12Device* device() const {
 		return mDevice;
 	}
-	GFXDevice(ID3D12Device* dev)
-		: mDevice(dev) {
+	IDXGIAdapter* adapter() const {
+		return mAdapter;
+	}
+	GFXDevice(ID3D12Device* dev, IDXGIAdapter* ada)
+		: mDevice(dev), mAdapter(ada) {
 	}
 
 private:
 	ID3D12Device* mDevice;
+	IDXGIAdapter* mAdapter;
 };
 struct GpuAddress {
 	uint64 address;

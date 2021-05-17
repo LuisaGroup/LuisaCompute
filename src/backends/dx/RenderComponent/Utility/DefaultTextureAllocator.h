@@ -1,19 +1,18 @@
 #pragma once
 #include <RenderComponent/Utility/ITextureAllocator.h>
-namespace D3D12MA
-{
-	class Allocator;
-	class Allocation;
-}
-class VENGINE_DLL_RENDERER DefaultTextureAllocator final : public ITextureAllocator
-{
+namespace D3D12MA {
+class Allocator;
+class Allocation;
+}// namespace D3D12MA
+class VENGINE_DLL_RENDERER DefaultTextureAllocator final : public ITextureAllocator {
 private:
 	HashMap<uint64, D3D12MA::Allocation*> allocatedTexs;
 	std::mutex mtx;
 	D3D12MA::Allocator* allocator = nullptr;
+
 public:
 	~DefaultTextureAllocator();
-	virtual void AllocateTextureHeap(
+	void AllocateTextureHeap(
 		GFXDevice* device,
 		GFXFormat format,
 		uint32_t width,
@@ -23,9 +22,8 @@ public:
 		uint32_t mipCount,
 		ID3D12Heap** heap, uint64_t* offset,
 		bool isRenderTexture,
-		TextureBase* currentPtr);
-	virtual void ReturnTexture(TextureBase* tex);
+		uint64 instanceID) override;
+	void Release(uint64 instanceID) override;
 	DefaultTextureAllocator(
-		GFXDevice* device,
-		IDXGIAdapter* adapter);
+		GFXDevice* device);
 };

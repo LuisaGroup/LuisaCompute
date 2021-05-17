@@ -12,6 +12,7 @@ namespace vengine {
 template<typename T, bool useVEngineAlloc = true, bool forceTrivial = std::is_trivial_v<T>>
 class vector {
 private:
+	using SelfType = vector<T, useVEngineAlloc, forceTrivial>;
 	T* arr;
 	size_t mSize;
 	size_t mCapacity;
@@ -80,7 +81,7 @@ public:
 	size_t size() const noexcept { return mSize; }
 	size_t capacity() const noexcept { return mCapacity; }
 	struct Iterator {
-		friend class vector;
+		friend class SelfType;
 
 	private:
 		T* ptr;
@@ -146,7 +147,7 @@ public:
 			memcpy(arr, lst.begin(), sizeof(T) * mSize);
 		}
 	}
-	vector(const vector& another) noexcept : mSize(another.mSize), mCapacity(another.mCapacity) {
+	vector(const SelfType& another) noexcept : mSize(another.mSize), mCapacity(another.mCapacity) {
 		arr = Allocate(mCapacity);
 		if constexpr (!(TRIVIAL_COPY)) {
 			for (size_t i = 0; i < mSize; ++i) {
@@ -155,14 +156,14 @@ public:
 		} else
 			memcpy(arr, another.arr, sizeof(T) * mSize);
 	}
-	vector(vector&& another) noexcept
+	vector(SelfType&& another) noexcept
 		: mSize(another.mSize), mCapacity(another.mCapacity),
 		  arr(another.arr) {
 		another.arr = nullptr;
 		another.mSize = 0;
 		another.mCapacity = 0;
 	}
-	void operator=(const vector& another) noexcept {
+	void operator=(const SelfType& another) noexcept {
 		clear();
 		reserve(another.mSize);
 		mSize = another.mSize;
@@ -174,9 +175,9 @@ public:
 			memcpy(arr, another.arr, sizeof(T) * mSize);
 		}
 	}
-	void operator=(vector&& another) noexcept {
-		this->~vector();
-		new (this) vector(std::move(another));
+	void operator=(SelfType&& another) noexcept {
+		this->~SelfType();
+		new (this) SelfType(std::move(another));
 	}
 	void push_back_all(const T* values, size_t count) noexcept {
 		if (mSize + count > mCapacity) {

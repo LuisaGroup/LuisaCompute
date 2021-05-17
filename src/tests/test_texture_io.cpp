@@ -31,7 +31,9 @@ int main(int argc, char *argv[]) {
 
     Kernel2D clear_image = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        image.write(coord, float4{0, 0, 0, 1});
+        Var rg = make_float2(coord) / make_float2(launch_size().xy());
+        rg = float2{1, 1} - rg;
+        image.write(coord, make_float4(rg,1.0f,1.0f));
     };
 
     Kernel2D fill_image = [](ImageVar<float> image) noexcept {

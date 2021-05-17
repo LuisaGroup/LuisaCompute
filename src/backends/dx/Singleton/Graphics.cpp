@@ -66,25 +66,7 @@ Graphics::Graphics(GFXDevice* device)
 	uv[1] = {1, 1};
 	uv[2] = {1, -1};
 	std::array<INT32, 3> indices = {0, 1, 2};
-	fullScreenMesh.New(
-		3,
-		vertex.data(),
-		nullptr,
-		nullptr,
-		nullptr,
-		uv.data(),
-		nullptr,
-		nullptr,
-		nullptr,
-		nullptr,
-		nullptr,
-		device,
-		GFXFormat_R32_UInt,
-		3,
-		indices.data());
-	cubeMesh = Mesh::LoadMeshFromFile(
-		"Resource/Internal/Cube.vmesh",
-		device, true, true, false, true, true, false, false, false);
+	
 }
 uint Graphics::GetDescHeapIndexFromPool() {
 	std::lock_guard lck(current->mtx);
@@ -245,10 +227,8 @@ void Graphics::CopyBufferRegion(
 		byteSize);
 }
 Graphics::~Graphics() {
-	cubeMesh.Destroy();
 	globalDescriptorHeap = nullptr;
 	unusedDescs.dispose();
-	fullScreenMesh.Delete();
 	srvAllocator.Delete();
 	rtvAllocator.Delete();
 	dsvAllocator.Delete();

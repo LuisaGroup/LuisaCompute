@@ -220,7 +220,7 @@ RenderTexture::RenderTexture(
 	uint mipCount,
 	RenderTextureState initState,
 	float clearColor)
-	: TextureBase(),
+	: TextureBase(device, allocator),
 	  usage(rtFormat.usage),
 	  clearColor(clearColor) {
 	mipCount = Max<uint>(mipCount, 1);
@@ -311,7 +311,7 @@ RenderTexture::RenderTexture(
 				&heap,
 				&offset,
 				true,
-				this);
+				GetInstanceID());
 			ThrowIfFailed(device->device()->CreatePlacedResource(
 				heap,
 				offset,
@@ -439,7 +439,7 @@ RenderTexture::RenderTexture(
 					&heap,
 					&offset,
 					true,
-					this);
+					GetInstanceID());
 				ThrowIfFailed(device->device()->CreatePlacedResource(
 					heap,
 					offset,
@@ -489,7 +489,7 @@ RenderTexture::RenderTexture(
 	TextureHeap* targetHeap,
 	uint64_t placedOffset,
 	float clearColor)
-	: TextureBase(),
+	: TextureBase(device, nullptr),
 	  usage(rtFormat.usage),
 	  clearColor(clearColor) {
 

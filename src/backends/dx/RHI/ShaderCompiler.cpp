@@ -41,6 +41,7 @@ static bool ShaderCompiler_NeedCodegen(Function kernel, vengine::string const& p
 		return true;
 	{
 		BinaryReader md5Reader(md5Path);
+		if (!md5Reader) return true;
 		vengine::vector<uint8_t> md5Data(md5Reader.GetLength());
 		md5Reader.Read(reinterpret_cast<char*>(md5Data.data()), md5Data.size());
 		if (vengine::array_same(md5Data, md5Result)) return false;

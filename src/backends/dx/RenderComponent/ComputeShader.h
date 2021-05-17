@@ -44,7 +44,6 @@ public:
 	bool SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset) const override;
 	bool SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset) const override;
 	bool SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset) const override;
-	bool SetResource(ThreadCommand* commandList, uint id, Mesh const* mesh, uint64 byteOffset) const override;
 	bool SetResource(ThreadCommand* commandList, uint id, TextureBase const* texture) const override;
 	bool SetResource(ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel) const override;
 	template<typename Func>

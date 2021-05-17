@@ -1,7 +1,7 @@
 #include <RenderComponent/TextureBase.h>
 #include <Singleton/Graphics.h>
-TextureBase::TextureBase()
-	: GPUResourceBase(GPUResourceType::Texture) {
+TextureBase::TextureBase(GFXDevice* device, IGPUAllocator* alloc)
+	: GPUResourceBase(device, GPUResourceType::Texture, alloc) {
 	srvDescID = Graphics::GetDescHeapIndexFromPool();
 }
 D3D12_RESOURCE_STATES TextureBase::GetGFXResourceState(GPUResourceState gfxState) const {

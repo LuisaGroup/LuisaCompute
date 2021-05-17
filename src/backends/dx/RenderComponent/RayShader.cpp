@@ -8,7 +8,6 @@
 #include <RenderComponent/Utility/ShaderIO.h>
 #include <RenderComponent/StructuredBuffer.h>
 #include <PipelineComponent/ThreadCommand.h>
-#include <RenderComponent/Mesh.h>
 using Microsoft::WRL::ComPtr;
 RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 	vengine::vector<char> binaryData;
@@ -23,7 +22,7 @@ RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 		raypayloadShader,
 		serObj);
 	mVariablesDict.Reserve(mVariablesVector.size() + 2);
-	for (int32_t i = 0; i < mVariablesVector.size(); ++i) {
+	for (size_t i = 0; i < mVariablesVector.size(); ++i) {
 		ShaderVariable& variable = mVariablesVector[i];
 		mVariablesDict.Insert(ShaderID::PropertyToID(variable.varID), i);
 	}
@@ -150,9 +149,6 @@ bool RayShader::SetResource(ThreadCommand* commandList, uint id, UploadBuffer co
 	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
 }
 bool RayShader::SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* obj, uint64 offset) const {
-	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
-}
-bool RayShader::SetResource(ThreadCommand* commandList, uint id, Mesh const* obj, uint64 offset) const {
 	return ShaderIO::SetComputeResource(this, commandList, id, obj, offset);
 }
 bool RayShader::SetResource(ThreadCommand* commandList, uint id, TextureBase const* obj) const {

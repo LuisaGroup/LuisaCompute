@@ -29,8 +29,8 @@ if (WIN32)
         PipelineComponent/CommandAllocator.cpp
         PipelineComponent/CommandBuffer.cpp
         PipelineComponent/FrameResource.cpp
+        PipelineComponent/RayTracing/RayTracingManager.cpp
         PipelineComponent/ThreadCommand.cpp
-        RenderComponent/BackBuffer.cpp
         RenderComponent/CBufferAllocator.cpp
         RenderComponent/CBufferPool.cpp
         RenderComponent/ComputeShader.cpp
@@ -39,7 +39,7 @@ if (WIN32)
         RenderComponent/DescriptorHeapRoot.cpp
         RenderComponent/GPUResourceBase.cpp
         RenderComponent/IShader.cpp
-        RenderComponent/Mesh.cpp
+        RenderComponent/LCMesh.cpp
         RenderComponent/RayShader.cpp
         RenderComponent/ReadbackBuffer.cpp
         RenderComponent/RenderCommand.cpp

@@ -5,7 +5,6 @@
 class VENGINE_DLL_RENDERER ShaderID {
 public:
 	static void Init();
-	static uint PropertyToID(const vengine::string& str);
 	static uint PropertyToID(uint uid);
 };
 

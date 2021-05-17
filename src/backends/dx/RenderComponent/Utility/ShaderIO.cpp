@@ -7,7 +7,6 @@
 #include <Singleton/Graphics.h>
 #include <RenderComponent/UploadBuffer.h>
 #include <RenderComponent/StructuredBuffer.h>
-#include <RenderComponent/Mesh.h>
 #include <RenderComponent/TextureBase.h>
 #include <RenderComponent/RenderTexture.h>
 namespace ShaderIOGlobal {
@@ -210,31 +209,6 @@ bool ShaderIO::SetComputeResource(IShader const* shader, ThreadCommand* commandL
 			commandList->GetCmdList()->SetComputeRootUnorderedAccessView(
 				rootSigPos,
 				sbufferPtr->GetAddress(0, indexOffset).address);
-		} break;
-		default:
-			return false;
-	}
-	return true;
-}
-bool ShaderIO::SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, Mesh const* meshPtr, uint64 byteOffset) {
-	ShaderVariable var;
-	uint rootSigPos;
-	if (!shader->VariableReflection(id, meshPtr, rootSigPos, var)) return false;
-	switch (var.type) {
-		case ShaderVariableType::ConstantBuffer: {
-			commandList->GetCmdList()->SetComputeRootConstantBufferView(
-				rootSigPos,
-				meshPtr->GetResource()->GetGPUVirtualAddress() + byteOffset);
-		} break;
-		case ShaderVariableType::StructuredBuffer: {
-			commandList->GetCmdList()->SetComputeRootShaderResourceView(
-				rootSigPos,
-				meshPtr->GetResource()->GetGPUVirtualAddress() + byteOffset);
-		} break;
-		case ShaderVariableType::RWStructuredBuffer: {
-			commandList->GetCmdList()->SetComputeRootUnorderedAccessView(
-				rootSigPos,
-				meshPtr->GetResource()->GetGPUVirtualAddress() + byteOffset);
 		} break;
 		default:
 			return false;

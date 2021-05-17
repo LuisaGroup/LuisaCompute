@@ -3,7 +3,6 @@
 #include <RenderComponent/Texture.h>
 #include <RenderComponent/RenderTexture.h>
 #include <RenderComponent/ComputeShader.h>
-#include <RenderComponent/Mesh.h>
 #include <RenderComponent/StructuredBuffer.h>
 #include <RenderComponent/TextureHeap.h>
 #include <RenderComponent/CBufferPool.h>

@@ -24,7 +24,7 @@ StructuredBuffer::StructuredBuffer(
 	bool isReadable,
 	IBufferAllocator* allocator,
 	bool usedAsMesh) : elements(elementsCount), offsets(elementsCount), allocator(allocator),
-					   usedAsMesh(usedAsMesh) {
+					   usedAsMesh(usedAsMesh), IBuffer(device, allocator) {
 	memcpy(elements.data(), elementsArray, sizeof(StructuredBufferElement) * elementsCount);
 	for (uint i = 0; i < elementsCount; ++i) {
 		offsets[i] = byteSize;
@@ -114,7 +114,7 @@ StructuredBuffer::StructuredBuffer(
 	bool isIndirect,
 	bool isReadable,
 	IBufferAllocator* allocator,
-	bool usedAsMesh) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator), usedAsMesh(usedAsMesh) {
+	bool usedAsMesh) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator), usedAsMesh(usedAsMesh), IBuffer(device, allocator) {
 	memcpy(elements.data(), elementsArray.begin(), sizeof(StructuredBufferElement) * elementsArray.size());
 	for (uint i = 0; i < elementsArray.size(); ++i) {
 		offsets[i] = byteSize;
@@ -148,7 +148,7 @@ StructuredBuffer::StructuredBuffer(
 }
 StructuredBuffer::~StructuredBuffer() {
 	if (allocator) {
-		allocator->ReturnBuffer(GetInstanceID());
+		allocator->Release(GetInstanceID());
 	}
 	DisposeGlobalHeap();
 }
@@ -158,7 +158,7 @@ StructuredBuffer::StructuredBuffer(
 	uint elementsCount,
 	GPUResourceState targetState,
 	IBufferAllocator* allocator,
-	bool usedAsMesh) : elements(elementsCount), offsets(elementsCount), allocator(allocator), usedAsMesh(usedAsMesh) {
+	bool usedAsMesh) : elements(elementsCount), offsets(elementsCount), allocator(allocator), usedAsMesh(usedAsMesh), IBuffer(device, allocator) {
 	memcpy(elements.data(), elementsArray, sizeof(StructuredBufferElement) * elementsCount);
 	for (uint i = 0; i < elementsCount; ++i) {
 		offsets[i] = byteSize;
@@ -195,7 +195,7 @@ StructuredBuffer::StructuredBuffer(
 	const std::initializer_list<StructuredBufferElement>& elementsArray,
 	GPUResourceState targetState,
 	IBufferAllocator* allocator,
-	bool usedAsMesh) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator), usedAsMesh(usedAsMesh) {
+	bool usedAsMesh) : elements(elementsArray.size()), offsets(elementsArray.size()), allocator(allocator), usedAsMesh(usedAsMesh), IBuffer(device, allocator) {
 	memcpy(elements.data(), elementsArray.begin(), sizeof(StructuredBufferElement) * elementsArray.size());
 	for (uint i = 0; i < elementsArray.size(); ++i) {
 		offsets[i] = byteSize;

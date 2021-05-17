@@ -23,7 +23,7 @@ protected:
 	uint mHeight = 0;
 	uint mipCount = 1;
 	TextureDimension dimension;
-	TextureBase();
+	TextureBase(GFXDevice* device, IGPUAllocator* alloc);
 #if VENGINE_PLATFORM_DIRECTX_12 == 1
 	static constexpr D3D12_RESOURCE_STATES GENERIC_READ_STATE =
 		(D3D12_RESOURCE_STATES)(

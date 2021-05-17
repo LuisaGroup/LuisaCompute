@@ -1,10 +1,10 @@
 #include <RenderComponent/Utility/DefaultBufferAllocator.h>
 #include <RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.h>
 #include <RenderComponent/GPUResourceBase.h>
-DefaultBufferAllocator::DefaultBufferAllocator(GFXDevice* device, IDXGIAdapter* adapter) : allocatedTexs(32) {
+DefaultBufferAllocator::DefaultBufferAllocator(GFXDevice* device) : allocatedBuffers(32) {
 	D3D12MA::ALLOCATOR_DESC desc;
 	desc.Flags = D3D12MA::ALLOCATOR_FLAGS::ALLOCATOR_FLAG_SINGLETHREADED;
-	desc.pAdapter = adapter;
+	desc.pAdapter = device->adapter();
 	desc.pAllocationCallbacks = nullptr;
 	desc.pDevice = device->device();
 	desc.PreferredBlockSize = 1;
@@ -28,20 +28,19 @@ void DefaultBufferAllocator::AllocateTextureHeap(
 	D3D12MA::Allocation* alloc;
 	lockGuard lck(mtx);
 	allocator->AllocateMemory(&desc, &info, &alloc);
-	allocatedTexs.Insert(instanceID, alloc);
+	allocatedBuffers.Insert(instanceID, alloc);
 	*heap = alloc->GetHeap();
 	*offset = alloc->GetOffset();
 }
 DefaultBufferAllocator::~DefaultBufferAllocator() {
 	if (allocator) allocator->Release();
 }
-void DefaultBufferAllocator::ReturnBuffer(uint64 instanceID) {
+void DefaultBufferAllocator::Release(uint64 instanceID) {
 	lockGuard lck(mtx);
-	auto ite = allocatedTexs.Find(instanceID);
+ 	auto ite = allocatedBuffers.Find(instanceID);
 	if (!ite) {
-		VEngine_Log("Empty Key!\n");
-		VENGINE_EXIT;
+		return;
 	}
 	ite.Value()->Release();
-	allocatedTexs.Remove(ite);
+	allocatedBuffers.Remove(ite);
 }

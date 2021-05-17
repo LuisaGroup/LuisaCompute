@@ -64,7 +64,6 @@ private:
 	ObjectPtr<GFXResource*> resTracker;
 	vengine::string targetFilePath;
 	GPUResourceState initState = GPUResourceState_Common;
-	Texture() {}
 	D3D12_RESOURCE_DESC CreateWithoutResource(
 		TextureData& data,
 		GFXDevice* device,

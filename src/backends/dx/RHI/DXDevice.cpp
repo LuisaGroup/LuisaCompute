@@ -94,7 +94,7 @@ public:
 	DXDevice(const Context& ctx, uint32_t index) : Device::Interface(ctx) {// TODO: support device selection?
 		EnableThreadLocal();
 		InitD3D(index);
-		dxDevice.New(md3dDevice.Get());
+		dxDevice.New(md3dDevice.Get(), adapter);
 
 		SCompile::HLSLCompiler::InitRegisterData();
 

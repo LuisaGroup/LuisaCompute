@@ -6,7 +6,6 @@
 #include <Common/BitArray.h>
 #include <Common/vector.h>
 #include <Common/RandomVector.h>
-#include <RenderComponent/Mesh.h>
 #include <Struct/RenderTarget.h>
 #include <Utility/ElementAllocator.h>
 #include <RenderComponent/DescriptorHeap.h>
@@ -39,16 +38,13 @@ class Graphics {
 	friend class TextureBase;
 	friend class DescriptorHeap;
 	friend class DescriptorHeapRoot;
-	friend class Mesh;
 
 private:
 	static thread_local Graphics* current;
 	spin_mutex mtx;
-	StackObject<Mesh, true> fullScreenMesh;
 	std::unique_ptr<DescriptorHeap> globalDescriptorHeap;
 	BitArray usedDescs;
 	ArrayList<uint, false> unusedDescs;
-	ObjectPtr<Mesh> cubeMesh;
 	StackObject<ElementAllocator, true> srvAllocator;
 	StackObject<ElementAllocator, true> rtvAllocator;
 	StackObject<ElementAllocator, true> dsvAllocator;
@@ -92,9 +88,6 @@ public:
 	static inline DescriptorHeap const* GetGlobalDescHeap() {
 		return current->globalDescriptorHeap.operator->();
 	}
-	static Mesh const* GetFullScreenMesh() {
-		return current->fullScreenMesh;
-	}
 	Graphics(GFXDevice* device);
 
 	static void CopyTexture(
@@ -133,7 +126,6 @@ public:
 		IBuffer const* source,
 		uint64 sourceOffset,
 		uint64 byteSize);*/
-	static Mesh const* GetCubeMesh() { return current->cubeMesh; }
 	static uint GetLeftedPoolIndicies() {
 		return current->unusedDescs.size();
 	}

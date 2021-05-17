@@ -13,7 +13,7 @@ public:
 	virtual VObject const* GetVObjectPtr() const = 0;
 };
 
-#define IOBJECTREFERENCE_OVERRIDE_FUNCTION          \
+#define VENGINE_IOBJREF_OVERRIDE          \
 	VObject* GetVObjectPtr() override {             \
 		return this;                                \
 	}                                               \
