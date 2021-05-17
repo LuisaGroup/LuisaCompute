@@ -181,7 +181,6 @@
 		<ClCompile Include="CJsonObject/CJsonObject.cpp" />
 		<ClCompile Include="CJsonObject/JsonCompiler.cpp" />
 		<ClCompile Include="CJsonObject/SerializedObject.cpp" />
-		<ClCompile Include="Common/Camera.cpp" />
 		<ClCompile Include="Common/Common.cpp" />
 		<ClCompile Include="Common/GameTimer.cpp" />
 		<ClCompile Include="Common/GFXUtil.cpp" />
@@ -197,9 +196,6 @@
 		<ClCompile Include="JobSystem/JobBucket.cpp" />
 		<ClCompile Include="JobSystem/JobNode.cpp" />
 		<ClCompile Include="JobSystem/JobSystem.cpp" />
-		<ClCompile Include="LogicComponent/Component.cpp" />
-		<ClCompile Include="LogicComponent/RendererBase.cpp" />
-		<ClCompile Include="LogicComponent/Transform.cpp" />
 		<ClCompile Include="PipelineComponent/CommandAllocator.cpp" />
 		<ClCompile Include="PipelineComponent/CommandBuffer.cpp" />
 		<ClCompile Include="PipelineComponent/FrameResource.cpp" />
@@ -255,7 +251,6 @@
 		<ClCompile Include="Utility/StringUtility.cpp" />
 		<ClCompile Include="Utility/TaskThread.cpp" />
 		<ClCompile Include="Utility/ThreadResetEvent.cpp" />
-		<ClCompile Include="WorldManagement/World.cpp" />
 	</ItemGroup>
 	<ItemGroup>
 		<ClInclude Include="CJsonObject/cJSON.h" />
@@ -264,7 +259,6 @@
 		<ClInclude Include="CJsonObject/SerializeStruct.h" />
 		<ClInclude Include="Common/BitArray.h" />
 		<ClInclude Include="Common/BitVector.h" />
-		<ClInclude Include="Common/Camera.h" />
 		<ClInclude Include="Common/Common.h" />
 		<ClInclude Include="Common/d3dx12.h" />
 		<ClInclude Include="Common/DLL.h" />
@@ -310,9 +304,6 @@
 		<ClInclude Include="JobSystem/JobInclude.h" />
 		<ClInclude Include="JobSystem/JobNode.h" />
 		<ClInclude Include="JobSystem/JobSystem.h" />
-		<ClInclude Include="LogicComponent/Component.h" />
-		<ClInclude Include="LogicComponent/RendererBase.h" />
-		<ClInclude Include="LogicComponent/Transform.h" />
 		<ClInclude Include="PipelineComponent/CameraData/CameraTransformData.h" />
 		<ClInclude Include="PipelineComponent/CameraData/LightCBuffer.h" />
 		<ClInclude Include="PipelineComponent/CameraData/LightMacro.h" />
@@ -370,7 +361,6 @@
 		<ClInclude Include="RHI/IComputeShader.h" />
 		<ClInclude Include="RHI/IGFXDevice.h" />
 		<ClInclude Include="RHI/IGpuResource.h" />
-		<ClInclude Include="RHI/IMesh.h" />
 		<ClInclude Include="RHI/InternalShaders.h" />
 		<ClInclude Include="RHI/IShader.h" />
 		<ClInclude Include="RHI/ITexture.h" />
@@ -407,7 +397,6 @@
 		<ClInclude Include="Utility/TaskThread.h" />
 		<ClInclude Include="Utility/ThreadResetEvent.h" />
 		<ClInclude Include="VEngineConfig.h" />
-		<ClInclude Include="WorldManagement/World.h" />
 	</ItemGroup>
 	<ItemGroup>
 		<ClInclude Include="CJsonObject/CJsonObject.hpp" />

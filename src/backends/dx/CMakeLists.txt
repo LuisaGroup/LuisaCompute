@@ -7,7 +7,6 @@ if (WIN32)
         CJsonObject/CJsonObject.cpp
         CJsonObject/JsonCompiler.cpp
         CJsonObject/SerializedObject.cpp
-        Common/Camera.cpp
         Common/Common.cpp
         Common/GameTimer.cpp
         Common/GFXUtil.cpp
@@ -23,9 +22,6 @@ if (WIN32)
         JobSystem/JobBucket.cpp
         JobSystem/JobNode.cpp
         JobSystem/JobSystem.cpp
-        LogicComponent/Component.cpp
-        LogicComponent/RendererBase.cpp
-        LogicComponent/Transform.cpp
         PipelineComponent/CommandAllocator.cpp
         PipelineComponent/CommandBuffer.cpp
         PipelineComponent/FrameResource.cpp
@@ -81,7 +77,6 @@ if (WIN32)
         Utility/StringUtility.cpp
         Utility/TaskThread.cpp
         Utility/ThreadResetEvent.cpp
-        WorldManagement/World.cpp
     )
 ##[[[]]]
     luisa_compute_add_backend(dx SOURCES ${DX_BACKEND_SOURCES})

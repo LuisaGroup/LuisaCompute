@@ -13,7 +13,7 @@
 #include <Singleton/Graphics.h>
 #include <Singleton/ShaderLoader.h>
 #include <RenderComponent/ComputeShader.h>
-
+#include <RenderComponent/LCMesh.h>
 #include <Singleton/ShaderID.h>
 #include <RenderComponent/CBufferAllocator.h>
 
@@ -198,6 +198,28 @@ public:
 		evt->GPUWaitEvent(
 			stream->GetQueue(),
 			cpuFence.Get());
+	}
+	uint64_t create_mesh(
+		uint64_t vertex_buffer_handle,
+		uint64_t index_buffer_handle,
+		float3 bbox_center,
+		float3 bbox_extent,//half size
+		uint vertex_offset,
+		uint index_offset,
+		uint index_count) {
+		SubMesh mesh;
+		mesh.boundingCenter = bbox_center;
+		mesh.boundingExtent = bbox_extent;
+		mesh.indexCount = index_count;
+		mesh.indexOffset = index_offset;
+		mesh.vertexOffset = vertex_offset;
+		return reinterpret_cast<uint64_t>(new LCMesh(mesh,
+			reinterpret_cast<StructuredBuffer*>(vertex_buffer_handle),
+			reinterpret_cast<StructuredBuffer*>(index_buffer_handle)));
+	}
+	void dispose_mesh(
+		uint64_t mesh_handle) {
+		delete reinterpret_cast<LCMesh*>(mesh_handle);
 	}
 	/*
 	uint64 signal_event(uint64 handle, uint64 stream_handle);

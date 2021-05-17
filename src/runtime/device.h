@@ -68,6 +68,22 @@ public:
         virtual void signal_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
         virtual void wait_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
+
+        // TODO: Other platforms
+#ifdef LUISA_BACKEND_DX_ENABLED
+        //mesh
+        virtual uint64_t create_mesh(
+            uint64_t vertex_buffer_handle,
+            uint64_t index_buffer_handle,
+            float3 bbox_center,
+            float3 bbox_extent,//half size
+            uint vertex_offset,
+            uint index_offset,
+            uint index_count);
+        virtual void dispose_mesh(
+            uint64_t mesh_handle);
+        
+#endif
     };
 
     using Deleter = void(Interface *);
@@ -101,7 +117,7 @@ public:
     [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size) noexcept {
         return create<Image<T>>(pixel, size);
     }
-    
+
     template<typename T>
     [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth) noexcept {
         return create<Volume<T>>(pixel, width, height, depth);
@@ -116,7 +132,7 @@ public:
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
         return create<Buffer<T>>(size);
     }
-    
+
 private:
     struct Compile {
         Device &d;

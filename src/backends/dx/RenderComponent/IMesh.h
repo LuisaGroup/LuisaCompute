@@ -2,10 +2,10 @@
 #include <RenderComponent/GPUResourceBase.h>
 #include <Common/IObjectReference.h>
 #include <RenderComponent/IGPUResourceState.h>
+namespace luisa::compute {
 struct SubMesh {
 	float3 boundingCenter;
 	float3 boundingExtent;
-	uint materialIndex;
 	uint vertexOffset;
 	uint indexOffset;
 	uint indexCount;
@@ -27,3 +27,4 @@ public:
 	virtual uint GetSubMeshCount() const = 0;
 	virtual SubMesh const& GetSubMesh(uint i) const = 0;
 };
+}// namespace luisa::compute

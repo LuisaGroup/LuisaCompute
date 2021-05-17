@@ -11,10 +11,15 @@ uint LCMesh::GetVBOSRVDescIndex(GFXDevice* device) const {
 uint LCMesh::GetIBOSRVDescIndex(GFXDevice* device) const {
 	return indBuffer->GetSRVDescIndex(device);
 }
-
-LCMesh::LCMesh(StructuredBuffer const* vertBuffer, StructuredBuffer const* indexBuffer)
+uint LCMesh::GetIndexCount() const {
+	return indBuffer->GetElementCount(0);
+}
+LCMesh::LCMesh(
+	SubMesh const& mesh,
+	StructuredBuffer const* vertBuffer, StructuredBuffer const* indexBuffer)
 	: vertBuffer(vertBuffer),
-	  indBuffer(indexBuffer) {
+	  indBuffer(indexBuffer),
+	  subMesh(mesh) {
 	assert(vertBuffer->GetStride(0) == sizeof(float3));
 	vertView.BufferLocation = vertBuffer->GetAddress(0, 0).address;
 	vertView.SizeInBytes = vertBuffer->GetByteSize();

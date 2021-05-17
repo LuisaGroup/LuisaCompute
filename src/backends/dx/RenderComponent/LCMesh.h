@@ -18,8 +18,10 @@ public:
 	float3 GetBoundingExtent() const override { return subMesh.boundingExtent; }
 	uint GetSubMeshCount() const override { return 1; }
 	SubMesh const& GetSubMesh(uint i) const override { return subMesh; }
+	uint GetIndexCount() const override;
 
 	LCMesh(
+		SubMesh const& mesh,
 		StructuredBuffer const* vertBuffer,
 		StructuredBuffer const* indexBuffer);
 	VENGINE_IOBJREF_OVERRIDE

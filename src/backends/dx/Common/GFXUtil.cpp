@@ -1,7 +1,6 @@
 #include <Common/GFXUtil.h>
 #include <comdef.h>
 #include <fstream>
-#include <Common/Camera.h>
 #include <PipelineComponent/IPipelineResource.h>
 
 using Microsoft::WRL::ComPtr;
