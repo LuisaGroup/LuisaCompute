@@ -9,20 +9,18 @@ namespace RTAccStructUtil {
 class RemoveMeshFunctor {
 public:
 	int64 offset;
-
+	luisa::compute::RayTracingManager* current;
 	void operator()(VObject* obj) const {
 		using namespace luisa::compute;
 		RayTracingManager::Command meshDeleteCmd(
 			RayTracingManager::Command::CommandType::DeleteMesh,
 			obj->GetInstanceID(),
 			0);//Submesh not used
-		if (RayTracingManager::current)
-			RayTracingManager::current->commands.Push(meshDeleteCmd);
+		current->commands.Push(meshDeleteCmd);
 	}
 };
 }// namespace RTAccStructUtil
 namespace luisa::compute {
-RayTracingManager* RayTracingManager::current = nullptr;
 
 void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC& inst, float4x4 const& tr) {
 	using namespace Math;
@@ -124,7 +122,7 @@ RayRendererData* RayTracingManager::AddRenderer(
 	commands.Push(meshBuildCmd);
 	RemoveMeshFunctor remMesh = {
 		mesh->GetVObjectPtrOffset<decltype(mesh)>(),
-	};
+		this};
 	mesh->GetVObjectPtr()->AddEventBeforeDispose(std::move(remMesh));
 	sepManager.AddRenderer(newRender, (uint)UpdateOperator::UpdateMesh | (uint)UpdateOperator::UpdateTrans);
 	return newRender;
@@ -160,7 +158,8 @@ void RayTracingManager::UpdateRenderer(
 			subMeshIndex);
 		commands.Push(meshBuildCmd);
 		RemoveMeshFunctor remMesh = {
-			mm->GetVObjectPtrOffset<decltype(mm)>()};
+			mm->GetVObjectPtrOffset<decltype(mm)>(),
+			this};
 		mm->GetVObjectPtr()->AddEventBeforeDispose(std::move(remMesh));
 		custom |= (uint)UpdateOperator::UpdateMesh;
 	}
@@ -231,11 +230,6 @@ RayTracingManager::RayTracingManager(
 	  instanceUploadPool(sizeof(D3D12_RAYTRACING_INSTANCE_DESC), 1024, false),
 	  meshObjUploadPool(sizeof(RayRendererData::MeshObject), 1024, false),
 	  rayRenderDataPool(256) {
-	if (current) {
-		VEngine_Log("Ray Tracing Manager Should be Singleton!\n"_sv);
-		VENGINE_EXIT;
-	}
-	current = this;
 	static constexpr uint64 ACC_ALIGN = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT;
 	ID3D12Device5* device = static_cast<ID3D12Device5*>(originDevice->device());
 	memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));
@@ -304,7 +298,6 @@ RayTracingManager::RayTracingManager(
 }
 
 RayTracingManager::~RayTracingManager() {
-	if (current == this) current = nullptr;
 }
 
 void RayTracingManager::ReserveStructSize(RenderPackage const& package, uint64 newStrSize, uint64 newScratchSize) {

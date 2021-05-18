@@ -43,45 +43,45 @@ public:
 		vengine::vector<Variable const*>& globalUAVValues,
 		vengine::vector<Variable const*>& groupSharedValues);
 };
-class StringExprVisitor final : public ExprVisitor {
+class StringExprVisitor : public ExprVisitor {
 
 public:
-	void visit(const UnaryExpr* expr) override;
-	void visit(const BinaryExpr* expr) override;
-	void visit(const MemberExpr* expr) override;
-	void visit(const AccessExpr* expr) override;
-	void visit(const LiteralExpr* expr) override;
-	void visit(const RefExpr* expr) override;
-	void visit(const CallExpr* expr) override;
-	void visit(const CastExpr* expr) override;
-	void visit(const ConstantExpr* expr) override;
+	virtual void visit(const UnaryExpr* expr) override;
+	virtual void visit(const BinaryExpr* expr) override;
+	virtual void visit(const MemberExpr* expr) override;
+	virtual void visit(const AccessExpr* expr) override;
+	virtual void visit(const LiteralExpr* expr) override;
+	virtual void visit(const RefExpr* expr) override;
+	virtual void visit(const CallExpr* expr) override;
+	virtual void visit(const CastExpr* expr) override;
+	virtual void visit(const ConstantExpr* expr) override;
 	StringExprVisitor(vengine::string& str);
 	~StringExprVisitor();
 
-private:
+protected:
 	vengine::string* str;
 	void BeforeVisit();
 	void AfterVisit();
 };
-class StringStateVisitor final : public StmtVisitor {
+class StringStateVisitor : public StmtVisitor {
 public:
-	void visit(const BreakStmt* state) override;
-	void visit(const ContinueStmt* state) override;
-	void visit(const ReturnStmt* state) override;
-	void visit(const ScopeStmt* state) override;
-	void visit(const DeclareStmt* state) override;
-	void visit(const IfStmt* state) override;
-	void visit(const WhileStmt* state) override;
-	void visit(const ExprStmt* state) override;
-	void visit(const SwitchStmt* state) override;
-	void visit(const SwitchCaseStmt* state) override;
-	void visit(const SwitchDefaultStmt* state) override;
-	void visit(const AssignStmt* state) override;
-	void visit(const ForStmt*) override;
+	virtual void visit(const BreakStmt* state) override;
+	virtual void visit(const ContinueStmt* state) override;
+	virtual void visit(const ReturnStmt* state) override;
+	virtual void visit(const ScopeStmt* state) override;
+	virtual void visit(const DeclareStmt* state) override;
+	virtual void visit(const IfStmt* state) override;
+	virtual void visit(const WhileStmt* state) override;
+	virtual void visit(const ExprStmt* state) override;
+	virtual void visit(const SwitchStmt* state) override;
+	virtual void visit(const SwitchCaseStmt* state) override;
+	virtual void visit(const SwitchDefaultStmt* state) override;
+	virtual void visit(const AssignStmt* state) override;
+	virtual void visit(const ForStmt*) override;
 	StringStateVisitor(vengine::string& str, Function func);
 	~StringStateVisitor();
 
-private:
+protected:
 	vengine::string* str;
 	Function func;
 };

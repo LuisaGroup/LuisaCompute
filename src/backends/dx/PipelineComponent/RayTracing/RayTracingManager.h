@@ -24,7 +24,6 @@ class VENGINE_DLL_RENDERER RayTracingManager final {
 
 private:
 	//Update And Add Should only called in main job threads, will be unsafe if called in loading thread!
-	~RayTracingManager();
 	void ReserveStructSize(RenderPackage const& package, uint64 newStrSize, uint64 newScratchSize);
 	void AddMesh(RenderPackage const& pack, vengine::vector<StructuredBuffer*>& clearBuffer, IMesh const* meshInterface, uint subMeshIndex, bool forceUpdateMesh);
 	void RemoveMesh(uint64 instanceID, vengine::vector<StructuredBuffer*>& clearBuffer);
@@ -32,6 +31,8 @@ private:
 	void CopyInstanceDescData(RayRendererData* data);
 
 public:
+	~RayTracingManager();
+
 	class AllocatedCBufferChunks {
 		friend class RayTracingManager;
 		vengine::vector<ConstBufferElement> instanceUploadElements;
@@ -60,10 +61,6 @@ public:
 	}
 	GpuAddress GetInstanceBufferAddress() const;
 	GpuAddress GetMeshObjectAddress() const;
-	static RayTracingManager* GetInstance() { return current; }
-	static void DestroyInstance() {
-		if (current) delete current;
-	}
 	RayTracingManager(
 		GFXDevice* device);
 	void BuildRTStruct(
@@ -119,7 +116,6 @@ private:
 	GFXDevice* device;
 	AllocatedCBufferChunks* allocatedElements;
 	RenderPackage const* pack;
-	static RayTracingManager* current;
 
 	LockFreeArrayQueue<Command> commands;
 	CBufferPool instanceUploadPool;

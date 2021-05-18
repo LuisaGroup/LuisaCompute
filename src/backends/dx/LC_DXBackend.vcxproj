@@ -275,6 +275,7 @@
 		<ClInclude Include="Common/GFXUtil.h" />
 		<ClInclude Include="Common/Hash.h" />
 		<ClInclude Include="Common/HashMap.h" />
+		<ClInclude Include="Common/HashPicker.h" />
 		<ClInclude Include="Common/IObjectReference.h" />
 		<ClInclude Include="Common/LinkedList.h" />
 		<ClInclude Include="Common/linq.h" />

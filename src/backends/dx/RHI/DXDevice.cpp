@@ -16,6 +16,8 @@
 #include <RenderComponent/LCMesh.h>
 #include <Singleton/ShaderID.h>
 #include <RenderComponent/CBufferAllocator.h>
+#include <PipelineComponent/RayTracing/RayTracingManager.h>
+#include <core/mathematics.h>
 
 namespace luisa::compute {
 using namespace Microsoft::WRL;
@@ -202,11 +204,11 @@ public:
 	uint64_t create_mesh(
 		uint64_t vertex_buffer_handle,
 		uint64_t index_buffer_handle,
-		float3 bbox_center,
-		float3 bbox_extent,//half size
+		luisa::float3 bbox_center,
+		luisa::float3 bbox_extent,//half size
 		uint vertex_offset,
 		uint index_offset,
-		uint index_count) {
+		uint index_count) noexcept override {
 		SubMesh mesh;
 		mesh.boundingCenter = bbox_center;
 		mesh.boundingExtent = bbox_extent;
@@ -218,7 +220,7 @@ public:
 			reinterpret_cast<StructuredBuffer*>(index_buffer_handle)));
 	}
 	void dispose_mesh(
-		uint64_t mesh_handle) {
+		uint64_t mesh_handle) noexcept override {
 		delete reinterpret_cast<LCMesh*>(mesh_handle);
 	}
 	/*
@@ -234,7 +236,13 @@ public:
 			FreeFrameResource(signal);
 		});
 	}
-
+	uint64_t create_raytracing_struct() noexcept override {
+		return reinterpret_cast<uint64_t>(new RayTracingManager(dxDevice));
+	}
+	void dispose_raytracing_struct(
+		uint64_t handle) noexcept override {
+		delete reinterpret_cast<RayTracingManager*>(handle);
+	}
 	~DXDevice() {
 		ShaderLoader::Dispose(shaderGlobal);
 	}

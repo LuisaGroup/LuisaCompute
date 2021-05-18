@@ -6,37 +6,23 @@
 #include <Common/Pool.h>
 #include <Common/vector.h>
 #include <Common/Hash.h>
-#include <Common/MetaLib.h>
 
-template<typename K, typename V, typename Hash = vengine::hash<K>, typename Equal = std::equal_to<K>, bool useVEngineAlloc = true>
-class HashMap {
+template<typename K, typename Hash = vengine::hash<K>, typename Equal = std::equal_to<K>, bool useVEngineAlloc = true>
+class HashPicker {
 public:
 	using KeyType = K;
-	using ValueType = V;
 	using HashType = Hash;
 	using EqualType = Equal;
-	using SelfType = HashMap<K, V, Hash, Equal, useVEngineAlloc>;
-	struct NodePair {
-	private:
-		K mKey;
-		V mValue;
-
-	public:
-		K const& key() const { return mKey; }
-		V& value() { return mValue; }
-		NodePair() {}
-		template<typename A, typename... B>
-		NodePair(A&& a, B&&... b) : mKey(std::forward<A>(a)), mValue(std::forward<B>(b)...) {}
-	};
-
+	using SelfType = HashPicker<K, Hash, Equal, useVEngineAlloc>;
 private:
-	struct LinkNode : public NodePair {
+	struct LinkNode {
+		K key;
 		LinkNode* last = nullptr;
 		LinkNode* next = nullptr;
 		size_t arrayIndex;
 		LinkNode() noexcept {}
-		template<typename A, typename... B>
-		LinkNode(size_t arrayIndex, A&& key, B&&... args) noexcept : NodePair(std::forward<A>(key), std::forward<B>(args)...), arrayIndex(arrayIndex) {}
+		template<typename A>
+		LinkNode(size_t arrayIndex, A&& key) noexcept : key(std::forward<A>(key)), arrayIndex(arrayIndex) {}
 
 		static void Add(LinkNode*& source, LinkNode* dest) noexcept {
 			if (!source) {
@@ -78,10 +64,10 @@ public:
 			ii--;
 		}
 
-		NodePair* operator->() const noexcept {
-			return *ii;
+		K const* operator->() const noexcept {
+			return &(*ii)->key;
 		}
-		NodePair& operator*() const noexcept {
+		K const& operator*() const noexcept {
 			return *operator->();
 		}
 	};
@@ -109,7 +95,6 @@ public:
 			return !operator==(a);
 		}
 		inline K const& Key() const noexcept;
-		inline V& Value() const noexcept;
 	};
 
 private:
@@ -225,7 +210,7 @@ private:
 			auto next = node->next;
 			node->last = nullptr;
 			node->next = nullptr;
-			size_t hashValue = hsFunc(node->key());
+			size_t hashValue = hsFunc(node->key);
 			hashValue = GetHash(hashValue, newCapacity);
 			LinkNode*& targetHeaderLink = newNode[hashValue];
 			if (!targetHeaderLink) {
@@ -250,13 +235,13 @@ public:
 		return Iterator(allocatedNodes.end());
 	}
 	//////////////////Construct & Destruct
-	HashMap(size_t capacity) noexcept : pool(capacity) {
+	HashPicker(size_t capacity) noexcept : pool(capacity) {
 		if (capacity < 2) capacity = 2;
 		capacity = GetPow2Size(capacity);
 		nodeVec = HashArray(capacity);
 		allocatedNodes.reserve(capacity);
 	}
-	HashMap(SelfType&& map)
+	HashPicker(SelfType&& map)
 		: allocatedNodes(std::move(map.allocatedNodes)),
 		  nodeVec(std::move(map.nodeVec)),
 		  pool(std::move(map.pool)) {
@@ -266,115 +251,20 @@ public:
 		this->~SelfType();
 		new (this) SelfType(std::move(map));
 	}
-	~HashMap() noexcept {
+	~HashPicker() noexcept {
 		for (auto& ite : allocatedNodes) {
 			pool.Delete(ite);
 		}
 	}
-	HashMap() noexcept : HashMap(16) {}
+	HashPicker() noexcept : HashPicker(16) {}
 	///////////////////////
-	Index Insert(const K& key, const V& value) noexcept {
-		size_t hashOriginValue = hsFunc(key);
-		size_t hashValue;
-
-		auto a = nodeVec.size();
-		hashValue = GetHash(hashOriginValue, nodeVec.size());
-		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
-				node->value() = value;
-				return Index(this, hashOriginValue, node);
-			}
-		}
-
-		size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-		if (targetCapacity < 16) targetCapacity = 16;
-		if (targetCapacity >= nodeVec.size()) {
-			Resize(GetPow2Size(targetCapacity));
-			hashValue = GetHash(hashOriginValue, nodeVec.size());
-		}
-		LinkNode* newNode = GetNewLinkNode(key, value);
-		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Index(this, hashOriginValue, newNode);
-	}
-
-	Index Insert(const K& key, V& value) noexcept {
-		size_t hashOriginValue = hsFunc(key);
-		size_t hashValue;
-
-		auto a = nodeVec.size();
-		hashValue = GetHash(hashOriginValue, nodeVec.size());
-		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
-				node->value() = value;
-				return Index(this, hashOriginValue, node);
-			}
-		}
-
-		size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-		if (targetCapacity < 16) targetCapacity = 16;
-		if (targetCapacity >= nodeVec.size()) {
-			Resize(GetPow2Size(targetCapacity));
-			hashValue = GetHash(hashOriginValue, nodeVec.size());
-		}
-		LinkNode* newNode = GetNewLinkNode(key, value);
-		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Index(this, hashOriginValue, newNode);
-	}
-	Index Insert(const K& key, V&& value) noexcept {
-		size_t hashOriginValue = hsFunc(key);
-		size_t hashValue;
-
-		auto a = nodeVec.size();
-		hashValue = GetHash(hashOriginValue, nodeVec.size());
-		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
-				node->value() = std::move(value);
-				return Index(this, hashOriginValue, node);
-			}
-		}
-
-		size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-		if (targetCapacity < 16) targetCapacity = 16;
-		if (targetCapacity >= nodeVec.size()) {
-			Resize(GetPow2Size(targetCapacity));
-			hashValue = GetHash(hashOriginValue, nodeVec.size());
-		}
-		LinkNode* newNode = GetNewLinkNode(key, std::move(value));
-		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Index(this, hashOriginValue, newNode);
-	}
-	template<typename... ARGS>
-	Index Emplace(const K& key, ARGS&&... args) {
-		size_t hashOriginValue = hsFunc(key);
-		size_t hashValue;
-
-		auto a = nodeVec.size();
-		hashValue = GetHash(hashOriginValue, nodeVec.size());
-		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
-				//node->value() = std::move(value);
-				node->value().~V();
-				new (&node->value()) V(std::forward<ARGS>(args)...);
-				return Index(this, hashOriginValue, node);
-			}
-		}
-
-		size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-		if (targetCapacity < 16) targetCapacity = 16;
-		if (targetCapacity >= nodeVec.size()) {
-			Resize(GetPow2Size(targetCapacity));
-			hashValue = GetHash(hashOriginValue, nodeVec.size());
-		}
-		LinkNode* newNode = GetNewLinkNode(key, std::forward<ARGS>(args)...);
-		LinkNode::Add(nodeVec[hashValue], newNode);
-		return Index(this, hashOriginValue, newNode);
-	}
+	
 	Index Insert(const K& key) noexcept {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue;
 		hashValue = GetHash(hashOriginValue, nodeVec.size());
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
+			if (eqFunc(node->key, key)) {
 				return Index(this, hashOriginValue, node);
 			}
 		}
@@ -390,30 +280,6 @@ public:
 		return Index(this, hashOriginValue, newNode);
 	}
 
-	//void(size_t, K const&, V&)
-	template<typename Func>
-	void IterateAll(const Func& func) const noexcept {
-		using FuncType = std::remove_cvref_t<std::remove_pointer_t<Func>>;
-		static constexpr size_t ArgSize = FuncArgCount<FuncType>;
-		using ReturnType = typename FunctionDataType<FuncType>::RetType;
-		static_assert(std::is_same_v<ReturnType, void>, "Iterate functor must return void!");
-		if constexpr (ArgSize == 3) {
-			for (size_t i = 0; i < allocatedNodes.size(); ++i) {
-				auto vv = allocatedNodes[i];
-				func(i, (K const&)vv->key(), vv->value());
-			}
-		} else if constexpr (ArgSize == 2) {
-			for (auto vv : allocatedNodes) {
-				func((K const&)vv->key(), vv->value());
-			}
-		} else if constexpr (ArgSize == 1) {
-			for (auto vv : allocatedNodes) {
-				func(vv->value());
-			}
-		} else {
-			static_assert(std::_Always_false<Func>, "Invalid Iterate Functions");
-		}
-	}
 	void Reserve(size_t capacity) noexcept {
 		size_t newCapacity = GetPow2Size(capacity);
 		Resize(newCapacity);
@@ -422,7 +288,7 @@ public:
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
+			if (eqFunc(node->key, key)) {
 				return Index(this, hashOriginValue, node);
 			}
 		}
@@ -435,7 +301,7 @@ public:
 		size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
 		LinkNode*& startNode = nodeVec[hashValue];
 		for (LinkNode* node = startNode; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
+			if (eqFunc(node->key, key)) {
 				if (startNode == node) {
 					startNode = node->next;
 				}
@@ -461,49 +327,13 @@ public:
 			ite.node->next->last = ite.node->last;
 		DeleteLinkNode(ite.node);
 	}
-	V& operator[](const K& key) noexcept {
-
-		size_t hashOriginValue = hsFunc(key);
-		size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
-				return node->value();
-			}
-		}
-
-		return *(V*)nullptr;
-	}
-	V const& operator[](const K& key) const noexcept {
-
-		size_t hashOriginValue = hsFunc(key);
-		size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
-				return node->value();
-			}
-		}
-
-		return *(V const*)nullptr;
-	}
-	bool TryGet(const K& key, V& value) const noexcept {
-
-		size_t hashOriginValue = hsFunc(key);
-		size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
-				value = node->value();
-				return true;
-			}
-		}
-
-		return false;
-	}
+	
 	bool Contains(const K& key) const noexcept {
 
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
 		for (LinkNode* node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-			if (eqFunc(node->key(), key)) {
+			if (eqFunc(node->key, key)) {
 				return true;
 			}
 		}
@@ -523,11 +353,7 @@ public:
 	size_t GetCapacity() const noexcept { return nodeVec.size(); }
 };
 
-template<typename K, typename V, typename Hash, typename Equal, bool useVEngineAlloc>
-inline K const& HashMap<K, V, Hash, Equal, useVEngineAlloc>::Index::Key() const noexcept {
-	return node->key();
-}
-template<typename K, typename V, typename Hash, typename Equal, bool useVEngineAlloc>
-inline V& HashMap<K, V, Hash, Equal, useVEngineAlloc>::Index::Value() const noexcept {
-	return node->value();
+template<typename K, typename Hash, typename Equal, bool useVEngineAlloc>
+inline K const& HashPicker<K, Hash, Equal, useVEngineAlloc>::Index::Key() const noexcept {
+	return node->key;
 }

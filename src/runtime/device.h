@@ -70,7 +70,7 @@ public:
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
         // TODO: Other platforms
-#ifdef LUISA_BACKEND_DX_ENABLED
+//#ifdef LUISA_BACKEND_DX_ENABLED
         //mesh
         virtual uint64_t create_mesh(
             uint64_t vertex_buffer_handle,
@@ -79,11 +79,13 @@ public:
             float3 bbox_extent,//half size
             uint vertex_offset,
             uint index_offset,
-            uint index_count);
+            uint index_count) noexcept = 0;
         virtual void dispose_mesh(
-            uint64_t mesh_handle);
-        
-#endif
+            uint64_t mesh_handle) noexcept = 0;
+        virtual uint64_t create_raytracing_struct() noexcept = 0;
+        virtual void dispose_raytracing_struct(
+            uint64_t handle) noexcept = 0;
+//#endif
     };
 
     using Deleter = void(Interface *);

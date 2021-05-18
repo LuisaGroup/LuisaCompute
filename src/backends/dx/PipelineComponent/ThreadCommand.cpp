@@ -125,8 +125,7 @@ void ThreadCommand::UAVBarrier(GPUResourceBase const* res) {
 	containedResources = true;
 	auto ite = uavBarriersDict.Find(res->GetResource());
 	if (!ite) {
-		uavBarriersDict.Insert(res->GetResource(), true);
-		uavBarriers.push_back(res->GetResource());
+		uavBarriersDict.Insert(res->GetResource());
 	}
 }
 void ThreadCommand::UAVBarriers(const std::initializer_list<GPUResourceBase const*>& args) {
@@ -166,7 +165,7 @@ void ThreadCommand::KillSame() {
 		} else if (!toCommon) {
 			auto uavIte = uavBarriersDict.Find(a.Transition.pResource);
 			if (uavIte) {
-				uavIte.Value() = false;
+				uavBarriersDict.Remove(uavIte);
 			}
 		}
 	}
@@ -175,11 +174,9 @@ void ThreadCommand::KillSame() {
 		D3D12_RESOURCE_BARRIER uavBar;
 		uavBar.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
 		uavBar.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-		for (auto ite = uavBarriers.begin(); ite != uavBarriers.end(); ++ite) {
+		for (auto ite = uavBarriersDict.begin(); ite != uavBarriersDict.end(); ++ite) {
 			uavBar.UAV.pResource = *ite;
-			if (uavBarriersDict[uavBar.UAV.pResource]) {
-				resourceBarrierCommands.push_back(uavBar);
-			}
+			resourceBarrierCommands.push_back(uavBar);
 		}
 	}
 	D3D12_RESOURCE_BARRIER aliasBarrier;
@@ -200,7 +197,6 @@ void ThreadCommand::ExecuteResBarrier() {
 		resourceBarrierCommands.clear();
 	}
 	uavBarriersDict.Clear();
-	uavBarriers.clear();
 	aliasBarriers.clear();
 	aliasBarriersDict.Clear();
 	barrierRecorder.IterateAll([](ResourceBarrierCommand& cmd) -> void {
@@ -221,7 +217,6 @@ void ThreadCommand::Clear() {
 		resourceBarrierCommands.clear();
 	}
 	uavBarriersDict.Clear();
-	uavBarriers.clear();
 	barrierRecorder.Clear();
 	aliasBarriers.clear();
 	aliasBarriersDict.Clear();
@@ -263,7 +258,6 @@ ThreadCommand::ThreadCommand(GFXDevice* device, GFXCommandListType type, ObjectP
 	  commandListType(type) {
 
 	resourceBarrierCommands.reserve(32);
-	uavBarriers.reserve(32);
 	if (allocator) {
 		cmdAllocator = allocator;
 		managingAllocator = false;

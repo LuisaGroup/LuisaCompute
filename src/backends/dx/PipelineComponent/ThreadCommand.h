@@ -1,5 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
+#include <Common/HashPicker.h>
 #include <mutex>
 #include <atomic>
 #include <PipelineComponent/CommandAllocator.h>
@@ -52,10 +53,9 @@ private:
 			  index(index) {}
 	};
 	HashMap<uint64, ResourceBarrierCommand> barrierRecorder;
-	HashMap<GFXResource*, bool> uavBarriersDict;
+	HashPicker<GFXResource*> uavBarriersDict;
 	HashMap<std::pair<GFXResource*, GFXResource*>, bool> aliasBarriersDict;
 	HashMap<GPUResourceBase const*, GPUResourceState> backToInitState;
-	vengine::vector<GFXResource*> uavBarriers;
 	vengine::vector<std::pair<GFXResource*, GFXResource*>> aliasBarriers;
 	void KillSame();
 	void Clear();
