@@ -118,6 +118,9 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
 template<typename T, size_t N>
 struct Vector : public detail::VectorStorage<T, N> {
 
+    static constexpr auto dimension = N;
+    using value_type = T;
+
     using Storage = detail::VectorStorage<T, N>;
     static_assert(std::disjunction_v<
                       std::is_same<T, bool>,

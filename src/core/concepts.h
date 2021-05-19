@@ -5,6 +5,7 @@
 #pragma once
 
 #include <span>
+#include <concepts>
 #include <type_traits>
 
 #include <core/macro.h>

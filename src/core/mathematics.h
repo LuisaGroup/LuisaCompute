@@ -117,91 +117,91 @@ LUISA_MAKE_VECTOR_BINARY_FUNC(max)
 #undef LUISA_MAKE_VECTOR_BINARY_FUNC
 
 // min
-
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto min(T v, Vector<T, 2> u) noexcept {
     return Vector<T, 2>{min(v, u.x), min(v, u.y)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto min(T v, Vector<T, 3> u) noexcept {
     return Vector<T, 3>{min(v, u.x), min(v, u.y), min(v, u.z)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto min(T v, Vector<T, 4> u) noexcept {
     return Vector<T, 4>{min(v, u.x), min(v, u.y), min(v, u.z), min(v, u.w)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto min(Vector<T, 2> v, T u) noexcept {
     return Vector<T, 2>{min(v.x, u), min(v.y, u)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto min(Vector<T, 3> v, T u) noexcept {
     return Vector<T, 3>{min(v.x, u), min(v.y, u), min(v.z, u)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto min(Vector<T, 4> v, T u) noexcept {
     return Vector<T, 4>{min(v.x, u), min(v.y, u), min(v.z, u), min(v.w, u)};
 }
 
 // max
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto max(T v, Vector<T, 2> u) noexcept {
     return Vector<T, 2>{max(v, u.x), max(v, u.y)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto max(T v, Vector<T, 3> u) noexcept {
     return Vector<T, 3>{max(v, u.x), max(v, u.y), max(v, u.z)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto max(T v, Vector<T, 4> u) noexcept {
     return Vector<T, 4>{max(v, u.x), max(v, u.y), max(v, u.z), max(v, u.w)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto max(Vector<T, 2> v, T u) noexcept {
     return Vector<T, 2>{max(v.x, u), max(v.y, u)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto max(Vector<T, 3> v, T u) noexcept {
     return Vector<T, 3>{max(v.x, u), max(v.y, u), max(v.z, u)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto max(Vector<T, 4> v, T u) noexcept {
     return Vector<T, 4>{max(v.x, u), max(v.y, u), max(v.z, u), max(v.w, u)};
 }
 
 template<typename T, std::enable_if_t<std::disjunction_v<is_scalar<T>, is_vector<T>>, int> = 0>
-[[nodiscard]] constexpr auto select(bool pred, T t, T f) noexcept {
+[[nodiscard]] constexpr auto select(T f, T t, bool pred) noexcept {
     return pred ? t : f;
 }
 
 template<typename T>
-[[nodiscard]] constexpr auto select(const bool2 pred, Vector<T, 2> t, Vector<T, 2> f) noexcept {
-    return Vector<T, 2>{select(pred.x, t.x, f.x), select(pred.y, t.y, f.y)};
+[[nodiscard]] constexpr auto select(Vector<T, 2> f, Vector<T, 2> t, bool2 pred) noexcept {
+    return Vector<T, 2>{select(f.x, t.x, pred.x),
+                        select(f.y, t.y, pred.y)};
 }
 
 template<typename T>
-[[nodiscard]] constexpr auto select(const bool3 pred, Vector<T, 3> t, Vector<T, 3> f) noexcept {
-    return Vector<T, 3>{select(pred.x, t.x, f.x),
-                        select(pred.y, t.y, f.y),
-                        select(pred.z, t.z, f.z)};
+[[nodiscard]] constexpr auto select(Vector<T, 3> f, Vector<T, 3> t, bool3 pred) noexcept {
+    return Vector<T, 3>{select(f.x, t.x, pred.x),
+                        select(f.y, t.y, pred.y),
+                        select(f.z, t.z, pred.z)};
 }
 
-template<typename T>
-[[nodiscard]] constexpr auto select(const bool4 pred, Vector<T, 4> t, Vector<T, 4> f) noexcept {
-    return Vector<T, 4>{select(pred.x, t.x, f.x),
-                        select(pred.y, t.y, f.y),
-                        select(pred.z, t.z, f.z),
-                        select(pred.w, t.w, f.w)};
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
+[[nodiscard]] constexpr auto select(Vector<T, 4> f, Vector<T, 4> t, bool4 pred) noexcept {
+    return Vector<T, 4>{select(f.x, t.x, pred.x),
+                        select(f.y, t.y, pred.y),
+                        select(f.z, t.z, pred.z),
+                        select(f.w, t.w, pred.w)};
 }
 
 [[nodiscard]] constexpr auto lerp(float a, float b, float t) noexcept {
@@ -209,11 +209,21 @@ template<typename T>
 }
 
 [[nodiscard]] constexpr auto lerp(float2 a, float2 b, float t) noexcept {
-    return float2{lerp(a.x, b.x, t), lerp(a.y, b.y, t)};
+    return float2{lerp(a.x, b.x, t),
+                  lerp(a.y, b.y, t)};
 }
 
 [[nodiscard]] constexpr auto lerp(float3 a, float3 b, float t) noexcept {
-    return float3{lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.z, b.z, t)};
+    return float3{lerp(a.x, b.x, t),
+                  lerp(a.y, b.y, t),
+                  lerp(a.z, b.z, t)};
+}
+
+[[nodiscard]] constexpr auto lerp(float4 a, float4 b, float t) noexcept {
+    return float4{lerp(a.x, b.x, t),
+                  lerp(a.y, b.y, t),
+                  lerp(a.z, b.z, t),
+                  lerp(a.w, b.w, t)};
 }
 
 template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
@@ -221,17 +231,17 @@ template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
     return std::clamp(x, a, b);
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto clamp(Vector<T, 2> v, T a, T b) noexcept {
     return Vector<T, 2>{clamp(v.x, a, b), clamp(v.y, a, b)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto clamp(Vector<T, 3> v, T a, T b) noexcept {
     return Vector<T, 3>{clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b)};
 }
 
-template<typename T>
+template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 [[nodiscard]] constexpr auto clamp(Vector<T, 4> v, T a, T b) noexcept {
     return Vector<T, 4>{clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b), clamp(v.w, a, b)};
 }

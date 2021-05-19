@@ -788,7 +788,7 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::POPCOUNT:
 			result << "countbits"_sv;
 			break;
-		case CallOp::REVERSEBITS:
+		case CallOp::REVERSE:
 			result << "reversebits"_sv;
 			break;
 		case CallOp::ISINF:

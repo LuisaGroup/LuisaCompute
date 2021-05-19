@@ -31,19 +31,15 @@ public:
     void dispose_event(uint64_t handle) noexcept override {}
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
-    virtual uint64_t create_mesh(
+    uint64_t create_mesh(
         uint64_t vertex_buffer_handle,
         uint64_t index_buffer_handle,
-        float3 bbox_center,
-        float3 bbox_extent,//half size
         uint vertex_offset,
         uint index_offset,
-        uint index_count) noexcept {}
-    virtual void dispose_mesh(
-        uint64_t mesh_handle) noexcept {}
-    virtual uint64_t create_raytracing_struct() noexcept {}
-    virtual void dispose_raytracing_struct(
-        uint64_t handle) noexcept {}
+        uint index_count) noexcept override { return _handle++; }
+    void dispose_mesh(uint64_t mesh_handle) noexcept override {}
+//    virtual uint64_t create_raytracing_struct() noexcept {}
+//    virtual void dispose_raytracing_struct(uint64_t handle) noexcept {}
     [[nodiscard]] static auto create(const Context &ctx) noexcept {
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};

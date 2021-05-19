@@ -290,6 +290,18 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
     return _event_slots[handle].get();
 }
 
+uint64_t MetalDevice::create_mesh(uint64_t vertex_buffer_handle,
+                                  uint64_t index_buffer_handle,
+                                  uint vertex_offset,
+                                  uint index_offset,
+                                  uint index_count) noexcept {
+    return 0;
+}
+
+void MetalDevice::dispose_mesh(uint64_t mesh_handle) noexcept {
+
+}
+
 }
 
 LUISA_EXPORT luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {

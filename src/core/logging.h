@@ -20,10 +20,10 @@ template<typename... Args>
 inline void log_warning(Args &&...args) noexcept { spdlog::warn(std::forward<Args>(args)...); }
 
 template<typename... Args>
-[[noreturn]] LUISA_NEVER_INLINE void log_error(Args &&...args) noexcept {
+[[noreturn]] LUISA_FORCE_INLINE void log_error(Args &&...args) noexcept {
     std::string error_message = fmt::format(std::forward<Args>(args)...);
     auto trace = luisa::backtrace();
-    for (auto i = 1u; i < trace.size(); i++) {
+    for (auto i = 0u; i < trace.size(); i++) {
         auto &&t = trace[i];
         error_message.append(fmt::format(
             FMT_STRING("\n    {:>2} [0x{:012x}]: {} :: {} + {}"),

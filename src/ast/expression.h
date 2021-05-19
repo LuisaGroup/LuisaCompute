@@ -243,15 +243,12 @@ enum struct CallOp {
     
     ABS,
     MIN,
-    MIN3,
     MAX,
-    MAX3,
     
     CLZ,
     CTZ,
     POPCOUNT,
-    REVERSEBITS,
-    //ROTATE,
+    REVERSE,
     
     ISINF,
     ISNAN,
@@ -277,6 +274,7 @@ enum struct CallOp {
     LOG,
     LOG2,
     LOG10,
+    POW,
     
     SQRT,
     RSQRT,
