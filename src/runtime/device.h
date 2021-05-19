@@ -70,15 +70,15 @@ public:
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
         // mesh
-        virtual uint64_t create_mesh(
-            uint64_t vertex_buffer_handle,
-            uint64_t index_buffer_handle,
-            uint vertex_offset,
-            uint index_offset,
-            uint index_count) noexcept = 0;
+        virtual uint64_t create_mesh(uint64_t vertex_buffer_handle,
+                                     size_t vertex_buffer_offset_bytes,
+                                     size_t vertex_count,
+                                     uint64_t index_buffer_handle,
+                                     size_t index_buffer_offset_bytes,
+                                     size_t index_count) noexcept = 0;
+        virtual void dispose_mesh(uint64_t mesh_handle) noexcept = 0;
 
-        virtual void dispose_mesh(
-            uint64_t mesh_handle) noexcept = 0;
+        // TODO: Revise the following APIs
 //        virtual uint64_t create_raytracing_struct() noexcept = 0;
 //        virtual void dispose_raytracing_struct(
 //            uint64_t handle) noexcept = 0;

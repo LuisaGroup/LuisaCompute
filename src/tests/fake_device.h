@@ -9,13 +9,14 @@
 
 namespace luisa::compute {
 
-class FakeDevice : public Device::Interface {
+class FakeDevice: public Device::Interface {
 
 private:
     uint64_t _handle{0u};
 
 public:
-    explicit FakeDevice(const Context &ctx) noexcept : Device::Interface{ctx} {}
+    explicit FakeDevice(const Context &ctx) noexcept
+        : Device::Interface{ctx} {}
     ~FakeDevice() noexcept override = default;
     uint64_t create_buffer(size_t) noexcept override { return _handle++; }
     void dispose_buffer(uint64_t) noexcept override {}
@@ -31,15 +32,14 @@ public:
     void dispose_event(uint64_t handle) noexcept override {}
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
-    uint64_t create_mesh(
-        uint64_t vertex_buffer_handle,
-        uint64_t index_buffer_handle,
-        uint vertex_offset,
-        uint index_offset,
-        uint index_count) noexcept override { return _handle++; }
+    uint64_t create_mesh(uint64_t vertex_buffer_handle,
+                         size_t vertex_buffer_offset_bytes,
+                         size_t vertex_count,
+                         uint64_t index_buffer_handle,
+                         size_t index_buffer_offset_bytes,
+                         size_t index_count) noexcept override { return _handle++; }
     void dispose_mesh(uint64_t mesh_handle) noexcept override {}
-//    virtual uint64_t create_raytracing_struct() noexcept {}
-//    virtual void dispose_raytracing_struct(uint64_t handle) noexcept {}
+
     [[nodiscard]] static auto create(const Context &ctx) noexcept {
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};

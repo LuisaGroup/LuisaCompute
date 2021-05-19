@@ -75,10 +75,11 @@ public:
     void synchronize_event(uint64_t handle) noexcept override;
 
     virtual uint64_t create_mesh(uint64_t vertex_buffer_handle,
+                                 size_t vertex_buffer_offset_bytes,
+                                 size_t vertex_count,
                                  uint64_t index_buffer_handle,
-                                 uint vertex_offset,
-                                 uint index_offset,
-                                 uint index_count) noexcept override;
+                                 size_t index_buffer_offset_bytes,
+                                 size_t index_count) noexcept override;
     virtual void dispose_mesh(uint64_t mesh_handle) noexcept override;
 };
 
