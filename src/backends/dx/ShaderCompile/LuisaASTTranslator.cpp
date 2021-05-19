@@ -791,14 +791,11 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::REVERSEBITS:
 			result << "reversebits"_sv;
 			break;
-		case CallOp::ROTATE:
-			result << "_rotate"_sv;
-			break;
 		case CallOp::ISINF:
-			result << "isinf"_sv;
+			result << "_isinf"_sv;
 			break;
 		case CallOp::ISNAN:
-			result << "isnan"_sv;
+			result << "_isnan"_sv;
 			break;
 		case CallOp::ACOS:
 			result << "acos"_sv;

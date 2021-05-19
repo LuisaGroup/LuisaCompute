@@ -123,7 +123,6 @@ std::atomic_bool inited = false;
 void HLSLCompiler::InitRegisterData() {
 	if (inited.exchange(true)) return;
 	vengine::string folderPath = "VEngineCompiler/CompilerToolkit"_sv;
-	
 
 	shaderTypeCmd = " /T "_sv;
 	funcName = " /E "_sv;
@@ -377,6 +376,7 @@ void HLSLCompiler::CompileComputeShader(
 		std::lock_guard<spin_mutex> lck(outputMtx);
 		std::cout << kernelCommand << '\n';
 		std::cout << vengine::string("ComputeShader "_sv) + fileName + " Failed!"_sv << std::endl;
+		VENGINE_EXIT;
 		return;
 	}
 
@@ -398,8 +398,9 @@ void HLSLCompiler::CompileDXRShader(
 	if (raypayloadMaxSize == 0) {
 		std::lock_guard<spin_mutex> lck(outputMtx);
 		std::cout << "Raypayload Invalid! \n"_sv;
-		errorMessage.emplace_back(std::move(
-			vengine::string("DXRShader "_sv) + fileName + " Failed!"_sv));
+		std::cout << vengine::string("DXRShader "_sv) + fileName + " Failed!"_sv;
+		VENGINE_EXIT;
+
 		return;
 	}
 	PutInSerializedObjectAndData(
@@ -440,8 +441,9 @@ void HLSLCompiler::CompileDXRShader(
 	CreateChildProcess(kernelCommand, &data);
 	if (!func(tempPath, &data)) {
 		std::lock_guard<spin_mutex> lck(outputMtx);
-		errorMessage.emplace_back(std::move(
-			vengine::string("DXRShader "_sv) + fileName + " Failed!"_sv));
+		std::cout << vengine::string("DXRShader "_sv) + fileName + " Failed!"_sv;
+		VENGINE_EXIT;
+
 	}
 	remove(tempPath.c_str());
 }

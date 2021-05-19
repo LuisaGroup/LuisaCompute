@@ -140,3 +140,37 @@ uint4 to_tex(uint3 v){return uint4(v,1);}
 int4 to_tex(int4 v){return v;}
 int4 to_tex(int2 v){return int4(v,1,1);}
 int4 to_tex(int3 v){return int4(v,1);}
+
+bool _isnan(float x)
+{
+    return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
+}
+bool2 _isnan(float2 x)
+{
+    return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
+}
+bool3 _isnan(float3 x)
+{
+    return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
+}
+bool4 _isnan(float4 x)
+{
+    return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
+}
+bool _isinf(float x)
+{
+    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+}
+bool2 _isinf(float2 x)
+{
+    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+}
+bool3 _isinf(float3 x)
+{
+    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+}
+bool4 _isinf(float4 x)
+{
+    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+}
+

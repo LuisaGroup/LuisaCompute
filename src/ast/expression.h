@@ -251,7 +251,7 @@ enum struct CallOp {
     CTZ,
     POPCOUNT,
     REVERSEBITS,
-    ROTATE,
+    //ROTATE,
     
     ISINF,
     ISNAN,
