@@ -38,10 +38,15 @@ public:
         float3 bbox_extent,//half size
         uint vertex_offset,
         uint index_offset,
-        uint index_count) noexcept {}
+        uint index_count) noexcept {
+        return 0;
+    }
     virtual void dispose_mesh(
         uint64_t mesh_handle) noexcept {}
-    virtual uint64_t create_raytracing_struct() noexcept {}
+    virtual uint64_t create_raytracing_struct() noexcept {
+        return 0;
+  
+    }
     virtual void dispose_raytracing_struct(
         uint64_t handle) noexcept {}
     [[nodiscard]] static auto create(const Context &ctx) noexcept {
