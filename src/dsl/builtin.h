@@ -81,14 +81,6 @@ template<typename... T>
     return std::make_tuple(detail::Expr{v}...);
 }
 
-// math functions
-
-// atomic functions
-
-// sync functions
-
-// make_vector functions
-
 namespace detail {
 
 template<typename T>
