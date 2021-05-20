@@ -203,21 +203,19 @@ public:
 	}
 	uint64_t create_mesh(
 		uint64_t vertex_buffer_handle,
+		size_t vertex_buffer_offset_bytes,
+		uint vertex_count,
 		uint64_t index_buffer_handle,
-		luisa::float3 bbox_center,
-		luisa::float3 bbox_extent,//half size
-		uint vertex_offset,
-		uint index_offset,
+		size_t index_buffer_offset_bytes,
 		uint index_count) noexcept override {
-		SubMesh mesh;
-		mesh.boundingCenter = bbox_center;
-		mesh.boundingExtent = bbox_extent;
-		mesh.indexCount = index_count;
-		mesh.indexOffset = index_offset;
-		mesh.vertexOffset = vertex_offset;
-		return reinterpret_cast<uint64_t>(new LCMesh(mesh,
-			reinterpret_cast<StructuredBuffer*>(vertex_buffer_handle),
-			reinterpret_cast<StructuredBuffer*>(index_buffer_handle)));
+		return reinterpret_cast<uint64_t>(
+			new LCMesh(
+				reinterpret_cast<StructuredBuffer*>(vertex_buffer_handle),
+				reinterpret_cast<StructuredBuffer*>(index_buffer_handle),
+				vertex_buffer_offset_bytes,
+				index_buffer_offset_bytes,
+				vertex_count,
+				index_count));
 	}
 	void dispose_mesh(
 		uint64_t mesh_handle) noexcept override {
@@ -236,13 +234,14 @@ public:
 			FreeFrameResource(signal);
 		});
 	}
+	/*
 	uint64_t create_raytracing_struct() noexcept override {
 		return reinterpret_cast<uint64_t>(new RayTracingManager(dxDevice));
 	}
 	void dispose_raytracing_struct(
 		uint64_t handle) noexcept override {
 		delete reinterpret_cast<RayTracingManager*>(handle);
-	}
+	}*/
 	~DXDevice() {
 		ShaderLoader::Dispose(shaderGlobal);
 	}

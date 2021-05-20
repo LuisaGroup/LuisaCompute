@@ -3,13 +3,6 @@
 #include <Common/IObjectReference.h>
 #include <RenderComponent/IGPUResourceState.h>
 namespace luisa::compute {
-struct SubMesh {
-	float3 boundingCenter;
-	float3 boundingExtent;
-	uint vertexOffset;
-	uint indexOffset;
-	uint indexCount;
-};
 class IMesh : public IObjectReference {
 public:
 	virtual uint GetIndexCount() const = 0;
@@ -21,10 +14,6 @@ public:
 	virtual GFXVertexBufferView const* VertexBufferViews() const = 0;
 	virtual uint VertexBufferViewCount() const = 0;
 	virtual GFXIndexBufferView const* IndexBufferView() const = 0;
-	virtual float3 GetBoundingCenter() const = 0;
-	virtual float3 GetBoundingExtent() const = 0;
 
-	virtual uint GetSubMeshCount() const = 0;
-	virtual SubMesh const& GetSubMesh(uint i) const = 0;
 };
 }// namespace luisa::compute

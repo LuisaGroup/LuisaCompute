@@ -776,8 +776,8 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::MIN:
 			result << "min"_sv;
 			break;
-		case CallOp::MIN3:
-			result << "_min3"_sv;
+		case CallOp::POW:
+			result << "pow"_sv;
 			break;
 		case CallOp::CLZ:
 			result << "firstbithigh"_sv;

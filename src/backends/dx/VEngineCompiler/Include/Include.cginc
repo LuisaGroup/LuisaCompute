@@ -159,18 +159,18 @@ bool4 _isnan(float4 x)
 }
 bool _isinf(float x)
 {
-    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+    return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 bool2 _isinf(float2 x)
 {
-    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+    return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 bool3 _isinf(float3 x)
 {
-    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+    return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 bool4 _isinf(float4 x)
 {
-    return (asuint(x) & 0x7FFFFFFF) = 0x7F800000;
+    return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 
