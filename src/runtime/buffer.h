@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/concepts.h>
 #include <runtime/command.h>
 #include <runtime/device.h>
 
@@ -20,7 +21,8 @@ class BufferView;
 #define LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)                    \
     static_assert(std::is_same_v<T, std::remove_cvref_t<T>>); \
     static_assert(std::is_trivially_copyable_v<T>);           \
-    static_assert(std::is_trivially_destructible_v<T>);
+    static_assert(std::is_trivially_destructible_v<T>);       \
+    static_assert(!concepts::atomic<T>);
 
 template<typename T>
 class Buffer : public concepts::Noncopyable {

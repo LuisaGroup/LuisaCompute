@@ -51,9 +51,12 @@ void CppCodegen::visit(const BinaryExpr *expr) {
 
 void CppCodegen::visit(const MemberExpr *expr) {
     expr->self()->accept(*this);
-    if (expr->self()->type()->is_vector()) {
-        static constexpr std::string_view xyzw[]{".x", ".y", ".z", ".w"};
-        _scratch << xyzw[expr->member_index()];
+    if (expr->is_swizzle()) {
+        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+        _scratch << ".";
+        for (auto i = 0u; i < expr->swizzle_size(); i++) {
+            _scratch << xyzw[expr->swizzle_index(i)];
+        }
     } else {
         _scratch << ".m" << expr->member_index();
     }
@@ -135,13 +138,97 @@ void CppCodegen::visit(const RefExpr *expr) {
 }
 
 void CppCodegen::visit(const CallExpr *expr) {
-    switch (expr->op()) {// TODO...
+
+    switch (expr->op()) {
         case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
-        case CallOp::ALL: break;
-        case CallOp::ANY: break;
-        case CallOp::NONE: break;
-        case CallOp::TEXTURE_READ: break;
-        case CallOp::TEXTURE_WRITE: break;
+        case CallOp::ALL: _scratch << "all"; break;
+        case CallOp::ANY: _scratch << "any"; break;
+        case CallOp::NONE: _scratch << "none"; break;
+        case CallOp::SELECT: _scratch << "select"; break;
+        case CallOp::CLAMP: _scratch << "clamp"; break;
+        case CallOp::LERP: _scratch << "mix"; break;
+        case CallOp::SATURATE: _scratch << "saturate"; break;
+        case CallOp::SIGN: _scratch << "sign"; break;
+        case CallOp::STEP: _scratch << "step"; break;
+        case CallOp::SMOOTHSTEP: _scratch << "smoothstep"; break;
+        case CallOp::ABS: _scratch << "abs"; break;
+        case CallOp::MIN: _scratch << "min"; break;
+        case CallOp::MAX: _scratch << "max"; break;
+        case CallOp::CLZ: _scratch << "clz"; break;
+        case CallOp::CTZ: _scratch << "ctz"; break;
+        case CallOp::POPCOUNT: _scratch << "popcount"; break;
+        case CallOp::REVERSE: _scratch << "reverse_bits"; break;
+        case CallOp::ISINF: _scratch << "precise::isinf"; break;
+        case CallOp::ISNAN: _scratch << "precise::isnan"; break;
+        case CallOp::ACOS: _scratch << "acos"; break;
+        case CallOp::ACOSH: _scratch << "acosh"; break;
+        case CallOp::ASIN: _scratch << "asin"; break;
+        case CallOp::ASINH: _scratch << "asinh"; break;
+        case CallOp::ATAN: _scratch << "atan"; break;
+        case CallOp::ATAN2: _scratch << "atan2"; break;
+        case CallOp::ATANH: _scratch << "atanh"; break;
+        case CallOp::COS: _scratch << "cos"; break;
+        case CallOp::COSH: _scratch << "cosh"; break;
+        case CallOp::SIN: _scratch << "sin"; break;
+        case CallOp::SINH: _scratch << "sinh"; break;
+        case CallOp::TAN: _scratch << "tan"; break;
+        case CallOp::TANH: _scratch << "tanh"; break;
+        case CallOp::EXP: _scratch << "exp"; break;
+        case CallOp::EXP2: _scratch << "exp2"; break;
+        case CallOp::EXP10: _scratch << "exp10"; break;
+        case CallOp::LOG: _scratch << "log"; break;
+        case CallOp::LOG2: _scratch << "log2"; break;
+        case CallOp::LOG10: _scratch << "log10"; break;
+        case CallOp::POW: _scratch << "pow"; break;
+        case CallOp::SQRT: _scratch << "sqrt"; break;
+        case CallOp::RSQRT: _scratch << "rsqrt"; break;
+        case CallOp::CEIL: _scratch << "ceil"; break;
+        case CallOp::FLOOR: _scratch << "floor"; break;
+        case CallOp::FRACT: _scratch << "fract"; break;
+        case CallOp::TRUNC: _scratch << "trunc"; break;
+        case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::FMOD: _scratch << "fmod"; break;
+        case CallOp::DEGREES: _scratch << "degrees"; break;
+        case CallOp::RADIANS: _scratch << "radians"; break;
+        case CallOp::FMA: _scratch << "fma"; break;
+        case CallOp::COPYSIGN: _scratch << "copysign"; break;
+        case CallOp::CROSS: _scratch << "cross"; break;
+        case CallOp::DOT: _scratch << "dot"; break;
+        case CallOp::DISTANCE: _scratch << "distance"; break;
+        case CallOp::DISTANCE_SQUARED: _scratch << "distance_squared"; break;
+        case CallOp::LENGTH: _scratch << "length"; break;
+        case CallOp::LENGTH_SQUARED: _scratch << "length_squared"; break;
+        case CallOp::NORMALIZE: _scratch << "normalize"; break;
+        case CallOp::FACEFORWARD: _scratch << "faceforward"; break;
+        case CallOp::DETERMINANT: _scratch << "determinant"; break;
+        case CallOp::TRANSPOSE: _scratch << "transpose"; break;
+        case CallOp::INVERSE: _scratch << "inverse"; break;
+        case CallOp::GROUP_MEMORY_BARRIER: _scratch << "group_memory_barrier"; break;
+        case CallOp::DEVICE_MEMORY_BARRIER: _scratch << "device_memory_barrier"; break;
+        case CallOp::ALL_MEMORY_BARRIER: _scratch << "all_memory_barrier"; break;
+        case CallOp::ATOMIC_LOAD: _scratch << "atomic_load"; break;
+        case CallOp::ATOMIC_STORE: _scratch << "atomic_store"; break;
+        case CallOp::ATOMIC_EXCHANGE: _scratch << "atomic_exchange"; break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "atomic_compare_exchange"; break;
+        case CallOp::ATOMIC_FETCH_ADD: _scratch << "atomic_fetch_add"; break;
+        case CallOp::ATOMIC_FETCH_SUB: _scratch << "atomic_fetch_sub"; break;
+        case CallOp::ATOMIC_FETCH_AND: _scratch << "atomic_fetch_and"; break;
+        case CallOp::ATOMIC_FETCH_OR: _scratch << "atomic_fetch_or"; break;
+        case CallOp::ATOMIC_FETCH_XOR: _scratch << "atomic_fetch_xor"; break;
+        case CallOp::ATOMIC_FETCH_MIN: _scratch << "atomic_fetch_min"; break;
+        case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
+        case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
+        case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
+        case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
+#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
+    case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
+    case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
+    case CallOp::MAKE_##tag##4: _scratch << #type "4"; break;
+        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
+        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
+        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
+        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+#undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {

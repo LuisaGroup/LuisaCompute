@@ -128,4 +128,18 @@ concept operator_access = requires(Lhs lhs, Rhs rhs) { lhs[rhs]; };
 template<typename T>
 concept function = std::is_function_v<T>;
 
+namespace detail {
+    template<typename T>
+    struct is_atomic : std::false_type {};
+
+    template<typename T>
+    struct is_atomic<std::atomic<T>> : std::true_type {};
+
+    template<typename T>
+    constexpr auto is_atomic_v = is_atomic<T>::value;
+}// namespace detail
+
+template<typename T>
+concept atomic = detail::is_atomic_v<T>;
+
 }// namespace luisa::concepts

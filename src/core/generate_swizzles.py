@@ -6,12 +6,15 @@ def generate(file, dim):
     for x in entries:
         for y in entries:
             for z in entries:
-                print(f"[[nodiscard]] auto {x}{y}{z}() const noexcept {{ return Vector<T, 3>{{{x}, {y}, {z}}}; }}", file=file)
+                print(f"[[nodiscard]] auto {x}{y}{z}() const noexcept {{ return Vector<T, 3>{{{x}, {y}, {z}}}; }}",
+                      file=file)
     for x in entries:
         for y in entries:
             for z in entries:
                 for w in entries:
-                    print(f"[[nodiscard]] auto {x}{y}{z}{w}() const noexcept {{ return Vector<T, 4>{{{x}, {y}, {z}, {w}}}; }}", file=file)
+                    print(f"[[nodiscard]] auto {x}{y}{z}{w}() const noexcept {{ " +
+                          f"return Vector<T, 4>{{{x}, {y}, {z}, {w}}}; }}",
+                          file=file)
 
 
 if __name__ == "__main__":

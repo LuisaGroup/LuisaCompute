@@ -212,29 +212,32 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::GROUP_MEMORY_BARRIER: _scratch << "group_memory_barrier"; break;
         case CallOp::DEVICE_MEMORY_BARRIER: _scratch << "device_memory_barrier"; break;
         case CallOp::ALL_MEMORY_BARRIER: _scratch << "all_memory_barrier"; break;
-        case CallOp::ATOMIC_LOAD: break;
-        case CallOp::ATOMIC_STORE: break;
-        case CallOp::ATOMIC_EXCHANGE: break;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE: break;
-        case CallOp::ATOMIC_FETCH_ADD: break;
-        case CallOp::ATOMIC_FETCH_SUB: break;
-        case CallOp::ATOMIC_FETCH_AND: break;
-        case CallOp::ATOMIC_FETCH_OR: break;
-        case CallOp::ATOMIC_FETCH_XOR: break;
-        case CallOp::ATOMIC_FETCH_MIN: break;
-        case CallOp::ATOMIC_FETCH_MAX: break;
+        case CallOp::ATOMIC_LOAD: _scratch << "atomic_load"; break;
+        case CallOp::ATOMIC_STORE: _scratch << "atomic_store"; break;
+        case CallOp::ATOMIC_EXCHANGE: _scratch << "atomic_exchange"; break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "atomic_compare_exchange"; break;
+        case CallOp::ATOMIC_FETCH_ADD: _scratch << "atomic_fetch_add"; break;
+        case CallOp::ATOMIC_FETCH_SUB: _scratch << "atomic_fetch_sub"; break;
+        case CallOp::ATOMIC_FETCH_AND: _scratch << "atomic_fetch_and"; break;
+        case CallOp::ATOMIC_FETCH_OR: _scratch << "atomic_fetch_or"; break;
+        case CallOp::ATOMIC_FETCH_XOR: _scratch << "atomic_fetch_xor"; break;
+        case CallOp::ATOMIC_FETCH_MIN: _scratch << "atomic_fetch_min"; break;
+        case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
-#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
-    case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
-    case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
-    case CallOp::MAKE_##tag##4: _scratch << #type "4"; break;
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
-#undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
+        case CallOp::MAKE_BOOL2: _scratch << "bool2"; break;
+        case CallOp::MAKE_BOOL3: _scratch << "bool3"; break;
+        case CallOp::MAKE_BOOL4: _scratch << "bool4"; break;
+        case CallOp::MAKE_INT2: _scratch << "int2"; break;
+        case CallOp::MAKE_INT3: _scratch << "int3"; break;
+        case CallOp::MAKE_INT4: _scratch << "int4"; break;
+        case CallOp::MAKE_UINT2: _scratch << "uint2"; break;
+        case CallOp::MAKE_UINT3: _scratch << "uint3"; break;
+        case CallOp::MAKE_UINT4: _scratch << "uint4"; break;
+        case CallOp::MAKE_FLOAT2: _scratch << "float2"; break;
+        case CallOp::MAKE_FLOAT3: _scratch << "float3"; break;
+        case CallOp::MAKE_FLOAT4: _scratch << "float4"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
@@ -265,11 +268,11 @@ void MetalCodegen::visit(const CastExpr *expr) {
     _scratch << ")";
 }
 
-void MetalCodegen::visit(const BreakStmt *stmt) {
+void MetalCodegen::visit(const BreakStmt *) {
     _scratch << "break;";
 }
 
-void MetalCodegen::visit(const ContinueStmt *stmt) {
+void MetalCodegen::visit(const ContinueStmt *) {
     _scratch << "continue;";
 }
 
@@ -814,7 +817,6 @@ template<typename T>
 }
 
 )";
-
 }
 
 }
