@@ -894,27 +894,4 @@ inline void device_memory_barrier() noexcept {
         CallOp::DEVICE_MEMORY_BARRIER, {});
 }
 
-// atomic todo
-// ATOMIC_LOAD,
-//    ATOMIC_STORE,
-//    ATOMIC_EXCHANGE,
-//    ATOMIC_COMPARE_EXCHANGE,
-//    ATOMIC_FETCH_ADD,
-//    ATOMIC_FETCH_SUB,
-//    ATOMIC_FETCH_AND,
-//    ATOMIC_FETCH_OR,
-//    ATOMIC_FETCH_XOR,
-//    ATOMIC_FETCH_MIN,
-//    ATOMIC_FETCH_MAX,
-
-/*
-    return detail::Expr<T> {
-        FunctionBuilder::current->call(
-
-        )
-    }
-}
-
-*/
-
 }// namespace luisa::compute
