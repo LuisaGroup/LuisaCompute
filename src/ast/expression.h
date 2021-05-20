@@ -10,6 +10,7 @@
 
 #include <core/concepts.h>
 #include <core/basic_types.h>
+#include <core/logging.h>
 #include <ast/variable.h>
 
 namespace luisa::compute {
@@ -153,17 +154,49 @@ public:
 
 class MemberExpr : public Expression {
 
+public:
+    static constexpr auto swizzle_mask = 0xff00000000ull;
+    static constexpr auto swizzle_shift = 32u;
+
 private:
     const Expression *_self;
-    size_t _member;
+    uint64_t _member;
 
     void _mark(Variable::Usage usage) const noexcept override { _self->mark(usage); }
 
 public:
     MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
         : Expression{type}, _self{self}, _member{member_index} {}
+    MemberExpr(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept
+        : Expression{type}, _self{self},
+          _member{(static_cast<uint64_t>(swizzle_size) << swizzle_shift) | swizzle_code} {}
+
+    [[nodiscard]] auto is_swizzle() const noexcept { return (_member & swizzle_mask) != 0u; }
     [[nodiscard]] auto self() const noexcept { return _self; }
-    [[nodiscard]] auto member_index() const noexcept { return _member; }
+
+    [[nodiscard]] auto member_index() const noexcept {
+        if (is_swizzle()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid member index in swizzled MemberExpr.");
+        }
+        return static_cast<size_t>(_member);
+    }
+
+    [[nodiscard]] auto swizzle_size() const noexcept {
+        auto s = (_member & swizzle_mask) >> swizzle_shift;
+        if (s == 0u || s > 4u) { LUISA_ERROR_WITH_LOCATION("Invalid swizzle size {}.", s); }
+        return static_cast<size_t>(s);
+    }
+
+    [[nodiscard]] auto swizzle_index(size_t index) const noexcept {
+        if (auto s = swizzle_size(); index >= s) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid swizzle index {} (count = {}).",
+                index, s);
+        }
+        return static_cast<size_t>((_member >> (index * 4u)) & 0x0fu);
+    }
+
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
@@ -224,35 +257,35 @@ public:
 };
 
 enum struct CallOp {
-    
+
     CUSTOM,
-    
+
     ALL,
     ANY,
     NONE,
-    
+
     SELECT,
-    
+
     CLAMP,
     LERP,
     SATURATE,
     SIGN,
-    
+
     STEP,
     SMOOTHSTEP,
-    
+
     ABS,
     MIN,
     MAX,
-    
+
     CLZ,
     CTZ,
     POPCOUNT,
     REVERSE,
-    
+
     ISINF,
     ISNAN,
-    
+
     ACOS,
     ACOSH,
     ASIN,
@@ -260,14 +293,14 @@ enum struct CallOp {
     ATAN,
     ATAN2,
     ATANH,
-    
+
     COS,
     COSH,
     SIN,
     SINH,
     TAN,
     TANH,
-    
+
     EXP,
     EXP2,
     EXP10,
@@ -275,23 +308,23 @@ enum struct CallOp {
     LOG2,
     LOG10,
     POW,
-    
+
     SQRT,
     RSQRT,
-    
+
     CEIL,
     FLOOR,
     FRACT,
     TRUNC,
     ROUND,
     FMOD,
-    
+
     DEGREES,
     RADIANS,
-    
+
     FMA,
     COPYSIGN,
-    
+
     CROSS,
     DOT,
     DISTANCE,
@@ -304,11 +337,11 @@ enum struct CallOp {
     DETERMINANT,
     TRANSPOSE,
     INVERSE,
-    
+
     GROUP_MEMORY_BARRIER,
     DEVICE_MEMORY_BARRIER,
     ALL_MEMORY_BARRIER,
-    
+
     ATOMIC_LOAD,
     ATOMIC_STORE,
     ATOMIC_EXCHANGE,
@@ -324,7 +357,7 @@ enum struct CallOp {
     TEXTURE_READ,
     TEXTURE_WRITE,
     TEXTURE_SAMPLE,
-    
+
     MAKE_BOOL2,
     MAKE_BOOL3,
     MAKE_BOOL4,

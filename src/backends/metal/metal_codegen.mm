@@ -50,9 +50,12 @@ void MetalCodegen::visit(const BinaryExpr *expr) {
 
 void MetalCodegen::visit(const MemberExpr *expr) {
     expr->self()->accept(*this);
-    if (expr->self()->type()->is_vector()) {
-        static constexpr std::string_view xyzw[]{".x", ".y", ".z", ".w"};
-        _scratch << xyzw[expr->member_index()];
+    if (expr->is_swizzle()) {
+        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+        _scratch << ".";
+        for (auto i = 0u; i < expr->swizzle_size(); i++) {
+            _scratch << xyzw[expr->swizzle_index(i)];
+        }
     } else {
         _scratch << ".m" << expr->member_index();
     }
@@ -152,10 +155,10 @@ void MetalCodegen::visit(const CallExpr *expr) {
             _scratch << "texture_write";
             break;
             // TODO...
-#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)               \
-    case CallOp::MAKE_##tag##2: _scratch << "make_" #type "2"; break; \
-    case CallOp::MAKE_##tag##3: _scratch << "make_" #type "3"; break; \
-    case CallOp::MAKE_##tag##4: _scratch << "make_" #type "4"; break;
+#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
+    case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
+    case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
+    case CallOp::MAKE_##tag##4: _scratch << #type "4"; break;
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
@@ -700,27 +703,18 @@ void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
             break;
             // TODO...
 
-#define LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(type, tag)                                                          \
-    case CallOp::MAKE_##tag##2:                                                                                  \
-        _scratch << "[[nodiscard]] auto make_" #type "2(" #type " x, " #type " y) {\n"                           \
-                    "  return " #type "2{x, y};\n"                                                               \
-                    "}\n\n";                                                                                     \
-        break;                                                                                                   \
-    case CallOp::MAKE_##tag##3:                                                                                  \
-        _scratch << "[[nodiscard]] auto make_" #type "3(" #type " x, " #type " y, " #type " z) {\n"              \
-                    "  return " #type "3{x, y, z};\n"                                                            \
-                    "}\n\n";                                                                                     \
-        break;                                                                                                   \
-    case CallOp::MAKE_##tag##4:                                                                                  \
-        _scratch << "[[nodiscard]] auto make_" #type "4(" #type " x, " #type " y, " #type " z, " #type " w) {\n" \
-                    "  return " #type "4{x, y, z, w};\n"                                                         \
-                    "}\n\n";                                                                                     \
-        break;
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(bool, BOOL)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(int, INT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(uint, UINT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL(float, FLOAT)
-#undef LUISA_METAL_CODEGEN_MAKE_VECTOR_IMPL
+        case CallOp::MAKE_BOOL2: break;
+        case CallOp::MAKE_BOOL3: break;
+        case CallOp::MAKE_BOOL4: break;
+        case CallOp::MAKE_INT2: break;
+        case CallOp::MAKE_INT3: break;
+        case CallOp::MAKE_INT4: break;
+        case CallOp::MAKE_UINT2: break;
+        case CallOp::MAKE_UINT3: break;
+        case CallOp::MAKE_UINT4: break;
+        case CallOp::MAKE_FLOAT2: break;
+        case CallOp::MAKE_FLOAT3: break;
+        case CallOp::MAKE_FLOAT4: break;
     }
 }
 

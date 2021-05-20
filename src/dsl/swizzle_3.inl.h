@@ -1,118 +1,118 @@
 #pragma once
-[[nodiscard]] auto xx() const noexcept { return make_vector2(x, x); }
-[[nodiscard]] auto xy() const noexcept { return make_vector2(x, y); }
-[[nodiscard]] auto xz() const noexcept { return make_vector2(x, z); }
-[[nodiscard]] auto yx() const noexcept { return make_vector2(y, x); }
-[[nodiscard]] auto yy() const noexcept { return make_vector2(y, y); }
-[[nodiscard]] auto yz() const noexcept { return make_vector2(y, z); }
-[[nodiscard]] auto zx() const noexcept { return make_vector2(z, x); }
-[[nodiscard]] auto zy() const noexcept { return make_vector2(z, y); }
-[[nodiscard]] auto zz() const noexcept { return make_vector2(z, z); }
-[[nodiscard]] auto xxx() const noexcept { return make_vector3(x, x, x); }
-[[nodiscard]] auto xxy() const noexcept { return make_vector3(x, x, y); }
-[[nodiscard]] auto xxz() const noexcept { return make_vector3(x, x, z); }
-[[nodiscard]] auto xyx() const noexcept { return make_vector3(x, y, x); }
-[[nodiscard]] auto xyy() const noexcept { return make_vector3(x, y, y); }
-[[nodiscard]] auto xyz() const noexcept { return make_vector3(x, y, z); }
-[[nodiscard]] auto xzx() const noexcept { return make_vector3(x, z, x); }
-[[nodiscard]] auto xzy() const noexcept { return make_vector3(x, z, y); }
-[[nodiscard]] auto xzz() const noexcept { return make_vector3(x, z, z); }
-[[nodiscard]] auto yxx() const noexcept { return make_vector3(y, x, x); }
-[[nodiscard]] auto yxy() const noexcept { return make_vector3(y, x, y); }
-[[nodiscard]] auto yxz() const noexcept { return make_vector3(y, x, z); }
-[[nodiscard]] auto yyx() const noexcept { return make_vector3(y, y, x); }
-[[nodiscard]] auto yyy() const noexcept { return make_vector3(y, y, y); }
-[[nodiscard]] auto yyz() const noexcept { return make_vector3(y, y, z); }
-[[nodiscard]] auto yzx() const noexcept { return make_vector3(y, z, x); }
-[[nodiscard]] auto yzy() const noexcept { return make_vector3(y, z, y); }
-[[nodiscard]] auto yzz() const noexcept { return make_vector3(y, z, z); }
-[[nodiscard]] auto zxx() const noexcept { return make_vector3(z, x, x); }
-[[nodiscard]] auto zxy() const noexcept { return make_vector3(z, x, y); }
-[[nodiscard]] auto zxz() const noexcept { return make_vector3(z, x, z); }
-[[nodiscard]] auto zyx() const noexcept { return make_vector3(z, y, x); }
-[[nodiscard]] auto zyy() const noexcept { return make_vector3(z, y, y); }
-[[nodiscard]] auto zyz() const noexcept { return make_vector3(z, y, z); }
-[[nodiscard]] auto zzx() const noexcept { return make_vector3(z, z, x); }
-[[nodiscard]] auto zzy() const noexcept { return make_vector3(z, z, y); }
-[[nodiscard]] auto zzz() const noexcept { return make_vector3(z, z, z); }
-[[nodiscard]] auto xxxx() const noexcept { return make_vector4(x, x, x, x); }
-[[nodiscard]] auto xxxy() const noexcept { return make_vector4(x, x, x, y); }
-[[nodiscard]] auto xxxz() const noexcept { return make_vector4(x, x, x, z); }
-[[nodiscard]] auto xxyx() const noexcept { return make_vector4(x, x, y, x); }
-[[nodiscard]] auto xxyy() const noexcept { return make_vector4(x, x, y, y); }
-[[nodiscard]] auto xxyz() const noexcept { return make_vector4(x, x, y, z); }
-[[nodiscard]] auto xxzx() const noexcept { return make_vector4(x, x, z, x); }
-[[nodiscard]] auto xxzy() const noexcept { return make_vector4(x, x, z, y); }
-[[nodiscard]] auto xxzz() const noexcept { return make_vector4(x, x, z, z); }
-[[nodiscard]] auto xyxx() const noexcept { return make_vector4(x, y, x, x); }
-[[nodiscard]] auto xyxy() const noexcept { return make_vector4(x, y, x, y); }
-[[nodiscard]] auto xyxz() const noexcept { return make_vector4(x, y, x, z); }
-[[nodiscard]] auto xyyx() const noexcept { return make_vector4(x, y, y, x); }
-[[nodiscard]] auto xyyy() const noexcept { return make_vector4(x, y, y, y); }
-[[nodiscard]] auto xyyz() const noexcept { return make_vector4(x, y, y, z); }
-[[nodiscard]] auto xyzx() const noexcept { return make_vector4(x, y, z, x); }
-[[nodiscard]] auto xyzy() const noexcept { return make_vector4(x, y, z, y); }
-[[nodiscard]] auto xyzz() const noexcept { return make_vector4(x, y, z, z); }
-[[nodiscard]] auto xzxx() const noexcept { return make_vector4(x, z, x, x); }
-[[nodiscard]] auto xzxy() const noexcept { return make_vector4(x, z, x, y); }
-[[nodiscard]] auto xzxz() const noexcept { return make_vector4(x, z, x, z); }
-[[nodiscard]] auto xzyx() const noexcept { return make_vector4(x, z, y, x); }
-[[nodiscard]] auto xzyy() const noexcept { return make_vector4(x, z, y, y); }
-[[nodiscard]] auto xzyz() const noexcept { return make_vector4(x, z, y, z); }
-[[nodiscard]] auto xzzx() const noexcept { return make_vector4(x, z, z, x); }
-[[nodiscard]] auto xzzy() const noexcept { return make_vector4(x, z, z, y); }
-[[nodiscard]] auto xzzz() const noexcept { return make_vector4(x, z, z, z); }
-[[nodiscard]] auto yxxx() const noexcept { return make_vector4(y, x, x, x); }
-[[nodiscard]] auto yxxy() const noexcept { return make_vector4(y, x, x, y); }
-[[nodiscard]] auto yxxz() const noexcept { return make_vector4(y, x, x, z); }
-[[nodiscard]] auto yxyx() const noexcept { return make_vector4(y, x, y, x); }
-[[nodiscard]] auto yxyy() const noexcept { return make_vector4(y, x, y, y); }
-[[nodiscard]] auto yxyz() const noexcept { return make_vector4(y, x, y, z); }
-[[nodiscard]] auto yxzx() const noexcept { return make_vector4(y, x, z, x); }
-[[nodiscard]] auto yxzy() const noexcept { return make_vector4(y, x, z, y); }
-[[nodiscard]] auto yxzz() const noexcept { return make_vector4(y, x, z, z); }
-[[nodiscard]] auto yyxx() const noexcept { return make_vector4(y, y, x, x); }
-[[nodiscard]] auto yyxy() const noexcept { return make_vector4(y, y, x, y); }
-[[nodiscard]] auto yyxz() const noexcept { return make_vector4(y, y, x, z); }
-[[nodiscard]] auto yyyx() const noexcept { return make_vector4(y, y, y, x); }
-[[nodiscard]] auto yyyy() const noexcept { return make_vector4(y, y, y, y); }
-[[nodiscard]] auto yyyz() const noexcept { return make_vector4(y, y, y, z); }
-[[nodiscard]] auto yyzx() const noexcept { return make_vector4(y, y, z, x); }
-[[nodiscard]] auto yyzy() const noexcept { return make_vector4(y, y, z, y); }
-[[nodiscard]] auto yyzz() const noexcept { return make_vector4(y, y, z, z); }
-[[nodiscard]] auto yzxx() const noexcept { return make_vector4(y, z, x, x); }
-[[nodiscard]] auto yzxy() const noexcept { return make_vector4(y, z, x, y); }
-[[nodiscard]] auto yzxz() const noexcept { return make_vector4(y, z, x, z); }
-[[nodiscard]] auto yzyx() const noexcept { return make_vector4(y, z, y, x); }
-[[nodiscard]] auto yzyy() const noexcept { return make_vector4(y, z, y, y); }
-[[nodiscard]] auto yzyz() const noexcept { return make_vector4(y, z, y, z); }
-[[nodiscard]] auto yzzx() const noexcept { return make_vector4(y, z, z, x); }
-[[nodiscard]] auto yzzy() const noexcept { return make_vector4(y, z, z, y); }
-[[nodiscard]] auto yzzz() const noexcept { return make_vector4(y, z, z, z); }
-[[nodiscard]] auto zxxx() const noexcept { return make_vector4(z, x, x, x); }
-[[nodiscard]] auto zxxy() const noexcept { return make_vector4(z, x, x, y); }
-[[nodiscard]] auto zxxz() const noexcept { return make_vector4(z, x, x, z); }
-[[nodiscard]] auto zxyx() const noexcept { return make_vector4(z, x, y, x); }
-[[nodiscard]] auto zxyy() const noexcept { return make_vector4(z, x, y, y); }
-[[nodiscard]] auto zxyz() const noexcept { return make_vector4(z, x, y, z); }
-[[nodiscard]] auto zxzx() const noexcept { return make_vector4(z, x, z, x); }
-[[nodiscard]] auto zxzy() const noexcept { return make_vector4(z, x, z, y); }
-[[nodiscard]] auto zxzz() const noexcept { return make_vector4(z, x, z, z); }
-[[nodiscard]] auto zyxx() const noexcept { return make_vector4(z, y, x, x); }
-[[nodiscard]] auto zyxy() const noexcept { return make_vector4(z, y, x, y); }
-[[nodiscard]] auto zyxz() const noexcept { return make_vector4(z, y, x, z); }
-[[nodiscard]] auto zyyx() const noexcept { return make_vector4(z, y, y, x); }
-[[nodiscard]] auto zyyy() const noexcept { return make_vector4(z, y, y, y); }
-[[nodiscard]] auto zyyz() const noexcept { return make_vector4(z, y, y, z); }
-[[nodiscard]] auto zyzx() const noexcept { return make_vector4(z, y, z, x); }
-[[nodiscard]] auto zyzy() const noexcept { return make_vector4(z, y, z, y); }
-[[nodiscard]] auto zyzz() const noexcept { return make_vector4(z, y, z, z); }
-[[nodiscard]] auto zzxx() const noexcept { return make_vector4(z, z, x, x); }
-[[nodiscard]] auto zzxy() const noexcept { return make_vector4(z, z, x, y); }
-[[nodiscard]] auto zzxz() const noexcept { return make_vector4(z, z, x, z); }
-[[nodiscard]] auto zzyx() const noexcept { return make_vector4(z, z, y, x); }
-[[nodiscard]] auto zzyy() const noexcept { return make_vector4(z, z, y, y); }
-[[nodiscard]] auto zzyz() const noexcept { return make_vector4(z, z, y, z); }
-[[nodiscard]] auto zzzx() const noexcept { return make_vector4(z, z, z, x); }
-[[nodiscard]] auto zzzy() const noexcept { return make_vector4(z, z, z, y); }
-[[nodiscard]] auto zzzz() const noexcept { return make_vector4(z, z, z, z); }
+[[nodiscard]] auto xx() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x00u)}; }
+[[nodiscard]] auto xy() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x10u)}; }
+[[nodiscard]] auto xz() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x20u)}; }
+[[nodiscard]] auto yx() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x01u)}; }
+[[nodiscard]] auto yy() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x11u)}; }
+[[nodiscard]] auto yz() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x21u)}; }
+[[nodiscard]] auto zx() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x02u)}; }
+[[nodiscard]] auto zy() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x12u)}; }
+[[nodiscard]] auto zz() const noexcept { return Expr<Vector<T, 2>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x22u)}; }
+[[nodiscard]] auto xxx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x000u)}; }
+[[nodiscard]] auto xxy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x100u)}; }
+[[nodiscard]] auto xxz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x200u)}; }
+[[nodiscard]] auto xyx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x010u)}; }
+[[nodiscard]] auto xyy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x110u)}; }
+[[nodiscard]] auto xyz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x210u)}; }
+[[nodiscard]] auto xzx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x020u)}; }
+[[nodiscard]] auto xzy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x120u)}; }
+[[nodiscard]] auto xzz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x220u)}; }
+[[nodiscard]] auto yxx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x001u)}; }
+[[nodiscard]] auto yxy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x101u)}; }
+[[nodiscard]] auto yxz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x201u)}; }
+[[nodiscard]] auto yyx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x011u)}; }
+[[nodiscard]] auto yyy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x111u)}; }
+[[nodiscard]] auto yyz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x211u)}; }
+[[nodiscard]] auto yzx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x021u)}; }
+[[nodiscard]] auto yzy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x121u)}; }
+[[nodiscard]] auto yzz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x221u)}; }
+[[nodiscard]] auto zxx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x002u)}; }
+[[nodiscard]] auto zxy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x102u)}; }
+[[nodiscard]] auto zxz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x202u)}; }
+[[nodiscard]] auto zyx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x012u)}; }
+[[nodiscard]] auto zyy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x112u)}; }
+[[nodiscard]] auto zyz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x212u)}; }
+[[nodiscard]] auto zzx() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x022u)}; }
+[[nodiscard]] auto zzy() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x122u)}; }
+[[nodiscard]] auto zzz() const noexcept { return Expr<Vector<T, 3>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x222u)}; }
+[[nodiscard]] auto xxxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0000u)}; }
+[[nodiscard]] auto xxxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1000u)}; }
+[[nodiscard]] auto xxxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2000u)}; }
+[[nodiscard]] auto xxyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0100u)}; }
+[[nodiscard]] auto xxyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1100u)}; }
+[[nodiscard]] auto xxyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2100u)}; }
+[[nodiscard]] auto xxzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0200u)}; }
+[[nodiscard]] auto xxzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1200u)}; }
+[[nodiscard]] auto xxzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2200u)}; }
+[[nodiscard]] auto xyxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0010u)}; }
+[[nodiscard]] auto xyxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1010u)}; }
+[[nodiscard]] auto xyxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2010u)}; }
+[[nodiscard]] auto xyyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0110u)}; }
+[[nodiscard]] auto xyyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1110u)}; }
+[[nodiscard]] auto xyyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2110u)}; }
+[[nodiscard]] auto xyzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0210u)}; }
+[[nodiscard]] auto xyzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1210u)}; }
+[[nodiscard]] auto xyzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2210u)}; }
+[[nodiscard]] auto xzxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0020u)}; }
+[[nodiscard]] auto xzxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1020u)}; }
+[[nodiscard]] auto xzxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2020u)}; }
+[[nodiscard]] auto xzyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0120u)}; }
+[[nodiscard]] auto xzyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1120u)}; }
+[[nodiscard]] auto xzyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2120u)}; }
+[[nodiscard]] auto xzzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0220u)}; }
+[[nodiscard]] auto xzzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1220u)}; }
+[[nodiscard]] auto xzzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2220u)}; }
+[[nodiscard]] auto yxxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0001u)}; }
+[[nodiscard]] auto yxxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1001u)}; }
+[[nodiscard]] auto yxxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2001u)}; }
+[[nodiscard]] auto yxyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0101u)}; }
+[[nodiscard]] auto yxyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1101u)}; }
+[[nodiscard]] auto yxyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2101u)}; }
+[[nodiscard]] auto yxzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0201u)}; }
+[[nodiscard]] auto yxzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1201u)}; }
+[[nodiscard]] auto yxzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2201u)}; }
+[[nodiscard]] auto yyxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0011u)}; }
+[[nodiscard]] auto yyxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1011u)}; }
+[[nodiscard]] auto yyxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2011u)}; }
+[[nodiscard]] auto yyyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0111u)}; }
+[[nodiscard]] auto yyyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1111u)}; }
+[[nodiscard]] auto yyyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2111u)}; }
+[[nodiscard]] auto yyzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0211u)}; }
+[[nodiscard]] auto yyzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1211u)}; }
+[[nodiscard]] auto yyzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2211u)}; }
+[[nodiscard]] auto yzxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0021u)}; }
+[[nodiscard]] auto yzxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1021u)}; }
+[[nodiscard]] auto yzxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2021u)}; }
+[[nodiscard]] auto yzyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0121u)}; }
+[[nodiscard]] auto yzyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1121u)}; }
+[[nodiscard]] auto yzyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2121u)}; }
+[[nodiscard]] auto yzzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0221u)}; }
+[[nodiscard]] auto yzzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1221u)}; }
+[[nodiscard]] auto yzzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2221u)}; }
+[[nodiscard]] auto zxxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0002u)}; }
+[[nodiscard]] auto zxxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1002u)}; }
+[[nodiscard]] auto zxxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2002u)}; }
+[[nodiscard]] auto zxyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0102u)}; }
+[[nodiscard]] auto zxyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1102u)}; }
+[[nodiscard]] auto zxyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2102u)}; }
+[[nodiscard]] auto zxzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0202u)}; }
+[[nodiscard]] auto zxzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1202u)}; }
+[[nodiscard]] auto zxzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2202u)}; }
+[[nodiscard]] auto zyxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0012u)}; }
+[[nodiscard]] auto zyxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1012u)}; }
+[[nodiscard]] auto zyxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2012u)}; }
+[[nodiscard]] auto zyyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0112u)}; }
+[[nodiscard]] auto zyyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1112u)}; }
+[[nodiscard]] auto zyyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2112u)}; }
+[[nodiscard]] auto zyzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0212u)}; }
+[[nodiscard]] auto zyzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1212u)}; }
+[[nodiscard]] auto zyzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2212u)}; }
+[[nodiscard]] auto zzxx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0022u)}; }
+[[nodiscard]] auto zzxy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1022u)}; }
+[[nodiscard]] auto zzxz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2022u)}; }
+[[nodiscard]] auto zzyx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0122u)}; }
+[[nodiscard]] auto zzyy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1122u)}; }
+[[nodiscard]] auto zzyz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2122u)}; }
+[[nodiscard]] auto zzzx() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x0222u)}; }
+[[nodiscard]] auto zzzy() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x1222u)}; }
+[[nodiscard]] auto zzzz() const noexcept { return Expr<Vector<T, 4>>{FunctionBuilder::current()->swizzle(Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x2222u)}; }

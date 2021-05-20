@@ -1,17 +1,29 @@
 def generate(file, dim):
     entries = ["x", "y", "z", "w"][:dim]
-    for x in entries:
-        for y in entries:
-            print(f"[[nodiscard]] auto {x}{y}() const noexcept {{ return make_vector2({x}, {y}); }}", file=file)
-    for x in entries:
-        for y in entries:
-            for z in entries:
-                print(f"[[nodiscard]] auto {x}{y}{z}() const noexcept {{ return make_vector3({x}, {y}, {z}); }}", file=file)
-    for x in entries:
-        for y in entries:
-            for z in entries:
-                for w in entries:
-                    print(f"[[nodiscard]] auto {x}{y}{z}{w}() const noexcept {{ return make_vector4({x}, {y}, {z}, {w}); }}", file=file)
+    for ix, x in enumerate(entries):
+        for iy, y in enumerate(entries):
+            print(f"[[nodiscard]] auto {x}{y}() const noexcept {{ " +
+                  f"return Expr<Vector<T, 2>>{{" +
+                  f"FunctionBuilder::current()->swizzle(" +
+                  f"Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x{iy}{ix}u)}}; }}",
+                  file=file)
+    for ix, x in enumerate(entries):
+        for iy, y in enumerate(entries):
+            for iz, z in enumerate(entries):
+                print(f"[[nodiscard]] auto {x}{y}{z}() const noexcept {{ " +
+                      f"return Expr<Vector<T, 3>>{{" +
+                      f"FunctionBuilder::current()->swizzle(" +
+                      f"Type::of<Vector<T, 3>>(), this->expression(), 3u, 0x{iz}{iy}{ix}u)}}; }}",
+                      file=file)
+    for ix, x in enumerate(entries):
+        for iy, y in enumerate(entries):
+            for iz, z in enumerate(entries):
+                for iw, w in enumerate(entries):
+                    print(f"[[nodiscard]] auto {x}{y}{z}{w}() const noexcept {{ " +
+                          f"return Expr<Vector<T, 4>>{{" +
+                          f"FunctionBuilder::current()->swizzle(" +
+                          f"Type::of<Vector<T, 4>>(), this->expression(), 4u, 0x{iw}{iz}{iy}{ix}u)}}; }}",
+                          file=file)
 
 
 if __name__ == "__main__":

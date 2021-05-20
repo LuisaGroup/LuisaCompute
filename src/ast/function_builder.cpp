@@ -192,6 +192,10 @@ const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *se
     return _arena().create<MemberExpr>(type, self, member_index);
 }
 
+const MemberExpr *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
+    return _arena().create<MemberExpr>(type, self, swizzle_size, swizzle_code);
+}
+
 const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
     return _arena().create<AccessExpr>(type, range, index);
 }

@@ -47,23 +47,25 @@ public:
 
     template<concepts::non_pointer U>// to prevent conversion from pointer to bool
     requires concepts::constructible<T, U>
-    ExprBase(U literal) noexcept : ExprBase{FunctionBuilder::current()->literal(Type::of(literal), literal)} {}
+    ExprBase(U literal)
+    noexcept : ExprBase{FunctionBuilder::current()->literal(Type::of(literal), literal)} {}
 
     constexpr ExprBase(ExprBase &&) noexcept = default;
     constexpr ExprBase(const ExprBase &) noexcept = default;
     [[nodiscard]] constexpr auto expression() const noexcept { return _expression; }
 
-#define LUISA_MAKE_EXPR_BINARY_OP(op, op_concept_name, op_tag_name)                                       \
-    template<typename U>                                                                                  \
-    requires concepts::op_concept_name<T, U> [[nodiscard]] auto operator op(Expr<U> rhs) const noexcept { \
-        using R = std::remove_cvref_t<decltype(std::declval<T>() op std::declval<U>())>;                  \
-        return Expr<R>{FunctionBuilder::current()->binary(                                                \
-            Type::of<R>(),                                                                                \
-            BinaryOp::op_tag_name, this->expression(), rhs.expression())};                                \
-    }                                                                                                     \
-    template<typename U>                                                                                  \
-    [[nodiscard]] auto operator op(U &&rhs) const noexcept {                                              \
-        return this->operator op(Expr{std::forward<U>(rhs)});                                             \
+#define LUISA_MAKE_EXPR_BINARY_OP(op, op_concept_name, op_tag_name)                      \
+    template<typename U>                                                                 \
+    requires concepts::op_concept_name<T, U>                                             \
+    [[nodiscard]] auto operator op(Expr<U> rhs) const noexcept {                         \
+        using R = std::remove_cvref_t<decltype(std::declval<T>() op std::declval<U>())>; \
+        return Expr<R>{FunctionBuilder::current()->binary(                               \
+            Type::of<R>(),                                                               \
+            BinaryOp::op_tag_name, this->expression(), rhs.expression())};               \
+    }                                                                                    \
+    template<typename U>                                                                 \
+    [[nodiscard]] auto operator op(U &&rhs) const noexcept {                             \
+        return this->operator op(Expr{std::forward<U>(rhs)});                            \
     }
     LUISA_MAKE_EXPR_BINARY_OP(+, operator_add, ADD)
     LUISA_MAKE_EXPR_BINARY_OP(-, operator_sub, SUB)
@@ -86,7 +88,8 @@ public:
 #undef LUISA_MAKE_EXPR_BINARY_OP
 
     template<typename U>
-    requires concepts::operator_access<T, U> [[nodiscard]] auto operator[](Expr<U> index) const noexcept {
+    requires concepts::operator_access<T, U>
+    [[nodiscard]] auto operator[](Expr<U> index) const noexcept {
         using R = std::remove_cvref_t<decltype(std::declval<T>()[std::declval<U>()])>;
         return Expr<R>{FunctionBuilder::current()->access(
             Type::of<R>(),
@@ -106,7 +109,8 @@ public:
 
 #define LUISA_MAKE_EXPR_ASSIGN_OP(op, op_concept_name, op_tag_name)                                      \
     template<typename U>                                                                                 \
-    requires concepts::op_concept_name<T, U> void operator op(Expr<U> rhs) &noexcept {                   \
+    requires concepts::op_concept_name<T, U>                                                             \
+    void operator op(Expr<U> rhs) &noexcept {                                                            \
         FunctionBuilder::current()->assign(AssignOp::op_tag_name, this->expression(), rhs.expression()); \
     }                                                                                                    \
     template<typename U>                                                                                 \
@@ -128,12 +132,14 @@ public:
 
     // casts
     template<typename Dest>
-    requires concepts::static_convertible<T, Dest> [[nodiscard]] auto cast() const noexcept {
+    requires concepts::static_convertible<T, Dest>
+    [[nodiscard]] auto cast() const noexcept {
         return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::STATIC, _expression)};
     }
 
     template<typename Dest>
-    requires concepts::bitwise_convertible<T, Dest> [[nodiscard]] auto as() const noexcept {
+    requires concepts::bitwise_convertible<T, Dest>
+    [[nodiscard]] auto as() const noexcept {
         return Expr<Dest>{FunctionBuilder::current()->cast(Type::of<Dest>(), CastOp::BITWISE, _expression)};
     }
 };
@@ -169,8 +175,8 @@ struct Expr<Vector<T, 2>> : public ExprBase<Vector<T, 2>> {
     Expr(const Expr &another) noexcept = default;
     void operator=(Expr &&rhs) noexcept { ExprBase<Vector<T, 2>>::operator=(rhs); }
     void operator=(const Expr &rhs) noexcept { ExprBase<Vector<T, 2>>::operator=(rhs); }
-    Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 0)};
-    Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 2>>::_expression, 1)};
+    Expr<T> x{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
+    Expr<T> y{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
 #include <dsl/swizzle_2.inl.h>
 };
 
@@ -181,9 +187,9 @@ struct Expr<Vector<T, 3>> : public ExprBase<Vector<T, 3>> {
     Expr(const Expr &another) noexcept = default;
     void operator=(Expr &&rhs) noexcept { ExprBase<Vector<T, 3>>::operator=(rhs); }
     void operator=(const Expr &rhs) noexcept { ExprBase<Vector<T, 3>>::operator=(rhs); }
-    Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 0)};
-    Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 1)};
-    Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 3>>::_expression, 2)};
+    Expr<T> x{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
+    Expr<T> y{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
+    Expr<T> z{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x2u)};
 #include <dsl/swizzle_3.inl.h>
 };
 
@@ -194,10 +200,10 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
     Expr(const Expr &another) noexcept = default;
     void operator=(Expr &&rhs) noexcept { ExprBase<Vector<T, 4>>::operator=(rhs); }
     void operator=(const Expr &rhs) noexcept { ExprBase<Vector<T, 4>>::operator=(rhs); }
-    Expr<T> x{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 0)};
-    Expr<T> y{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 1)};
-    Expr<T> z{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 2)};
-    Expr<T> w{FunctionBuilder::current()->member(Type::of<T>(), ExprBase<Vector<T, 4>>::_expression, 3)};
+    Expr<T> x{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
+    Expr<T> y{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
+    Expr<T> z{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x2u)};
+    Expr<T> w{FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x3u)};
 #include <dsl/swizzle_4.inl.h>
 };
 
@@ -409,11 +415,12 @@ LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(!, operator_not, NOT)
 LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(~, operator_bit_not, BIT_NOT)
 #undef LUISA_MAKE_GLOBAL_EXPR_UNARY_OP
 
-#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept)                     \
-    template<luisa::concepts::basic Lhs, typename Rhs>                       \
-    requires luisa::concepts::op_concept<Lhs, Rhs> [[nodiscard]] inline auto \
-    operator op(Lhs lhs, luisa::compute::detail::Expr<Rhs> rhs) noexcept {   \
-        return luisa::compute::detail::Expr{lhs} op rhs;                     \
+#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept)                   \
+    template<luisa::concepts::basic Lhs, typename Rhs>                     \
+    requires luisa::concepts::op_concept<Lhs, Rhs>                         \
+    [[nodiscard]] inline auto                                              \
+    operator op(Lhs lhs, luisa::compute::detail::Expr<Rhs> rhs) noexcept { \
+        return luisa::compute::detail::Expr{lhs} op rhs;                   \
     }
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(+, operator_add)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(-, operator_sub)
