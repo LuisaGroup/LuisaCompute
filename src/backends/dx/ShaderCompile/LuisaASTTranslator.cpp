@@ -3,6 +3,7 @@
 #include <ast/constant_data.h>
 #include <Common/Common.h>
 #include <Common/VObject.h>
+#include <Common/linq.h>
 #include <ShaderCompile/LuisaASTTranslator.h>
 
 namespace luisa::compute {
@@ -237,24 +238,16 @@ void StringExprVisitor::visit(const BinaryExpr* expr) {
 }
 void StringExprVisitor::visit(const MemberExpr* expr) {
 	expr->self()->accept(*this);
-	if (expr->self()->type()->is_structure()) {
+	if (expr->is_swizzle()) {
+		char const* xyzw = "xyzw";
+		auto sw = vengine::linq::Range(0, expr->swizzle_size());//TODO: filter illegal swizzle
+		(*str) << '.';
+		LINQ_LOOP(i, sw) {
+			(*str) << xyzw[*i];
+		}
+	} else {
 		(*str) += ".v"_sv;
 		vengine::to_string(expr->member_index(), (*str));
-	} else {
-		switch (expr->member_index()) {
-			case 0:
-				(*str) += ".x"_sv;
-				break;
-			case 1:
-				(*str) += ".y"_sv;
-				break;
-			case 2:
-				(*str) += ".z"_sv;
-				break;
-			default:
-				(*str) += ".w"_sv;
-				break;
-		}
 	}
 }
 void StringExprVisitor::visit(const AccessExpr* expr) {
@@ -703,19 +696,19 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 			[&]() {
 				return false;
 			},
-			vengine::select(
-				[&]() {
-					return type->tag() == tag;
-				},
-				[&]() {
-					return type->element()->tag() == tag && type->dimension() == vecEle;
-				},
-				[&]() {
-					return vecEle > 1;
-				}),
+			[&]() { return vengine::select(
+						[&]() {
+							return type->tag() == tag;
+						},
+						[&]() {
+							return type->element()->tag() == tag && type->dimension() == vecEle;
+						},
+						[&]() {
+							return vecEle > 1;
+						}); },
 			[&]() {
 				return (vecEle > 1) == (type->tag() == Type::Tag::VECTOR);
-			})();
+			});
 		/*
 		if (isVec != (type->tag() == Type::Tag::VECTOR))
 			return false;
@@ -740,17 +733,17 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 			vengine::select(
 				[&]() { result << "_select_int"_sv; },
 				[&]() { result << "_select_bool"_sv; },
-				vengine::select(
-					[&](auto&& t) {
-						return t->element()->tag() == Type::Tag::BOOL;
-					},
-					[&](auto&& t) {
-						return t->tag() == Type::Tag::BOOL;
-					},
-					[](auto&& t) {
-						return t->is_scalar();
-					},
-					thirdArg))();
+				[&]() { return vengine::select(
+							[&](auto&& t) {
+								return t->element()->tag() == Type::Tag::BOOL;
+							},
+							[&](auto&& t) {
+								return t->tag() == Type::Tag::BOOL;
+							},
+							[](auto&& t) {
+								return t->is_scalar();
+							},
+							thirdArg); });
 		} break;
 		case CallOp::CLAMP:
 			result << "clamp"_sv;
@@ -1004,26 +997,22 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::MAKE_BOOL2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
 				result << "make_bool2"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_BOOL3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 3))
 				result << "make_bool3"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_BOOL4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 4))
 				result << "make_bool4"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_UINT2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 2))
 				result << "make_uint2"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_UINT3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 3))
@@ -1032,44 +1021,37 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::MAKE_UINT4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 4))
 				result << "make_uint4"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_INT2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 2))
 				result << "make_int2"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_INT3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 3))
 				result << "make_int3"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_INT4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 4))
 				result << "make_int4"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_FLOAT2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 2))
 				result << "make_float2"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_FLOAT3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 3))
 				result << "make_float3"_sv;
-			else
-				return;
+
 			break;
 		case CallOp::MAKE_FLOAT4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 4))
 				result << "make_float4"_sv;
-			else
-				return;
+
 			break;
 		default:
 			VEngine_Log("Function Not Implemented"_sv);

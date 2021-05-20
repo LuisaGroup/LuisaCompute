@@ -153,20 +153,17 @@ bool4 _isinf(float4 x) {
     return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 
-float make_float(float a) { return a; }
 float make_float(float2 a) { return a.x; }
 float make_float(float3 a) { return a.x; }
 float make_float(float4 a) { return a.x; }
 
 float2 make_float2(float a) { return a; }
-float2 make_float2(float2 a) { return a; }
 float2 make_float2(float3 a) { return a.xy; }
 float2 make_float2(float4 a) { return a.xy; }
 float2 make_float2(float a, float b) { return float2(a, b); }
 
 float3 make_float3(float a) { return a; }
 float3 make_float3(float2 a) { return float3(a,0); }
-float3 make_float3(float3 a) { return a; }
 float3 make_float3(float4 a) { return a.xyz; }
 float3 make_float3(float a, float b, float c) { return float3(a, b, c); }
 float3 make_float3(float2 a, float b) { return float3(a, b); }
@@ -175,7 +172,6 @@ float3 make_float3(float a, float2 b) { return float3(a, b); }
 float4 make_float4(float a) { return a; }
 float4 make_float4(float2 a) { return float4(a, 0, 0); }
 float4 make_float4(float3 a) { return float4(a,0); }
-float4 make_float4(float4 a) { return a; }
 float4 make_float4(float a, float b, float c, float d) { return float4(a, b, c, d); }
 float4 make_float4(float3 a, float b) { return float4(a, b); }
 float4 make_float4(float a, float3 b) { return float4(a, b); }
@@ -183,20 +179,17 @@ float4 make_float4(float2 a, float b, float c) { return float4(a, b, c); }
 float4 make_float4(float a, float2 b, float c) { return float4(a, b, c); }
 float4 make_float4(float a, float b, float2 c) { return float4(a, b, c); }
 
-uint make_uint(uint a) { return a; }
 uint make_uint(uint2 a) { return a.x; }
 uint make_uint(uint3 a) { return a.x; }
 uint make_uint(uint4 a) { return a.x; }
 
 uint2 make_uint2(uint a) { return a; }
-uint2 make_uint2(uint2 a) { return a; }
 uint2 make_uint2(uint3 a) { return a.xy; }
 uint2 make_uint2(uint4 a) { return a.xy; }
 uint2 make_uint2(uint a, uint b) { return uint2(a, b); }
 
 uint3 make_uint3(uint a) { return a; }
 uint3 make_uint3(uint2 a) { return uint3(a, 0); }
-uint3 make_uint3(uint3 a) { return a; }
 uint3 make_uint3(uint4 a) { return a.xyz; }
 uint3 make_uint3(uint a, uint b, uint c) { return uint3(a, b, c); }
 uint3 make_uint3(uint2 a, uint b) { return uint3(a, b); }
@@ -205,7 +198,6 @@ uint3 make_uint3(uint a, uint2 b) { return uint3(a, b); }
 uint4 make_uint4(uint a) { return a; }
 uint4 make_uint4(uint2 a) { return uint4(a, 0, 0); }
 uint4 make_uint4(uint3 a) { return uint4(a, 0); }
-uint4 make_uint4(uint4 a) { return a; }
 uint4 make_uint4(uint a, uint b, uint c, uint d) { return uint4(a, b, c, d); }
 uint4 make_uint4(uint3 a, uint b) { return uint4(a, b); }
 uint4 make_uint4(uint a, uint3 b) { return uint4(a, b); }
@@ -213,20 +205,17 @@ uint4 make_uint4(uint2 a, uint b, uint c) { return uint4(a, b, c); }
 uint4 make_uint4(uint a, uint2 b, uint c) { return uint4(a, b, c); }
 uint4 make_uint4(uint a, uint b, uint2 c) { return uint4(a, b, c); }
 
-int make_int(int a) { return a; }
 int make_int(int2 a) { return a.x; }
 int make_int(int3 a) { return a.x; }
 int make_int(int4 a) { return a.x; }
 
 int2 make_int2(int a) { return a; }
-int2 make_int2(int2 a) { return a; }
 int2 make_int2(int3 a) { return a.xy; }
 int2 make_int2(int4 a) { return a.xy; }
 int2 make_int2(int a, int b) { return int2(a, b); }
 
 int3 make_int3(int a) { return a; }
 int3 make_int3(int2 a) { return int3(a, 0); }
-int3 make_int3(int3 a) { return a; }
 int3 make_int3(int4 a) { return a.xyz; }
 int3 make_int3(int a, int b, int c) { return int3(a, b, c); }
 int3 make_int3(int2 a, int b) { return int3(a, b); }
@@ -235,7 +224,6 @@ int3 make_int3(int a, int2 b) { return int3(a, b); }
 int4 make_int4(int a) { return a; }
 int4 make_int4(int2 a) { return int4(a, 0, 0); }
 int4 make_int4(int3 a) { return int4(a, 0); }
-int4 make_int4(int4 a) { return a; }
 int4 make_int4(int a, int b, int c, int d) { return int4(a, b, c, d); }
 int4 make_int4(int3 a, int b) { return int4(a, b); }
 int4 make_int4(int a, int3 b) { return int4(a, b); }
@@ -243,20 +231,17 @@ int4 make_int4(int2 a, int b, int c) { return int4(a, b, c); }
 int4 make_int4(int a, int2 b, int c) { return int4(a, b, c); }
 int4 make_int4(int a, int b, int2 c) { return int4(a, b, c); }
 
-bool make_bool(bool a) { return a; }
 bool make_bool(bool2 a) { return a.x; }
 bool make_bool(bool3 a) { return a.x; }
 bool make_bool(bool4 a) { return a.x; }
 
 bool2 make_bool2(bool a) { return a; }
-bool2 make_bool2(bool2 a) { return a; }
 bool2 make_bool2(bool3 a) { return a.xy; }
 bool2 make_bool2(bool4 a) { return a.xy; }
 bool2 make_bool2(bool a, bool b) { return bool2(a, b); }
 
 bool3 make_bool3(bool a) { return a; }
 bool3 make_bool3(bool2 a) { return bool3(a, false); }
-bool3 make_bool3(bool3 a) { return a; }
 bool3 make_bool3(bool4 a) { return a.xyz; }
 bool3 make_bool3(bool a, bool b, bool c) { return bool3(a, b, c); }
 bool3 make_bool3(bool2 a, bool b) { return bool3(a, b); }
@@ -265,7 +250,6 @@ bool3 make_bool3(bool a, bool2 b) { return bool3(a, b); }
 bool4 make_bool4(bool a) { return a; }
 bool4 make_bool4(bool2 a) { return bool4(a, false, false); }
 bool4 make_bool4(bool3 a) { return bool4(a, false); }
-bool4 make_bool4(bool4 a) { return a; }
 bool4 make_bool4(bool a, bool b, bool c, bool d) { return bool4(a, b, c, d); }
 bool4 make_bool4(bool3 a, bool b) { return bool4(a, b); }
 bool4 make_bool4(bool a, bool3 b) { return bool4(a, b); }

@@ -416,30 +416,24 @@ static constexpr bool IsFunctionTypeOf = std::is_same_v<FuncType<Func>, Target>;
 namespace vengine {
 template<typename A, typename B, typename C, typename... Args>
 decltype(auto) select(A&& a, B&& b, C&& c, Args&&... args) {
-	return [&]() {
-		if (c(std::forward<Args>(args)...)) {
-			return b(std::forward<Args>(args)...);
-		}
-		return a(std::forward<Args>(args)...);
-	};
+	if (c(std::forward<Args>(args)...)) {
+		return b(std::forward<Args>(args)...);
+	}
+	return a(std::forward<Args>(args)...);
 }
 template<typename A, typename B, typename C, typename... Args>
 decltype(auto) range(A&& startIndex, B&& endIndex, C&& func, Args&&... args) {
-	return [&]() {
-		auto&& end = endIndex();
-		for (auto v = std::move(startIndex()); v < end; ++v) {
-			func(std::forward<Args>(args)...);
-		}
-	};
+	auto&& end = endIndex();
+	for (auto v = std::move(startIndex()); v < end; ++v) {
+		func(std::forward<Args>(args)...);
+	}
 }
 template<typename A, typename B, typename C, typename... Args>
 decltype(auto) reverse_range(A&& startIndex, B&& endIndex, C&& func, Args&&... args) {
-	return [&]() {
-		auto&& start = startIndex();
-		for (auto v = std::move(endIndex()); v > start; v--) {
-			func(std::forward<Args>(args)...);
-		}
-	};
+	auto&& start = startIndex();
+	for (auto v = std::move(endIndex()); v > start; v--) {
+		func(std::forward<Args>(args)...);
+	}
 }
 template<typename T>
 decltype(auto) get_lvalue(T&& data) {
@@ -449,7 +443,7 @@ template<typename T>
 decltype(auto) get_const_lvalue(T&& data) {
 	return static_cast<std::remove_reference_t<T> const&>(data);
 }
-template <typename A, typename B>
+template<typename A, typename B>
 decltype(auto) array_same(A&& a, B&& b) {
 	auto aSize = a.size();
 	auto bSize = b.size();
