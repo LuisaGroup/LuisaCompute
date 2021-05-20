@@ -22,14 +22,14 @@ struct Expr;
 template<typename T>
 struct Var;
 
-template<typename T>
-[[nodiscard]] inline auto make_vector(detail::Expr<T> x, detail::Expr<T> y) noexcept;
+template<concepts::scalar T>
+[[nodiscard]] inline auto make_vector2(detail::Expr<T> x, detail::Expr<T> y) noexcept;
 
-template<typename T>
-[[nodiscard]] inline auto make_vector(detail::Expr<T> x, detail::Expr<T> y, detail::Expr<T> z) noexcept;
+template<concepts::scalar T>
+[[nodiscard]] inline auto make_vector3(detail::Expr<T> x, detail::Expr<T> y, detail::Expr<T> z) noexcept;
 
-template<typename T>
-[[nodiscard]] inline auto make_vector(detail::Expr<T> x, detail::Expr<T> y, detail::Expr<T> z, detail::Expr<T> w) noexcept;
+template<concepts::scalar T>
+[[nodiscard]] inline auto make_vector4(detail::Expr<T> x, detail::Expr<T> y, detail::Expr<T> z, detail::Expr<T> w) noexcept;
 
 namespace detail {
 

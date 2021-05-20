@@ -292,10 +292,10 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
 
 uint64_t MetalDevice::create_mesh(uint64_t vertex_buffer_handle,
                                   size_t vertex_buffer_offset_bytes,
-                                  size_t vertex_count,
+                                  uint vertex_count,
                                   uint64_t index_buffer_handle,
                                   size_t index_buffer_offset_bytes,
-                                  size_t index_count) noexcept {
+                                  uint index_count) noexcept {
     return 0;
 }
 

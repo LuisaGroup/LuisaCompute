@@ -76,10 +76,10 @@ public:
 
     virtual uint64_t create_mesh(uint64_t vertex_buffer_handle,
                                  size_t vertex_buffer_offset_bytes,
-                                 size_t vertex_count,
+                                 uint vertex_count,
                                  uint64_t index_buffer_handle,
                                  size_t index_buffer_offset_bytes,
-                                 size_t index_count) noexcept override;
+                                 uint index_count) noexcept override;
     virtual void dispose_mesh(uint64_t mesh_handle) noexcept override;
 };
 
