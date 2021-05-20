@@ -479,20 +479,17 @@ template<size_t N>
             Type::of<Vector<float, N>>(), CallOp::SATURATE, {value.expression()})};
 }
 
-template<typename T>
-requires std::same_as<T, int> || std::same_as<T, float>
-[[nodiscard]] inline auto sign(detail::Expr<T> value) noexcept {
-    return detail::Expr<T>{
+[[nodiscard]] inline auto sign(detail::Expr<float> value) noexcept {
+    return detail::Expr<float>{
         FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::SIGN, {value.expression()})};
+            Type::of<float>(), CallOp::SIGN, {value.expression()})};
 }
 
-template<typename T, size_t N>
-requires std::same_as<T, int> || std::same_as<T, float>
-[[nodiscard]] inline auto sign(detail::Expr<Vector<T, N>> value) noexcept {
-    return detail::Expr<Vector<T, N>>{
+template<size_t N>
+[[nodiscard]] inline auto sign(detail::Expr<Vector<float, N>> value) noexcept {
+    return detail::Expr<Vector<float, N>>{
         FunctionBuilder::current()->call(
-            Type::of<Vector<T, N>>(), CallOp::SIGN, {value.expression()})};
+            Type::of<Vector<float, N>>(), CallOp::SIGN, {value.expression()})};
 }
 
 [[nodiscard]] inline auto step(detail::Expr<float> edge, detail::Expr<float> x) noexcept {

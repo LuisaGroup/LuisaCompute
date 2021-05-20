@@ -150,11 +150,82 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::NONE: _scratch << "none"; break;
+        case CallOp::SELECT: _scratch << "select"; break;
+        case CallOp::CLAMP: _scratch << "clamp"; break;
+        case CallOp::LERP: _scratch << "mix"; break;
+        case CallOp::SATURATE: _scratch << "saturate"; break;
+        case CallOp::SIGN: _scratch << "sign"; break;
+        case CallOp::STEP: _scratch << "step"; break;
+        case CallOp::SMOOTHSTEP: _scratch << "smoothstep"; break;
+        case CallOp::ABS: _scratch << "abs"; break;
+        case CallOp::MIN: _scratch << "min"; break;
+        case CallOp::MAX: _scratch << "max"; break;
+        case CallOp::CLZ: _scratch << "clz"; break;
+        case CallOp::CTZ: _scratch << "ctz"; break;
+        case CallOp::POPCOUNT: _scratch << "popcount"; break;
+        case CallOp::REVERSE: _scratch << "reverse_bits"; break;
+        case CallOp::ISINF: _scratch << "precise::isinf"; break;
+        case CallOp::ISNAN: _scratch << "precise::isnan"; break;
+        case CallOp::ACOS: _scratch << "acos"; break;
+        case CallOp::ACOSH: _scratch << "acosh"; break;
+        case CallOp::ASIN: _scratch << "asin"; break;
+        case CallOp::ASINH: _scratch << "asinh"; break;
+        case CallOp::ATAN: _scratch << "atan"; break;
+        case CallOp::ATAN2: _scratch << "atan2"; break;
+        case CallOp::ATANH: _scratch << "atanh"; break;
+        case CallOp::COS: _scratch << "cos"; break;
+        case CallOp::COSH: _scratch << "cosh"; break;
+        case CallOp::SIN: _scratch << "sin"; break;
+        case CallOp::SINH: _scratch << "sinh"; break;
+        case CallOp::TAN: _scratch << "tan"; break;
+        case CallOp::TANH: _scratch << "tanh"; break;
+        case CallOp::EXP: _scratch << "exp"; break;
+        case CallOp::EXP2: _scratch << "exp2"; break;
+        case CallOp::EXP10: _scratch << "exp10"; break;
+        case CallOp::LOG: _scratch << "log"; break;
+        case CallOp::LOG2: _scratch << "log2"; break;
+        case CallOp::LOG10: _scratch << "log10"; break;
+        case CallOp::POW: _scratch << "pow"; break;
+        case CallOp::SQRT: _scratch << "sqrt"; break;
+        case CallOp::RSQRT: _scratch << "rsqrt"; break;
+        case CallOp::CEIL: _scratch << "ceil"; break;
+        case CallOp::FLOOR: _scratch << "floor"; break;
+        case CallOp::FRACT: _scratch << "fract"; break;
+        case CallOp::TRUNC: _scratch << "trunc"; break;
+        case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::FMOD: _scratch << "fmod"; break;
+        case CallOp::DEGREES: _scratch << "degrees"; break;
+        case CallOp::RADIANS: _scratch << "radians"; break;
+        case CallOp::FMA: _scratch << "fma"; break;
+        case CallOp::COPYSIGN: _scratch << "copysign"; break;
+        case CallOp::CROSS: _scratch << "cross"; break;
+        case CallOp::DOT: _scratch << "dot"; break;
+        case CallOp::DISTANCE: _scratch << "distance"; break;
+        case CallOp::DISTANCE_SQUARED: _scratch << "distance_squared"; break;
+        case CallOp::LENGTH: _scratch << "length"; break;
+        case CallOp::LENGTH_SQUARED: _scratch << "length_squared"; break;
+        case CallOp::NORMALIZE: _scratch << "normalize"; break;
+        case CallOp::FACEFORWARD: _scratch << "faceforward"; break;
+        case CallOp::DETERMINANT: _scratch << "determinant"; break;
+        case CallOp::TRANSPOSE: _scratch << "transpose"; break;
+        case CallOp::INVERSE: _scratch << "inverse"; break;
+        case CallOp::GROUP_MEMORY_BARRIER: _scratch << "group_memory_barrier"; break;
+        case CallOp::DEVICE_MEMORY_BARRIER: _scratch << "device_memory_barrier"; break;
+        case CallOp::ALL_MEMORY_BARRIER: _scratch << "all_memory_barrier"; break;
+        case CallOp::ATOMIC_LOAD: break;
+        case CallOp::ATOMIC_STORE: break;
+        case CallOp::ATOMIC_EXCHANGE: break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: break;
+        case CallOp::ATOMIC_FETCH_ADD: break;
+        case CallOp::ATOMIC_FETCH_SUB: break;
+        case CallOp::ATOMIC_FETCH_AND: break;
+        case CallOp::ATOMIC_FETCH_OR: break;
+        case CallOp::ATOMIC_FETCH_XOR: break;
+        case CallOp::ATOMIC_FETCH_MIN: break;
+        case CallOp::ATOMIC_FETCH_MAX: break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
-        case CallOp::TEXTURE_WRITE:
-            _scratch << "texture_write";
-            break;
-            // TODO...
+        case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
+        case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
 #define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
@@ -302,29 +373,7 @@ void MetalCodegen::visit(const AssignStmt *stmt) {
 }
 
 void MetalCodegen::emit(Function f) {
-    _scratch << R"(#include <metal_stdlib>
-
-using namespace metal;
-
-[[nodiscard]] auto srgb_to_linear(float4 c) {
-  auto srgb = saturate(c.rgb);
-  auto rgb = select(
-    srgb * (1.0f / 12.92f),
-    pow((srgb + 0.055f) / 1.055f, 2.4f),
-    srgb >= 0.0404482362771082f);
-  return float4(rgb, c.a);
-}
-
-[[nodiscard]] auto linear_to_srgb(float4 c) {
-  auto rgb = saturate(c.rgb);
-  auto srgb = select(
-    rgb * 12.92f,
-    1.055f * pow(rgb, 1.0f / 2.4f) - 0.055f,
-    rgb >= 0.00313066844250063f);
-  return float4(srgb, c.a);
-}
-
-)";
+    _emit_preamble();
     _emit_type_decl();
     _emit_function(f);
 }
@@ -336,10 +385,6 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                   f.uid())
         != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f.uid());
-
-    for (auto intrinsic : f.builtin_callables()) {
-        _emit_intrinsic(intrinsic);
-    }
 
     for (auto callable : f.custom_callables()) {
         _emit_function(Function::callable(callable));
@@ -656,27 +701,16 @@ void MetalCodegen::visit(const ForStmt *stmt) {
     stmt->body()->accept(*this);
 }
 
-void MetalCodegen::_emit_intrinsic(CallOp intrinsic) noexcept {
+void MetalCodegen::_emit_preamble() noexcept {
 
-    if (std::find(_generated_intrinsics.cbegin(),
-                  _generated_intrinsics.cend(),
-                  intrinsic)
-        != _generated_intrinsics.cend()) { return; }
-    _generated_intrinsics.emplace_back(intrinsic);
+    _scratch << R"(#include <metal_stdlib>
 
-    switch (intrinsic) {
-        case CallOp::CUSTOM:
-            LUISA_ERROR_WITH_LOCATION("Invalid built-in function with custom tag.");
-        case CallOp::ALL:
-        case CallOp::ANY: break;
-        case CallOp::NONE:
-            _scratch << R"(template<typename T>
+using namespace metal;
+
+template<typename T>
 [[nodiscard]] auto none(T v) { return !any(v); }
 
-)";
-            break;
-        case CallOp::TEXTURE_READ:
-            _scratch << R"(template<typename T, access a>
+template<typename T, access a>
 [[nodiscard]] auto texture_read(texture2d<T, a> t, uint2 uv) {
   return t.read(uv);
 }
@@ -686,10 +720,7 @@ template<typename T, access a>
   return t.read(uvw);
 }
 
-)";
-            break;
-        case CallOp::TEXTURE_WRITE:
-            _scratch << R"(template<typename T, access a, typename Value>
+template<typename T, access a, typename Value>
 void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
   t.write(value, uv);
 }
@@ -699,23 +730,91 @@ void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
   t.write(value, uvw);
 }
 
-)";
-            break;
-            // TODO...
+template<typename T>
+[[nodiscard]] auto radians(T v) { return v * (M_PI_F / 180.0f); }
 
-        case CallOp::MAKE_BOOL2: break;
-        case CallOp::MAKE_BOOL3: break;
-        case CallOp::MAKE_BOOL4: break;
-        case CallOp::MAKE_INT2: break;
-        case CallOp::MAKE_INT3: break;
-        case CallOp::MAKE_INT4: break;
-        case CallOp::MAKE_UINT2: break;
-        case CallOp::MAKE_UINT3: break;
-        case CallOp::MAKE_UINT4: break;
-        case CallOp::MAKE_FLOAT2: break;
-        case CallOp::MAKE_FLOAT3: break;
-        case CallOp::MAKE_FLOAT4: break;
-    }
+template<typename T>
+[[nodiscard]] auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
+
+[[nodiscard]] auto inverse(float3x3 m) {
+  const auto one_over_determinant = 1.0f / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
+                                          - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
+                                          + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
+  return float3x3(
+    (m[1].y * m[2].z - m[2].y * m[1].z) * one_over_determinant,
+    (m[2].y * m[0].z - m[0].y * m[2].z) * one_over_determinant,
+    (m[0].y * m[1].z - m[1].y * m[0].z) * one_over_determinant,
+    (m[2].x * m[1].z - m[1].x * m[2].z) * one_over_determinant,
+    (m[0].x * m[2].z - m[2].x * m[0].z) * one_over_determinant,
+    (m[1].x * m[0].z - m[0].x * m[1].z) * one_over_determinant,
+    (m[1].x * m[2].y - m[2].x * m[1].y) * one_over_determinant,
+    (m[2].x * m[0].y - m[0].x * m[2].y) * one_over_determinant,
+    (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant);
+}
+
+[[nodiscard]] auto inverse(float4x4 m) {
+  const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+  const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+  const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+  const auto coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+  const auto coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+  const auto coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+  const auto coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+  const auto coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+  const auto coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+  const auto coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+  const auto coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+  const auto coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+  const auto coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+  const auto coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+  const auto coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+  const auto coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+  const auto coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+  const auto coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+  const auto fac0 = float4{coef00, coef00, coef02, coef03};
+  const auto fac1 = float4{coef04, coef04, coef06, coef07};
+  const auto fac2 = float4{coef08, coef08, coef10, coef11};
+  const auto fac3 = float4{coef12, coef12, coef14, coef15};
+  const auto fac4 = float4{coef16, coef16, coef18, coef19};
+  const auto fac5 = float4{coef20, coef20, coef22, coef23};
+  const auto Vec0 = float4{m[1].x, m[0].x, m[0].x, m[0].x};
+  const auto Vec1 = float4{m[1].y, m[0].y, m[0].y, m[0].y};
+  const auto Vec2 = float4{m[1].z, m[0].z, m[0].z, m[0].z};
+  const auto Vec3 = float4{m[1].w, m[0].w, m[0].w, m[0].w};
+  const auto inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+  const auto inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+  const auto inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+  const auto inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+  constexpr auto sign_a = float4{+1.0f, -1.0f, +1.0f, -1.0f};
+  constexpr auto sign_b = float4{-1.0f, +1.0f, -1.0f, +1.0f};
+  const auto inv_0 = inv0 * sign_a;
+  const auto inv_1 = inv1 * sign_b;
+  const auto inv_2 = inv2 * sign_a;
+  const auto inv_3 = inv3 * sign_b;
+  const auto dot0 = m[0] * float4{inv_0.x, inv_1.x, inv_2.x, inv_3.x};
+  const auto dot1 = dot0.x + dot0.y + dot0.z + dot0.w;
+  const auto one_over_determinant = 1.0f / dot1;
+  return float4x4(inv_0 * one_over_determinant,
+                  inv_1 * one_over_determinant,
+                  inv_2 * one_over_determinant,
+                  inv_3 * one_over_determinant);
+}
+
+[[gnu::always_inline]] inline void group_memory_barrier() {
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+}
+
+[[gnu::always_inline]] inline void device_memory_barrier() {
+  threadgroup_barrier(mem_flags::mem_device);
+}
+
+[[gnu::always_inline]] inline void all_memory_barrier() {
+  group_memory_barrier();
+  device_memory_barrier();
+}
+
+)";
+
 }
 
 }

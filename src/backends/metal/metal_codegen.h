@@ -13,7 +13,6 @@ class MetalCodegen : public Codegen, private TypeVisitor, private ExprVisitor, p
 
 private:
     Function _function;
-    std::vector<CallOp> _generated_intrinsics;
     std::vector<uint32_t> _generated_functions;
     std::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
@@ -52,7 +51,7 @@ private:
     virtual void _emit_indent() noexcept;
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
     virtual void _emit_constant(Function::ConstantBinding c) noexcept;
-    virtual void _emit_intrinsic(CallOp intrinsic) noexcept;
+    virtual void _emit_preamble() noexcept;
 
 public:
     explicit MetalCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}
