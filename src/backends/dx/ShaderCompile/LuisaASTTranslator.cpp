@@ -1003,71 +1003,71 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 			return;
 		case CallOp::MAKE_BOOL2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
-				result << "bool2"_sv;
+				result << "make_bool2"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_BOOL3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 3))
-				result << "bool3"_sv;
+				result << "make_bool3"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_BOOL4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 4))
-				result << "bool4"_sv;
+				result << "make_bool4"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_UINT2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 2))
-				result << "uint2"_sv;
+				result << "make_uint2"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_UINT3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 3))
-				result << "uint3"_sv;
+				result << "make_uint3"_sv;
 			break;
 		case CallOp::MAKE_UINT4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 4))
-				result << "uint4"_sv;
+				result << "make_uint4"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_INT2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 2))
-				result << "int2"_sv;
+				result << "make_int2"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_INT3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 3))
-				result << "int3"_sv;
+				result << "make_int3"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_INT4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 4))
-				result << "int4"_sv;
+				result << "make_int4"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_FLOAT2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 2))
-				result << "float2"_sv;
+				result << "make_float2"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_FLOAT3:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 3))
-				result << "float3"_sv;
+				result << "make_float3"_sv;
 			else
 				return;
 			break;
 		case CallOp::MAKE_FLOAT4:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 4))
-				result << "float4"_sv;
+				result << "make_float4"_sv;
 			else
 				return;
 			break;

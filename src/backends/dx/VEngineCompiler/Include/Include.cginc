@@ -1,15 +1,15 @@
-SamplerState pointWrapSampler  : register(s0);
-SamplerState pointClampSampler  : register(s1);
-SamplerState bilinearWrapSampler  : register(s2);
-SamplerState bilinearClampSampler  : register(s3);
-SamplerState trilinearWrapSampler  : register(s4);
-SamplerState trilinearClampSampler  : register(s5);
-SamplerState anisotropicWrapSampler  : register(s6);
-SamplerState anisotropicClampSampler  : register(s7);
+SamplerState pointWrapSampler : register(s0);
+SamplerState pointClampSampler : register(s1);
+SamplerState bilinearWrapSampler : register(s2);
+SamplerState bilinearClampSampler : register(s3);
+SamplerState trilinearWrapSampler : register(s4);
+SamplerState trilinearClampSampler : register(s5);
+SamplerState anisotropicWrapSampler : register(s6);
+SamplerState anisotropicClampSampler : register(s7);
 SamplerState pointClampSampler_linearMip : register(s10);
 SamplerState pointWrapSampler_linearMip : register(s11);
 
-SamplerComparisonState linearShadowSampler : register(s8);      //tex.SampleCmpLevelZero(linearShadowSampler, uv, testZ)
+SamplerComparisonState linearShadowSampler : register(s8);//tex.SampleCmpLevelZero(linearShadowSampler, uv, testZ)
 SamplerComparisonState cubemapShadowSampler : register(s9);
 SamplerComparisonState pointShadowSampler : register(s12);
 
@@ -52,8 +52,7 @@ float4x4 _inverse(float4x4 m) {
     return ret;
 }
 
-float3x3 _inverse(float3x3 m)
-{
+float3x3 _inverse(float3x3 m) {
     float3 c = float3(m[0][0], m[1][0], m[2][0]);
     float3 c2 = float3(m[0][1], m[1][1], m[2][1]);
     float3 c3 = float3(m[0][2], m[1][2], m[2][2]);
@@ -84,22 +83,22 @@ Z _distance_sqr(Z x, Z y){ return _length_sqr(x - y);}
 ////vec(["float","uint","int"])
 Z _min3(Z x, Z y, Z z){return min(x, min(y,z));}
 */
-float _acosh(float v){return log(v + sqrt(v * v - 1));}
-float2 _acosh(float2 v){return log(v + sqrt(v * v - 1));}
-float3 _acosh(float3 v){return log(v + sqrt(v * v - 1));}
-float4 _acosh(float4 v){return log(v + sqrt(v * v - 1));}
-float _asinh(float v){return log(v + sqrt(v * v + 1));}
-float2 _asinh(float2 v){return log(v + sqrt(v * v + 1));}
-float3 _asinh(float3 v){return log(v + sqrt(v * v + 1));}
-float4 _asinh(float4 v){return log(v + sqrt(v * v + 1));}
-float _atanh(float v){return 0.5 * log((1 + v) / (1 - v));}
-float2 _atanh(float2 v){return 0.5 * log((1 + v) / (1 - v));}
-float3 _atanh(float3 v){return 0.5 * log((1 + v) / (1 - v));}
-float4 _atanh(float4 v){return 0.5 * log((1 + v) / (1 - v));}
-float _exp10(float v){return pow(10, v);};
-float2 _exp10(float2 v){return pow(10, v);};
-float3 _exp10(float3 v){return pow(10, v);};
-float4 _exp10(float4 v){return pow(10, v);};
+float _acosh(float v) { return log(v + sqrt(v * v - 1)); }
+float2 _acosh(float2 v) { return log(v + sqrt(v * v - 1)); }
+float3 _acosh(float3 v) { return log(v + sqrt(v * v - 1)); }
+float4 _acosh(float4 v) { return log(v + sqrt(v * v - 1)); }
+float _asinh(float v) { return log(v + sqrt(v * v + 1)); }
+float2 _asinh(float2 v) { return log(v + sqrt(v * v + 1)); }
+float3 _asinh(float3 v) { return log(v + sqrt(v * v + 1)); }
+float4 _asinh(float4 v) { return log(v + sqrt(v * v + 1)); }
+float _atanh(float v) { return 0.5 * log((1 + v) / (1 - v)); }
+float2 _atanh(float2 v) { return 0.5 * log((1 + v) / (1 - v)); }
+float3 _atanh(float3 v) { return 0.5 * log((1 + v) / (1 - v)); }
+float4 _atanh(float4 v) { return 0.5 * log((1 + v) / (1 - v)); }
+float _exp10(float v) { return pow(10, v); };
+float2 _exp10(float2 v) { return pow(10, v); };
+float3 _exp10(float3 v) { return pow(10, v); };
+float4 _exp10(float4 v) { return pow(10, v); };
 float _copysign(float x, float y) { (abs(sign(x) - sign(y)) > 1) ? -x : x; }
 float2 _copysign(float2 x, float2 y) { (abs(sign(x) - sign(y)) > 1) ? -x : x; }
 float3 _copysign(float3 x, float3 y) { (abs(sign(x) - sign(y)) > 1) ? -x : x; }
@@ -108,69 +107,168 @@ int _copysign(int x, int y) { (abs(sign(x) - sign(y)) > 1) ? -x : x; }
 int2 _copysign(int2 x, int2 y) { (abs(sign(x) - sign(y)) > 1) ? -x : x; }
 int3 _copysign(int3 x, int3 y) { (abs(sign(x) - sign(y)) > 1) ? -x : x; }
 int4 _copysign(int4 x, int4 y) { (abs(sign(x) - sign(y)) > 1) ? -x : x; }
-float _length_sqr(float x){ return dot(x,x);}
-float2 _length_sqr(float2 x){ return dot(x,x);}
-float3 _length_sqr(float3 x){ return dot(x,x);}
-float4 _length_sqr(float4 x){ return dot(x,x);}
-float _distance_sqr(float x, float y){ return _length_sqr(x - y);}
-float2 _distance_sqr(float2 x, float2 y){ return _length_sqr(x - y);}
-float3 _distance_sqr(float3 x, float3 y){ return _length_sqr(x - y);}
-float4 _distance_sqr(float4 x, float4 y){ return _length_sqr(x - y);}
-float _min3(float x, float y, float z){return min(x, min(y,z));}
-float2 _min3(float2 x, float2 y, float2 z){return min(x, min(y,z));}
-float3 _min3(float3 x, float3 y, float3 z){return min(x, min(y,z));}
-float4 _min3(float4 x, float4 y, float4 z){return min(x, min(y,z));}
-uint _min3(uint x, uint y, uint z){return min(x, min(y,z));}
-uint2 _min3(uint2 x, uint2 y, uint2 z){return min(x, min(y,z));}
-uint3 _min3(uint3 x, uint3 y, uint3 z){return min(x, min(y,z));}
-uint4 _min3(uint4 x, uint4 y, uint4 z){return min(x, min(y,z));}
-int _min3(int x, int y, int z){return min(x, min(y,z));}
-int2 _min3(int2 x, int2 y, int2 z){return min(x, min(y,z));}
-int3 _min3(int3 x, int3 y, int3 z){return min(x, min(y,z));}
-int4 _min3(int4 x, int4 y, int4 z){return min(x, min(y,z));}
+float _length_sqr(float x) { return dot(x, x); }
+float2 _length_sqr(float2 x) { return dot(x, x); }
+float3 _length_sqr(float3 x) { return dot(x, x); }
+float4 _length_sqr(float4 x) { return dot(x, x); }
+float _distance_sqr(float x, float y) { return _length_sqr(x - y); }
+float2 _distance_sqr(float2 x, float2 y) { return _length_sqr(x - y); }
+float3 _distance_sqr(float3 x, float3 y) { return _length_sqr(x - y); }
+float4 _distance_sqr(float4 x, float4 y) { return _length_sqr(x - y); }
 
-float4 to_tex(float4 v){return v;}
-float4 to_tex(float2 v){return float4(v,1,1);}
-float4 to_tex(float3 v){return float4(v,1);}
+float4 to_tex(float4 v) { return v; }
+float4 to_tex(float2 v) { return float4(v, 1, 1); }
+float4 to_tex(float3 v) { return float4(v, 1); }
 
-uint4 to_tex(uint4 v){return v;}
-uint4 to_tex(uint2 v){return uint4(v,1,1);}
-uint4 to_tex(uint3 v){return uint4(v,1);}
+uint4 to_tex(uint4 v) { return v; }
+uint4 to_tex(uint2 v) { return uint4(v, 1, 1); }
+uint4 to_tex(uint3 v) { return uint4(v, 1); }
 
-int4 to_tex(int4 v){return v;}
-int4 to_tex(int2 v){return int4(v,1,1);}
-int4 to_tex(int3 v){return int4(v,1);}
+int4 to_tex(int4 v) { return v; }
+int4 to_tex(int2 v) { return int4(v, 1, 1); }
+int4 to_tex(int3 v) { return int4(v, 1); }
 
-bool _isnan(float x)
-{
+bool _isnan(float x) {
     return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
-bool2 _isnan(float2 x)
-{
+bool2 _isnan(float2 x) {
     return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
-bool3 _isnan(float3 x)
-{
+bool3 _isnan(float3 x) {
     return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
-bool4 _isnan(float4 x)
-{
+bool4 _isnan(float4 x) {
     return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
-bool _isinf(float x)
-{
+bool _isinf(float x) {
     return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
-bool2 _isinf(float2 x)
-{
+bool2 _isinf(float2 x) {
     return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
-bool3 _isinf(float3 x)
-{
+bool3 _isinf(float3 x) {
     return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
-bool4 _isinf(float4 x)
-{
+bool4 _isinf(float4 x) {
     return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 
+float make_float(float a) { return a; }
+float make_float(float2 a) { return a.x; }
+float make_float(float3 a) { return a.x; }
+float make_float(float4 a) { return a.x; }
+
+float2 make_float2(float a) { return a; }
+float2 make_float2(float2 a) { return a; }
+float2 make_float2(float3 a) { return a.xy; }
+float2 make_float2(float4 a) { return a.xy; }
+float2 make_float2(float a, float b) { return float2(a, b); }
+
+float3 make_float3(float a) { return a; }
+float3 make_float3(float2 a) { return float3(a,0); }
+float3 make_float3(float3 a) { return a; }
+float3 make_float3(float4 a) { return a.xyz; }
+float3 make_float3(float a, float b, float c) { return float3(a, b, c); }
+float3 make_float3(float2 a, float b) { return float3(a, b); }
+float3 make_float3(float a, float2 b) { return float3(a, b); }
+
+float4 make_float4(float a) { return a; }
+float4 make_float4(float2 a) { return float4(a, 0, 0); }
+float4 make_float4(float3 a) { return float4(a,0); }
+float4 make_float4(float4 a) { return a; }
+float4 make_float4(float a, float b, float c, float d) { return float4(a, b, c, d); }
+float4 make_float4(float3 a, float b) { return float4(a, b); }
+float4 make_float4(float a, float3 b) { return float4(a, b); }
+float4 make_float4(float2 a, float b, float c) { return float4(a, b, c); }
+float4 make_float4(float a, float2 b, float c) { return float4(a, b, c); }
+float4 make_float4(float a, float b, float2 c) { return float4(a, b, c); }
+
+uint make_uint(uint a) { return a; }
+uint make_uint(uint2 a) { return a.x; }
+uint make_uint(uint3 a) { return a.x; }
+uint make_uint(uint4 a) { return a.x; }
+
+uint2 make_uint2(uint a) { return a; }
+uint2 make_uint2(uint2 a) { return a; }
+uint2 make_uint2(uint3 a) { return a.xy; }
+uint2 make_uint2(uint4 a) { return a.xy; }
+uint2 make_uint2(uint a, uint b) { return uint2(a, b); }
+
+uint3 make_uint3(uint a) { return a; }
+uint3 make_uint3(uint2 a) { return uint3(a, 0); }
+uint3 make_uint3(uint3 a) { return a; }
+uint3 make_uint3(uint4 a) { return a.xyz; }
+uint3 make_uint3(uint a, uint b, uint c) { return uint3(a, b, c); }
+uint3 make_uint3(uint2 a, uint b) { return uint3(a, b); }
+uint3 make_uint3(uint a, uint2 b) { return uint3(a, b); }
+
+uint4 make_uint4(uint a) { return a; }
+uint4 make_uint4(uint2 a) { return uint4(a, 0, 0); }
+uint4 make_uint4(uint3 a) { return uint4(a, 0); }
+uint4 make_uint4(uint4 a) { return a; }
+uint4 make_uint4(uint a, uint b, uint c, uint d) { return uint4(a, b, c, d); }
+uint4 make_uint4(uint3 a, uint b) { return uint4(a, b); }
+uint4 make_uint4(uint a, uint3 b) { return uint4(a, b); }
+uint4 make_uint4(uint2 a, uint b, uint c) { return uint4(a, b, c); }
+uint4 make_uint4(uint a, uint2 b, uint c) { return uint4(a, b, c); }
+uint4 make_uint4(uint a, uint b, uint2 c) { return uint4(a, b, c); }
+
+int make_int(int a) { return a; }
+int make_int(int2 a) { return a.x; }
+int make_int(int3 a) { return a.x; }
+int make_int(int4 a) { return a.x; }
+
+int2 make_int2(int a) { return a; }
+int2 make_int2(int2 a) { return a; }
+int2 make_int2(int3 a) { return a.xy; }
+int2 make_int2(int4 a) { return a.xy; }
+int2 make_int2(int a, int b) { return int2(a, b); }
+
+int3 make_int3(int a) { return a; }
+int3 make_int3(int2 a) { return int3(a, 0); }
+int3 make_int3(int3 a) { return a; }
+int3 make_int3(int4 a) { return a.xyz; }
+int3 make_int3(int a, int b, int c) { return int3(a, b, c); }
+int3 make_int3(int2 a, int b) { return int3(a, b); }
+int3 make_int3(int a, int2 b) { return int3(a, b); }
+
+int4 make_int4(int a) { return a; }
+int4 make_int4(int2 a) { return int4(a, 0, 0); }
+int4 make_int4(int3 a) { return int4(a, 0); }
+int4 make_int4(int4 a) { return a; }
+int4 make_int4(int a, int b, int c, int d) { return int4(a, b, c, d); }
+int4 make_int4(int3 a, int b) { return int4(a, b); }
+int4 make_int4(int a, int3 b) { return int4(a, b); }
+int4 make_int4(int2 a, int b, int c) { return int4(a, b, c); }
+int4 make_int4(int a, int2 b, int c) { return int4(a, b, c); }
+int4 make_int4(int a, int b, int2 c) { return int4(a, b, c); }
+
+bool make_bool(bool a) { return a; }
+bool make_bool(bool2 a) { return a.x; }
+bool make_bool(bool3 a) { return a.x; }
+bool make_bool(bool4 a) { return a.x; }
+
+bool2 make_bool2(bool a) { return a; }
+bool2 make_bool2(bool2 a) { return a; }
+bool2 make_bool2(bool3 a) { return a.xy; }
+bool2 make_bool2(bool4 a) { return a.xy; }
+bool2 make_bool2(bool a, bool b) { return bool2(a, b); }
+
+bool3 make_bool3(bool a) { return a; }
+bool3 make_bool3(bool2 a) { return bool3(a, false); }
+bool3 make_bool3(bool3 a) { return a; }
+bool3 make_bool3(bool4 a) { return a.xyz; }
+bool3 make_bool3(bool a, bool b, bool c) { return bool3(a, b, c); }
+bool3 make_bool3(bool2 a, bool b) { return bool3(a, b); }
+bool3 make_bool3(bool a, bool2 b) { return bool3(a, b); }
+
+bool4 make_bool4(bool a) { return a; }
+bool4 make_bool4(bool2 a) { return bool4(a, false, false); }
+bool4 make_bool4(bool3 a) { return bool4(a, false); }
+bool4 make_bool4(bool4 a) { return a; }
+bool4 make_bool4(bool a, bool b, bool c, bool d) { return bool4(a, b, c, d); }
+bool4 make_bool4(bool3 a, bool b) { return bool4(a, b); }
+bool4 make_bool4(bool a, bool3 b) { return bool4(a, b); }
+bool4 make_bool4(bool2 a, bool b, bool c) { return bool4(a, b, c); }
+bool4 make_bool4(bool a, bool2 b, bool c) { return bool4(a, b, c); }
+bool4 make_bool4(bool a, bool b, bool2 c) { return bool4(a, b, c); }
