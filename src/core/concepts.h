@@ -5,6 +5,7 @@
 #pragma once
 
 #include <span>
+#include <atomic>
 #include <concepts>
 #include <type_traits>
 
