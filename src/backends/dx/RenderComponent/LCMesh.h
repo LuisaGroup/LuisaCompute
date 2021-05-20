@@ -14,16 +14,15 @@ public:
 	GFXVertexBufferView const* VertexBufferViews() const override { return &vertView; }
 	uint VertexBufferViewCount() const override { return 1; }
 	GFXIndexBufferView const* IndexBufferView() const override { return &indView; }
-	float3 GetBoundingCenter() const override { return subMesh.boundingCenter; }
-	float3 GetBoundingExtent() const override { return subMesh.boundingExtent; }
-	uint GetSubMeshCount() const override { return 1; }
-	SubMesh const& GetSubMesh(uint i) const override { return subMesh; }
 	uint GetIndexCount() const override;
 
 	LCMesh(
-		SubMesh const& mesh,
 		StructuredBuffer const* vertBuffer,
-		StructuredBuffer const* indexBuffer);
+		StructuredBuffer const* indexBuffer,
+		size_t vertBufferOffset,
+		size_t indBufferOffset,
+		uint vertCount,
+		uint indCount);
 	VENGINE_IOBJREF_OVERRIDE
 private:
 	uint layoutIndex;
@@ -31,6 +30,5 @@ private:
 	StructuredBuffer const* indBuffer;
 	GFXIndexBufferView indView;
 	GFXVertexBufferView vertView;
-	SubMesh subMesh;
 };
 }// namespace luisa::compute

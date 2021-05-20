@@ -298,10 +298,33 @@ inline void IntegerToString(const _Ty _Val, string& str) noexcept {// convert _V
 	}
 	str.push_back_all(_RNext, _Buff_end - _RNext);
 }
+inline void cullStringZero(string& str, size_t startValue) {
+
+	char const* ptr;
+	[&]() {
+		for (ptr = str.begin() + startValue; ptr != str.end(); ++ptr) {
+			if (*ptr == '.')
+				return;
+		}
+		ptr = str.end() - 1;
+	}();
+	char const* o;
+	for (o = str.end() - 1; o != ptr; o--) {
+		if (*o == '0') {
+			str.erase(str.size() - 1);
+		} else {
+			break;
+		}
+	}
+	if (*o == '.') {
+		str += '0';
+	}
+}
 inline string to_string(double _Val) noexcept {
 	const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
 	string _Str(_Len, '\0');
 	_CSTD sprintf_s(&_Str[0], _Len + 1, "%f", _Val);
+	cullStringZero(_Str, 0);
 	return _Str;
 }
 inline void to_string(double _Val, vengine::string& str) noexcept {
@@ -309,6 +332,7 @@ inline void to_string(double _Val, vengine::string& str) noexcept {
 	size_t oldSize = str.size();
 	str.resize(oldSize + _Len);
 	_CSTD sprintf_s(&str[oldSize], _Len + 1, "%f", _Val);
+	cullStringZero(str, oldSize);
 }
 inline string to_string(float _Val) noexcept {
 	return to_string((double)_Val);

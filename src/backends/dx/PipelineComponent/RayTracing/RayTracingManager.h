@@ -25,7 +25,7 @@ class VENGINE_DLL_RENDERER RayTracingManager final {
 private:
 	//Update And Add Should only called in main job threads, will be unsafe if called in loading thread!
 	void ReserveStructSize(RenderPackage const& package, uint64 newStrSize, uint64 newScratchSize);
-	void AddMesh(RenderPackage const& pack, vengine::vector<StructuredBuffer*>& clearBuffer, IMesh const* meshInterface, uint subMeshIndex, bool forceUpdateMesh);
+	void AddMesh(RenderPackage const& pack, vengine::vector<StructuredBuffer*>& clearBuffer, IMesh const* meshInterface, bool forceUpdateMesh);
 	void RemoveMesh(uint64 instanceID, vengine::vector<StructuredBuffer*>& clearBuffer);
 	void CopyInstanceDescData(RayRendererData* data, uint index);
 	void CopyInstanceDescData(RayRendererData* data);
@@ -44,14 +44,12 @@ public:
 		ObjectPtr<IMesh>&& meshPtr,
 		uint shaderID,
 		uint materialID,
-		float4x4 localToWorldMat,
-		uint subMeshIndex);
+		float4x4 localToWorldMat);
 	void UpdateRenderer(
 		ObjectPtr<IMesh>&& mesh,
 		uint shaderID,
 		uint materialID,
-		RayRendererData* renderer,
-		uint subMeshIndex);
+		RayRendererData* renderer);
 	void RemoveRenderer(
 		RayRendererData* renderer);
 	void BuildTopLevelRTStruct(
@@ -82,7 +80,6 @@ public:
 			IMesh const* mesh;
 			uint64 instanceID;
 		};
-		uint subMeshIndex;
 		Command() {}
 		Command(
 			CommandType type,
@@ -92,19 +89,15 @@ public:
 		}
 		Command(
 			CommandType type,
-			IMesh const* mesh,
-			uint subMeshIndex) {
+			IMesh const* mesh) {
 			this->type = type;
 			this->mesh = mesh;
-			this->subMeshIndex = subMeshIndex;
 		}
 		Command(
 			CommandType type,
-			uint64 instanceID,
-			uint subMeshIndex) {
+			uint64 instanceID) {
 			this->type = type;
 			this->instanceID = instanceID;
-			this->subMeshIndex = subMeshIndex;
 		}
 	};
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
@@ -132,13 +125,9 @@ private:
 	int64 instanceBufferSize = -1;
 	bool isTopLevelDirty = false;
 	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc;
-	struct BottomLevelSubMesh {
-		uint subMeshIndex;
-		StructuredBuffer* bottomBufferChunk;
-	};
 	struct BottomLevelBuild {
 		int32 referenceCount = 0;
-		ArrayList<BottomLevelSubMesh> subMeshes;
+		StructuredBuffer* bottomBufferChunk;
 	};
 	HashMap<uint64, BottomLevelBuild> allBottomLevel;
 	SeparableRendererManager sepManager;

@@ -14,8 +14,7 @@ public:
 		using namespace luisa::compute;
 		RayTracingManager::Command meshDeleteCmd(
 			RayTracingManager::Command::CommandType::DeleteMesh,
-			obj->GetInstanceID(),
-			0);//Submesh not used
+			obj->GetInstanceID());//Submesh not used
 		current->commands.Push(meshDeleteCmd);
 	}
 };
@@ -49,20 +48,13 @@ void SpreadSize(bool& update, int64& size, uint64 newSize) {
 void UpdateMeshObject(
 	GFXDevice* device,
 	RayRendererData::MeshObject& meshObj,
-	IMesh const* mesh,
-	uint subMeshIndex) {
+	IMesh const* mesh) {
 	meshObj.vboDescIndex = mesh->GetVBOSRVDescIndex(device);
 	meshObj.iboDescIndex = mesh->GetIBOSRVDescIndex(device);
-	if (subMeshIndex == -1) {
-		meshObj.vertexOffset = 0;
-		meshObj.indexOffset = 0;
-	} else {
-		auto&& subMesh = mesh->GetSubMesh(subMeshIndex);
-		meshObj.vertexOffset = subMesh.vertexOffset;
-		meshObj.indexOffset = subMesh.indexOffset;
-	}
+	meshObj.vertexOffset = 0;
+	meshObj.indexOffset = 0;
 }
-void GetStaticTriangleGeometryDesc(GFXDevice* device, D3D12_RAYTRACING_GEOMETRY_DESC* data, IMesh const* mesh, uint subMeshIndex) {
+void GetStaticTriangleGeometryDesc(GFXDevice* device, D3D12_RAYTRACING_GEOMETRY_DESC* data, IMesh const* mesh) {
 	auto ibv = mesh->IndexBufferView();
 	auto vbv = mesh->VertexBufferViews();
 	size_t indexSize;
@@ -77,20 +69,10 @@ void GetStaticTriangleGeometryDesc(GFXDevice* device, D3D12_RAYTRACING_GEOMETRY_
 	geometryDesc.Triangles.Transform3x4 = 0;
 	geometryDesc.Triangles.VertexFormat = (DXGI_FORMAT)GFXFormat_R32G32B32_Float;
 	geometryDesc.Triangles.VertexBuffer.StrideInBytes = vbv->StrideInBytes;
-
-	if (subMeshIndex == -1) {
-		geometryDesc.Triangles.IndexBuffer = ibv->BufferLocation;
-		geometryDesc.Triangles.IndexCount = mesh->GetIndexCount();
-		geometryDesc.Triangles.VertexBuffer.StartAddress = vbv->BufferLocation;
-		geometryDesc.Triangles.VertexCount = mesh->GetVertexCount();
-
-	} else {
-		auto&& subMesh = mesh->GetSubMesh(subMeshIndex);
-		geometryDesc.Triangles.IndexBuffer = ibv->BufferLocation + indexSize * subMesh.indexOffset;
-		geometryDesc.Triangles.IndexCount = subMesh.indexCount;
-		geometryDesc.Triangles.VertexBuffer.StartAddress = vbv->BufferLocation + vbv->StrideInBytes * subMesh.vertexOffset;
-		geometryDesc.Triangles.VertexCount = mesh->GetVertexCount() - subMesh.vertexOffset;
-	}
+	geometryDesc.Triangles.IndexBuffer = ibv->BufferLocation;
+	geometryDesc.Triangles.IndexCount = mesh->GetIndexCount();
+	geometryDesc.Triangles.VertexBuffer.StartAddress = vbv->BufferLocation;
+	geometryDesc.Triangles.VertexCount = mesh->GetVertexCount();
 }
 bool RayTracingManager::Avaliable() const {
 	return sepManager.GetElementCount() > 0;
@@ -99,8 +81,7 @@ RayRendererData* RayTracingManager::AddRenderer(
 	ObjectPtr<IMesh>&& meshPtr,
 	uint shaderID,
 	uint materialID,
-	float4x4 localToWorldMat,
-	uint subMeshIndex) {
+	float4x4 localToWorldMat) {
 	using namespace RTAccStructUtil;
 	RayRendererData* newRender;
 	newRender = rayRenderDataPool.New_Lock(poolMtx, std::move(meshPtr));
@@ -113,12 +94,10 @@ RayRendererData* RayTracingManager::AddRenderer(
 	RayRendererData::MeshObject& meshObj = newRender->meshObj;
 	meshObj.materialID = materialID;
 	meshObj.shaderID = shaderID;
-	newRender->subMeshIndex = subMeshIndex;
 	IMesh* mesh = newRender->mesh;
 	Command meshBuildCmd(
 		Command::CommandType::AddMesh,
-		mesh,
-		subMeshIndex);
+		mesh);
 	commands.Push(meshBuildCmd);
 	RemoveMeshFunctor remMesh = {
 		mesh->GetVObjectPtrOffset<decltype(mesh)>(),
@@ -132,30 +111,20 @@ void RayTracingManager::UpdateRenderer(
 	ObjectPtr<IMesh>&& mesh,
 	uint shaderID,
 	uint materialID,
-	RayRendererData* renderer,
-	uint subMeshIndex) {
+	RayRendererData* renderer) {
 	using namespace RTAccStructUtil;
 	uint custom = (uint)UpdateOperator::UpdateTrans;
 	RayRendererData::MeshObject& meshObj = renderer->meshObj;
 	if (mesh && renderer->mesh != mesh) {
-		/*if (renderer->mesh) {
-			Command meshDeleteCmd(
-				Command::CommandType::DeleteMesh,
-				renderer->mesh,
-				subMeshIndex);
-			commands.Push(meshDeleteCmd);
-		}*/
 		renderer->mesh = std::move(mesh);
 		IMesh* mm = renderer->mesh;
 		Command meshBuildCmd(
 			Command::CommandType::AddMesh,
-			mm,
-			subMeshIndex);
+			mm);
 		UpdateMeshObject(
 			device,
 			meshObj,
-			mm,
-			subMeshIndex);
+			mm);
 		commands.Push(meshBuildCmd);
 		RemoveMeshFunctor remMesh = {
 			mm->GetVObjectPtrOffset<decltype(mm)>(),
@@ -267,8 +236,7 @@ RayTracingManager::RayTracingManager(
 			UpdateMeshObject(
 				device,
 				meshObj,
-				ptr->mesh,
-				ptr->subMeshIndex);
+				ptr->mesh);
 		}
 		//////// Set Mesh
 		auto ite = allBottomLevel.Find(ptr->mesh->GetVObjectPtr()->GetInstanceID());
@@ -276,17 +244,8 @@ RayTracingManager::RayTracingManager(
 			VEngine_Log("Ray Renderer Contains No Mesh!\n"_sv);
 			VENGINE_EXIT;
 		}
-		BottomLevelSubMesh* subMesh = nullptr;
-		for (auto& i : ite.Value().subMeshes) {
-			if (i.subMeshIndex == ptr->subMeshIndex) {
-				subMesh = &i;
-			}
-		}
-		if (!subMesh) {
-			VEngine_Log("Ray Renderer Contains No Mesh!\n"_sv);
-			VENGINE_EXIT;
-		}
-		ptr->instanceDesc.AccelerationStructure = subMesh->bottomBufferChunk->GetAddress(0, 0).address;
+
+		ptr->instanceDesc.AccelerationStructure = ite.Value().bottomBufferChunk->GetAddress(0, 0).address;
 		CopyInstanceDescData(ptr);
 		return false;
 	};
@@ -415,9 +374,7 @@ void RayTracingManager::BuildRTStruct(
 					pack,
 					allocatedElements.needClearSBuffers,
 					cmd.mesh,
-					cmd.subMeshIndex,
 					false);
-				cmd.ptr->subMeshIndex = cmd.subMeshIndex;
 				break;
 			case Command::CommandType::DeleteMesh:
 				RemoveMesh(
@@ -442,21 +399,11 @@ void RayTracingManager::BuildRTStruct(
 void RayTracingManager::AddMesh(
 	RenderPackage const& pack,
 	vengine::vector<StructuredBuffer*>& clearBuffer,
-	IMesh const* meshInterface,
-	uint subMeshIndex, bool forceUpdateMesh) {
+	IMesh const* meshInterface, bool forceUpdateMesh) {
 
 	auto ite = allBottomLevel.Insert(meshInterface->GetVObjectPtr()->GetInstanceID());
 	auto& v = ite.Value();
-	BottomLevelSubMesh* subMesh = nullptr;
-	for (auto& i : v.subMeshes) {
-		if (i.subMeshIndex == subMeshIndex) {
-			subMesh = &i;
-		}
-	}
-	if (v.referenceCount == 0 || forceUpdateMesh || !subMesh) {
-		if (!subMesh) {
-			subMesh = &v.subMeshes.emplace_back();
-		}
+	if (v.referenceCount == 0 || forceUpdateMesh) {
 		//////// Update Mesh
 		D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomStruct;
 		D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
@@ -470,20 +417,20 @@ void RayTracingManager::AddMesh(
 		GetStaticTriangleGeometryDesc(
 			device,
 			&geometryDesc,
-			meshInterface, subMeshIndex);
+			meshInterface);
 		D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
 		ID3D12Device5* device = static_cast<ID3D12Device5*>(this->device->device());
 		device->GetRaytracingAccelerationStructurePrebuildInfo(
 			&bottomInput,
 			&bottomLevelPrebuildInfo);
-		subMesh->bottomBufferChunk = sbuffers.New_Lock(
+		v.bottomBufferChunk = sbuffers.New_Lock(
 			bottomAllocMtx,
 			this->device,
 			std::initializer_list<StructuredBufferElement>{StructuredBufferElement::Get(1, bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes)},
 			GPUResourceState_RayTracingStruct,
 			DXAllocator::GetBufferAllocator());
 		bottomStruct.SourceAccelerationStructureData = 0;
-		auto adrs = subMesh->bottomBufferChunk->GetAddress(0, 0);
+		auto adrs = v.bottomBufferChunk->GetAddress(0, 0);
 		bottomStruct.DestAccelerationStructureData = adrs.address;
 		//TODO: build bottom
 
@@ -502,7 +449,7 @@ void RayTracingManager::AddMesh(
 			0,
 			nullptr);
 		pack.tCmd->UAVBarrier(
-			subMesh->bottomBufferChunk);
+			v.bottomBufferChunk);
 	}
 	v.referenceCount++;
 }
@@ -515,9 +462,7 @@ void RayTracingManager::RemoveMesh(
 	auto& v = ite.Value();
 	v.referenceCount--;
 	if (v.referenceCount <= 0) {
-		for (auto& i : v.subMeshes) {
-			clearBuffer.push_back(i.bottomBufferChunk);
-		};
+		clearBuffer.push_back(v.bottomBufferChunk);
 	}
 	allBottomLevel.Remove(ite);
 }

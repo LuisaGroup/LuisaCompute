@@ -34,10 +34,10 @@ public:
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
     uint64_t create_mesh(uint64_t vertex_buffer_handle,
                          size_t vertex_buffer_offset_bytes,
-                         size_t vertex_count,
+                         uint vertex_count,
                          uint64_t index_buffer_handle,
                          size_t index_buffer_offset_bytes,
-                         size_t index_count) noexcept override { return _handle++; }
+                         uint index_count) noexcept override { return _handle++; }
     void dispose_mesh(uint64_t mesh_handle) noexcept override {}
 
     [[nodiscard]] static auto create(const Context &ctx) noexcept {

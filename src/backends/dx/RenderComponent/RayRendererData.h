@@ -19,7 +19,6 @@ public:
 	};
 	float4x4 transformMatrix;
 	ObjectPtr<IMesh> mesh;
-	uint subMeshIndex;
 	D3D12_RAYTRACING_INSTANCE_DESC instanceDesc;
 	MeshObject meshObj;
 	~RayRendererData() {}

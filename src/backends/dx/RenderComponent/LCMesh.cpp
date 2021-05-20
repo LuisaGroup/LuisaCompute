@@ -15,17 +15,19 @@ uint LCMesh::GetIndexCount() const {
 	return indBuffer->GetElementCount(0);
 }
 LCMesh::LCMesh(
-	SubMesh const& mesh,
-	StructuredBuffer const* vertBuffer, StructuredBuffer const* indexBuffer)
+	StructuredBuffer const* vertBuffer,
+	StructuredBuffer const* indexBuffer,
+	size_t vertBufferOffset,
+	size_t indBufferOffset,
+	uint vertCount,
+	uint indCount)
 	: vertBuffer(vertBuffer),
-	  indBuffer(indexBuffer),
-	  subMesh(mesh) {
-	assert(vertBuffer->GetStride(0) == sizeof(float3));
-	vertView.BufferLocation = vertBuffer->GetAddress(0, 0).address;
-	vertView.SizeInBytes = vertBuffer->GetByteSize();
+	  indBuffer(indexBuffer) {
+	vertView.BufferLocation = vertBuffer->GetAddress(0, vertBufferOffset).address;
+	vertView.SizeInBytes = vertCount * sizeof(float3);
 	vertView.StrideInBytes = sizeof(float3);
-	indView.BufferLocation = indBuffer->GetAddress(0, 0).address;
-	indView.SizeInBytes = indBuffer->GetByteSize();
+	indView.BufferLocation = indBuffer->GetAddress(0, indBufferOffset).address;
+	indView.SizeInBytes = indCount * sizeof(uint);
 	indView.Format = static_cast<DXGI_FORMAT>(GFXFormat_R32_UInt);
 }
 }// namespace luisa::compute
