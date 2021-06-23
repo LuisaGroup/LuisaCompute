@@ -143,8 +143,8 @@ const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
 }
 
 const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
-    if (_tag == Function::Tag::KERNEL && type->is_atomic()) {
-        LUISA_ERROR_WITH_LOCATION("Kernels are not allowed to have atomic uniforms.");
+    if (type->is_atomic()) {
+        LUISA_ERROR_WITH_LOCATION("Functions are not allowed to have atomic arguments.");
     }
     auto variable_tag = _tag == Function::Tag::KERNEL
                             ? Variable::Tag::UNIFORM

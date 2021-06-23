@@ -8,11 +8,18 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+template<typename>
+struct SharedAsAtomic {};
+
+}
+
 template<typename T>
-class Shared {
+class Shared : public detail::SharedAsAtomic<T> {
 
 private:
-    const Expression *_expression;
+    const RefExpr *_expression;
 
 public:
     explicit Shared(size_t n) noexcept

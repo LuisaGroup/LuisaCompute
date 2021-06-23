@@ -145,6 +145,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
 }
 
 void MetalCodegen::visit(const CallExpr *expr) {
+    auto is_atomic_op = false;
     switch (expr->op()) {
         case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
         case CallOp::ALL: _scratch << "all"; break;
@@ -212,17 +213,50 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::GROUP_MEMORY_BARRIER: _scratch << "group_memory_barrier"; break;
         case CallOp::DEVICE_MEMORY_BARRIER: _scratch << "device_memory_barrier"; break;
         case CallOp::ALL_MEMORY_BARRIER: _scratch << "all_memory_barrier"; break;
-        case CallOp::ATOMIC_LOAD: _scratch << "atomic_load"; break;
-        case CallOp::ATOMIC_STORE: _scratch << "atomic_store"; break;
-        case CallOp::ATOMIC_EXCHANGE: _scratch << "atomic_exchange"; break;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "atomic_compare_exchange"; break;
-        case CallOp::ATOMIC_FETCH_ADD: _scratch << "atomic_fetch_add"; break;
-        case CallOp::ATOMIC_FETCH_SUB: _scratch << "atomic_fetch_sub"; break;
-        case CallOp::ATOMIC_FETCH_AND: _scratch << "atomic_fetch_and"; break;
-        case CallOp::ATOMIC_FETCH_OR: _scratch << "atomic_fetch_or"; break;
-        case CallOp::ATOMIC_FETCH_XOR: _scratch << "atomic_fetch_xor"; break;
-        case CallOp::ATOMIC_FETCH_MIN: _scratch << "atomic_fetch_min"; break;
-        case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
+        case CallOp::ATOMIC_LOAD:
+            _scratch << "atomic_load_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_STORE:
+            _scratch << "atomic_store_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_EXCHANGE:
+            _scratch << "atomic_exchange_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE:
+            _scratch << "atomic_compare_exchange_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_FETCH_ADD:
+            _scratch << "atomic_fetch_add_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_FETCH_SUB:
+            _scratch << "atomic_fetch_sub_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_FETCH_AND:
+            _scratch << "atomic_fetch_and_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_FETCH_OR:
+            _scratch << "atomic_fetch_or_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_FETCH_XOR:
+            _scratch << "atomic_fetch_xor_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_FETCH_MIN:
+            _scratch << "atomic_fetch_min_explicit";
+            is_atomic_op = true;
+            break;
+        case CallOp::ATOMIC_FETCH_MAX:
+            _scratch << "atomic_fetch_max_explicit";
+            is_atomic_op = true;
+            break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
@@ -239,8 +273,19 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT3: _scratch << "float3"; break;
         case CallOp::MAKE_FLOAT4: _scratch << "float4"; break;
     }
+
     _scratch << "(";
-    if (!expr->arguments().empty()) {
+    if (is_atomic_op) {
+        _scratch << "as_atomic(";
+        auto args = expr->arguments();
+        args[0]->accept(*this);
+        _scratch << "), ";
+        for (auto i = 1u; i < args.size(); i++) {
+            args[i]->accept(*this);
+            _scratch << ", ";
+        }
+        _scratch << "memory_order_relaxed";
+    } else if (!expr->arguments().empty()) {
         for (auto arg : expr->arguments()) {
             arg->accept(*this);
             _scratch << ", ";
@@ -816,28 +861,20 @@ template<typename T>
   device_memory_barrier();
 }
 
-[[gnu::always_inline]] inline void atomic_store(device int &a, int val) {
-    atomic_store_explicit(reinterpret_cast<device atomic_int *>(&a), val, memory_order_relaxed);
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device int &a) {
+    return reinterpret_cast<device atomic_int *>(&a);
 }
 
-[[gnu::always_inline]] inline void atomic_store(device uint &a, uint val) {
-    atomic_store_explicit(reinterpret_cast<device atomic_uint *>(&a), val, memory_order_relaxed);
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device uint &a) {
+    return reinterpret_cast<device atomic_uint *>(&a);
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_load(device const int &a) {
-    return atomic_load_explicit(reinterpret_cast<device const atomic_int *>(&a), memory_order_relaxed);
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup int &a) {
+    return reinterpret_cast<threadgroup atomic_int *>(&a);
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_load(device const uint &a) {
-    return atomic_load_explicit(reinterpret_cast<device const atomic_uint *>(&a), memory_order_relaxed);
-}
-
-[[gnu::always_inline]] inline auto atomic_fetch_add(device int &a, int val) {
-    return atomic_fetch_add_explicit(reinterpret_cast<device atomic_int *>(&a), val, memory_order_relaxed);
-}
-
-[[gnu::always_inline]] inline auto atomic_fetch_add(device uint &a, uint val) {
-    return atomic_fetch_add_explicit(reinterpret_cast<device atomic_uint *>(&a), val, memory_order_relaxed);
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup uint &a) {
+    return reinterpret_cast<threadgroup atomic_uint *>(&a);
 }
 
 )";

@@ -295,6 +295,10 @@ class Callable<Ret(Args...)> {
         "Callables may not return buffers, "
         "images or volumes (or their views).");
 
+    static_assert(
+        std::negation_v<std::disjunction<is_atomic<Args>...>>,
+        "Callables are not allowed to have atomic arguments.");
+
 private:
     Function _function;
 

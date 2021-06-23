@@ -27,10 +27,10 @@ class BufferView;
 
 namespace detail {
 
-template<typename T>
+template<typename>
 struct BufferAsAtomic {};
 
-template<typename T>
+template<typename>
 struct BufferViewAsAtomic {};
 
 }// namespace detail
@@ -181,7 +181,7 @@ namespace detail {
 template<>
 struct BufferViewAsAtomic<int> {
     template<typename I>
-    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return Expr<Atomic<int>>{static_cast<const BufferView<int> &>(*this)[std::forward<I>(i)].expression()};
     }
 };
@@ -189,7 +189,7 @@ struct BufferViewAsAtomic<int> {
 template<>
 struct BufferViewAsAtomic<uint> {
     template<typename I>
-    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return Expr<Atomic<uint>>{static_cast<const BufferView<uint> &>(*this)[std::forward<I>(i)].expression()};
     }
 };
@@ -197,16 +197,16 @@ struct BufferViewAsAtomic<uint> {
 template<>
 struct BufferAsAtomic<int> {
     template<typename I>
-    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
-        return static_cast<const Buffer<int> *>(this)->view().as_atomic(std::forward<I>(i));
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
+        return static_cast<const Buffer<int> *>(this)->view().atomic(std::forward<I>(i));
     }
 };
 
 template<>
 struct BufferAsAtomic<uint> {
     template<typename I>
-    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
-        return static_cast<const Buffer<uint> *>(this)->view().as_atomic(std::forward<I>(i));
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
+        return static_cast<const Buffer<uint> *>(this)->view().atomic(std::forward<I>(i));
     }
 };
 

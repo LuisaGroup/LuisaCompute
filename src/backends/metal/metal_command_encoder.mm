@@ -37,7 +37,7 @@ void MetalCommandEncoder::visit(const BufferUploadCommand *command) noexcept {
 void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     auto buffer = _device->buffer(command->handle());
     auto size = command->size();
-    auto temporary = _allocate_temporary_buffer(nullptr, command->size());
+    auto temporary = _allocate_temporary_buffer(nullptr, size);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:buffer
                     sourceOffset:command->offset()
@@ -47,7 +47,7 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     [blit_encoder endEncoding];
     auto host_ptr = command->data();
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-      std::memcpy(host_ptr, temporary.contents, command->size());
+      std::memcpy(host_ptr, temporary.contents, size);
     }];
 }
 
@@ -78,7 +78,7 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y * size.z;
     auto texture = _device->texture(command->handle());
-    auto [buffer, buffer_offset] = _wrap_output_buffer(command->data(), image_bytes);
+    auto buffer = _allocate_temporary_buffer(nullptr, image_bytes);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromTexture:texture
                       sourceSlice:0u
@@ -86,10 +86,15 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
                      sourceOrigin:MTLOriginMake(offset.x, offset.y, offset.z)
                        sourceSize:MTLSizeMake(size.x, size.y, size.z)
                          toBuffer:buffer
-                destinationOffset:buffer_offset
+                destinationOffset:0u
            destinationBytesPerRow:pitch_bytes
          destinationBytesPerImage:image_bytes];
     [blit_encoder endEncoding];
+
+    auto host_ptr = command->data();
+    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+      std::memcpy(host_ptr, buffer.contents, image_bytes);
+    }];
 }
 
 void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {

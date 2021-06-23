@@ -32,16 +32,21 @@ int main(int argc, char *argv[]) {
 #endif
 
     auto buffer = device.create_buffer<uint>(1u);
-    Kernel1D count = [&buffer] {
-        Var x = buffer.as_atomic(0).fetch_add(1u);
+    Kernel1D count = [](BufferUInt buffer) noexcept {
+        Var x = buffer.atomic(0).fetch_add(1u);
     };
     device.compile(count);
 
     auto host_buffer = 0u;
     auto stream = device.create_stream();
-    stream << count().launch(1024u)
+
+    Clock clock;
+    clock.tic();
+    stream << buffer.copy_from(&host_buffer)
+           << count(buffer).launch(102400u)
            << buffer.copy_to(&host_buffer);
     stream.synchronize();
+    auto time = clock.toc();
 
-    std::cout << "Count: " << host_buffer << std::endl;
+    LUISA_INFO("Count: {}, Time: {} ms", host_buffer, time);
 }

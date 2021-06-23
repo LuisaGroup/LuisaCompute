@@ -251,7 +251,7 @@ struct Expr<BufferView<T>> : public Expr<Buffer<T>> {
 template<>
 struct BufferExprAsAtomic<int> {
     template<typename I>
-    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return Expr<Atomic<int>>{static_cast<const Expr<Buffer<int>> &>(*this)[i].expression()};
     }
 };
@@ -259,7 +259,7 @@ struct BufferExprAsAtomic<int> {
 template<>
 struct BufferExprAsAtomic<uint> {
     template<typename I>
-    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return Expr<Atomic<uint>>{static_cast<const Expr<Buffer<uint>> &>(*this)[i].expression()};
     }
 };

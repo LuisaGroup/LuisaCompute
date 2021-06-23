@@ -105,16 +105,6 @@ struct Var<VolumeView<T>> : public detail::Expr<Volume<T>> {
 };
 
 template<typename T>
-struct Var<Atomic<T>> : public detail::Expr<Atomic<T>> {
-    explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Atomic<T>>{FunctionBuilder::current()->argument(Type::of<Atomic<T>>())} {}
-    Var(Var &&) noexcept = default;
-    Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
-};
-
-template<typename T>
 Var(detail::Expr<T>) -> Var<T>;
 
 template<typename T>
@@ -131,9 +121,6 @@ using ImageVar = Var<Image<T>>;
 
 template<typename T>
 using VolumeVar = Var<Volume<T>>;
-
-template<typename T>
-using AtomicVar = Var<Atomic<T>>;
 
 using Int = Var<int>;
 using Int2 = Var<int2>;
@@ -227,8 +214,5 @@ using VolumeFloat = VolumeVar<float>;
 using VolumeFloat2 = VolumeVar<float2>;
 using VolumeFloat3 = VolumeVar<float3>;
 using VolumeFloat4 = VolumeVar<float4>;
-
-using AtomicInt = AtomicVar<int>;
-using AtomicUInt = AtomicVar<uint>;
 
 }// namespace luisa::compute
