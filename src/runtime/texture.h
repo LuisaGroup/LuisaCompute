@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <core/mathematics.h>
+
 namespace luisa::compute {
 
 class TextureView;
@@ -21,6 +23,11 @@ namespace detail {
 }// namespace detail
 
 class Texture {
+
+};
+
+class TextureView {
+
 };
 
 class TextureHeap {

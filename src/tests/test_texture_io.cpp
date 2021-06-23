@@ -29,16 +29,25 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
+    Callable linear_to_srgb = [](Var<float4> linear) noexcept {
+        Var x = linear.xyz();
+        return make_float4(
+            select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                   12.92f * x,
+                   x <= 0.00031308f),
+            linear.w);
+    };
+
     Kernel2D clear_image = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
         Var rg = make_float2(coord) / make_float2(launch_size().xy());
-        image.write(coord, make_float4(make_float2(0.7f,0.5f), 1.0f, 1.0f));
+        image.write(coord, make_float4(make_float2(0.9f, 0.5f), 1.0f, 1.0f));
     };
 
-    Kernel2D fill_image = [](ImageVar<float> image) noexcept {
+    Kernel2D fill_image = [&linear_to_srgb](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
         Var rg = make_float2(coord) / make_float2(launch_size().xy());
-        image.write(coord, make_float4(rg, 1.0f, 1.0f));
+        image.write(coord, linear_to_srgb(make_float4(rg, 1.0f, 1.0f)));
     };
 
     device.compile(clear_image, fill_image);
