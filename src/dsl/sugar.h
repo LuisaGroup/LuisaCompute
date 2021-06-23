@@ -55,6 +55,10 @@
 #define $buffer ::luisa::compute::BufferVar
 #define $image ::luisa::compute::ImageVar
 #define $volume ::luisa::compute::VolumeVar
+#define $atomic ::luisa::compute::AtomicVar
+
+#define $atomic_int ::luisa::compute::AtomicInt
+#define $atomic_uint ::luisa::compute::AtomicUInt
 
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()

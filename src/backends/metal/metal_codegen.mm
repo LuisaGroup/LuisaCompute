@@ -816,6 +816,30 @@ template<typename T>
   device_memory_barrier();
 }
 
+[[gnu::always_inline]] inline void atomic_store(device int &a, int val) {
+    atomic_store_explicit(reinterpret_cast<device atomic_int *>(&a), val, memory_order_relaxed);
+}
+
+[[gnu::always_inline]] inline void atomic_store(device uint &a, uint val) {
+    atomic_store_explicit(reinterpret_cast<device atomic_uint *>(&a), val, memory_order_relaxed);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_load(device const int &a) {
+    return atomic_load_explicit(reinterpret_cast<device const atomic_int *>(&a), memory_order_relaxed);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_load(device const uint &a) {
+    return atomic_load_explicit(reinterpret_cast<device const atomic_uint *>(&a), memory_order_relaxed);
+}
+
+[[gnu::always_inline]] inline auto atomic_fetch_add(device int &a, int val) {
+    return atomic_fetch_add_explicit(reinterpret_cast<device atomic_int *>(&a), val, memory_order_relaxed);
+}
+
+[[gnu::always_inline]] inline auto atomic_fetch_add(device uint &a, uint val) {
+    return atomic_fetch_add_explicit(reinterpret_cast<device atomic_uint *>(&a), val, memory_order_relaxed);
+}
+
 )";
 }
 

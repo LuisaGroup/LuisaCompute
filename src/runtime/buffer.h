@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/atomic.h>
 #include <core/concepts.h>
 #include <runtime/command.h>
 #include <runtime/device.h>
@@ -24,8 +25,18 @@ class BufferView;
     static_assert(std::is_trivially_destructible_v<T>);       \
     static_assert(!concepts::atomic<T>);
 
+namespace detail {
+
 template<typename T>
-class Buffer : public concepts::Noncopyable {
+struct BufferAsAtomic {};
+
+template<typename T>
+struct BufferViewAsAtomic {};
+
+}// namespace detail
+
+template<typename T>
+class Buffer : public concepts::Noncopyable, public detail::BufferAsAtomic<T> {
 
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
@@ -81,7 +92,7 @@ public:
 };
 
 template<typename T>
-class BufferView {
+class BufferView : public detail::BufferViewAsAtomic<T> {
 
 private:
     uint64_t _handle;
@@ -164,6 +175,42 @@ BufferView(const Buffer<T> &) -> BufferView<T>;
 
 template<typename T>
 BufferView(BufferView<T>) -> BufferView<T>;
+
+namespace detail {
+
+template<>
+struct BufferViewAsAtomic<int> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+        return Expr<Atomic<int>>{static_cast<const BufferView<int> &>(*this)[std::forward<I>(i)].expression()};
+    }
+};
+
+template<>
+struct BufferViewAsAtomic<uint> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+        return Expr<Atomic<uint>>{static_cast<const BufferView<uint> &>(*this)[std::forward<I>(i)].expression()};
+    }
+};
+
+template<>
+struct BufferAsAtomic<int> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+        return static_cast<const Buffer<int> *>(this)->view().as_atomic(std::forward<I>(i));
+    }
+};
+
+template<>
+struct BufferAsAtomic<uint> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+        return static_cast<const Buffer<uint> *>(this)->view().as_atomic(std::forward<I>(i));
+    }
+};
+
+}// namespace detail
 
 #undef LUISA_CHECK_BUFFER_ELEMENT_TYPE
 

@@ -24,3 +24,6 @@ target_link_libraries(test_texture_io PRIVATE luisa::compute)
 
 add_executable(test_builtin test_builtin.cpp)
 target_link_libraries(test_builtin PRIVATE luisa::compute)
+
+add_executable(test_atomic test_atomic.cpp)
+target_link_libraries(test_atomic PRIVATE luisa::compute)

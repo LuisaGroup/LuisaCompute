@@ -143,7 +143,13 @@ const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
 }
 
 const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
-    Variable v{type, _tag == Function::Tag::KERNEL ? Variable::Tag::UNIFORM : Variable::Tag::LOCAL, _next_variable_uid()};
+    if (_tag == Function::Tag::KERNEL && type->is_atomic()) {
+        LUISA_ERROR_WITH_LOCATION("Kernels are not allowed to have atomic uniforms.");
+    }
+    auto variable_tag = _tag == Function::Tag::KERNEL
+                            ? Variable::Tag::UNIFORM
+                            : Variable::Tag::LOCAL;
+    Variable v{type, variable_tag, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }

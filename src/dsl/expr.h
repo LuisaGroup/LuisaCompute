@@ -207,8 +207,11 @@ struct Expr<Vector<T, 4>> : public ExprBase<Vector<T, 4>> {
 #include <dsl/swizzle_4.inl.h>
 };
 
+template<typename>
+struct BufferExprAsAtomic {};
+
 template<typename T>
-struct Expr<Buffer<T>> {
+struct Expr<Buffer<T>> : public BufferExprAsAtomic<T> {
 
 public:
     using ValueType = Buffer<T>;
@@ -243,6 +246,22 @@ public:
 template<typename T>
 struct Expr<BufferView<T>> : public Expr<Buffer<T>> {
     using Expr<Buffer<T>>::Expr;
+};
+
+template<>
+struct BufferExprAsAtomic<int> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+        return Expr<Atomic<int>>{static_cast<const Expr<Buffer<int>> &>(*this)[i].expression()};
+    }
+};
+
+template<>
+struct BufferExprAsAtomic<uint> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) as_atomic(I &&i) const noexcept {
+        return Expr<Atomic<uint>>{static_cast<const Expr<Buffer<uint>> &>(*this)[i].expression()};
+    }
 };
 
 template<typename T>
@@ -342,6 +361,34 @@ public:
 template<typename T>
 struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
     using Expr<Volume<T>>::Expr;
+};
+
+template<typename T>
+struct Expr<Atomic<T>> {
+
+    using ValueType = Atomic<T>;
+
+private:
+    const Expression *_expression{nullptr};
+
+public:
+    explicit Expr(const Expression *expr) noexcept : _expression{expr} {}
+    [[nodiscard]] auto expression() const noexcept { return _expression; }
+
+    // TODO: atomic ops
+    void store(Expr<T> value) const noexcept {
+        FunctionBuilder::current()->call(CallOp::ATOMIC_STORE, {this->_expression, value.expression()});
+    }
+
+    [[nodiscard]] auto load() const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_LOAD, {this->_expression});
+        return Expr<T>{expr};
+    };
+
+    auto fetch_add(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_ADD, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
 };
 
 // deduction guides

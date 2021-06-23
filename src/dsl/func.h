@@ -181,13 +181,27 @@ template<size_t N>
 
 }// namespace detail
 
+template<typename T>
+struct is_kernel : std::false_type {};
+
+template<typename T>
+struct is_callable : std::false_type {};
+
 #define LUISA_MAKE_KERNEL_ND(N)                                                                                \
     template<typename T>                                                                                       \
     class Kernel##N##D {                                                                                       \
         static_assert(always_false_v<T>);                                                                      \
     };                                                                                                         \
+                                                                                                               \
+    template<typename T>                                                                                       \
+    struct is_kernel<Kernel##N##D<T>> : std::true_type {};                                                     \
+                                                                                                               \
     template<typename... Args>                                                                                 \
     class Kernel##N##D<void(Args...)> {                                                                        \
+                                                                                                               \
+        static_assert(                                                                                         \
+            std::negation_v<std::disjunction<is_atomic<Args>...>>,                                             \
+            "Kernels are not allowed to have atomic arguments.");                                              \
                                                                                                                \
     private:                                                                                                   \
         Function _function;                                                                                    \
@@ -198,7 +212,12 @@ template<size_t N>
                                                                                                                \
         [[nodiscard]] auto function_uid() const noexcept { return _function.uid(); }                           \
                                                                                                                \
-        template<typename Def>                                                                                 \
+        template<typename Def,                                                                                 \
+                 std::enable_if_t<                                                                             \
+                     std::conjunction_v<                                                                       \
+                         std::negation<is_callable<std::remove_cvref_t<Def>>>,                                 \
+                         std::negation<is_kernel<std::remove_cvref_t<Def>>>>,                                  \
+                     int> = 0>                                                                                 \
         requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>          \
             Kernel##N##D(Def &&def) noexcept                                                                   \
             : _function{FunctionBuilder::define_kernel([&def] {                                                \
@@ -262,6 +281,9 @@ class Callable {
     static_assert(always_false_v<T>);
 };
 
+template<typename T>
+struct is_callable<Callable<T>> : std::true_type {};
+
 template<typename Ret, typename... Args>
 class Callable<Ret(Args...)> {
 
@@ -280,9 +302,15 @@ public:
     Callable(Callable &&) noexcept = default;
     Callable(const Callable &) noexcept = default;
 
-    template<typename Def>
+    template<typename Def,
+             std::enable_if_t<
+                 std::conjunction_v<
+                     std::negation<is_callable<std::remove_cvref_t<Def>>>,
+                     std::negation<is_kernel<std::remove_cvref_t<Def>>>>,
+                 int> = 0>
     requires concepts::invocable<Def, detail::prototype_to_creation_t<Args>...>
-    Callable(Def &&def) noexcept
+    Callable(Def &&def)
+    noexcept
         : _function{FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
                   std::apply(
