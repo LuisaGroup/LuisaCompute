@@ -17,7 +17,15 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
     if (is_builtin()) {
         if (_op == CallOp::TEXTURE_WRITE
             || _op == CallOp::ATOMIC_STORE
-            || _op == CallOp::ATOMIC_FETCH_ADD) {
+            || _op == CallOp::ATOMIC_EXCHANGE
+            || _op == CallOp::ATOMIC_COMPARE_EXCHANGE
+            || _op == CallOp::ATOMIC_FETCH_ADD
+            || _op == CallOp::ATOMIC_FETCH_SUB
+            || _op == CallOp::ATOMIC_FETCH_AND
+            || _op == CallOp::ATOMIC_FETCH_OR
+            || _op == CallOp::ATOMIC_FETCH_XOR
+            || _op == CallOp::ATOMIC_FETCH_MIN
+            || _op == CallOp::ATOMIC_FETCH_MAX) {
             _arguments[0]->mark(Variable::Usage::WRITE);
             for (auto i = 1u; i < _arguments.size(); i++) {
                 _arguments[i]->mark(Variable::Usage::READ);

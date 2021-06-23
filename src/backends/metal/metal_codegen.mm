@@ -877,6 +877,22 @@ template<typename T>
   return reinterpret_cast<threadgroup atomic_uint *>(&a);
 }
 
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device const int &a) {
+  return reinterpret_cast<device const atomic_int *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device const uint &a) {
+  return reinterpret_cast<device const atomic_uint *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const int &a) {
+  return reinterpret_cast<threadgroup const atomic_int *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const uint &a) {
+  return reinterpret_cast<threadgroup const atomic_uint *>(&a);
+}
+
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(device atomic_int *a, int cmp, int val, memory_order) {
   atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
   return cmp;

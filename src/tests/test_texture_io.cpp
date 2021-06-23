@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     Kernel2D clear_image = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
         Var rg = make_float2(coord) / make_float2(launch_size().xy());
-        image.write(coord, make_float4(make_float2(0.9f, 0.5f), 1.0f, 1.0f));
+        image.write(coord, make_float4(make_float2(0.3f, 0.4f), 0.5f, 1.0f));
     };
 
     Kernel2D fill_image = [&linear_to_srgb](ImageVar<float> image) noexcept {
