@@ -24,7 +24,7 @@ void MetalCommandEncoder::visit(const BufferCopyCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const BufferUploadCommand *command) noexcept {
     auto buffer = _device->buffer(command->handle());
-    auto temporary = _allocate_input_buffer(command->data(), command->size());
+    auto temporary = _allocate_temporary_buffer(command->data(), command->size());
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temporary
                     sourceOffset:0u
@@ -37,14 +37,18 @@ void MetalCommandEncoder::visit(const BufferUploadCommand *command) noexcept {
 void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     auto buffer = _device->buffer(command->handle());
     auto size = command->size();
-    auto [temporary, offset] = _wrap_output_buffer(command->data(), size);
+    auto temporary = _allocate_temporary_buffer(nullptr, command->size());
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:buffer
                     sourceOffset:command->offset()
                         toBuffer:temporary
-               destinationOffset:offset
+               destinationOffset:0u
                             size:size];
     [blit_encoder endEncoding];
+    auto host_ptr = command->data();
+    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+      std::memcpy(host_ptr, temporary.contents, command->size());
+    }];
 }
 
 void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
@@ -53,7 +57,7 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y * size.z;
-    auto temporary = _allocate_input_buffer(command->data(), image_bytes);
+    auto temporary = _allocate_temporary_buffer(command->data(), image_bytes);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temporary
                     sourceOffset:0u
@@ -164,34 +168,18 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     }];
 }
 
-inline std::pair<id<MTLBuffer>, size_t> MetalCommandEncoder::_wrap_output_buffer(void *data, size_t size) noexcept {
-
-    auto address = reinterpret_cast<uint64_t>(data);
-    auto page_size = pagesize();
-    auto aligned_begin = address / page_size * page_size;
-    auto aligned_end = (address + size + page_size - 1u) / page_size * page_size;
-
+id<MTLBuffer> MetalCommandEncoder::_allocate_temporary_buffer(const void *data, size_t size) noexcept {
     Clock clock;
-    auto temporary = [_device->handle() newBufferWithBytesNoCopy:reinterpret_cast<void *>(aligned_begin)
-                                                          length:aligned_end - aligned_begin
+    auto temporary = data == nullptr
+                         ? [_device->handle() newBufferWithLength:size
+                                                          options:MTLResourceStorageModeShared
+                                                                  | MTLResourceHazardTrackingModeUntracked]
+                         : [_device->handle() newBufferWithBytes:data
+                                                          length:size
                                                          options:MTLResourceStorageModeShared
-                                                                 | MTLResourceHazardTrackingModeUntracked
-                                                     deallocator:nullptr];
+                                                                 | MTLResourceHazardTrackingModeUntracked];
     LUISA_VERBOSE_WITH_LOCATION(
-        "Wrapped receiver pointer into temporary shared buffer with size {} in {} ms.",
-        size, clock.toc());
-
-    return {temporary, aligned_begin - address};
-}
-
-id<MTLBuffer> MetalCommandEncoder::_allocate_input_buffer(const void *data, size_t size) noexcept {
-    Clock clock;
-    auto temporary = [_device->handle() newBufferWithBytes:data
-                                                    length:size
-                                                   options:MTLResourceStorageModeShared
-                                                           | MTLResourceHazardTrackingModeUntracked];
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Allocated temporary shared buffer with size {} in {} ms.",
+        "Allocated temporary buffer with size {} in {} ms.",
         size, clock.toc());
     return temporary;
 }
