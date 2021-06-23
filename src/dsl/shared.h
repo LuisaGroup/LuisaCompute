@@ -13,7 +13,7 @@ namespace detail {
 template<typename>
 struct SharedAsAtomic {};
 
-}
+}// namespace detail
 
 template<typename T>
 class Shared : public detail::SharedAsAtomic<T> {
@@ -42,5 +42,25 @@ public:
     template<concepts::integral U>
     [[nodiscard]] auto operator[](U index) const noexcept { return (*this)[detail::Expr{index}]; }
 };
+
+namespace detail {
+
+template<>
+struct SharedAsAtomic<int> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
+        return Expr<Atomic<int>>{static_cast<const Shared<int> &>(*this)[std::forward<I>(i)].expression()};
+    }
+};
+
+template<>
+struct SharedAsAtomic<uint> {
+    template<typename I>
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
+        return Expr<Atomic<uint>>{static_cast<const Shared<uint> &>(*this)[std::forward<I>(i)].expression()};
+    }
+};
+
+}// namespace detail
 
 }// namespace luisa::compute

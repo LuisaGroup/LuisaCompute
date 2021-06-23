@@ -226,7 +226,7 @@ void MetalCodegen::visit(const CallExpr *expr) {
             is_atomic_op = true;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            _scratch << "atomic_compare_exchange_explicit";
+            _scratch << "atomic_compare_exchange";
             is_atomic_op = true;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
@@ -862,19 +862,39 @@ template<typename T>
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(device int &a) {
-    return reinterpret_cast<device atomic_int *>(&a);
+  return reinterpret_cast<device atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(device uint &a) {
-    return reinterpret_cast<device atomic_uint *>(&a);
+  return reinterpret_cast<device atomic_uint *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup int &a) {
-    return reinterpret_cast<threadgroup atomic_int *>(&a);
+  return reinterpret_cast<threadgroup atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup uint &a) {
-    return reinterpret_cast<threadgroup atomic_uint *>(&a);
+  return reinterpret_cast<threadgroup atomic_uint *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(device atomic_int *a, int cmp, int val, memory_order) {
+  atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
+  return cmp;
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_int *a, int cmp, int val, memory_order) {
+  atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
+  return cmp;
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(device atomic_uint *a, uint cmp, uint val, memory_order) {
+  atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
+  return cmp;
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_uint *a, uint cmp, uint val, memory_order) {
+  atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
+  return cmp;
 }
 
 )";
