@@ -67,8 +67,32 @@ template<typename Dest, typename Src>
     return detail::Expr<uint3>{FunctionBuilder::current()->launch_size()};
 }
 
+[[nodiscard]] inline auto launch_size_x() noexcept {
+    return launch_size().x;
+}
+
+[[nodiscard]] inline auto launch_size_y() noexcept {
+    return launch_size().y;
+}
+
+[[nodiscard]] inline auto launch_size_z() noexcept {
+    return launch_size().z;
+}
+
 [[nodiscard]] inline auto block_size() noexcept {
     return FunctionBuilder::current()->block_size();
+}
+
+[[nodiscard]] inline auto block_size_x() noexcept {
+    return block_size().x;
+}
+
+[[nodiscard]] inline auto block_size_y() noexcept {
+    return block_size().y;
+}
+
+[[nodiscard]] inline auto block_size_z() noexcept {
+    return block_size().z;
 }
 
 inline void set_block_size(uint x, uint y = 1u, uint z = 1u) noexcept {

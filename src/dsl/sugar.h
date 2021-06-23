@@ -21,7 +21,13 @@
 #define $dispatch_y ::luisa::compute::dispatch_y()
 #define $dispatch_z ::luisa::compute::dispatch_z()
 #define $launch_size ::luisa::compute::launch_size()
+#define $launch_size_x ::luisa::compute::launch_size_x()
+#define $launch_size_y ::luisa::compute::launch_size_y()
+#define $launch_size_z ::luisa::compute::launch_size_z()
 #define $block_size ::luisa::compute::block_size()
+#define $block_size_x ::luisa::compute::block_size_x()
+#define $block_size_y ::luisa::compute::block_size_y()
+#define $block_size_z ::luisa::compute::block_size_z()
 
 #define $int $<int>
 #define $uint $<uint>
