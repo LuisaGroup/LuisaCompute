@@ -325,12 +325,12 @@ public:
                       std::apply(
                           std::forward<Def>(def),
                           std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
-                  FunctionBuilder::current()->return_(ret.expression());
+                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
               } else {
                   auto ret = std::apply(
                       std::forward<Def>(def),
                       std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-                  FunctionBuilder::current()->return_(ret.expression());
+                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
               }
           })} {}
 

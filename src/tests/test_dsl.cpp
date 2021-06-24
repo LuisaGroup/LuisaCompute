@@ -16,6 +16,7 @@
 
 #include <tests/fake_device.h>
 #include <backends/dx/Common/FunctorMeta.h>
+#include <rtx/ray.h>
 
 using namespace luisa;
 using namespace luisa::compute;

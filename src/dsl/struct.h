@@ -36,5 +36,4 @@ public:                                                                     \
         void operator=(const Expr &rhs) noexcept { ExprBase<S>::operator=(rhs); }                                \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR, __VA_ARGS__)                                                    \
     };                                                                                                           \
-    }                                                                                                            \
-    using $##S = ::luisa::compute::Var<S>;
+    }

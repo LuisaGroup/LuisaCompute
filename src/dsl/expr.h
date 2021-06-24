@@ -504,12 +504,12 @@ LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(!, operator_not, NOT)
 LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(~, operator_bit_not, BIT_NOT)
 #undef LUISA_MAKE_GLOBAL_EXPR_UNARY_OP
 
-#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept)                   \
-    template<luisa::concepts::basic Lhs, typename Rhs>                     \
-    requires luisa::concepts::op_concept<Lhs, Rhs>                         \
-    [[nodiscard]] inline auto                                              \
-    operator op(Lhs lhs, luisa::compute::detail::Expr<Rhs> rhs) noexcept { \
-        return luisa::compute::detail::Expr{lhs} op rhs;                   \
+#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept)                          \
+    template<typename Lhs, typename Rhs>                                          \
+    requires luisa::concepts::basic<Lhs> && luisa::concepts::op_concept<Lhs, Rhs> \
+    [[nodiscard]] inline auto                                                     \
+    operator op(Lhs lhs, luisa::compute::detail::Expr<Rhs> rhs) noexcept {        \
+        return luisa::compute::detail::Expr{lhs} op rhs;                          \
     }
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(+, operator_add)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(-, operator_sub)
@@ -523,8 +523,6 @@ LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<<, operator_shift_left)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>>, operator_shift_right)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(&&, operator_and)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(||, operator_or)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(==, operator_equal)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(!=, operator_not_equal)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<, operator_less)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<=, operator_less_equal)
 LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>, operator_greater)

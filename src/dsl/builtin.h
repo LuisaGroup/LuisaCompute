@@ -427,6 +427,21 @@ template<concepts::scalar T, size_t N>
             {false_value.expression(), true_value.expression(), pred.expression()})};
 }
 
+template<typename T>
+[[nodiscard]] inline auto ite(detail::Expr<bool> pred, detail::Expr<T> true_value, detail::Expr<T> false_value) noexcept {
+    return select(false_value, true_value, pred);
+}
+
+template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto ite(detail::Expr<Vector<bool, N>> pred, detail::Expr<Vector<T, N>> true_value, detail::Expr<Vector<T, N>> false_value) noexcept {
+    return select(false_value, true_value, pred);
+}
+
+template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto ite(detail::Expr<Vector<bool, N>> pred, detail::Expr<T> true_value, detail::Expr<T> false_value) noexcept {
+    return select(false_value, true_value, pred);
+}
+
 template<concepts::scalar T>
 [[nodiscard]] inline auto clamp(detail::Expr<T> value, detail::Expr<T> lb, detail::Expr<T> ub) noexcept {
     return detail::Expr<T>{
