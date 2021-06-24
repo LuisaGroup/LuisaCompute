@@ -294,6 +294,9 @@ template<concepts::scalar T>
 }
 
 #define LUISA_MAKE_VECTOR(type)                                                                                \
+    [[nodiscard]] inline auto make_##type##2(type s) noexcept {                                                \
+        return make_vector2(detail::Expr{s});                                                                  \
+    }                                                                                                          \
     [[nodiscard]] inline auto make_##type##2(detail::Expr<type> s) noexcept {                                  \
         return make_vector2(s);                                                                                \
     }                                                                                                          \
@@ -319,6 +322,9 @@ template<concepts::scalar T>
         detail::Expr<type> x, detail::Expr<type> y, detail::Expr<type> z) noexcept {                           \
         return make_vector3(x, y, z);                                                                          \
     }                                                                                                          \
+    [[nodiscard]] inline auto make_##type##3(type s) noexcept {                                                \
+        return make_vector3(detail::Expr{s});                                                                  \
+    }                                                                                                          \
     [[nodiscard]] inline auto make_##type##3(detail::Expr<type> s) noexcept {                                  \
         return make_vector3(s);                                                                                \
     }                                                                                                          \
@@ -340,6 +346,12 @@ template<concepts::scalar T>
         }                                                                                                      \
     }                                                                                                          \
                                                                                                                \
+    [[nodiscard]] inline auto make_##type##4(type s) noexcept {                                                \
+        return make_vector4(detail::Expr{s});                                                                  \
+    }                                                                                                          \
+    [[nodiscard]] inline auto make_##type##4(detail::Expr<type> s) noexcept {                                  \
+        return make_vector4(s);                                                                                \
+    }                                                                                                          \
     [[nodiscard]] inline auto make_##type##4(                                                                  \
         detail::Expr<type> x, detail::Expr<type> y, detail::Expr<type> z, detail::Expr<type> w) noexcept {     \
         return make_vector4(x, y, z, w);                                                                       \
@@ -1019,9 +1031,9 @@ template<size_t N>
 
 template<size_t N>
 [[nodiscard]] inline auto normalize(detail::Expr<Vector<float, N>> u) noexcept {
-    return detail::Expr<float>{
+    return detail::Expr<Vector<float, N>>{
         FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::NORMALIZE, {u.expression()})};
+            Type::of<Vector<float, N>>(), CallOp::NORMALIZE, {u.expression()})};
 }
 
 [[nodiscard]] inline auto faceforward(detail::Expr<float3> n, detail::Expr<float3> i, detail::Expr<float3> n_ref) noexcept {

@@ -27,3 +27,9 @@ target_link_libraries(test_builtin PRIVATE luisa::compute)
 
 add_executable(test_atomic test_atomic.cpp)
 target_link_libraries(test_atomic PRIVATE luisa::compute)
+
+find_package(OpenCV CONFIG)
+if (OpenCV_FOUND)
+    add_executable(test_shader_toy test_shader_toy.cpp)
+    target_link_libraries(test_shader_toy PRIVATE luisa::compute ${OpenCV_LIBS})
+endif ()

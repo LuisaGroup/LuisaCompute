@@ -238,7 +238,7 @@ inline void break_() noexcept { FunctionBuilder::current()->break_(); }
 inline void continue_() noexcept { FunctionBuilder::current()->continue_(); }
 
 template<typename True>
-[[nodiscard]] inline auto if_(detail::Expr<bool> condition, True &&t) noexcept {
+inline auto if_(detail::Expr<bool> condition, True &&t) noexcept {
     return detail::IfStmtBuilder{condition} % std::forward<True>(t);
 }
 
@@ -248,7 +248,7 @@ inline void while_(detail::Expr<bool> condition, Body &&body) noexcept {
 }
 
 template<typename T>
-[[nodiscard]] inline auto switch_(T &&expr) noexcept {
+inline auto switch_(T &&expr) noexcept {
     return detail::SwitchStmtBuilder{std::forward<T>(expr)};
 }
 

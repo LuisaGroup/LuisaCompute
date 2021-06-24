@@ -21,7 +21,6 @@ public:
     [[nodiscard]] auto end() const noexcept { return _commands.cend(); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }
     [[nodiscard]] auto size() const noexcept { return _commands.size(); }
-    // TODO: reordering commands?
 };
 
 }// namespace luisa::compute

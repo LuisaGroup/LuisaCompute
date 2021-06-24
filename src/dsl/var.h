@@ -190,29 +190,11 @@ using BufferBool3 = BufferVar<bool3>;
 using BufferBool4 = BufferVar<bool4>;
 
 using ImageInt = ImageVar<int>;
-using ImageInt2 = ImageVar<int2>;
-using ImageInt3 = ImageVar<int3>;
-using ImageInt4 = ImageVar<int4>;
 using ImageUInt = ImageVar<uint>;
-using ImageUInt2 = ImageVar<uint2>;
-using ImageUInt3 = ImageVar<uint3>;
-using ImageUInt4 = ImageVar<uint4>;
 using ImageFloat = ImageVar<float>;
-using ImageFloat2 = ImageVar<float2>;
-using ImageFloat3 = ImageVar<float3>;
-using ImageFloat4 = ImageVar<float4>;
 
 using VolumeInt = VolumeVar<int>;
-using VolumeInt2 = VolumeVar<int2>;
-using VolumeInt3 = VolumeVar<int3>;
-using VolumeInt4 = VolumeVar<int4>;
 using VolumeUInt = VolumeVar<uint>;
-using VolumeUInt2 = VolumeVar<uint2>;
-using VolumeUInt3 = VolumeVar<uint3>;
-using VolumeUInt4 = VolumeVar<uint4>;
 using VolumeFloat = VolumeVar<float>;
-using VolumeFloat2 = VolumeVar<float2>;
-using VolumeFloat3 = VolumeVar<float3>;
-using VolumeFloat4 = VolumeVar<float4>;
 
 }// namespace luisa::compute

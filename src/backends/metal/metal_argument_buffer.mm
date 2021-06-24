@@ -17,7 +17,7 @@ MetalArgumentBuffer MetalArgumentBufferPool::allocate() noexcept {
 
 void MetalArgumentBufferPool::recycle(MetalArgumentBuffer buffer) noexcept {
     std::scoped_lock lock{_mutex};
-    _available_buffers.emplace_back(buffer);
+    _available_buffers.emplace_back(std::move(buffer));
 }
 
 void MetalArgumentBufferPool::_create_new_trunk_if_empty() noexcept {

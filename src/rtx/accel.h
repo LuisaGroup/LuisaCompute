@@ -4,6 +4,10 @@
 
 #pragma once
 
+namespace luisa::compute {
+
 class Accel {
 
 };
+
+}
