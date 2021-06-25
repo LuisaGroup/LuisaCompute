@@ -20,7 +20,7 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
-//    log_level_verbose();
+    log_level_verbose();
 
     Context context{argv[0]};
 
@@ -92,8 +92,8 @@ int main(int argc, char *argv[]) {
 
     device.compile(clear, shader);
 
-    static constexpr auto width = 3840u;
-    static constexpr auto height = 2160u;
+    static constexpr auto width = 1024u;
+    static constexpr auto height = 1024u;
     static constexpr auto fps = 24.0f;
     static constexpr auto frame_time = 1.0f / fps;
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
@@ -117,7 +117,8 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Frame #{} ({}%): {} ms", i++, (time + frame_time) / max_time * 100.0f, clock.toc());
         cv::cvtColor(host_image, frame, cv::COLOR_BGRA2BGR);
         video.write(frame);
-//        cv::imshow("Display", frame);
+        cv::imshow("Display", frame);
+        cv::waitKey(1);
         time += frame_time;
     }
     video.release();
