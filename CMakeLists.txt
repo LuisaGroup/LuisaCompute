@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.18...3.20)
+cmake_policy(VERSION 3.18)
+
 project(LuisaCompute LANGUAGES C CXX VERSION 0.1)
 
 if(NOT DEFINED LUISA_COMPUTE_MASTER_PROJECT)
