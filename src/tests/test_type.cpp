@@ -10,7 +10,6 @@
 #include <iostream>
 
 #include <spdlog/spdlog.h>
-#include <fmt/format.h>
 
 #include <core/logging.h>
 #include <core/memory.h>

@@ -10,8 +10,6 @@
 #include <tuple>
 #include <sstream>
 
-#include <fmt/format.h>
-
 #include <core/memory.h>
 #include <core/macro.h>
 #include <core/spin_mutex.h>

@@ -10,8 +10,6 @@
 #include <sstream>
 #include <iostream>
 
-#include <fmt/format.h>
-
 #include <core/clock.h>
 #include <core/platform.h>
 #include <core/logging.h>
