@@ -33,4 +33,6 @@ target_link_libraries(luisa-compute INTERFACE
 
 add_library(luisa::compute ALIAS luisa-compute)
 
-add_subdirectory(tests)
+if (LUISA_COMPUTE_BUILD_TESTS)
+    add_subdirectory(tests)
+endif ()
