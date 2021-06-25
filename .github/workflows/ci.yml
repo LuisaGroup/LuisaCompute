@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          submodules: true
+          submodules: recursive
       - name: "Install Dependencies"
         run: |
           sudo apt-get purge --auto-remove cmake
@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          submodules: true
+          submodules: recursive
       - name: "Install Dependencies"
         run: |
           brew install cmake ninja opencv pybind11 llvm
@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          submodules: true
+          submodules: recursive
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
