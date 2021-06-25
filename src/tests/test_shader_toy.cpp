@@ -20,6 +20,8 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
+//    log_level_verbose();
+
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_METAL_ENABLED)
@@ -90,8 +92,8 @@ int main(int argc, char *argv[]) {
 
     device.compile(clear, shader);
 
-    static constexpr auto width = 1280u;
-    static constexpr auto height = 720u;
+    static constexpr auto width = 3840u;
+    static constexpr auto height = 2160u;
     static constexpr auto fps = 24.0f;
     static constexpr auto frame_time = 1.0f / fps;
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
@@ -105,16 +107,17 @@ int main(int argc, char *argv[]) {
 
     auto i = 0u;
     auto time = 0.0f;
+    constexpr auto max_time = 60.0f;
     cv::Mat frame;
-    while (cv::waitKey(1) != 'q' && time < 60.0f) {
+    while (time < max_time) {
         Clock clock;
         stream << shader(device_image, time).launch(width, height)
                << device_image.copy_to(host_image.data);
         stream.synchronize();
-        LUISA_INFO("Frame #{} ({}%): {} ms", i++, time / 60.0f * 100.0f, clock.toc());
-        cv::cvtColor(host_image, frame, cv::COLOR_RGBA2BGR);
+        LUISA_INFO("Frame #{} ({}%): {} ms", i++, (time + frame_time) / max_time * 100.0f, clock.toc());
+        cv::cvtColor(host_image, frame, cv::COLOR_BGRA2BGR);
         video.write(frame);
-        cv::imshow("Display", frame);
+//        cv::imshow("Display", frame);
         time += frame_time;
     }
     video.release();
