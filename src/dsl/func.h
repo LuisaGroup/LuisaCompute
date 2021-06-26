@@ -157,12 +157,18 @@ struct KernelInvoke2D : public KernelInvoke {
     [[nodiscard]] auto launch(uint size_x, uint size_y) noexcept {
         return _parallelize(uint3{size_x, size_y, 1u});
     }
+    [[nodiscard]] auto launch(uint2 size) noexcept {
+        return launch(size.x, size.y);
+    }
 };
 
 struct KernelInvoke3D : public KernelInvoke {
     explicit KernelInvoke3D(uint32_t uid) noexcept : KernelInvoke{uid} {}
     [[nodiscard]] auto launch(uint size_x, uint size_y, uint size_z) noexcept {
         return _parallelize(uint3{size_x, size_y, size_z});
+    }
+    [[nodiscard]] auto launch(uint3 size) noexcept {
+        return launch(size.x, size.y, size.z);
     }
 };
 
@@ -307,32 +313,32 @@ public:
     Callable(const Callable &) noexcept = default;
 
     template<typename Def,
-             std::enable_if_t<
-                 std::conjunction_v<
-                     std::negation<is_callable<std::remove_cvref_t<Def>>>,
-                     std::negation<is_kernel<std::remove_cvref_t<Def>>>>,
-                 int> = 0>
+        std::enable_if_t<
+            std::conjunction_v<
+                std::negation<is_callable<std::remove_cvref_t<Def>>>,
+                std::negation<is_kernel<std::remove_cvref_t<Def>>>>,
+            int> = 0>
     requires concepts::invocable<Def, detail::prototype_to_creation_t<Args>...>
     Callable(Def &&def)
     noexcept
         : _function{FunctionBuilder::define_callable([&def] {
-              if constexpr (std::is_same_v<Ret, void>) {
-                  std::apply(
-                      std::forward<Def>(def),
-                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-              } else if constexpr (detail::is_tuple_v<Ret>) {
-                  auto ret = detail::tuple_to_var(
-                      std::apply(
-                          std::forward<Def>(def),
-                          std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
-                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
-              } else {
-                  auto ret = std::apply(
-                      std::forward<Def>(def),
-                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
-              }
-          })} {}
+      if constexpr (std::is_same_v<Ret, void>) {
+          std::apply(
+              std::forward<Def>(def),
+              std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+      } else if constexpr (detail::is_tuple_v<Ret>) {
+          auto ret = detail::tuple_to_var(
+              std::apply(
+                  std::forward<Def>(def),
+                  std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
+          FunctionBuilder::current()->return_(detail::extract_expression(ret));
+      } else {
+          auto ret = std::apply(
+              std::forward<Def>(def),
+              std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+          FunctionBuilder::current()->return_(detail::extract_expression(ret));
+      }
+    })} {}
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
