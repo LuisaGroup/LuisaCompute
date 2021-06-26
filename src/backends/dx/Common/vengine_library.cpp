@@ -1,5 +1,3 @@
-#include <mimalloc.h>
-
 #include <Common/vstring.h>
 #include <Common/Pool.h>
 #include <mutex>
@@ -10,32 +8,55 @@
 #include <Common/MetaLib.h>
 //#include "BinaryLinkedAllocator.h"
 #include <Common/LinkedList.h>
+#include <string.h>
+#include <Common/VAllocator.h>
+#include <mimalloc.h>
 namespace v_mimalloc {
-funcPtr_t<void*(size_t)> Alloc::mallocFunc = mi_malloc;
-funcPtr_t<void(void*)> Alloc::freeFunc = mi_free;
+funcPtr_t<void*(size_t)> mallocFunc = nullptr;
+funcPtr_t<void(void*)> freeFunc = nullptr;
 static std::atomic_bool memoryInitialized = false;
+static StackObject<DynamicDLL> vengine_malloc_dll;
 }// namespace v_mimalloc
-namespace vengine {
+
 void vengine_init_malloc() {
 	using namespace v_mimalloc;
-	static StackObject<DynamicDLL> vengine_malloc_dll;
 	if (memoryInitialized.exchange(true)) return;
-	Alloc::mallocFunc = mi_malloc;
-	Alloc::freeFunc = mi_free;
-//	vengine_malloc_dll.New("mimalloc-override.dll");
-	/*vengine_malloc_dll->GetDLLFuncFromExample(Alloc::mallocFunc, "mi_malloc");
-	vengine_malloc_dll->GetDLLFuncFromExample(Alloc::freeFunc, "mi_free");*/
-//	vengine_malloc_dll->GetDLLFunc(Alloc::mallocFunc, "mi_malloc");
-//	vengine_malloc_dll->GetDLLFunc(Alloc::freeFunc, "mi_free");
+	vengine_malloc_dll.New("mimalloc-override.dll"_sv);
+	vengine_malloc_dll->GetDLLFunc(mallocFunc, "mi_malloc"_sv);
+	vengine_malloc_dll->GetDLLFunc(freeFunc, "mi_free"_sv);
 }
-void vengine_init_malloc(
+void vengine_init_malloc_path(
+	char const* path) {
+	using namespace v_mimalloc;
+	if (memoryInitialized.exchange(true)) return;
+	vengine_malloc_dll.New(path);
+	vengine_malloc_dll->GetDLLFunc(mallocFunc, "mi_malloc"_sv);
+	vengine_malloc_dll->GetDLLFunc(freeFunc, "mi_free"_sv);
+}
+void vengine_init_malloc_custom(
 	funcPtr_t<void*(size_t)> mallocFunc,
 	funcPtr_t<void(void*)> freeFunc) {
 	using namespace v_mimalloc;
 	if (memoryInitialized.exchange(true)) return;
-	Alloc::mallocFunc = mallocFunc;
-	Alloc::freeFunc = freeFunc;
+	mallocFunc = mallocFunc;
+	freeFunc = freeFunc;
 }
+void* vengine_default_malloc(size_t sz) {
+	return malloc(sz);
+}
+void vengine_default_free(void* ptr) {
+	free(ptr);
+}
+
+void* vengine_malloc(size_t size) {
+	using namespace v_mimalloc;
+	return mi_malloc(size);
+}
+void vengine_free(void* ptr) {
+	using namespace v_mimalloc;
+	mi_free(ptr);
+}
+namespace vengine {
 void* string::string_malloc(size_t sz) {
 	if (sz <= PLACEHOLDERSIZE) {
 		return &localStorage;
@@ -181,6 +202,14 @@ string& string::operator=(char data) noexcept {
 	ptr[1] = 0;
 	return *this;
 }
+string& string::operator=(string_view view) noexcept {
+	size_t cSize = view.size();
+	reserve(cSize + 1);
+	lenSize = cSize;
+	memcpy(ptr, view.c_str(), cSize);
+	ptr[lenSize] = 0;
+	return *this;
+}
 string& string::operator+=(const string& str) noexcept {
 	if (str.ptr) {
 		size_t newCapacity = lenSize + str.lenSize + 1;
@@ -233,6 +262,26 @@ string::string(const string& a, const string& b) noexcept {
 			memcpy(ptr + a.lenSize, b.ptr, b.lenSize);
 		ptr[lenSize] = 0;
 	}
+}
+string::string(string_view a, const string& b) noexcept {
+	size_t newLen = a.size();
+	size_t newLenSize = b.lenSize + newLen;
+	reserve(newLenSize + 1);
+	lenSize = newLenSize;
+	memcpy(ptr, a.c_str(), newLen);
+	if (b.ptr)
+		memcpy(ptr + newLen, b.ptr, b.lenSize);
+	ptr[lenSize] = 0;
+}
+string::string(const string& a, string_view b) noexcept {
+	size_t newLen = b.size();
+	size_t newLenSize = a.lenSize + newLen;
+	reserve(newLenSize + 1);
+	lenSize = newLenSize;
+	if (a.ptr)
+		memcpy(ptr, a.ptr, a.lenSize);
+	memcpy(ptr + a.lenSize, b.c_str(), newLen);
+	ptr[lenSize] = 0;
 }
 string::string(const string& a, const char* b) noexcept {
 	size_t newLen = strlen(b);
@@ -295,19 +344,7 @@ char const& string::operator[](size_t index) const noexcept {
 	return ptr[index];
 }
 bool string::Equal(char const* str, size_t count) const noexcept {
-	size_t bit64Count = count / 8;
-	size_t leftedCount = count - bit64Count * 8;
-	size_t const* value = (size_t const*)str;
-	size_t const* oriValue = (size_t const*)ptr;
-	for (size_t i = 0; i < bit64Count; ++i) {
-		if (value[i] != oriValue[i]) return false;
-	}
-	char const* c = (char const*)(value + bit64Count);
-	char const* oriC = (char const*)(oriValue + bit64Count);
-	for (size_t i = 0; i < leftedCount; ++i) {
-		if (c[i] != oriC[i]) return false;
-	}
-	return true;
+	return memcmp(str, ptr, count) == 0;
 }
 std::ostream& operator<<(std::ostream& out, const string& obj) noexcept {
 	if (!obj.ptr) return out;
@@ -477,6 +514,14 @@ wstring& wstring::operator=(const wchar_t* c) noexcept {
 	ptr[lenSize] = 0;
 	return *this;
 }
+wstring& wstring::operator=(wstring_view data) noexcept {
+	size_t cSize = data.size();
+	reserve(cSize + 1);
+	lenSize = cSize;
+	memcpy(ptr, data.c_str(), cSize * 2);
+	ptr[lenSize] = 0;
+	return *this;
+}
 wstring& wstring::operator=(wchar_t data) noexcept {
 	lenSize = 1;
 	reserve(2);
@@ -557,6 +602,26 @@ wstring::wstring(const wchar_t* a, const wstring& b) noexcept {
 		memcpy(ptr + newLen, b.ptr, b.lenSize * 2);
 	ptr[lenSize] = 0;
 }
+wstring::wstring(wstring_view a, const wstring& b) noexcept {
+	size_t newLen = a.size();
+	size_t newLenSize = b.lenSize + newLen;
+	reserve(newLenSize + 1);
+	lenSize = newLenSize;
+	memcpy(ptr, a.c_str(), newLen * 2);
+	if (b.ptr)
+		memcpy(ptr + newLen, b.ptr, b.lenSize * 2);
+	ptr[lenSize] = 0;
+}
+wstring::wstring(const wstring& a, wstring_view b) noexcept {
+	size_t newLen = b.size();
+	size_t newLenSize = a.lenSize + newLen;
+	reserve(newLenSize + 1);
+	lenSize = newLenSize;
+	if (a.ptr)
+		memcpy(ptr, a.ptr, a.lenSize * 2);
+	memcpy(ptr + a.lenSize, b.c_str(), newLen * 2);
+	ptr[lenSize] = 0;
+}
 wstring::wstring(const wstring& a, wchar_t b) noexcept {
 	size_t newLenSize = a.lenSize + 1;
 	reserve(newLenSize + 1);
@@ -599,19 +664,8 @@ wchar_t const& wstring::operator[](size_t index) const noexcept {
 	return ptr[index];
 }
 bool wstring::Equal(wchar_t const* str, size_t count) const noexcept {
-	size_t bit64Count = count / 8;
-	size_t leftedCount = count - bit64Count * 8;
-	size_t const* value = (size_t const*)str;
-	size_t const* oriValue = (size_t const*)ptr;
-	for (size_t i = 0; i < bit64Count; ++i) {
-		if (value[i] != oriValue[i]) return false;
-	}
-	wchar_t const* c = (wchar_t const*)(value + bit64Count);
-	wchar_t const* oriC = (wchar_t const*)(oriValue + bit64Count);
-	for (size_t i = 0; i < leftedCount; ++i) {
-		if (c[i] != oriC[i]) return false;
-	}
-	return true;
+
+	return memcmp(str, ptr, count * sizeof(wchar_t)) == 0;
 }
 string_view::string_view(vengine::string const& str) : data(str.data()), mSize(str.size()) {}
 wstring_view::wstring_view(vengine::wstring const& str) : data(str.data()), mSize(str.size()) {}
@@ -619,17 +673,22 @@ wstring_view::wstring_view(vengine::wstring const& str) : data(str.data()), mSiz
 #pragma endregion
 }// namespace vengine
 #include <Common/Log.h>
+#include <Windows.h>
 DynamicDLL::DynamicDLL(char const* name) {
-	inst = LoadLibraryA(name);
-	if (inst == nullptr) {
+	inst = reinterpret_cast<size_t>(LoadLibraryA(name));
+	if (inst == 0) {
 		VEngine_Log(
 			{"Can not find DLL ",
 			 name});
-		throw 0;
+		VENGINE_EXIT;
 	}
 }
 DynamicDLL::~DynamicDLL() {
-	FreeLibrary(inst);
+	FreeLibrary(reinterpret_cast<HINSTANCE>(inst));
+}
+
+size_t DynamicDLL::GetFuncPtr(char const* name) {
+	return reinterpret_cast<size_t>(GetProcAddress(reinterpret_cast<HINSTANCE>(inst), name));
 }
 
 vengine::string_view operator"" _sv(char const* str, size_t sz) {

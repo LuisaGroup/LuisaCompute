@@ -12,9 +12,9 @@ private:
 public:
 	char c[32];
 	MGuid();
-	bool operator==(MGuid const& guid)
+	bool operator==(MGuid const& guid) const
 	{
-		return BinaryEqualTo<MGuid>(this, &guid);
+		return memcmp((char const*)this, (char const*)&guid, sizeof(MGuid)) == 0;
 	}
 
 	bool operator!=(MGuid const& guid)

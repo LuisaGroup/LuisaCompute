@@ -6,18 +6,12 @@
 #include <PipelineComponent/DXAllocator.h>
 #include <PipelineComponent/ThreadCommand.h>
 namespace RTAccStructUtil {
-class RemoveMeshFunctor {
-public:
-	int64 offset;
-	luisa::compute::RayTracingManager* current;
-	void operator()(VObject* obj) const {
-		using namespace luisa::compute;
+/*
 		RayTracingManager::Command meshDeleteCmd(
 			RayTracingManager::Command::CommandType::DeleteMesh,
 			obj->GetInstanceID());//Submesh not used
 		current->commands.Push(meshDeleteCmd);
-	}
-};
+*/
 }// namespace RTAccStructUtil
 namespace luisa::compute {
 
@@ -78,13 +72,15 @@ bool RayTracingManager::Avaliable() const {
 	return sepManager.GetElementCount() > 0;
 }
 RayRendererData* RayTracingManager::AddRenderer(
-	ObjectPtr<IMesh>&& meshPtr,
+	IMesh* meshPtr,
 	uint shaderID,
 	uint materialID,
 	float4x4 localToWorldMat) {
 	using namespace RTAccStructUtil;
+	if (!allBottomLevel.Contains(meshPtr->GetVObjectPtr()->GetInstanceID()))
+		return nullptr;
 	RayRendererData* newRender;
-	newRender = rayRenderDataPool.New_Lock(poolMtx, std::move(meshPtr));
+	newRender = rayRenderDataPool.New_Lock(poolMtx, meshPtr);
 	newRender->transformMatrix = localToWorldMat;
 	auto&& inst = newRender->instanceDesc;
 	inst.InstanceID = 0;
@@ -94,49 +90,27 @@ RayRendererData* RayTracingManager::AddRenderer(
 	RayRendererData::MeshObject& meshObj = newRender->meshObj;
 	meshObj.materialID = materialID;
 	meshObj.shaderID = shaderID;
-	IMesh* mesh = newRender->mesh;
-	Command meshBuildCmd(
-		Command::CommandType::AddMesh,
-		mesh);
-	commands.Push(meshBuildCmd);
-	RemoveMeshFunctor remMesh = {
-		mesh->GetVObjectPtrOffset<decltype(mesh)>(),
-		this};
-	mesh->GetVObjectPtr()->AddEventBeforeDispose(std::move(remMesh));
-	sepManager.AddRenderer(newRender, (uint)UpdateOperator::UpdateMesh | (uint)UpdateOperator::UpdateTrans);
+	sepManager.AddRenderer(newRender, 0);
 	return newRender;
 }
 
 void RayTracingManager::UpdateRenderer(
-	ObjectPtr<IMesh>&& mesh,
 	uint shaderID,
 	uint materialID,
 	RayRendererData* renderer) {
 	using namespace RTAccStructUtil;
-	uint custom = (uint)UpdateOperator::UpdateTrans;
 	RayRendererData::MeshObject& meshObj = renderer->meshObj;
-	if (mesh && renderer->mesh != mesh) {
-		renderer->mesh = std::move(mesh);
-		IMesh* mm = renderer->mesh;
-		Command meshBuildCmd(
-			Command::CommandType::AddMesh,
-			mm);
-		UpdateMeshObject(
-			device,
-			meshObj,
-			mm);
-		commands.Push(meshBuildCmd);
-		RemoveMeshFunctor remMesh = {
-			mm->GetVObjectPtrOffset<decltype(mm)>(),
-			this};
-		mm->GetVObjectPtr()->AddEventBeforeDispose(std::move(remMesh));
-		custom |= (uint)UpdateOperator::UpdateMesh;
-	}
+	IMesh* mm = renderer->mesh;
+	UpdateMeshObject(
+		device,
+		meshObj,
+		mm);
+	GetRayTransform(renderer->instanceDesc, renderer->transformMatrix);
 	if (materialID != -1)
 		meshObj.materialID = materialID;
 	if (shaderID != -1)
 		meshObj.shaderID = shaderID;
-	sepManager.UpdateRenderer(renderer, custom);
+	sepManager.UpdateRenderer(renderer, 0);
 }
 
 void RayTracingManager::RemoveRenderer(
@@ -213,6 +187,7 @@ RayTracingManager::RayTracingManager(
 	rendDisposer = [this](SeparableRenderer* renderer) -> void {
 		rayRenderDataPool.Delete_Lock(poolMtx, renderer);
 	};
+	lastFrameUpdateFunction = [](GFXDevice* device, SeparableRenderer* renderer, uint custom) {};
 	addFunction = [this](GFXDevice* device, SeparableRenderer* renderer, uint custom) -> bool {
 		auto ptr = static_cast<RayRendererData*>(renderer);
 
@@ -227,17 +202,6 @@ RayTracingManager::RayTracingManager(
 	};
 	updateFunction = [this](GFXDevice* device, SeparableRenderer* renderer, uint custom) -> bool {
 		auto ptr = static_cast<RayRendererData*>(renderer);
-		if (custom & (uint)UpdateOperator::UpdateTrans) {
-			auto&& inst = ptr->instanceDesc;
-			GetRayTransform(inst, ptr->transformMatrix);
-		}
-		if (custom & (uint)UpdateOperator::UpdateMesh) {
-			RayRendererData::MeshObject& meshObj = ptr->meshObj;
-			UpdateMeshObject(
-				device,
-				meshObj,
-				ptr->mesh);
-		}
 		//////// Set Mesh
 		auto ite = allBottomLevel.Find(ptr->mesh->GetVObjectPtr()->GetInstanceID());
 		if (!ite) {
@@ -361,28 +325,6 @@ void RayTracingManager::BuildRTStruct(
 		sbuffers.Delete_Lock(bottomAllocMtx, i);
 	}
 	allocatedElements.needClearSBuffers.clear();
-	//////// Move the world
-
-	//////// Execute Commands
-	Command cmd;
-	//////// Build Bottom Level
-	while (commands.Pop(&cmd)) {
-		isTopLevelDirty = true;
-		switch (cmd.type) {
-			case Command::CommandType::AddMesh:
-				AddMesh(
-					pack,
-					allocatedElements.needClearSBuffers,
-					cmd.mesh,
-					false);
-				break;
-			case Command::CommandType::DeleteMesh:
-				RemoveMesh(
-					cmd.instanceID,
-					allocatedElements.needClearSBuffers);
-				break;
-		}
-	}
 	sepManager.Execute(
 		pack.device,
 		lastFrameUpdateFunction,
@@ -401,7 +343,7 @@ void RayTracingManager::AddMesh(
 	vengine::vector<StructuredBuffer*>& clearBuffer,
 	IMesh const* meshInterface, bool forceUpdateMesh) {
 
-	auto ite = allBottomLevel.Insert(meshInterface->GetVObjectPtr()->GetInstanceID());
+	auto ite = allBottomLevel.Emplace(meshInterface->GetVObjectPtr()->GetInstanceID());
 	auto& v = ite.Value();
 	if (v.referenceCount == 0 || forceUpdateMesh) {
 		//////// Update Mesh

@@ -1,5 +1,4 @@
 #include <VEngineConfig.h>
-#include <windows.h>
 #include <wrl.h>
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>
@@ -11,10 +10,8 @@
 #include <fstream>
 #include <sstream>
 #include <cassert>
-#include <Common/DLL.h>
-#include <Common/MCollection.h>
+#include <Common/Common.h>
 #include <comdef.h>
-#include <Common/DXMath/DXMath.h>
 Math::Matrix4 XM_CALLCONV GetTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept {
 	Math::Matrix4 target;
 	target[0] = right;

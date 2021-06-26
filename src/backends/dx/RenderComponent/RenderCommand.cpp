@@ -1,6 +1,6 @@
 //#endif
 #include <RenderComponent/RenderCommand.h>
-LockFreeArrayQueue<RenderCommandExecutable, false> RenderCommand::queue(100);
+LockFreeArrayQueue<RenderCommandExecutable, VEngine_AllocType::Default> RenderCommand::queue(100);
 void RenderCommand::UpdateResState(
 	RenderCommand* ptr) {
 	queue.Push<RenderCommandExecutable>({ptr});

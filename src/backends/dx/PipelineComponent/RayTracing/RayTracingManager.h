@@ -16,7 +16,7 @@ class ThreadCommand;
 namespace RTAccStructUtil {
 class RemoveMeshFunctor;
 }
-template<typename T, bool useVEngineMalloc = true, bool isTrivially = std::is_trivially_destructible<T>::value>
+template<typename T, VEngine_AllocType useVEngineMalloc = VEngine_AllocType::VEngine, bool isTrivially = std::is_trivially_destructible<T>::value>
 using VEnginePool = Pool<T, useVEngineMalloc, isTrivially>;
 namespace luisa::compute {
 class VENGINE_DLL_RENDERER RayTracingManager final {
@@ -41,12 +41,11 @@ public:
 	};
 	bool Avaliable() const;
 	RayRendererData* AddRenderer(
-		ObjectPtr<IMesh>&& meshPtr,
+		IMesh* meshPtr,
 		uint shaderID,
 		uint materialID,
 		float4x4 localToWorldMat);
 	void UpdateRenderer(
-		ObjectPtr<IMesh>&& mesh,
 		uint shaderID,
 		uint materialID,
 		RayRendererData* renderer);
@@ -69,52 +68,17 @@ public:
 		RenderPackage const& package,
 		uint64 newObjSize);
 	//A per camera per frame data, to keep upload buffer chunks non-changed before flush
-	struct Command {
-		enum class CommandType : uint8_t {
-			AddMesh,
-			DeleteMesh
-		};
-		CommandType type;
-		union {
-			RayRendererData* ptr;
-			IMesh const* mesh;
-			uint64 instanceID;
-		};
-		Command() {}
-		Command(
-			CommandType type,
-			RayRendererData* ptr) {
-			this->type = type;
-			this->ptr = ptr;
-		}
-		Command(
-			CommandType type,
-			IMesh const* mesh) {
-			this->type = type;
-			this->mesh = mesh;
-		}
-		Command(
-			CommandType type,
-			uint64 instanceID) {
-			this->type = type;
-			this->instanceID = instanceID;
-		}
-	};
+	
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 private:
-	enum class UpdateOperator : uint {
-		UpdateTrans = 1,
-		UpdateMesh = 2
-	};
 	GFXDevice* device;
 	AllocatedCBufferChunks* allocatedElements;
 	RenderPackage const* pack;
 
-	LockFreeArrayQueue<Command> commands;
 	CBufferPool instanceUploadPool;
 	CBufferPool meshObjUploadPool;
-	VEnginePool<RayRendererData, true, true> rayRenderDataPool;
-	VEnginePool<StructuredBuffer, true, false> sbuffers;
+	VEnginePool<RayRendererData, VEngine_AllocType::VEngine, true> rayRenderDataPool;
+	VEnginePool<StructuredBuffer, VEngine_AllocType::VEngine, false> sbuffers;
 	std::unique_ptr<StructuredBuffer> topLevelAccStruct;
 	std::unique_ptr<StructuredBuffer> instanceStruct;
 	std::unique_ptr<StructuredBuffer> scratchStruct;

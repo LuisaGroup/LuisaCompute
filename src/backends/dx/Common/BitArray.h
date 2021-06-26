@@ -1,7 +1,7 @@
 #pragma once
+#include <VEngineConfig.h>
 #include <stdint.h>
 #include <memory>
-#include <Common/Memory.h>
 class BitArray {
 public:
 	struct Iterator {
@@ -13,6 +13,10 @@ public:
 		Iterator(BitArray* arr, size_t index) : arr(arr), index(index) {}
 
 	public:
+		bool operator!() const {
+			return !operator bool();
+		}
+
 		operator bool() const {
 			return arr->Get(index);
 		}
@@ -89,7 +93,7 @@ public:
 	}
 	inline BitArray(size_t length) : length(length) {
 		const size_t capa = (length % 8 > 0) ? length / 8 + 1 : length / 8;
-		ptr = (uint8_t*)vengine_malloc(capa);
+		ptr = new uint8_t[capa];
 		memset(ptr, 0, sizeof(uint8_t) * capa);
 	}
 	inline void Reset(bool target) {
@@ -98,7 +102,7 @@ public:
 	}
 	inline ~BitArray() {
 		if (ptr) {
-			vengine_free(ptr);
+			delete ptr;
 		}
 	}
 };

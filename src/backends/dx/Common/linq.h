@@ -1,165 +1,302 @@
 #pragma once
-#include <Common/Runnable.h>
 #include <Common/Common.h>
 
 namespace vengine::linq {
-template<typename T, typename Func>
-class SelectIEnumerator;
-template<typename T, typename Func>
-class TransformIEnumerator;
 
 template<typename T>
-class IEnumeratorBase {
+class Iterator {
 public:
-	template<typename Y>
-	SelectIEnumerator<T, Y> make_select(
-		Y&& ff) && {
-		return SelectIEnumerator<T, Y>(std::forward<T>(*static_cast<T*>(this)), std::forward<Y>(ff));
-	}
-	template<typename Y>
-	TransformIEnumerator<T, Y> make_transform(
-		Y&& ff) && {
-		return TransformIEnumerator<T, Y>(std::forward<T>(*static_cast<T*>(this)), std::forward<Y>(ff));
-	}
+	using SelfType = Iterator<T>;
+	virtual T* Init() = 0;
+	virtual T* Available() = 0;
+	virtual void GetNext() = 0;
+	virtual ~Iterator() {}
+	virtual SelfType* CopyNew() const = 0;
+	virtual SelfType* MoveNew() = 0;
+	template<typename Func>
+	decltype(auto) make_filter(Func&& f) const&;
+	template<typename Func>
+	decltype(auto) make_filter(Func&& f) &&;
 
-	template<typename Y>
-	SelectIEnumerator<T const&, Y> make_select(
-		Y&& ff) const& {
-		return SelectIEnumerator<T const&, Y>(*static_cast<T const*>(this), std::forward<Y>(ff));
-	}
+	template<typename Func>
+	decltype(auto) make_transformer(Func&& f) const&;
+	template<typename Func>
+	decltype(auto) make_transformer(Func&& f) &&;
 
-	template<typename Y>
-	TransformIEnumerator<T const&, Y> make_transform(
-		Y&& ff) const& {
-		return TransformIEnumerator<T const&, Y>(*static_cast<T const*>(this), std::forward<Y>(ff));
-	}
-
-	size_t count() const {
-		auto self = static_cast<T const*>(this);
-		size_t c = 0;
-		for (auto&& i : *self) {
-			c++;
-		}
-		return c;
-	}
+	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };
-
-class Range : public IEnumeratorBase<Range> {
-private:
-	int64 begin;
-	int64 end;
-	int64 step;
-	int64 value;
-
-public:
-	using ElementType = int64;
-	using ObjType = StackObject<int64>;
-	bool GetNext(ObjType& result) {
-		*result = value++;
-		return *result < end;
+#define LINQ_DECLARE_COPY_MOVE                 \
+	BaseType* CopyNew() const override {       \
+		return new SelfType(*this);            \
+	}                                          \
+	BaseType* MoveNew() override {             \
+		return new SelfType(std::move(*this)); \
 	}
-	ObjType Reset() {
-		value = begin;
-		return ObjType();
-	}
-	Range(
-		int64 begin,
-		int64 end,
-		int64 step = 1) : begin(begin), end(end), step(step) {}
-};
-
 template<typename T>
-class IEnumerator : public IEnumeratorBase<IEnumerator<T>> {
+using Linq_ElementType = std::remove_reference_t<decltype(*(std::declval<T>().begin()))>;
+template<typename T>
+class IEnumerator : public Iterator<Linq_ElementType<T>> {
 public:
-	using IteratorType = std::remove_cvref_t<decltype(std::declval<T>().begin())>;
-	using ElementType = std::remove_cvref_t<decltype(*(std::declval<T>().begin()))>;
-	using ObjType = StackObject<ElementType, true>;
+	using BeginIteratorType = std::remove_reference_t<decltype(std::declval<T>().begin())>;
+	using ElementType = Linq_ElementType<T>;
+	using SelfType = IEnumerator<T>;
+	using BaseType = Iterator<Linq_ElementType<T>>;
 
 private:
-	T const* ptr;
-	IteratorType ite;
+	StackObject<BeginIteratorType, true> curType;
+	T* colPtr;
+	ElementType* ptr;
 
 public:
-	bool GetNext(ObjType& result) {
-		if (ite == ptr->end()) return false;
-		auto&& v = *ite;
-		if (!result.New(v)) {
-			*result = v;
+	LINQ_DECLARE_COPY_MOVE
+	IEnumerator(
+		IEnumerator const& ie)
+		: colPtr(ie.colPtr),
+		  ptr(ie.ptr) {
+		if (ie.curType) {
+			curType.New(*ie.curType);
 		}
-		ite++;
-		return true;
-	}
-	ObjType Reset() {
-		ite = ptr->begin();
-		return ObjType();
 	}
 	IEnumerator(
-		T const& collection) : ptr(&collection), ite(collection.begin()) {
+		IEnumerator&& ie)
+		: colPtr(ie.colPtr),
+		  ptr(ie.ptr) {
+		if (ie.curType) {
+			curType.New(std::move(*ie.curType));
+		}
+	}
+
+	virtual ~IEnumerator() {}
+	IEnumerator(
+		T& collection) {
+		colPtr = &collection;
+	}
+	IEnumerator(T&&) = delete;
+	ElementType* Init() override {
+		curType.Delete();
+		curType.New(colPtr->begin());
+		ptr = &(**curType);
+		return ptr;
+	}
+	ElementType* Available() override {
+		return (*curType == colPtr->end()) ? nullptr : ptr;
+	}
+	void GetNext() override {
+		++(*curType);
+		ptr = &(**curType);
 	}
 };
 
-template<typename T, typename Func>
-class SelectIEnumerator : public IEnumeratorBase<SelectIEnumerator<T, Func>> {
+template<typename IteType, typename T>
+class FilterIterator final : public Iterator<IteType> {
 public:
-	using Type = std::remove_cvref_t<T>;
-	using ElementType = typename Type::ElementType;
-	using Functor = const std::remove_reference_t<Func>;
-	using ObjType = typename Type::ObjType;
+	using ElementType = IteType;
+	using BaseType = Iterator<ElementType>;
+	using SelfType = FilterIterator<IteType, T>;
 
 private:
-	Type ptr;
-	Functor func;
+	std::unique_ptr<BaseType> ite;
+	std::remove_reference_t<T> func;
+	ElementType* ptr = nullptr;
 
 public:
-	bool GetNext(ObjType& result) {
-		while (ptr.GetNext(result)) {
-			if (func(*result)) {
-				return true;
+	LINQ_DECLARE_COPY_MOVE
+	FilterIterator(
+		FilterIterator const& v)
+		: ite(v.ite->CopyNew()),
+		  func(v.func) {}
+
+	FilterIterator(
+		FilterIterator&& v)
+		: ite(std::move(v.ite)),
+		  func(std::move(v.func)) {}
+
+	virtual ~FilterIterator() {}
+	FilterIterator(
+		BaseType&& lastIte,
+		T&& func)
+		: ite(lastIte.MoveNew()),
+		  func(std::forward<T>(func)) {
+	}
+	FilterIterator(
+		std::unique_ptr<BaseType>&& lastIte,
+		T&& func)
+		: ite(std::move(lastIte)),
+		  func(std::forward<T>(func)) {
+	}
+	FilterIterator(
+		BaseType const& lastIte,
+		T&& func)
+		: ite(lastIte.CopyNew()),
+		  func(std::forward<T>(func)) {
+	}
+	ElementType* Init() override {
+		for (ptr = ite->Init(); ptr = ite->Available(); ite->GetNext()) {
+			if (func(static_cast<ElementType const&>(*ptr))) {
+				return ptr;
 			}
 		}
-		return false;
+		ptr = nullptr;
+		return nullptr;
 	}
-	ObjType Reset() {
-		return ptr.Reset();
+	ElementType* Available() override {
+		return ptr;
 	}
-
-	SelectIEnumerator(
-		T&& collection,
-		Func&& ff)
-		: ptr(std::forward<T>(collection)),
-		  func(std::forward<Func>(ff)) { Reset(); }
+	void GetNext() override {
+		ite->GetNext();
+		while (ptr = ite->Available()) {
+			if (func(static_cast<ElementType const&>(*ptr))) {
+				return;
+			}
+			ite->GetNext();
+		}
+	}
 };
-template<typename T, typename Func>
-class TransformIEnumerator : public IEnumeratorBase<TransformIEnumerator<T, Func>> {
+
+template<typename Func, typename Arg>
+using TransformIteratorRetType = decltype(std::declval<Func>()(std::declval<Arg>()));
+
+template<typename IteType, typename T>
+using TransformIteratorElementType = std::remove_reference_t<TransformIteratorRetType<T, IteType>>;
+
+template<typename IteType, typename T>
+class TransformIterator final
+	: public Iterator<TransformIteratorElementType<IteType, T>> {
 public:
-	using Type = std::remove_cvref_t<T>;
-	using ElementType = typename Type::ElementType;
-	using Functor = const std::remove_reference_t<Func>;
-	using ObjType = typename Type::ObjType;
+	using OriginType = IteType;
+	using ElementType = TransformIteratorElementType<IteType, T>;
+	using BaseType = Iterator<ElementType>;
+	using SelfType = TransformIterator<IteType, T>;
 
 private:
-	Type ptr;
-	Functor func;
+	std::unique_ptr<Iterator<IteType>> ite;
+	std::remove_cvref_t<T> func;
+	StackObject<ElementType, true> curEle;
 
 public:
-	bool GetNext(ObjType& result) {
-		if (ptr.GetNext(result)) {
-			func(*result);
-			return true;
+	LINQ_DECLARE_COPY_MOVE
+	TransformIterator(
+		TransformIterator const& v)
+		: ite(v.ite->CopyNew()),
+		  func(v.func) {
+		if (v.curEle) {
+			curEle.New(*v.curEle);
 		}
-		return false;
 	}
-	ObjType Reset() {
-		return ptr.Reset();
+	TransformIterator(
+		TransformIterator&& v)
+		: ite(std::move(v.ite)),
+		  func(std::move(v.func)) {
+		if (v.curEle) {
+			curEle.New(std::move(*v.curEle));
+		}
 	}
+	TransformIterator(
+		Iterator<IteType>&& lastIte,
+		T&& func)
+		: ite(lastIte.MoveNew()),
+		  func(std::forward<T>(func)) {
+	}
+	TransformIterator(
+		std::unique_ptr<Iterator<IteType>>&& lastIte,
+		T&& func)
+		: ite(std::move(lastIte)),
+		  func(std::forward<T>(func)) {
+	}
+	TransformIterator(
+		Iterator<IteType> const& lastIte,
+		T&& func)
+		: ite(lastIte.CopyNew()),
+		  func(std::forward<T>(func)) {
+	}
+	ElementType* Init() override {
+		curEle.Delete();
+		OriginType* ptr = ite->Init();
+		if (!ite->Available())
+			return nullptr;
+		curEle.New(std::move(func(std::move(*ptr))));
+		ite->GetNext();
+		return curEle;
+	}
+	ElementType* Available() override {
+		return curEle ? curEle : nullptr;
+	}
+	void GetNext() override {
+		OriginType* ptr = ite->Available();
+		if (!ptr) {
+			curEle.Delete();
+			return;
+		}
+		*curEle = std::move(func(std::move(*ptr)));
 
-	TransformIEnumerator(
-		T&& collection,
-		Func&& ff)
-		: ptr(std::forward<T>(collection)),
-		  func(std::forward<Func>(ff)) { Reset(); }
+		ite->GetNext();
+	}
+	virtual ~TransformIterator() {}
 };
 
-#define LINQ_LOOP(V, S) \
-	for (auto&& V = (S).Reset(); (S).GetNext(V);)
+template<typename T>
+class CombinedIterator final
+	: public Iterator<T> {
+	vengine::vector<Iterator<T>*> iterators;
+	Iterator<T>** curIte = nullptr;
+	T* curPtr;
+
+public:
+	using SelfType = CombinedIterator<T>;
+	using BaseType = Iterator<T>;
+	LINQ_DECLARE_COPY_MOVE
+	CombinedIterator(
+		vengine::vector<Iterator<T>*>&& iterators)
+		: iterators(std::move(iterators)) {}
+	CombinedIterator(
+		vengine::vector<Iterator<T>*> const& iterators)
+		: iterators(iterators) {}
+	T* Init() override {
+		curIte = &iterators[0];
+		curPtr = (*curIte)->Init();
+		return curPtr;
+	}
+	T* Available() override {
+		return curPtr;
+	}
+	void GetNext() override {
+		(*curIte)->GetNext();
+		if (!(curPtr = (*curIte)->Available())) {
+			curIte++;
+			if (curIte == iterators.end()) {
+				curPtr = nullptr;
+			} else {
+				curPtr = (*curIte)->Init();
+			}
+		}
+	}
+	~CombinedIterator() {}
+};
+
+template<typename T>
+template<typename Func>
+decltype(auto) Iterator<T>::make_filter(Func&& f) const& {
+	return FilterIterator<T, Func>(*this, std::forward<Func>(f));
+}
+
+template<typename T>
+template<typename Func>
+decltype(auto) Iterator<T>::make_filter(Func&& f) && {
+	return FilterIterator<T, Func>(std::move(*this), std::forward<Func>(f));
+}
+
+template<typename T>
+template<typename Func>
+decltype(auto) Iterator<T>::make_transformer(Func&& f) const& {
+	return TransformIterator<T, Func>(*this, std::forward<Func>(f));
+}
+
+template<typename T>
+template<typename Func>
+decltype(auto) Iterator<T>::make_transformer(Func&& f) && {
+	return TransformIterator<T, Func>(std::move(*this), std::forward<Func>(f));
+}
+
+#define LINQ_LOOP(value, iterator) for (auto value = (iterator).Init(); (value = (iterator).Available()); (iterator).GetNext())
+#undef LINQ_DECLARE_COPY_MOVE
 }// namespace vengine::linq

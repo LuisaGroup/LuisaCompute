@@ -467,7 +467,7 @@ void InputCommentFunc(
 }// namespace StringUtilGlobal
 
 bool StringUtil::CompareCharArray(char const* first, char const* second, size_t chrLen) {
-	return BinaryEqualTo_Size(first, second, chrLen);
+	return memcmp(first, second, chrLen) == 0;
 }
 bool StringUtil::CompareCharArray(
 	char const* first,

@@ -6,66 +6,57 @@
 #include <initializer_list>
 #include <type_traits>
 #include <Common/Memory.h>
-
+#include <Common/VAllocator.h>
 namespace vengine {
 
-template<typename T, bool useVEngineAlloc = true, bool forceTrivial = std::is_trivial_v<T>>
+template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool forceTrivial = std::is_trivial_v<T>>
 class vector {
 private:
-	using SelfType = vector<T, useVEngineAlloc, forceTrivial>;
+	using SelfType = vector<T, allocType, forceTrivial>;
 	T* arr;
 	size_t mSize;
 	size_t mCapacity;
-	static constexpr bool TRIVIAL_DESTRUCT = std::is_trivially_destructible_v<T> || forceTrivial;
-	static constexpr bool TRIVIAL_CONSTRUCT = std::is_trivially_constructible_v<T> || forceTrivial;
-	static constexpr bool TRIVIAL_COPY = std::is_trivially_copy_constructible_v<T> || forceTrivial;
+	VAllocHandle<allocType> allocHandle;
 	static size_t GetNewVectorSize(size_t oldSize) {
-		if constexpr (useVEngineAlloc) {
-			return oldSize * 1.5 + 8;
-
-		} else {
-			if (oldSize == 0)
-				oldSize = 8;
-			oldSize *= 2;
-			return oldSize;
-		}
+		return oldSize * 1.5 + 8;
 	}
-	static T* Allocate(size_t& capacity) noexcept {
-		if constexpr (useVEngineAlloc) {
-			capacity *= sizeof(T);
-			auto ptr = (T*)vengine_malloc(capacity);
-			capacity /= sizeof(T);
-			return ptr;
-		} else {
-			return (T*)malloc(sizeof(T) * capacity);
-		}
+	T* Allocate(size_t& capacity) noexcept {
+		return reinterpret_cast<T*>(allocHandle.Malloc(sizeof(T) * capacity));
 	}
 
 	void Free(T* ptr) noexcept {
-		if constexpr (useVEngineAlloc) {
-			vengine_free(ptr);
-		} else {
-			free(ptr);
+		allocHandle.Free(ptr);
+	}
+	void ResizeRange(size_t count) {
+		if (mSize + count > mCapacity) {
+			size_t newCapacity = GetNewVectorSize(mCapacity);
+			size_t values[2] = {
+				mCapacity + 1, count + mSize};
+			newCapacity = newCapacity > values[0] ? newCapacity : values[0];
+			newCapacity = newCapacity > values[1] ? newCapacity : values[1];
+			reserve(newCapacity);
 		}
 	}
-
 public:
+	using Iterator = T*;
 	void reserve(size_t newCapacity) noexcept {
 		if (newCapacity <= mCapacity) return;
 		T* newArr = Allocate(newCapacity);
 		if (arr) {
 			if constexpr (std::is_trivially_copyable_v<T> || forceTrivial) {
 				memcpy(newArr, arr, sizeof(T) * mSize);
-				if constexpr (!(TRIVIAL_DESTRUCT)) {
-					for (size_t i = 0; i < mSize; ++i) {
-						(arr + i)->~T();
+				if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+					auto ee = end();
+					for (auto i = begin(); i != ee; ++i) {
+						i->~T();
 					}
 				}
 			} else {
 				for (size_t i = 0; i < mSize; ++i) {
-					new (newArr + i) T(std::move(arr[i]));
-					if constexpr (!(TRIVIAL_DESTRUCT)) {
-						(arr + i)->~T();
+					auto oldT = arr + i;
+					new (newArr + i) T(std::move(*oldT));
+					if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+						(oldT)->~T();
 					}
 				}
 			}
@@ -80,66 +71,18 @@ public:
 	T* data() const noexcept { return arr; }
 	size_t size() const noexcept { return mSize; }
 	size_t capacity() const noexcept { return mCapacity; }
-	struct Iterator {
-		friend class SelfType;
-
-	private:
-		T* ptr;
-		Iterator(T* ptr)
-			: ptr(ptr) {
-		}
-
-	public:
-		bool operator==(const Iterator& ite) const noexcept {
-			return ptr == ite.ptr;
-		}
-		bool operator!=(const Iterator& ite) const noexcept {
-			return ptr != ite.ptr;
-		}
-		void operator++() noexcept {
-			++ptr;
-		}
-		void operator--() noexcept {
-			--ptr;
-		}
-		void operator++(int32_t) noexcept {
-			ptr++;
-		}
-		void operator--(int32_t) noexcept {
-			ptr--;
-		}
-		Iterator operator+(size_t value) const noexcept {
-			return Iterator(ptr + value);
-		}
-		Iterator operator-(size_t value) const noexcept {
-			return Iterator(ptr - value);
-		}
-		Iterator& operator+=(size_t value) noexcept {
-			ptr += value;
-			return *this;
-		}
-		Iterator& operator-=(size_t value) noexcept {
-			ptr -= value;
-			return *this;
-		}
-		T* operator->() const noexcept {
-			return ptr;
-		}
-		T& operator*() const noexcept {
-			return *ptr;
-		}
-	};
 	vector(size_t mSize) noexcept : mSize(mSize), mCapacity(mSize) {
 		arr = Allocate(mCapacity);
-		if constexpr (!(TRIVIAL_CONSTRUCT)) {
-			for (size_t i = 0; i < mSize; ++i) {
-				new (arr + i) T();
+		if constexpr (!(std::is_trivially_constructible_v<T> || forceTrivial)) {
+			auto ee = end();
+			for (auto i = begin(); i != ee; ++i) {
+				new (i) T();
 			}
 		}
 	}
 	vector(std::initializer_list<T> const& lst) : mSize(lst.size()), mCapacity(lst.size()) {
 		arr = Allocate(mCapacity);
-		if constexpr (!(TRIVIAL_COPY)) {
+		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(lst.begin()[i]);
 			}
@@ -147,9 +90,11 @@ public:
 			memcpy(arr, lst.begin(), sizeof(T) * mSize);
 		}
 	}
-	vector(const SelfType& another) noexcept : mSize(another.mSize), mCapacity(another.mCapacity) {
+	vector(const SelfType& another) noexcept
+		: mSize(another.mSize),
+		  mCapacity(another.mCapacity) {
 		arr = Allocate(mCapacity);
-		if constexpr (!(TRIVIAL_COPY)) {
+		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(another.arr[i]);
 			}
@@ -157,7 +102,8 @@ public:
 			memcpy(arr, another.arr, sizeof(T) * mSize);
 	}
 	vector(SelfType&& another) noexcept
-		: mSize(another.mSize), mCapacity(another.mCapacity),
+		: mSize(another.mSize),
+		  mCapacity(another.mCapacity),
 		  arr(another.arr) {
 		another.arr = nullptr;
 		another.mSize = 0;
@@ -167,7 +113,7 @@ public:
 		clear();
 		reserve(another.mSize);
 		mSize = another.mSize;
-		if constexpr (!(TRIVIAL_COPY)) {
+		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(another.arr[i]);
 			}
@@ -180,17 +126,11 @@ public:
 		new (this) SelfType(std::move(another));
 	}
 	void push_back_all(const T* values, size_t count) noexcept {
-		if (mSize + count > mCapacity) {
-			size_t newCapacity = GetNewVectorSize(mCapacity);
-			size_t values[2] = {
-				mCapacity + 1, count + mSize};
-			newCapacity = newCapacity > values[0] ? newCapacity : values[0];
-			newCapacity = newCapacity > values[1] ? newCapacity : values[1];
-			reserve(newCapacity);
-		}
+		ResizeRange(count);
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
+			auto endPtr = arr + mSize;
 			for (size_t i = 0; i < count; ++i) {
-				T* ptr = arr + mSize + i;
+				T* ptr = endPtr + i;
 				new (ptr) T(values[i]);
 			}
 		} else {
@@ -198,9 +138,17 @@ public:
 		}
 		mSize += count;
 	}
+	template <typename Func>
+	void push_back_func(Func&& f, size_t count) {
+		ResizeRange(count);
+		auto endPtr = arr + mSize;
+		for (size_t i = 0; i < count; ++i) {
+			T* ptr = endPtr + i;
+			new (ptr) T(std::move(f(i)));
+		}
+	}
 
 	void push_back_all(const std::initializer_list<T>& list) noexcept {
-
 		push_back_all(list.begin(), list.size());
 	}
 	void SetZero() const noexcept {
@@ -214,7 +162,7 @@ public:
 		clear();
 		reserve(list.size());
 		mSize = list.size();
-		if constexpr (!(TRIVIAL_COPY)) {
+		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
 			for (size_t i = 0; i < mSize; ++i) {
 				new (arr + i) T(list.begin()[i]);
 			}
@@ -226,9 +174,10 @@ public:
 	}
 	~vector() noexcept {
 		if (arr) {
-			if constexpr (!(TRIVIAL_DESTRUCT)) {
-				for (size_t i = 0; i < mSize; ++i) {
-					(arr + i)->~T();
+			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+				auto ee = end();
+				for (auto i = begin(); i != ee; ++i) {
+					i->~T();
 				}
 			}
 			Free(arr);
@@ -260,15 +209,15 @@ public:
 		emplace_back(static_cast<T&&>(value));
 	}
 
-	Iterator begin() const noexcept {
-		return Iterator(arr);
+	T* begin() const noexcept {
+		return arr;
 	}
-	Iterator end() const noexcept {
-		return Iterator(arr + mSize);
+	T* end() const noexcept {
+		return arr + mSize;
 	}
 
-	void erase(const Iterator& ite) noexcept {
-		size_t index = reinterpret_cast<size_t>(ite.ptr)
+	void erase(T* ite) noexcept {
+		size_t index = reinterpret_cast<size_t>(ite)
 					   - reinterpret_cast<size_t>(arr);
 		index /= sizeof(T);
 #if defined(DEBUG)
@@ -277,16 +226,17 @@ public:
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
 			if constexpr (!(std::is_trivially_copyable_v<T> || forceTrivial)) {
 				if (index < mSize - 1) {
-					for (size_t i = index; i < mSize - 1; ++i) {
-						arr[i] = arr[i + 1];
+					auto ee = end() - 1;
+					for (auto i = begin(); i != ee; ++i) {
+						*i = i[1];
 					}
 				}
 			}
-			if constexpr (!(TRIVIAL_DESTRUCT))
+			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial))
 				(arr + mSize - 1)->~T();
 		} else {
 			if (index < mSize - 1) {
-				memmove(ite.ptr, ite.ptr + 1, (mSize - index - 1) * sizeof(T));
+				memmove(ite, ite + 1, (mSize - index - 1) * sizeof(T));
 			}
 		}
 		mSize--;
@@ -294,16 +244,17 @@ public:
 
 	decltype(auto) erase_last() noexcept {
 		mSize--;
-		if constexpr (!(TRIVIAL_DESTRUCT)) {
+		if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
 			(arr + mSize)->~T();
 		} else {
 			return (T const&)arr[mSize];
 		}
 	}
 	void clear() noexcept {
-		if constexpr (!(TRIVIAL_DESTRUCT)) {
-			for (size_t i = 0; i < mSize; ++i) {
-				(arr + i)->~T();
+		if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+			auto ee = end();
+			for (auto i = begin(); i != ee; ++i) {
+				i->~T();
 			}
 		}
 		mSize = 0;
@@ -318,9 +269,11 @@ public:
 	}
 	void resize(size_t newSize) noexcept {
 		reserve(newSize);
-		if constexpr (!(TRIVIAL_CONSTRUCT)) {
-			for (size_t i = mSize; i < newSize; ++i) {
-				new (arr + i) T();
+		if constexpr (!(std::is_trivially_constructible_v<T> || forceTrivial)) {
+			auto bb = begin() + mSize;
+			auto ee = begin() + newSize;
+			for (auto i = begin(); i != ee; ++i) {
+				new (i) T();
 			}
 		}
 		mSize = newSize;
@@ -339,5 +292,5 @@ public:
 	}
 };
 }// namespace vengine
-template<typename T, bool useVEngineAlloc = true>
-using ArrayList = typename vengine::vector<T, useVEngineAlloc, true>;
+template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
+using ArrayList = typename vengine::vector<T, allocType, true>;

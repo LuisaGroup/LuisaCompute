@@ -10,7 +10,7 @@ struct RenderCommandExecutable {
 };
 class VENGINE_DLL_RENDERER RenderCommand {
 private:
-	static LockFreeArrayQueue<RenderCommandExecutable, false> queue;
+	static LockFreeArrayQueue<RenderCommandExecutable, VEngine_AllocType::Default> queue;
 
 public:
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW

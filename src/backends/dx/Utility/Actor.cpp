@@ -16,7 +16,7 @@ void Actor::RemoveComponent(Type t) {
 	hash.Remove(t);
 }
 void Actor::SetComponent(Type t, void* ptr, void (*disposer)(void*)) {
-	auto&& ite = hash.Insert(t).Value();
+	auto&& ite = hash.Emplace(t).Value();
 	ite.ptr = ptr;
 	ite.disposer = disposer;
 }

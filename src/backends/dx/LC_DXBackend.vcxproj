@@ -182,10 +182,13 @@
 		<ClCompile Include="CJsonObject/JsonCompiler.cpp" />
 		<ClCompile Include="CJsonObject/SerializedObject.cpp" />
 		<ClCompile Include="Common/Common.cpp" />
+		<ClCompile Include="Common/DynamicLink.cpp" />
 		<ClCompile Include="Common/GameTimer.cpp" />
 		<ClCompile Include="Common/GFXUtil.cpp" />
 		<ClCompile Include="Common/Log.cpp" />
 		<ClCompile Include="Common/MathHelper.cpp" />
+		<ClCompile Include="Common/spin_mutex.cpp" />
+		<ClCompile Include="Common/StackAllocator.cpp" />
 		<ClCompile Include="Common/vengine_library.cpp" />
 		<ClCompile Include="Common/VObject.cpp" />
 		<ClCompile Include="File/CopyDir.cpp" />
@@ -196,6 +199,8 @@
 		<ClCompile Include="JobSystem/JobBucket.cpp" />
 		<ClCompile Include="JobSystem/JobNode.cpp" />
 		<ClCompile Include="JobSystem/JobSystem.cpp" />
+		<ClCompile Include="JobSystem/ThreadPool.cpp" />
+		<ClCompile Include="JobSystem/ThreadTaskHandle.cpp" />
 		<ClCompile Include="PipelineComponent/CommandAllocator.cpp" />
 		<ClCompile Include="PipelineComponent/CommandBuffer.cpp" />
 		<ClCompile Include="PipelineComponent/FrameResource.cpp" />
@@ -257,6 +262,7 @@
 		<ClInclude Include="CJsonObject/JsonCompiler.h" />
 		<ClInclude Include="CJsonObject/SerializedObject.h" />
 		<ClInclude Include="CJsonObject/SerializeStruct.h" />
+		<ClInclude Include="Common/AllocateType.h" />
 		<ClInclude Include="Common/BitArray.h" />
 		<ClInclude Include="Common/BitVector.h" />
 		<ClInclude Include="Common/Common.h" />
@@ -270,6 +276,7 @@
 		<ClInclude Include="Common/DXMath/Scalar.h" />
 		<ClInclude Include="Common/DXMath/Vector.h" />
 		<ClInclude Include="Common/DynamicDLL.h" />
+		<ClInclude Include="Common/DynamicLink.h" />
 		<ClInclude Include="Common/FunctorMeta.h" />
 		<ClInclude Include="Common/GameTimer.h" />
 		<ClInclude Include="Common/GFXUtil.h" />
@@ -289,9 +296,12 @@
 		<ClInclude Include="Common/PoolAllocator.h" />
 		<ClInclude Include="Common/RandomVector.h" />
 		<ClInclude Include="Common/Runnable.h" />
+		<ClInclude Include="Common/spin_mutex.h" />
+		<ClInclude Include="Common/StackAllocator.h" />
 		<ClInclude Include="Common/string_view.h" />
 		<ClInclude Include="Common/Tuple.h" />
 		<ClInclude Include="Common/TypeWiper.h" />
+		<ClInclude Include="Common/VAllocator.h" />
 		<ClInclude Include="Common/vector.h" />
 		<ClInclude Include="Common/VObject.h" />
 		<ClInclude Include="Common/vstring.h" />
@@ -305,6 +315,8 @@
 		<ClInclude Include="JobSystem/JobInclude.h" />
 		<ClInclude Include="JobSystem/JobNode.h" />
 		<ClInclude Include="JobSystem/JobSystem.h" />
+		<ClInclude Include="JobSystem/ThreadPool.h" />
+		<ClInclude Include="JobSystem/ThreadTaskHandle.h" />
 		<ClInclude Include="PipelineComponent/CameraData/CameraTransformData.h" />
 		<ClInclude Include="PipelineComponent/CameraData/LightCBuffer.h" />
 		<ClInclude Include="PipelineComponent/CameraData/LightMacro.h" />

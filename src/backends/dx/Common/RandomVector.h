@@ -1,43 +1,34 @@
 #pragma once
 #include <stdint.h>
 #include <Common/Memory.h>
+#include <Common/VAllocator.h>
+
 using uint = uint32_t;
-template <typename T, bool isPureValueType = false, bool useVEngineMalloc = true>
+template<typename T, bool isPureValueType = false, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class RandomVector;
 
-template<typename T, bool useVEngineMalloc>
-class RandomVector<T, false, useVEngineMalloc> final
-{
+template<typename T, VEngine_AllocType allocType>
+class RandomVector<T, false, allocType> final {
 private:
 	std::pair<T, uint*>* arr;
 	size_t size;
 	size_t capacity;
-	
+	VAllocHandle<allocType> allocHandle;
 	void* randomvector_malloc(size_t size)
 	{
-		if constexpr (useVEngineMalloc)
-		{
-			return vengine_malloc(size);
-		}
-		else return malloc(size);
+		return allocHandle.Malloc(size);
 	}
 	void randomvector_free(void* ptr)
 	{
-		if constexpr (useVEngineMalloc)
-		{
-			return vengine_free(ptr);
-		}
-		else free(ptr);
+		return allocHandle.Free(ptr);
 	}
 
 	void Resize(uint newCapacity)
 	{
 		if (newCapacity <= capacity) return;
 		uint maxCapa;
-		if constexpr (useVEngineMalloc)
-			maxCapa = capacity * 1.5 + 8;
-		else
-			maxCapa = capacity * 2;
+		maxCapa = capacity * 1.5 + 8;
+
 		if (maxCapa > newCapacity)
 			newCapacity = maxCapa;
 		std::pair<T, uint*>* newArr = (std::pair<T, uint*>*)randomvector_malloc(sizeof(std::pair<T, uint*>) * newCapacity);
@@ -52,7 +43,7 @@ private:
 		capacity = newCapacity;
 	}
 public:
-	RandomVector(RandomVector<T, false, useVEngineMalloc>&& o)
+	RandomVector(RandomVector<T, false, allocType>&& o)
 		: arr(o.arr),
 		  size(o.size),
 		  capacity(o.capacity) {
@@ -143,37 +134,26 @@ public:
 	}
 };
 
-template <typename T, bool useVEngineMalloc>
-class RandomVector<T, true, useVEngineMalloc> final
-{
+template<typename T, VEngine_AllocType allocType>
+class RandomVector<T, true, allocType> final {
 private:
 	std::pair<T, uint*>* arr;
 	size_t size;
 	size_t capacity;
-	void* randomvector_malloc(size_t size)
-	{
-		if constexpr (useVEngineMalloc)
-		{
-			return vengine_malloc(size);
-		}
-		else return malloc(size);
+	VAllocHandle<allocType> allocHandle;
+	void* randomvector_malloc(size_t size) {
+		return allocHandle.Malloc(size);
 	}
-	void randomvector_free(void* ptr)
-	{
-		if constexpr (useVEngineMalloc)
-		{
-			return vengine_free(ptr);
-		}
-		else free(ptr);
+	void randomvector_free(void* ptr) {
+		return allocHandle.Free(ptr);
 	}
+
 	void Resize(uint newCapacity)
 	{
 		if (newCapacity <= capacity) return;
 		uint maxCapa;
-		if constexpr (useVEngineMalloc)
-			maxCapa = capacity * 1.5 + 8;
-		else
-			maxCapa = capacity * 2;
+		maxCapa = capacity * 1.5 + 8;
+
 		if (maxCapa > newCapacity)
 			newCapacity = maxCapa;
 		std::pair<T, uint*>* newArr = (std::pair<T, uint*>*)randomvector_malloc(sizeof(std::pair<T, uint*>) * newCapacity);
@@ -186,7 +166,7 @@ private:
 		capacity = newCapacity;
 	}
 public:
-	RandomVector(RandomVector<T, true, useVEngineMalloc>&& o)
+	RandomVector(RandomVector<T, true, allocType>&& o)
 		: arr(o.arr),
 		  size(o.size),
 		  capacity(o.capacity) {

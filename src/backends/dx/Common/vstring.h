@@ -1,15 +1,15 @@
 #pragma once
+#include <VEngineConfig.h>
 #include <stdint.h>
 #include <xhash>
 #include <iostream>
-#include <Common/DLL.h>
 #include <Common/Hash.h>
 #include <Common/Memory.h>
 #include <Common/string_view.h>
 namespace vengine {
 class VENGINE_DLL_COMMON string {
-	friend std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
-	friend std::istream& operator>>(std::istream& in, string& obj) noexcept;
+	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
+	friend VENGINE_DLL_COMMON std::istream& operator>>(std::istream& in, string& obj) noexcept;
 
 private:
 	char* ptr = nullptr;
@@ -20,9 +20,11 @@ private:
 	bool Equal(char const* str, size_t count) const noexcept;
 	void* string_malloc(size_t sz);
 	void string_free(void* freeMem);
-
+	
 public:
 	string(const string& a, const string& b) noexcept;
+	string(string_view a, const string& b) noexcept;
+	string(const string& a, string_view b) noexcept;
 	string(const string& a, const char* b) noexcept;
 	string(const char* a, const string& b) noexcept;
 	string(const string& a, char b) noexcept;
@@ -52,6 +54,7 @@ public:
 	string& operator=(string&& data) noexcept;
 	string& operator=(const char* data) noexcept;
 	string& operator=(char data) noexcept;
+	string& operator=(string_view view) noexcept;
 	string& assign(const string& data) noexcept {
 		return operator=(data);
 	}
@@ -64,14 +67,17 @@ public:
 	}
 	void reserve(size_t targetCapacity) noexcept;
 	char* data() const noexcept { return ptr; }
-	char const* begin() const noexcept { return ptr; }
-	char const* end() const noexcept { return ptr + lenSize; }
+	char* begin() const noexcept { return ptr; }
+	char* end() const noexcept { return ptr + lenSize; }
 	void resize(size_t newSize) noexcept;
 	char const* c_str() const noexcept { return ptr; }
 	string operator+(const string& str) const noexcept {
 		return string(*this, str);
 	}
 	string operator+(const char* str) const noexcept {
+		return string(*this, str);
+	}
+	string operator+(string_view str) const noexcept {
 		return string(*this, str);
 	}
 	string operator+(char str) const noexcept {
@@ -138,6 +144,8 @@ private:
 public:
 	wstring(const wstring& a, const wstring& b) noexcept;
 	wstring(const wstring& a, const wchar_t* b) noexcept;
+	wstring(wstring_view a, const wstring& b) noexcept;
+	wstring(const wstring& a, wstring_view b) noexcept;
 	wstring(const wchar_t* a, const wstring& b) noexcept;
 	wstring(const wstring& a, wchar_t b) noexcept;
 	wstring(wchar_t a, const wstring& b) noexcept;
@@ -169,6 +177,7 @@ public:
 	wstring& operator=(const wstring& data) noexcept;
 	wstring& operator=(wstring&& data) noexcept;
 	wstring& operator=(const wchar_t* data) noexcept;
+	wstring& operator=(wstring_view data) noexcept;
 	wstring& operator=(wchar_t data) noexcept;
 	wstring& assign(const wstring& data) noexcept {
 		return operator=(data);
@@ -189,6 +198,9 @@ public:
 		return wstring(*this, str);
 	}
 	wstring operator+(const wchar_t* str) const noexcept {
+		return wstring(*this, str);
+	}
+	wstring operator+(wstring_view str) const noexcept {
 		return wstring(*this, str);
 	}
 	wstring operator+(wchar_t str) const noexcept {
@@ -298,33 +310,10 @@ inline void IntegerToString(const _Ty _Val, string& str) noexcept {// convert _V
 	}
 	str.push_back_all(_RNext, _Buff_end - _RNext);
 }
-inline void cullStringZero(string& str, size_t startValue) {
-
-	char const* ptr;
-	[&]() {
-		for (ptr = str.begin() + startValue; ptr != str.end(); ++ptr) {
-			if (*ptr == '.')
-				return;
-		}
-		ptr = str.end() - 1;
-	}();
-	char const* o;
-	for (o = str.end() - 1; o != ptr; o--) {
-		if (*o == '0') {
-			str.erase(str.size() - 1);
-		} else {
-			break;
-		}
-	}
-	if (*o == '.') {
-		str += '0';
-	}
-}
 inline string to_string(double _Val) noexcept {
 	const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
 	string _Str(_Len, '\0');
 	_CSTD sprintf_s(&_Str[0], _Len + 1, "%f", _Val);
-	cullStringZero(_Str, 0);
 	return _Str;
 }
 inline void to_string(double _Val, vengine::string& str) noexcept {
@@ -332,7 +321,6 @@ inline void to_string(double _Val, vengine::string& str) noexcept {
 	size_t oldSize = str.size();
 	str.resize(oldSize + _Len);
 	_CSTD sprintf_s(&str[oldSize], _Len + 1, "%f", _Val);
-	cullStringZero(str, oldSize);
 }
 inline string to_string(float _Val) noexcept {
 	return to_string((double)_Val);
@@ -445,7 +433,8 @@ inline wstring to_wstring(uint64_t _Val) noexcept {
 }
 
 }// namespace vengine
-VENGINE_DLL_COMMON vengine::string_view operator"" _sv(char const* str, size_t sz);
+VENGINE_DLL_COMMON vengine::string_view operator""_sv(char const* str, size_t sz);
+
 VENGINE_DLL_COMMON vengine::wstring_view operator"" _sv(wchar_t const* str, size_t sz);
 
 inline vengine::string operator+(char c, const vengine::string& str) noexcept {

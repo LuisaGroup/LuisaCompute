@@ -1,6 +1,7 @@
 #include <VEngineConfig.h>
-#include <windows.h>
+#include <Common/Common.h>
 #include <Common/GameTimer.h>
+#include <Windows.h>
 uint64_t GameTimer::frameCount = 0;
 double GameTimer::deltaTime = 1000;
 double GameTimer::time = 0;
