@@ -18,29 +18,7 @@ static std::atomic_bool memoryInitialized = false;
 static StackObject<DynamicDLL> vengine_malloc_dll;
 }// namespace v_mimalloc
 
-void vengine_init_malloc() {
-	using namespace v_mimalloc;
-	if (memoryInitialized.exchange(true)) return;
-	vengine_malloc_dll.New("mimalloc-override.dll"_sv);
-	vengine_malloc_dll->GetDLLFunc(mallocFunc, "mi_malloc"_sv);
-	vengine_malloc_dll->GetDLLFunc(freeFunc, "mi_free"_sv);
-}
-void vengine_init_malloc_path(
-	char const* path) {
-	using namespace v_mimalloc;
-	if (memoryInitialized.exchange(true)) return;
-	vengine_malloc_dll.New(path);
-	vengine_malloc_dll->GetDLLFunc(mallocFunc, "mi_malloc"_sv);
-	vengine_malloc_dll->GetDLLFunc(freeFunc, "mi_free"_sv);
-}
-void vengine_init_malloc_custom(
-	funcPtr_t<void*(size_t)> mallocFunc,
-	funcPtr_t<void(void*)> freeFunc) {
-	using namespace v_mimalloc;
-	if (memoryInitialized.exchange(true)) return;
-	mallocFunc = mallocFunc;
-	freeFunc = freeFunc;
-}
+
 void* vengine_default_malloc(size_t sz) {
 	return malloc(sz);
 }
