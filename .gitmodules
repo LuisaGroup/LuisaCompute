@@ -1,15 +1,9 @@
-[submodule "src/ext/cereal"]
-	path = src/ext/cereal
-	url = https://github.com/USCiLab/cereal.git
 [submodule "src/ext/xxHash"]
 	path = src/ext/xxHash
 	url = https://github.com/Cyan4973/xxHash.git
 [submodule "src/ext/spdlog"]
 	path = src/ext/spdlog
 	url = https://github.com/gabime/spdlog.git
-[submodule "src/ext/fmt"]
-	path = src/ext/fmt
-	url = https://github.com/fmtlib/fmt.git
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/pybind/pybind11.git

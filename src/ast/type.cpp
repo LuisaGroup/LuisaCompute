@@ -5,8 +5,6 @@
 #include <charconv>
 #include <vector>
 
-#include <fmt/format.h>
-
 #include <core/logging.h>
 #include <core/hash.h>
 #include <core/macro.h>

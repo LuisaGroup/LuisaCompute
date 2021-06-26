@@ -6,8 +6,6 @@
 
 #include <vector>
 
-#include <fmt/format.h>
-
 #include <core/memory.h>
 #include <core/hash.h>
 #include <core/spin_mutex.h>
