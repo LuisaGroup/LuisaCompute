@@ -10,9 +10,3 @@
 [submodule "src/ext/mimalloc"]
 	path = src/ext/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
-[submodule "src/ext/fmt"]
-	path = src/ext/fmt
-	url = https://github.com/fmtlib/fmt
-[submodule "src/ext/cereal"]
-	path = src/ext/cereal
-	url = https://github.com/USCiLab/cereal
