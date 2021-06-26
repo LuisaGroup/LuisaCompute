@@ -1,12 +1,10 @@
 #pragma once
 #include <VEngineConfig.h>
 #include <Common/vstring.h>
-#include <Common/DLL.h>
 #include <Common/Memory.h>
-#include <Windows.h>
 #include <Common/Log.h>
 class VENGINE_DLL_COMMON DynamicDLL final {
-	HINSTANCE inst;
+	size_t inst;
 	template<typename T>
 	struct IsFuncPtr {
 		static constexpr bool value = false;
@@ -16,19 +14,20 @@ class VENGINE_DLL_COMMON DynamicDLL final {
 	struct IsFuncPtr<_Ret (*)(Args...)> {
 		static constexpr bool value = true;
 	};
+	size_t GetFuncPtr(char const* name);
 
 public:
-	DynamicDLL(char const* name);
+	DynamicDLL(char const* fileName);
 	~DynamicDLL();
 	template<typename T>
 	void GetDLLFunc(T& funcPtr, char const* name) {
-		static_assert(IsFuncPtr<std::remove_cvref_t<T>>::value, "DLL Only Support Function Pointer!");
-		auto ptr = GetProcAddress(inst, name);
-		if (ptr == nullptr) {
+		static_assert(IsFuncPtr<std::remove_cvref_t<T>>::value, "DLL Only Support Function Pointer!"_sv);
+		auto ptr = GetFuncPtr(name);
+		if (ptr == 0) {
 			VEngine_Log(
 				{"Can not find function ",
 				 name});
-			throw 0;
+			VENGINE_EXIT;
 		}
 		funcPtr = reinterpret_cast<T>(ptr);
 	}

@@ -10,6 +10,8 @@
 #include <Common/vector.h>
 #include <Common/Memory.h>
 #include <Common/RandomVector.h>
+#include <Common/VAllocator.h>
+#include <Common/spin_mutex.h>
 class PoolBase {
 public:
 	virtual void Delete(void* ptr) = 0;
@@ -17,27 +19,21 @@ public:
 	virtual ~PoolBase() {}
 };
 
-template<typename T, bool useVEngineMalloc = true, bool isTrivially = std::is_trivially_destructible<T>::value>
+template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool noCheckBeforeDispose = std::is_trivially_destructible<T>::value>
 class Pool;
 
-template<typename T, bool useVEngineMalloc>
-class Pool<T, useVEngineMalloc, true> {
+template<typename T, VEngine_AllocType allocType>
+class Pool<T, allocType, true> {
 private:
-	ArrayList<T*, useVEngineMalloc> allPtrs;
-	ArrayList<void*, useVEngineMalloc> allocatedPtrs;
+	ArrayList<T*, allocType> allPtrs;
+	ArrayList<void*, allocType> allocatedPtrs;
 	size_t capacity;
-
+	VAllocHandle<allocType> allocHandle;
 	void* PoolMalloc(size_t size) {
-		if constexpr (useVEngineMalloc) {
-			return vengine_malloc(size);
-		} else
-			return malloc(size);
+		return allocHandle.Malloc(size);
 	}
 	void PoolFree(void* ptr) {
-		if constexpr (useVEngineMalloc) {
-			return vengine_free(ptr);
-		} else
-			free(ptr);
+		return allocHandle.Free(ptr);
 	}
 	inline void AllocateMemory() {
 		if (!allPtrs.empty()) return;
@@ -53,7 +49,7 @@ private:
 	}
 
 public:
-	Pool(Pool<T, useVEngineMalloc, true>&& o)
+	Pool(Pool<T, allocType, true>&& o)
 		: allPtrs(std::move(o.allPtrs)),
 		  allocatedPtrs(std::move(o.allocatedPtrs)),
 		  capacity(o.capacity) {
@@ -131,28 +127,23 @@ public:
 	}
 };
 
-template<typename T, bool useVEngineMalloc>
-class Pool<T, useVEngineMalloc, false> {
+template<typename T, VEngine_AllocType allocType>
+class Pool<T, allocType, false> {
 private:
 	struct TypeCollector {
 		Storage<T, 1> t;
 		uint index = -1;
 	};
-	ArrayList<T*, useVEngineMalloc> allPtrs;
-	ArrayList<void*, useVEngineMalloc> allocatedPtrs;
-	RandomVector<TypeCollector*, true, useVEngineMalloc> allocatedObjects;
+	ArrayList<T*, allocType> allPtrs;
+	ArrayList<void*, allocType> allocatedPtrs;
+	RandomVector<TypeCollector*, true, allocType> allocatedObjects;
 	size_t capacity;
+	VAllocHandle<allocType> allocHandle;
 	void* PoolMalloc(size_t size) {
-		if constexpr (useVEngineMalloc) {
-			return vengine_malloc(size);
-		} else
-			return malloc(size);
+		return allocHandle.Malloc(size);
 	}
 	void PoolFree(void* ptr) {
-		if constexpr (useVEngineMalloc) {
-			return vengine_free(ptr);
-		} else
-			free(ptr);
+		return allocHandle.Free(ptr);
 	}
 	inline void AllocateMemory() {
 		if (!allPtrs.empty()) return;
@@ -175,7 +166,7 @@ private:
 	}
 
 public:
-	Pool(Pool<T, useVEngineMalloc, false>&& o)
+	Pool(Pool<T, allocType, false>&& o)
 		: allPtrs(std::move(o.allPtrs)),
 		  allocatedPtrs(std::move(o.allocatedPtrs)),
 		  capacity(o.capacity),

@@ -2,27 +2,18 @@
 #include <thread>
 #include <Common/MetaLib.h>
 #include <Common/Memory.h>
+#include <Common/VAllocator.h>
+#include <Common/spin_mutex.h>
 
-template<typename T, bool useVAlloc = true>
+template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class LockFreeArrayQueue {
 	size_t head;
 	size_t tail;
 	size_t capacity;
-	spin_mutex mtx;
+	mutable spin_mutex mtx;
 	T* arr;
-	static inline void* Malloc(size_t i) noexcept {
-		if constexpr (useVAlloc) {
-			return vengine_malloc(i);
-		} else
-			return malloc(i);
-	}
-	static inline void Free(void* ptr) noexcept {
-		if (!ptr) return;
-		if constexpr (useVAlloc) {
-			vengine_free(ptr);
-		} else
-			free(ptr);
-	}
+	VAllocHandle<allocType> allocHandle;
+	
 	static constexpr size_t GetPow2Size(size_t capacity) noexcept {
 		size_t ssize = 1;
 		while (ssize < capacity)
@@ -32,23 +23,24 @@ class LockFreeArrayQueue {
 	static constexpr size_t GetIndex(size_t index, size_t capacity) noexcept {
 		return index & capacity;
 	}
-
+	using SelfType = LockFreeArrayQueue<T, allocType>;
 public:
 	LockFreeArrayQueue(size_t capacity) : head(0), tail(0) {
 		capacity = GetPow2Size(capacity);
 		this->capacity = capacity - 1;
-		arr = (T*)Malloc(sizeof(T) * capacity);
+		std::lock_guard<spin_mutex> lck(mtx);
+		arr = (T*)allocHandle.Malloc(sizeof(T) * capacity);
 	}
-	LockFreeArrayQueue(LockFreeArrayQueue<T, useVAlloc>&& v)
+	LockFreeArrayQueue(SelfType&& v)
 		: head(v.head),
 		  tail(v.tail),
 		  capacity(v.capacity),
 		  arr(v.arr) {
 		v.arr = nullptr;
 	}
-	void operator=(LockFreeArrayQueue<T, useVAlloc>&& v) {
-		this->~LockFreeArrayQueue();
-		new (this) LockFreeArrayQueue(std::move(v));
+	void operator=(SelfType&& v) {
+		this->~SelfType();
+		new (this) SelfType(std::move(v));
 	}
 	LockFreeArrayQueue() : LockFreeArrayQueue(32) {}
 
@@ -58,7 +50,7 @@ public:
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
-			T* newArr = (T*)Malloc(sizeof(T) * newCapa);
+			T* newArr = (T*)allocHandle.Malloc(sizeof(T) * newCapa);
 			newCapa--;
 			for (size_t s = tail; s < index; ++s) {
 				T* ptr = arr + GetIndex(s, capacity);
@@ -67,7 +59,7 @@ public:
 					ptr->~T();
 				}
 			}
-			Free(arr);
+			allocHandle.Free(arr);
 			arr = newArr;
 			capacity = newCapa;
 		}
@@ -79,7 +71,7 @@ public:
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
-			T* newArr = (T*)Malloc(sizeof(T) * newCapa);
+			T* newArr = (T*)allocHandle.Malloc(sizeof(T) * newCapa);
 			newCapa--;
 			for (size_t s = tail; s < index; ++s) {
 				T* ptr = arr + GetIndex(s, capacity);
@@ -88,7 +80,7 @@ public:
 					ptr->~T();
 				}
 			}
-			Free(arr);
+			allocHandle.Free(arr);
 			arr = newArr;
 			capacity = newCapa;
 		}
@@ -125,32 +117,22 @@ public:
 				arr[GetIndex(s, capacity)].~T();
 			}
 		}
-		Free(arr);
+		allocHandle.Free(arr);
 	}
 	size_t Length() const {
+		std::lock_guard<spin_mutex> lck(mtx);
 		return head - tail;
 	}
 };
 
-template<typename T, bool useVAlloc = true>
+template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class SingleThreadArrayQueue {
 	size_t head;
 	size_t tail;
 	size_t capacity;
 	T* arr;
-	static inline void* Malloc(size_t i) noexcept {
-		if constexpr (useVAlloc) {
-			return vengine_malloc(i);
-		} else
-			return malloc(i);
-	}
-	static inline void Free(void* ptr) noexcept {
-		if (!ptr) return;
-		if constexpr (useVAlloc) {
-			vengine_free(ptr);
-		} else
-			free(ptr);
-	}
+	VAllocHandle<allocType> allocHandle;
+
 	static constexpr size_t GetPow2Size(size_t capacity) noexcept {
 		size_t ssize = 1;
 		while (ssize < capacity)
@@ -160,12 +142,13 @@ class SingleThreadArrayQueue {
 	static constexpr size_t GetIndex(size_t index, size_t capacity) noexcept {
 		return index & capacity;
 	}
+	using SelfType = SingleThreadArrayQueue<T, allocType>;
 
 public:
 	size_t Length() const {
 		return tail - head;
 	}
-	SingleThreadArrayQueue(SingleThreadArrayQueue<T, useVAlloc>&& v)
+	SingleThreadArrayQueue(SelfType&& v)
 		: head(v.head),
 		  tail(v.tail),
 		  capacity(v.capacity),
@@ -175,7 +158,7 @@ public:
 	SingleThreadArrayQueue(size_t capacity) : head(0), tail(0) {
 		capacity = GetPow2Size(capacity);
 		this->capacity = capacity - 1;
-		arr = (T*)Malloc(sizeof(T) * capacity);
+		arr = (T*)allocHandle.Malloc(sizeof(T) * capacity);
 	}
 	SingleThreadArrayQueue() : SingleThreadArrayQueue(32) {}
 
@@ -184,7 +167,7 @@ public:
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
-			T* newArr = (T*)Malloc(sizeof(T) * newCapa);
+			T* newArr = (T*)allocHandle.Malloc(sizeof(T) * newCapa);
 			newCapa--;
 			for (size_t s = tail; s < index; ++s) {
 				T* ptr = arr + GetIndex(s, capacity);
@@ -193,7 +176,7 @@ public:
 					ptr->~T();
 				}
 			}
-			Free(arr);
+			allocHandle.Free(arr);
 			arr = newArr;
 			capacity = newCapa;
 		}
@@ -204,7 +187,7 @@ public:
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
-			T* newArr = (T*)Malloc(sizeof(T) * newCapa);
+			T* newArr = (T*)allocHandle.Malloc(sizeof(T) * newCapa);
 			newCapa--;
 			for (size_t s = tail; s < index; ++s) {
 				T* ptr = arr + GetIndex(s, capacity);
@@ -213,7 +196,7 @@ public:
 					ptr->~T();
 				}
 			}
-			Free(arr);
+			allocHandle.Free(arr);
 			arr = newArr;
 			capacity = newCapa;
 		}
@@ -222,11 +205,9 @@ public:
 	bool Pop() {
 		if (head - tail == 0)
 			return false;
+		auto&& value = arr[GetIndex(tail++, capacity)];
 		if constexpr (!std::is_trivially_destructible_v<T>) {
-			auto&& value = arr[GetIndex(tail++, capacity)];
 			value.~T();
-		} else {
-			tail++;
 		}
 		return true;
 	}
@@ -240,15 +221,11 @@ public:
 		}
 		return true;
 	}
-
 	bool GetLast(T* ptr) {
 		if (head - tail == 0)
 			return false;
 		auto&& value = arr[GetIndex(tail, capacity)];
 		*ptr = value;
-		if constexpr (!std::is_trivially_destructible_v<T>) {
-			value.~T();
-		}
 		return true;
 	}
 	~SingleThreadArrayQueue() {
@@ -257,6 +234,6 @@ public:
 				arr[GetIndex(s, capacity)].~T();
 			}
 		}
-		Free(arr);
+		allocHandle.Free(arr);
 	}
 };

@@ -15,7 +15,7 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 		vengine::string function_buffer;
 		function_buffer.reserve(65535 * 4);
 		str.reserve(65535 * 4);
-		str << "#include \"Include.cginc\"\n";
+		str << "#include \"Include.cginc\"\n"_sv;
 		CodegenUtility::ClearStructType();
 
 		for (auto cust : func.custom_callables()) {
@@ -240,10 +240,9 @@ void StringExprVisitor::visit(const MemberExpr* expr) {
 	expr->self()->accept(*this);
 	if (expr->is_swizzle()) {
 		char const* xyzw = "xyzw";
-		auto sw = vengine::linq::Range(0, expr->swizzle_size());//TODO: filter illegal swizzle
 		(*str) << '.';
-		LINQ_LOOP(i, sw) {
-			(*str) << xyzw[*i];
+		for (auto i : vengine::range(expr->swizzle_size())) {
+			(*str) << xyzw[i];
 		}
 	} else {
 		(*str) += ".v"_sv;

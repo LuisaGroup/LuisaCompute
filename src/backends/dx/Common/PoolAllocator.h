@@ -6,7 +6,7 @@
 template<typename T>
 class PoolAllocator {
 private:
-	StackObject<Pool<Storage<T, 1>, false>> globalTransformPool;
+	StackObject<Pool<Storage<T, 1>, VEngine_AllocType::Default>> globalTransformPool;
 	std::mutex transPoolLock;
 	spin_mutex transAllocLock;
 	std::atomic_bool poolInited = false;
@@ -24,7 +24,7 @@ public:
 				{"Failed Allocate Type ",
 				 typeid(T).name(),
 				 "\n"});
-			throw 0;
+			VENGINE_EXIT;
 		}
 		if (!poolInited) {
 			std::lock_guard lck(transPoolLock);
@@ -40,7 +40,7 @@ public:
 				{"Failed Deallocate Type ",
 				 typeid(T).name(),
 				 "\n"});
-			throw 0;
+			VENGINE_EXIT;
 		}
 		std::lock_guard lck(transAllocLock);
 		globalTransformPool->Delete(ptr);

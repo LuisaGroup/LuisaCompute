@@ -48,13 +48,13 @@ void DXCommandVisitor::visit(BufferDownloadCommand const* cmd) noexcept {
 		sbuffer,
 		cmd->offset(),
 		cmd->size());
-	res->afterSyncTask.emplace_back(std::move(Runnable<void()>(
+	res->afterSyncTask.emplace_back(
 		[=]() {
 			readBuffer->Map();
 			memcpy(cmd->data(), readBuffer->GetMappedPtr(0), cmd->size());
 			readBuffer->UnMap();
 			delete readBuffer;
-		})));
+		});
 }
 void DXCommandVisitor::visit(BufferCopyCommand const* cmd) noexcept {
 	StructuredBuffer* srcBuffer = reinterpret_cast<StructuredBuffer*>(cmd->src_handle());

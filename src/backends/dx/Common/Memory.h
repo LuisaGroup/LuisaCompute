@@ -3,46 +3,12 @@
 #include <cstdlib>
 #include <stdint.h>
 #include <type_traits>
-#include <Common/DLL.h>
 #include <Common/MetaLib.h>
-namespace vengine {
-VENGINE_DLL_COMMON void vengine_init_malloc();
-VENGINE_DLL_COMMON void vengine_init_malloc(
-	funcPtr_t<void*(size_t)> mallocFunc,
-	funcPtr_t<void(void*)> freeFunc);
-}// namespace vengine
-namespace v_mimalloc {
-struct VENGINE_DLL_COMMON Alloc {
-	friend void vengine::vengine_init_malloc();
-	friend void vengine::vengine_init_malloc(
-		funcPtr_t<void*(size_t)> mallocFunc,
-		funcPtr_t<void(void*)> freeFunc);
+VENGINE_EXTERN_C VENGINE_DLL_COMMON void* vengine_default_malloc(size_t sz);
+VENGINE_EXTERN_C VENGINE_DLL_COMMON void vengine_default_free(void* ptr);
 
-private:
-	static funcPtr_t<void*(size_t)> mallocFunc;
-	static funcPtr_t<void(void*)> freeFunc;
-
-public:
-	static funcPtr_t<void*(size_t)> GetMiMalloc() {
-		return mallocFunc;
-	}
-	static funcPtr_t<void(void*)> GetMifree() {
-		return freeFunc;
-	}
-	Alloc() = delete;
-	Alloc(const Alloc&) = delete;
-	Alloc(Alloc&&) = delete;
-};
-}// namespace v_mimalloc
-
-inline void* vengine_malloc(size_t size) noexcept {
-	auto malloc_func = v_mimalloc::Alloc::GetMiMalloc();
-	return malloc_func(size);
-}
-inline void vengine_free(void* ptr) noexcept {
-	auto free_func = v_mimalloc::Alloc::GetMifree();
-	free_func(ptr);
-}
+VENGINE_EXTERN_C VENGINE_DLL_COMMON void* vengine_malloc(size_t size);
+VENGINE_EXTERN_C VENGINE_DLL_COMMON void vengine_free(void* ptr);
 
 template<typename T, typename... Args>
 inline T* vengine_new(Args&&... args) noexcept {

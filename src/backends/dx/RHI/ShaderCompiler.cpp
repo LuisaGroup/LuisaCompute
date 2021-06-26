@@ -104,7 +104,6 @@ ShaderCompiler::ConstBufferData const& ShaderCompiler::GetCBufferData(uint kerne
 }
 #ifdef NDEBUG
 DLL_EXPORT void CodegenBody(Function func, const Context& ctx) {
-	vengine::vengine_init_malloc();
 	SCompile::HLSLCompiler::InitRegisterData();
 	luisa::compute::ShaderCompiler::TryCompileCompute(func.uid());
 }

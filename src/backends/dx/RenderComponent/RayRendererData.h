@@ -18,12 +18,12 @@ public:
 		uint materialID;
 	};
 	float4x4 transformMatrix;
-	ObjectPtr<IMesh> mesh;
+	IMesh* mesh;
 	D3D12_RAYTRACING_INSTANCE_DESC instanceDesc;
 	MeshObject meshObj;
 	~RayRendererData() {}
-	RayRendererData(ObjectPtr<IMesh>&& mesh)
-		: mesh(std::move(mesh)) {}
+	RayRendererData(IMesh* mesh)
+		: mesh(mesh) {}
 	KILL_COPY_CONSTRUCT(RayRendererData)
 };
 }// namespace luisa::compute

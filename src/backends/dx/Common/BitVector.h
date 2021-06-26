@@ -1,4 +1,5 @@
 #pragma once
+#include <VEngineConfig.h>
 #include <memory>
 #include <stdint.h>
 #include <Common/Memory.h>
@@ -15,6 +16,9 @@ public:
 	public:
 		operator bool() const noexcept {
 			return arr->Get(index);
+		}
+		bool operator!() const {
+			return !operator bool();
 		}
 		void operator=(bool value) noexcept {
 			arr->Set(index, value);
@@ -77,11 +81,11 @@ private:
 		if (length <= capacity) return;
 		size_t capa = length * 1.5 + 8;
 		const size_t charSize = (capa % 8 > 0) ? capa / 8 + 1 : capa / 8;
-		uint8_t* newPtr = (uint8_t*)vengine_malloc(sizeof(uint8_t) * charSize);
+		uint8_t* newPtr = (uint8_t*)vengine_default_malloc(sizeof(uint8_t) * charSize);
 		if (ptr) {
 			const size_t oldCharSize = (length % 8 > 0) ? length / 8 + 1 : length / 8;
 			memcpy(newPtr, ptr, oldCharSize);
-			vengine_free(ptr);
+			vengine_default_free(ptr);
 		}
 		ptr = newPtr;
 		capacity = charSize * 8;
@@ -94,7 +98,7 @@ public:
 		  capacity(o.capacity) {
 		o.ptr = nullptr;
 	}
-	size_t Size() const noexcept {
+	size_t size() const noexcept {
 		return length;
 	}
 	size_t Capacity() const noexcept {
@@ -113,11 +117,11 @@ public:
 	void Reserve(size_t capa) noexcept {
 		if (capa <= capacity) return;
 		const size_t charSize = (capa % 8 > 0) ? capa / 8 + 1 : capa / 8;
-		uint8_t* newPtr = (uint8_t*)vengine_malloc(sizeof(uint8_t) * charSize);
+		uint8_t* newPtr = (uint8_t*)vengine_default_malloc(sizeof(uint8_t) * charSize);
 		if (ptr) {
 			const size_t oldCharSize = (length % 8 > 0) ? length / 8 + 1 : length / 8;
 			memcpy(newPtr, ptr, oldCharSize);
-			vengine_free(ptr);
+			vengine_default_free(ptr);
 		}
 		ptr = newPtr;
 		capacity = charSize * 8;
@@ -156,7 +160,7 @@ public:
 	}
 	~BitVector() noexcept {
 		if (ptr) {
-			vengine_free(ptr);
+			vengine_default_free(ptr);
 		}
 	}
 };

@@ -106,7 +106,7 @@ void SerializedObject::Parse(char const*& ptr, bool isArray) {
 			str.clear();
 			str.push_back_all(ptr, stringLen);
 			ptr += stringLen;
-			auto ite = keyValueDatas->Insert(str);
+			auto ite = keyValueDatas->Emplace(str);
 			if (ite.Value().initialized) {
 				ite.Value().~SerializedData();
 			}

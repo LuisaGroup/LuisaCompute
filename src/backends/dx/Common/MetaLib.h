@@ -13,64 +13,25 @@ using int32 = int32_t;
 #include <atomic>
 #include <thread>
 
-#ifdef MSVC
-#define AUTO_FUNC template<typename TT = void> \
-inline
-#else
-#define AUTO_FUNC inline
-#endif
-
-#if defined(__x86_64__)
-#include <immintrin.h>
-#define VENGINE_INTRIN_PAUSE() _mm_pause()
-#elif defined(_M_X64)
-#include <windows.h>
-#define VENGINE_INTRIN_PAUSE() YieldProcessor()
-#elif defined(__aarch64__)
-#define VENGINE_INTRIN_PAUSE() asm volatile("isb")
-#else
-#include <mutex>
-#define VENGINE_INTRIN_PAUSE() std::this_thread::yield()
-#endif
-
-class spin_mutex {
-	std::atomic_flag _flag;
-
-public:
-	spin_mutex() noexcept {
-		_flag.clear();
-	}
-	void lock() noexcept {
-		while (_flag.test_and_set(std::memory_order::acquire)) {// acquire lock
-#ifdef __cpp_lib_atomic_flag_test
-			while (_flag.test(std::memory_order::relaxed)) {// test lock
-#endif
-				VENGINE_INTRIN_PAUSE();
-#ifdef __cpp_lib_atomic_flag_test
-			}
-#endif
-		}
-	}
-
-	bool isLocked() const noexcept {
-		return _flag.test(std::memory_order::relaxed);
-	}
-	void unlock() noexcept {
-		_flag.clear(std::memory_order::release);
-	}
-};
-
 template<typename T>
 struct funcPtr;
 
 template<typename _Ret, typename... Args>
 struct funcPtr<_Ret(Args...)> {
 	using Type = _Ret (*)(Args...);
+	using FuncType = _Ret(Args...);
+};
+
+template<typename _Ret, typename... Args>
+struct funcPtr<_Ret (*)(Args...)> {
+	using Type = _Ret (*)(Args...);
+	using FuncType = _Ret(Args...);
 };
 
 template<typename T>
 using funcPtr_t = typename funcPtr<T>::Type;
-
+template<typename T>
+using functor_t = typename funcPtr<T>::FuncType;
 template<typename T, uint32_t size>
 class Storage {
 	alignas(T) char c[size * sizeof(T)];
@@ -143,21 +104,25 @@ template<typename T>
 class StackObject<T, true> {
 private:
 	StackObject<T, false> stackObj;
-	std::atomic_flag initialized;
+	bool initialized;
 
 public:
 	template<typename... Args>
-	inline void New(Args&&... args) noexcept {
-		if (initialized.test_and_set(std::memory_order_relaxed)) return;
+	inline bool New(Args&&... args) noexcept {
+		if (initialized) return false;
+		initialized = true;
 		stackObj.New(std::forward<Args>(args)...);
+		return true;
 	}
 	template<typename... Args>
-	inline void InPlaceNew(Args&&... args) noexcept {
-		if (initialized.test_and_set(std::memory_order_relaxed)) return;
+	inline bool InPlaceNew(Args&&... args) noexcept {
+		if (initialized) return false;
+		initialized = true;
 		stackObj.InPlaceNew(std::forward<Args>(args)...);
+		return true;
 	}
 	bool Initialized() const noexcept {
-		return initialized.test(std::memory_order_relaxed);
+		return initialized;
 	}
 	operator bool() const noexcept {
 		return Initialized();
@@ -165,37 +130,12 @@ public:
 	operator bool() noexcept {
 		return Initialized();
 	}
-	inline void Delete() noexcept {
-		if (!Initialized()) return;
-		initialized.clear();
+	inline bool Delete() noexcept {
+		if (!Initialized()) return false;
+		initialized = false;
 		stackObj.Delete();
+		return true;
 	}
-	/*inline void operator=(const StackObject<T, true>& value) noexcept {
-		if (Initialized()) {
-			stackObj.Delete();
-		}
-		if (value.Initialized()) {
-			initialized.test_and_set(std::memory_order_relaxed);
-		} else {
-			initialized.clear();
-		}
-		if (Initialized()) {
-			stackObj = value.stackObj;
-		}
-	}
-	inline void operator=(StackObject<T>&& value) noexcept {
-		if (Initialized()) {
-			stackObj.Delete();
-		}
-		if (value.Initialized()) {
-			initialized.test_and_set(std::memory_order_relaxed);
-		} else {
-			initialized.clear();
-		}
-		if (Initialized()) {
-			stackObj = std::move(value.stackObj);
-		}
-	}*/
 	T& operator*() noexcept {
 		return *stackObj;
 	}
@@ -223,10 +163,10 @@ public:
 	bool operator==(const StackObject<T>&) const noexcept = delete;
 	bool operator!=(const StackObject<T>&) const noexcept = delete;
 	StackObject() noexcept {
-		initialized.clear();
+		initialized = false;
 	}
 	StackObject(const StackObject<T, true>& value) noexcept {
-		initialized.clear();
+		initialized = false;
 		stackObj.New(value.operator*());
 	}
 	~StackObject() noexcept {
@@ -282,65 +222,18 @@ struct hash<Type> {
 		return t.HashCode();
 	}
 };
-}// namespace vengine
-
-static constexpr bool BinaryEqualTo_Size(void const* a, void const* b, uint64_t size) noexcept {
-	const uint64_t bit64Count = size / sizeof(uint64_t);
-	const uint64_t bit32Count = (size - bit64Count * sizeof(uint64_t)) / sizeof(uint32_t);
-	const uint64_t bit16Count =
-		(size - bit64Count * sizeof(uint64_t) - bit32Count * sizeof(uint32_t)) / sizeof(uint16_t);
-	const uint64_t bit8Count =
-		(size - bit64Count * sizeof(uint64_t) - bit32Count * sizeof(uint32_t) - bit16Count * sizeof(uint16_t)) / sizeof(uint8_t);
-	if (bit64Count > 0) {
-		uint64_t const*& aStartPtr = (uint64_t const*&)a;
-		uint64_t const*& bStartPtr = (uint64_t const*&)b;
-		uint64_t const* aEndPtr = aStartPtr + bit64Count;
-		while (aStartPtr != aEndPtr) {
-			if (*aStartPtr != *bStartPtr)
-				return false;
-			aStartPtr++;
-			bStartPtr++;
-		}
-	}
-	if (bit32Count > 0) {
-		uint32_t const*& aStartPtr = (uint32_t const*&)a;
-		uint32_t const*& bStartPtr = (uint32_t const*&)b;
-		uint32_t const* aEndPtr = aStartPtr + bit32Count;
-		while (aStartPtr != aEndPtr) {
-			if (*aStartPtr != *bStartPtr)
-				return false;
-			aStartPtr++;
-			bStartPtr++;
-		}
-	}
-	if (bit16Count > 0) {
-		uint16_t const*& aStartPtr = (uint16_t const*&)a;
-		uint16_t const*& bStartPtr = (uint16_t const*&)b;
-		uint16_t const* aEndPtr = aStartPtr + bit16Count;
-		while (aStartPtr != aEndPtr) {
-			if (*aStartPtr != *bStartPtr)
-				return false;
-			aStartPtr++;
-			bStartPtr++;
-		}
-	}
-	if (bit8Count > 0) {
-		uint8_t const*& aStartPtr = (uint8_t const*&)a;
-		uint8_t const*& bStartPtr = (uint8_t const*&)b;
-		uint8_t const* aEndPtr = aStartPtr + bit8Count;
-		while (aStartPtr != aEndPtr) {
-			if (*aStartPtr != *bStartPtr)
-				return false;
-			aStartPtr++;
-			bStartPtr++;
-		}
-	}
-	return true;
-}
 template<typename T>
-static constexpr bool BinaryEqualTo(T const* a, T const* b) {
-	return BinaryEqualTo_Size(a, b, sizeof(T));
-}
+struct array_meta;
+template<typename T, size_t N>
+struct array_meta<T[N]> {
+	static constexpr size_t array_size = N;
+};
+
+template<typename T>
+static constexpr size_t array_count = array_meta<T>::array_size;
+}// namespace vengine
+#define VENGINE_ARRAY_COUNT(arr) (vengine::array_count<decltype(arr)>)
+
 namespace FunctionTemplateGlobal {
 
 template<typename T, typename... Args>
@@ -421,20 +314,55 @@ decltype(auto) select(A&& a, B&& b, C&& c, Args&&... args) {
 	}
 	return a(std::forward<Args>(args)...);
 }
-template<typename A, typename B, typename C, typename... Args>
-decltype(auto) range(A&& startIndex, B&& endIndex, C&& func, Args&&... args) {
-	auto&& end = endIndex();
-	for (auto v = std::move(startIndex()); v < end; ++v) {
-		func(std::forward<Args>(args)...);
+struct range {
+public:
+	struct rangeIte {
+		int64 v;
+		int64& operator++() {
+			return ++v;
+		}
+		int64 operator++(int) {
+			return v++;
+		}
+		int64 const* operator->() const {
+			return &v;
+		}
+		int64 const& operator*() const {
+			return v;
+		}
+		bool operator==(rangeIte r) const {
+			return r.v == v;
+		}
+	};
+	range(int64 b, int64 e) : b(b), e(e) {}
+	range(int64 e) : b(0), e(e) {}
+	rangeIte begin() const {
+		return {b};
 	}
-}
-template<typename A, typename B, typename C, typename... Args>
-decltype(auto) reverse_range(A&& startIndex, B&& endIndex, C&& func, Args&&... args) {
-	auto&& start = startIndex();
-	for (auto v = std::move(endIndex()); v > start; v--) {
-		func(std::forward<Args>(args)...);
+	rangeIte end() const {
+		return {e};
 	}
-}
+
+private:
+	int64 b;
+	int64 e;
+};
+
+template<typename T>
+struct ptr_range {
+public:
+	T* begin() const {
+		return b;
+	}
+	T* end() const {
+		return e;
+	}
+	ptr_range(T* b, T* e) : b(b), e(e) {}
+
+private:
+	T* b;
+	T* e;
+};
 template<typename T>
 decltype(auto) get_lvalue(T&& data) {
 	return static_cast<std::remove_reference_t<T>&>(data);

@@ -11,13 +11,13 @@ void VEngine_Log(vengine::string_view const& chunk) {
 	FILE* file = nullptr;
 	if (!isInitialized) {
 		isInitialized = true;
-		file = fopen("LoggerFile.log", "w");
+		file = fopen("LoggerFile.log", "w"_sv);
 		if (file) {
 			vengine::string_view chunk = "This is a log file from last run: \n";
 			fwrite(chunk.c_str(), chunk.size(), 1, file);
 		}
 	} else {
-		file = fopen("LoggerFile.log", "a+");
+		file = fopen("LoggerFile.log", "a+"_sv);
 	}
 	if (file) {
 		fwrite(chunk.c_str(), chunk.size(), 1, file);
@@ -30,13 +30,13 @@ void VEngine_Log(vengine::string_view const* chunk, size_t chunkCount) {
 	FILE* file = nullptr;
 	if (!isInitialized) {
 		isInitialized = true;
-		file = fopen("LoggerFile.log", "w");
+		file = fopen("LoggerFile.log", "w"_sv);
 		if (file) {
 			vengine::string_view chunk = "This is a log file from last run: \n";
 			fwrite(chunk.c_str(), chunk.size(), 1, file);
 		}
 	} else {
-		file = fopen("LoggerFile.log", "a+");
+		file = fopen("LoggerFile.log", "a+"_sv);
 	}
 	if (file) {
 		for (size_t i = 0; i < chunkCount; ++i)

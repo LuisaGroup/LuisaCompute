@@ -1,11 +1,14 @@
 #include <Common/VObject.h>
 std::atomic<uint64_t> VObject::CurrentID = 0;
-ArrayList<LinkHeap*, false> LinkHeap::heapPtrs;
+ArrayList<LinkHeap*, VEngine_AllocType::Default> LinkHeap::heapPtrs;
 spin_mutex LinkHeap::mtx;
 VObject::~VObject() noexcept {
 	for (auto ite = disposeFuncs.begin(); ite != disposeFuncs.end(); ++ite) {
 		(*ite)(this);
 	}
+}
+VObject::VObject() {
+	instanceID = ++CurrentID;
 }
 void VObject::AddEventBeforeDispose(Runnable<void(VObject*)>&& func) noexcept {
 	disposeFuncs.emplace_back(std::move(func));
@@ -193,6 +196,9 @@ PtrLink::PtrLink(const PtrWeakLink& p) noexcept
 PtrLink::PtrLink(PtrWeakLink&& p) noexcept
 	: heapPtr(p.heapPtr),
 	  offset(p.offset) {
+	if (heapPtr) {
+		++heapPtr->refCount;
+	}
 	p.heapPtr = nullptr;
 }
 #undef PRINT_SIZE

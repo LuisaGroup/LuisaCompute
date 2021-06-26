@@ -44,7 +44,7 @@ private:
 	spin_mutex mtx;
 	std::unique_ptr<DescriptorHeap> globalDescriptorHeap;
 	BitArray usedDescs;
-	ArrayList<uint, false> unusedDescs;
+	ArrayList<uint, VEngine_AllocType::Default> unusedDescs;
 	StackObject<ElementAllocator, true> srvAllocator;
 	StackObject<ElementAllocator, true> rtvAllocator;
 	StackObject<ElementAllocator, true> dsvAllocator;

@@ -8,10 +8,13 @@ if (WIN32)
         CJsonObject/JsonCompiler.cpp
         CJsonObject/SerializedObject.cpp
         Common/Common.cpp
+        Common/DynamicLink.cpp
         Common/GameTimer.cpp
         Common/GFXUtil.cpp
         Common/Log.cpp
         Common/MathHelper.cpp
+        Common/spin_mutex.cpp
+        Common/StackAllocator.cpp
         Common/vengine_library.cpp
         Common/VObject.cpp
         File/CopyDir.cpp
@@ -22,6 +25,8 @@ if (WIN32)
         JobSystem/JobBucket.cpp
         JobSystem/JobNode.cpp
         JobSystem/JobSystem.cpp
+        JobSystem/ThreadPool.cpp
+        JobSystem/ThreadTaskHandle.cpp
         PipelineComponent/CommandAllocator.cpp
         PipelineComponent/CommandBuffer.cpp
         PipelineComponent/FrameResource.cpp

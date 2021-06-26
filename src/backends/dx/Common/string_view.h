@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <Common/MetaLib.h>
 #include <iostream>
-#include <Common/DLL.h>
+#include <string.h>
 namespace vengine {
 class string;
 class wstring;
@@ -20,6 +20,9 @@ public:
 		return mSize;
 	}
 	char const* begin() const {
+		return data;
+	}
+	operator char const*() const{
 		return data;
 	}
 	char const* end() const {
@@ -50,12 +53,12 @@ public:
 
 	bool operator==(const string_view& chunk) const {
 		if (mSize != chunk.mSize) return false;
-		return BinaryEqualTo_Size(data, chunk.data, mSize);
+		return memcmp(data, chunk.data, mSize) == 0;
 	}
 	bool operator==(char const* chunk) const {
 		size_t s = strlen(chunk);
 		if (mSize != s) return false;
-		return BinaryEqualTo_Size(data, chunk, mSize);
+		return memcmp(data, chunk, mSize) == 0;
 	}
 	bool operator==(char c) const {
 		if (mSize != 1) return false;
@@ -85,6 +88,9 @@ class VENGINE_DLL_COMMON wstring_view {
 
 public:
 	wchar_t const* c_str() const {
+		return data;
+	}
+	operator wchar_t const *() const {
 		return data;
 	}
 	size_t size() const {
@@ -121,12 +127,12 @@ public:
 
 	bool operator==(const wstring_view& chunk) const {
 		if (mSize != chunk.mSize) return false;
-		return BinaryEqualTo_Size(data, chunk.data, mSize);
+		return memcmp(data, chunk.data, mSize * sizeof(wchar_t)) == 0;
 	}
 	bool operator==(wchar_t const* chunk) const {
 		size_t s = wstrlen(chunk);
 		if (mSize != s) return false;
-		return BinaryEqualTo_Size(data, chunk, mSize);
+		return memcmp(data, chunk, mSize * sizeof(wchar_t)) == 0;
 	}
 	bool operator==(wchar_t c) const {
 		if (mSize != 1) return false;

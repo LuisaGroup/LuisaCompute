@@ -7,8 +7,9 @@
 #include <assert.h>
 #include <Common/vector.h>
 #include <Common/Memory.h>
+#include <Common/Log.h>
 class PtrLink;
-
+class VObject;
 class VENGINE_DLL_COMMON VObject {
 	friend class PtrLink;
 
@@ -18,10 +19,7 @@ private:
 	size_t instanceID;
 
 protected:
-	VObject() {
-		instanceID = ++CurrentID;
-	}
-
+	VObject();
 public:
 	Type GetType() const noexcept {
 		return typeid(*const_cast<VObject*>(this));
@@ -31,10 +29,8 @@ public:
 	virtual ~VObject() noexcept;
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	KILL_COPY_CONSTRUCT(VObject)
-	VObject(VObject&& v);
-	void operator=(VObject&& v);
+	VObject(VObject&& v) = delete;
 };
-
 class PtrLink;
 class PtrWeakLink;
 struct VENGINE_DLL_COMMON LinkHeap {
@@ -46,7 +42,7 @@ private:
 	funcPtr_t<void(void*)> disposer;
 	std::atomic<int32_t> refCount;
 	std::atomic<int32_t> looseRefCount;
-	static ArrayList<LinkHeap*, false> heapPtrs;
+	static ArrayList<LinkHeap*, VEngine_AllocType::Default> heapPtrs;
 	static spin_mutex mtx;
 	static LinkHeap* GetHeap(void* obj, void (*disp)(void*)) noexcept;
 	static void ReturnHeap(LinkHeap* value) noexcept;
@@ -104,11 +100,95 @@ public:
 		Dispose();
 	}
 };
-
+namespace vengine {
+template<typename T, typename F>
+size_t GetOffset() {
+	T* const ptr = reinterpret_cast<T*>(1);
+	F* const fPtr = static_cast<F*>(ptr);
+	return (size_t)fPtr - (size_t)1;
+}
+}// namespace vengine
 template<typename T>
 class ObjWeakPtr;
 template<typename T>
 class ObjectPtr;
+class SharedWeakFlag;
+class SharedFlag {
+	friend class SharedWeakFlag;
+
+private:
+	PtrLink link;
+
+public:
+	SharedFlag(size_t value)
+		: link(reinterpret_cast<char*>(value), [](void*) {}) {
+	}
+	SharedFlag() : link() {}
+	SharedFlag(SharedFlag const& flag)
+		: link(flag.link) {
+	}
+	SharedFlag(SharedFlag&& flag)
+		: link(std::move(flag.link)) {
+	}
+	inline SharedFlag(SharedWeakFlag const& flag);
+	inline SharedFlag(SharedWeakFlag&& flag);
+
+	void Dispose() {
+		link.Dispose();
+	}
+	operator size_t() const noexcept {
+		if (link.heapPtr == nullptr) {
+			return 0;
+		}
+		return reinterpret_cast<size_t>(link.heapPtr->ptr);
+	}
+	inline void operator=(const SharedWeakFlag& other) noexcept;
+	inline void operator=(const SharedFlag& other) noexcept {
+		link = other.link;
+	}
+	inline void operator=(SharedFlag&& other) noexcept {
+		link = std::move(other.link);
+	}
+};
+
+class SharedWeakFlag {
+	friend class SharedFlag;
+
+private:
+	PtrWeakLink link;
+
+public:
+	SharedWeakFlag() : link() {}
+	SharedWeakFlag(SharedFlag const& flag) : link(flag.link) {}
+	SharedWeakFlag(SharedWeakFlag const& flag) : link(flag.link) {}
+	SharedWeakFlag(SharedWeakFlag&& flag) : link(std::move(flag.link)) {}
+	inline void operator=(const SharedWeakFlag& other) noexcept {
+		link = other.link;
+	}
+	inline void operator=(SharedWeakFlag&& other) noexcept {
+		link = std::move(other.link);
+	}
+	inline void operator=(const SharedFlag& other) noexcept {
+		link = other.link;
+	}
+	operator size_t() const noexcept {
+		if (link.heapPtr == nullptr) {
+			return 0;
+		}
+		return reinterpret_cast<size_t>(link.heapPtr->ptr);
+	}
+};
+
+void SharedFlag::operator=(const SharedWeakFlag& other) noexcept {
+	link = other.link;
+}
+
+SharedFlag::SharedFlag(SharedWeakFlag const& flag)
+	: link(flag.link) {
+}
+SharedFlag::SharedFlag(SharedWeakFlag&& flag)
+	: link(std::move(flag.link)) {
+}
 template<typename T>
 class ObjectPtr {
 private:
@@ -162,9 +242,12 @@ public:
 	inline operator bool() const noexcept {
 		return link.heapPtr != nullptr && link.heapPtr->ptr != nullptr;
 	}
+	inline bool operator!() const {
+		return !operator bool();
+	}
 
 	inline operator T*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -176,15 +259,20 @@ public:
 	}
 
 	template<typename F>
-	inline ObjectPtr<F> CastTo() const noexcept {
-		static T* const ptr = reinterpret_cast<T*>(0x7fffffff);
-		static F* const fPtr = static_cast<F*>(ptr);
-		static size_t const ptrOffset = (size_t)fPtr - (size_t)ptr;
-		return ObjectPtr<F>(link, ptrOffset);
+	inline ObjectPtr<F> CastTo() const& noexcept {
+		return ObjectPtr<F>(link, vengine::GetOffset<T, F>());
 	}
 	template<typename F>
-	inline ObjectPtr<F> Reinterpret_CastTo() const noexcept {
-		return ObjectPtr<F>(link, 0);
+	inline ObjectPtr<F> Reinterpret_CastTo(size_t offset) const& noexcept {
+		return ObjectPtr<F>(link, offset);
+	}
+	template<typename F>
+	inline ObjectPtr<F> CastTo() && noexcept {
+		return ObjectPtr<F>(std::move(link), vengine::GetOffset<T, F>());
+	}
+	template<typename F>
+	inline ObjectPtr<F> Reinterpret_CastTo(size_t offset) && noexcept {
+		return ObjectPtr<F>(std::move(link), offset);
 	}
 	inline void operator=(const ObjWeakPtr<T>& other) noexcept;
 	inline void operator=(const ObjectPtr<T>& other) noexcept {
@@ -200,7 +288,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -208,7 +296,7 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -216,7 +304,7 @@ public:
 	}
 
 	inline T const& operator*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -271,9 +359,12 @@ public:
 	inline operator bool() const noexcept {
 		return link.heapPtr != nullptr && link.heapPtr->ptr != nullptr;
 	}
+	bool operator!() const {
+		return !operator bool();
+	}
 
 	inline operator T*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -285,8 +376,12 @@ public:
 	}
 
 	template<typename F>
-	inline ObjectPtr<F[]> Reinterpret_CastTo() const noexcept {
-		return ObjectPtr<F[]>(link, 0);
+	inline ObjectPtr<F[]> Reinterpret_CastTo(size_t offset) const& noexcept {
+		return ObjectPtr<F[]>(link, offset);
+	}
+	template<typename F>
+	inline ObjectPtr<F[]> Reinterpret_CastTo(size_t offset) && noexcept {
+		return ObjectPtr<F[]>(std::move(link), offset);
 	}
 	inline void operator=(const ObjWeakPtr<T[]>& other) noexcept;
 	inline void operator=(const ObjectPtr<T[]>& other) noexcept {
@@ -303,7 +398,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -311,7 +406,7 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -319,7 +414,7 @@ public:
 	}
 
 	inline T const& operator*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -370,9 +465,12 @@ public:
 	inline operator bool() const noexcept {
 		return link.heapPtr != nullptr && link.heapPtr->ptr != nullptr;
 	}
+	bool operator!() const {
+		return !operator bool();
+	}
 
 	inline operator T*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -384,15 +482,20 @@ public:
 	}
 
 	template<typename F>
-	inline ObjWeakPtr<F> CastTo() const noexcept {
-		static T* const ptr = reinterpret_cast<T*>(0x7fffffff);
-		static F* const fPtr = static_cast<F*>(ptr);
-		static size_t const ptrOffset = (size_t)fPtr - (size_t)ptr;
-		return ObjWeakPtr<F>(link, ptrOffset);
+	inline ObjWeakPtr<F> CastTo() const& noexcept {
+		return ObjWeakPtr<F>(link, vengine::GetOffset<T, F>());
 	}
 	template<typename F>
-	inline ObjWeakPtr<F> Reinterpret_CastTo() const noexcept {
-		return ObjWeakPtr<F>(link, 0);
+	inline ObjWeakPtr<F> Reinterpret_CastTo(size_t offset) const& noexcept {
+		return ObjWeakPtr<F>(link, offset);
+	}
+	template<typename F>
+	inline ObjWeakPtr<F> CastTo() && noexcept {
+		return ObjWeakPtr<F>(std::move(link), vengine::GetOffset<T, F>());
+	}
+	template<typename F>
+	inline ObjWeakPtr<F> Reinterpret_CastTo(size_t offset) && noexcept {
+		return ObjWeakPtr<F>(std::move(link), offset);
 	}
 	inline void operator=(const ObjWeakPtr<T>& other) noexcept {
 		link = other.link;
@@ -412,7 +515,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -420,7 +523,7 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -428,7 +531,7 @@ public:
 	}
 
 	inline T const& operator*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -472,9 +575,12 @@ public:
 	inline operator bool() const noexcept {
 		return link.heapPtr != nullptr && link.heapPtr->ptr != nullptr;
 	}
+	bool operator!() const {
+		return !operator bool();
+	}
 
 	inline operator T*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -486,8 +592,8 @@ public:
 	}
 
 	template<typename F>
-	inline ObjWeakPtr<F[]> Reinterpret_CastTo() const noexcept {
-		return ObjWeakPtr<F[]>(link, 0);
+	inline ObjWeakPtr<F[]> Reinterpret_CastTo(size_t offset) const noexcept {
+		return ObjWeakPtr<F[]>(link, offset);
 	}
 	inline void operator=(const ObjWeakPtr<T[]>& other) noexcept {
 		link = other.link;
@@ -507,7 +613,7 @@ public:
 	}
 
 	inline T* operator->() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
@@ -515,14 +621,14 @@ public:
 	}
 
 	inline T& operator*() noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif
 		return *GetPtr();
 	}
 	inline T const& operator*() const noexcept {
-#ifdef DEBUG
+#if defined(DEBUG)
 		//Null Check!
 		assert(link.heapPtr != nullptr);
 #endif

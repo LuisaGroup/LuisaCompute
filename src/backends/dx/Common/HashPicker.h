@@ -6,15 +6,16 @@
 #include <Common/Pool.h>
 #include <Common/vector.h>
 #include <Common/Hash.h>
+#include <Common/VAllocator.h>
 
-template<typename K, typename Hash = vengine::hash<K>, typename Equal = std::equal_to<K>, bool useVEngineAlloc = true>
+template<typename K, typename Hash = vengine::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashPicker {
 public:
 	using KeyType = K;
 	using HashType = Hash;
 	using EqualType = Equal;
-	using SelfType = HashPicker<K, Hash, Equal, useVEngineAlloc>;
-private:
+	using SelfType = HashPicker<K, Hash, Equal, allocType>;
+
 	struct LinkNode {
 		K key;
 		LinkNode* last = nullptr;
@@ -41,10 +42,10 @@ private:
 public:
 	struct Iterator {
 	private:
-		ArrayList<LinkNode*, useVEngineAlloc>::Iterator ii;
+		LinkNode** ii;
 
 	public:
-		Iterator(ArrayList<LinkNode*, useVEngineAlloc>::Iterator ii) : ii(ii) {}
+		Iterator(LinkNode** ii) : ii(ii) {}
 		bool operator==(const Iterator& ite) const noexcept {
 			return ii == ite.ii;
 		}
@@ -98,11 +99,12 @@ public:
 	};
 
 private:
-	ArrayList<LinkNode*, useVEngineAlloc> allocatedNodes;
+	ArrayList<LinkNode*, allocType> allocatedNodes;
 	struct HashArray {
 	private:
 		LinkNode** nodesPtr = nullptr;
 		size_t mSize;
+		VAllocHandle<allocType> allocHandle;
 
 	public:
 		HashArray(HashArray&& map)
@@ -116,31 +118,9 @@ private:
 		void ClearAll() {
 			memset(nodesPtr, 0, sizeof(LinkNode*) * mSize);
 		}
-		template<bool value>
-		static void* Allocate(size_t s) noexcept;
-		template<>
-		static void* Allocate<true>(size_t s) noexcept {
-			return vengine_malloc(s);
-		}
-		template<>
-		static void* Allocate<false>(size_t s) noexcept {
-			return malloc(s);
-		}
-
-		template<bool value>
-		static void Free(void* ptr) noexcept;
-
-		template<>
-		static void Free<true>(void* ptr) noexcept {
-			vengine_free(ptr);
-		}
-		template<>
-		static void Free<false>(void* ptr) noexcept {
-			free(ptr);
-		}
 
 		HashArray(size_t mSize) noexcept : mSize(mSize) {
-			nodesPtr = (LinkNode**)Allocate<useVEngineAlloc>(sizeof(LinkNode*) * mSize);
+			nodesPtr = (LinkNode**)allocHandle.Malloc(sizeof(LinkNode*) * mSize);
 			memset(nodesPtr, 0, sizeof(LinkNode*) * mSize);
 		}
 		HashArray(HashArray& arr) noexcept : nodesPtr(arr.nodesPtr) {
@@ -157,7 +137,7 @@ private:
 			operator=(arr);
 		}
 		~HashArray() noexcept {
-			if (nodesPtr) Free<useVEngineAlloc>(nodesPtr);
+			if (nodesPtr) allocHandle.Free(nodesPtr);
 		}
 		LinkNode* const& operator[](size_t i) const noexcept {
 			return nodesPtr[i];
@@ -168,7 +148,7 @@ private:
 	};
 
 	HashArray nodeVec;
-	Pool<LinkNode, useVEngineAlloc, true> pool;
+	Pool<LinkNode, allocType, true> pool;
 	inline static const Hash hsFunc;
 	inline static const Equal eqFunc;
 	template<typename A, typename... B>
@@ -258,7 +238,7 @@ public:
 	}
 	HashPicker() noexcept : HashPicker(16) {}
 	///////////////////////
-	
+
 	Index Insert(const K& key) noexcept {
 		size_t hashOriginValue = hsFunc(key);
 		size_t hashValue;
@@ -327,7 +307,7 @@ public:
 			ite.node->next->last = ite.node->last;
 		DeleteLinkNode(ite.node);
 	}
-	
+
 	bool Contains(const K& key) const noexcept {
 
 		size_t hashOriginValue = hsFunc(key);
@@ -353,7 +333,7 @@ public:
 	size_t GetCapacity() const noexcept { return nodeVec.size(); }
 };
 
-template<typename K, typename Hash, typename Equal, bool useVEngineAlloc>
-inline K const& HashPicker<K, Hash, Equal, useVEngineAlloc>::Index::Key() const noexcept {
+template<typename K, typename Hash, typename Equal, VEngine_AllocType allocType>
+inline K const& HashPicker<K, Hash, Equal, allocType>::Index::Key() const noexcept {
 	return node->key;
 }
