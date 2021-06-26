@@ -14,6 +14,11 @@ namespace luisa {
 template<typename U>
 constexpr auto always_false_v = false;
 
+template<typename T, std::enable_if_t<std::disjunction_v<std::is_enum<T>>, int> = 0>
+[[nodiscard]] constexpr auto to_underlying(T e) noexcept {
+    return static_cast<std::underlying_type_t<T>>(e);
+}
+
 // scalars
 using uint = unsigned int;
 

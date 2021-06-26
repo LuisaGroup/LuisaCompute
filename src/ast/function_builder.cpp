@@ -268,8 +268,8 @@ void FunctionBuilder::for_(const Statement *init, const Expression *condition, c
 }
 
 void FunctionBuilder::mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept {
-    auto old_usage = static_cast<uint32_t>(_variable_usages[uid]);
-    _variable_usages[uid] = static_cast<Variable::Usage>(old_usage | static_cast<uint32_t>(usage));
+    auto old_usage = to_underlying(_variable_usages[uid]);
+    _variable_usages[uid] = static_cast<Variable::Usage>(old_usage | to_underlying(usage));
 }
 
 FunctionBuilder *FunctionBuilder::create(Function::Tag tag) noexcept {

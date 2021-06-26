@@ -75,8 +75,8 @@ enum struct PixelFormat : uint32_t {
     RGBA32F
 };
 
-constexpr auto pixel_storage_count = static_cast<uint32_t>(PixelStorage::FLOAT4) + 1u;
-constexpr auto pixel_format_count = static_cast<uint32_t>(PixelFormat::RGBA32F) + 1u;
+constexpr auto pixel_storage_count = to_underlying(PixelStorage::FLOAT4) + 1u;
+constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA32F) + 1u;
 
 [[nodiscard]] constexpr auto pixel_format_to_storage(PixelFormat format) noexcept {
     switch (format) {

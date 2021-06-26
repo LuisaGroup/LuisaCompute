@@ -49,7 +49,7 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
 }
 
 void Expression::mark(Variable::Usage usage) const noexcept {
-    if (auto a = static_cast<uint32_t>(_usage), b = static_cast<uint32_t>(usage); (a & b) == 0u) {
+    if (auto a = to_underlying(_usage), b = to_underlying(usage); (a & b) == 0u) {
         _usage = static_cast<Variable::Usage>(a | b);
         _mark(usage);
     }
