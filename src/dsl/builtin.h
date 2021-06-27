@@ -516,7 +516,7 @@ template<typename X, typename Y, typename Z,
                      detail::is_expr<std::remove_cvref_t<Y>>,
     detail::is_expr<std::remove_cvref_t<Z>>>,
 int> = 0>
-[[nodiscard]] inline auto clmap(X &&x, Y &&y, Z &&z) noexcept {
+[[nodiscard]] inline auto clamp(X &&x, Y &&y, Z &&z) noexcept {
     return clamp(detail::Expr{std::forward<X>(x)},
                  detail::Expr{std::forward<Y>(y)},
                  detail::Expr{std::forward<Z>(z)});
