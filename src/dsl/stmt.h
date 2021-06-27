@@ -253,10 +253,10 @@ inline auto switch_(T &&expr) noexcept {
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(T end) noexcept { return detail::ForRange<T, false>{0, end, 1}; }
+[[nodiscard]] inline auto range(T end) noexcept { return detail::ForRange<T, false>{static_cast<T>(0), end, static_cast<T>(1)}; }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{0, Var{end}, 1}; }
+[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{static_cast<T>(0), Var{end}, static_cast<T>(1)}; }
 
 template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, T end, T step = 1) noexcept {
