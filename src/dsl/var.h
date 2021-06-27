@@ -138,6 +138,9 @@ using Bool = Var<bool>;
 using Bool2 = Var<bool2>;
 using Bool3 = Var<bool3>;
 using Bool4 = Var<bool4>;
+using Float2x2 = Var<float2x2>;
+using Float3x3 = Var<float3x3>;
+using Float4x4 = Var<float4x4>;
 
 template<size_t N>
 using ArrayInt = ArrayVar<int, N>;
