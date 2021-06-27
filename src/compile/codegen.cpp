@@ -31,7 +31,7 @@ Codegen::Scratch &Codegen::Scratch::operator<<(bool x) noexcept {
 Codegen::Scratch &Codegen::Scratch::operator<<(float x) noexcept {
     auto s = detail::to_string(x);
     *this << s;
-    if (s.find('.') == std::string_view::npos) { *this << ".0"; }
+    if (s.find('.') == std::string_view::npos && s.find('e') == std::string_view::npos) { *this << ".0"; }
     return *this;
 }
 
