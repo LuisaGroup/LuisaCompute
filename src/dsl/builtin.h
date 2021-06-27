@@ -998,7 +998,7 @@ template<typename X, typename Y,
                               detail::is_expr<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto pow(X &&x, Y &&y) noexcept {
-    return pows(detail::Expr{std::forward<X>(x)},
+    return pow(detail::Expr{std::forward<X>(x)},
                detail::Expr{std::forward<Y>(y)});
 }
 
