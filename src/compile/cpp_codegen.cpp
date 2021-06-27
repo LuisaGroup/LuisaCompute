@@ -241,6 +241,9 @@ void CppCodegen::visit(const CallExpr *expr) {
         LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
         LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
+        case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {

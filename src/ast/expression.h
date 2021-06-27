@@ -368,7 +368,11 @@ enum struct CallOp {
     MAKE_UINT4,
     MAKE_FLOAT2,
     MAKE_FLOAT3,
-    MAKE_FLOAT4
+    MAKE_FLOAT4,
+
+    MAKE_FLOAT2X2,
+    MAKE_FLOAT3X3,
+    MAKE_FLOAT4X4
 };
 
 class CallExpr : public Expression {

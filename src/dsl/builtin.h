@@ -394,6 +394,142 @@ LUISA_MAKE_VECTOR(uint)
 LUISA_MAKE_VECTOR(float)
 #undef LUISA_MAKE_VECTOR
 
+// make float2x2
+[[nodiscard]] inline auto make_float2x2(detail::Expr<float> s) noexcept {
+    return detail::Expr<float2x2>{
+        FunctionBuilder::current()->call(
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {s.expression()})};
+}
+
+[[nodiscard]] inline auto make_float2x2(
+    detail::Expr<float> m00, detail::Expr<float> m01,
+    detail::Expr<float> m10, detail::Expr<float> m11) noexcept {
+    return detail::Expr<float2x2>{
+        FunctionBuilder::current()->call(
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
+            {m00.expression(), m01.expression(),
+             m10.expression(), m11.expression()})};
+}
+
+[[nodiscard]] inline auto make_float2x2(detail::Expr<float2> c0, detail::Expr<float2> c1) noexcept {
+    return detail::Expr<float2x2>{
+        FunctionBuilder::current()->call(
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
+            {c0.expression(), c1.expression()})};
+}
+
+[[nodiscard]] inline auto make_float2x2(detail::Expr<float2x2> m) noexcept {
+    return detail::Expr<float2x2>{
+        FunctionBuilder::current()->call(
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()})};
+}
+
+[[nodiscard]] inline auto make_float2x2(detail::Expr<float3x3> m) noexcept {
+    return detail::Expr<float2x2>{
+        FunctionBuilder::current()->call(
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()})};
+}
+
+[[nodiscard]] inline auto make_float2x2(detail::Expr<float4x4> m) noexcept {
+    return detail::Expr<float2x2>{
+        FunctionBuilder::current()->call(
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()})};
+}
+
+// make float3x3
+[[nodiscard]] inline auto make_float3x3(detail::Expr<float> s) noexcept {
+    return detail::Expr<float3x3>{
+        FunctionBuilder::current()->call(
+            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3, {s.expression()})};
+}
+
+[[nodiscard]] inline auto make_float3x3(detail::Expr<float3> c0, detail::Expr<float3> c1, detail::Expr<float3> c2) noexcept {
+    return detail::Expr<float3x3>{
+        FunctionBuilder::current()->call(
+            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
+            {c0.expression(), c1.expression(), c2.expression()})};
+}
+
+[[nodiscard]] inline auto make_float3x3(
+    detail::Expr<float> m00, detail::Expr<float> m01, detail::Expr<float> m02,
+    detail::Expr<float> m10, detail::Expr<float> m11, detail::Expr<float> m12,
+    detail::Expr<float> m20, detail::Expr<float> m21, detail::Expr<float> m22) noexcept {
+    return detail::Expr<float3x3>{
+        FunctionBuilder::current()->call(
+            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
+            {m00.expression(), m01.expression(), m02.expression(),
+             m10.expression(), m11.expression(), m12.expression(),
+             m20.expression(), m21.expression(), m22.expression()})};
+}
+
+[[nodiscard]] inline auto make_float3x3(detail::Expr<float2x2> m) noexcept {
+    return detail::Expr<float3x3>{
+        FunctionBuilder::current()->call(
+            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3, {m.expression()})};
+}
+
+[[nodiscard]] inline auto make_float3x3(detail::Expr<float3x3> m) noexcept {
+    return detail::Expr<float3x3>{
+        FunctionBuilder::current()->call(
+            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3, {m.expression()})};
+}
+
+[[nodiscard]] inline auto make_float3x3(detail::Expr<float4x4> m) noexcept {
+    return detail::Expr<float3x3>{
+        FunctionBuilder::current()->call(
+            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3, {m.expression()})};
+}
+
+// make float4x4
+[[nodiscard]] inline auto make_float4x4(detail::Expr<float> s) noexcept {
+    return detail::Expr<float4x4>{
+        FunctionBuilder::current()->call(
+            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4, {s.expression()})};
+}
+
+[[nodiscard]] inline auto make_float4x4(
+    detail::Expr<float4> c0,
+    detail::Expr<float4> c1,
+    detail::Expr<float4> c2,
+    detail::Expr<float4> c3) noexcept {
+    return detail::Expr<float4x4>{
+        FunctionBuilder::current()->call(
+            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
+            {c0.expression(), c1.expression(), c2.expression(), c3.expression()})};
+}
+
+[[nodiscard]] inline auto make_float4x4(
+    detail::Expr<float> m00, detail::Expr<float> m01, detail::Expr<float> m02, detail::Expr<float> m03,
+    detail::Expr<float> m10, detail::Expr<float> m11, detail::Expr<float> m12, detail::Expr<float> m13,
+    detail::Expr<float> m20, detail::Expr<float> m21, detail::Expr<float> m22, detail::Expr<float> m23,
+    detail::Expr<float> m30, detail::Expr<float> m31, detail::Expr<float> m32, detail::Expr<float> m33) noexcept {
+    return detail::Expr<float4x4>{
+        FunctionBuilder::current()->call(
+            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
+            {m00.expression(), m01.expression(), m02.expression(), m03.expression(),
+             m10.expression(), m11.expression(), m12.expression(), m13.expression(),
+             m20.expression(), m21.expression(), m22.expression(), m23.expression(),
+             m30.expression(), m31.expression(), m32.expression(), m33.expression()})};
+}
+
+[[nodiscard]] inline auto make_float4x4(detail::Expr<float2x2> m) noexcept {
+    return detail::Expr<float4x4>{
+        FunctionBuilder::current()->call(
+            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4, {m.expression()})};
+}
+
+[[nodiscard]] inline auto make_float4x4(detail::Expr<float3x3> m) noexcept {
+    return detail::Expr<float4x4>{
+        FunctionBuilder::current()->call(
+            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4, {m.expression()})};
+}
+
+[[nodiscard]] inline auto make_float4x4(detail::Expr<float4x4> m) noexcept {
+    return detail::Expr<float4x4>{
+        FunctionBuilder::current()->call(
+            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4, {m.expression()})};
+}
+
 template<size_t N>
 [[nodiscard]] inline auto all(detail::Expr<Vector<bool, N>> x) noexcept {
     return detail::Expr<bool>{
