@@ -867,9 +867,6 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 		case CallOp::ROUND:
 			result << "round"_sv;
 			break;
-		case CallOp::FMOD:
-			result << "fmod"_sv;
-			break;
 		case CallOp::DEGREES:
 			result << "degrees"_sv;
 			break;

@@ -1060,14 +1060,6 @@ requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, fl
 
 template<typename T>
 requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto fmod(detail::Expr<T> x) noexcept {
-    return detail::Expr<T>{
-        FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::FMOD, {x.expression()})};
-}
-
-template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
 [[nodiscard]] inline auto degrees(detail::Expr<T> x) noexcept {
     return detail::Expr<T>{
         FunctionBuilder::current()->call(

@@ -317,7 +317,6 @@ enum struct CallOp {
     FRACT,
     TRUNC,
     ROUND,
-    FMOD,
 
     DEGREES,
     RADIANS,
