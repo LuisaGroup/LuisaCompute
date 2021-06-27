@@ -340,11 +340,6 @@ using basic_types = std::tuple<
 }// namespace luisa
 
 template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolean<T>>, int> = 0>
-[[nodiscard]] constexpr auto operator*(T lhs, const luisa::Vector<T, N> rhs) noexcept {
-    return luisa::Vector<T, N>{lhs} * rhs;
-}
-
-template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolean<T>>, int> = 0>
 [[nodiscard]] constexpr auto operator+(const luisa::Vector<T, N> v) noexcept { return v; }
 
 template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolean<T>>, int> = 0>
@@ -394,6 +389,37 @@ template<typename T, size_t N,
         return R{~v.x, ~v.y, ~v.z, ~v.w};
     }
 }
+
+// scalar-vector binary operators
+#define LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(op, ...)                               \
+    template<typename T, size_t N,                                                      \
+             std::enable_if_t<                                                          \
+                 std::conjunction_v<luisa::is_scalar<T>, __VA_ARGS__>,                  \
+                 int> = 0>                                                              \
+    [[nodiscard]] constexpr auto operator op(T lhs, luisa::Vector<T, N> rhs) noexcept { \
+        return luisa::Vector<T, N>{lhs} op rhs;                                         \
+    }
+
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(+, std::negation<luisa::is_boolean<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(-, std::negation<luisa::is_boolean<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(*, std::negation<luisa::is_boolean<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(/, std::negation<luisa::is_boolean<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(%, luisa::is_integral<T>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(<<, luisa::is_integral<T>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(>>, luisa::is_integral<T>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(|, std::negation<luisa::is_floating_point<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(&, std::negation<luisa::is_floating_point<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(^, std::negation<luisa::is_floating_point<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(||, luisa::is_boolean<T>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(&&, luisa::is_boolean<T>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(==, std::true_type)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(!=, std::true_type)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(<, std::negation<luisa::is_boolean<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(>, std::negation<luisa::is_boolean<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(<=, std::negation<luisa::is_boolean<T>>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(>=, std::negation<luisa::is_boolean<T>>)
+
+#undef LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR
 
 // float2x2
 [[nodiscard]] constexpr auto operator*(const luisa::float2x2 m, float s) noexcept {
