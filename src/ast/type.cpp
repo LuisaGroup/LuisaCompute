@@ -90,7 +90,10 @@ const Type *Type::from(std::string_view description) noexcept {
             data.members.emplace_back(Type::of<float>());
             info._dimension = read_number();
             match('>');
-            if (info._dimension == 3) {
+            if (info._dimension == 2) {
+                info._size = sizeof(float2x2);
+                info._alignment = alignof(float2x2);
+            } else if (info._dimension == 3) {
                 info._size = sizeof(float3x3);
                 info._alignment = alignof(float3x3);
             } else if (info._dimension == 4) {

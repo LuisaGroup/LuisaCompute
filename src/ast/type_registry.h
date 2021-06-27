@@ -169,6 +169,14 @@ struct TypeDesc<VolumeView<T>> : TypeDesc<Volume<T>> {};
 
 // matrices
 template<>
+struct TypeDesc<float2x2> {
+    static constexpr std::string_view description() noexcept {
+        using namespace std::string_view_literals;
+        return "matrix<2>"sv;
+    }
+};
+
+template<>
 struct TypeDesc<float3x3> {
     static constexpr std::string_view description() noexcept {
         using namespace std::string_view_literals;

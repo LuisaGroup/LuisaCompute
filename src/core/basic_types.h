@@ -244,6 +244,29 @@ struct Matrix {
 };
 
 template<>
+struct Matrix<2> {
+
+    float2 cols[2];
+
+    explicit constexpr Matrix(float s = 1.0f) noexcept
+        : cols{float2{s, 0.0f}, float2{0.0f, s}} {}
+
+    explicit constexpr Matrix(const float2 c0, const float2 c1) noexcept
+        : cols{c0, c1} {}
+
+    explicit constexpr Matrix(float m00, float m01,
+                              float m10, float m11) noexcept
+        : cols{float2{m00, m01}, float2{m10, m11}} {}
+
+    template<size_t N, std::enable_if_t<N == 3 || N == 4, int> = 0>
+    explicit constexpr Matrix(Matrix<N> m) noexcept
+        : cols{float2{m[0]}, float2{m[1]}} {}
+
+    [[nodiscard]] constexpr float2 &operator[](size_t i) noexcept { return cols[i]; }
+    [[nodiscard]] constexpr const float2 &operator[](size_t i) const noexcept { return cols[i]; }
+};
+
+template<>
 struct Matrix<3> {
 
     float3 cols[3];
@@ -262,6 +285,9 @@ struct Matrix<3> {
     template<size_t N, std::enable_if_t<N == 4, int> = 0>
     explicit constexpr Matrix(Matrix<N> m) noexcept
         : cols{float3{m[0]}, float3{m[1]}, float3{m[2]}} {}
+
+    explicit constexpr Matrix(Matrix<2> m) noexcept
+        : cols{float3{m[0], 0.0f}, float3{m[1], 0.0f}, float3{0.0f, 0.0f, 1.0f}} {}
 
     [[nodiscard]] constexpr float3 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float3 &operator[](size_t i) const noexcept { return cols[i]; }
@@ -300,6 +326,7 @@ struct Matrix<4> {
     [[nodiscard]] constexpr const float4 &operator[](size_t i) const noexcept { return cols[i]; }
 };
 
+using float2x2 = Matrix<2>;
 using float3x3 = Matrix<3>;
 using float4x4 = Matrix<4>;
 
@@ -308,7 +335,7 @@ using basic_types = std::tuple<
     bool2, float2, int2, uint2,
     bool3, float3, int3, uint3,
     bool4, float4, int4, uint4,
-    float3x3, float4x4>;
+    float2x2, float3x3, float4x4>;
 
 }// namespace luisa
 
@@ -366,6 +393,35 @@ template<typename T, size_t N,
     } else {
         return R{~v.x, ~v.y, ~v.z, ~v.w};
     }
+}
+
+// float2x2
+[[nodiscard]] constexpr auto operator*(const luisa::float2x2 m, float s) noexcept {
+    return luisa::float2x2{m[0] * s, m[1] * s};
+}
+
+[[nodiscard]] constexpr auto operator*(float s, const luisa::float2x2 m) noexcept {
+    return m * s;
+}
+
+[[nodiscard]] constexpr auto operator/(const luisa::float2x2 m, float s) noexcept {
+    return m * (1.0f / s);
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float2x2 m, const luisa::float2 v) noexcept {
+    return v.x * m[0] + v.y * m[1];
+}
+
+[[nodiscard]] constexpr auto operator*(const luisa::float2x2 lhs, const luisa::float2x2 rhs) noexcept {
+    return luisa::float2x2{lhs * rhs[0], lhs * rhs[1]};
+}
+
+[[nodiscard]] constexpr auto operator+(const luisa::float2x2 lhs, const luisa::float2x2 rhs) noexcept {
+    return luisa::float2x2{lhs[0] + rhs[0], lhs[1] + rhs[1]};
+}
+
+[[nodiscard]] constexpr auto operator-(const luisa::float2x2 lhs, const luisa::float2x2 rhs) noexcept {
+    return luisa::float2x2{lhs[0] - rhs[0], lhs[1] - rhs[1]};
 }
 
 // float3x3

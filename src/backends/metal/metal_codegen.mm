@@ -102,6 +102,19 @@ public:
         _s << ")";
     }
 
+    void operator()(float2x2 m) const noexcept {
+        _s << "float2x2(";
+        for (auto col = 0u; col < 2u; col++) {
+            for (auto row = 0u; row < 2u; row++) {
+                (*this)(m[col][row]);
+                _s << ", ";
+            }
+        }
+        _s.pop_back();
+        _s.pop_back();
+        _s << ")";
+    }
+
     void operator()(float3x3 m) const noexcept {
         _s << "float3x3(";
         for (auto col = 0u; col < 3u; col++) {
@@ -783,6 +796,14 @@ template<typename T>
 
 template<typename T>
 [[nodiscard]] auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
+
+[[nodiscard]] auto inverse(float2x2 m) {
+  const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
+  return float2x2(m[1][1] * one_over_determinant,
+				- m[0][1] * one_over_determinant,
+				- m[1][0] * one_over_determinant,
+				+ m[0][0] * one_over_determinant);
+}
 
 [[nodiscard]] auto inverse(float3x3 m) {
   const auto one_over_determinant = 1.0f / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
