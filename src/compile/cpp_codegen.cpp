@@ -103,6 +103,19 @@ public:
         _s << ")";
     }
 
+    void operator()(float2x2 m) const noexcept {
+        _s << "float3x3(";
+        for (auto col = 0u; col < 2u; col++) {
+            for (auto row = 0u; row < 2u; row++) {
+                (*this)(m[col][row]);
+                _s << ", ";
+            }
+        }
+        _s.pop_back();
+        _s.pop_back();
+        _s << ")";
+    }
+
     void operator()(float3x3 m) const noexcept {
         _s << "float3x3(";
         for (auto col = 0u; col < 3u; col++) {
