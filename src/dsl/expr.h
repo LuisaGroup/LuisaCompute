@@ -485,6 +485,18 @@ using expr_value = expr_value_impl<std::remove_cvref_t<T>>;
 template<typename T>
 using expr_value_t = typename expr_value<T>::type;
 
+template<typename T>
+struct is_expr : std::false_type {};
+
+template<typename T>
+struct is_expr<Expr<T>> : std::true_type {};
+
+template<typename T>
+struct is_expr<Var<T>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_expr_v = is_expr<T>::value;
+
 }// namespace detail
 }// namespace luisa::compute
 
