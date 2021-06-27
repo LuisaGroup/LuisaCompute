@@ -187,11 +187,11 @@ template<concepts::scalar T>
 
 template<concepts::scalar T, size_t N>
 requires(N == 3) || (N == 4) [[nodiscard]] inline auto make_vector3(detail::Expr<Vector<T, N>> v) noexcept {
-using V = Vector<T, 3>;
-return detail::Expr<V>{
-FunctionBuilder::current()->call(
-    Type::of<V>(), detail::make_vector_tag<V>(),
-{v.expression()})};
+    using V = Vector<T, 3>;
+    return detail::Expr<V>{
+        FunctionBuilder::current()->call(
+            Type::of<V>(), detail::make_vector_tag<V>(),
+            {v.expression()})};
 }
 
 template<concepts::scalar T>
@@ -440,11 +440,11 @@ template<concepts::scalar T, size_t N>
 }
 
 template<typename X, typename Y, typename Z,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>,
-    detail::is_expr<std::remove_cvref_t<Z>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<Z>>>,
+                          int> = 0>
 [[nodiscard]] inline auto select(X &&x, Y &&y, Z &&z) noexcept {
     return select(detail::Expr{std::forward<X>(x)},
                   detail::Expr{std::forward<Y>(y)},
@@ -467,11 +467,11 @@ template<concepts::scalar T, size_t N>
 }
 
 template<typename X, typename Y, typename Z,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>,
-    detail::is_expr<std::remove_cvref_t<Z>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<Z>>>,
+                          int> = 0>
 [[nodiscard]] inline auto ite(X &&x, Y &&y, Z &&z) noexcept {
     return ite(detail::Expr{std::forward<X>(x)},
                detail::Expr{std::forward<Y>(y)},
@@ -511,11 +511,11 @@ template<concepts::vector T>
 }
 
 template<typename X, typename Y, typename Z,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>,
-    detail::is_expr<std::remove_cvref_t<Z>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<Z>>>,
+                          int> = 0>
 [[nodiscard]] inline auto clamp(X &&x, Y &&y, Z &&z) noexcept {
     return clamp(detail::Expr{std::forward<X>(x)},
                  detail::Expr{std::forward<Y>(y)},
@@ -554,11 +554,11 @@ template<size_t N>
 }
 
 template<typename X, typename Y, typename Z,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>,
-    detail::is_expr<std::remove_cvref_t<Z>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<Z>>>,
+                          int> = 0>
 [[nodiscard]] inline auto lerp(X &&x, Y &&y, Z &&z) noexcept {
     return lerp(detail::Expr{std::forward<X>(x)},
                 detail::Expr{std::forward<Y>(y)},
@@ -623,10 +623,10 @@ template<size_t N>
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto step(X &&x, Y &&y) noexcept {
     return step(detail::Expr{std::forward<X>(x)},
                 detail::Expr{std::forward<Y>(y)});
@@ -663,11 +663,11 @@ template<size_t N>
 }
 
 template<typename X, typename Y, typename Z,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>,
-    detail::is_expr<std::remove_cvref_t<Z>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<Z>>>,
+                          int> = 0>
 [[nodiscard]] inline auto smoothstep(X &&x, Y &&y, Z &&z) noexcept {
     return smoothstep(detail::Expr{std::forward<X>(x)},
                       detail::Expr{std::forward<Y>(y)},
@@ -719,10 +719,10 @@ template<concepts::scalar T>
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto min(X &&x, Y &&y) noexcept {
     return min(detail::Expr{std::forward<X>(x)},
                detail::Expr{std::forward<Y>(y)});
@@ -757,10 +757,10 @@ template<concepts::scalar T>
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto max(X &&x, Y &&y) noexcept {
     return max(detail::Expr{std::forward<X>(x)},
                detail::Expr{std::forward<Y>(y)});
@@ -856,10 +856,10 @@ requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, fl
 }
 
 template<typename Y, typename X,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<Y>>,
-                     detail::is_expr<std::remove_cvref_t<X>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<X>>>,
+                          int> = 0>
 [[nodiscard]] inline auto atan2(Y &&y, X &&x) noexcept {
     return atan2(detail::Expr{std::forward<Y>(y)},
                  detail::Expr{std::forward<X>(x)});
@@ -992,6 +992,16 @@ template<size_t N>
             {x.expression(), a.expression()})};
 }
 
+template<typename X, typename Y,
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
+[[nodiscard]] inline auto pow(X &&x, Y &&y) noexcept {
+    return pows(detail::Expr{std::forward<X>(x)},
+               detail::Expr{std::forward<Y>(y)});
+}
+
 template<typename T>
 requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
 [[nodiscard]] inline auto sqrt(detail::Expr<T> x) noexcept {
@@ -1081,11 +1091,11 @@ requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, fl
 }
 
 template<typename X, typename Y, typename Z,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>,
-    detail::is_expr<std::remove_cvref_t<Z>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<Z>>>,
+                          int> = 0>
 [[nodiscard]] inline auto fma(X &&x, Y &&y, Z &&z) noexcept {
     return fma(detail::Expr{std::forward<X>(x)},
                detail::Expr{std::forward<Y>(y)},
@@ -1101,10 +1111,10 @@ requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, fl
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto copysign(X &&x, Y &&y) noexcept {
     return copysign(detail::Expr{std::forward<X>(x)},
                     detail::Expr{std::forward<Y>(y)});
@@ -1117,10 +1127,10 @@ int> = 0>
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto cross(X &&x, Y &&y) noexcept {
     return cross(detail::Expr{std::forward<X>(x)},
                  detail::Expr{std::forward<Y>(y)});
@@ -1134,10 +1144,10 @@ template<size_t N>
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto dot(X &&x, Y &&y) noexcept {
     return dot(detail::Expr{std::forward<X>(x)},
                detail::Expr{std::forward<Y>(y)});
@@ -1151,10 +1161,10 @@ template<size_t N>
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto distance(X &&x, Y &&y) noexcept {
     return distance(detail::Expr{std::forward<X>(x)},
                     detail::Expr{std::forward<Y>(y)});
@@ -1168,10 +1178,10 @@ template<size_t N>
 }
 
 template<typename X, typename Y,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
 [[nodiscard]] inline auto distance_squared(X &&x, Y &&y) noexcept {
     return distance_squared(detail::Expr{std::forward<X>(x)},
                             detail::Expr{std::forward<Y>(y)});
@@ -1206,11 +1216,11 @@ template<size_t N>
 }
 
 template<typename X, typename Y, typename Z,
-    std::enable_if_t<std::disjunction_v<
-        detail::is_expr<std::remove_cvref_t<X>>,
-                     detail::is_expr<std::remove_cvref_t<Y>>,
-    detail::is_expr<std::remove_cvref_t<Z>>>,
-int> = 0>
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>,
+                              detail::is_expr<std::remove_cvref_t<Z>>>,
+                          int> = 0>
 [[nodiscard]] inline auto faceforward(X &&n, Y &&i, Z &&n_ref) noexcept {
     return faceforward(detail::Expr{std::forward<X>(n)},
                        detail::Expr{std::forward<Y>(i)},
