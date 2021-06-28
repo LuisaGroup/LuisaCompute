@@ -943,6 +943,11 @@ template<typename X, typename Y>
   return x - y * floor(x / y);
 }
 
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto select(T f, T t, bool b) {
+  return b ? t : f;
+}
+
 )";
 }
 
