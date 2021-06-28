@@ -207,6 +207,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::FRACT: _scratch << "fract"; break;
         case CallOp::TRUNC: _scratch << "trunc"; break;
         case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::MOD: _scratch << "glsl_mod"; break;
+        case CallOp::FMOD: _scratch << "fmod"; break;
         case CallOp::DEGREES: _scratch << "degrees"; break;
         case CallOp::RADIANS: _scratch << "radians"; break;
         case CallOp::FMA: _scratch << "fma"; break;
@@ -934,6 +936,11 @@ template<typename T>
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_uint *a, uint cmp, uint val, memory_order) {
   atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
   return cmp;
+}
+
+template<typename X, typename Y>
+[[gnu::always_inline, nodiscard]] inline auto glsl_mod(X x, Y y) {
+  return x - y * floor(x / y);
 }
 
 )";

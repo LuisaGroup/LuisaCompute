@@ -200,6 +200,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::FRACT: _scratch << "fract"; break;
         case CallOp::TRUNC: _scratch << "trunc"; break;
         case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::MOD: _scratch << "mod"; break;
+        case CallOp::FMOD: _scratch << "fmod"; break;
         case CallOp::DEGREES: _scratch << "degrees"; break;
         case CallOp::RADIANS: _scratch << "radians"; break;
         case CallOp::FMA: _scratch << "fma"; break;

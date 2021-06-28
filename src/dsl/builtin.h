@@ -827,6 +827,82 @@ requires std::same_as<T, int> || std::same_as<T, float>
 }
 
 template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto mod(detail::Expr<Vector<T, N>> x, detail::Expr<Vector<T, N>> y) noexcept {
+    return detail::Expr<Vector<T, N>>{
+        FunctionBuilder::current()->call(
+            Type::of<Vector<T, N>>(), CallOp::MOD, {x.expression(), y.expression()})};
+}
+
+template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto mod(detail::Expr<Vector<T, N>> x, detail::Expr<T> y) noexcept {
+    return detail::Expr<Vector<T, N>>{
+        FunctionBuilder::current()->call(
+            Type::of<Vector<T, N>>(), CallOp::MOD, {x.expression(), y.expression()})};
+}
+
+template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto mod(detail::Expr<T> x, detail::Expr<Vector<T, N>> y) noexcept {
+    return detail::Expr<Vector<T, N>>{
+        FunctionBuilder::current()->call(
+            Type::of<Vector<T, N>>(), CallOp::MOD, {x.expression(), y.expression()})};
+}
+
+template<concepts::scalar T>
+[[nodiscard]] inline auto mod(detail::Expr<T> x, detail::Expr<T> y) noexcept {
+    return detail::Expr<T>{
+        FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::MOD, {x.expression(), y.expression()})};
+}
+
+template<typename X, typename Y,
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
+[[nodiscard]] inline auto mod(X &&x, Y &&y) noexcept {
+    return mod(detail::Expr{std::forward<X>(x)},
+               detail::Expr{std::forward<Y>(y)});
+}
+
+template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto fmod(detail::Expr<Vector<T, N>> x, detail::Expr<Vector<T, N>> y) noexcept {
+    return detail::Expr<Vector<T, N>>{
+        FunctionBuilder::current()->call(
+            Type::of<Vector<T, N>>(), CallOp::FMOD, {x.expression(), y.expression()})};
+}
+
+template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto fmod(detail::Expr<Vector<T, N>> x, detail::Expr<T> y) noexcept {
+    return detail::Expr<Vector<T, N>>{
+        FunctionBuilder::current()->call(
+            Type::of<Vector<T, N>>(), CallOp::FMOD, {x.expression(), y.expression()})};
+}
+
+template<concepts::scalar T, size_t N>
+[[nodiscard]] inline auto fmod(detail::Expr<T> x, detail::Expr<Vector<T, N>> y) noexcept {
+    return detail::Expr<Vector<T, N>>{
+        FunctionBuilder::current()->call(
+            Type::of<Vector<T, N>>(), CallOp::FMOD, {x.expression(), y.expression()})};
+}
+
+template<concepts::scalar T>
+[[nodiscard]] inline auto fmod(detail::Expr<T> x, detail::Expr<T> y) noexcept {
+    return detail::Expr<T>{
+        FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::FMOD, {x.expression(), y.expression()})};
+}
+
+template<typename X, typename Y,
+         std::enable_if_t<std::disjunction_v<
+                              detail::is_expr<std::remove_cvref_t<X>>,
+                              detail::is_expr<std::remove_cvref_t<Y>>>,
+                          int> = 0>
+[[nodiscard]] inline auto fmod(X &&x, Y &&y) noexcept {
+    return fmod(detail::Expr{std::forward<X>(x)},
+                detail::Expr{std::forward<Y>(y)});
+}
+
+template<concepts::scalar T, size_t N>
 [[nodiscard]] inline auto min(detail::Expr<Vector<T, N>> x, detail::Expr<Vector<T, N>> y) noexcept {
     return detail::Expr<Vector<T, N>>{
         FunctionBuilder::current()->call(
