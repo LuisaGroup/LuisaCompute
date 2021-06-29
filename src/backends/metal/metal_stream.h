@@ -27,14 +27,16 @@ public:
 
     template<typename Encode>
     void with_command_buffer(Encode &&encode) noexcept {
-        __autoreleasing auto command_buffer = [_handle commandBuffer];
-        {
-            std::scoped_lock lock{_mutex};
-            [command_buffer enqueue];
-            _last = command_buffer;
+        @autoreleasepool {
+            auto command_buffer = [_handle commandBuffer];
+            {
+                std::scoped_lock lock{_mutex};
+                [command_buffer enqueue];
+                _last = command_buffer;
+            }
+            encode(command_buffer);
+            [command_buffer commit];
         }
-        encode(command_buffer);
-        [command_buffer commit];
     }
 
     void synchronize() noexcept {
