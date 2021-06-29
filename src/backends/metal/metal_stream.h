@@ -41,7 +41,9 @@ public:
         if (auto last = [this]() noexcept
             -> id<MTLCommandBuffer> {
                 std::scoped_lock lock{_mutex};
-                return _last;
+                auto last_cmd = _last;
+                _last = nullptr;
+                return last_cmd;
             }()) { [last waitUntilCompleted]; }
     }
 };
