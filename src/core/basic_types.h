@@ -337,6 +337,18 @@ using basic_types = std::tuple<
     bool4, float4, int4, uint4,
     float2x2, float3x3, float4x4>;
 
+[[nodiscard]] constexpr auto any(const bool2 v) noexcept { return v.x || v.y; }
+[[nodiscard]] constexpr auto any(const bool3 v) noexcept { return v.x || v.y || v.z; }
+[[nodiscard]] constexpr auto any(const bool4 v) noexcept { return v.x || v.y || v.z || v.w; }
+
+[[nodiscard]] constexpr auto all(const bool2 v) noexcept { return v.x && v.y; }
+[[nodiscard]] constexpr auto all(const bool3 v) noexcept { return v.x && v.y && v.z; }
+[[nodiscard]] constexpr auto all(const bool4 v) noexcept { return v.x && v.y && v.z && v.w; }
+
+[[nodiscard]] constexpr auto none(const bool2 v) noexcept { return !any(v); }
+[[nodiscard]] constexpr auto none(const bool3 v) noexcept { return !any(v); }
+[[nodiscard]] constexpr auto none(const bool4 v) noexcept { return !any(v); }
+
 }// namespace luisa
 
 template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolean<T>>, int> = 0>
@@ -364,18 +376,6 @@ template<typename T, size_t N>
         return luisa::bool3{!v.x, !v.y, !v.z, !v.w};
     }
 }
-
-[[nodiscard]] constexpr auto any(const luisa::bool2 v) noexcept { return v.x || v.y; }
-[[nodiscard]] constexpr auto any(const luisa::bool3 v) noexcept { return v.x || v.y || v.z; }
-[[nodiscard]] constexpr auto any(const luisa::bool4 v) noexcept { return v.x || v.y || v.z || v.w; }
-
-[[nodiscard]] constexpr auto all(const luisa::bool2 v) noexcept { return v.x && v.y; }
-[[nodiscard]] constexpr auto all(const luisa::bool3 v) noexcept { return v.x && v.y && v.z; }
-[[nodiscard]] constexpr auto all(const luisa::bool4 v) noexcept { return v.x && v.y && v.z && v.w; }
-
-[[nodiscard]] constexpr auto none(const luisa::bool2 v) noexcept { return !any(v); }
-[[nodiscard]] constexpr auto none(const luisa::bool3 v) noexcept { return !any(v); }
-[[nodiscard]] constexpr auto none(const luisa::bool4 v) noexcept { return !any(v); }
 
 template<typename T, size_t N,
          std::enable_if_t<luisa::is_integral_v<T>, int> = 0>
