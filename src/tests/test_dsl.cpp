@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
 
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
-        buffer[v_int + 1] = 123;
+        buffer[v_int + 1] = float4(123.0f);
     };
     auto t1 = clock.toc();
 

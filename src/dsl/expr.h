@@ -45,10 +45,11 @@ protected:
 public:
     explicit ExprBase(const Expression *expr) noexcept : _expression{expr} {}
 
-    template<concepts::non_pointer U>// to prevent conversion from pointer to bool
-    requires concepts::constructible<T, U>
-    ExprBase(U literal)
-    noexcept : ExprBase{FunctionBuilder::current()->literal(Type::of(literal), literal)} {}
+    template<typename U>
+    requires concepts::non_pointer<std::remove_cvref_t<U>>// to prevent conversion from pointer to bool
+        && std::same_as<T, std::remove_cvref_t<U>> ExprBase(U literal)
+    noexcept
+        : ExprBase{FunctionBuilder::current()->literal(Type::of(literal), literal)} {}
 
     constexpr ExprBase(ExprBase &&) noexcept = default;
     constexpr ExprBase(const ExprBase &) noexcept = default;
