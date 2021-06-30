@@ -6,7 +6,8 @@
 
 #import <core/hash.h>
 #import <ast/type_registry.h>
-#import <ast/variable.h>
+#import <ast/function_builder.h>
+#import <ast/constant_data.h>
 #import <backends/metal/metal_codegen.h>
 
 namespace luisa::compute::metal {
@@ -160,7 +161,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
 void MetalCodegen::visit(const CallExpr *expr) {
     auto is_atomic_op = false;
     switch (expr->op()) {
-        case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
+        case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::NONE: _scratch << "none"; break;
@@ -445,15 +446,11 @@ void MetalCodegen::emit(Function f) {
 
 void MetalCodegen::_emit_function(Function f) noexcept {
 
-    if (std::find(_generated_functions.cbegin(),
-                  _generated_functions.cend(),
-                  f.uid())
+    if (std::find(_generated_functions.cbegin(), _generated_functions.cend(), f)
         != _generated_functions.cend()) { return; }
-    _generated_functions.emplace_back(f.uid());
 
-    for (auto callable : f.custom_callables()) {
-        _emit_function(Function::callable(callable));
-    }
+    _generated_functions.emplace_back(f);
+    for (auto callable : f.custom_callables()) { _emit_function(callable); }
 
     _function = f;
     _indent = 0u;
@@ -490,7 +487,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"
-                 << "void kernel_" << f.uid()
+                 << "void kernel_" << hash_to_string(f.hash())
                  << "(\n    device const Argument &arg,";
         for (auto builtin : f.builtin_variables()) {
             if (builtin.tag() != Variable::Tag::LAUNCH_SIZE) {
@@ -506,7 +503,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         } else {
             _scratch << "void";
         }
-        _scratch << " custom_" << f.uid() << "(";
+        _scratch << " custom_" << hash_to_string(f.hash()) << "(";
         for (auto buffer : f.captured_buffers()) {
             _scratch << "\n    ";
             _emit_variable_decl(buffer.variable);

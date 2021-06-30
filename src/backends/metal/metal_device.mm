@@ -136,12 +136,12 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
     return _handle;
 }
 
-void MetalDevice::compile_kernel(uint32_t uid) noexcept {
-    static_cast<void>(_compiler->kernel(uid));
+void MetalDevice::compile(const FunctionBuilder *kernel) noexcept {
+    static_cast<void>(compiled_kernel(kernel));
 }
 
-MetalCompiler::KernelItem MetalDevice::kernel(uint32_t uid) const noexcept {
-    return _compiler->kernel(uid);
+MetalCompiler::KernelItem MetalDevice::compiled_kernel(Function kernel) const noexcept {
+    return _compiler->compile(kernel);
 }
 
 MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {

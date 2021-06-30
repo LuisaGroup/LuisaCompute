@@ -39,28 +39,12 @@ const ScopeStmt *Function::body() const noexcept {
     return _builder->body();
 }
 
-Function Function::callable(uint32_t uid) noexcept {
-    return FunctionBuilder::callable(uid);
-}
-
-uint32_t Function::uid() const noexcept {
-    return _builder->uid();
-}
-
-std::span<const uint32_t> Function::custom_callables() const noexcept {
+std::span<const Function> Function::custom_callables() const noexcept {
     return _builder->custom_callables();
 }
 
 std::span<const CallOp> Function::builtin_callables() const noexcept {
     return _builder->builtin_callables();
-}
-
-Function Function::kernel(uint32_t uid) noexcept {
-    return FunctionBuilder::kernel(uid);
-}
-
-Function Function::at(uint32_t uid) noexcept {
-    return FunctionBuilder::at(uid);
 }
 
 const Type *Function::return_type() const noexcept {
@@ -73,6 +57,10 @@ Variable::Usage Function::variable_usage(uint32_t uid) const noexcept {
 
 uint3 Function::block_size() const noexcept {
     return _builder->block_size();
+}
+
+uint64_t Function::hash() const noexcept {
+    return _builder->hash();
 }
 
 }// namespace luisa::compute

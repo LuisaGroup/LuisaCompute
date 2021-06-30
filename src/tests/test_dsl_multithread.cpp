@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
             auto t1 = clock.toc();
 
             auto command = kernel(float_buffer, 12u).launch(1024u);
-            auto function = Function::kernel(static_cast<KernelLaunchCommand *>(command.get())->kernel_uid());
+            auto function = static_cast<KernelLaunchCommand *>(command.get())->kernel();
 
             clock.tic();
             Codegen::Scratch scratch;

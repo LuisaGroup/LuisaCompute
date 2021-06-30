@@ -254,6 +254,8 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
 };
 
+class FunctionBuilder;
+
 class KernelLaunchCommand : public Command {
 
 public:
@@ -306,18 +308,18 @@ public:
     struct ArgumentBuffer : std::array<std::byte, 2048u> {};
 
 private:
-    uint32_t _kernel_uid;
-    uint32_t _argument_count{0u};
+    const FunctionBuilder *_kernel;
     size_t _argument_buffer_size{0u};
-    uint3 _launch_size{};
+    uint _launch_size[3]{};
+    uint32_t _argument_count{0u};
     ArgumentBuffer _argument_buffer{};
 
 public:
-    explicit KernelLaunchCommand(uint32_t uid) noexcept;
+    explicit KernelLaunchCommand(const FunctionBuilder *kernel) noexcept;
     void set_launch_size(uint3 launch_size) noexcept;
-    [[nodiscard]] auto kernel_uid() const noexcept { return _kernel_uid; }
+    [[nodiscard]] auto kernel() const noexcept { return _kernel; }
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
-    [[nodiscard]] auto launch_size() const noexcept { return _launch_size; }
+    [[nodiscard]] auto launch_size() const noexcept { return uint3(_launch_size[0], _launch_size[1], _launch_size[2]); }
 
     // Note: encode/decode order:
     //   1. captured buffers

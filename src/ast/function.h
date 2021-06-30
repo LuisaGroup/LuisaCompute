@@ -5,15 +5,21 @@
 
 #include <core/basic_types.h>
 #include <ast/variable.h>
-#include <ast/expression.h>
-#include <ast/constant_data.h>
+#include <ast/op.h>
 
 namespace luisa::compute {
 
 class FunctionBuilder;
 class ScopeStmt;
+class Expression;
+class ScopeStmt;
 
 class Function {
+
+public:
+    struct Hash {
+        [[nodiscard]] auto operator()(Function f) const noexcept { return f.hash(); }
+    };
 
 public:
     enum struct Tag : uint {
@@ -45,27 +51,26 @@ private:
     
 private:
     friend class FunctionBuilder;
-    explicit Function(const FunctionBuilder *builder) noexcept : _builder{builder} {}
 
 public:
     Function() noexcept = default;
+    Function(const FunctionBuilder *builder) noexcept : _builder{builder} {}
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
     [[nodiscard]] std::span<const Variable> shared_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
     [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
-    [[nodiscard]] std::span<const uint32_t> custom_callables() const noexcept;
+    [[nodiscard]] std::span<const Function> custom_callables() const noexcept;
     [[nodiscard]] std::span<const CallOp> builtin_callables() const noexcept;
     [[nodiscard]] uint3 block_size() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
-    [[nodiscard]] uint32_t uid() const noexcept;
     [[nodiscard]] const Type *return_type() const noexcept;
     [[nodiscard]] Variable::Usage variable_usage(uint32_t uid) const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
-    [[nodiscard]] static Function at(uint32_t uid) noexcept;
-    [[nodiscard]] static Function callable(uint32_t uid) noexcept;
-    [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
+    [[nodiscard]] uint64_t hash() const noexcept;
+    [[nodiscard]] auto builder() const noexcept { return _builder; }
+    [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
 };
 
 }// namespace luisa::compute

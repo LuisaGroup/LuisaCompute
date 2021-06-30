@@ -99,25 +99,25 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
 
 void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
 
-    auto function = Function::kernel(command->kernel_uid());
-    auto kernel = _device->kernel(command->kernel_uid());
+    Function kernel{command->kernel()};
+    auto compiled_kernel = _device->compiled_kernel(kernel.builder());
     auto argument_index = 0u;
 
     auto launch_size = command->launch_size();
-    auto block_size = function.block_size();
+    auto block_size = kernel.block_size();
     auto blocks = (launch_size + block_size - 1u) / block_size;
     LUISA_VERBOSE_WITH_LOCATION(
         "Dispatch kernel #{} in ({}, {}, {}) blocks "
         "with block_size ({}, {}, {}).",
-        command->kernel_uid(),
+        hash_to_string(kernel.hash()),
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
 
-    auto argument_encoder = kernel.encoder;
+    auto argument_encoder = compiled_kernel.encoder;
     auto argument_buffer_pool = _device->argument_buffer_pool();
     auto argument_buffer = argument_buffer_pool->allocate();
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
-    [compute_encoder setComputePipelineState:kernel.handle];
+    [compute_encoder setComputePipelineState:compiled_kernel.handle];
     [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
     command->decode([&](auto vid, auto argument) noexcept {
         using T = decltype(argument);
@@ -145,22 +145,22 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
             auto buffer = _device->buffer(argument.handle);
             [argument_encoder setBuffer:buffer
                                  offset:argument.offset
-                                atIndex:kernel.arguments[argument_index++].argumentIndex];
-            mark_usage(buffer, function.variable_usage(vid));
+                                atIndex:compiled_kernel.arguments[argument_index++].argumentIndex];
+            mark_usage(buffer, kernel.variable_usage(vid));
         } else if constexpr (std::is_same_v<T, KernelLaunchCommand::TextureArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture #{} at index {}.",
                 argument.handle, argument_index);
             auto texture = _device->texture(argument.handle);
-            auto arg_id = kernel.arguments[argument_index++].argumentIndex;
+            auto arg_id = compiled_kernel.arguments[argument_index++].argumentIndex;
             [argument_encoder setTexture:texture atIndex:arg_id];
-            mark_usage(texture, function.variable_usage(vid));
+            mark_usage(texture, kernel.variable_usage(vid));
         } else {// uniform
-            auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index++].argumentIndex];
+            auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());
         }
     });
-    auto ptr = [argument_encoder constantDataAtIndex:kernel.arguments[argument_index].argumentIndex];
+    auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments[argument_index].argumentIndex];
     std::memcpy(ptr, &launch_size, sizeof(launch_size));
     [compute_encoder setBuffer:argument_buffer.handle() offset:argument_buffer.offset() atIndex:0];
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)

@@ -153,7 +153,7 @@ void CppCodegen::visit(const RefExpr *expr) {
 void CppCodegen::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
-        case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
+        case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::NONE: _scratch << "none"; break;
@@ -388,14 +388,11 @@ void CppCodegen::emit(Function f) {
 
 void CppCodegen::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find(
-            _generated_functions.cbegin(), _generated_functions.cend(), f.uid());
+    if (auto iter = std::find(_generated_functions.cbegin(), _generated_functions.cend(), f);
         iter != _generated_functions.cend()) { return; }
-    _generated_functions.emplace_back(f.uid());
+    _generated_functions.emplace_back(f);
 
-    for (auto callable : f.custom_callables()) {
-        _emit_function(Function::callable(callable));
-    }
+    for (auto callable : f.custom_callables()) { _emit_function(callable); }
 
     _function = f;
     _indent = 0u;
@@ -408,7 +405,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "__kernel__ void kernel_" << f.uid();
+        _scratch << "__kernel__ void kernel_" << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "__device__ ";
         if (f.return_type() != nullptr) {
@@ -416,7 +413,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
         } else {
             _scratch << "void";
         }
-        _scratch << " custom_" << f.uid();
+        _scratch << " custom_" << hash_to_string(f.hash());
     } else [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }

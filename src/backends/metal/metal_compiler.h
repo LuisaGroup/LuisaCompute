@@ -35,16 +35,16 @@ public:
 private:
     MetalDevice *_device;
     std::unordered_map<uint64_t, KernelItem> _cache;
-    std::unordered_map<uint32_t, KernelItem> _kernels;
+    std::unordered_map<Function, KernelItem, Function::Hash> _kernels;
     spin_mutex _cache_mutex;
     spin_mutex _kernel_mutex;
 
 private:
-    [[nodiscard]] KernelItem _compile(uint32_t uid) noexcept;
+    [[nodiscard]] KernelItem _compile(Function kernel) noexcept;
 
 public:
     explicit MetalCompiler(MetalDevice *device) noexcept : _device{device} {}
-    [[nodiscard]] KernelItem kernel(uint32_t uid) noexcept;
+    [[nodiscard]] KernelItem compile(Function kernel) noexcept;
 };
 
 }

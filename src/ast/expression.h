@@ -12,10 +12,13 @@
 #include <core/basic_types.h>
 #include <core/logging.h>
 #include <ast/variable.h>
+#include <ast/function.h>
+#include <ast/op.h>
 
 namespace luisa::compute {
 
 struct ExprVisitor;
+class FunctionBuilder;
 
 class Expression : public concepts::Noncopyable {
 
@@ -62,14 +65,6 @@ struct ExprVisitor {
 #define LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR() \
     void accept(ExprVisitor &visitor) const override { visitor.visit(this); }
 
-enum struct UnaryOp {
-    PLUS,
-    MINUS,  // +x, -x
-    NOT,    // !x
-    BIT_NOT,// ~x
-    // Note: We deliberately support *NO* pre and postfix inc/dec operators to avoid possible abuse
-};
-
 class UnaryExpr : public Expression {
 
 private:
@@ -83,31 +78,6 @@ public:
     [[nodiscard]] auto operand() const noexcept { return _operand; }
     [[nodiscard]] auto op() const noexcept { return _op; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
-};
-
-enum struct BinaryOp {
-
-    // arithmetic
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    MOD,
-    BIT_AND,
-    BIT_OR,
-    BIT_XOR,
-    SHL,
-    SHR,
-    AND,
-    OR,
-
-    // relational
-    LESS,
-    GREATER,
-    LESS_EQUAL,
-    GREATER_EQUAL,
-    EQUAL,
-    NOT_EQUAL
 };
 
 class BinaryExpr : public Expression {
@@ -225,7 +195,7 @@ private:
 
 public:
     LiteralExpr(const Type *type, Value v) noexcept
-        : Expression{type}, _value{std::move(v)} {}
+        : Expression{type}, _value{v} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
@@ -256,127 +226,6 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
-enum struct CallOp {
-
-    CUSTOM,
-
-    ALL,
-    ANY,
-    NONE,
-
-    SELECT,
-
-    CLAMP,
-    LERP,
-    SATURATE,
-    SIGN,
-
-    STEP,
-    SMOOTHSTEP,
-
-    ABS,
-    MIN,
-    MAX,
-
-    CLZ,
-    CTZ,
-    POPCOUNT,
-    REVERSE,
-
-    ISINF,
-    ISNAN,
-
-    ACOS,
-    ACOSH,
-    ASIN,
-    ASINH,
-    ATAN,
-    ATAN2,
-    ATANH,
-
-    COS,
-    COSH,
-    SIN,
-    SINH,
-    TAN,
-    TANH,
-
-    EXP,
-    EXP2,
-    EXP10,
-    LOG,
-    LOG2,
-    LOG10,
-    POW,
-
-    SQRT,
-    RSQRT,
-
-    CEIL,
-    FLOOR,
-    FRACT,
-    TRUNC,
-    ROUND,
-    MOD,
-    FMOD,
-
-    DEGREES,
-    RADIANS,
-
-    FMA,
-    COPYSIGN,
-
-    CROSS,
-    DOT,
-    DISTANCE,
-    DISTANCE_SQUARED,
-    LENGTH,
-    LENGTH_SQUARED,
-    NORMALIZE,
-    FACEFORWARD,
-
-    DETERMINANT,
-    TRANSPOSE,
-    INVERSE,
-
-    GROUP_MEMORY_BARRIER,
-    DEVICE_MEMORY_BARRIER,
-    ALL_MEMORY_BARRIER,
-
-    ATOMIC_LOAD,
-    ATOMIC_STORE,
-    ATOMIC_EXCHANGE,
-    ATOMIC_COMPARE_EXCHANGE,
-    ATOMIC_FETCH_ADD,
-    ATOMIC_FETCH_SUB,
-    ATOMIC_FETCH_AND,
-    ATOMIC_FETCH_OR,
-    ATOMIC_FETCH_XOR,
-    ATOMIC_FETCH_MIN,
-    ATOMIC_FETCH_MAX,
-
-    TEXTURE_READ,
-    TEXTURE_WRITE,
-    TEXTURE_SAMPLE,
-
-    MAKE_BOOL2,
-    MAKE_BOOL3,
-    MAKE_BOOL4,
-    MAKE_INT2,
-    MAKE_INT3,
-    MAKE_INT4,
-    MAKE_UINT2,
-    MAKE_UINT3,
-    MAKE_UINT4,
-    MAKE_FLOAT2,
-    MAKE_FLOAT3,
-    MAKE_FLOAT4,
-
-    MAKE_FLOAT2X2,
-    MAKE_FLOAT3X3,
-    MAKE_FLOAT4X4
-};
-
 class CallExpr : public Expression {
 
 public:
@@ -384,18 +233,18 @@ public:
 
 private:
     ArgumentList _arguments;
+    Function _custom;
     CallOp _op;
-    uint32_t _uid;
     void _mark(Variable::Usage) const noexcept override;
 
 public:
-    CallExpr(const Type *type, uint32_t uid, ArgumentList args) noexcept
-        : Expression{type}, _arguments{args}, _op{CallOp::CUSTOM}, _uid{uid} {}
-    CallExpr(const Type *type, CallOp op, ArgumentList args) noexcept
-        : Expression{type}, _arguments{args}, _op{op}, _uid{} {}
+    CallExpr(const Type *type, Function callable, ArgumentList args) noexcept
+        : Expression{type}, _arguments{args}, _custom{callable}, _op{CallOp::CUSTOM} {}
+    CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept
+        : Expression{type}, _arguments{args}, _custom{}, _op{builtin} {}
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto arguments() const noexcept { return _arguments; }
-    [[nodiscard]] auto uid() const noexcept { return _uid; }
+    [[nodiscard]] auto custom() const noexcept { return _custom; }
     [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };

@@ -13,6 +13,7 @@
 
 #import <core/spin_mutex.h>
 #import <runtime/device.h>
+#import <ast/function.h>
 #import <backends/metal/metal_event.h>
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
@@ -56,7 +57,7 @@ public:
     [[nodiscard]] MetalEvent *event(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
-    [[nodiscard]] MetalCompiler::KernelItem kernel(uint32_t uid) const noexcept;
+    [[nodiscard]] MetalCompiler::KernelItem compiled_kernel(Function kernel) const noexcept;
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) override;
@@ -67,7 +68,7 @@ public:
     void dispose_stream(uint64_t handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
-    void compile_kernel(uint32_t uid) noexcept override;
+    void compile(const FunctionBuilder *kernel) noexcept override;
     uint64_t create_event() noexcept override;
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
