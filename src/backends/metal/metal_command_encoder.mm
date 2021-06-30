@@ -184,7 +184,8 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
     if (host_ptr != nullptr) {
         std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
     }
-    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { _upload_ring_buffer.recycle(buffer); }];
+    auto rb = &_upload_ring_buffer;
+    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { rb->recycle(buffer); }];
     return buffer;
 }
 
@@ -196,9 +197,10 @@ MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noex
         [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { std::memcpy(host_ptr, handle.contents, size); }];
         return {handle, 0u, size};
     }
+    auto rb = &_download_ring_buffer;
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
       std::memcpy(host_ptr, static_cast<const std::byte *>(buffer.handle().contents) + buffer.offset(), size);
-      _download_ring_buffer.recycle(buffer);
+      rb->recycle(buffer);
     }];
     return buffer;
 }

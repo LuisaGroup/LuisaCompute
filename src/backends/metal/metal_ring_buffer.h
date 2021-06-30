@@ -14,13 +14,13 @@ class MetalRingBuffer {
 private:
     id<MTLBuffer> _buffer;
     size_t _size;
-    size_t _alloc_begin;
-    size_t _alloc_end;
+    size_t _free_begin;
+    size_t _free_end;
     spin_mutex _mutex;
 
 public:
     MetalRingBuffer(id<MTLDevice> device, size_t size, bool optimize_write) noexcept
-        : _size{size}, _alloc_begin{0u}, _alloc_end{0u} {
+        : _size{size}, _free_begin{0u}, _free_end{size} {
         auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
         if (optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
         _buffer = [device newBufferWithLength:size options:buffer_options];

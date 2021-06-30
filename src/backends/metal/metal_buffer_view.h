@@ -26,4 +26,4 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 };
 
-}
+}// namespace luisa::compute::metal

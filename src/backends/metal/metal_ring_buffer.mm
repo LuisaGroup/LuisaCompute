@@ -11,33 +11,34 @@ namespace luisa::compute::metal {
 
 MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
     std::scoped_lock lock{_mutex};
-    auto offset = _alloc_end;
-    _alloc_end += size;
-    if (_alloc_end > _size) {
-        offset = 0u;
-        _alloc_end = size;
+    auto offset = _free_begin % _size;
+    auto free_next = _free_begin + size;
+    if (offset + size > _size) {
+        offset = 0u;                // wrap
+        free_next += _size - offset;// skip tail
+        if (free_next > _free_end) {// fails to allocate
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to allocate {} bytes from ring buffer "
+                "(free_begin = {}, free_end = {}, size = {}).",
+                size, _free_begin, _free_end, _size);
+            return {nullptr, 0u, 0u};
+        }
     }
-    if (_alloc_end > _alloc_begin) {
-        return {nullptr, 0u, 0u};
-    }
+    _free_end = free_next;
     return {_buffer, offset, size};
 }
 
 void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
     std::scoped_lock lock{_mutex};
-    if (view.offset() == 0u) {
-        if (_alloc_begin + view.size() <= _size) {
+    if (auto end_offset = _free_end % _size; end_offset + view.size() > _size) {
+        if (view.offset() != 0u) {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid ring buffer item offset {} for recycling (expected {}).",
-                0u, _alloc_begin);
+                "Invalid ring buffer item offset {} for recycling (expected 0).",
+                view.offset());
         }
-        _alloc_begin = 0u;
-    } else if (view.offset() != _alloc_begin) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid ring buffer item offset {} for recycling (expected {}).",
-            view.offset(), _alloc_begin);
+        _free_end += _size - end_offset;
     }
-    _alloc_begin += view.size();
+    _free_end += view.size();
 }
 
 }
