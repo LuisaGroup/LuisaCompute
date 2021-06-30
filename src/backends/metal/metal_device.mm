@@ -269,8 +269,11 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept {
     auto s = stream(stream_handle);
-    s->with_command_buffer([this, buffer = std::move(buffer)](id<MTLCommandBuffer> command_buffer) noexcept {
-        MetalCommandEncoder encoder{this, command_buffer};
+    s->with_command_buffer([this,
+                            &u = s->upload_ring_buffer(),
+                            &d = s->download_ring_buffer(),
+                            buffer = std::move(buffer)](id<MTLCommandBuffer> command_buffer) noexcept {
+        MetalCommandEncoder encoder{this, command_buffer, u, d};
         for (auto &&command : buffer) { command->accept(encoder); }
     });
 }
@@ -290,17 +293,33 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
     return _event_slots[handle].get();
 }
 
-uint64_t MetalDevice::create_mesh(uint64_t vertex_buffer_handle,
-                                  size_t vertex_buffer_offset_bytes,
-                                  uint vertex_count,
-                                  uint64_t index_buffer_handle,
-                                  size_t index_buffer_offset_bytes,
-                                  uint index_count) noexcept {
-    return 0;
+uint64_t MetalDevice::create_mesh(uint64_t stream_handle,
+                                  uint64_t vertex_buffer_handle, size_t vertex_buffer_offset_bytes, size_t vertex_count,
+                                  uint64_t index_buffer_handle, size_t index_buffer_offset_bytes, size_t triangle_count) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
-void MetalDevice::dispose_mesh(uint64_t mesh_handle) noexcept {
+void MetalDevice::update_mesh(uint64_t stream_handle, uint64_t mesh_handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
 
+void MetalDevice::dispose_mesh(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+uint64_t MetalDevice::create_accel(uint64_t stream_handle,
+                                   uint64_t mesh_handle_buffer_handle, size_t mesh_handle_buffer_offset_bytes,
+                                   uint64_t transform_buffer_handle, size_t transform_buffer_offset_bytes,
+                                   size_t mesh_count) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void MetalDevice::update_accel(uint64_t stream_handle, uint64_t accel_handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void MetalDevice::dispose_accel(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 }

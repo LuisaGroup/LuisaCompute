@@ -46,7 +46,7 @@ detail::Expr<Ray> make_ray(detail::Expr<float3> origin, detail::Expr<float3> dir
     return make_ray(origin, direction, 0.0f, std::numeric_limits<float>::max());
 }
 
-detail::Expr<Ray> make_ray(
+detail::Expr<Ray> make_ray_robust(
     detail::Expr<float3> p, detail::Expr<float3> ng,
     detail::Expr<float3> direction, detail::Expr<float> t_min, detail::Expr<float> t_max) noexcept {
 
@@ -62,8 +62,8 @@ detail::Expr<Ray> make_ray(
     return make_ray(offset_origin(p, direction, ng), direction, t_min, t_max);
 }
 
-detail::Expr<Ray> make_ray(detail::Expr<float3> p, detail::Expr<float3> ng, detail::Expr<float3> direction) noexcept {
-    return make_ray(p, ng, direction, 0.0f, std::numeric_limits<float>::max());
+detail::Expr<Ray> make_ray_robust(detail::Expr<float3> p, detail::Expr<float3> ng, detail::Expr<float3> direction) noexcept {
+    return make_ray_robust(p, ng, direction, 0.0f, std::numeric_limits<float>::max());
 }
 
 }// namespace luisa::compute

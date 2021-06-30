@@ -14,12 +14,18 @@ class MetalCommandEncoder : public CommandVisitor {
 private:
     MetalDevice *_device;
     id<MTLCommandBuffer> _command_buffer;
+    MetalRingBuffer &_upload_ring_buffer;
+    MetalRingBuffer &_download_ring_buffer;
     
 private:
-    [[nodiscard]] id<MTLBuffer> _allocate_temporary_buffer(const void *data, size_t size) noexcept;
+    [[nodiscard]] MetalBufferView _upload(const void *host_ptr, size_t size) noexcept;
+    [[nodiscard]] MetalBufferView _download(void *host_ptr, size_t size) noexcept;
 
 public:
-    MetalCommandEncoder(MetalDevice *device, id<MTLCommandBuffer> cb) noexcept;
+    MetalCommandEncoder(MetalDevice *device,
+                        id<MTLCommandBuffer> cb,
+                        MetalRingBuffer &upload_ring_buffer,
+                        MetalRingBuffer &download_ring_buffer) noexcept;
     void visit(const BufferCopyCommand *command) noexcept override;
     void visit(const BufferUploadCommand *command) noexcept override;
     void visit(const BufferDownloadCommand *command) noexcept override;

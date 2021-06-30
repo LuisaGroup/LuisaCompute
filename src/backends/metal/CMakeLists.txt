@@ -10,9 +10,11 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         metal_command_encoder.mm metal_command_encoder.h
         metal_compiler.mm metal_compiler.h
         metal_codegen.mm metal_codegen.h
-        metal_argument_buffer.mm metal_argument_buffer.h
+        metal_argument_buffer_pool.mm metal_argument_buffer_pool.h
         metal_event.h
-        metal_stream.h)
+        metal_stream.h
+        metal_buffer_view.h
+        metal_ring_buffer.mm metal_ring_buffer.h)
     
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
     set_target_properties(luisa-compute-backend-metal PROPERTIES

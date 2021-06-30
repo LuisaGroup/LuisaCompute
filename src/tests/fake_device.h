@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class FakeDevice: public Device::Interface {
+class FakeDevice : public Device::Interface {
 
 private:
     uint64_t _handle{0u};
@@ -32,13 +32,17 @@ public:
     void dispose_event(uint64_t handle) noexcept override {}
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {}
-    uint64_t create_mesh(uint64_t vertex_buffer_handle,
-                         size_t vertex_buffer_offset_bytes,
-                         uint vertex_count,
-                         uint64_t index_buffer_handle,
-                         size_t index_buffer_offset_bytes,
-                         uint index_count) noexcept override { return _handle++; }
-    void dispose_mesh(uint64_t mesh_handle) noexcept override {}
+    virtual uint64_t create_mesh(uint64_t stream_handle,
+                                 uint64_t vertex_buffer_handle, size_t vertex_buffer_offset_bytes, size_t vertex_count,
+                                 uint64_t index_buffer_handle, size_t index_buffer_offset_bytes, size_t triangle_count) noexcept override { return _handle++; }
+    virtual void update_mesh(uint64_t stream_handle, uint64_t mesh_handle) noexcept override {}
+    virtual void dispose_mesh(uint64_t handle) noexcept override {}
+    virtual uint64_t create_accel(uint64_t stream_handle,
+                                  uint64_t mesh_handle_buffer_handle, size_t mesh_handle_buffer_offset_bytes,
+                                  uint64_t transform_buffer_handle, size_t transform_buffer_offset_bytes,
+                                  size_t mesh_count) noexcept override { return _handle++; }
+    virtual void update_accel(uint64_t stream_handle, uint64_t accel_handle) noexcept override {}
+    virtual void dispose_accel(uint64_t handle) noexcept override {}
 
     [[nodiscard]] static auto create(const Context &ctx) noexcept {
         auto deleter = [](Device::Interface *d) { delete d; };

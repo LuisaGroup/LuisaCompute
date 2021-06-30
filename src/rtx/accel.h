@@ -4,9 +4,14 @@
 
 #pragma once
 
+#include <runtime/device.h>
+
 namespace luisa::compute {
 
 class Accel {
+
+private:
+
 
 };
 

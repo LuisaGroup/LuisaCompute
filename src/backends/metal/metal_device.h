@@ -17,7 +17,7 @@
 #import <backends/metal/metal_event.h>
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
-#import <backends/metal/metal_argument_buffer.h>
+#import <backends/metal/metal_argument_buffer_pool.h>
 
 namespace luisa::compute::metal {
 
@@ -74,14 +74,17 @@ public:
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void dispose_event(uint64_t handle) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
-
-    virtual uint64_t create_mesh(uint64_t vertex_buffer_handle,
-                                 size_t vertex_buffer_offset_bytes,
-                                 uint vertex_count,
-                                 uint64_t index_buffer_handle,
-                                 size_t index_buffer_offset_bytes,
-                                 uint index_count) noexcept override;
-    virtual void dispose_mesh(uint64_t mesh_handle) noexcept override;
+    uint64_t create_mesh(uint64_t stream_handle,
+                         uint64_t vertex_buffer_handle, size_t vertex_buffer_offset_bytes, size_t vertex_count,
+                         uint64_t index_buffer_handle, size_t index_buffer_offset_bytes, size_t triangle_count) noexcept override;
+    void update_mesh(uint64_t stream_handle, uint64_t mesh_handle) noexcept override;
+    void dispose_mesh(uint64_t handle) noexcept override;
+    uint64_t create_accel(uint64_t stream_handle,
+                          uint64_t mesh_handle_buffer_handle, size_t mesh_handle_buffer_offset_bytes,
+                          uint64_t transform_buffer_handle, size_t transform_buffer_offset_bytes,
+                          size_t mesh_count) noexcept override;
+    void update_accel(uint64_t stream_handle, uint64_t accel_handle) noexcept override;
+    void dispose_accel(uint64_t handle) noexcept override;
 };
 
 }// namespace luisa::compute::metal

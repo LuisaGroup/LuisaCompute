@@ -3,11 +3,11 @@
 //
 
 #import <mutex>
-#import <backends/metal/metal_argument_buffer.h>
+#import <backends/metal/metal_argument_buffer_pool.h>
 
 namespace luisa::compute::metal {
 
-MetalArgumentBuffer MetalArgumentBufferPool::allocate() noexcept {
+MetalBufferView MetalArgumentBufferPool::allocate() noexcept {
     _create_new_trunk_if_empty();
     std::scoped_lock lock{_mutex};
     auto buffer = _available_buffers.back();
@@ -15,7 +15,7 @@ MetalArgumentBuffer MetalArgumentBufferPool::allocate() noexcept {
     return buffer;
 }
 
-void MetalArgumentBufferPool::recycle(MetalArgumentBuffer buffer) noexcept {
+void MetalArgumentBufferPool::recycle(MetalBufferView buffer) noexcept {
     std::scoped_lock lock{_mutex};
     _available_buffers.emplace_back(std::move(buffer));
 }
@@ -23,14 +23,15 @@ void MetalArgumentBufferPool::recycle(MetalArgumentBuffer buffer) noexcept {
 void MetalArgumentBufferPool::_create_new_trunk_if_empty() noexcept {
     std::scoped_lock lock{_mutex};
     if (_available_buffers.empty()) {
-        static constexpr auto buffer_size = MetalArgumentBuffer::size * trunk_size;
+        static constexpr auto buffer_size = argument_buffer_size * trunk_size;
         static constexpr auto options = MTLResourceStorageModeShared
                                         | MTLResourceCPUCacheModeWriteCombined
                                         | MTLResourceHazardTrackingModeUntracked;
         auto buffer = [_device newBufferWithLength:buffer_size
                                            options:options];
-        for (auto i = buffer_size; i != 0u; i -= MetalArgumentBuffer::size) {
-            _available_buffers.emplace_back(buffer, i - MetalArgumentBuffer::size);
+        for (auto i = buffer_size; i != 0u; i -= argument_buffer_size) {
+            _available_buffers.emplace_back(
+                buffer, i - argument_buffer_size, argument_buffer_size);
         }
     }
 }
