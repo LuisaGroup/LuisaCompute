@@ -10,6 +10,8 @@
 namespace luisa::compute::metal {
 
 MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
+    auto alignment = 16u;
+    size = (size + alignment - 1u) / alignment * alignment;
     std::scoped_lock lock{_mutex};
     if (_buffer == nullptr) {
         auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
