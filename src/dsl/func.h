@@ -313,32 +313,31 @@ public:
     Callable(const Callable &) noexcept = default;
 
     template<typename Def,
-        std::enable_if_t<
-            std::conjunction_v<
-                std::negation<is_callable<std::remove_cvref_t<Def>>>,
-                std::negation<is_kernel<std::remove_cvref_t<Def>>>>,
-            int> = 0>
-    requires concepts::invocable<Def, detail::prototype_to_creation_t<Args>...>
-    Callable(Def &&def)
-    noexcept
+             std::enable_if_t<
+                 std::conjunction_v<
+                     std::negation<is_callable<std::remove_cvref_t<Def>>>,
+                     std::negation<is_kernel<std::remove_cvref_t<Def>>>,
+                     std::is_invocable<Def, detail::prototype_to_creation_t<Args>...>>,
+                 int> = 0>
+    Callable(Def &&def) noexcept
         : _function{FunctionBuilder::define_callable([&def] {
-      if constexpr (std::is_same_v<Ret, void>) {
-          std::apply(
-              std::forward<Def>(def),
-              std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-      } else if constexpr (detail::is_tuple_v<Ret>) {
-          auto ret = detail::tuple_to_var(
-              std::apply(
-                  std::forward<Def>(def),
-                  std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
-          FunctionBuilder::current()->return_(detail::extract_expression(ret));
-      } else {
-          auto ret = std::apply(
-              std::forward<Def>(def),
-              std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-          FunctionBuilder::current()->return_(detail::extract_expression(ret));
-      }
-    })} {}
+              if constexpr (std::is_same_v<Ret, void>) {
+                  std::apply(
+                      std::forward<Def>(def),
+                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+              } else if constexpr (detail::is_tuple_v<Ret>) {
+                  auto ret = detail::tuple_to_var(
+                      std::apply(
+                          std::forward<Def>(def),
+                          std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
+                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
+              } else {
+                  auto ret = std::apply(
+                      std::forward<Def>(def),
+                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
+              }
+          })} {}
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
@@ -425,16 +424,16 @@ using function_t = typename function<T>::type;
 }// namespace detail
 
 template<typename T>
-Kernel1D(T &&) -> Kernel1D<detail::function_t<T>>;
+Kernel1D(T &&) -> Kernel1D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel2D(T &&) -> Kernel2D<detail::function_t<T>>;
+Kernel2D(T &&) -> Kernel2D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel3D(T &&) -> Kernel3D<detail::function_t<T>>;
+Kernel3D(T &&) -> Kernel3D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Callable(T &&) -> Callable<detail::function_t<T>>;
+Callable(T &&) -> Callable<detail::function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute
 
