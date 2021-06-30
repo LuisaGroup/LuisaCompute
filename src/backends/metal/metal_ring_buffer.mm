@@ -11,6 +11,11 @@ namespace luisa::compute::metal {
 
 MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
     std::scoped_lock lock{_mutex};
+    if (_buffer == nullptr) {
+        auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
+        if (_optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
+        _buffer = [_device newBufferWithLength:size options:buffer_options];
+    }
     auto offset = _free_begin % _size;
     auto free_next = _free_begin + size;
     if (offset + size > _size) {
