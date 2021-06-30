@@ -211,7 +211,7 @@ struct is_callable : std::false_type {};
                                                                                                                \
     private:                                                                                                   \
         Arena _arena;                                                                                          \
-        std::unique_ptr<const FunctionBuilder> _builder;                                                       \
+        const FunctionBuilder *_builder{nullptr};                                                              \
                                                                                                                \
     public:                                                                                                    \
         Kernel##N##D(Kernel##N##D &&) noexcept = default;                                                      \
@@ -224,22 +224,23 @@ struct is_callable : std::false_type {};
                          std::negation<is_kernel<std::remove_cvref_t<Def>>>>,                                  \
                      int> = 0>                                                                                 \
         requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>          \
-            Kernel##N##D(Def &&def) noexcept                                                                   \
-            : _builder{FunctionBuilder::define_kernel(_arena, [&def] {                                         \
-                  FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());          \
-                  std::apply(                                                                                  \
-                      std::forward<Def>(def),                                                                  \
-                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});       \
-              })} {}                                                                                           \
+            Kernel##N##D(Def &&def) noexcept {                                                                 \
+            _builder = FunctionBuilder::define_kernel(_arena, [&def] {                                         \
+                FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());            \
+                std::apply(                                                                                    \
+                    std::forward<Def>(def),                                                                    \
+                    std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});         \
+            });                                                                                                \
+        }                                                                                                      \
                                                                                                                \
         [[nodiscard]] auto operator()(detail::prototype_to_kernel_invocation_t<Args>... args) const noexcept { \
-            detail::KernelInvoke##N##D invoke{_builder.get()};                                                 \
+            detail::KernelInvoke##N##D invoke{_builder};                                                       \
             (invoke << ... << args);                                                                           \
             return invoke;                                                                                     \
         }                                                                                                      \
                                                                                                                \
         void wait_for_compilation(Device &device) const noexcept {                                             \
-            device.impl()->compile(_builder.get());                                                            \
+            device.impl()->compile(_builder);                                                                  \
         }                                                                                                      \
     };
 
@@ -305,7 +306,7 @@ class Callable<Ret(Args...)> {
         "Callables are not allowed to have atomic arguments.");
 
 private:
-    std::unique_ptr<const FunctionBuilder> _builder;
+    const FunctionBuilder *_builder;
 
 public:
     Callable(Callable &&) noexcept = default;

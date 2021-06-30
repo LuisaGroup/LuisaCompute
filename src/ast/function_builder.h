@@ -72,21 +72,19 @@ protected:
     void _compute_hash() noexcept;
 
 private:
-    explicit FunctionBuilder(Arena &arena, Tag tag) noexcept;
-
     template<typename Def>
     static auto _define(Arena &arena, Function::Tag tag, Def &&def) noexcept {
-        std::unique_ptr<FunctionBuilder> f{new FunctionBuilder{arena, tag}};
-        push(f.get());
+        auto f = arena.create<FunctionBuilder>(arena, tag);
+        push(f);
         f->with(&f->_body, std::forward<Def>(def));
         f->_compute_hash();
-        pop(f.get());
+        pop(f);
         // make it immutable to forbid further modification
-        return std::unique_ptr<const FunctionBuilder>{std::move(f)};
+        return const_cast<const FunctionBuilder *>(f);
     }
 
 public:
-    // disable all copy/move operations
+    explicit FunctionBuilder(Arena &arena, Tag tag) noexcept;
     FunctionBuilder(FunctionBuilder &&) noexcept = delete;
     FunctionBuilder(const FunctionBuilder &) noexcept = delete;
     FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
