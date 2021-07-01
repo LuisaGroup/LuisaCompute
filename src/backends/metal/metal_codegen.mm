@@ -622,14 +622,13 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
         case Variable::Tag::TEXTURE:
             _scratch << "texture" << v.type()->dimension() << "d<";
             _emit_type_name(v.type()->element());
-            _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
                 usage == Variable::Usage::READ_WRITE) {
-                _scratch << "access::read_write> ";
+                _scratch << ", access::read_write> ";
             } else if (usage == Variable::Usage::WRITE) {
-                _scratch << "access::write> ";
+                _scratch << ", access::write> ";
             } else {
-                _scratch << "access::read> ";
+                _scratch << "> ";
             }
             _emit_variable_name(v);
             break;

@@ -123,7 +123,9 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
             switch (usage) {
                 case Variable::Usage::READ:
                     [compute_encoder useResource:res
-                                           usage:MTLResourceUsageRead];
+                                           usage:[res conformsToProtocol:@protocol(MTLTexture)]
+                                                     ? MTLResourceUsageSample
+                                                     : MTLResourceUsageRead];
                     break;
                 case Variable::Usage::WRITE:
                     [compute_encoder useResource:res
