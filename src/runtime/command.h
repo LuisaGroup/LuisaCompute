@@ -20,13 +20,16 @@
 
 namespace luisa::compute {
 
-#define LUISA_ALL_COMMANDS     \
-    BufferUploadCommand,       \
-        BufferDownloadCommand, \
-        BufferCopyCommand,     \
-        KernelLaunchCommand,   \
-        TextureUploadCommand,  \
-        TextureDownloadCommand
+#define LUISA_ALL_COMMANDS        \
+    BufferUploadCommand,          \
+        BufferDownloadCommand,    \
+        BufferCopyCommand,        \
+        KernelLaunchCommand,      \
+        TextureUploadCommand,     \
+        TextureDownloadCommand,   \
+        AccelTraceClosestCommand, \
+        AccelTraceAnyCommand,     \
+        AccelUpdateCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
@@ -367,6 +370,24 @@ public:
         }
     }
     LUISA_MAKE_COMMAND_COMMON(KernelLaunchCommand)
+};
+
+class AccelUpdateCommand : public Command {
+
+public:
+    LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
+};
+
+class AccelTraceClosestCommand : public Command {
+
+public:
+    LUISA_MAKE_COMMAND_COMMON(AccelTraceClosestCommand)
+};
+
+class AccelTraceAnyCommand : public Command {
+
+public:
+    LUISA_MAKE_COMMAND_COMMON(AccelTraceAnyCommand)
 };
 
 #undef LUISA_MAKE_COMMAND_COMMON

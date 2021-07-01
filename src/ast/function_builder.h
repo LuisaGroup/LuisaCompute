@@ -59,6 +59,7 @@ private:
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
+    bool _raytracing{false};
 
 protected:
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
@@ -107,6 +108,7 @@ public:
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     [[nodiscard]] auto hash() const noexcept { return _hash; }
+    [[nodiscard]] auto raytracing() const noexcept { return _raytracing; }
 
     // build primitives
     template<typename Def>
@@ -196,6 +198,7 @@ public:
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
     void mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept;
+    void mark_raytracing() noexcept;
 
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
 };

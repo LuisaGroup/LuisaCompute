@@ -205,4 +205,13 @@ MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noex
     return buffer;
 }
 
+void MetalCommandEncoder::visit(const AccelTraceClosestCommand *command) noexcept {
+}
+
+void MetalCommandEncoder::visit(const AccelTraceAnyCommand *command) noexcept {
+}
+
+void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
+}
+
 }

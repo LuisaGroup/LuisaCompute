@@ -63,4 +63,8 @@ uint64_t Function::hash() const noexcept {
     return _builder->hash();
 }
 
+bool Function::raytracing() const noexcept {
+    return _builder->raytracing();
+}
+
 }// namespace luisa::compute

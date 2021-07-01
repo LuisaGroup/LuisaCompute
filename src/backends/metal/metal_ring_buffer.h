@@ -5,6 +5,7 @@
 #pragma once
 
 #import <core/spin_mutex.h>
+#import <core/mathematics.h>
 #import <backends/metal/metal_buffer_view.h>
 
 namespace luisa::compute::metal {
@@ -22,7 +23,11 @@ private:
 
 public:
     MetalRingBuffer(id<MTLDevice> device, size_t size, bool optimize_write) noexcept
-        : _device{device}, _size{size}, _free_begin{0u}, _free_end{size}, _optimize_write{optimize_write} {}
+        : _device{device},
+          _size{next_pow2(size)},
+          _free_begin{0u},
+          _free_end{next_pow2(size)},
+          _optimize_write{optimize_write} {}
     ~MetalRingBuffer() noexcept { _buffer = nullptr; }
     [[nodiscard]] MetalBufferView allocate(size_t size) noexcept;
     void recycle(const MetalBufferView &view) noexcept;

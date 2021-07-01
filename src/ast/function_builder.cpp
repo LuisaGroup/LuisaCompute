@@ -329,4 +329,8 @@ void FunctionBuilder::_compute_hash() noexcept {
     _hash = std::hash<uint64_t>{}(reinterpret_cast<uint64_t>(this));
 }
 
+void FunctionBuilder::mark_raytracing() noexcept {
+    _raytracing = true;
+}
+
 }// namespace luisa::compute

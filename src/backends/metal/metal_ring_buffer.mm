@@ -18,7 +18,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
         if (_optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
         _buffer = [_device newBufferWithLength:size options:buffer_options];
     }
-    auto offset = _free_begin % _size;
+    auto offset = _free_begin & (_size - 1u);
     auto free_next = _free_begin + size;
     if (offset + size > _size) {
         offset = 0u;                // wrap
@@ -37,7 +37,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
 
 void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
     std::scoped_lock lock{_mutex};
-    if (auto end_offset = _free_end % _size; end_offset + view.size() > _size) {
+    if (auto end_offset = _free_end & (_size - 1u); end_offset + view.size() > _size) {
         if (view.offset() != 0u) {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid ring buffer item offset {} for recycling (expected 0).",

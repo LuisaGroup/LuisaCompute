@@ -77,13 +77,11 @@ public:
     uint64_t create_mesh(uint64_t stream_handle,
                          uint64_t vertex_buffer_handle, size_t vertex_buffer_offset_bytes, size_t vertex_count,
                          uint64_t index_buffer_handle, size_t index_buffer_offset_bytes, size_t triangle_count) noexcept override;
-    void update_mesh(uint64_t stream_handle, uint64_t mesh_handle) noexcept override;
     void dispose_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel(uint64_t stream_handle,
                           uint64_t mesh_handle_buffer_handle, size_t mesh_handle_buffer_offset_bytes,
                           uint64_t transform_buffer_handle, size_t transform_buffer_offset_bytes,
                           size_t mesh_count) noexcept override;
-    void update_accel(uint64_t stream_handle, uint64_t accel_handle) noexcept override;
     void dispose_accel(uint64_t handle) noexcept override;
 };
 

@@ -159,7 +159,10 @@ enum struct CallOp : uint32_t {
 
     MAKE_FLOAT2X2,
     MAKE_FLOAT3X3,
-    MAKE_FLOAT4X4
+    MAKE_FLOAT4X4,
+
+    TRACE_CLOSEST,
+    TRACE_ANY
 };
 
 }// namespace luisa::compute

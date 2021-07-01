@@ -69,6 +69,7 @@ public:
     [[nodiscard]] Variable::Usage variable_usage(uint32_t uid) const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
     [[nodiscard]] uint64_t hash() const noexcept;
+    [[nodiscard]] bool raytracing() const noexcept;
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
 };

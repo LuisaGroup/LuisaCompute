@@ -78,7 +78,6 @@ public:
                                      uint64_t index_buffer_handle,
                                      size_t index_buffer_offset_bytes,
                                      size_t triangle_count) noexcept = 0;
-        virtual void update_mesh(uint64_t stream_handle, uint64_t mesh_handle) noexcept = 0;
         virtual void dispose_mesh(uint64_t handle) noexcept = 0;
 
         virtual uint64_t create_accel(uint64_t stream_handle,
@@ -87,7 +86,6 @@ public:
                                       uint64_t transform_buffer_handle,
                                       size_t transform_buffer_offset_bytes,
                                       size_t mesh_count) noexcept = 0;
-        virtual void update_accel(uint64_t stream_handle, uint64_t accel_handle) noexcept = 0;
         virtual void dispose_accel(uint64_t handle) noexcept = 0;
     };
 
