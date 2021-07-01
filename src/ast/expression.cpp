@@ -30,12 +30,6 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
             for (auto i = 1u; i < _arguments.size(); i++) {
                 _arguments[i]->mark(Variable::Usage::READ);
             }
-        }
-        if (_op == CallOp::TEXTURE_SAMPLE) {
-            _arguments[0]->mark(Variable::Usage::SAMPLE);
-            for (auto i = 1u; i < _arguments.size(); i++) {
-                _arguments[i]->mark(Variable::Usage::READ);
-            }
         } else {
             for (auto arg : _arguments) {
                 arg->mark(Variable::Usage::READ);

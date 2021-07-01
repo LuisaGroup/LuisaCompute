@@ -39,8 +39,7 @@ public:
         NONE = 0u,
         READ = 0x01u,
         WRITE = 0x02u,
-        READ_WRITE = READ | WRITE,
-        SAMPLE = READ | 0x04u
+        READ_WRITE = READ | WRITE
     };
 
 private:

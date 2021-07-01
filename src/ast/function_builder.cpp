@@ -242,11 +242,6 @@ void FunctionBuilder::for_(const Statement *init, const Expression *condition, c
 void FunctionBuilder::mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept {
     auto old_usage = to_underlying(_variable_usages[uid]);
     auto u = static_cast<Variable::Usage>(old_usage | to_underlying(usage));
-    if ((to_underlying(u) & to_underlying(Variable::Usage::SAMPLE)) != 0u
-        && (to_underlying(u) & to_underlying(Variable::Usage::WRITE)) != 0u) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Variable #{} is not allowed to be sampled and written at the same time.", uid);
-    }
     _variable_usages[uid] = u;
 }
 

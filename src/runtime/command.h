@@ -100,8 +100,7 @@ public:
             NONE = 0u,
             READ = 1u,
             WRITE = 2u,
-            READ_WRITE = READ | WRITE,
-            SAMPLE = 4u | READ
+            READ_WRITE = READ | WRITE
         };
 
         uint64_t handle{0u};
@@ -125,7 +124,6 @@ protected:
     void _texture_read_only(uint64_t handle) noexcept;
     void _texture_write_only(uint64_t handle) noexcept;
     void _texture_read_write(uint64_t handle) noexcept;
-    void _texture_sample(uint64_t handle) noexcept;
 
 protected:
     ~Command() noexcept = default;

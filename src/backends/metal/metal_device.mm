@@ -105,6 +105,12 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _available_texture_slots.resize(initial_texture_count);
     std::iota(_available_texture_slots.rbegin(), _available_texture_slots.rend(), 0u);
 
+    static constexpr auto initial_heap_count = 4u;
+    _heap_slots.reserve(initial_heap_count);
+    for (auto i = 0u; i < initial_heap_count; i++) { _heap_slots.emplace_back(nullptr); }
+    _available_heap_slots.resize(initial_heap_count);
+    std::iota(_available_heap_slots.rbegin(), _available_heap_slots.rend(), 0u);
+
     static constexpr auto initial_event_count = 4u;
     _event_slots.reserve(initial_event_count);
     for (auto i = 0u; i < initial_event_count; i++) { _event_slots.emplace_back(nullptr); }
@@ -152,7 +158,9 @@ MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
 uint64_t MetalDevice::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels, uint64_t heap_handle) {
+    uint mipmap_levels,
+    uint64_t heap_handle,
+    uint32_t index_in_heap) {
 
     Clock clock;
 
@@ -204,16 +212,15 @@ uint64_t MetalDevice::create_texture(
     desc.usage = from_heap ? MTLTextureUsageShaderRead
                            : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
-    auto texture = [_handle newTextureWithDescriptor:desc];
+    auto texture = [&] {
+        if (from_heap) { return heap(heap_handle)->allocate_texture(desc, index_in_heap); }
+        return [_handle newTextureWithDescriptor:desc];
+    }();
 
     LUISA_VERBOSE_WITH_LOCATION(
         "Created image (with {} mipmap{}) in {} ms.",
         mipmap_levels, mipmap_levels <= 1u ? "" : "s",
         clock.toc());
-
-    if (from_heap) {
-        // TODO: emplace into descriptor array...
-    }
 
     std::scoped_lock lock{_texture_mutex};
     if (_available_texture_slots.empty()) {
@@ -230,7 +237,9 @@ uint64_t MetalDevice::create_texture(
 void MetalDevice::dispose_texture(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_texture_mutex};
-        _texture_slots[handle] = nullptr;
+        auto &&tex = _texture_slots[handle];
+        if (tex.heap != nullptr) { [tex makeAliasable]; }
+        tex = nullptr;
         _available_texture_slots.emplace_back(handle);
     }
     LUISA_VERBOSE_WITH_LOCATION("Disposed image #{}.", handle);
@@ -318,21 +327,37 @@ void MetalDevice::dispose_accel(uint64_t handle) noexcept {
 }
 
 uint64_t MetalDevice::create_texture_heap(size_t size) noexcept {
-    auto desc = [[MTLHeapDescriptor alloc] init];
-    desc.size = size;
-    desc.hazardTrackingMode = MTLHazardTrackingModeUntracked;
-    desc.type = MTLHeapTypeAutomatic;
-    desc.storageMode = MTLStorageModePrivate;
-    auto heap = [_handle newHeapWithDescriptor:desc];
-    return 0;
+    Clock clock;
+    auto heap = std::make_unique<MetalTextureHeap>(_handle, size);
+    LUISA_VERBOSE_WITH_LOCATION("Created texture heap in {} ms.", clock.toc());
+    std::scoped_lock lock{_heap_mutex};
+    if (_available_heap_slots.empty()) {
+        auto s = _heap_slots.size();
+        _heap_slots.emplace_back(std::move(heap));
+        return s;
+    }
+    auto s = _available_heap_slots.back();
+    _available_heap_slots.pop_back();
+    _heap_slots[s] = std::move(heap);
+    return s;
 }
 
 size_t MetalDevice::query_texture_heap_memory_usage(uint64_t handle) noexcept {
-
-    return 0;
+    return [heap(handle)->handle() usedSize];
 }
 
 void MetalDevice::dispose_texture_heap(uint64_t handle) noexcept {
+    {
+        std::scoped_lock lock{_heap_mutex};
+        _heap_slots[handle] = nullptr;
+        _available_heap_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Disposed heap #{}.", handle);
+}
+
+MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_heap_mutex};
+    return _heap_slots[handle].get();
 }
 
 }

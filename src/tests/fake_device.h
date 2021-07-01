@@ -25,7 +25,7 @@ public:
     void synchronize_stream(uint64_t stream_handle) noexcept override {}
     void dispatch(uint64_t stream_handle, CommandBuffer) noexcept override {}
     void compile(const detail::FunctionBuilder *) noexcept override {}
-    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, uint64_t heap_handle) override { return _handle++; }
+    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, uint64_t heap_handle, uint32_t index_in_heap) override { return _handle++; }
     void dispose_texture(uint64_t handle) noexcept override {}
     uint64_t create_event() noexcept override { return _handle++; }
     void synchronize_event(uint64_t handle) noexcept override {}

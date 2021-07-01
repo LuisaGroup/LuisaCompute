@@ -57,10 +57,6 @@ void Command::_texture_read_write(uint64_t handle) noexcept {
     _use_resource(handle, Resource::Tag::TEXTURE, Resource::Usage::READ_WRITE);
 }
 
-void Command::_texture_sample(uint64_t handle) noexcept {
-    _use_resource(handle, Resource::Tag::TEXTURE, Resource::Usage::SAMPLE);
-}
-
 void KernelLaunchCommand::encode_buffer(
     uint32_t variable_uid,
     uint64_t handle,

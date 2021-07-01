@@ -564,8 +564,6 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
                 _scratch << "access::write> ";
             } else if (usage == Variable::Usage::READ) {
                 _scratch << "access::read> ";
-            } else if (usage == Variable::Usage::SAMPLE) {
-                _scratch << "access::sample> ";
             }
             _emit_variable_name(v);
             break;

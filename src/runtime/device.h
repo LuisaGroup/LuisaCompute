@@ -20,6 +20,7 @@ class Context;
 
 class Event;
 class Stream;
+class TextureHeap;
 
 template<typename T>
 class Buffer;
@@ -54,8 +55,11 @@ public:
 
         // texture
         [[nodiscard]] virtual uint64_t create_texture(
-            PixelFormat format, uint dimension, uint width, uint height, uint depth,
-            uint mipmap_levels, uint64_t heap_handle /* == uint64(-1) when not from heap */) = 0;
+            PixelFormat format, uint dimension,
+            uint width, uint height, uint depth,
+            uint mipmap_levels,
+            uint64_t heap_handle,// == uint64(-1) when not from heap
+            uint32_t index_in_heap) = 0;
         virtual void dispose_texture(uint64_t handle) noexcept = 0;
 
         // texture heap
@@ -118,6 +122,7 @@ public:
 
     [[nodiscard]] Stream create_stream() noexcept;
     [[nodiscard]] Event create_event() noexcept;
+    [[nodiscard]] TextureHeap create_texture_heap(size_t size) noexcept;
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height) noexcept {

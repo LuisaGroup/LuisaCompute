@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/basic_types.h>
 #include <core/mathematics.h>
 #include <runtime/image.h>
 #include <runtime/buffer.h>
@@ -81,7 +82,7 @@ private:
 private:
     friend class Device;
     TextureHeap(Device &device, size_t capacity) noexcept;
-    [[nodiscard]] static constexpr auto _valid_mipmap_levels(uint width, uint height, uint requested_levels) noexcept;
+    [[nodiscard]] static constexpr auto _compute_mipmap_levels(uint width, uint height, uint requested_levels) noexcept;
     void _destroy() noexcept;
     [[nodiscard]] bool _validate_mipmap_level(uint index, uint level) const noexcept;
 
@@ -90,7 +91,7 @@ public:
     TextureHeap &operator=(TextureHeap &&rhs) noexcept;
     ~TextureHeap() noexcept;
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
-    [[nodiscard]] auto size() const noexcept { return _device->query_texture_heap_memory_usage(_handle); }
+    [[nodiscard]] auto allocated_size() const noexcept { return _device->query_texture_heap_memory_usage(_handle); }
     [[nodiscard]] uint32_t allocate(PixelStorage storage, uint2 size, TextureSampler sampler, uint mipmap_levels = 1u) noexcept;
     void recycle(uint32_t index) noexcept;
     [[nodiscard]] CommandHandle emplace(uint32_t index, ImageView<float> view, uint32_t mipmap_level = 0u) noexcept;

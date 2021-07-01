@@ -26,7 +26,7 @@ TextureHeap &TextureHeap::operator=(TextureHeap &&rhs) noexcept {
     return *this;
 }
 
-constexpr auto TextureHeap::_valid_mipmap_levels(uint width, uint height, uint requested_levels) noexcept {
+constexpr auto TextureHeap::_compute_mipmap_levels(uint width, uint height, uint requested_levels) noexcept {
     auto max_size = std::max(width, height);
     auto max_levels = 0u;
     while (max_size != 0u) {
@@ -63,12 +63,13 @@ uint32_t TextureHeap::allocate(PixelStorage storage, uint2 size, TextureSampler 
             "Failed to allocate texture from heap #{} with full slots.", _handle);
         return invalid_index;
     }
-    auto valid_mipmap_levels = _valid_mipmap_levels(size.x, size.y, mipmap_levels);
-    auto handle = _device->create_texture(
-        pixel_storage_to_format<float>(storage), 2u,
-        size.x, size.y, 1u, valid_mipmap_levels, _handle);
+    auto valid_mipmap_levels = _compute_mipmap_levels(size.x, size.y, mipmap_levels);
     auto index = _available.back();
     _available.pop_back();
+    auto handle = _device->create_texture(
+        pixel_storage_to_format<float>(storage), 2u,
+        size.x, size.y, 1u, valid_mipmap_levels,
+        _handle, index);
     _slots[index] = {handle, storage, size, mipmap_levels, sampler};
     return index;
 }

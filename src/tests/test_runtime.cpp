@@ -10,11 +10,16 @@
 #include <runtime/context.h>
 #include <runtime/stream.h>
 #include <runtime/buffer.h>
+#include <runtime/texture_heap.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
+
+static constexpr auto operator""_mb(uint64_t size) noexcept {
+    return size * 1024u * 1024u;
+}
 
 struct Base {
     float a;
@@ -131,10 +136,14 @@ int main(int argc, char *argv[]) {
     Clock clock;
     stream << buffer.copy_from(data.data())
            << buffer.copy_to(results.data());
-    stream.synchronize();   
+    stream.synchronize();
     LUISA_INFO("Finished in {} ms.", clock.toc());
 
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[16382], results[16383]);
+
+    auto heap = device.create_texture_heap(256_mb);
+    auto t1 = heap.allocate(PixelStorage::BYTE4, 512u, TextureSampler{}, 0u);
+    LUISA_INFO("Used size: {}", heap.allocated_size());
 }

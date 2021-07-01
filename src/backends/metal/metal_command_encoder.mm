@@ -195,11 +195,6 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
                                            usage:MTLResourceUsageRead
                                                  | MTLResourceUsageWrite];
                     break;
-                case Variable::Usage::SAMPLE:
-                    [compute_encoder useResource:res
-                                           usage:MTLResourceUsageRead
-                                                 | MTLResourceUsageSample];
-                    break;
                 default: break;
             }
         };
