@@ -19,6 +19,22 @@ template<typename T, std::enable_if_t<std::disjunction_v<std::is_enum<T>>, int> 
     return static_cast<std::underlying_type_t<T>>(e);
 }
 
+inline namespace size_literals {
+
+[[nodiscard]] constexpr auto operator""_kb(uint64_t size) noexcept {
+    return static_cast<size_t>(size * 1024u);
+}
+
+[[nodiscard]] constexpr auto operator""_mb(uint64_t size) noexcept {
+    return static_cast<size_t>(size * 1024u * 1024u);
+}
+
+[[nodiscard]] constexpr auto operator""_gb(uint64_t size) noexcept {
+    return static_cast<size_t>(size * 1024u * 1024u * 1024u);
+}
+
+}
+
 // scalars
 using uint = unsigned int;
 

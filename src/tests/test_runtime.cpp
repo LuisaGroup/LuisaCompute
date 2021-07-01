@@ -17,10 +17,6 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-static constexpr auto operator""_mb(uint64_t size) noexcept {
-    return size * 1024u * 1024u;
-}
-
 struct Base {
     float a;
 };
