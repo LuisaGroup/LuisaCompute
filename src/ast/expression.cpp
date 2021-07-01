@@ -30,6 +30,12 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
             for (auto i = 1u; i < _arguments.size(); i++) {
                 _arguments[i]->mark(Variable::Usage::READ);
             }
+        }
+        if (_op == CallOp::TEXTURE_SAMPLE) {
+            _arguments[0]->mark(Variable::Usage::SAMPLE);
+            for (auto i = 1u; i < _arguments.size(); i++) {
+                _arguments[i]->mark(Variable::Usage::READ);
+            }
         } else {
             for (auto arg : _arguments) {
                 arg->mark(Variable::Usage::READ);
@@ -40,7 +46,8 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
         for (auto i = 0u; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
-                arg.tag() == Variable::Tag::BUFFER || arg.tag() == Variable::Tag::TEXTURE
+                arg.tag() == Variable::Tag::BUFFER
+                        || arg.tag() == Variable::Tag::TEXTURE
                     ? _custom.variable_usage(arg.uid())
                     : Variable::Usage::READ);
         }

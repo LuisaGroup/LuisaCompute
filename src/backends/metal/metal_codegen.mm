@@ -627,8 +627,10 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
                 _scratch << ", access::read_write> ";
             } else if (usage == Variable::Usage::WRITE) {
                 _scratch << ", access::write> ";
-            } else {
-                _scratch << "> ";
+            } else if (usage == Variable::Usage::READ) {
+                _scratch << ", access::read> ";
+            } else if (usage == Variable::Usage::SAMPLE) {
+                _scratch << ", access::sample> ";
             }
             _emit_variable_name(v);
             break;
@@ -668,6 +670,7 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
         case Variable::Tag::LOCAL:
             if (auto usage = _function.variable_usage(v.uid());
                 usage == Variable::Usage::READ
+                || usage == Variable::Usage::SAMPLE
                 || usage == Variable::Usage::NONE) {
                 _scratch << "const ";
             }

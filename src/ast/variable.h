@@ -36,10 +36,11 @@ public:
     };
 
     enum struct Usage : uint32_t {
-        NONE = 0,
-        READ = 0x01,
-        WRITE = 0x02,
-        READ_WRITE = READ | WRITE
+        NONE = 0u,
+        READ = 0x01u,
+        WRITE = 0x02u,
+        READ_WRITE = READ | WRITE,
+        SAMPLE = READ | 0x04u
     };
 
 private:

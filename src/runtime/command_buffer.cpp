@@ -7,7 +7,7 @@
 namespace luisa::compute {
 
 void CommandBuffer::append(CommandHandle cmd) noexcept {
-    _commands.emplace_back(std::move(cmd));
+    if (cmd != nullptr) { _commands.emplace_back(std::move(cmd)); }
 }
 
 }// namespace luisa::compute

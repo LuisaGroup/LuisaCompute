@@ -43,6 +43,11 @@ private:
     std::vector<id<MTLTexture>> _texture_slots;
     std::vector<size_t> _available_texture_slots;
 
+    // for heaps
+    mutable spin_mutex _heap_mutex;
+    std::vector<id<MTLHeap>> _heap_slots;
+    std::vector<size_t> _available_heaps;
+
     // for events
     mutable spin_mutex _event_mutex;
     std::vector<std::unique_ptr<MetalEvent>> _event_slots;
@@ -60,7 +65,9 @@ public:
     [[nodiscard]] MetalCompiler::KernelItem compiled_kernel(Function kernel) const noexcept;
 
 public:
-    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) override;
+    uint64_t create_texture(PixelFormat format, uint dimension,
+                            uint width, uint height, uint depth, uint mipmap_levels,
+                            uint64_t heap_handle) override;
     void dispose_texture(uint64_t handle) noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void dispose_buffer(uint64_t handle) noexcept override;
@@ -83,6 +90,9 @@ public:
                           uint64_t transform_buffer_handle, size_t transform_buffer_offset_bytes,
                           size_t mesh_count) noexcept override;
     void dispose_accel(uint64_t handle) noexcept override;
+    virtual uint64_t create_texture_heap(size_t size) noexcept override;
+    virtual size_t query_texture_heap_memory_usage(uint64_t handle) noexcept override;
+    virtual void dispose_texture_heap(uint64_t handle) noexcept override;
 };
 
 }// namespace luisa::compute::metal

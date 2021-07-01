@@ -13,6 +13,7 @@
 #import <core/hash.h>
 #import <core/clock.h>
 #import <runtime/context.h>
+#import <runtime/texture_heap.h>
 
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_command_encoder.h>
@@ -151,7 +152,7 @@ MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
 uint64_t MetalDevice::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels, bool is_bindless) {
+    uint mipmap_levels, uint64_t heap_handle) {
 
     Clock clock;
 
@@ -196,10 +197,12 @@ uint64_t MetalDevice::create_texture(
         case PixelFormat::RG32F: desc.pixelFormat = MTLPixelFormatRG32Float; break;
         case PixelFormat::RGBA32F: desc.pixelFormat = MTLPixelFormatRGBA32Float; break;
     }
+
+    auto from_heap = heap_handle != TextureHeap::invalid_handle;
     desc.allowGPUOptimizedContents = true;
     desc.resourceOptions = MTLResourceStorageModePrivate;
-    desc.usage = is_bindless ? MTLTextureUsageShaderRead
-                             : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    desc.usage = from_heap ? MTLTextureUsageShaderRead
+                           : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
     auto texture = [_handle newTextureWithDescriptor:desc];
 
@@ -208,7 +211,7 @@ uint64_t MetalDevice::create_texture(
         mipmap_levels, mipmap_levels <= 1u ? "" : "s",
         clock.toc());
 
-    if (is_bindless) {
+    if (from_heap) {
         // TODO: emplace into descriptor array...
     }
 
@@ -312,6 +315,24 @@ uint64_t MetalDevice::create_accel(uint64_t stream_handle,
 
 void MetalDevice::dispose_accel(uint64_t handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+uint64_t MetalDevice::create_texture_heap(size_t size) noexcept {
+    auto desc = [[MTLHeapDescriptor alloc] init];
+    desc.size = size;
+    desc.hazardTrackingMode = MTLHazardTrackingModeUntracked;
+    desc.type = MTLHeapTypeAutomatic;
+    desc.storageMode = MTLStorageModePrivate;
+    auto heap = [_handle newHeapWithDescriptor:desc];
+    return 0;
+}
+
+size_t MetalDevice::query_texture_heap_memory_usage(uint64_t handle) noexcept {
+
+    return 0;
+}
+
+void MetalDevice::dispose_texture_heap(uint64_t handle) noexcept {
 }
 
 }

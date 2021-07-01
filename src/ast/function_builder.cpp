@@ -241,7 +241,13 @@ void FunctionBuilder::for_(const Statement *init, const Expression *condition, c
 
 void FunctionBuilder::mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept {
     auto old_usage = to_underlying(_variable_usages[uid]);
-    _variable_usages[uid] = static_cast<Variable::Usage>(old_usage | to_underlying(usage));
+    auto u = static_cast<Variable::Usage>(old_usage | to_underlying(usage));
+    if ((to_underlying(u) & to_underlying(Variable::Usage::SAMPLE)) != 0u
+        && (to_underlying(u) & to_underlying(Variable::Usage::WRITE)) != 0u) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Variable #{} is not allowed to be sampled and written at the same time.", uid);
+    }
+    _variable_usages[uid] = u;
 }
 
 FunctionBuilder::FunctionBuilder(Arena &arena, FunctionBuilder::Tag tag) noexcept
@@ -309,7 +315,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::in
     }
     ArenaVector func_args{_arena, args};
     auto expr = _arena.create<CallExpr>(type, custom, func_args);
-    if (auto iter = std::find(_used_custom_callables.cbegin(),_used_custom_callables.cend(), custom);
+    if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), custom);
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom);
     }
@@ -333,4 +339,4 @@ void FunctionBuilder::mark_raytracing() noexcept {
     _raytracing = true;
 }
 
-}// namespace luisa::compute
+}// namespace luisa::compute::detail

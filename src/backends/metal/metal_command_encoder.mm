@@ -54,6 +54,67 @@ void MetalCommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
     [blit_encoder endEncoding];
 }
 
+void MetalCommandEncoder::visit(const BufferToTextureCopyCommand *command) noexcept {
+    auto buffer = _device->buffer(command->buffer());
+    auto texture = _device->texture(command->texture());
+    auto size = command->size();
+    auto offset = command->offset();
+    auto pixel_bytes = pixel_storage_size(command->storage());
+    auto pitch_bytes = pixel_bytes * size.x;
+    auto image_bytes = pitch_bytes * size.y * size.z;
+    auto blit_encoder = [_command_buffer blitCommandEncoder];
+    [blit_encoder copyFromBuffer:buffer
+                    sourceOffset:command->buffer_offset()
+               sourceBytesPerRow:pitch_bytes
+             sourceBytesPerImage:image_bytes
+                      sourceSize:MTLSizeMake(size.x, size.y, size.z)
+                       toTexture:texture
+                destinationSlice:0u
+                destinationLevel:command->level()
+               destinationOrigin:MTLOriginMake(offset.x, offset.y, offset.z)];
+    [blit_encoder endEncoding];
+}
+
+void MetalCommandEncoder::visit(const TextureCopyCommand *command) noexcept {
+    auto src = _device->texture(command->src_handle());
+    auto dst = _device->texture(command->dst_handle());
+    auto src_offset = command->src_offset();
+    auto dst_offset = command->dst_offset();
+    auto size = command->size();
+    auto blit_encoder = [_command_buffer blitCommandEncoder];
+    [blit_encoder copyFromTexture:src
+                      sourceSlice:0u
+                      sourceLevel:command->src_level()
+                     sourceOrigin:MTLOriginMake(src_offset.x, src_offset.y, src_offset.z)
+                       sourceSize:MTLSizeMake(size.x, size.y, size.z)
+                        toTexture:dst
+                 destinationSlice:0u
+                 destinationLevel:command->dst_level()
+                destinationOrigin:MTLOriginMake(dst_offset.x, dst_offset.y, dst_offset.z)];
+    [blit_encoder endEncoding];
+}
+
+void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexcept {
+    auto buffer = _device->buffer(command->buffer());
+    auto texture = _device->texture(command->texture());
+    auto size = command->size();
+    auto offset = command->offset();
+    auto pixel_bytes = pixel_storage_size(command->storage());
+    auto pitch_bytes = pixel_bytes * size.x;
+    auto image_bytes = pitch_bytes * size.y * size.z;
+    auto blit_encoder = [_command_buffer blitCommandEncoder];
+    [blit_encoder copyFromTexture:texture
+                      sourceSlice:0u
+                      sourceLevel:command->level()
+                     sourceOrigin:MTLOriginMake(offset.x, offset.y, offset.z)
+                       sourceSize:MTLSizeMake(size.x, size.y, size.z)
+                         toBuffer:buffer
+                destinationOffset:command->buffer_offset()
+           destinationBytesPerRow:pitch_bytes
+         destinationBytesPerImage:image_bytes];
+    [blit_encoder endEncoding];
+}
+
 void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto offset = command->offset();
     auto size = command->size();
@@ -123,9 +184,7 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
             switch (usage) {
                 case Variable::Usage::READ:
                     [compute_encoder useResource:res
-                                           usage:[res conformsToProtocol:@protocol(MTLTexture)]
-                                                     ? MTLResourceUsageSample
-                                                     : MTLResourceUsageRead];
+                                           usage:MTLResourceUsageRead];
                     break;
                 case Variable::Usage::WRITE:
                     [compute_encoder useResource:res
@@ -135,6 +194,12 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead
                                                  | MTLResourceUsageWrite];
+                    break;
+                case Variable::Usage::SAMPLE:
+                    [compute_encoder useResource:res
+                                           usage:MTLResourceUsageRead
+                                                 | MTLResourceUsageSample];
+                    break;
                 default: break;
             }
         };

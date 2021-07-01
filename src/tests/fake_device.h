@@ -25,7 +25,7 @@ public:
     void synchronize_stream(uint64_t stream_handle) noexcept override {}
     void dispatch(uint64_t stream_handle, CommandBuffer) noexcept override {}
     void compile(const detail::FunctionBuilder *) noexcept override {}
-    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool is_bindless) override { return _handle++; }
+    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, uint64_t heap_handle) override { return _handle++; }
     void dispose_texture(uint64_t handle) noexcept override {}
     uint64_t create_event() noexcept override { return _handle++; }
     void synchronize_event(uint64_t handle) noexcept override {}
@@ -46,6 +46,9 @@ public:
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};
     }
+    virtual uint64_t create_texture_heap(size_t size) noexcept override { return _handle++; }
+    virtual size_t query_texture_heap_memory_usage(uint64_t handle) noexcept override { return 0u; }
+    virtual void dispose_texture_heap(uint64_t handle) noexcept override {}
 };
 
 }// namespace luisa::compute

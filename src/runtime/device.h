@@ -38,6 +38,7 @@ class Device {
 
 public:
     class Interface {
+
     private:
         const Context &_ctx;
 
@@ -54,8 +55,13 @@ public:
         // texture
         [[nodiscard]] virtual uint64_t create_texture(
             PixelFormat format, uint dimension, uint width, uint height, uint depth,
-            uint mipmap_levels, bool is_bindless) = 0;
+            uint mipmap_levels, uint64_t heap_handle /* == uint64(-1) when not from heap */) = 0;
         virtual void dispose_texture(uint64_t handle) noexcept = 0;
+
+        // texture heap
+        [[nodiscard]] virtual uint64_t create_texture_heap(size_t size) noexcept = 0;
+        [[nodiscard]] virtual size_t query_texture_heap_memory_usage(uint64_t handle) noexcept = 0;
+        virtual void dispose_texture_heap(uint64_t handle) noexcept = 0;
 
         // stream
         [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
