@@ -374,7 +374,7 @@ id<MTLSamplerState> MetalDevice::texture_sampler(TextureSampler sampler) noexcep
     std::scoped_lock lock{_texture_sampler_mutex};
     auto iter = _texture_samplers.find(sampler);
     if (iter != _texture_samplers.end()) { return iter->second; }
-    auto metal_sampler = [[MTLSamplerDescriptor alloc] init];
+    auto desc = [[MTLSamplerDescriptor alloc] init];
     static constexpr auto convert_address_mode = [](TextureSampler::AddressMode mode) noexcept {
         switch (mode) {
             case TextureSampler::AddressMode::EDGE: return MTLSamplerAddressModeClampToEdge;
@@ -383,33 +383,34 @@ id<MTLSamplerState> MetalDevice::texture_sampler(TextureSampler sampler) noexcep
             case TextureSampler::AddressMode::ZERO: return MTLSamplerAddressModeClampToZero; break;
         }
     };
-    metal_sampler.sAddressMode = convert_address_mode(sampler.address_mode()[0]);
-    metal_sampler.tAddressMode = convert_address_mode(sampler.address_mode()[1]);
-    metal_sampler.rAddressMode = convert_address_mode(sampler.address_mode()[2]);
     switch (sampler.filter_mode()) {
         case TextureSampler::FilterMode::NEAREST:
-            metal_sampler.minFilter = MTLSamplerMinMagFilterNearest;
-            metal_sampler.magFilter = MTLSamplerMinMagFilterNearest;
+            desc.minFilter = MTLSamplerMinMagFilterNearest;
+            desc.magFilter = MTLSamplerMinMagFilterNearest;
             break;
         case TextureSampler::FilterMode::LINEAR:
-            metal_sampler.minFilter = MTLSamplerMinMagFilterLinear;
-            metal_sampler.magFilter = MTLSamplerMinMagFilterLinear;
+            desc.minFilter = MTLSamplerMinMagFilterLinear;
+            desc.magFilter = MTLSamplerMinMagFilterLinear;
             break;
     }
-    metal_sampler.normalizedCoordinates = sampler.normalized();
-    metal_sampler.maxAnisotropy = sampler.max_anisotropy();
     switch (sampler.mip_filter_mode()) {
         case TextureSampler::MipFilterMode::NONE:
-            metal_sampler.mipFilter = MTLSamplerMipFilterNotMipmapped;
+            desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
             break;
         case TextureSampler::MipFilterMode::NEAREST:
-            metal_sampler.mipFilter = MTLSamplerMipFilterNearest;
+            desc.mipFilter = MTLSamplerMipFilterNearest;
             break;
         case TextureSampler::MipFilterMode::LINEAR:
-            metal_sampler.mipFilter = MTLSamplerMipFilterLinear;
+            desc.mipFilter = MTLSamplerMipFilterLinear;
             break;
     }
-    auto sampler_state = [_handle newSamplerStateWithDescriptor:metal_sampler];
+    desc.normalizedCoordinates = sampler.normalized() ? YES : NO;
+    desc.maxAnisotropy = sampler.max_anisotropy();
+    desc.supportArgumentBuffers = YES;
+    desc.sAddressMode = convert_address_mode(sampler.address_mode()[0]);
+    desc.tAddressMode = convert_address_mode(sampler.address_mode()[1]);
+    desc.rAddressMode = convert_address_mode(sampler.address_mode()[2]);
+    auto sampler_state = [_handle newSamplerStateWithDescriptor:desc];
     return _texture_samplers.emplace(sampler, sampler_state).first->second;
 }
 
