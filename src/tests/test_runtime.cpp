@@ -140,6 +140,6 @@ int main(int argc, char *argv[]) {
                results[16382], results[16383]);
 
     auto heap = device.create_texture_heap(256_mb);
-    auto t1 = heap.allocate(PixelStorage::BYTE4, 512u, TextureSampler{}, 0u);
+    auto t1 = heap.allocate(PixelStorage::FLOAT4, 2048u, TextureSampler{}, 0u);
     LUISA_INFO("Used size: {}", heap.allocated_size());
 }

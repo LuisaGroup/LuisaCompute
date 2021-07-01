@@ -178,7 +178,7 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:compiled_kernel.handle];
     [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
-    command->decode([&](auto vid, auto argument) noexcept {
+    command->decode([&](auto vid, auto argument) noexcept -> void {
         using T = decltype(argument);
         auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
             switch (usage) {
@@ -228,8 +228,7 @@ void MetalCommandEncoder::visit(const KernelLaunchCommand *command) noexcept {
     [compute_encoder endEncoding];
 
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-      auto arg_buffer = argument_buffer;
-      argument_buffer_pool->recycle(arg_buffer);
+      argument_buffer_pool->recycle(argument_buffer);
     }];
 }
 

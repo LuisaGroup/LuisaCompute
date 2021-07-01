@@ -40,7 +40,7 @@ private:
         : _device{device.impl()},
           _handle{device.impl()->create_texture(
               pixel_storage_to_format<T>(storage), 3u,
-              width, height, depth,1u,
+              width, height, depth,1u, {},
               std::numeric_limits<uint64_t>::max(), 0u)},
           _storage{storage},
           _size{width, height, depth} {}

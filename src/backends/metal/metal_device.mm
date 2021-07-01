@@ -116,6 +116,9 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     for (auto i = 0u; i < initial_event_count; i++) { _event_slots.emplace_back(nullptr); }
     _available_event_slots.resize(initial_event_count);
     std::iota(_available_event_slots.rbegin(), _available_event_slots.rend(), 0u);
+
+    static constexpr auto initial_texture_sampler_count = 64u;
+    _texture_samplers.reserve(initial_texture_sampler_count);
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -159,6 +162,7 @@ uint64_t MetalDevice::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels,
+    TextureSampler sampler,
     uint64_t heap_handle,
     uint32_t index_in_heap) {
 
@@ -213,9 +217,15 @@ uint64_t MetalDevice::create_texture(
                            : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
     auto texture = [&] {
-        if (from_heap) { return heap(heap_handle)->allocate_texture(desc, index_in_heap); }
+        if (from_heap) { return heap(heap_handle)->allocate_texture(desc, index_in_heap, sampler); }
         return [_handle newTextureWithDescriptor:desc];
     }();
+
+    if (texture == nullptr) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to allocate texture with description {}.",
+            [desc.description cStringUsingEncoding:NSUTF8StringEncoding]);
+    }
 
     LUISA_VERBOSE_WITH_LOCATION(
         "Created image (with {} mipmap{}) in {} ms.",
@@ -328,7 +338,7 @@ void MetalDevice::dispose_accel(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::create_texture_heap(size_t size) noexcept {
     Clock clock;
-    auto heap = std::make_unique<MetalTextureHeap>(_handle, size);
+    auto heap = std::make_unique<MetalTextureHeap>(this, size);
     LUISA_VERBOSE_WITH_LOCATION("Created texture heap in {} ms.", clock.toc());
     std::scoped_lock lock{_heap_mutex};
     if (_available_heap_slots.empty()) {
@@ -358,6 +368,49 @@ void MetalDevice::dispose_texture_heap(uint64_t handle) noexcept {
 MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
     std::scoped_lock lock{_heap_mutex};
     return _heap_slots[handle].get();
+}
+
+id<MTLSamplerState> MetalDevice::texture_sampler(TextureSampler sampler) noexcept {
+    std::scoped_lock lock{_texture_sampler_mutex};
+    auto iter = _texture_samplers.find(sampler);
+    if (iter != _texture_samplers.end()) { return iter->second; }
+    auto metal_sampler = [[MTLSamplerDescriptor alloc] init];
+    static constexpr auto convert_address_mode = [](TextureSampler::AddressMode mode) noexcept {
+        switch (mode) {
+            case TextureSampler::AddressMode::EDGE: return MTLSamplerAddressModeClampToEdge;
+            case TextureSampler::AddressMode::REPEAT: return MTLSamplerAddressModeRepeat;
+            case TextureSampler::AddressMode::MIRROR: return MTLSamplerAddressModeMirrorRepeat;
+            case TextureSampler::AddressMode::ZERO: return MTLSamplerAddressModeClampToZero; break;
+        }
+    };
+    metal_sampler.sAddressMode = convert_address_mode(sampler.address_mode()[0]);
+    metal_sampler.tAddressMode = convert_address_mode(sampler.address_mode()[1]);
+    metal_sampler.rAddressMode = convert_address_mode(sampler.address_mode()[2]);
+    switch (sampler.filter_mode()) {
+        case TextureSampler::FilterMode::NEAREST:
+            metal_sampler.minFilter = MTLSamplerMinMagFilterNearest;
+            metal_sampler.magFilter = MTLSamplerMinMagFilterNearest;
+            break;
+        case TextureSampler::FilterMode::LINEAR:
+            metal_sampler.minFilter = MTLSamplerMinMagFilterLinear;
+            metal_sampler.magFilter = MTLSamplerMinMagFilterLinear;
+            break;
+    }
+    metal_sampler.normalizedCoordinates = sampler.normalized();
+    metal_sampler.maxAnisotropy = sampler.max_anisotropy();
+    switch (sampler.mip_filter_mode()) {
+        case TextureSampler::MipFilterMode::NONE:
+            metal_sampler.mipFilter = MTLSamplerMipFilterNotMipmapped;
+            break;
+        case TextureSampler::MipFilterMode::NEAREST:
+            metal_sampler.mipFilter = MTLSamplerMipFilterNearest;
+            break;
+        case TextureSampler::MipFilterMode::LINEAR:
+            metal_sampler.mipFilter = MTLSamplerMipFilterLinear;
+            break;
+    }
+    auto sampler_state = [_handle newSamplerStateWithDescriptor:metal_sampler];
+    return _texture_samplers.emplace(sampler, sampler_state).first->second;
 }
 
 }

@@ -64,13 +64,14 @@ uint32_t TextureHeap::allocate(PixelStorage storage, uint2 size, TextureSampler 
         return invalid_index;
     }
     auto valid_mipmap_levels = _compute_mipmap_levels(size.x, size.y, mipmap_levels);
+    if (valid_mipmap_levels == 1) { sampler.set_mip_filter_mode(TextureSampler::MipFilterMode::NONE); }
     auto index = _available.back();
     _available.pop_back();
     auto handle = _device->create_texture(
         pixel_storage_to_format<float>(storage), 2u,
         size.x, size.y, 1u, valid_mipmap_levels,
-        _handle, index);
-    _slots[index] = {handle, storage, size, mipmap_levels, sampler};
+        sampler, _handle, index);
+    _slots[index] = {handle, storage, size, mipmap_levels};
     return index;
 }
 
@@ -116,8 +117,6 @@ CommandHandle TextureHeap::emplace(uint32_t index, const void *pixels, uint32_t 
         uint3(0u), uint3(mipmap_size, 1u),
         pixels, _handle);
 }
-
-
 
 bool TextureHeap::_validate_mipmap_level(uint index, uint level) const noexcept {
     auto desc = _slots[index];

@@ -7,6 +7,7 @@
 #import <vector>
 #import <thread>
 #import <future>
+#import <unordered_map>
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
@@ -49,6 +50,9 @@ private:
     std::vector<std::unique_ptr<MetalTextureHeap>> _heap_slots;
     std::vector<size_t> _available_heap_slots;
 
+    spin_mutex _texture_sampler_mutex;
+    std::unordered_map<TextureSampler, id<MTLSamplerState>, TextureSampler::Hash> _texture_samplers;
+
     // for events
     mutable spin_mutex _event_mutex;
     std::vector<std::unique_ptr<MetalEvent>> _event_slots;
@@ -65,11 +69,12 @@ public:
     [[nodiscard]] MetalTextureHeap *heap(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalCompiler::KernelItem compiled_kernel(Function kernel) const noexcept;
+    [[nodiscard]] id<MTLSamplerState> texture_sampler(TextureSampler sampler) noexcept;
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
                             uint width, uint height, uint depth, uint mipmap_levels,
-                            uint64_t heap_handle, uint32_t index_in_heap) override;
+                            TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
     void dispose_texture(uint64_t handle) noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void dispose_buffer(uint64_t handle) noexcept override;

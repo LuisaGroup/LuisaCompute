@@ -8,49 +8,9 @@
 #include <core/mathematics.h>
 #include <runtime/image.h>
 #include <runtime/buffer.h>
+#include <runtime/texture_sampler.h>
 
 namespace luisa::compute {
-
-class TextureSampler {
-
-public:
-    enum struct CoordMode : uint8_t {
-        NORMALIZED,
-        PIXEL
-    };
-
-    enum struct AddressMode : uint8_t {
-        EDGE,
-        REPEAT,
-        MIRROR
-    };
-
-    enum struct FilterMode : uint8_t {
-        NEAREST,
-        LINEAR
-    };
-
-private:
-    std::array<AddressMode, 3u> _address{AddressMode::EDGE, AddressMode::EDGE, AddressMode::EDGE};
-    FilterMode _filter{FilterMode::NEAREST};
-    FilterMode _mipmap_filter{FilterMode::NEAREST};
-    CoordMode _coord{CoordMode::NORMALIZED};
-
-public:
-    void set_address_mode(AddressMode mode) noexcept { _address[0] = _address[1] = _address[2] = mode; }
-    void set_address_mode(AddressMode u, AddressMode v, AddressMode w = AddressMode::EDGE) noexcept { _address = {u, v, w}; }
-    void set_filter_mode(FilterMode mode) noexcept { _filter = mode; }
-    void set_mipmap_filter_mode(FilterMode mode) noexcept { _mipmap_filter = mode; }
-    void set_coord_mode(CoordMode mode) noexcept { _coord = mode; }
-    [[nodiscard]] auto address_mode() const noexcept { return _address; }
-    [[nodiscard]] auto filter_mode() const noexcept { return _filter; }
-    [[nodiscard]] auto mipmap_filter_mode() const noexcept { return _mipmap_filter; }
-    [[nodiscard]] auto coord_mode() const noexcept { return _coord; }
-};
-
-namespace detail {
-
-}// namespace detail
 
 class TextureHeap : concepts::Noncopyable {
 
@@ -59,12 +19,10 @@ class TextureHeap : concepts::Noncopyable {
         PixelStorage storage{};
         uint mipmap_levels{0u};
         uint2 size;
-        TextureSampler sampler;
         constexpr TextureDesc() noexcept = default;
-        constexpr TextureDesc(uint64_t handle, PixelStorage storage, uint2 size, uint mipmap_levels, TextureSampler sampler) noexcept
+        constexpr TextureDesc(uint64_t handle, PixelStorage storage, uint2 size, uint mipmap_levels) noexcept
             : handle{handle}, storage{storage},
-              mipmap_levels{mipmap_levels}, size{size},
-              sampler{sampler} {}
+              mipmap_levels{mipmap_levels}, size{size} {}
     };
 
 public:
