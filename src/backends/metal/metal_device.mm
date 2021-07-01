@@ -136,7 +136,7 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
     return _handle;
 }
 
-void MetalDevice::compile(const FunctionBuilder *kernel) noexcept {
+void MetalDevice::compile(const detail::FunctionBuilder *kernel) noexcept {
     static_cast<void>(compiled_kernel(kernel));
 }
 

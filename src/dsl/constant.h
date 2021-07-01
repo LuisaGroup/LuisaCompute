@@ -38,9 +38,9 @@ public:
 
     template<concepts::integral U>
     [[nodiscard]] auto operator[](detail::Expr<U> index) const noexcept {
-        return detail::Expr<T>{FunctionBuilder::current()->access(
+        return detail::Expr<T>{detail::FunctionBuilder::current()->access(
             Type::of<T>(),
-            FunctionBuilder::current()->constant(_type, _hash),
+            detail::FunctionBuilder::current()->constant(_type, _hash),
             index.expression())};
     }
 

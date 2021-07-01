@@ -10,7 +10,7 @@
 namespace luisa::compute {
 
 void RefExpr::_mark(Variable::Usage usage) const noexcept {
-    FunctionBuilder::current()->mark_variable_usage(_variable.uid(), usage);
+    detail::FunctionBuilder::current()->mark_variable_usage(_variable.uid(), usage);
 }
 
 void CallExpr::_mark(Variable::Usage) const noexcept {

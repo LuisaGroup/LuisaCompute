@@ -67,7 +67,7 @@ PYBIND11_MODULE(pyluisa, m) {
             .value("CALLABLE", Function::Tag::CALLABLE);
 
         // builder methods
-        auto builder = py::class_<FunctionBuilder, std::unique_ptr<FunctionBuilder, py::nodelete>>(ast, "Builder");
+        auto builder = py::class_<detail::FunctionBuilder, std::unique_ptr<detail::FunctionBuilder, py::nodelete>>(ast, "Builder");
         builder.def(py::init([](Function::Tag tag) { return FunctionBuilder::create(tag); }))
             .def("__enter__", [](FunctionBuilder &fb) {
                 FunctionBuilder::push(&fb);

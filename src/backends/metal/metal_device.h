@@ -68,7 +68,7 @@ public:
     void dispose_stream(uint64_t handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
-    void compile(const FunctionBuilder *kernel) noexcept override;
+    void compile(const detail::FunctionBuilder *kernel) noexcept override;
     uint64_t create_event() noexcept override;
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;

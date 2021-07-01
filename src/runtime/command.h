@@ -257,7 +257,9 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
 };
 
+namespace detail {
 class FunctionBuilder;
+}
 
 class KernelLaunchCommand : public Command {
 
@@ -311,14 +313,14 @@ public:
     struct ArgumentBuffer : std::array<std::byte, 2048u> {};
 
 private:
-    const FunctionBuilder *_kernel;
+    const detail::FunctionBuilder *_kernel;
     size_t _argument_buffer_size{0u};
     uint _launch_size[3]{};
     uint32_t _argument_count{0u};
     ArgumentBuffer _argument_buffer{};
 
 public:
-    explicit KernelLaunchCommand(const FunctionBuilder *kernel) noexcept;
+    explicit KernelLaunchCommand(const detail::FunctionBuilder *kernel) noexcept;
     void set_launch_size(uint3 launch_size) noexcept;
     [[nodiscard]] auto kernel() const noexcept { return _kernel; }
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }

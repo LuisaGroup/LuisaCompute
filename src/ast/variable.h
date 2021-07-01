@@ -8,6 +8,10 @@
 
 namespace luisa::compute {
 
+namespace detail {
+class FunctionBuilder;
+}
+
 class Variable {
 
 public:
@@ -44,7 +48,7 @@ private:
     Tag _tag;
 
 private:
-    friend class FunctionBuilder;
+    friend class detail::FunctionBuilder;
     constexpr Variable(const Type *type, Tag tag, uint32_t uid) noexcept
         : _type{type}, _uid{uid}, _tag{tag} {}
 

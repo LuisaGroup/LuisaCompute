@@ -4,7 +4,7 @@
 
 #include <ast/function_builder.h>
 
-namespace luisa::compute {
+namespace luisa::compute::detail {
 
 std::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
     static thread_local std::vector<FunctionBuilder *> stack;

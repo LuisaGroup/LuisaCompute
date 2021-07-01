@@ -18,7 +18,10 @@
 namespace luisa::compute {
 
 struct ExprVisitor;
+
+namespace detail {
 class FunctionBuilder;
+}
 
 class Expression : public concepts::Noncopyable {
 

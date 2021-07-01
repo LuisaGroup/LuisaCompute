@@ -131,7 +131,7 @@ void KernelLaunchCommand::set_launch_size(uint3 launch_size) noexcept {
     _launch_size[2] = launch_size.z;
 }
 
-KernelLaunchCommand::KernelLaunchCommand(const FunctionBuilder *kernel) noexcept
+KernelLaunchCommand::KernelLaunchCommand(const detail::FunctionBuilder *kernel) noexcept
     : _kernel{kernel} {}
 
 namespace detail {

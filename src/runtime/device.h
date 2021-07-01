@@ -30,7 +30,9 @@ class Image;
 template<typename T>
 class Volume;
 
+namespace detail {
 class FunctionBuilder;
+}
 
 class Device {
 
@@ -62,7 +64,7 @@ public:
         virtual void dispatch(uint64_t stream_handle, CommandBuffer) noexcept = 0;
 
         // kernel
-        virtual void compile(const FunctionBuilder *kernel) noexcept = 0;
+        virtual void compile(const detail::FunctionBuilder *kernel) noexcept = 0;
 
         // event
         [[nodiscard]] virtual uint64_t create_event() noexcept = 0;

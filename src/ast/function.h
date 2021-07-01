@@ -9,7 +9,10 @@
 
 namespace luisa::compute {
 
+namespace detail {
 class FunctionBuilder;
+}
+
 class ScopeStmt;
 class Expression;
 class ScopeStmt;
@@ -47,14 +50,14 @@ public:
     };
 
 private:
-    const FunctionBuilder *_builder{nullptr};
+    const detail::FunctionBuilder *_builder{nullptr};
     
 private:
-    friend class FunctionBuilder;
+    friend class detail::FunctionBuilder;
 
 public:
     Function() noexcept = default;
-    Function(const FunctionBuilder *builder) noexcept : _builder{builder} {}
+    Function(const detail::FunctionBuilder *builder) noexcept : _builder{builder} {}
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
     [[nodiscard]] std::span<const Variable> shared_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;

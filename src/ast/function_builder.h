@@ -21,6 +21,10 @@ namespace luisa::compute {
 class Statement;
 class Expression;
 
+}
+
+namespace luisa::compute::detail {
+
 class FunctionBuilder {
 
 private:

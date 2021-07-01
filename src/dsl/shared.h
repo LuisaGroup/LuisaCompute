@@ -23,7 +23,7 @@ private:
 
 public:
     explicit Shared(size_t n) noexcept
-        : _expression{FunctionBuilder::current()->shared(
+        : _expression{detail::FunctionBuilder::current()->shared(
             Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
 
     Shared(Shared &&) noexcept = default;
@@ -35,7 +35,7 @@ public:
 
     template<concepts::integral U>
     [[nodiscard]] auto operator[](detail::Expr<U> index) const noexcept {
-        return detail::Expr<T>{FunctionBuilder::current()->access(
+        return detail::Expr<T>{detail::FunctionBuilder::current()->access(
             Type::of<T>(), _expression, index.expression())};
     }
 

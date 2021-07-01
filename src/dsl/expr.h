@@ -507,7 +507,7 @@ constexpr auto is_expr_v = is_expr<T>::value;
     [[nodiscard]] inline auto operator op(luisa::compute::detail::Expr<T> expr) noexcept { \
         using R = std::remove_cvref_t<decltype(op std::declval<T>())>;                     \
         return luisa::compute::detail::Expr<R>{                                            \
-            luisa::compute::FunctionBuilder::current()->unary(                             \
+            luisa::compute::detail::FunctionBuilder::current()->unary(                     \
                 luisa::compute::Type::of<R>(),                                             \
                 luisa::compute::UnaryOp::op_tag,                                           \
                 expr.expression())};                                                       \

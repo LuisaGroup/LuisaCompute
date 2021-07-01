@@ -211,7 +211,7 @@ struct is_callable : std::false_type {};
                                                                                                                \
     private:                                                                                                   \
         Arena _arena;                                                                                          \
-        const FunctionBuilder *_builder{nullptr};                                                              \
+        const detail::FunctionBuilder *_builder{nullptr};                                                      \
                                                                                                                \
     public:                                                                                                    \
         Kernel##N##D(Kernel##N##D &&) noexcept = default;                                                      \
@@ -225,8 +225,8 @@ struct is_callable : std::false_type {};
                      int> = 0>                                                                                 \
         requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>          \
             Kernel##N##D(Def &&def) noexcept {                                                                 \
-            _builder = FunctionBuilder::define_kernel(_arena, [&def] {                                         \
-                FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());            \
+            _builder = detail::FunctionBuilder::define_kernel(_arena, [&def] {                                 \
+                detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());    \
                 std::apply(                                                                                    \
                     std::forward<Def>(def),                                                                    \
                     std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});         \
@@ -306,7 +306,7 @@ class Callable<Ret(Args...)> {
         "Callables are not allowed to have atomic arguments.");
 
 private:
-    const FunctionBuilder *_builder;
+    const detail::FunctionBuilder *_builder;
 
 public:
     Callable(Callable &&) noexcept = default;
@@ -320,7 +320,7 @@ public:
                      std::is_invocable<Def, detail::prototype_to_creation_t<Args>...>>,
                  int> = 0>
     Callable(Def &&def) noexcept
-        : _builder{FunctionBuilder::define_callable([&def] {
+        : _builder{detail::FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
                   std::apply(
                       std::forward<Def>(def),
@@ -330,28 +330,28 @@ public:
                       std::apply(
                           std::forward<Def>(def),
                           std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
-                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
+                  detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
               } else {
                   auto ret = std::apply(
                       std::forward<Def>(def),
                       std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
+                  detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
               }
           })} {}
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
-            FunctionBuilder::current()->call(
+            detail::FunctionBuilder::current()->call(
                 _builder->function(),
                 {args.expression()...});
         } else if constexpr (detail::is_tuple_v<Ret>) {
-            Var ret = detail::Expr<Ret>{FunctionBuilder::current()->call(
+            Var ret = detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(),
                 _builder->function(),
                 {args.expression()...})};
             return detail::var_to_tuple(ret);
         } else {
-            return detail::Expr<Ret>{FunctionBuilder::current()->call(
+            return detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(),
                 _builder->function(),
                 {args.expression()...})};
