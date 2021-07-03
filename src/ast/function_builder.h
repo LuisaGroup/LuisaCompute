@@ -21,6 +21,10 @@ namespace luisa::compute {
 class Statement;
 class Expression;
 
+}
+
+namespace luisa::compute::detail {
+
 class FunctionBuilder {
 
 private:
@@ -43,6 +47,7 @@ public:
     using TextureBinding = Function::TextureBinding;
 
 private:
+    Arena &_arena;
     ScopeStmt _body;
     const Type *_ret{nullptr};
     ArenaVector<ScopeStmt *> _scope_stack;
@@ -52,18 +57,16 @@ private:
     ArenaVector<BufferBinding> _captured_buffers;
     ArenaVector<TextureBinding> _captured_textures;
     ArenaVector<Variable> _arguments;
-    ArenaVector<uint32_t> _used_custom_callables;
+    ArenaVector<Function> _used_custom_callables;
     ArenaVector<CallOp> _used_builtin_callables;
     ArenaVector<Variable::Usage> _variable_usages;
+    uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
-    uint32_t _uid;
+    bool _raytracing{false};
 
 protected:
-    [[nodiscard]] static Arena &_arena() noexcept;
     [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
-    [[nodiscard]] static spin_mutex &_function_registry_mutex() noexcept;
-    [[nodiscard]] static std::vector<std::unique_ptr<FunctionBuilder>> &_function_registry() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
     void _append(const Statement *statement) noexcept;
@@ -71,20 +74,27 @@ protected:
     [[nodiscard]] const RefExpr *_builtin(Variable::Tag tag) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
     void _void_expr(const Expression *expr) noexcept;
+    void _compute_hash() noexcept;
 
 private:
-    explicit FunctionBuilder(Tag tag, uint32_t uid) noexcept;
-
     template<typename Def>
-    static auto _define(Function::Tag tag, Def &&def) noexcept {
-        auto f = create(tag);
+    static auto _define(Arena &arena, Function::Tag tag, Def &&def) noexcept {
+        auto f = arena.create<FunctionBuilder>(arena, tag);
         push(f);
         f->with(&f->_body, std::forward<Def>(def));
+        f->_compute_hash();
         pop(f);
-        return Function{f};
+        // make it immutable to forbid further modification
+        return const_cast<const FunctionBuilder *>(f);
     }
 
 public:
+    explicit FunctionBuilder(Arena &arena, Tag tag) noexcept;
+    FunctionBuilder(FunctionBuilder &&) noexcept = delete;
+    FunctionBuilder(const FunctionBuilder &) noexcept = delete;
+    FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
+    FunctionBuilder &operator=(const FunctionBuilder &) noexcept = delete;
+
     [[nodiscard]] static FunctionBuilder *current() noexcept;
 
     // interfaces for class Function
@@ -98,18 +108,16 @@ public:
     [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
-    [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto return_type() const noexcept { return _ret; }
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
-    [[nodiscard]] static Function at(uint32_t uid) noexcept;
-    [[nodiscard]] static Function callable(uint32_t uid) noexcept;
-    [[nodiscard]] static Function kernel(uint32_t uid) noexcept;
+    [[nodiscard]] auto hash() const noexcept { return _hash; }
+    [[nodiscard]] auto raytracing() const noexcept { return _raytracing; }
 
     // build primitives
     template<typename Def>
-    static auto define_kernel(Def &&def) noexcept {
-        return _define(Function::Tag::KERNEL, [&def] {
+    static auto define_kernel(Arena &arena, Def &&def) noexcept {
+        return _define(arena, Function::Tag::KERNEL, [&def] {
             auto &&f = FunctionBuilder::current();
             auto gid = f->dispatch_id();
             auto gs = f->launch_size();
@@ -125,7 +133,11 @@ public:
 
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
-        return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
+        return _define(_function_stack().empty()              // callables use
+                           ? Arena::global()                  // the global arena when defined in global scope, or
+                           : _function_stack().back()->_arena,// the inherited one from parent scope if defined locally
+                       Function::Tag::CALLABLE,
+                       std::forward<Def>(def));
     }
 
     // config
@@ -160,9 +172,9 @@ public:
     [[nodiscard]] const AccessExpr *access(const Type *type, const Expression *range, const Expression *index) noexcept;
     [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
-    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, std::initializer_list<const Expression *> args) noexcept;
     void call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
-    void call(uint32_t func_uid, std::initializer_list<const Expression *> args) noexcept;
+    void call(Function custom, std::initializer_list<const Expression *> args) noexcept;
 
     // statements
     void break_() noexcept;
@@ -186,11 +198,13 @@ public:
 
     static void push(FunctionBuilder *) noexcept;
     static void pop(const FunctionBuilder *) noexcept;
-    [[nodiscard]] static FunctionBuilder *create(Function::Tag) noexcept;
 
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
     void mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept;
+    void mark_raytracing() noexcept;
+
+    [[nodiscard]] auto function() const noexcept { return Function{this}; }
 };
 
 }// namespace luisa::compute

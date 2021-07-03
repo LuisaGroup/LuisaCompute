@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
         return std::make_tuple(a + b, a * b);
     };
 
-    std::function callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
+    Callable callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
@@ -123,27 +123,20 @@ int main(int argc, char *argv[]) {
 
         Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
-        buffer[v_int + 1] = 123;
+        buffer[v_int + 1] = float4(123.0f);
     };
     auto t1 = clock.toc();
 
     auto command = kernel(float_buffer, 12u).launch(1024u);
     auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
-    LUISA_INFO("Command: kernel = {}, args = {}", launch_command->kernel_uid(), launch_command->argument_count());
-    auto function = Function::kernel(launch_command->kernel_uid());
+    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel()->hash()), launch_command->argument_count());
 
-#if defined(LUISA_BACKEND_DX_ENABLED)
-    DynamicModule dll{std::filesystem::canonical(argv[0]).parent_path() / "backends", "luisa-compute-backend-dx"};
-    auto hlsl_codegen = dll.function<void(Function, const Context &ctx)>("CodegenBody");
-    hlsl_codegen(function, context);
-#else
     clock.tic();
     Codegen::Scratch scratch;
     CppCodegen codegen{scratch};
-    codegen.emit(function);
+    codegen.emit(launch_command->kernel());
     auto t2 = clock.toc();
 
     std::cout << scratch.view() << std::endl;
     LUISA_INFO("AST: {} ms, Codegen: {} ms", t1, t2);
-#endif
 }

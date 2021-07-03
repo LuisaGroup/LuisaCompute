@@ -6,7 +6,8 @@
 
 #import <core/hash.h>
 #import <ast/type_registry.h>
-#import <ast/variable.h>
+#import <ast/function_builder.h>
+#import <ast/constant_data.h>
 #import <backends/metal/metal_codegen.h>
 
 namespace luisa::compute::metal {
@@ -102,6 +103,19 @@ public:
         _s << ")";
     }
 
+    void operator()(float2x2 m) const noexcept {
+        _s << "float2x2(";
+        for (auto col = 0u; col < 2u; col++) {
+            for (auto row = 0u; row < 2u; row++) {
+                (*this)(m[col][row]);
+                _s << ", ";
+            }
+        }
+        _s.pop_back();
+        _s.pop_back();
+        _s << ")";
+    }
+
     void operator()(float3x3 m) const noexcept {
         _s << "float3x3(";
         for (auto col = 0u; col < 3u; col++) {
@@ -147,7 +161,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
 void MetalCodegen::visit(const CallExpr *expr) {
     auto is_atomic_op = false;
     switch (expr->op()) {
-        case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
+        case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::NONE: _scratch << "none"; break;
@@ -194,6 +208,7 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::FRACT: _scratch << "fract"; break;
         case CallOp::TRUNC: _scratch << "trunc"; break;
         case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::MOD: _scratch << "glsl_mod"; break;
         case CallOp::FMOD: _scratch << "fmod"; break;
         case CallOp::DEGREES: _scratch << "degrees"; break;
         case CallOp::RADIANS: _scratch << "radians"; break;
@@ -272,6 +287,9 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2: _scratch << "float2"; break;
         case CallOp::MAKE_FLOAT3: _scratch << "float3"; break;
         case CallOp::MAKE_FLOAT4: _scratch << "float4"; break;
+        case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
     }
 
     _scratch << "(";
@@ -428,15 +446,11 @@ void MetalCodegen::emit(Function f) {
 
 void MetalCodegen::_emit_function(Function f) noexcept {
 
-    if (std::find(_generated_functions.cbegin(),
-                  _generated_functions.cend(),
-                  f.uid())
+    if (std::find(_generated_functions.cbegin(), _generated_functions.cend(), f)
         != _generated_functions.cend()) { return; }
-    _generated_functions.emplace_back(f.uid());
 
-    for (auto callable : f.custom_callables()) {
-        _emit_function(Function::callable(callable));
-    }
+    _generated_functions.emplace_back(f);
+    for (auto callable : f.custom_callables()) { _emit_function(callable); }
 
     _function = f;
     _indent = 0u;
@@ -473,7 +487,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"
-                 << "void kernel_" << f.uid()
+                 << "void kernel_" << hash_to_string(f.hash())
                  << "(\n    device const Argument &arg,";
         for (auto builtin : f.builtin_variables()) {
             if (builtin.tag() != Variable::Tag::LAUNCH_SIZE) {
@@ -489,7 +503,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         } else {
             _scratch << "void";
         }
-        _scratch << " custom_" << f.uid() << "(";
+        _scratch << " custom_" << hash_to_string(f.hash()) << "(";
         for (auto buffer : f.captured_buffers()) {
             _scratch << "\n    ";
             _emit_variable_decl(buffer.variable);
@@ -608,14 +622,13 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
         case Variable::Tag::TEXTURE:
             _scratch << "texture" << v.type()->dimension() << "d<";
             _emit_type_name(v.type()->element());
-            _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
                 usage == Variable::Usage::READ_WRITE) {
-                _scratch << "access::read_write> ";
+                _scratch << ", access::read_write> ";
             } else if (usage == Variable::Usage::WRITE) {
-                _scratch << "access::write> ";
-            } else {
-                _scratch << "access::read> ";
+                _scratch << ", access::write> ";
+            } else if (usage == Variable::Usage::READ) {
+                _scratch << ", access::read> ";
             }
             _emit_variable_name(v);
             break;
@@ -784,6 +797,14 @@ template<typename T>
 template<typename T>
 [[nodiscard]] auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
 
+[[nodiscard]] auto inverse(float2x2 m) {
+  const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
+  return float2x2(m[1][1] * one_over_determinant,
+				- m[0][1] * one_over_determinant,
+				- m[1][0] * one_over_determinant,
+				+ m[0][0] * one_over_determinant);
+}
+
 [[nodiscard]] auto inverse(float3x3 m) {
   const auto one_over_determinant = 1.0f / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
                                           - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
@@ -911,6 +932,16 @@ template<typename T>
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_uint *a, uint cmp, uint val, memory_order) {
   atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
   return cmp;
+}
+
+template<typename X, typename Y>
+[[gnu::always_inline, nodiscard]] inline auto glsl_mod(X x, Y y) {
+  return x - y * floor(x / y);
+}
+
+template<typename T>
+[[gnu::always_inline, nodiscard]] inline auto select(T f, T t, bool b) {
+  return b ? t : f;
 }
 
 )";

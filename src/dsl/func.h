@@ -73,7 +73,7 @@ class KernelInvoke {
 
 private:
     CommandHandle _command;
-    Function _function;
+    Function _kernel;
     size_t _argument_index{0u};
 
 private:
@@ -82,27 +82,27 @@ private:
     }
 
 public:
-    explicit KernelInvoke(uint32_t function_uid) noexcept
-        : _command{KernelLaunchCommand::create(function_uid)},
-          _function{Function::kernel(function_uid)} {
+    explicit KernelInvoke(const FunctionBuilder *kernel) noexcept
+        : _command{KernelLaunchCommand::create(kernel)},
+          _kernel{kernel} {
 
-        for (auto buffer : _function.captured_buffers()) {
+        for (auto buffer : _kernel.captured_buffers()) {
             _launch_command()->encode_buffer(
                 buffer.variable.uid(), buffer.handle, buffer.offset_bytes,
-                static_cast<Command::Resource::Usage>(_function.variable_usage(buffer.variable.uid())));
+                static_cast<Command::Resource::Usage>(_kernel.variable_usage(buffer.variable.uid())));
         }
 
-        for (auto texture : _function.captured_textures()) {
+        for (auto texture : _kernel.captured_textures()) {
             _launch_command()->encode_texture(
                 texture.variable.uid(), texture.handle,
-                static_cast<Command::Resource::Usage>(_function.variable_usage(texture.variable.uid())));
+                static_cast<Command::Resource::Usage>(_kernel.variable_usage(texture.variable.uid())));
         }
     }
 
     template<typename T>
     KernelInvoke &operator<<(BufferView<T> buffer) noexcept {
-        auto variable_uid = _function.arguments()[_argument_index++].uid();
-        auto usage = _function.variable_usage(variable_uid);
+        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
+        auto usage = _kernel.variable_usage(variable_uid);
         _launch_command()->encode_buffer(
             variable_uid, buffer.handle(), buffer.offset_bytes(),
             static_cast<Command::Resource::Usage>(usage));
@@ -111,8 +111,8 @@ public:
 
     template<typename T>
     KernelInvoke &operator<<(ImageView<T> image) noexcept {
-        auto variable_uid = _function.arguments()[_argument_index++].uid();
-        auto usage = _function.variable_usage(variable_uid);
+        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
+        auto usage = _kernel.variable_usage(variable_uid);
         _launch_command()->encode_texture(
             variable_uid, image.handle(),
             static_cast<Command::Resource::Usage>(usage));
@@ -121,8 +121,8 @@ public:
 
     template<typename T>
     KernelInvoke &operator<<(VolumeView<T> volume) noexcept {
-        auto variable_uid = _function.arguments()[_argument_index++].uid();
-        auto usage = _function.variable_usage(variable_uid);
+        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
+        auto usage = _kernel.variable_usage(variable_uid);
         _launch_command()->encode_texture(
             variable_uid, volume.handle(),
             static_cast<Command::Resource::Usage>(usage));
@@ -131,7 +131,7 @@ public:
 
     template<typename T>
     KernelInvoke &operator<<(T data) noexcept {
-        auto variable_uid = _function.arguments()[_argument_index++].uid();
+        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
         _launch_command()->encode_uniform(variable_uid, &data, sizeof(T), alignof(T));
         return *this;
     }
@@ -146,23 +146,29 @@ protected:
 };
 
 struct KernelInvoke1D : public KernelInvoke {
-    explicit KernelInvoke1D(uint32_t uid) noexcept : KernelInvoke{uid} {}
+    explicit KernelInvoke1D(const FunctionBuilder *kernel) noexcept : KernelInvoke{kernel} {}
     [[nodiscard]] auto launch(uint size_x) noexcept {
         return _parallelize(uint3{size_x, 1u, 1u});
     }
 };
 
 struct KernelInvoke2D : public KernelInvoke {
-    explicit KernelInvoke2D(uint32_t uid) noexcept : KernelInvoke{uid} {}
+    explicit KernelInvoke2D(const FunctionBuilder *kernel) noexcept : KernelInvoke{kernel} {}
     [[nodiscard]] auto launch(uint size_x, uint size_y) noexcept {
         return _parallelize(uint3{size_x, size_y, 1u});
+    }
+    [[nodiscard]] auto launch(uint2 size) noexcept {
+        return launch(size.x, size.y);
     }
 };
 
 struct KernelInvoke3D : public KernelInvoke {
-    explicit KernelInvoke3D(uint32_t uid) noexcept : KernelInvoke{uid} {}
+    explicit KernelInvoke3D(const FunctionBuilder *kernel) noexcept : KernelInvoke{kernel} {}
     [[nodiscard]] auto launch(uint size_x, uint size_y, uint size_z) noexcept {
         return _parallelize(uint3{size_x, size_y, size_z});
+    }
+    [[nodiscard]] auto launch(uint3 size) noexcept {
+        return launch(size.x, size.y, size.z);
     }
 };
 
@@ -204,13 +210,12 @@ struct is_callable : std::false_type {};
             "Kernels are not allowed to have atomic arguments.");                                              \
                                                                                                                \
     private:                                                                                                   \
-        Function _function;                                                                                    \
+        Arena _arena;                                                                                          \
+        const detail::FunctionBuilder *_builder{nullptr};                                                      \
                                                                                                                \
     public:                                                                                                    \
         Kernel##N##D(Kernel##N##D &&) noexcept = default;                                                      \
         Kernel##N##D(const Kernel##N##D &) noexcept = default;                                                 \
-                                                                                                               \
-        [[nodiscard]] auto function_uid() const noexcept { return _function.uid(); }                           \
                                                                                                                \
         template<typename Def,                                                                                 \
                  std::enable_if_t<                                                                             \
@@ -219,22 +224,23 @@ struct is_callable : std::false_type {};
                          std::negation<is_kernel<std::remove_cvref_t<Def>>>>,                                  \
                      int> = 0>                                                                                 \
         requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>          \
-            Kernel##N##D(Def &&def) noexcept                                                                   \
-            : _function{FunctionBuilder::define_kernel([&def] {                                                \
-                  FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());          \
-                  std::apply(                                                                                  \
-                      std::forward<Def>(def),                                                                  \
-                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});       \
-              })} {}                                                                                           \
+            Kernel##N##D(Def &&def) noexcept {                                                                 \
+            _builder = detail::FunctionBuilder::define_kernel(_arena, [&def] {                                 \
+                detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());    \
+                std::apply(                                                                                    \
+                    std::forward<Def>(def),                                                                    \
+                    std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});         \
+            });                                                                                                \
+        }                                                                                                      \
                                                                                                                \
         [[nodiscard]] auto operator()(detail::prototype_to_kernel_invocation_t<Args>... args) const noexcept { \
-            detail::KernelInvoke##N##D invoke{_function.uid()};                                                \
+            detail::KernelInvoke##N##D invoke{_builder};                                                       \
             (invoke << ... << args);                                                                           \
             return invoke;                                                                                     \
         }                                                                                                      \
                                                                                                                \
         void wait_for_compilation(Device &device) const noexcept {                                             \
-            device.impl()->compile_kernel(_function.uid());                                                    \
+            device.impl()->compile(_builder);                                                                  \
         }                                                                                                      \
     };
 
@@ -300,7 +306,7 @@ class Callable<Ret(Args...)> {
         "Callables are not allowed to have atomic arguments.");
 
 private:
-    Function _function;
+    const detail::FunctionBuilder *_builder;
 
 public:
     Callable(Callable &&) noexcept = default;
@@ -310,12 +316,11 @@ public:
              std::enable_if_t<
                  std::conjunction_v<
                      std::negation<is_callable<std::remove_cvref_t<Def>>>,
-                     std::negation<is_kernel<std::remove_cvref_t<Def>>>>,
+                     std::negation<is_kernel<std::remove_cvref_t<Def>>>,
+                     std::is_invocable<Def, detail::prototype_to_creation_t<Args>...>>,
                  int> = 0>
-    requires concepts::invocable<Def, detail::prototype_to_creation_t<Args>...>
-    Callable(Def &&def)
-    noexcept
-        : _function{FunctionBuilder::define_callable([&def] {
+    Callable(Def &&def) noexcept
+        : _builder{detail::FunctionBuilder::define_callable([&def] {
               if constexpr (std::is_same_v<Ret, void>) {
                   std::apply(
                       std::forward<Def>(def),
@@ -325,30 +330,30 @@ public:
                       std::apply(
                           std::forward<Def>(def),
                           std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
-                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
+                  detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
               } else {
                   auto ret = std::apply(
                       std::forward<Def>(def),
                       std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-                  FunctionBuilder::current()->return_(detail::extract_expression(ret));
+                  detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
               }
           })} {}
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         if constexpr (std::is_same_v<Ret, void>) {
-            FunctionBuilder::current()->call(
-                _function.uid(),
+            detail::FunctionBuilder::current()->call(
+                _builder->function(),
                 {args.expression()...});
         } else if constexpr (detail::is_tuple_v<Ret>) {
-            Var ret = detail::Expr<Ret>{FunctionBuilder::current()->call(
+            Var ret = detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(),
-                _function.uid(),
+                _builder->function(),
                 {args.expression()...})};
             return detail::var_to_tuple(ret);
         } else {
-            return detail::Expr<Ret>{FunctionBuilder::current()->call(
+            return detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(),
-                _function.uid(),
+                _builder->function(),
                 {args.expression()...})};
         }
     }
@@ -419,16 +424,16 @@ using function_t = typename function<T>::type;
 }// namespace detail
 
 template<typename T>
-Kernel1D(T &&) -> Kernel1D<detail::function_t<T>>;
+Kernel1D(T &&) -> Kernel1D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel2D(T &&) -> Kernel2D<detail::function_t<T>>;
+Kernel2D(T &&) -> Kernel2D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel3D(T &&) -> Kernel3D<detail::function_t<T>>;
+Kernel3D(T &&) -> Kernel3D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Callable(T &&) -> Callable<detail::function_t<T>>;
+Callable(T &&) -> Callable<detail::function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute
 

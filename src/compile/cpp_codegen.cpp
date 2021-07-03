@@ -103,6 +103,19 @@ public:
         _s << ")";
     }
 
+    void operator()(float2x2 m) const noexcept {
+        _s << "float3x3(";
+        for (auto col = 0u; col < 2u; col++) {
+            for (auto row = 0u; row < 2u; row++) {
+                (*this)(m[col][row]);
+                _s << ", ";
+            }
+        }
+        _s.pop_back();
+        _s.pop_back();
+        _s << ")";
+    }
+
     void operator()(float3x3 m) const noexcept {
         _s << "float3x3(";
         for (auto col = 0u; col < 3u; col++) {
@@ -140,7 +153,7 @@ void CppCodegen::visit(const RefExpr *expr) {
 void CppCodegen::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
-        case CallOp::CUSTOM: _scratch << "custom_" << expr->uid(); break;
+        case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::NONE: _scratch << "none"; break;
@@ -187,6 +200,7 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::FRACT: _scratch << "fract"; break;
         case CallOp::TRUNC: _scratch << "trunc"; break;
         case CallOp::ROUND: _scratch << "round"; break;
+        case CallOp::MOD: _scratch << "mod"; break;
         case CallOp::FMOD: _scratch << "fmod"; break;
         case CallOp::DEGREES: _scratch << "degrees"; break;
         case CallOp::RADIANS: _scratch << "radians"; break;
@@ -229,6 +243,9 @@ void CppCodegen::visit(const CallExpr *expr) {
         LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
         LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
+        case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
@@ -371,14 +388,11 @@ void CppCodegen::emit(Function f) {
 
 void CppCodegen::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find(
-            _generated_functions.cbegin(), _generated_functions.cend(), f.uid());
+    if (auto iter = std::find(_generated_functions.cbegin(), _generated_functions.cend(), f);
         iter != _generated_functions.cend()) { return; }
-    _generated_functions.emplace_back(f.uid());
+    _generated_functions.emplace_back(f);
 
-    for (auto callable : f.custom_callables()) {
-        _emit_function(Function::callable(callable));
-    }
+    for (auto callable : f.custom_callables()) { _emit_function(callable); }
 
     _function = f;
     _indent = 0u;
@@ -391,7 +405,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "__kernel__ void kernel_" << f.uid();
+        _scratch << "__kernel__ void kernel_" << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "__device__ ";
         if (f.return_type() != nullptr) {
@@ -399,7 +413,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
         } else {
             _scratch << "void";
         }
-        _scratch << " custom_" << f.uid();
+        _scratch << " custom_" << hash_to_string(f.hash());
     } else [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
@@ -548,7 +562,7 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
                 _scratch << "access::read_write> ";
             } else if (usage == Variable::Usage::WRITE) {
                 _scratch << "access::write> ";
-            } else {
+            } else if (usage == Variable::Usage::READ) {
                 _scratch << "access::read> ";
             }
             _emit_variable_name(v);

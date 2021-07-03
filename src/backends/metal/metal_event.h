@@ -21,30 +21,32 @@ public:
     explicit MetalEvent(id<MTLEvent> handle) noexcept
         : _handle{handle} {}
     ~MetalEvent() noexcept { _handle = nullptr; }
-    
+
     void signal(id<MTLCommandBuffer> command_buffer) noexcept {
-        auto value = [this, command_buffer]{
+        auto value = [this, command_buffer] {
             std::scoped_lock lock{_mutex};
             _last = command_buffer;
             return ++_counter;
         }();
         [command_buffer encodeSignalEvent:_handle value:value];
     }
-    
+
     void wait(id<MTLCommandBuffer> command_buffer) noexcept {
         [command_buffer encodeWaitForEvent:_handle
-                             value:[this] {
-                                 std::scoped_lock lock{_mutex};
-                                 return _counter;
-                             }()];
+                                     value:[this] {
+                                         std::scoped_lock lock{_mutex};
+                                         return _counter;
+                                     }()];
     }
-    
+
     void synchronize() noexcept {
         if (auto last = [this]() noexcept
             -> id<MTLCommandBuffer> {
-          std::scoped_lock lock{_mutex};
-          return _last;
-        }()) [[likely]] { [last waitUntilCompleted]; }
+                std::scoped_lock lock{_mutex};
+                auto cmd = _last;
+                _last = nullptr;
+                return cmd;
+            }()) [[likely]] { [last waitUntilCompleted]; }
     }
 };
 

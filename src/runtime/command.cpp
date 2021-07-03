@@ -126,11 +126,13 @@ void KernelLaunchCommand::encode_uniform(
 }
 
 void KernelLaunchCommand::set_launch_size(uint3 launch_size) noexcept {
-    _launch_size = launch_size;
+    _launch_size[0] = launch_size.x;
+    _launch_size[1] = launch_size.y;
+    _launch_size[2] = launch_size.z;
 }
 
-KernelLaunchCommand::KernelLaunchCommand(uint32_t uid) noexcept
-    : _kernel_uid{uid} {}
+KernelLaunchCommand::KernelLaunchCommand(const detail::FunctionBuilder *kernel) noexcept
+    : _kernel{kernel} {}
 
 namespace detail {
 

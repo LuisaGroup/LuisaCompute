@@ -9,7 +9,8 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
     buffer.h
     image.h
     volume.h
-    texture.cpp texture.h)
+    texture_sampler.h
+    texture_heap.cpp texture_heap.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES}  )
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-core)

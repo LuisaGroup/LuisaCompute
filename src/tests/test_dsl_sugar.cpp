@@ -102,6 +102,5 @@ int main(int argc, char *argv[]) {
 
     auto command = kernel(float_buffer, 12u).launch(1024u);
     auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
-    LUISA_INFO("Command: kernel = {}, args = {}", launch_command->kernel_uid(), launch_command->argument_count());
-    auto function = Function::kernel(launch_command->kernel_uid());
+    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel()->hash()), launch_command->argument_count());
 }

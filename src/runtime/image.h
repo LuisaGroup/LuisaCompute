@@ -12,6 +12,9 @@ namespace luisa::compute {
 template<typename T>
 class ImageView;
 
+template<typename T>
+class BufferView;
+
 namespace detail {
 
 template<typename T>
@@ -40,8 +43,8 @@ private:
         : _device{device.impl()},
           _handle{device.impl()->create_texture(
               pixel_storage_to_format<T>(storage), 2u,
-              size.x, size.y, 1u,
-              1u, false)},
+              size.x, size.y, 1u, 1u, {},
+              std::numeric_limits<uint64_t>::max(), 0u)},
           _size{size},
           _storage{storage} {}
 
@@ -102,6 +105,13 @@ public:
 
     [[nodiscard]] CommandHandle copy_to(void *data) const noexcept { return view().copy_to(data); }
     [[nodiscard]] CommandHandle copy_from(const void *data) const noexcept { return view().copy_from(data); }
+    [[nodiscard]] CommandHandle copy_from(ImageView<T> src) const noexcept { return view().copy_from(src); }
+
+    template<typename U>
+    [[nodiscard]] CommandHandle copy_from(BufferView<U> src) const noexcept { return view().copy_from(src); }
+
+    template<typename U>
+    [[nodiscard]] CommandHandle copy_to(BufferView<U> src) const noexcept { return view().copy_to(src); }
 };
 
 template<typename T>
@@ -150,6 +160,34 @@ public:
             _handle, _storage,
             0u, uint3{_offset, 0u},
             uint3{_size, 1u}, data);
+    }
+
+    [[nodiscard]] auto copy_from(ImageView src) const noexcept {
+        auto size = _size;
+        if (!all(size == src._size)) {
+            LUISA_WARNING_WITH_LOCATION(
+                "ImageView sizes mismatch in copy command (src: [{}, {}], dest: [{}, {}]).",
+                src._size.x, src._size.y, size.x, size.y);
+            size = min(size, src._size);
+        }
+        return TextureCopyCommand::create(
+            src._handle, _handle, 0u, 0u,
+            uint3(src._offset, 0u), uint3(_offset, 0u),
+            uint3(size, 1u));
+    }
+
+    template<typename U>
+    [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
+        return BufferToTextureCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage, 0u, uint3(_offset, 0u), uint3(_size, 1u));
+    }
+
+    template<typename U>
+    [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
+        return TextureToBufferCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage, 0u, uint3(_offset, 0u), uint3(_size, 1u));
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {

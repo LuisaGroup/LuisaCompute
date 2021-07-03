@@ -16,6 +16,12 @@ struct alignas(16) Ray {
     float t_max;
 };
 
+}
+
+LUISA_STRUCT(luisa::compute::Ray, origin, t_min, direction, t_max)
+
+namespace luisa::compute {
+
 [[nodiscard]] detail::Expr<float3> origin(detail::Expr<Ray> ray) noexcept;
 [[nodiscard]] detail::Expr<float3> direction(detail::Expr<Ray> ray) noexcept;
 
@@ -33,18 +39,16 @@ void set_direction(detail::Expr<Ray> ray, detail::Expr<float3> direction) noexce
     detail::Expr<float3> direction) noexcept;
 
 // ray from p with surface normal ng, with self intersections avoidance
-[[nodiscard]] detail::Expr<Ray> make_ray(
+[[nodiscard]] detail::Expr<Ray> make_ray_robust(
     detail::Expr<float3> p,
     detail::Expr<float3> ng,
     detail::Expr<float3> direction,
     detail::Expr<float> t_min,
     detail::Expr<float> t_max) noexcept;
 
-[[nodiscard]] detail::Expr<Ray> make_ray(
+[[nodiscard]] detail::Expr<Ray> make_ray_robust(
     detail::Expr<float3> p,
     detail::Expr<float3> ng,
     detail::Expr<float3> direction) noexcept;
 
 }// namespace luisa::compute
-
-LUISA_STRUCT(luisa::compute::Ray, origin, t_min, direction, t_max)

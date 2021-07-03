@@ -8,6 +8,10 @@
 
 namespace luisa::compute {
 
+namespace detail {
+class FunctionBuilder;
+}
+
 class Variable {
 
 public:
@@ -32,9 +36,9 @@ public:
     };
 
     enum struct Usage : uint32_t {
-        NONE = 0,
-        READ = 0x01,
-        WRITE = 0x02,
+        NONE = 0u,
+        READ = 0x01u,
+        WRITE = 0x02u,
         READ_WRITE = READ | WRITE
     };
 
@@ -44,7 +48,7 @@ private:
     Tag _tag;
 
 private:
-    friend class FunctionBuilder;
+    friend class detail::FunctionBuilder;
     constexpr Variable(const Type *type, Tag tag, uint32_t uid) noexcept
         : _type{type}, _uid{uid}, _tag{tag} {}
 

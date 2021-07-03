@@ -40,8 +40,8 @@ private:
         : _device{device.impl()},
           _handle{device.impl()->create_texture(
               pixel_storage_to_format<T>(storage), 3u,
-              width, height, depth,
-              1u, false)},
+              width, height, depth,1u, {},
+              std::numeric_limits<uint64_t>::max(), 0u)},
           _storage{storage},
           _size{width, height, depth} {}
     Volume(Device &device, PixelStorage storage, uint3 size) noexcept
@@ -101,6 +101,13 @@ public:
 
     [[nodiscard]] CommandHandle copy_to(void *data) const noexcept { return view().copy_to(data); }
     [[nodiscard]] CommandHandle copy_from(const void *data) const noexcept { return view().copy_from(data); }
+    [[nodiscard]] CommandHandle copy_from(VolumeView<T> src) const noexcept { return view().copy_from(src); }
+
+    template<typename U>
+    [[nodiscard]] CommandHandle copy_from(BufferView<U> src) const noexcept { return view().copy_from(src); }
+
+    template<typename U>
+    [[nodiscard]] CommandHandle copy_to(BufferView<U> src) const noexcept { return view().copy_to(src); }
 };
 
 template<typename T>
@@ -124,7 +131,7 @@ private:
           _storage{storage},
           _offset{offset},
           _size{size} {
-        
+
         if (any(_offset >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid offset[{}, {}, {}] and size[{}, {}, {}] for volume #{}.",
@@ -139,7 +146,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
-    
+
     [[nodiscard]] auto subview(uint3 offset, uint3 size) const noexcept {
         return VolumeView{_handle, _storage, _offset + offset, size};
     }
@@ -149,6 +156,35 @@ public:
             _handle, _storage,
             0u, _offset,
             _size, data);
+    }
+
+    [[nodiscard]] auto copy_from(VolumeView src) const noexcept {
+        auto size = _size;
+        if (!all(size == src._size)) {
+            LUISA_WARNING_WITH_LOCATION(
+                "VolumeView sizes mismatch in copy command "
+                "(src: [{}, {}, {}], dest: [{}, {}, {}]).",
+                src._size.x, src._size.y, src._size.z,
+                size.x, size.y, size.z);
+            size = min(size, src._size);
+        }
+        return TextureCopyCommand::create(
+            src._handle, _handle, 0u, 0u,
+            src._offset, _offset, size);
+    }
+
+    template<typename U>
+    [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
+        return BufferToTextureCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage, 0u, _offset, _size);
+    }
+
+    template<typename U>
+    [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
+        return TextureToBufferCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage, 0u, _offset, _size);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {

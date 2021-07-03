@@ -222,20 +222,15 @@ private:
 public:
     explicit ForRange(Expr<T> begin, Expr<T> end, Expr<T> step) noexcept
         : _begin{begin}, _end{end}, _step{step} {}
-
-    [[nodiscard]] auto begin() const noexcept {
-        LUISA_INFO("Begin!");
-        return ForRangeIter{_begin, _end, _step};
-    }
-
+    [[nodiscard]] auto begin() const noexcept { return ForRangeIter{_begin, _end, _step}; }
     [[nodiscard]] auto end() const noexcept { return ForRangeEnd{}; }
 };
 
 }// namespace detail
 
 // statements
-inline void break_() noexcept { FunctionBuilder::current()->break_(); }
-inline void continue_() noexcept { FunctionBuilder::current()->continue_(); }
+inline void break_() noexcept { detail::FunctionBuilder::current()->break_(); }
+inline void continue_() noexcept { detail::FunctionBuilder::current()->continue_(); }
 
 template<typename True>
 inline auto if_(detail::Expr<bool> condition, True &&t) noexcept {
@@ -253,10 +248,10 @@ inline auto switch_(T &&expr) noexcept {
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(T end) noexcept { return detail::ForRange<T, false>{0, end, 1}; }
+[[nodiscard]] inline auto range(T end) noexcept { return detail::ForRange<T, false>{static_cast<T>(0), end, static_cast<T>(1)}; }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{0, Var{end}, 1}; }
+[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{static_cast<T>(0), Var{end}, static_cast<T>(1)}; }
 
 template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, T end, T step = 1) noexcept {

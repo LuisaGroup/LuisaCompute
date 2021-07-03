@@ -10,7 +10,7 @@
 namespace luisa::compute {
 
 void RefExpr::_mark(Variable::Usage usage) const noexcept {
-    FunctionBuilder::current()->mark_variable_usage(_variable.uid(), usage);
+    detail::FunctionBuilder::current()->mark_variable_usage(_variable.uid(), usage);
 }
 
 void CallExpr::_mark(Variable::Usage) const noexcept {
@@ -36,20 +36,20 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
             }
         }
     } else {
-        auto f = Function::callable(_uid);
-        auto args = f.arguments();
+        auto args = _custom.arguments();
         for (auto i = 0u; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
-                arg.tag() == Variable::Tag::BUFFER || arg.tag() == Variable::Tag::TEXTURE
-                    ? f.variable_usage(arg.uid())
+                arg.tag() == Variable::Tag::BUFFER
+                        || arg.tag() == Variable::Tag::TEXTURE
+                    ? _custom.variable_usage(arg.uid())
                     : Variable::Usage::READ);
         }
     }
 }
 
 void Expression::mark(Variable::Usage usage) const noexcept {
-    if (auto a = static_cast<uint32_t>(_usage), b = static_cast<uint32_t>(usage); (a & b) == 0u) {
+    if (auto a = to_underlying(_usage), b = to_underlying(usage); (a & b) == 0u) {
         _usage = static_cast<Variable::Usage>(a | b);
         _mark(usage);
     }
