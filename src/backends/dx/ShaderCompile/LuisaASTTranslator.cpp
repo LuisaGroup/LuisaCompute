@@ -242,7 +242,7 @@ void StringExprVisitor::visit(const MemberExpr* expr) {
 		char const* xyzw = "xyzw";
 		(*str) << '.';
 		for (auto i : vengine::range(expr->swizzle_size())) {
-			(*str) << xyzw[i];
+			(*str) << xyzw[expr->swizzle_index(i)];
 		}
 	} else {
 		(*str) += ".v"_sv;
