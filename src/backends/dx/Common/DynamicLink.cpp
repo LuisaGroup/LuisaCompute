@@ -1,5 +1,5 @@
 #include <Common/DynamicLink.h>
-namespace vengine {
+namespace vstd {
 struct LinkTarget {
 	Runnable<void(), VEngine_AllocType::Default> funcPtr;
 	Type funcType;
@@ -79,4 +79,4 @@ void const* GetFuncPair(
 	return 0;
 }
 
-}// namespace vengine
+}// namespace vstd

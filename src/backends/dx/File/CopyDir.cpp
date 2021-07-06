@@ -21,7 +21,7 @@ CopyDir::CopyDir() {
 }
 CopyDir::~CopyDir() {
 }
-int64_t StringFind(vengine::string const& str, char tar, size_t startPos) {
+int64_t StringFind(vstd::string const& str, char tar, size_t startPos) {
 	char* start = str.data() + startPos;
 	char* end = str.data() + str.size();
 	if (start > end) return -1;
@@ -32,9 +32,9 @@ int64_t StringFind(vengine::string const& str, char tar, size_t startPos) {
 	}
 	return -1;
 }
-void CopyDir::copy(const vengine::string& srcDirPath, const vengine::string& desDirPath, HashMap<vengine::string, bool> const& ignoreFolders, HashMap<vengine::string, bool> const& avaliableExtension, JobBucket* bucket) {
+void CopyDir::copy(const vstd::string& srcDirPath, const vstd::string& desDirPath, HashMap<vstd::string, bool> const& ignoreFolders, HashMap<vstd::string, bool> const& avaliableExtension, JobBucket* bucket) {
 	this->srcDirPath = srcDirPath;
-	vengine::string srcDir;
+	vstd::string srcDir;
 	std::string str;
 #ifdef _WIN32
 	int n = 0;
@@ -49,11 +49,11 @@ void CopyDir::copy(const vengine::string& srcDirPath, const vengine::string& des
 		return;
 	}
 
-	srcDir = vengine::string(srcDirPath.data() + n - 1, srcDirPath.data() + srcDirPath.size());//srcDirPath.substr(n - 1, srcDirPath.size());
+	srcDir = vstd::string(srcDirPath.data() + n - 1, srcDirPath.data() + srcDirPath.size());//srcDirPath.substr(n - 1, srcDirPath.size());
 
 #else// Linux
 	int n = 0;
-	while (srcDirPath.find('/', n) != vengine::string::npos) {
+	while (srcDirPath.find('/', n) != vstd::string::npos) {
 		n = srcDirPath.find('/', n) + 1;
 	}
 	if (n == 0) {
@@ -82,7 +82,7 @@ void CopyDir::copy(const vengine::string& srcDirPath, const vengine::string& des
 	do_copy(fileNameList, avaliableExtension, bucket);
 }
 
-bool CopyDir::make_dir(const vengine::string& pathName) {
+bool CopyDir::make_dir(const vstd::string& pathName) {
 #ifdef _WIN32
 	::_mkdir(pathName.c_str());
 #else// Linux
@@ -95,15 +95,15 @@ bool CopyDir::make_dir(const vengine::string& pathName) {
 	return true;
 }
 
-bool CopyDir::get_src_files_name(vengine::string const& srcFolder,
-								 vengine::string const& destFolder,
-								 vengine::string const& root,
-								 vengine::vector<vengine::string>& fileNameList,
-								 HashMap<vengine::string, bool> const& ignoreFolders) {
+bool CopyDir::get_src_files_name(vstd::string const& srcFolder,
+								 vstd::string const& destFolder,
+								 vstd::string const& root,
+								 vstd::vector<vstd::string>& fileNameList,
+								 HashMap<vstd::string, bool> const& ignoreFolders) {
 #ifdef _WIN32
 	_finddata_t file;
 	uint64_t lf;
-	vengine::string src = srcFolder + "/*";
+	vstd::string src = srcFolder + "/*";
 	if ((lf = _findfirst(src.c_str(), &file)) == -1) {
 		std::cout << this->srcDirPath << " not found" << std::endl;
 		return false;
@@ -112,9 +112,9 @@ bool CopyDir::get_src_files_name(vengine::string const& srcFolder,
 			//Folder
 			if ((file.attrib & _A_SUBDIR)) {
 				if (!ignoreFolders.Contains(file.name) && strcmp(file.name, ".") != 0 && strcmp(file.name, "..") != 0) {
-					vengine::string srcFolderPath = srcFolder + '/' + file.name;
-					vengine::string destFolderPath = destFolder + '/' + file.name;
-					vengine::string relative = root + '/' + file.name;
+					vstd::string srcFolderPath = srcFolder + '/' + file.name;
+					vstd::string destFolderPath = destFolder + '/' + file.name;
+					vstd::string relative = root + '/' + file.name;
 					_mkdir(destFolderPath.c_str());
 					get_src_files_name(srcFolderPath, destFolderPath, relative, fileNameList, ignoreFolders);
 				}
@@ -150,12 +150,12 @@ bool CopyDir::get_src_files_name(vengine::string const& srcFolder,
 	return true;
 }
 
-void CopyDir::do_copy(const vengine::vector<vengine::string>& fileNameList, HashMap<vengine::string, bool> const& avaliableExtension, JobBucket* bucket) {
+void CopyDir::do_copy(const vstd::vector<vstd::string>& fileNameList, HashMap<vstd::string, bool> const& avaliableExtension, JobBucket* bucket) {
 	success = true;
 	for (int i = 0; i < fileNameList.size(); i++) {
 		bucket->GetTask([&, i]() -> void {
-			vengine::string nowSrcFilePath, nowDesFilePath;
-			vengine::string ext = FileUtility::GetFileExtension(fileNameList[i]);
+			vstd::string nowSrcFilePath, nowDesFilePath;
+			vstd::string ext = FileUtility::GetFileExtension(fileNameList[i]);
 			if (!avaliableExtension.Contains(ext)) return;
 #ifdef _WIN32
 			nowSrcFilePath = this->srcDirPath + fileNameList[i];
@@ -167,7 +167,7 @@ void CopyDir::do_copy(const vengine::vector<vengine::string>& fileNameList, Hash
 
 #endif
 #ifdef UNICODE
-			if (!CopyFile(vengine::wstring(nowSrcFilePath).c_str(), vengine::wstring(nowDesFilePath).c_str(), false))
+			if (!CopyFile(vstd::wstring(nowSrcFilePath).c_str(), vstd::wstring(nowDesFilePath).c_str(), false))
 #else
 			if (!CopyFile(nowSrcFilePath.c_str(), nowDesFilePath.c_str(), false))
 

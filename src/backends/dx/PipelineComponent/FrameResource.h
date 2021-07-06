@@ -9,10 +9,10 @@ public:
 	CBufferAllocator* cbAlloc;
 	ThreadCommand tCmd;
 	uint64 signalIndex = 0;
-	vengine::vector<Microsoft::WRL::ComPtr<GFXResource>> deferredDeleteResource;
-	vengine::vector<ObjectPtr<VObject>> deferredDeleteObj;
-	vengine::vector<Runnable<void()>> afterSyncTask;
-	vengine::vector<CBufferChunk> deferredReleaseCBuffer;
+	vstd::vector<Microsoft::WRL::ComPtr<GFXResource>> deferredDeleteResource;
+	vstd::vector<ObjectPtr<VObject>> deferredDeleteObj;
+	vstd::vector<Runnable<void()>> afterSyncTask;
+	vstd::vector<CBufferChunk> deferredReleaseCBuffer;
 	FrameResource(GFXDevice* device, GFXCommandListType type, CBufferAllocator* cbAlloc);
 	CBufferChunk AllocateCBuffer(size_t sz);
 	void ReleaseTemp();

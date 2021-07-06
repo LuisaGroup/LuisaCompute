@@ -7,7 +7,7 @@ class  JsonCompiler
 	JsonCompiler() = delete;
 	KILL_COPY_CONSTRUCT(JsonCompiler)
 	template <typename T>
-	static void PushBackData(vengine::vector<char>& vec, T const& data)
+	static void PushBackData(vstd::vector<char>& vec, T const& data)
 	{
 		auto sz = vec.size();
 		vec.resize(sz + sizeof(T));
@@ -15,7 +15,7 @@ class  JsonCompiler
 	}
 
 	template <typename T>
-	static void PushBackAll(vengine::vector<char>& vec, T const* data, size_t size)
+	static void PushBackAll(vstd::vector<char>& vec, T const* data, size_t size)
 	{
 		auto sz = vec.size();
 		auto dataSize = sizeof(T) * size;
@@ -24,11 +24,11 @@ class  JsonCompiler
 	}
 
 	template <>
-	static void PushBackData<vengine::string>(vengine::vector<char>& vec, vengine::string const& data)
+	static void PushBackData<vstd::string>(vstd::vector<char>& vec, vstd::string const& data)
 	{
 		PushBackData<uint64>(vec, data.size());
 		PushBackAll<char>(vec, data.data(), data.size());
 	}
 public:
-	static void Serialize(neb::CJsonObject& jsonObj, vengine::vector<char>& data);
+	static void Serialize(neb::CJsonObject& jsonObj, vstd::vector<char>& data);
 };

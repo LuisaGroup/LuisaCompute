@@ -623,7 +623,7 @@ static inline bool IsHeapTypeValid(D3D12_HEAP_TYPE type) {
 ////////////////////////////////////////////////////////////////////////////////
 // Private class Vector
 /*
-Dynamically resizing continuous array. Class with interface similar to vengine::vector.
+Dynamically resizing continuous array. Class with interface similar to vstd::vector.
 T must be POD because constructors and destructors are not called and memcpy is
 used for these objects.
 */

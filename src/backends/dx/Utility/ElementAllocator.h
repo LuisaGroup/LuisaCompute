@@ -50,7 +50,7 @@ public:
 private:
 	StackObject<BuddyAllocator> buddyAlloc;
 	Pool<LinkedNode<AllocatedElement>> bdyNodePool;
-	vengine::vector<LinkedList<AllocatedElement>> linkLists;
+	vstd::vector<LinkedList<AllocatedElement>> linkLists;
 	size_t maxSize;
 public:
 	ElementAllocator(

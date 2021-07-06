@@ -16,7 +16,7 @@ struct ProcessorData {
 	_PROCESS_INFORMATION piProcInfo;
 	bool bSuccess;
 };
-void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
+void CreateChildProcess(vstd::string const& cmd, ProcessorData* data) {
 	if constexpr (g_needCommandOutput) {
 		std::cout << cmd << std::endl;
 		system(cmd.c_str());
@@ -49,7 +49,7 @@ void CreateChildProcess(vengine::string const& cmd, ProcessorData* data) {
 // Create the child process.
 #ifdef UNICODE
 	bSuccess = CreateProcess(NULL,
-							 vengine::wstring(cmd).data(),// command line
+							 vstd::wstring(cmd).data(),// command line
 							 NULL,						  // process security attributes
 							 NULL,						  // primary thread security attributes
 							 TRUE,						  // handles are inherited
@@ -95,21 +95,21 @@ void WaitChildProcess(ProcessorData* data)
 		CloseHandle(g_hChildStd_IN_Rd);
 	}
 }
-vengine::string tempPath;
+vstd::string tempPath;
 
-vengine::string fxcStart;
-vengine::string dxcStart;
-vengine::string shaderTypeCmd;
-vengine::string funcName;
-vengine::string output;
-vengine::string macro_compile;
-vengine::string dxcversion;
-vengine::string dxcpath;
-vengine::string fxcversion;
-vengine::string fxcpath;
-vengine::string pathFolder;
+vstd::string fxcStart;
+vstd::string dxcStart;
+vstd::string shaderTypeCmd;
+vstd::string funcName;
+vstd::string output;
+vstd::string macro_compile;
+vstd::string dxcversion;
+vstd::string dxcpath;
+vstd::string fxcversion;
+vstd::string fxcpath;
+vstd::string pathFolder;
 static spin_mutex outputMtx;
-static vengine::vector<vengine::string> errorMessage;
+static vstd::vector<vstd::string> errorMessage;
 
 enum class Compiler : bool {
 	DXC = false,
@@ -122,7 +122,7 @@ Compiler rayTracingCompilerUsage;
 std::atomic_bool inited = false;
 void HLSLCompiler::InitRegisterData() {
 	if (inited.exchange(true)) return;
-	vengine::string folderPath = "VEngineCompiler/CompilerToolkit"_sv;
+	vstd::string folderPath = "VEngineCompiler/CompilerToolkit"_sv;
 
 	shaderTypeCmd = " /T "_sv;
 	funcName = " /E "_sv;
@@ -134,12 +134,12 @@ void HLSLCompiler::InitRegisterData() {
 		VEngine_Log("Register.json not found in HLSLCompiler folder!"_sv);
 		VENGINE_EXIT;
 	}
-	vengine::string value;
+	vstd::string value;
 	CJsonObject sonObj;
-	auto GenerateSettings = [&](vengine::string& settings) -> void {
+	auto GenerateSettings = [&](vstd::string& settings) -> void {
 		settings.clear();
 		int sz = sonObj.GetArraySize();
-		static vengine::string SplitString = " /"_sv;
+		static vstd::string SplitString = " /"_sv;
 		for (int i = 0; i < sz; ++i) {
 			if (sonObj.Get(i, value))
 				settings += SplitString + value;
@@ -150,7 +150,7 @@ void HLSLCompiler::InitRegisterData() {
 			dxcversion = value;
 		}
 		if (sonObj.Get("Path"_sv, value)) {
-			dxcpath = vengine::string("VEngineCompiler/CompilerToolkit/"_sv) + value;
+			dxcpath = vstd::string("VEngineCompiler/CompilerToolkit/"_sv) + value;
 		}
 		if (sonObj.Get("Settings"_sv, sonObj) && sonObj.IsArray()) {
 			GenerateSettings(dxcStart);
@@ -161,7 +161,7 @@ void HLSLCompiler::InitRegisterData() {
 			fxcversion = value;
 		}
 		if (sonObj.Get("Path"_sv, value)) {
-			fxcpath = vengine::string("VEngineCompiler/CompilerToolkit/"_sv) + value;
+			fxcpath = vstd::string("VEngineCompiler/CompilerToolkit/"_sv) + value;
 		}
 		if (sonObj.Get("Settings"_sv, sonObj) && sonObj.IsArray()) {
 			GenerateSettings(fxcStart);
@@ -196,19 +196,19 @@ void HLSLCompiler::InitRegisterData() {
 	//		pathFolder.clear();
 }
 struct CompileFunctionCommand {
-	vengine::string name;
+	vstd::string name;
 	ShaderType type;
 };
 void GenerateCompilerCommand(
-	vengine::string const& fileName,
-	vengine::string const& functionName,
-	vengine::string const& resultFileName,
+	vstd::string const& fileName,
+	vstd::string const& functionName,
+	vstd::string const& resultFileName,
 	ShaderType shaderType,
 	Compiler compiler,
-	vengine::string& cmdResult) {
-	vengine::string const* compilerPath = nullptr;
-	vengine::string const* compileShaderVersion = nullptr;
-	vengine::string const* start = nullptr;
+	vstd::string& cmdResult) {
+	vstd::string const* compilerPath = nullptr;
+	vstd::string const* compileShaderVersion = nullptr;
+	vstd::string const* start = nullptr;
 	switch (compiler) {
 		case Compiler::FXC:
 			compilerPath = &fxcpath;
@@ -224,7 +224,7 @@ void GenerateCompilerCommand(
 			std::cout << "Unsupported Compiler!"_sv << std::endl;
 			return;
 	}
-	vengine::string shaderTypeName;
+	vstd::string shaderTypeName;
 	switch (shaderType) {
 		case ShaderType::ComputeShader:
 			shaderTypeName = "cs_"_sv;
@@ -266,20 +266,20 @@ void GenerateCompilerCommand(
 }
 
 template<typename T>
-void PutIn(vengine::vector<char>& c, const T& data) {
+void PutIn(vstd::vector<char>& c, const T& data) {
 	T* cc = &((T&)data);
 	uint64 siz = c.size();
 	c.resize(siz + sizeof(T));
 	memcpy(c.data() + siz, cc, sizeof(T));
 }
-void PutIn(vengine::vector<char>& c, void* data, uint64 dataSize) {
+void PutIn(vstd::vector<char>& c, void* data, uint64 dataSize) {
 	if (dataSize == 0) return;
 	uint64 siz = c.size();
 	c.resize(siz + dataSize);
 	memcpy(c.data() + siz, data, dataSize);
 }
 template<>
-void PutIn<vengine::string>(vengine::vector<char>& c, vengine::string const& data) {
+void PutIn<vstd::string>(vstd::vector<char>& c, vstd::string const& data) {
 	PutIn<uint>(c, (uint)data.length());
 	uint64 siz = c.size();
 	c.resize(siz + data.length());
@@ -290,7 +290,7 @@ void DragData(std::ifstream& ifs, T& data) {
 	ifs.read((char*)&data, sizeof(T));
 }
 template<>
-void DragData<vengine::string>(std::ifstream& ifs, vengine::string& str) {
+void DragData<vstd::string>(std::ifstream& ifs, vstd::string& str) {
 	uint32_t length = 0;
 	DragData<uint32_t>(ifs, length);
 	str.clear();
@@ -299,9 +299,9 @@ void DragData<vengine::string>(std::ifstream& ifs, vengine::string& str) {
 }
 
 void PutInSerializedObjectAndData(
-	vengine::vector<char> const& serializeObj,
-	vengine::vector<char>& resultData,
-	vengine::vector<ShaderVariable> const& vars) {
+	vstd::vector<char> const& serializeObj,
+	vstd::vector<char>& resultData,
+	vstd::vector<ShaderVariable> const& vars) {
 	PutIn<uint64_t>(resultData, serializeObj.size());
 	PutIn(resultData, serializeObj.data(), serializeObj.size());
 
@@ -327,11 +327,11 @@ void HLSLCompiler::PrintErrorMessages() {
 }
 
 void HLSLCompiler::CompileComputeShader(
-	vengine::string const& fileName,
-	vengine::vector<ShaderVariable> const& vars,
-	vengine::string const& passDesc,
-	vengine::vector<char> const& customData,
-	vengine::vector<char>& resultData) {
+	vstd::string const& fileName,
+	vstd::vector<ShaderVariable> const& vars,
+	vstd::string const& passDesc,
+	vstd::vector<char> const& customData,
+	vstd::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
 	PutInSerializedObjectAndData(
@@ -339,7 +339,7 @@ void HLSLCompiler::CompileComputeShader(
 		resultData,
 		vars);
 
-	auto func = [&](vengine::string const& str, ProcessorData* data) -> bool {
+	auto func = [&](vstd::string const& str, ProcessorData* data) -> bool {
 		uint64_t fileSize;
 		WaitChildProcess(data);
 		//CreateChildProcess(command);
@@ -356,12 +356,12 @@ void HLSLCompiler::CompileComputeShader(
 		ifs.Read(resultData.data() + originSize, fileSize);
 		return true;
 	};
-	vengine::string kernelCommand;
+	vstd::string kernelCommand;
 
 	PutIn<uint>(resultData, 1);
 	static std::atomic_uint temp_count = 0;
-	vengine::string tempFile = tempPath;
-	tempFile << vengine::to_string(temp_count++)
+	vstd::string tempFile = tempPath;
+	tempFile << vstd::to_string(temp_count++)
 			 << ".obj"_sv;
 	GenerateCompilerCommand(
 		fileName,
@@ -375,7 +375,7 @@ void HLSLCompiler::CompileComputeShader(
 	if (!func(tempFile, &data)) {
 		std::lock_guard<spin_mutex> lck(outputMtx);
 		std::cout << kernelCommand << '\n';
-		std::cout << vengine::string("ComputeShader "_sv) + fileName + " Failed!"_sv << std::endl;
+		std::cout << vstd::string("ComputeShader "_sv) + fileName + " Failed!"_sv << std::endl;
 		return;
 	}
 
@@ -385,19 +385,19 @@ void HLSLCompiler::CompileComputeShader(
 	remove(tempFile.c_str());
 }
 void HLSLCompiler::CompileDXRShader(
-	vengine::string const& fileName,
-	vengine::vector<ShaderVariable> const& vars,
+	vstd::string const& fileName,
+	vstd::vector<ShaderVariable> const& vars,
 	CompileDXRHitGroup const& passDescs,
 	uint64 raypayloadMaxSize,
 	uint64 recursiveCount,
-	vengine::vector<char> const& customData,
-	vengine::vector<char>& resultData) {
+	vstd::vector<char> const& customData,
+	vstd::vector<char>& resultData) {
 	resultData.clear();
 	resultData.reserve(65536);
 	if (raypayloadMaxSize == 0) {
 		std::lock_guard<spin_mutex> lck(outputMtx);
 		std::cout << "Raypayload Invalid! \n"_sv;
-		std::cout << vengine::string("DXRShader "_sv) + fileName + " Failed!"_sv;
+		std::cout << vstd::string("DXRShader "_sv) + fileName + " Failed!"_sv;
 
 		return;
 	}
@@ -407,13 +407,13 @@ void HLSLCompiler::CompileDXRShader(
 		vars);
 	PutIn<uint64>(resultData, recursiveCount);
 	PutIn<uint64>(resultData, raypayloadMaxSize);
-	PutIn<vengine::string>(resultData, passDescs.name);
+	PutIn<vstd::string>(resultData, passDescs.name);
 	PutIn<uint>(resultData, passDescs.shaderType);
 	for (auto& func : passDescs.functions) {
-		PutIn<vengine::string>(resultData, func);
+		PutIn<vstd::string>(resultData, func);
 	}
 
-	auto func = [&](vengine::string const& str, ProcessorData* data) -> bool {
+	auto func = [&](vstd::string const& str, ProcessorData* data) -> bool {
 		uint64_t fileSize;
 		WaitChildProcess(data);
 		//CreateChildProcess(command);
@@ -432,14 +432,14 @@ void HLSLCompiler::CompileDXRShader(
 		ifs.read(resultData.data() + originSize, fileSize);
 		return true;
 	};
-	vengine::string kernelCommand;
+	vstd::string kernelCommand;
 	GenerateCompilerCommand(
-		fileName, vengine::string(), tempPath, ShaderType::RayTracingShader, rayTracingCompilerUsage, kernelCommand);
+		fileName, vstd::string(), tempPath, ShaderType::RayTracingShader, rayTracingCompilerUsage, kernelCommand);
 	ProcessorData data;
 	CreateChildProcess(kernelCommand, &data);
 	if (!func(tempPath, &data)) {
 		std::lock_guard<spin_mutex> lck(outputMtx);
-		std::cout << vengine::string("DXRShader "_sv) + fileName + " Failed!"_sv;
+		std::cout << vstd::string("DXRShader "_sv) + fileName + " Failed!"_sv;
 
 	}
 	remove(tempPath.c_str());
@@ -447,7 +447,7 @@ void HLSLCompiler::CompileDXRShader(
 
 void HLSLCompiler::GetShaderVariables(
 	luisa::compute::Function const& func,
-	vengine::vector<ShaderVariable>& result) {
+	vstd::vector<ShaderVariable>& result) {
 	using namespace luisa::compute;
 	uint registPos = 0;
 	uint rwRegistPos = 0;
@@ -516,8 +516,8 @@ void HLSLCompiler::GetShaderVariables(
 		}
 	}
 }
-bool HLSLCompiler::CheckNeedReCompile(std::array<uint8_t, 16> const& md5, vengine::string const& shaderFileName) {
-	vengine::string md5Path = shaderFileName + ".md5"_sv;
+bool HLSLCompiler::CheckNeedReCompile(std::array<uint8_t, 16> const& md5, vstd::string const& shaderFileName) {
+	vstd::string md5Path = shaderFileName + ".md5"_sv;
 	{
 		BinaryReader binReader(md5Path);
 		if (binReader && binReader.GetLength() >= md5.size()) {

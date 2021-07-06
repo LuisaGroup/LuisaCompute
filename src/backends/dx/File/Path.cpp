@@ -1,14 +1,14 @@
 #include <File/Path.h>
 #include <File/FileUtility.h>
 #include <io.h>
-Path::Path(vengine::string const& path)
+Path::Path(vstd::string const& path)
 {
 	operator=(path);
 }
-Path::Path(Path const& absolutePath, vengine::string const& relativePath)
+Path::Path(Path const& absolutePath, vstd::string const& relativePath)
 {
 	Path curPath = absolutePath;
-	vengine::vector<vengine::string> blocks;
+	vstd::vector<vstd::string> blocks;
 	SeparatePath(relativePath, blocks);
 	for (auto ite = blocks.begin(); ite != blocks.end(); ++ite)
 	{
@@ -38,7 +38,7 @@ bool Path::Exists() const
 	return _access(pathData.c_str(), 0) != -1;
 }
 
-Path& Path::operator=(vengine::string const& path)
+Path& Path::operator=(vstd::string const& path)
 {
 	if (path.empty())
 	{
@@ -52,7 +52,7 @@ Path& Path::operator=(vengine::string const& path)
 	{
 		static Path selfPath = GetProgramPath();
 		Path curPath = selfPath;
-		vengine::vector<vengine::string> blocks;
+		vstd::vector<vstd::string> blocks;
 		SeparatePath(path, blocks);
 		for (auto ite = blocks.begin(); ite != blocks.end(); ++ite)
 		{
@@ -90,8 +90,8 @@ bool Path::IsSubPathOf(Path const& parentPath) const
 bool Path::IsParentPathOf(Path const& subPath) const
 {
 	auto&& otherPath = subPath.GetPathStr();
-	vengine::vector<vengine::string> parentSplit;
-	vengine::vector<vengine::string> subSplit;
+	vstd::vector<vstd::string> parentSplit;
+	vstd::vector<vstd::string> subSplit;
 	SeparatePath(pathData, parentSplit);
 	SeparatePath(otherPath, subSplit);
 	if (parentSplit.size() >= subSplit.size()) return false;
@@ -101,20 +101,20 @@ bool Path::IsParentPathOf(Path const& subPath) const
 	}
 	return true;
 }
-vengine::string Path::TryGetSubPath(Path const& subPath) const
+vstd::string Path::TryGetSubPath(Path const& subPath) const
 {
 	auto&& otherPath = subPath.GetPathStr();
-	vengine::vector<vengine::string> parentSplit;
-	vengine::vector<vengine::string> subSplit;
+	vstd::vector<vstd::string> parentSplit;
+	vstd::vector<vstd::string> subSplit;
 	SeparatePath(pathData, parentSplit);
 	SeparatePath(otherPath, subSplit);
-	if (parentSplit.size() >= subSplit.size()) return vengine::string();
+	if (parentSplit.size() >= subSplit.size()) return vstd::string();
 	size_t ite = 0;
 	for (; ite < parentSplit.size(); ++ite)
 	{
-		if (parentSplit[ite] != subSplit[ite]) return vengine::string();
+		if (parentSplit[ite] != subSplit[ite]) return vstd::string();
 	}
-	vengine::string str;
+	vstd::string str;
 	for (size_t i = ite; i < subSplit.size() - 1; ++i)
 	{
 		str += subSplit[i] + '/';
@@ -127,7 +127,7 @@ Path& Path::operator=(Path const& v)
 	auto&& path = v.GetPathStr();
 	return operator=(path);
 }
-void Path::SeparatePath(vengine::string const& path, vengine::vector<vengine::string>& blocks)
+void Path::SeparatePath(vstd::string const& path, vstd::vector<vstd::string>& blocks)
 {
 	blocks.clear();
 	char* start = path.data();
@@ -158,12 +158,12 @@ Path Path::GetParentLevelPath() const
 	{
 		if (*i == '/' || *i == '\\')
 		{
-			return Path(vengine::string(start, i));
+			return Path(vstd::string(start, i));
 		}
 	}
 	return *this;
 }
-Path Path::GetSubLevelPath(vengine::string const& subName) const
+Path Path::GetSubLevelPath(vstd::string const& subName) const
 {
 	return Path(pathData + '/' + subName);
 }
@@ -184,21 +184,21 @@ bool Path::IsDirectory() const
 	return !IsFile();
 }
 
-vengine::string Path::GetExtension()
+vstd::string Path::GetExtension()
 {
 	char* start = pathData.data();
 	char* end = start + pathData.size();
 	for (char* i = end; i >= start; i--)
 	{
 		if (*i == '.')
-			return vengine::string(i + 1, end);
+			return vstd::string(i + 1, end);
 	}
-	return vengine::string();
+	return vstd::string();
 }
 
 void Path::TryCreateDirectory()
 {
-	vengine::vector<uint> slashIndex;
+	vstd::vector<uint> slashIndex;
 	slashIndex.reserve(20);
 	for (uint i = 0; i < pathData.length(); ++i)
 	{
@@ -213,7 +213,7 @@ void Path::TryCreateDirectory()
 		slashIndex.push_back(pathData.length());
 	}
 	if (slashIndex.empty()) return;
-	vengine::string command;
+	vstd::string command;
 	command.reserve(slashIndex[slashIndex.size() - 1] + 3);
 	uint startIndex = 0;
 	for (uint i = 0; i < slashIndex.size(); ++i)

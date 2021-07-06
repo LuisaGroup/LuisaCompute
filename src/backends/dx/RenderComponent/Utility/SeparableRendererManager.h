@@ -26,7 +26,7 @@ private:
 		uint updateOpe;
 		bool deleteSelf;
 	};
-	vengine::vector<SeparableRenderer*> elements;
+	vstd::vector<SeparableRenderer*> elements;
 	struct CallCommandList {
 		LockFreeArrayQueue<CallCommand> addCallCmds;
 		LockFreeArrayQueue<CallCommand> removeCallCmds;

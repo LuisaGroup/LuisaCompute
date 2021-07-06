@@ -96,7 +96,7 @@ void SerializedObject::Parse(char const*& ptr, bool isArray) {
 			parseLambda(dataPtr);
 		}
 	} else {
-		vengine::string str;
+		vstd::string str;
 		for (uint64 i = 0; i < elementCount; ++i) {
 			ObjectType type = *Read<ObjectType>(ptr);
 			if (type != ObjectType::String) {
@@ -114,7 +114,7 @@ void SerializedObject::Parse(char const*& ptr, bool isArray) {
 		}
 	}
 }
-SerializedObject::SerializedObject(vengine::vector<char> const& data) {
+SerializedObject::SerializedObject(vstd::vector<char> const& data) {
 	using namespace SerializeStruct;
 	char const* ptr = data.data();
 	ObjectType* typePtr = (ObjectType*)ptr;
@@ -128,7 +128,7 @@ SerializedObject::SerializedObject(vengine::vector<char> const& data) {
 		arrayDatas.New();
 	}
 }
-SerializedObject::SerializedObject(vengine::vector<vengine::string> const& paths) {
+SerializedObject::SerializedObject(vstd::vector<vstd::string> const& paths) {
 	using namespace SerializeStruct;
 	for (auto&& path : paths) {
 		BinaryReader ifs(path);
@@ -140,7 +140,7 @@ SerializedObject::SerializedObject(vengine::vector<vengine::string> const& paths
 			return;
 		}
 		
-		vengine::vector<char> data(ifs.GetLength());
+		vstd::vector<char> data(ifs.GetLength());
 		ifs.Read(data.data(), data.size());
 		char const* ptr = data.data();
 		ObjectType* typePtr = (ObjectType*)ptr;
@@ -158,7 +158,7 @@ SerializedObject::SerializedObject(vengine::vector<vengine::string> const& paths
 		}
 	}
 }
-SerializedObject::SerializedObject(vengine::string const& path) {
+SerializedObject::SerializedObject(vstd::string const& path) {
 	using namespace SerializeStruct;
 	BinaryReader ifs(path);
 	if (!ifs) {
@@ -167,7 +167,7 @@ SerializedObject::SerializedObject(vengine::string const& path) {
 		return;
 	}
 	
-	vengine::vector<char> data(ifs.GetLength());
+	vstd::vector<char> data(ifs.GetLength());
 	ifs.Read(data.data(), data.size());
 	char const* ptr = data.data();
 	ObjectType* typePtr = (ObjectType*)ptr;
@@ -185,7 +185,7 @@ uint64 SerializedObject::GetArraySize() const {
 	if (!isArray) return keyValueDatas->size();
 	return arrayDatas->datas.size();
 }
-bool SerializedObject::Get(vengine::string const& name, vengine::string& str) const {
+bool SerializedObject::Get(vstd::string const& name, vstd::string& str) const {
 	if (isArray)
 		return false;
 	auto ite = keyValueDatas->Find(name);
@@ -195,7 +195,7 @@ bool SerializedObject::Get(vengine::string const& name, vengine::string& str) co
 	str = *ite.Value().str;
 	return true;
 }
-bool SerializedObject::Get(vengine::string const& name, int64& intValue) const {
+bool SerializedObject::Get(vstd::string const& name, int64& intValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
@@ -208,7 +208,7 @@ bool SerializedObject::Get(vengine::string const& name, int64& intValue) const {
 	}
 	return false;
 }
-bool SerializedObject::Get(vengine::string const& name, double& floatValue) const {
+bool SerializedObject::Get(vstd::string const& name, double& floatValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
@@ -221,7 +221,7 @@ bool SerializedObject::Get(vengine::string const& name, double& floatValue) cons
 	}
 	return false;
 }
-bool SerializedObject::Get(vengine::string const& name, bool& boolValue) const {
+bool SerializedObject::Get(vstd::string const& name, bool& boolValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
@@ -232,7 +232,7 @@ bool SerializedObject::Get(vengine::string const& name, bool& boolValue) const {
 	boolValue = value;
 	return true;
 }
-bool SerializedObject::Get(vengine::string const& name, SerializedObject*& objValue) const {
+bool SerializedObject::Get(vstd::string const& name, SerializedObject*& objValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
@@ -241,11 +241,11 @@ bool SerializedObject::Get(vengine::string const& name, SerializedObject*& objVa
 	objValue = ite.Value().obj;
 	return true;
 }
-bool SerializedObject::ContainedKey(vengine::string const& name) {
+bool SerializedObject::ContainedKey(vstd::string const& name) {
 	if (isArray) return false;
 	return keyValueDatas->Contains(name);
 }
-bool SerializedObject::Get(uint64 iWitch, vengine::string& str) const {
+bool SerializedObject::Get(uint64 iWitch, vstd::string& str) const {
 	if (!isArray) return false;
 	auto&& ite = arrayDatas->datas[iWitch];
 	if (ite->type != SerializeStruct::ObjectType::String) return false;

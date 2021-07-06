@@ -340,7 +340,7 @@ void RayTracingManager::BuildRTStruct(
 }
 void RayTracingManager::AddMesh(
 	RenderPackage const& pack,
-	vengine::vector<StructuredBuffer*>& clearBuffer,
+	vstd::vector<StructuredBuffer*>& clearBuffer,
 	IMesh const* meshInterface, bool forceUpdateMesh) {
 
 	auto ite = allBottomLevel.Emplace(meshInterface->GetVObjectPtr()->GetInstanceID());
@@ -398,7 +398,7 @@ void RayTracingManager::AddMesh(
 
 void RayTracingManager::RemoveMesh(
 	uint64 instanceID,
-	vengine::vector<StructuredBuffer*>& clearBuffer) {
+	vstd::vector<StructuredBuffer*>& clearBuffer) {
 	auto ite = allBottomLevel.Find(instanceID);
 	if (!ite) return;
 	auto& v = ite.Value();

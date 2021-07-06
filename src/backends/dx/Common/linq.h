@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/Common.h>
 
-namespace vengine::linq {
+namespace vstd::linq {
 
 template<typename T>
 class Iterator {
@@ -237,7 +237,7 @@ public:
 template<typename T>
 class CombinedIterator final
 	: public Iterator<T> {
-	vengine::vector<Iterator<T>*> iterators;
+	vstd::vector<Iterator<T>*> iterators;
 	Iterator<T>** curIte = nullptr;
 	T* curPtr;
 
@@ -246,10 +246,10 @@ public:
 	using BaseType = Iterator<T>;
 	LINQ_DECLARE_COPY_MOVE
 	CombinedIterator(
-		vengine::vector<Iterator<T>*>&& iterators)
+		vstd::vector<Iterator<T>*>&& iterators)
 		: iterators(std::move(iterators)) {}
 	CombinedIterator(
-		vengine::vector<Iterator<T>*> const& iterators)
+		vstd::vector<Iterator<T>*> const& iterators)
 		: iterators(iterators) {}
 	T* Init() override {
 		curIte = &iterators[0];
@@ -299,4 +299,4 @@ decltype(auto) Iterator<T>::make_transformer(Func&& f) && {
 
 #define LINQ_LOOP(value, iterator) for (auto value = (iterator).Init(); (value = (iterator).Available()); (iterator).GetNext())
 #undef LINQ_DECLARE_COPY_MOVE
-}// namespace vengine::linq
+}// namespace vstd::linq

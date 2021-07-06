@@ -21,7 +21,7 @@ public:
 	bool SetResource(ThreadCommand* commandList, uint id, TextureBase const* texture) const override;
 	bool SetResource(ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel) const override;
 
-	vengine::string const& GetName() const {
+	vstd::string const& GetName() const {
 		return "";
 	}
 	SerializedObject const* GetJsonObject() const override
@@ -39,7 +39,7 @@ public:
 			f(mVariablesVector[i]);
 		}
 	}
-	RayShader(GFXDevice* device, vengine::string const& path);
+	RayShader(GFXDevice* device, vstd::string const& path);
 	void DispatchRays(
 		ThreadCommand* cmdList,
 		uint width,

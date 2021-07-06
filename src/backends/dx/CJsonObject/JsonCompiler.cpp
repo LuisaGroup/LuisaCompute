@@ -1,5 +1,5 @@
 #include <CJsonObject/JsonCompiler.h>
-void JsonCompiler::Serialize(neb::CJsonObject& jsonObj, vengine::vector<char>& data) {
+void JsonCompiler::Serialize(neb::CJsonObject& jsonObj, vstd::vector<char>& data) {
 	using namespace SerializeStruct;
 	auto serializecJSon = [&data](cJSON* ptr) -> void {
 		switch (ptr->type) {
@@ -30,7 +30,7 @@ void JsonCompiler::Serialize(neb::CJsonObject& jsonObj, vengine::vector<char>& d
 			case cJSON_Array:
 			case cJSON_Object: {
 				char* pJsonString = cJSON_Print(ptr);
-				vengine::string strJsonData = pJsonString;
+				vstd::string strJsonData = pJsonString;
 				vengine_free(pJsonString);
 				neb::CJsonObject obj;
 				if (obj.Parse(strJsonData)) {
@@ -52,7 +52,7 @@ void JsonCompiler::Serialize(neb::CJsonObject& jsonObj, vengine::vector<char>& d
 		uint64 jsonObjSizeIndex = data.size();
 		data.resize(data.size() + sizeof(uint64));
 		jsonObj.ResetTraversing();
-		vengine::string keyStr;
+		vstd::string keyStr;
 		uint64 count = 0;
 		while (jsonObj.GetKey(keyStr)) {
 			PushBackData(data, ObjectType::String);

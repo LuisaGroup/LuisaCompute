@@ -6,14 +6,14 @@ class FilePacker
 {
 public:
 	static bool PackAllData(
-		vengine::string const& packagePath,
-		vengine::vector<vengine::string> const& paths,
-		vengine::vector<std::pair<uint64, uint64>>& outputOffsets
+		vstd::string const& packagePath,
+		vstd::vector<vstd::string> const& paths,
+		vstd::vector<std::pair<uint64, uint64>>& outputOffsets
 	);
 	static bool PackAllContents(
-		vengine::string const& contentPath,
-		vengine::vector<vengine::string> const& paths,
-		vengine::vector<std::pair<uint64, uint64>> const& outputOffsets
+		vstd::string const& contentPath,
+		vstd::vector<vstd::string> const& paths,
+		vstd::vector<std::pair<uint64, uint64>> const& outputOffsets
 	);
 	FilePacker() = delete;
 	KILL_COPY_CONSTRUCT(FilePacker)

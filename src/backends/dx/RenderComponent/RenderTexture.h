@@ -80,7 +80,7 @@ struct RenderTextureDescriptor {
 		return !operator==(other);
 	}
 };
-namespace vengine {
+namespace vstd {
 template<>
 struct hash<RenderTextureDescriptor> {
 public:
@@ -90,7 +90,7 @@ public:
 			(uint)o.initState ^ (uint)o.type ^ o.width ^ o.height ^ o.depthSlice ^ (o.rtFormat.usage == RenderTextureUsage::ColorBuffer ? (uint)o.rtFormat.colorFormat : (uint)o.rtFormat.depthFormat));
 	}
 };
-}// namespace vengine
+}// namespace vstd
 
 class VENGINE_DLL_RENDERER RenderTexture final
 	: public TextureBase,

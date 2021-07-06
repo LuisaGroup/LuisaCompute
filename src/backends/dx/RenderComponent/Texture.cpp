@@ -133,11 +133,11 @@ void GetData(ArrayList<char>& datas, BinaryReader& ifs, uint64 offset, uint64 si
 	ifs.SetPos(offset);
 	ifs.Read(datas.data(), size);
 }
-void GetData(ArrayList<char>& datas, const vengine::string& path, uint64 offset, uint64 size) {
+void GetData(ArrayList<char>& datas, const vstd::string& path, uint64 offset, uint64 size) {
 	BinaryReader ifs(path);
 	GetData(datas, ifs, offset, size);
 }
-void ReadData(const vengine::string& str, ArrayList<char>& datas,
+void ReadData(const vstd::string& str, ArrayList<char>& datas,
 			  TextureData& headerResult, uint startMipLevel,
 			  uint maximumMipLevel, uint64& targetOffset,
 			  uint64& targetSize, bool startLoading, bool alreadyHaveHeader) {
@@ -430,7 +430,7 @@ Texture::Texture(
 D3D12_RESOURCE_DESC Texture::CreateWithoutResource(
 	TextureData& data,
 	GFXDevice* device,
-	const vengine::string& filePath,
+	const vstd::string& filePath,
 	bool startLoadNow,
 	bool alreadyHaveTextureData,
 	ArrayList<char>* datasPtr,
@@ -559,7 +559,7 @@ Texture::Texture(
 }
 Texture::Texture(
 	GFXDevice* device,
-	const vengine::string& filePath,
+	const vstd::string& filePath,
 	ITextureAllocator* allocator,
 	IBufferAllocator* bufferAllocator,
 	bool startLoading,
@@ -591,7 +591,7 @@ Texture::Texture(
 }
 Texture::Texture(
 	GFXDevice* device,
-	const vengine::string& filePath,
+	const vstd::string& filePath,
 	bool startLoading,
 	TextureDimension type,
 	uint32_t maximumLoadMipmap,
@@ -631,7 +631,7 @@ Texture::Texture(
 }
 Texture::Texture(
 	GFXDevice* device,
-	const vengine::string& filePath,
+	const vstd::string& filePath,
 	const TextureData& texData,
 	bool startLoading,
 	uint32_t maximumLoadMipmap,
@@ -672,7 +672,7 @@ Texture::Texture(
 }
 Texture::Texture(
 	GFXDevice* device,
-	const vengine::string& filePath,
+	const vstd::string& filePath,
 	const TextureData& texData,
 	ITextureAllocator* allocator,
 	IBufferAllocator* bufferAllocator,

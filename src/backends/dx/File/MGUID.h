@@ -4,11 +4,11 @@
 class MGuid
 {
 public:
-	static vengine::string GetFormattedGUIDString();
-	static vengine::string GetGUIDString();
+	static vstd::string GetFormattedGUIDString();
+	static vstd::string GetGUIDString();
 private:
-	static vengine::string GuidToFormattedString(const GUID& guid);
-	static vengine::string GuidToString(const GUID& guid);
+	static vstd::string GuidToFormattedString(const GUID& guid);
+	static vstd::string GuidToString(const GUID& guid);
 public:
 	char c[32];
 	MGuid();
@@ -23,7 +23,7 @@ public:
 	}
 };
 
-namespace vengine
+namespace vstd
 {
 	template <>
 	struct hash<MGuid>

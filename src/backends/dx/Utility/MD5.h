@@ -28,7 +28,7 @@
 class MD5 {
 public:
 	static constexpr size_t MD5_SIZE = 16;
-	static std::array<uint8_t, MD5_SIZE> GetMD5FromString(vengine::string const& str);
+	static std::array<uint8_t, MD5_SIZE> GetMD5FromString(vstd::string const& str);
 
 private:
 	/* Construct a MD5 object with a string. */

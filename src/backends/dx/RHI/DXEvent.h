@@ -17,6 +17,6 @@ public:
 		Runnable<void(uint64)>&& syncFunc);
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 private:
-	vengine::vector<std::pair<size_t, uint64>> signals;
+	vstd::vector<std::pair<size_t, uint64>> signals;
 };
 }// namespace luisa::compute

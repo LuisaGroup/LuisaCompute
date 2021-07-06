@@ -2,9 +2,9 @@
 #include <fstream>
 
 bool FilePacker::PackAllData(
-	vengine::string const& packagePath,
-	vengine::vector<vengine::string> const& paths,
-	vengine::vector<std::pair<uint64, uint64>>& outputOffsets)
+	vstd::string const& packagePath,
+	vstd::vector<vstd::string> const& paths,
+	vstd::vector<std::pair<uint64, uint64>>& outputOffsets)
 {
 	std::ofstream package(packagePath.c_str(), std::ios::binary);
 	if (!package)
@@ -15,7 +15,7 @@ bool FilePacker::PackAllData(
 	uint64 offset = 0;
 	outputOffsets.clear();
 	outputOffsets.resize(paths.size());
-	vengine::vector<char> c;
+	vstd::vector<char> c;
 	for (uint64 i = 0; i < paths.size(); ++i)
 	{
 		auto&& ofst = outputOffsets[i];
@@ -42,9 +42,9 @@ bool FilePacker::PackAllData(
 }
 
 bool FilePacker::PackAllContents(
-	vengine::string const& contentPath,
-	vengine::vector<vengine::string> const& paths,
-	vengine::vector<std::pair<uint64, uint64>> const& outputOffsets)
+	vstd::string const& contentPath,
+	vstd::vector<vstd::string> const& paths,
+	vstd::vector<std::pair<uint64, uint64>> const& outputOffsets)
 {
 	if (paths.size() != outputOffsets.size()) return false;
 	std::ofstream ofs(contentPath.data(), std::ios::binary);

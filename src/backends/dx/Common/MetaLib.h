@@ -215,7 +215,7 @@ public:
 	}
 };
 
-namespace vengine {
+namespace vstd {
 template<>
 struct hash<Type> {
 	size_t operator()(const Type& t) const noexcept {
@@ -231,8 +231,8 @@ struct array_meta<T[N]> {
 
 template<typename T>
 static constexpr size_t array_count = array_meta<T>::array_size;
-}// namespace vengine
-#define VENGINE_ARRAY_COUNT(arr) (vengine::array_count<decltype(arr)>)
+}// namespace vstd
+#define VENGINE_ARRAY_COUNT(arr) (vstd::array_count<decltype(arr)>)
 
 namespace FunctionTemplateGlobal {
 
@@ -306,7 +306,7 @@ constexpr size_t FuncArgCount = FunctionTemplateGlobal::FunctionType<T>::Type::A
 
 template<typename Func, typename Target>
 static constexpr bool IsFunctionTypeOf = std::is_same_v<FuncType<Func>, Target>;
-namespace vengine {
+namespace vstd {
 template<typename A, typename B, typename C, typename... Args>
 decltype(auto) select(A&& a, B&& b, C&& c, Args&&... args) {
 	if (c(std::forward<Args>(args)...)) {
@@ -318,11 +318,15 @@ struct range {
 public:
 	struct rangeIte {
 		int64 v;
+		int64 inc;
 		int64& operator++() {
-			return ++v;
+			v += inc;
+			return v;
 		}
 		int64 operator++(int) {
-			return v++;
+			auto lastV = v;
+			v += inc;
+			return lastV;
 		}
 		int64 const* operator->() const {
 			return &v;
@@ -334,10 +338,10 @@ public:
 			return r.v == v;
 		}
 	};
-	range(int64 b, int64 e) : b(b), e(e) {}
-	range(int64 e) : b(0), e(e) {}
+	range(int64 b, int64 e, int64 inc = 1) : b(b), e(e), inc(inc) {}
+	range(int64 e) : b(0), e(e), inc(1) {}
 	rangeIte begin() const {
-		return {b};
+		return {b, inc};
 	}
 	rangeIte end() const {
 		return {e};
@@ -346,8 +350,8 @@ public:
 private:
 	int64 b;
 	int64 e;
+	int64 inc;
 };
-
 template<typename T>
 struct ptr_range {
 public:
@@ -387,4 +391,4 @@ decltype(auto) array_same(A&& a, B&& b) {
 	}
 	return true;
 }
-}// namespace vengine
+}// namespace vstd

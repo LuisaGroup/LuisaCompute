@@ -34,7 +34,7 @@ void vengine_free(void* ptr) {
 	using namespace v_mimalloc;
 	mi_free(ptr);
 }
-namespace vengine {
+namespace vstd {
 void* string::string_malloc(size_t sz) {
 	if (sz <= PLACEHOLDERSIZE) {
 		return &localStorage;
@@ -645,11 +645,11 @@ bool wstring::Equal(wchar_t const* str, size_t count) const noexcept {
 
 	return memcmp(str, ptr, count * sizeof(wchar_t)) == 0;
 }
-string_view::string_view(vengine::string const& str) : data(str.data()), mSize(str.size()) {}
-wstring_view::wstring_view(vengine::wstring const& str) : data(str.data()), mSize(str.size()) {}
+string_view::string_view(vstd::string const& str) : data(str.data()), mSize(str.size()) {}
+wstring_view::wstring_view(vstd::wstring const& str) : data(str.data()), mSize(str.size()) {}
 
 #pragma endregion
-}// namespace vengine
+}// namespace vstd
 #include <Common/Log.h>
 #include <Windows.h>
 DynamicDLL::DynamicDLL(char const* name) {
@@ -669,10 +669,10 @@ size_t DynamicDLL::GetFuncPtr(char const* name) {
 	return reinterpret_cast<size_t>(GetProcAddress(reinterpret_cast<HINSTANCE>(inst), name));
 }
 
-vengine::string_view operator"" _sv(char const* str, size_t sz) {
-	return vengine::string_view(str, sz);
+vstd::string_view operator"" _sv(char const* str, size_t sz) {
+	return vstd::string_view(str, sz);
 }
 
-vengine::wstring_view operator"" _sv(wchar_t const* str, size_t sz) {
-	return vengine::wstring_view(str, sz);
+vstd::wstring_view operator"" _sv(wchar_t const* str, size_t sz) {
+	return vstd::wstring_view(str, sz);
 }

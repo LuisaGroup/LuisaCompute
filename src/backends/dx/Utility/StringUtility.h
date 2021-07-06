@@ -21,11 +21,11 @@ struct StringUtil
 	};
 	struct CodeChunk
 	{
-		vengine::string str;
+		vstd::string str;
 		CodeType type;
 		CodeChunk() {}
 		CodeChunk(
-			vengine::string str,
+			vstd::string str,
 			CodeType type
 		) : str(str), type(type) {}
 		CodeChunk(
@@ -37,7 +37,7 @@ struct StringUtil
 	static void SplitCodeString(
 		char const* beg,
 		char const* end,
-		vengine::vector<vengine::string_view>& results,
+		vstd::vector<vstd::string_view>& results,
 		void* ptr,
 		funcPtr_t<CharCutState(void*, char)> func
 	);
@@ -45,7 +45,7 @@ struct StringUtil
 	static void SplitCodeString(
 		char const* beg,
 		char const* end,
-		vengine::vector<vengine::string_view>& results,
+		vstd::vector<vstd::string_view>& results,
 		Func& func)
 	{
 		SplitCodeString(
@@ -63,7 +63,7 @@ struct StringUtil
 	static void SplitCodeString(
 		char const* beg,
 		char const* end,
-		vengine::vector<vengine::string_view>& results,
+		vstd::vector<vstd::string_view>& results,
 		Func&& func)
 	{
 		SplitCodeString(
@@ -75,8 +75,8 @@ struct StringUtil
 	}
 	template <typename Func>
 	static void SplitCodeString(
-		vengine::string const& str,
-		vengine::vector<vengine::string_view>& results,
+		vstd::string const& str,
+		vstd::vector<vstd::string_view>& results,
 		Func& func)
 	{
 		results.clear();
@@ -90,8 +90,8 @@ struct StringUtil
 	}
 	template <typename Func>
 	static void SplitCodeString(
-		vengine::string const& str,
-		vengine::vector<vengine::string_view>& results,
+		vstd::string const& str,
+		vstd::vector<vstd::string_view>& results,
 		Func&& func)
 	{
 		SplitCodeString(
@@ -101,32 +101,32 @@ struct StringUtil
 		);
 	}
 
-	static void IndicesOf(const vengine::string& str, const vengine::string& sign, vengine::vector<uint>& v);
-	static void IndicesOf(const vengine::string& str, char, vengine::vector<uint>& v);
-	static void CutToLine(const vengine::string& str, vengine::vector<vengine::string>& lines);
-	static void CutToLine_ContainEmptyLine(const vengine::string& str, vengine::vector<vengine::string>& lines);
-	static void CutToLine(const char* str, const char* end, vengine::vector<vengine::string>& lines);
-	static void CutToLine_ContainEmptyLine(const char* str, const char* end, vengine::vector<vengine::string>& lines);
+	static void IndicesOf(const vstd::string& str, const vstd::string& sign, vstd::vector<uint>& v);
+	static void IndicesOf(const vstd::string& str, char, vstd::vector<uint>& v);
+	static void CutToLine(const vstd::string& str, vstd::vector<vstd::string>& lines);
+	static void CutToLine_ContainEmptyLine(const vstd::string& str, vstd::vector<vstd::string>& lines);
+	static void CutToLine(const char* str, const char* end, vstd::vector<vstd::string>& lines);
+	static void CutToLine_ContainEmptyLine(const char* str, const char* end, vstd::vector<vstd::string>& lines);
 
-	static void CutToLine(const vengine::string& str, vengine::vector<vengine::string_view>& lines);
-	static void CutToLine_ContainEmptyLine(const vengine::string& str, vengine::vector<vengine::string_view>& lines);
-	static void CutToLine(const char* str, const char* end, vengine::vector<vengine::string_view>& lines);
-	static void CutToLine_ContainEmptyLine(const char* str, const char* end, vengine::vector<vengine::string_view>& lines);
+	static void CutToLine(const vstd::string& str, vstd::vector<vstd::string_view>& lines);
+	static void CutToLine_ContainEmptyLine(const vstd::string& str, vstd::vector<vstd::string_view>& lines);
+	static void CutToLine(const char* str, const char* end, vstd::vector<vstd::string_view>& lines);
+	static void CutToLine_ContainEmptyLine(const char* str, const char* end, vstd::vector<vstd::string_view>& lines);
 
-	static void ReadLines(std::ifstream& ifs, vengine::vector<vengine::string>& lines);
-	static int GetFirstIndexOf(const vengine::string& str, const vengine::string& sign);
-	static int GetFirstIndexOf(const vengine::string& str, char sign);
-	static void Split(const vengine::string& str, const vengine::string& sign, vengine::vector<vengine::string>& v);
-	static void Split(const vengine::string& str, char sign, vengine::vector<vengine::string>& v);
-	static void Split(const vengine::string& str, const vengine::string& sign, vengine::vector<vengine::string_view>& v);
-	static void Split(const vengine::string& str, char sign, vengine::vector<vengine::string_view>& v);
+	static void ReadLines(std::ifstream& ifs, vstd::vector<vstd::string>& lines);
+	static int GetFirstIndexOf(const vstd::string& str, const vstd::string& sign);
+	static int GetFirstIndexOf(const vstd::string& str, char sign);
+	static void Split(const vstd::string& str, const vstd::string& sign, vstd::vector<vstd::string>& v);
+	static void Split(const vstd::string& str, char sign, vstd::vector<vstd::string>& v);
+	static void Split(const vstd::string& str, const vstd::string& sign, vstd::vector<vstd::string_view>& v);
+	static void Split(const vstd::string& str, char sign, vstd::vector<vstd::string_view>& v);
 	static bool CheckStringIsInteger(const char* beg, const char* end);
 	static bool CheckStringIsFloat(const char* beg, const char* end);
-	static void ToLower(vengine::string& str);
-	static void ToUpper(vengine::string& str);
-	static void CullCharacater(vengine::string const& source, vengine::string& dest, std::initializer_list<char> const& lists);
-	static void CullCharacater(vengine::string_view const& source, vengine::string& dest, std::initializer_list<char> const& lists);
-	static void CullCodeSpace(vengine::string const& source, vengine::string& dest)
+	static void ToLower(vstd::string& str);
+	static void ToUpper(vstd::string& str);
+	static void CullCharacater(vstd::string const& source, vstd::string& dest, std::initializer_list<char> const& lists);
+	static void CullCharacater(vstd::string_view const& source, vstd::string& dest, std::initializer_list<char> const& lists);
+	static void CullCodeSpace(vstd::string const& source, vstd::string& dest)
 	{
 		CullCharacater(
 			source, dest,
@@ -139,7 +139,7 @@ struct StringUtil
 	static bool IsCharNumber(char c);
 	static bool IsCharCharacter(char c);
 	static bool IsCharAvaliableCode(char c);
-	static bool ReadStringFromFile(vengine::string const& path, vengine::string& data);
+	static bool ReadStringFromFile(vstd::string const& path, vstd::string& data);
 	template <uint chrLen>
 	static constexpr bool CompareCharArray(char const* first, char const* second)
 	{
@@ -161,19 +161,19 @@ struct StringUtil
 		char const* second,
 		char const* secondEnd
 	);
-	static void SampleCodeFile(vengine::string const& fileData, vengine::vector<CodeChunk>& results, bool separateCodeAndString = true, bool disposeComment = false);
+	static void SampleCodeFile(vstd::string const& fileData, vstd::vector<CodeChunk>& results, bool separateCodeAndString = true, bool disposeComment = false);
 	static void SeparateString(
-		vengine::string const& str,
+		vstd::string const& str,
 		funcPtr_t<bool(char const*, char const*)> judgeFunc,
-		vengine::vector<std::pair<vengine::string, bool>>& vec
+		vstd::vector<std::pair<vstd::string, bool>>& vec
 	);
 
 	static void SeparateString(
-		vengine::string const& str,
+		vstd::string const& str,
 		funcPtr_t<bool(char const*, char const*)> judgeFunc,
-		vengine::vector<vengine::string>& vec
+		vstd::vector<vstd::string>& vec
 	);
-	static int64_t StringToInt(const vengine::string& str);
+	static int64_t StringToInt(const vstd::string& str);
 	static int64_t StringToInt(const char* start, const char* end);
 	KILL_COPY_CONSTRUCT(StringUtil)
 };

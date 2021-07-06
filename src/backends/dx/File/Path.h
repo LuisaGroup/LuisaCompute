@@ -3,11 +3,11 @@
 class Path
 {
 private:
-	vengine::string pathData;
+	vstd::string pathData;
 public:
-	static void SeparatePath(vengine::string const& path, vengine::vector<vengine::string>& blocks);
-	Path(vengine::string const& path);
-	Path(Path const& absolutePath, vengine::string const& relativePath);
+	static void SeparatePath(vstd::string const& path, vstd::vector<vstd::string>& blocks);
+	Path(vstd::string const& path);
+	Path(Path const& absolutePath, vstd::string const& relativePath);
 	Path() {}
 	bool IsEmpty() const
 	{
@@ -15,32 +15,32 @@ public:
 	}
 	static Path GetProgramPath();
 	Path GetParentLevelPath() const;
-	Path GetSubLevelPath(vengine::string const& subName) const;
+	Path GetSubLevelPath(vstd::string const& subName) const;
 	bool IsFile() const;
 	bool IsDirectory() const;
 	bool Exists() const;
-	vengine::string const& GetPathStr() const
+	vstd::string const& GetPathStr() const
 	{
 		return pathData;
 	}
-	vengine::string GetExtension();
+	vstd::string GetExtension();
 	Path& operator=(Path const& v);
-	Path& operator=(vengine::string const& path);
+	Path& operator=(vstd::string const& path);
 	bool operator==(Path const& a) const;
 	bool operator!=(Path const& a) const;
 	bool IsSubPathOf(Path const& parentPath) const;
 	bool IsParentPathOf(Path const& subPath) const;
-	vengine::string TryGetSubPath(Path const& subPath) const;
+	vstd::string TryGetSubPath(Path const& subPath) const;
 	void TryCreateDirectory();
 };
-namespace vengine
+namespace vstd
 {
 	template <>
 	struct hash<Path>
 	{
 		size_t operator()(Path const& p) const noexcept
 		{
-			static const hash<vengine::string> vc;
+			static const hash<vstd::string> vc;
 			return vc(p.GetPathStr());
 		}
 	};

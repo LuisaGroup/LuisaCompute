@@ -32,7 +32,7 @@ class MeshLayout
 private:
 	static MeshLayout* current;
 	HashMap<MeshLayoutKey, uint> layoutDict;
-	vengine::vector<ArrayList<D3D12_INPUT_ELEMENT_DESC>*> layoutValues;
+	vstd::vector<ArrayList<D3D12_INPUT_ELEMENT_DESC>*> layoutValues;
 	static void GenerateDesc(
 		ArrayList<D3D12_INPUT_ELEMENT_DESC>& target,
 		MeshLayoutKey const& layoutKey

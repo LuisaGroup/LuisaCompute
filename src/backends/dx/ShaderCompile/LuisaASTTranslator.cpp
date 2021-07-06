@@ -10,16 +10,15 @@ namespace luisa::compute {
 static bool _IsVarWritable(Function func, Variable i) {
 	return ((uint)func.variable_usage(i.uid()) & (uint)Variable::Usage::WRITE) != 0;
 }
-void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uint, size_t>& varOffsets, size_t& cbufferSize) {
+void CodegenUtility::GetCodegen(Function func, vstd::string& str, HashMap<uint, size_t>& varOffsets, size_t& cbufferSize) {
 	{
-		vengine::string function_buffer;
+		vstd::string function_buffer;
 		function_buffer.reserve(65535 * 4);
 		str.reserve(65535 * 4);
 		str << "#include \"Include.cginc\"\n"_sv;
 		CodegenUtility::ClearStructType();
 
-		for (auto cust : func.custom_callables()) {
-			auto&& callable = Function::callable(cust);
+		for (auto callable : func.custom_callables()) {
 			StringStateVisitor vis(function_buffer, callable);
 			CodegenUtility::GetFunctionDecl(callable, function_buffer);
 			callable.body()->accept(vis);
@@ -41,7 +40,7 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 			str << ' ';
 			CodegenUtility::GetVariableName(i, str);
 			str << '['
-				<< vengine::to_string(i.type()->dimension())
+				<< vstd::to_string(i.type()->dimension())
 				<< "];\n"_sv;
 		}
 		CodegenUtility::PrintUniform(func, str);
@@ -53,8 +52,7 @@ void CodegenUtility::GetCodegen(Function func, vengine::string& str, HashMap<uin
 			str);
 		str << function_buffer;
 	}
-	str << "[numthreads(8,8,1)]\nvoid CSMain(uint3 thd_id:SV_GROUPTHREADID,uint3 blk_id:SV_GROUPID,uint3 dsp_id:SV_DISPATCHTHREADID){\n_kernel_"_sv;
-	vengine::to_string(func.uid(), str);
+	str << "[numthreads(8,8,1)]\nvoid CSMain(uint3 thd_id:SV_GROUPTHREADID,uint3 blk_id:SV_GROUPID,uint3 dsp_id:SV_DISPATCHTHREADID){\n__kernel__"_sv;
 	str += "(thd_id,blk_id,dsp_id);\n}\n";
 }
 
@@ -66,7 +64,7 @@ struct GetSpanType<std::span<T const>> {
 };
 template<typename T>
 struct GetName {
-	static vengine::string Get() {
+	static vstd::string Get() {
 		if constexpr (std::is_same_v<bool, T>) {
 			return "bool"_sv;
 		} else if constexpr (std::is_same_v<float, T>) {
@@ -82,38 +80,38 @@ struct GetName {
 };
 template<typename EleType, size_t N>
 struct GetName<Vector<EleType, N>> {
-	static vengine::string Get() {
-		return GetName<EleType>::Get() + vengine::to_string(N);
+	static vstd::string Get() {
+		return GetName<EleType>::Get() + vstd::to_string(N);
 	}
 };
 template<size_t N>
 struct GetName<Matrix<N>> {
-	static vengine::string Get() {
-		auto num = vengine::to_string(N);
+	static vstd::string Get() {
+		auto num = vstd::to_string(N);
 		return GetName<float>::Get() + num + 'x' + num;
 	}
 };
 template<typename T>
 struct PrintValue {
-	void operator()(T const& v, vengine::string& str) {
-		vengine::to_string((int)v, str);
+	void operator()(T const& v, vstd::string& str) {
+		vstd::to_string((int)v, str);
 	}
 };
 template<>
 struct PrintValue<float> {
-	void operator()(float const& v, vengine::string& str) {
-		vengine::to_string(v, str);
+	void operator()(float const& v, vstd::string& str) {
+		vstd::to_string(v, str);
 	}
 };
 
 template<typename EleType, size_t N>
 struct PrintValue<Vector<EleType, N>> {
 	using T = typename Vector<EleType, N>;
-	void operator()(T const& v, vengine::string& varName) {
+	void operator()(T const& v, vstd::string& varName) {
 		varName += GetName<T>::Get();
 		varName += '(';
 		for (size_t i = 0; i < N; ++i) {
-			vengine::to_string(v[i], varName);
+			vstd::to_string(v[i], varName);
 			varName += ',';
 		}
 		varName[varName.size() - 1] = ')';
@@ -124,7 +122,7 @@ template<size_t N>
 struct PrintValue<Matrix<N>> {
 	using T = Matrix<N>;
 	using EleType = float;
-	void operator()(T const& v, vengine::string& varName) {
+	void operator()(T const& v, vstd::string& varName) {
 		varName += GetName<T>::Get();
 		varName += "("_sv;
 		PrintValue<Vector<EleType, N>> vecPrinter;
@@ -241,12 +239,12 @@ void StringExprVisitor::visit(const MemberExpr* expr) {
 	if (expr->is_swizzle()) {
 		char const* xyzw = "xyzw";
 		(*str) << '.';
-		for (auto i : vengine::range(expr->swizzle_size())) {
+		for (auto i : vstd::range(expr->swizzle_size())) {
 			(*str) << xyzw[expr->swizzle_index(i)];
 		}
 	} else {
 		(*str) += ".v"_sv;
-		vengine::to_string(expr->member_index(), (*str));
+		vstd::to_string(expr->member_index(), (*str));
 	}
 }
 void StringExprVisitor::visit(const AccessExpr* expr) {
@@ -293,9 +291,9 @@ void StringExprVisitor::visit(const CastExpr* expr) {
 }
 void StringExprVisitor::visit(const ConstantExpr* expr) {
 	(*str) += "c";
-	vengine::to_string(expr->hash(), (*str));
+	vstd::to_string(expr->hash(), (*str));
 }
-StringExprVisitor::StringExprVisitor(vengine::string& str)
+StringExprVisitor::StringExprVisitor(vstd::string& str)
 	: str(&str) {}
 
 StringExprVisitor::~StringExprVisitor() {
@@ -341,7 +339,7 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 	CodegenUtility::RegistStructType(var.type());
 	CodegenUtility::GetTypeName(*var.type(), *str, _IsVarWritable(func, var));
 	(*str) += ' ';
-	vengine::string varTempName;
+	vstd::string varTempName;
 	CodegenUtility::GetVariableName(var, varTempName);
 	(*str) += varTempName;
 	if (!var.type()->is_structure()) {
@@ -382,7 +380,7 @@ void StringStateVisitor::visit(const DeclareStmt* state) {
 			for (auto&& i : state->initializer()) {
 				(*str) += varTempName;
 				(*str) += ".v"_sv;
-				vengine::to_string(count, (*str));
+				vstd::to_string(count, (*str));
 
 				(*str) += '=';
 				i->accept(vis);
@@ -500,14 +498,14 @@ void StringStateVisitor::visit(ForStmt const* expr) {
 	expr->body()->accept(stmtVis);
 }
 
-StringStateVisitor::StringStateVisitor(vengine::string& str, Function func)
+StringStateVisitor::StringStateVisitor(vstd::string& str, Function func)
 	: str(&str), func(func) {
 }
 
 StringStateVisitor::~StringStateVisitor() {
 }
 
-void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vengine::string& str) {
+void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::string& str) {
 	switch (type) {
 		case Variable::Tag::BLOCK_ID:
 			str += "blk_id"_sv;
@@ -520,45 +518,45 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vengine::strin
 			break;
 		case Variable::Tag::LOCAL:
 			str += "_v"_sv;
-			vengine::to_string(id, str);
+			vstd::to_string(id, str);
 			break;
 		case Variable::Tag::BUFFER:
 			str += "_b"_sv;
-			vengine::to_string(id, str);
+			vstd::to_string(id, str);
 			break;
 		case Variable::Tag::TEXTURE:
 			str += "_t"_sv;
-			vengine::to_string(id, str);
+			vstd::to_string(id, str);
 			break;
 		default:
 			str += 'v';
-			vengine::to_string(id, str);
+			vstd::to_string(id, str);
 			break;
 	}
 }
 
-void CodegenUtility::GetVariableName(Type::Tag type, uint id, vengine::string& str) {
+void CodegenUtility::GetVariableName(Type::Tag type, uint id, vstd::string& str) {
 	switch (type) {
 		case Type::Tag::BUFFER:
 			str += "_b"_sv;
-			vengine::to_string(id, str);
+			vstd::to_string(id, str);
 			break;
 		case Type::Tag::TEXTURE:
 			str += "_t"_sv;
-			vengine::to_string(id, str);
+			vstd::to_string(id, str);
 			break;
 		default:
 			str += 'v';
-			vengine::to_string(id, str);
+			vstd::to_string(id, str);
 			break;
 	}
 }
 
-void CodegenUtility::GetVariableName(Variable const& type, vengine::string& str) {
+void CodegenUtility::GetVariableName(Variable const& type, vstd::string& str) {
 	GetVariableName(type.tag(), type.uid(), str);
 }
 
-void CodegenUtility::GetTypeName(Type const& type, vengine::string& str, bool isWritable) {
+void CodegenUtility::GetTypeName(Type const& type, vstd::string& str, bool isWritable) {
 	switch (type.tag()) {
 		case Type::Tag::ARRAY:
 			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
@@ -579,7 +577,7 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str, bool is
 			str += "uint"_sv;
 			return;
 		case Type::Tag::MATRIX: {
-			auto dim = vengine::to_string(type.dimension());
+			auto dim = vstd::to_string(type.dimension());
 			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
 			str += dim;
 			str += 'x';
@@ -588,12 +586,12 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str, bool is
 			return;
 		case Type::Tag::VECTOR: {
 			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
-			vengine::to_string(type.dimension(), str);
+			vstd::to_string(type.dimension(), str);
 		}
 			return;
 		case Type::Tag::STRUCTURE:
 			str += 'T';
-			vengine::to_string(type.index(), str);
+			vstd::to_string(type.index(), str);
 			return;
 		case Type::Tag::BUFFER:
 			if (isWritable) {
@@ -610,7 +608,7 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str, bool is
 			} else {
 				str += "Texture"_sv;
 			}
-			vengine::to_string(type.dimension(), str);
+			vstd::to_string(type.dimension(), str);
 			str += "D<"_sv;
 			GetTypeName(*type.element(), str, isWritable);
 			if (type.tag() != Type::Tag::VECTOR) {
@@ -621,7 +619,7 @@ void CodegenUtility::GetTypeName(Type const& type, vengine::string& str, bool is
 	}
 }
 
-void CodegenUtility::GetFunctionDecl(Function func, vengine::string& data) {
+void CodegenUtility::GetFunctionDecl(Function func, vstd::string& data) {
 
 	if (func.return_type()) {
 		CodegenUtility::GetTypeName(*func.return_type(), data);
@@ -631,7 +629,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vengine::string& data) {
 	switch (func.tag()) {
 		case Function::Tag::CALLABLE: {
 			data += " custom_"_sv;
-			vengine::to_string(func.uid(), data);
+			vstd::to_string(func.hash(), data);
 			if (func.arguments().empty()) {
 				data += "()"_sv;
 			} else {
@@ -647,14 +645,13 @@ void CodegenUtility::GetFunctionDecl(Function func, vengine::string& data) {
 			}
 		} break;
 		default:
-			data += " _kernel_"_sv;
-			vengine::to_string(func.uid(), data);
+			data += " __kernel__"_sv;
 			data += "(uint3 thd_id,uint3 blk_id,uint3 dsp_id)"_sv;
 			break;
 	}
 }
 
-void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, vengine::string& result) {
+void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, vstd::string& result) {
 	result += "static const "_sv;
 	auto valueView = ConstantData::view(binding.hash);
 	std::visit([&](auto&& value) -> void {
@@ -663,7 +660,7 @@ void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, ven
 		PrintValue<T> prt;
 		result += GetName<T>::Get();
 		result += " c"_sv;
-		vengine::to_string(binding.hash, result);
+		vstd::to_string(binding.hash, result);
 
 		if (binding.type->is_array()) {
 			result += "[]={"_sv;
@@ -689,13 +686,13 @@ void CodegenUtility::ClearStructType() {
 	codegenStructType->Clear();
 }
 
-void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& result, Runnable<void()>&& func) {
+void CodegenUtility::GetFunctionName(CallExpr const* expr, vstd::string& result, Runnable<void()>&& func) {
 	auto IsType = [](Type const* const type, Type::Tag const tag, uint const vecEle) {
-		return vengine::select(
+		return vstd::select(
 			[&]() {
 				return false;
 			},
-			[&]() { return vengine::select(
+			[&]() { return vstd::select(
 						[&]() {
 							return type->tag() == tag;
 						},
@@ -716,7 +713,7 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 	};
 	switch (expr->op()) {
 		case CallOp::CUSTOM:
-			result << "custom_"_sv << vengine::to_string(expr->uid());
+			result << "custom_"_sv << vstd::to_string(expr->custom().hash());
 			break;
 		case CallOp::ALL:
 			result << "all"_sv;
@@ -729,10 +726,10 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vengine::string& resu
 			break;
 		case CallOp::SELECT: {
 			const auto thirdArg = expr->arguments()[2]->type();
-			vengine::select(
+			vstd::select(
 				[&]() { result << "_select_int"_sv; },
 				[&]() { result << "_select_bool"_sv; },
-				[&]() { return vengine::select(
+				[&]() { return vstd::select(
 							[&](auto&& t) {
 								return t->element()->tag() == Type::Tag::BOOL;
 							},
@@ -1071,12 +1068,12 @@ struct BuiltIn_RunTypeVisitor : public TypeVisitor {
 	}
 };
 struct Print_RunTypeVisitor : public TypeVisitor {
-	vengine::string* strPtr;
+	vstd::string* strPtr;
 	void visit(const Type* t) noexcept override {
 		if (!codegenStructType->Contains(t)) return;
 		auto&& str = *strPtr;
 		str += "struct T"_sv;
-		vengine::to_string(t->index(), str);
+		vstd::to_string(t->index(), str);
 		str += "{\n"_sv;
 		size_t count = 0;
 		for (auto&& mem : t->members()) {
@@ -1094,7 +1091,7 @@ void CodegenUtility::IterateStructType(TypeVisitor* visitor) {
 	vis.vis = visitor;
 	Type::traverse(vis);
 }
-void CodegenUtility::PrintStructType(vengine::string& str) {
+void CodegenUtility::PrintStructType(vstd::string& str) {
 	Print_RunTypeVisitor vis;
 	vis.strPtr = &str;
 	Type::traverse(vis);
@@ -1102,7 +1099,7 @@ void CodegenUtility::PrintStructType(vengine::string& str) {
 void CodegenUtility::PrintUniform(
 	Function func,
 	//Buffer Binding
-	vengine::string& result) {
+	vstd::string& result) {
 	auto argss = {func.builtin_variables(), func.arguments()};
 	auto buffers = func.captured_buffers();
 	auto texs = func.captured_textures();
@@ -1115,11 +1112,11 @@ void CodegenUtility::PrintUniform(
 		CodegenUtility::GetVariableName(var, result);
 		if (enableRandomWrite) {
 			result += ":register(u"_sv;
-			vengine::to_string(uCount, result);
+			vstd::to_string(uCount, result);
 			uCount++;
 		} else {
 			result += ":register(t"_sv;
-			vengine::to_string(tCount, result);
+			vstd::to_string(tCount, result);
 			tCount++;
 		}
 		result += ");\n"_sv;
@@ -1143,11 +1140,11 @@ size_t CodegenUtility::PrintGlobalVariables(
 	Function func,
 	std::initializer_list<std::span<const Variable>> values,
 	HashMap<uint, size_t>& varOffsets,
-	vengine::string& result) {
-	vengine::vector<Variable const*> scalarArr;
-	vengine::vector<Variable const*> vec2Arr;
-	vengine::vector<Variable const*> vec3Arr;
-	vengine::vector<Variable const*> vec4Arr;
+	vstd::string& result) {
+	vstd::vector<Variable const*> scalarArr;
+	vstd::vector<Variable const*> vec2Arr;
+	vstd::vector<Variable const*> vec3Arr;
+	vstd::vector<Variable const*> vec4Arr;
 	constexpr size_t ELE_SIZE = 4;
 	size_t cbufferSize = 0;
 	size_t alignCount = 0;
@@ -1239,7 +1236,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 			PrintScalar(v);
 		} else {
 			result += "float __a"_sv;
-			vengine::to_string(alignCount, result);
+			vstd::to_string(alignCount, result);
 			result += ";\n"_sv;
 			alignCount++;
 		}
@@ -1265,11 +1262,11 @@ size_t CodegenUtility::PrintGlobalVariables(
 }
 void CodegenUtility::SeparateVariables(
 	Function func,
-	vengine::vector<Variable const*>& buffers,
-	vengine::vector<Variable const*>& textures,
-	vengine::vector<Variable const*>& globalSRVValues,
-	vengine::vector<Variable const*>& globalUAVValues,
-	vengine::vector<Variable const*>& groupSharedValues) {
+	vstd::vector<Variable const*>& buffers,
+	vstd::vector<Variable const*>& textures,
+	vstd::vector<Variable const*>& globalSRVValues,
+	vstd::vector<Variable const*>& globalUAVValues,
+	vstd::vector<Variable const*>& groupSharedValues) {
 	buffers.clear();
 	textures.clear();
 	globalSRVValues.clear();

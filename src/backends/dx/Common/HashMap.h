@@ -9,7 +9,7 @@
 #include <Common/MetaLib.h>
 #include <Common/VAllocator.h>
 
-template<typename K, typename V, typename Hash = vengine::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
+template<typename K, typename V, typename Hash = vstd::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap {
 public:
 	static_assert(allocType != VEngine_AllocType::Stack, "Hashmap do not support stack!");

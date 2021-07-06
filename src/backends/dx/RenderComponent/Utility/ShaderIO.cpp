@@ -15,7 +15,7 @@ void DragData(BinaryReader& ifs, T& data) {
 	ifs.Read((char*)&data, sizeof(T));
 }
 template<>
-void DragData<vengine::string>(BinaryReader& ifs, vengine::string& str) {
+void DragData<vstd::string>(BinaryReader& ifs, vstd::string& str) {
 	uint32_t length = 0;
 	DragData<uint32_t>(ifs, length);
 	str.clear();
@@ -24,7 +24,7 @@ void DragData<vengine::string>(BinaryReader& ifs, vengine::string& str) {
 	ifs.Read(str.data(), length);
 }
 void GetShaderVariable(
-	vengine::vector<ShaderVariable>& vars,
+	vstd::vector<ShaderVariable>& vars,
 	BinaryReader& ifs) {
 	uint varSize = 0;
 	DragData<uint>(ifs, varSize);
@@ -43,7 +43,7 @@ void GetShaderSerializedObject(
 	uint64 serObjSize = 0;
 	DragData<uint64>(ifs, serObjSize);
 	if (serObjSize > 0) {
-		vengine::vector<char> jsonObj(serObjSize);
+		vstd::vector<char> jsonObj(serObjSize);
 		ifs.Read(jsonObj.data(), serObjSize);
 		serObj.New(jsonObj);
 	} else {
@@ -53,9 +53,9 @@ void GetShaderSerializedObject(
 }// namespace ShaderIOGlobal
 
 void ShaderIO::DecodeComputeShader(
-	const vengine::string& fileName,
-	vengine::vector<ShaderVariable>& vars,
-	vengine::vector<ComputeKernel>& datas,
+	const vstd::string& fileName,
+	vstd::vector<ShaderVariable>& vars,
+	vstd::vector<ComputeKernel>& datas,
 	StackObject<SerializedObject, true>& serObj) {
 	using namespace ShaderIOGlobal;
 	vars.clear();
@@ -66,7 +66,7 @@ void ShaderIO::DecodeComputeShader(
 	GetShaderVariable(vars, ifs);
 	uint blobSize = 0;
 	DragData<uint>(ifs, blobSize);
-	vengine::vector<Microsoft::WRL::ComPtr<ID3DBlob>> kernelBlobs(blobSize);
+	vstd::vector<Microsoft::WRL::ComPtr<ID3DBlob>> kernelBlobs(blobSize);
 	for (auto&& i : kernelBlobs) {
 		uint64_t kernelSize = 0;
 		DragData<uint64_t>(ifs, kernelSize);
@@ -85,13 +85,13 @@ void ShaderIO::DecodeComputeShader(
 	}
 }
 HRESULT ShaderIO::GetRootSignature(
-	vengine::vector<ShaderVariable> const& variables,
+	vstd::vector<ShaderVariable> const& variables,
 	Microsoft::WRL::ComPtr<ID3DBlob>& serializedRootSig,
 	Microsoft::WRL::ComPtr<ID3DBlob>& errorBlob,
 	D3D_ROOT_SIGNATURE_VERSION rootSigVersion) {
-	vengine::vector<CD3DX12_ROOT_PARAMETER> allParameter;
+	vstd::vector<CD3DX12_ROOT_PARAMETER> allParameter;
 	auto&& staticSamplers = GFXUtil::GetStaticSamplers();
-	vengine::vector<CD3DX12_DESCRIPTOR_RANGE> allTexTable;
+	vstd::vector<CD3DX12_DESCRIPTOR_RANGE> allTexTable;
 	allParameter.reserve(variables.size());
 	allTexTable.reserve(variables.size());
 	for (auto&& var : variables) {
@@ -257,7 +257,7 @@ bool ShaderIO::SetComputeResource(IShader const* shader, ThreadCommand* commandL
 }
 bool ShaderIO::SetComputeBufferByAddress(
 	HashMap<uint, uint> const& varDict,
-	vengine::vector<ShaderVariable> const& varVector,
+	vstd::vector<ShaderVariable> const& varVector,
 	ThreadCommand* tCmd,
 	uint id,
 	GpuAddress address) {
@@ -288,10 +288,10 @@ bool ShaderIO::SetComputeBufferByAddress(
 	return true;
 }
 void ShaderIO::DecodeDXRShader(
-	const vengine::string& fileName,
-	vengine::vector<ShaderVariable>& vars,
+	const vstd::string& fileName,
+	vstd::vector<ShaderVariable>& vars,
 	DXRHitGroup& hitGroup,
-	vengine::vector<char>& binaryData,
+	vstd::vector<char>& binaryData,
 	uint64& recursiveCount,
 	uint64& raypayloadSize,
 	StackObject<SerializedObject, true>& serObj) {

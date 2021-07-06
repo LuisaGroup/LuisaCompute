@@ -7,12 +7,12 @@ private:
 	~FileUtility() = delete;
 
 public:
-	static bool ReadCommandFile(vengine::string const& path, HashMap<vengine::string, Runnable<void(vengine::string const&)>>& rnb);
-	static void GetFiles(vengine::string const& path, vengine::vector<vengine::string>& files, HashMap<vengine::string, bool> const& ignoreFolders);
-	static void GetFilesFixedExtense(vengine::string const& path, vengine::vector<vengine::string>& files, HashMap<vengine::string, bool> const& extense);
-	static void GetFiles(vengine::string const& path, vengine::vector<vengine::string>& files, vengine::vector<vengine::string>& folders, HashMap<vengine::string, bool> const& ignoreFolders);
-	static void GetFolders(vengine::vector<vengine::string>& files);
-	static void GetTrivialFiles(vengine::string const& path, vengine::vector<vengine::string>& files);
-	static vengine::string GetProgramPath();
-	static vengine::string GetFileExtension(vengine::string const& filePath);
+	static bool ReadCommandFile(vstd::string const& path, HashMap<vstd::string, Runnable<void(vstd::string const&)>>& rnb);
+	static void GetFiles(vstd::string const& path, vstd::vector<vstd::string>& files, HashMap<vstd::string, bool> const& ignoreFolders);
+	static void GetFilesFixedExtense(vstd::string const& path, vstd::vector<vstd::string>& files, HashMap<vstd::string, bool> const& extense);
+	static void GetFiles(vstd::string const& path, vstd::vector<vstd::string>& files, vstd::vector<vstd::string>& folders, HashMap<vstd::string, bool> const& ignoreFolders);
+	static void GetFolders(vstd::vector<vstd::string>& files);
+	static void GetTrivialFiles(vstd::string const& path, vstd::vector<vstd::string>& files);
+	static vstd::string GetProgramPath();
+	static vstd::string GetFileExtension(vstd::string const& filePath);
 };

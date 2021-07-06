@@ -17,14 +17,14 @@ class ShaderLoader {
 private:
 	static thread_local ShaderLoaderGlobal* current;
 	static int32_t shaderIDCount;
-	static RayShader* LoadRayShader(const vengine::string& name, GFXDevice* device, const vengine::string& path);
-	static ComputeShader* LoadComputeShader(const vengine::string& name, GFXDevice* device, const vengine::string& path);
-	//static void CompileShaders(GFXDevice* device, JobBucket* bucket, const vengine::string& path);
+	static RayShader* LoadRayShader(const vstd::string& name, GFXDevice* device, const vstd::string& path);
+	static ComputeShader* LoadComputeShader(const vstd::string& name, GFXDevice* device, const vstd::string& path);
+	//static void CompileShaders(GFXDevice* device, JobBucket* bucket, const vstd::string& path);
 	ShaderLoader() = delete;
 
 public:
-	static RayShader const* GetRayShader(const vengine::string& name);
-	static ComputeShader const* GetComputeShader(const vengine::string& name);
+	static RayShader const* GetRayShader(const vstd::string& name);
+	static ComputeShader const* GetComputeShader(const vstd::string& name);
 	static void ReleaseComputeShader(ComputeShader const* shader);
 	static ShaderLoaderGlobal* Init(GFXDevice* device);
 	static void Reload(GFXDevice* device, JobBucket* bucket);

@@ -25,8 +25,8 @@ class VENGINE_DLL_RENDERER RayTracingManager final {
 private:
 	//Update And Add Should only called in main job threads, will be unsafe if called in loading thread!
 	void ReserveStructSize(RenderPackage const& package, uint64 newStrSize, uint64 newScratchSize);
-	void AddMesh(RenderPackage const& pack, vengine::vector<StructuredBuffer*>& clearBuffer, IMesh const* meshInterface, bool forceUpdateMesh);
-	void RemoveMesh(uint64 instanceID, vengine::vector<StructuredBuffer*>& clearBuffer);
+	void AddMesh(RenderPackage const& pack, vstd::vector<StructuredBuffer*>& clearBuffer, IMesh const* meshInterface, bool forceUpdateMesh);
+	void RemoveMesh(uint64 instanceID, vstd::vector<StructuredBuffer*>& clearBuffer);
 	void CopyInstanceDescData(RayRendererData* data, uint index);
 	void CopyInstanceDescData(RayRendererData* data);
 
@@ -35,9 +35,9 @@ public:
 
 	class AllocatedCBufferChunks {
 		friend class RayTracingManager;
-		vengine::vector<ConstBufferElement> instanceUploadElements;
-		vengine::vector<ConstBufferElement> meshObjUploadElements;
-		vengine::vector<StructuredBuffer*> needClearSBuffers;
+		vstd::vector<ConstBufferElement> instanceUploadElements;
+		vstd::vector<ConstBufferElement> meshObjUploadElements;
+		vstd::vector<StructuredBuffer*> needClearSBuffers;
 	};
 	bool Avaliable() const;
 	RayRendererData* AddRenderer(

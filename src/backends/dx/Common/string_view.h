@@ -4,7 +4,7 @@
 #include <Common/MetaLib.h>
 #include <iostream>
 #include <string.h>
-namespace vengine {
+namespace vstd {
 class string;
 class wstring;
 class VENGINE_DLL_COMMON string_view {
@@ -49,7 +49,7 @@ public:
 	string_view(char const* data, size_t mSize) : data(data), mSize(mSize) {}
 
 	string_view(char const* data, char const* end) : data(data), mSize(end - data) {}
-	string_view(vengine::string const& str);
+	string_view(vstd::string const& str);
 
 	bool operator==(const string_view& chunk) const {
 		if (mSize != chunk.mSize) return false;
@@ -123,7 +123,7 @@ public:
 	wstring_view(wchar_t const* data, size_t mSize) : data(data), mSize(mSize) {}
 
 	wstring_view(wchar_t const* data, wchar_t const* end) : data(data), mSize(end - data) {}
-	wstring_view(vengine::wstring const& str);
+	wstring_view(vstd::wstring const& str);
 
 	bool operator==(const wstring_view& chunk) const {
 		if (mSize != chunk.mSize) return false;
@@ -169,4 +169,4 @@ inline std::ostream& operator<<(std::ostream& out, const string_view& obj) noexc
 	}
 	return out;
 }
-}// namespace vengine
+}// namespace vstd

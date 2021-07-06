@@ -10,7 +10,7 @@
 namespace luisa::compute {
 namespace ShaderCompiler_Global {
 struct Data {
-	HashMap<uint, ShaderCompiler::ConstBufferData> globalVarOffsets;
+	HashMap<Function, ShaderCompiler::ConstBufferData> globalVarOffsets;
 	std::mutex mtx;
 };
 static StackObject<Data, true> data;
@@ -30,21 +30,21 @@ ShaderCompiler::ConstBufferData* GetCBufferData(uint kernel_uid) {
 	}
 	return curData;
 }
-static bool ShaderCompiler_NeedCodegen(Function kernel, vengine::string const& path, vengine::string const& md5Path, vengine::string& codegenResult, std::array<uint8_t, MD5::MD5_SIZE>& md5Result) {
+static bool ShaderCompiler_NeedCodegen(Function kernel, vstd::string const& path, vstd::string const& md5Path, vstd::string& codegenResult, std::array<uint8_t, MD5::MD5_SIZE>& md5Result) {
 	data.New();
 	ShaderCompiler::ConstBufferData* curData = GetCBufferData(kernel.uid());
 	Path filePath(path);
 	CodegenUtility::GetCodegen(kernel, codegenResult, curData->offsets, curData->cbufferSize);
 	md5Result = MD5::GetMD5FromString(codegenResult);
-	using namespace vengine::linq;
+	using namespace vstd::linq;
 	if (!filePath.Exists()) 
 		return true;
 	{
 		BinaryReader md5Reader(md5Path);
 		if (!md5Reader) return true;
-		vengine::vector<uint8_t> md5Data(md5Reader.GetLength());
+		vstd::vector<uint8_t> md5Data(md5Reader.GetLength());
 		md5Reader.Read(reinterpret_cast<char*>(md5Data.data()), md5Data.size());
-		if (vengine::array_same(md5Data, md5Result)) return false;
+		if (vstd::array_same(md5Data, md5Result)) return false;
 	}
 	//TODO: Probably other checks
 	return true;
@@ -54,16 +54,16 @@ static bool ShaderCompiler_NeedCodegen(Function kernel, vengine::string const& p
 void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 	using namespace SCompile;
 	auto kernel = Function::kernel(uid);
-	vengine::string path = ".cache/"_sv;
+	vstd::string path = ".cache/"_sv;
 	Path folder(path);
 	folder.TryCreateDirectory();
-	vengine::string fileStrPath = path;
-	vengine::string uidStr = vengine::to_string(uid);
+	vstd::string fileStrPath = path;
+	vstd::string uidStr = vstd::to_string(uid);
 	fileStrPath << uidStr
 				<< ".compute"_sv;
-	vengine::string md5Path = path;
+	vstd::string md5Path = path;
 	md5Path << uidStr << ".md5"_sv;
-	vengine::string codegenResult;
+	vstd::string codegenResult;
 	std::array<uint8_t, MD5::MD5_SIZE> md5Result;
 	//Whether need re-compile
 	if (ShaderCompiler_Global::ShaderCompiler_NeedCodegen(kernel, fileStrPath, md5Path, codegenResult, md5Result)) {
@@ -71,14 +71,14 @@ void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 			std::ofstream ofs(fileStrPath.data(), std::ios::binary);
 			ofs.write(codegenResult.data(), codegenResult.size());
 		}
-		vengine::string resultStr = path;
+		vstd::string resultStr = path;
 		resultStr << uidStr
 				  << ".output"_sv;
 
-		vengine::vector<ShaderVariable> vars;
+		vstd::vector<ShaderVariable> vars;
 		//TODO: custom data not used
-		vengine::vector<char> customData;
-		vengine::vector<char> resultData;
+		vstd::vector<char> customData;
+		vstd::vector<char> resultData;
 		HLSLCompiler::GetShaderVariables(
 			kernel,
 			vars);

@@ -7,26 +7,26 @@ class ThreadCommand;
 class VENGINE_DLL_RENDERER ShaderIO {
 public:
 	static void DecodeComputeShader(
-		const vengine::string& fileName,
-		vengine::vector<ShaderVariable>& vars,
-		vengine::vector<ComputeKernel>& datas,
+		const vstd::string& fileName,
+		vstd::vector<ShaderVariable>& vars,
+		vstd::vector<ComputeKernel>& datas,
 		StackObject<SerializedObject, true>& serObj);
 	static HRESULT GetRootSignature(
-		vengine::vector<ShaderVariable> const& variables,
+		vstd::vector<ShaderVariable> const& variables,
 		Microsoft::WRL::ComPtr<ID3DBlob>& serializedRootSig,
 		Microsoft::WRL::ComPtr<ID3DBlob>& errorBlob,
 		D3D_ROOT_SIGNATURE_VERSION rootSigVersion);
 	static bool SetComputeBufferByAddress(
 		HashMap<uint, uint> const& varDict,
-		vengine::vector<ShaderVariable> const& varVector,
+		vstd::vector<ShaderVariable> const& varVector,
 		ThreadCommand* commandList,
 		uint id,
 		GpuAddress address);
 	static void DecodeDXRShader(
-		const vengine::string& fileName,
-		vengine::vector<ShaderVariable>& vars,
+		const vstd::string& fileName,
+		vstd::vector<ShaderVariable>& vars,
 		DXRHitGroup& hitGroups,
-		vengine::vector<char>& binaryData,
+		vstd::vector<char>& binaryData,
 		uint64& recursiveCount,
 		uint64& raypayloadSize,
 		StackObject<SerializedObject, true>& serObj);
