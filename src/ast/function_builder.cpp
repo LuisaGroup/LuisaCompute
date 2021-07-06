@@ -127,7 +127,7 @@ uint32_t FunctionBuilder::_next_variable_uid() noexcept {
 const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
 const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
 const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
-const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Variable::Tag::LAUNCH_SIZE); }
+const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Variable::Tag::DISPATCH_SIZE); }
 
 const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(

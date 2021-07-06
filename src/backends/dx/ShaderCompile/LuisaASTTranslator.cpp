@@ -1201,7 +1201,7 @@ size_t CodegenUtility::PrintGlobalVariables(
 	for (auto& spans : values) {
 		for (auto& var : spans) {
 			switch (var.tag()) {
-				case Variable::Tag::LAUNCH_SIZE:
+				case Variable::Tag::DISPATCH_SIZE:
 				case Variable::Tag::UNIFORM:
 
 					auto&& type = *var.type();
