@@ -12,7 +12,8 @@ using int32 = int32_t;
 #include <mutex>
 #include <atomic>
 #include <thread>
-
+#include <Common/AllocateType.h>
+VENGINE_DLL_COMMON void VEngine_Log(std::type_info const& t);
 template<typename T>
 struct funcPtr;
 
@@ -49,21 +50,25 @@ private:
 	alignas(T) uint8_t storage[sizeof(T)];
 
 public:
+	using SelfType = StackObject<T, false>;
 	template<typename... Args>
-	inline void New(Args&&... args) noexcept {
+	inline SelfType& New(Args&&... args) & noexcept {
 		new (storage) T(std::forward<Args>(args)...);
+		return *this;
 	}
 	template<typename... Args>
-	inline void InPlaceNew(Args&&... args) noexcept {
+	inline SelfType&& New(Args&&... args) && noexcept {
+		return std::move(New(std::forward<Args>(args)...));
+	}
+	template<typename... Args>
+	inline SelfType& InPlaceNew(Args&&... args) & noexcept {
 		new (storage) T{std::forward<Args>(args)...};
+		return *this;
 	}
-	/*
-	inline void operator=(const StackObject<T>& value) {
-		*reinterpret_cast<T*>(storage) = value.operator*();
+	template<typename... Args>
+	inline SelfType&& InPlaceNew(Args&&... args) && noexcept {
+		return std::move(InPlaceNew(std::forward<Args>(args)...));
 	}
-	inline void operator=(StackObject<T>&& value) {
-		*reinterpret_cast<T*>(storage) = std::move(*value);
-	}*/
 	inline void Delete() noexcept {
 		if constexpr (!std::is_trivially_destructible_v<T>)
 			(reinterpret_cast<T*>(storage))->~T();
@@ -92,11 +97,70 @@ public:
 	operator T const *() const noexcept {
 		return reinterpret_cast<T const*>(storage);
 	}
-	bool operator==(const StackObject<T>&) const noexcept = delete;
-	bool operator!=(const StackObject<T>&) const noexcept = delete;
 	StackObject() noexcept {}
-	StackObject(const StackObject<T>& value) noexcept {
-		New(value.operator*());
+	StackObject(const SelfType& value) {
+		if constexpr (std::is_copy_constructible_v<T>) {
+			new (storage) T(*value);
+		} else {
+			VEngine_Log(typeid(T));
+			VENGINE_EXIT;
+		}
+	}
+	StackObject(SelfType&& value) {
+		if constexpr (std::is_move_constructible_v<T>) {
+			new (storage) T(std::move(*value));
+		} else {
+			VEngine_Log(typeid(T));
+			VENGINE_EXIT;
+		}
+	}
+	T& operator=(SelfType const& value) {
+		if constexpr (std::is_copy_assignable_v<T>) {
+			operator*() = *value;
+		} else if constexpr (std::is_copy_constructible_v<T>) {
+			Delete();
+			New(*value);
+		} else {
+			VEngine_Log(typeid(T));
+			VENGINE_EXIT;
+		}
+		return **this;
+	}
+	T& operator=(SelfType&& value) {
+		if constexpr (std::is_move_assignable_v<T>) {
+			operator*() = std::move(*value);
+		} else if constexpr (std::is_move_constructible_v<T>) {
+			Delete();
+			New(std::move(*value));
+		} else {
+			VEngine_Log(typeid(T));
+			VENGINE_EXIT;
+		}
+		return **this;
+	}
+	T& operator=(T const& value) {
+		if constexpr (std::is_copy_assignable_v<T>) {
+			operator*() = value;
+		} else if constexpr (std::is_copy_constructible_v<T>) {
+			Delete();
+			New(value);
+		} else {
+			VEngine_Log(typeid(T));
+			VENGINE_EXIT;
+		}
+		return **this;
+	}
+	T& operator=(T&& value) {
+		if constexpr (std::is_move_assignable_v<T>) {
+			operator*() = std::move(value);
+		} else if constexpr (std::is_move_constructible_v<T>) {
+			Delete();
+			New(std::move(value));
+		} else {
+			VEngine_Log(typeid(T));
+			VENGINE_EXIT;
+		}
+		return **this;
 	}
 };
 
@@ -105,21 +169,32 @@ class StackObject<T, true> {
 private:
 	StackObject<T, false> stackObj;
 	bool initialized;
+	template<typename T, VEngine_AllocType allocType>
+	friend class LockFreeArrayQueue;
 
 public:
+	using SelfType = StackObject<T, true>;
 	template<typename... Args>
-	inline bool New(Args&&... args) noexcept {
-		if (initialized) return false;
+	inline SelfType& New(Args&&... args) & noexcept {
+		if (initialized) return *this;
 		initialized = true;
 		stackObj.New(std::forward<Args>(args)...);
-		return true;
+		return *this;
 	}
 	template<typename... Args>
-	inline bool InPlaceNew(Args&&... args) noexcept {
-		if (initialized) return false;
+	inline SelfType& InPlaceNew(Args&&... args) & noexcept {
+		if (initialized) return *this;
 		initialized = true;
 		stackObj.InPlaceNew(std::forward<Args>(args)...);
-		return true;
+		return *this;
+	}
+	template<typename... Args>
+	inline SelfType&& New(Args&&... args) && noexcept {
+		return std::move(New(std::forward<Args>(args)...));
+	}
+	template<typename... Args>
+	inline SelfType&& InPlaceNew(Args&&... args) && noexcept {
+		return std::move(InPlaceNew(std::forward<Args>(args)...));
 	}
 	bool Initialized() const noexcept {
 		return initialized;
@@ -160,18 +235,105 @@ public:
 	operator T const *() const noexcept {
 		return stackObj;
 	}
-	bool operator==(const StackObject<T>&) const noexcept = delete;
-	bool operator!=(const StackObject<T>&) const noexcept = delete;
 	StackObject() noexcept {
 		initialized = false;
 	}
-	StackObject(const StackObject<T, true>& value) noexcept {
-		initialized = false;
-		stackObj.New(value.operator*());
+	StackObject(const SelfType& value) noexcept {
+		initialized = value.initialized;
+		if (initialized) {
+			if constexpr (std::is_copy_constructible_v<T>) {
+				stackObj.New(*value);
+			} else {
+				VEngine_Log(typeid(T));
+				VENGINE_EXIT;
+			}
+		}
+	}
+	StackObject(SelfType&& value) noexcept {
+		initialized = value.initialized;
+		if (initialized) {
+			if constexpr (std::is_move_constructible_v<T>) {
+				stackObj.New(std::move(*value));
+			} else {
+				VEngine_Log(typeid(T));
+				VENGINE_EXIT;
+			}
+		}
 	}
 	~StackObject() noexcept {
 		if (Initialized())
 			stackObj.Delete();
+	}
+	T& operator=(SelfType const& value) {
+		if (!initialized) {
+			if (value.initialized) {
+				if constexpr (std::is_copy_constructible_v<T>) {
+					stackObj.New(*value);
+				} else {
+					VEngine_Log(typeid(T));
+					VENGINE_EXIT;
+				}
+				initialized = true;
+			}
+		} else {
+			if (value.initialized) {
+				stackObj = value.stackObj;
+			} else {
+				stackObj.Delete();
+				initialized = false;
+			}
+		}
+		return *stackObj;
+	}
+	T& operator=(SelfType&& value) {
+		if (!initialized) {
+			if (value.initialized) {
+				if constexpr (std::is_move_constructible_v<T>) {
+					stackObj.New(std::move(*value));
+				} else {
+					VEngine_Log(typeid(T));
+					VENGINE_EXIT;
+				}
+				initialized = true;
+			}
+		} else {
+			if (value.initialized) {
+				stackObj = std::move(value.stackObj);
+			} else {
+				stackObj.Delete();
+				initialized = false;
+			}
+		}
+		return *stackObj;
+	}
+	T& operator=(T const& value) {
+		if (!initialized) {
+			if constexpr (std::is_copy_constructible_v<T>) {
+				stackObj.New(value);
+			} else {
+				VEngine_Log(typeid(T));
+				VENGINE_EXIT;
+			}
+			initialized = true;
+
+		} else {
+			stackObj = value;
+		}
+		return *stackObj;
+	}
+	T& operator=(T&& value) {
+		if (!initialized) {
+			if constexpr (std::is_move_constructible_v<T>) {
+				stackObj.New(std::move(value));
+			} else {
+				VEngine_Log(typeid(T));
+				VENGINE_EXIT;
+			}
+			initialized = true;
+		} else {
+			stackObj = std::move(value);
+		}
+		return *stackObj;
 	}
 };
 //Declare Tuple
@@ -227,12 +389,17 @@ struct array_meta;
 template<typename T, size_t N>
 struct array_meta<T[N]> {
 	static constexpr size_t array_size = N;
+	static constexpr size_t byte_size = N * sizeof(T);
 };
 
 template<typename T>
 static constexpr size_t array_count = array_meta<T>::array_size;
+
+template<typename T>
+static constexpr size_t array_size = array_meta<T>::byte_size;
 }// namespace vstd
 #define VENGINE_ARRAY_COUNT(arr) (vstd::array_count<decltype(arr)>)
+#define VENGINE_ARRAY_SIZE(arr) (vstd::array_size<decltype(arr)>)
 
 namespace FunctionTemplateGlobal {
 
@@ -352,6 +519,7 @@ private:
 	int64 e;
 	int64 inc;
 };
+
 template<typename T>
 struct ptr_range {
 public:
@@ -391,4 +559,6 @@ decltype(auto) array_same(A&& a, B&& b) {
 	}
 	return true;
 }
+template<typename T>
+using optional = StackObject<T, true>;
 }// namespace vstd

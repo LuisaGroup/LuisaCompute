@@ -269,6 +269,22 @@ public:
 		}
 		return true;
 	}
+	bool GetLast(T* ptr) {
+		constexpr bool isTrivial = std::is_trivially_destructible_v<T>;
+		if constexpr (!isTrivial) {
+			ptr->~T();
+		}
+
+		if (head == tail)
+			return false;
+		auto&& value = arr[GetIndex(tail, capacity)];
+		if (std::is_trivially_move_assignable_v<T>) {
+			*ptr = std::move(value);
+		} else {
+			new (ptr) T(std::move(value));
+		}
+		return true;
+	}
 	bool Pop(vstd::optional<T>& ptr) {
 		ptr.Delete();
 		if (head == tail)
@@ -280,6 +296,16 @@ public:
 		}
 		return true;
 	}
+	bool Pop() {
+		if (head == tail)
+			return false;
+		auto&& value = arr[GetIndex(tail++, capacity)];
+		if constexpr (!std::is_trivially_destructible_v<T>) {
+			value.~T();
+		}
+		return true;
+	}
+
 
 	~SingleThreadArrayQueue() {
 		if constexpr (!std::is_trivially_destructible_v<T>) {
