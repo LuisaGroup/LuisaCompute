@@ -151,12 +151,12 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 			tCmd,
 			cbufferData.data(),
 			&cbData};
-		auto launchSize = cmd->launch_size();
+		auto launchSize = cmd->dispatch_size();
 
 		//Copy launch size
 		{
 			for (auto& i : func.builtin_variables()) {
-				if (i.tag() != Variable::Tag::LAUNCH_SIZE)
+				if (i.tag() != Variable::Tag::DISPATCH_SIZE)
 					continue;
 				auto ite = cbData.offsets.Find(i.uid());
 				if (!ite) continue;

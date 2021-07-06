@@ -452,7 +452,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
             case Variable::Tag::THREAD_ID: _scratch << " [[thread_id]]"; break;
             case Variable::Tag::BLOCK_ID: _scratch << " [[block_id]]"; break;
             case Variable::Tag::DISPATCH_ID: _scratch << " [[dispatch_id]]"; break;
-            case Variable::Tag::LAUNCH_SIZE: _scratch << " [[launch_size]]"; break;
+            case Variable::Tag::DISPATCH_SIZE: _scratch << " [[launch_size]]"; break;
             default: break;
         }
         _scratch << ",";
@@ -487,7 +487,7 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
-        case Variable::Tag::LAUNCH_SIZE: _scratch << "ls"; break;
+        case Variable::Tag::DISPATCH_SIZE: _scratch << "ls"; break;
         default: break;
     }
 }
@@ -571,7 +571,7 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
         case Variable::Tag::THREAD_ID:
         case Variable::Tag::BLOCK_ID:
         case Variable::Tag::DISPATCH_ID:
-        case Variable::Tag::LAUNCH_SIZE:
+        case Variable::Tag::DISPATCH_SIZE:
         case Variable::Tag::LOCAL:
             _emit_type_name(v.type());
             _scratch << " ";

@@ -66,15 +66,15 @@ int main(int argc, char *argv[]) {
         return make_float4(col, 1.0f / (d * 100.0f));
     };
 
-    Kernel2D clear = [](ImageVar<float> image) noexcept {
+    Kernel2D clear_kernel = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var rg = make_float2(coord) / make_float2(launch_size().xy());
+        Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
         image.write(coord, make_float4(make_float2(0.3f, 0.4f), 0.5f, 1.0f));
     };
 
-    Kernel2D shader = [&rm, &rotate](ImageFloat image, Float time) noexcept {
+    Kernel2D main_kernel = [&rm, &rotate](ImageFloat image, Float time) noexcept {
         Var xy = dispatch_id().xy();
-        Var resolution = launch_size().xy().cast<float2>();
+        Var resolution = dispatch_size().xy().cast<float2>();
         Var uv = (xy.cast<float2>() - resolution * 0.5f) / resolution.x;
         Var ro = make_float3(rotate(make_float2(0.0f, -50.0f), time), 0.0f).xzy();
         Var cf = normalize(-ro);
@@ -90,7 +90,8 @@ int main(int argc, char *argv[]) {
         image.write(xy, make_float4(accum, 1.0f));
     };
 
-    device.compile(clear, shader);
+    auto clear = device.compile(clear_kernel);
+    auto shader = device.compile(main_kernel);
 
     static constexpr auto width = 1024u;
     static constexpr auto height = 1024u;
@@ -103,7 +104,7 @@ int main(int argc, char *argv[]) {
     if (!video.isOpened()) { LUISA_WARNING("Failed to open video stream"); }
 
     auto stream = device.create_stream();
-    stream << clear(device_image).launch(width, height);
+    stream << clear(device_image).dispatch(width, height);
 
     auto i = 0u;
     auto time = 0.0f;
@@ -111,7 +112,7 @@ int main(int argc, char *argv[]) {
     cv::Mat frame;
     while (time < max_time) {
         Clock clock;
-        stream << shader(device_image, time).launch(width, height)
+        stream << shader(device_image, time).dispatch(width, height)
                << device_image.copy_to(host_image.data);
         stream.synchronize();
         LUISA_INFO("Frame #{} ({}%): {} ms", i++, (time + frame_time) / max_time * 100.0f, clock.toc());

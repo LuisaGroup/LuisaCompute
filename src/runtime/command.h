@@ -16,6 +16,8 @@
 #include <core/logging.h>
 #include <core/basic_types.h>
 #include <core/memory.h>
+#include <ast/variable.h>
+#include <ast/function.h>
 #include <runtime/pixel.h>
 
 namespace luisa::compute {
@@ -25,7 +27,7 @@ namespace luisa::compute {
         BufferDownloadCommand,      \
         BufferCopyCommand,          \
         BufferToTextureCopyCommand, \
-        KernelLaunchCommand,        \
+        ShaderDispatchCommand,      \
         TextureUploadCommand,       \
         TextureDownloadCommand,     \
         TextureCopyCommand,         \
@@ -96,12 +98,7 @@ public:
             TEXTURE
         };
 
-        enum struct Usage : uint32_t {
-            NONE = 0u,
-            READ = 1u,
-            WRITE = 2u,
-            READ_WRITE = READ | WRITE
-        };
+        using Usage = Variable::Usage;
 
         uint64_t handle{0u};
         Tag tag{Tag::NONE};
@@ -380,7 +377,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class KernelLaunchCommand : public Command {
+class ShaderDispatchCommand : public Command {
 
 public:
     struct alignas(16) Argument {
@@ -411,8 +408,6 @@ public:
 
     struct TextureArgument : Argument {
         uint64_t handle{};
-        //TODO: Texture-write target miplevel, useless in read-only binding
-        //uint writeLevel;
         TextureArgument() noexcept : Argument{Tag::TEXTURE, 0u} {}
         TextureArgument(uint32_t vid, uint64_t handle) noexcept
             : Argument{Tag::TEXTURE, vid},
@@ -432,18 +427,21 @@ public:
     struct ArgumentBuffer : std::array<std::byte, 2048u> {};
 
 private:
-    const detail::FunctionBuilder *_kernel;
+    uint64_t _handle;
+    Function _kernel;
     size_t _argument_buffer_size{0u};
-    uint _launch_size[3]{};
+    uint _dispatch_size[3]{};
+    uint _block_size[3]{};
     uint32_t _argument_count{0u};
     ArgumentBuffer _argument_buffer{};
 
 public:
-    explicit KernelLaunchCommand(const detail::FunctionBuilder *kernel) noexcept;
-    void set_launch_size(uint3 launch_size) noexcept;
+    explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
+    void set_dispatch_size(uint3 launch_size) noexcept;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto kernel() const noexcept { return _kernel; }
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
-    [[nodiscard]] auto launch_size() const noexcept { return uint3(_launch_size[0], _launch_size[1], _launch_size[2]); }
+    [[nodiscard]] auto dispatch_size() const noexcept { return uint3(_dispatch_size[0], _dispatch_size[1], _dispatch_size[2]); }
 
     // Note: encode/decode order:
     //   1. captured buffers
@@ -490,7 +488,7 @@ public:
             }
         }
     }
-    LUISA_MAKE_COMMAND_COMMON(KernelLaunchCommand)
+    LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand)
 };
 
 class AccelUpdateCommand : public Command {

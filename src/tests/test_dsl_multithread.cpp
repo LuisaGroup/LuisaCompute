@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
             Clock clock;
             Constant float_consts = {1.0f, 2.0f};
             Constant int_consts = const_vector;
-            Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept {
+            Kernel1D kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept {
                 Shared<float4> shared_floats{16};
 
                 Var v_int = 10;
@@ -109,8 +109,9 @@ int main(int argc, char *argv[]) {
             };
             auto t1 = clock.toc();
 
-            auto command = kernel(float_buffer, 12u).launch(1024u);
-            auto function = static_cast<KernelLaunchCommand *>(command.get())->kernel();
+            auto kernel = device.compile(kernel_def);
+            auto command = kernel(float_buffer, 12u).dispatch(1024u);
+            auto function = static_cast<ShaderDispatchCommand *>(command.get())->kernel();
 
             clock.tic();
             Codegen::Scratch scratch;

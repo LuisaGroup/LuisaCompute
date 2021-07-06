@@ -21,7 +21,7 @@ namespace luisa::compute {
 class Statement;
 class Expression;
 
-}
+}// namespace luisa::compute
 
 namespace luisa::compute::detail {
 
@@ -47,7 +47,7 @@ public:
     using TextureBinding = Function::TextureBinding;
 
 private:
-    Arena &_arena;
+    Arena *_arena;
     ScopeStmt _body;
     const Type *_ret{nullptr};
     ArenaVector<ScopeStmt *> _scope_stack;
@@ -78,18 +78,19 @@ protected:
 
 private:
     template<typename Def>
-    static auto _define(Arena &arena, Function::Tag tag, Def &&def) noexcept {
-        auto f = arena.create<FunctionBuilder>(arena, tag);
+    static auto _define(Arena *arena, Function::Tag tag, Def &&def) noexcept {
+        auto f = new FunctionBuilder{arena, tag};
         push(f);
         f->with(&f->_body, std::forward<Def>(def));
         f->_compute_hash();
         pop(f);
         // make it immutable to forbid further modification
-        return const_cast<const FunctionBuilder *>(f);
+        return std::unique_ptr<const FunctionBuilder>{f};
     }
 
 public:
-    explicit FunctionBuilder(Arena &arena, Tag tag) noexcept;
+    explicit FunctionBuilder(Arena *arena, Tag tag) noexcept;
+    ~FunctionBuilder() noexcept;
     FunctionBuilder(FunctionBuilder &&) noexcept = delete;
     FunctionBuilder(const FunctionBuilder &) noexcept = delete;
     FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
@@ -116,11 +117,11 @@ public:
 
     // build primitives
     template<typename Def>
-    static auto define_kernel(Arena &arena, Def &&def) noexcept {
-        return _define(arena, Function::Tag::KERNEL, [&def] {
+    static auto define_kernel(Def &&def) noexcept {
+        return _define(new Arena, Function::Tag::KERNEL, [&def] {
             auto &&f = FunctionBuilder::current();
             auto gid = f->dispatch_id();
-            auto gs = f->launch_size();
+            auto gs = f->dispatch_size();
             auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
             auto cond = f->call(Type::of<bool>(), CallOp::ALL, {less});
             auto ret_cond = f->unary(Type::of<bool>(), UnaryOp::NOT, cond);
@@ -134,7 +135,7 @@ public:
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
         return _define(_function_stack().empty()              // callables use
-                           ? Arena::global()                  // the global arena when defined in global scope, or
+                           ? &Arena::global()                 // the global arena when defined in global scope, or
                            : _function_stack().back()->_arena,// the inherited one from parent scope if defined locally
                        Function::Tag::CALLABLE,
                        std::forward<Def>(def));
@@ -147,7 +148,7 @@ public:
     [[nodiscard]] const RefExpr *thread_id() noexcept;
     [[nodiscard]] const RefExpr *block_id() noexcept;
     [[nodiscard]] const RefExpr *dispatch_id() noexcept;
-    [[nodiscard]] const RefExpr *launch_size() noexcept;
+    [[nodiscard]] const RefExpr *dispatch_size() noexcept;
 
     // variables
     [[nodiscard]] const RefExpr *local(const Type *type, std::span<const Expression *> init) noexcept;
@@ -207,4 +208,4 @@ public:
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
 };
 
-}// namespace luisa::compute
+}// namespace luisa::compute::detail

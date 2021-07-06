@@ -152,7 +152,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
         && (v.tag() == Variable::Tag::UNIFORM
             || v.tag() == Variable::Tag::BUFFER
             || v.tag() == Variable::Tag::TEXTURE
-            || v.tag() == Variable::Tag::LAUNCH_SIZE)) {
+            || v.tag() == Variable::Tag::DISPATCH_SIZE)) {
         _scratch << "arg.";
     }
     _emit_variable_name(expr->variable());
@@ -490,7 +490,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << "void kernel_" << hash_to_string(f.hash())
                  << "(\n    device const Argument &arg,";
         for (auto builtin : f.builtin_variables()) {
-            if (builtin.tag() != Variable::Tag::LAUNCH_SIZE) {
+            if (builtin.tag() != Variable::Tag::DISPATCH_SIZE) {
                 _scratch << "\n    ";
                 _emit_variable_decl(builtin);
                 _scratch << ",";
@@ -551,7 +551,7 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
-        case Variable::Tag::LAUNCH_SIZE: _scratch << "ls"; break;
+        case Variable::Tag::DISPATCH_SIZE: _scratch << "ls"; break;
     }
 }
 
@@ -659,7 +659,7 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             _scratch << " [[thread_position_in_grid]]";
             break;
-        case Variable::Tag::LAUNCH_SIZE:
+        case Variable::Tag::DISPATCH_SIZE:
             _scratch << "const ";
             _emit_type_name(v.type());
             _scratch << " ";

@@ -45,11 +45,17 @@ private:
     std::vector<id<MTLTexture>> _texture_slots;
     std::vector<size_t> _available_texture_slots;
 
+    // for shaders
+    mutable spin_mutex _shader_mutex;
+    std::vector<MetalShader> _shader_slots;
+    std::vector<size_t> _available_shader_slots;
+
     // for heaps
     mutable spin_mutex _heap_mutex;
     std::vector<std::unique_ptr<MetalTextureHeap>> _heap_slots;
     std::vector<size_t> _available_heap_slots;
 
+    // for texture samplers
     spin_mutex _texture_sampler_mutex;
     std::unordered_map<TextureSampler, id<MTLSamplerState>, TextureSampler::Hash> _texture_samplers;
 
@@ -68,7 +74,7 @@ public:
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalTextureHeap *heap(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
-    [[nodiscard]] MetalCompiler::KernelItem compiled_kernel(Function kernel) const noexcept;
+    [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLSamplerState> texture_sampler(TextureSampler sampler) noexcept;
 
 public:
@@ -82,7 +88,8 @@ public:
     void dispose_stream(uint64_t handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
-    void compile(const detail::FunctionBuilder *kernel) noexcept override;
+    uint64_t create_shader(Function kernel) noexcept override;
+    void dispose_shader(uint64_t handle) noexcept override;
     uint64_t create_event() noexcept override;
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;

@@ -57,7 +57,7 @@ void Command::_texture_read_write(uint64_t handle) noexcept {
     _use_resource(handle, Resource::Tag::TEXTURE, Resource::Usage::READ_WRITE);
 }
 
-void KernelLaunchCommand::encode_buffer(
+void ShaderDispatchCommand::encode_buffer(
     uint32_t variable_uid,
     uint64_t handle,
     size_t offset,
@@ -66,10 +66,10 @@ void KernelLaunchCommand::encode_buffer(
     if (_argument_buffer_size + sizeof(BufferArgument) > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode buffer. "
-            "Kernel argument buffer exceeded size limit {}.",
+            "Shader argument buffer exceeded size limit {}.",
             _argument_buffer.size());
     }
-    
+
     BufferArgument argument{variable_uid, handle, offset};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
@@ -79,7 +79,7 @@ void KernelLaunchCommand::encode_buffer(
     _argument_count++;
 }
 
-void KernelLaunchCommand::encode_texture(
+void ShaderDispatchCommand::encode_texture(
     uint32_t variable_uid,
     uint64_t handle,
     Command::Resource::Usage usage) noexcept {
@@ -87,10 +87,10 @@ void KernelLaunchCommand::encode_texture(
     if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode texture. "
-            "Kernel argument buffer exceeded size limit {}.",
+            "Shader argument buffer exceeded size limit {}.",
             _argument_buffer.size());
     }
-    
+
     TextureArgument argument{variable_uid, handle};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
@@ -100,19 +100,19 @@ void KernelLaunchCommand::encode_texture(
     _argument_count++;
 }
 
-void KernelLaunchCommand::encode_uniform(
+void ShaderDispatchCommand::encode_uniform(
     uint32_t variable_uid,
     const void *data,
     size_t size,
     size_t alignment) noexcept {
-    
+
     if (_argument_buffer_size + sizeof(UniformArgument) + size > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode argument with size {}. "
-            "Kernel argument buffer exceeded size limit {}.",
+            "Shader argument buffer exceeded size limit {}.",
             size, _argument_buffer.size());
     }
-    
+
     UniformArgument argument{variable_uid, size, alignment};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
@@ -125,14 +125,15 @@ void KernelLaunchCommand::encode_uniform(
     _argument_count++;
 }
 
-void KernelLaunchCommand::set_launch_size(uint3 launch_size) noexcept {
-    _launch_size[0] = launch_size.x;
-    _launch_size[1] = launch_size.y;
-    _launch_size[2] = launch_size.z;
+void ShaderDispatchCommand::set_dispatch_size(uint3 launch_size) noexcept {
+    _dispatch_size[0] = launch_size.x;
+    _dispatch_size[1] = launch_size.y;
+    _dispatch_size[2] = launch_size.z;
 }
 
-KernelLaunchCommand::KernelLaunchCommand(const detail::FunctionBuilder *kernel) noexcept
-    : _kernel{kernel} {}
+ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept
+    : _handle{handle},
+      _kernel{kernel} {}
 
 namespace detail {
 

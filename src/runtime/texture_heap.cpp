@@ -30,7 +30,7 @@ constexpr auto TextureHeap::_compute_mipmap_levels(uint width, uint height, uint
     auto max_size = std::max(width, height);
     auto max_levels = 0u;
     while (max_size != 0u) {
-        max_size >>= 2u;
+        max_size >>= 1u;
         max_levels++;
     }
     return requested_levels == 0u

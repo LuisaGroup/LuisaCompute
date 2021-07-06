@@ -139,7 +139,9 @@ int main(int argc, char *argv[]) {
                results[0], results[1], results[2], results[3],
                results[16382], results[16383]);
 
-    auto heap = device.create_texture_heap(256_mb);
-    auto t1 = heap.allocate(PixelStorage::FLOAT4, 2048u, TextureSampler{}, 0u);
-    LUISA_INFO("Used size: {}", heap.allocated_size());
+    auto heap = device.create_texture_heap(1_gb);
+    for (auto i = 0u; i < 10u; i++) {
+        static_cast<void>(heap.allocate(PixelStorage::FLOAT4, 1024u, TextureSampler{}, 1u));
+        LUISA_INFO("Used size: {}", heap.allocated_size());
+    }
 }

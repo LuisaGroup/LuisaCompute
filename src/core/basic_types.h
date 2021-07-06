@@ -11,7 +11,7 @@
 
 namespace luisa {
 
-template<typename U>
+template<typename... U>
 constexpr auto always_false_v = false;
 
 template<typename T, std::enable_if_t<std::disjunction_v<std::is_enum<T>>, int> = 0>
@@ -33,7 +33,7 @@ inline namespace size_literals {
     return static_cast<size_t>(size * 1024u * 1024u * 1024u);
 }
 
-}
+}// namespace size_literals
 
 // scalars
 using uint = unsigned int;

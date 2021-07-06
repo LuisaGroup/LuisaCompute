@@ -12,6 +12,7 @@
 
 #import <core/hash.h>
 #import <core/spin_mutex.h>
+#import <backends/metal/metal_shader.h>
 
 namespace luisa::compute::metal {
 
@@ -19,32 +20,14 @@ class MetalDevice;
 
 class MetalCompiler {
 
-public:
-    struct alignas(16) KernelItem {
-        id<MTLComputePipelineState> handle;
-        id<MTLArgumentEncoder> encoder;
-        NSArray<MTLStructMember *> *arguments;
-        KernelItem(id<MTLComputePipelineState> pso,
-                   id<MTLArgumentEncoder> encoder,
-                   NSArray<MTLStructMember *> *arguments) noexcept
-            : handle{pso},
-              encoder{encoder},
-              arguments{arguments} {}
-    };
-
 private:
     MetalDevice *_device;
-    std::unordered_map<uint64_t, KernelItem> _cache;
-    std::unordered_map<Function, KernelItem, Function::Hash> _kernels;
+    std::unordered_map<uint64_t, MetalShader> _cache;
     spin_mutex _cache_mutex;
-    spin_mutex _kernel_mutex;
-
-private:
-    [[nodiscard]] KernelItem _compile(Function kernel) noexcept;
 
 public:
     explicit MetalCompiler(MetalDevice *device) noexcept : _device{device} {}
-    [[nodiscard]] KernelItem compile(Function kernel) noexcept;
+    [[nodiscard]] MetalShader compile(Function kernel) noexcept;
 };
 
-}
+}// namespace luisa::compute::metal

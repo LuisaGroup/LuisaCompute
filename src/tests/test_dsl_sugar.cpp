@@ -100,7 +100,8 @@ int main(int argc, char *argv[]) {
         $ another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
     };
 
-    auto command = kernel(float_buffer, 12u).launch(1024u);
-    auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
-    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel()->hash()), launch_command->argument_count());
+    auto shader = device.compile(kernel);
+    auto command = shader(float_buffer, 12u).dispatch(1024u);
+    auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
+    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
 }

@@ -50,12 +50,12 @@ int main(int argc, char *argv[]) {
         return a + b;
     };
 
-    auto kernel = LUISA_KERNEL1D(BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
+    auto kernel_def = LUISA_KERNEL1D(BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
         set_block_size(256u);
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x));
     };
-    device.compile(kernel);
+    auto kernel = device.compile(kernel_def);
 
     static constexpr auto n = 1024u * 1024u;
 
@@ -70,9 +70,9 @@ int main(int argc, char *argv[]) {
     Clock clock;
     stream << buffer.copy_from(data.data());
     {
-        auto s = stream << kernel(buffer, result_buffer, 2).launch(n);
+        auto s = stream << kernel(buffer, result_buffer, 2).dispatch(n);
         for (auto i = 0; i < 10; i++) {
-            s << kernel(buffer, result_buffer, 3).launch(n);
+            s << kernel(buffer, result_buffer, 3).dispatch(n);
         }
     }
     stream << result_buffer.copy_to(results.data());

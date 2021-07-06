@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
     // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
     // >>> Kernel kernel = [&](...) { ... }
     //auto func = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept {
-    Kernel1D<void(Buffer<float>, uint)> kernel = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
+    Kernel1D<void(Buffer<float>, uint)> kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
@@ -127,9 +127,10 @@ int main(int argc, char *argv[]) {
     };
     auto t1 = clock.toc();
 
-    auto command = kernel(float_buffer, 12u).launch(1024u);
-    auto launch_command = static_cast<KernelLaunchCommand *>(command.get());
-    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel()->hash()), launch_command->argument_count());
+    auto kernel = device.compile(kernel_def);
+    auto command = kernel(float_buffer, 12u).dispatch(1024u);
+    auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
+    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
 
     clock.tic();
     Codegen::Scratch scratch;

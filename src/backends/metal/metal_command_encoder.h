@@ -29,7 +29,6 @@ public:
     void visit(const BufferCopyCommand *command) noexcept override;
     void visit(const BufferUploadCommand *command) noexcept override;
     void visit(const BufferDownloadCommand *command) noexcept override;
-    void visit(const KernelLaunchCommand *command) noexcept override;
     void visit(const TextureUploadCommand *command) noexcept override;
     void visit(const TextureDownloadCommand *command) noexcept override;
     void visit(const AccelTraceClosestCommand *command) noexcept override;
@@ -38,6 +37,7 @@ public:
     void visit(const BufferToTextureCopyCommand *command) noexcept override;
     void visit(const TextureCopyCommand *command) noexcept override;
     void visit(const TextureToBufferCopyCommand *command) noexcept override;
+    virtual void visit(const ShaderDispatchCommand *command) noexcept override;
 };
 
 }// namespace luisa::compute::metal

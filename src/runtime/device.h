@@ -11,6 +11,7 @@
 
 #include <core/memory.h>
 #include <core/concepts.h>
+#include <ast/function.h>
 #include <runtime/pixel.h>
 #include <runtime/command_buffer.h>
 #include <runtime/texture_sampler.h>
@@ -31,6 +32,18 @@ class Image;
 
 template<typename T>
 class Volume;
+
+template<size_t dim, typename... Args>
+class Shader;
+
+template<typename T>
+class Kernel1D;
+
+template<typename T>
+class Kernel2D;
+
+template<typename T>
+class Kernel3D;
 
 namespace detail {
 class FunctionBuilder;
@@ -76,7 +89,8 @@ public:
         virtual void dispatch(uint64_t stream_handle, CommandBuffer) noexcept = 0;
 
         // kernel
-        virtual void compile(const detail::FunctionBuilder *kernel) noexcept = 0;
+        virtual uint64_t create_shader(Function kernel) noexcept = 0;
+        virtual void dispose_shader(uint64_t handle) noexcept = 0;
 
         // event
         [[nodiscard]] virtual uint64_t create_event() noexcept = 0;
@@ -151,21 +165,15 @@ public:
         return create<Buffer<T>>(size);
     }
 
-private:
-    struct Compile {
-        Device &d;
-        template<typename Kernel>
-        decltype(auto) operator<<(Kernel &&k) const noexcept {
-            k.wait_for_compilation(d);
-            return *this;
-        }
-    };
+    // see definitions in dsl/func.h
+    template<typename... Args>
+    [[nodiscard]] Shader<1, Args...> compile(const Kernel1D<void(Args...)> &kernel) noexcept;
 
-public:
-    template<typename... Kernel>
-    void compile(Kernel &&...kernel) noexcept {
-        (Compile{*this} << ... << std::forward<Kernel>(kernel));
-    }
+    template<typename... Args>
+    [[nodiscard]] Shader<2, Args...> compile(const Kernel2D<void(Args...)> &kernel) noexcept;
+
+    template<typename... Args>
+    [[nodiscard]] Shader<3, Args...> compile(const Kernel3D<void(Args...)> &kernel) noexcept;
 };
 
 }// namespace luisa::compute

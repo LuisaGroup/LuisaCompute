@@ -6,6 +6,7 @@
 
 #include <runtime/command.h>
 #include <runtime/device.h>
+#include <runtime/shader.h>
 #include <dsl/arg.h>
 #include <dsl/expr.h>
 
@@ -29,26 +30,6 @@ struct prototype_to_creation {
 };
 
 template<typename T>
-struct prototype_to_kernel_invocation {
-    using type = T;
-};
-
-template<typename T>
-struct prototype_to_kernel_invocation<Buffer<T>> {
-    using type = BufferView<T>;
-};
-
-template<typename T>
-struct prototype_to_kernel_invocation<Image<T>> {
-    using type = ImageView<T>;
-};
-
-template<typename T>
-struct prototype_to_kernel_invocation<Volume<T>> {
-    using type = VolumeView<T>;
-};
-
-template<typename T>
 struct prototype_to_callable_invocation {
     using type = Expr<T>;
 };
@@ -60,117 +41,7 @@ template<typename T>
 using prototype_to_creation_t = typename prototype_to_creation<T>::type;
 
 template<typename T>
-using prototype_to_kernel_invocation_t = typename prototype_to_kernel_invocation<T>::type;
-
-template<typename T>
 using prototype_to_callable_invocation_t = typename prototype_to_callable_invocation<T>::type;
-
-}// namespace detail
-
-namespace detail {
-
-class KernelInvoke {
-
-private:
-    CommandHandle _command;
-    Function _kernel;
-    size_t _argument_index{0u};
-
-private:
-    [[nodiscard]] auto _launch_command() noexcept {
-        return static_cast<KernelLaunchCommand *>(_command.get());
-    }
-
-public:
-    explicit KernelInvoke(const FunctionBuilder *kernel) noexcept
-        : _command{KernelLaunchCommand::create(kernel)},
-          _kernel{kernel} {
-
-        for (auto buffer : _kernel.captured_buffers()) {
-            _launch_command()->encode_buffer(
-                buffer.variable.uid(), buffer.handle, buffer.offset_bytes,
-                static_cast<Command::Resource::Usage>(_kernel.variable_usage(buffer.variable.uid())));
-        }
-
-        for (auto texture : _kernel.captured_textures()) {
-            _launch_command()->encode_texture(
-                texture.variable.uid(), texture.handle,
-                static_cast<Command::Resource::Usage>(_kernel.variable_usage(texture.variable.uid())));
-        }
-    }
-
-    template<typename T>
-    KernelInvoke &operator<<(BufferView<T> buffer) noexcept {
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        auto usage = _kernel.variable_usage(variable_uid);
-        _launch_command()->encode_buffer(
-            variable_uid, buffer.handle(), buffer.offset_bytes(),
-            static_cast<Command::Resource::Usage>(usage));
-        return *this;
-    }
-
-    template<typename T>
-    KernelInvoke &operator<<(ImageView<T> image) noexcept {
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        auto usage = _kernel.variable_usage(variable_uid);
-        _launch_command()->encode_texture(
-            variable_uid, image.handle(),
-            static_cast<Command::Resource::Usage>(usage));
-        return *this << image.offset();
-    }
-
-    template<typename T>
-    KernelInvoke &operator<<(VolumeView<T> volume) noexcept {
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        auto usage = _kernel.variable_usage(variable_uid);
-        _launch_command()->encode_texture(
-            variable_uid, volume.handle(),
-            static_cast<Command::Resource::Usage>(usage));
-        return *this << volume.offset();
-    }
-
-    template<typename T>
-    KernelInvoke &operator<<(T data) noexcept {
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        _launch_command()->encode_uniform(variable_uid, &data, sizeof(T), alignof(T));
-        return *this;
-    }
-
-protected:
-    [[nodiscard]] auto _parallelize(uint3 launch_size) noexcept {
-        _launch_command()->set_launch_size(launch_size);
-        auto command = std::move(_command);
-        _command = nullptr;
-        return command;
-    }
-};
-
-struct KernelInvoke1D : public KernelInvoke {
-    explicit KernelInvoke1D(const FunctionBuilder *kernel) noexcept : KernelInvoke{kernel} {}
-    [[nodiscard]] auto launch(uint size_x) noexcept {
-        return _parallelize(uint3{size_x, 1u, 1u});
-    }
-};
-
-struct KernelInvoke2D : public KernelInvoke {
-    explicit KernelInvoke2D(const FunctionBuilder *kernel) noexcept : KernelInvoke{kernel} {}
-    [[nodiscard]] auto launch(uint size_x, uint size_y) noexcept {
-        return _parallelize(uint3{size_x, size_y, 1u});
-    }
-    [[nodiscard]] auto launch(uint2 size) noexcept {
-        return launch(size.x, size.y);
-    }
-};
-
-struct KernelInvoke3D : public KernelInvoke {
-    explicit KernelInvoke3D(const FunctionBuilder *kernel) noexcept : KernelInvoke{kernel} {}
-    [[nodiscard]] auto launch(uint size_x, uint size_y, uint size_z) noexcept {
-        return _parallelize(uint3{size_x, size_y, size_z});
-    }
-    [[nodiscard]] auto launch(uint3 size) noexcept {
-        return launch(size.x, size.y, size.z);
-    }
-};
 
 template<size_t N>
 [[nodiscard]] constexpr auto kernel_default_block_size() {
@@ -193,61 +64,64 @@ struct is_kernel : std::false_type {};
 template<typename T>
 struct is_callable : std::false_type {};
 
-#define LUISA_MAKE_KERNEL_ND(N)                                                                                \
-    template<typename T>                                                                                       \
-    class Kernel##N##D {                                                                                       \
-        static_assert(always_false_v<T>);                                                                      \
-    };                                                                                                         \
-                                                                                                               \
-    template<typename T>                                                                                       \
-    struct is_kernel<Kernel##N##D<T>> : std::true_type {};                                                     \
-                                                                                                               \
-    template<typename... Args>                                                                                 \
-    class Kernel##N##D<void(Args...)> {                                                                        \
-                                                                                                               \
-        static_assert(                                                                                         \
-            std::negation_v<std::disjunction<is_atomic<Args>...>>,                                             \
-            "Kernels are not allowed to have atomic arguments.");                                              \
-                                                                                                               \
-    private:                                                                                                   \
-        Arena _arena;                                                                                          \
-        const detail::FunctionBuilder *_builder{nullptr};                                                      \
-                                                                                                               \
-    public:                                                                                                    \
-        Kernel##N##D(Kernel##N##D &&) noexcept = default;                                                      \
-        Kernel##N##D(const Kernel##N##D &) noexcept = default;                                                 \
-                                                                                                               \
-        template<typename Def,                                                                                 \
-                 std::enable_if_t<                                                                             \
-                     std::conjunction_v<                                                                       \
-                         std::negation<is_callable<std::remove_cvref_t<Def>>>,                                 \
-                         std::negation<is_kernel<std::remove_cvref_t<Def>>>>,                                  \
-                     int> = 0>                                                                                 \
-        requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>          \
-            Kernel##N##D(Def &&def) noexcept {                                                                 \
-            _builder = detail::FunctionBuilder::define_kernel(_arena, [&def] {                                 \
-                detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());    \
-                std::apply(                                                                                    \
-                    std::forward<Def>(def),                                                                    \
-                    std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});         \
-            });                                                                                                \
-        }                                                                                                      \
-                                                                                                               \
-        [[nodiscard]] auto operator()(detail::prototype_to_kernel_invocation_t<Args>... args) const noexcept { \
-            detail::KernelInvoke##N##D invoke{_builder};                                                       \
-            (invoke << ... << args);                                                                           \
-            return invoke;                                                                                     \
-        }                                                                                                      \
-                                                                                                               \
-        void wait_for_compilation(Device &device) const noexcept {                                             \
-            device.impl()->compile(_builder);                                                                  \
-        }                                                                                                      \
+#define LUISA_MAKE_KERNEL_ND(N)                                                                             \
+    template<typename T>                                                                                    \
+    class Kernel##N##D {                                                                                    \
+        static_assert(always_false_v<T>);                                                                   \
+    };                                                                                                      \
+                                                                                                            \
+    template<typename T>                                                                                    \
+    struct is_kernel<Kernel##N##D<T>> : std::true_type {};                                                  \
+                                                                                                            \
+    template<typename... Args>                                                                              \
+    class Kernel##N##D<void(Args...)> {                                                                     \
+                                                                                                            \
+        static_assert(                                                                                      \
+            std::negation_v<std::disjunction<is_atomic<Args>...>>,                                          \
+            "Kernels are not allowed to have atomic arguments.");                                           \
+                                                                                                            \
+    private:                                                                                                \
+        std::shared_ptr<const detail::FunctionBuilder> _builder{nullptr};                                   \
+                                                                                                            \
+    public:                                                                                                 \
+        template<typename Def,                                                                              \
+                 std::enable_if_t<                                                                          \
+                     std::conjunction_v<                                                                    \
+                         std::negation<is_callable<std::remove_cvref_t<Def>>>,                              \
+                         std::negation<is_kernel<std::remove_cvref_t<Def>>>>,                               \
+                     int> = 0>                                                                              \
+        requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>       \
+            Kernel##N##D(Def &&def) noexcept {                                                              \
+            _builder = detail::FunctionBuilder::define_kernel([&def] {                                      \
+                detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>()); \
+                std::apply(                                                                                 \
+                    std::forward<Def>(def),                                                                 \
+                    std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});      \
+            });                                                                                             \
+        }                                                                                                   \
+        [[nodiscard]] const auto &function() const noexcept { return _builder; }                            \
     };
 
 LUISA_MAKE_KERNEL_ND(1)
 LUISA_MAKE_KERNEL_ND(2)
 LUISA_MAKE_KERNEL_ND(3)
 #undef LUISA_MAKE_KERNEL_ND
+
+// see declarations in runtime/device.h
+template<typename... Args>
+Shader<1, Args...> Device::compile(const Kernel1D<void(Args...)> &kernel) noexcept {
+    return Shader<1, Args...>{*this, kernel.function()};
+}
+
+template<typename... Args>
+Shader<2, Args...> Device::compile(const Kernel2D<void(Args...)> &kernel) noexcept {
+    return Shader<2, Args...>{*this, kernel.function()};
+}
+
+template<typename... Args>
+Shader<3, Args...> Device::compile(const Kernel3D<void(Args...)> &kernel) noexcept {
+    return Shader<3, Args...>{*this, kernel.function()};
+}
 
 namespace detail {
 
@@ -306,12 +180,9 @@ class Callable<Ret(Args...)> {
         "Callables are not allowed to have atomic arguments.");
 
 private:
-    const detail::FunctionBuilder *_builder;
+    std::shared_ptr<const detail::FunctionBuilder> _builder;
 
 public:
-    Callable(Callable &&) noexcept = default;
-    Callable(const Callable &) noexcept = default;
-
     template<typename Def,
              std::enable_if_t<
                  std::conjunction_v<
@@ -441,22 +312,30 @@ namespace luisa::compute::detail {
 
 struct CallableBuilder {
     template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Callable{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator%(F &&def) const noexcept {
+        return Callable{std::forward<F>(def)};
+    }
 };
 
 struct Kernel1DBuilder {
     template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel1D{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator%(F &&def) const noexcept {
+        return Kernel1D{std::forward<F>(def)};
+    }
 };
 
 struct Kernel2DBuilder {
     template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel2D{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator%(F &&def) const noexcept {
+        return Kernel2D{std::forward<F>(def)};
+    }
 };
 
 struct Kernel3DBuilder {
     template<typename F>
-    [[nodiscard]] auto operator%(F &&def) const noexcept { return Kernel3D{std::forward<F>(def)}; }
+    [[nodiscard]] auto operator%(F &&def) const noexcept {
+        return Kernel3D{std::forward<F>(def)};
+    }
 };
 
 }// namespace luisa::compute::detail

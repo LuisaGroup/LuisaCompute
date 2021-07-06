@@ -225,10 +225,4 @@ void Type::traverse(TypeVisitor &visitor) noexcept {
     });
 }
 
-void Type::traverse(void (*visit)(const Type *)) noexcept {
-    _registry().with_types([visit](auto &&types) noexcept {
-        for (auto &&t : types) { visit(t.get()); }
-    });
-}
-
 }// namespace luisa::compute
