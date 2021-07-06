@@ -105,6 +105,11 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _available_texture_slots.resize(initial_texture_count);
     std::iota(_available_texture_slots.rbegin(), _available_texture_slots.rend(), 0u);
 
+    static constexpr auto initial_shader_count = 16u;
+    _shader_slots.resize(initial_shader_count, {});
+    _available_shader_slots.resize(initial_shader_count);
+    std::iota(_available_shader_slots.rbegin(), _available_shader_slots.rend(), 0u);
+
     static constexpr auto initial_heap_count = 4u;
     _heap_slots.reserve(initial_heap_count);
     for (auto i = 0u; i < initial_heap_count; i++) { _heap_slots.emplace_back(nullptr); }
@@ -146,12 +151,9 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
     return _handle;
 }
 
-void MetalDevice::compile(const detail::FunctionBuilder *kernel) noexcept {
-    static_cast<void>(compiled_kernel(kernel));
-}
-
-MetalCompiler::KernelItem MetalDevice::compiled_kernel(Function kernel) const noexcept {
-    return _compiler->compile(kernel);
+MetalShader MetalDevice::compiled_kernel(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_shader_mutex};
+    return _shader_slots[handle];
 }
 
 MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
@@ -412,6 +414,31 @@ id<MTLSamplerState> MetalDevice::texture_sampler(TextureSampler sampler) noexcep
     desc.rAddressMode = convert_address_mode(sampler.address_mode()[2]);
     auto sampler_state = [_handle newSamplerStateWithDescriptor:desc];
     return _texture_samplers.emplace(sampler, sampler_state).first->second;
+}
+
+uint64_t MetalDevice::create_shader(Function kernel) noexcept {
+    Clock clock;
+    auto shader = _compiler->compile(kernel);
+    LUISA_VERBOSE_WITH_LOCATION("Compiled shader in {} ms.", clock.toc());
+    std::scoped_lock lock{_shader_mutex};
+    if (_available_shader_slots.empty()) {
+        auto shader_handle = _shader_slots.size();
+        _shader_slots.emplace_back(shader);
+        return shader_handle;
+    }
+    auto s = _available_shader_slots.back();
+    _available_shader_slots.pop_back();
+    _shader_slots[s] = shader;
+    return s;
+}
+
+void MetalDevice::dispose_shader(uint64_t handle) noexcept {
+    {
+        std::scoped_lock lock{_shader_mutex};
+        _shader_slots[handle] = {};
+        _available_shader_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Disposed shader #{}.", handle);
 }
 
 }

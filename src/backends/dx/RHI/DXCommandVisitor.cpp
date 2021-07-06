@@ -151,7 +151,7 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 			tCmd,
 			cbufferData.data(),
 			&cbData};
-		auto launchSize = cmd->launch_size();
+		auto launchSize = cmd->dispatch_size();
 
 		//Copy launch size
 		{

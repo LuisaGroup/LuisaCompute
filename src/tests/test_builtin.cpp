@@ -39,5 +39,5 @@ int main(int argc, char *argv[]) {
 
     };
 
-    device.compile(useless);
+    [[maybe_unused]] auto shader = device.compile(useless);
 }

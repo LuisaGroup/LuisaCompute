@@ -10,7 +10,7 @@
 
 namespace luisa::compute::metal {
 
-MetalCompiler::KernelItem MetalCompiler::_compile(Function kernel) noexcept {
+MetalShader MetalCompiler::compile(Function kernel) noexcept {
 
     auto hash_string = std::string{hash_to_string(kernel.hash())};
     LUISA_INFO("Compiling kernel #{}.", hash_string);
@@ -87,27 +87,9 @@ MetalCompiler::KernelItem MetalCompiler::_compile(Function kernel) noexcept {
     auto encoder = [func newArgumentEncoderWithBufferIndex:0 reflection:&reflection];
     auto members = reflection.bufferStructType.members;
 
+    // TODO: LRU
     std::scoped_lock lock{_cache_mutex};
     return _cache.try_emplace(hash, pso, encoder, members).first->second;
-}
-
-MetalCompiler::KernelItem MetalCompiler::compile(Function kernel) noexcept {
-    {
-        std::scoped_lock lock{_kernel_mutex};
-        if (auto iter = _kernels.find(kernel); iter != _kernels.cend()) {
-            return iter->second;
-        }
-    }
-
-    Clock clock;
-    auto item = _compile(kernel);
-    auto hash_string = hash_to_string(kernel.hash());
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Compiled source for kernel #{} in {} ms.",
-        hash_string, clock.toc());
-
-    std::scoped_lock lock{_kernel_mutex};
-    return _kernels.try_emplace(kernel, item).first->second;
 }
 
 }

@@ -63,20 +63,20 @@ template<typename Dest, typename Src>
     return dispatch_id().z;
 }
 
-[[nodiscard]] inline auto launch_size() noexcept {
-    return detail::Expr<uint3>{detail::FunctionBuilder::current()->launch_size()};
+[[nodiscard]] inline auto dispatch_size() noexcept {
+    return detail::Expr<uint3>{detail::FunctionBuilder::current()->dispatch_size()};
 }
 
-[[nodiscard]] inline auto launch_size_x() noexcept {
-    return launch_size().x;
+[[nodiscard]] inline auto dispatch_size_x() noexcept {
+    return dispatch_size().x;
 }
 
-[[nodiscard]] inline auto launch_size_y() noexcept {
-    return launch_size().y;
+[[nodiscard]] inline auto dispatch_size_y() noexcept {
+    return dispatch_size().y;
 }
 
-[[nodiscard]] inline auto launch_size_z() noexcept {
-    return launch_size().z;
+[[nodiscard]] inline auto dispatch_size_z() noexcept {
+    return dispatch_size().z;
 }
 
 [[nodiscard]] inline auto block_size() noexcept {

@@ -32,10 +32,10 @@ int main(int argc, char *argv[]) {
 #endif
 
     auto buffer = device.create_buffer<uint>(1u);
-    Kernel1D count = [](BufferUInt buffer) noexcept {
+    Kernel1D count_kernel = [](BufferUInt buffer) noexcept {
         Var x = buffer.atomic(0).fetch_sub(1u);
     };
-    device.compile(count);
+    auto count = device.compile(count_kernel);
 
     auto host_buffer = 0u;
     auto stream = device.create_stream();
@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
     Clock clock;
     clock.tic();
     stream << buffer.copy_from(&host_buffer)
-           << count(buffer).launch(102400u)
+           << count(buffer).dispatch(102400u)
            << buffer.copy_to(&host_buffer);
     stream.synchronize();
     auto time = clock.toc();

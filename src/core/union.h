@@ -12,6 +12,7 @@
 #include <core/concepts.h>
 #include <core/logging.h>
 #include <core/memory.h>
+#include <core/basic_types.h>
 
 namespace luisa {
 
@@ -19,11 +20,7 @@ namespace detail {
 
 template<typename Tuple, typename U, int index = 0>
 struct IndexOfImpl {
-
-    template<typename T>
-    static constexpr auto always_false = false;
-
-    static_assert(always_false<U>);
+    static_assert(always_false_v<U>);
 };
 
 template<typename U, int index>

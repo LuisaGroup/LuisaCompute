@@ -51,11 +51,11 @@ void FunctionBuilder::_append(const Statement *statement) noexcept {
 }
 
 void FunctionBuilder::break_() noexcept {
-    _append(_arena.create<BreakStmt>());
+    _append(_arena->create<BreakStmt>());
 }
 
 void FunctionBuilder::continue_() noexcept {
-    _append(_arena.create<ContinueStmt>());
+    _append(_arena->create<ContinueStmt>());
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
@@ -64,52 +64,52 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
             "Multiple non-void return statements are not allowed.");
     }
     _ret = expr ? expr->type() : nullptr;
-    _append(_arena.create<ReturnStmt>(expr));
+    _append(_arena->create<ReturnStmt>(expr));
 }
 
 void FunctionBuilder::if_(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept {
-    _append(_arena.create<IfStmt>(cond, true_branch, false_branch));
+    _append(_arena->create<IfStmt>(cond, true_branch, false_branch));
 }
 
 void FunctionBuilder::while_(const Expression *cond, const ScopeStmt *body) noexcept {
-    _append(_arena.create<WhileStmt>(cond, body));
+    _append(_arena->create<WhileStmt>(cond, body));
 }
 
 void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
-    _append(_arena.create<ExprStmt>(expr));
+    _append(_arena->create<ExprStmt>(expr));
 }
 
 void FunctionBuilder::switch_(const Expression *expr, const ScopeStmt *body) noexcept {
-    _append(_arena.create<SwitchStmt>(expr, body));
+    _append(_arena->create<SwitchStmt>(expr, body));
 }
 
 void FunctionBuilder::case_(const Expression *expr, const ScopeStmt *body) noexcept {
-    _append(_arena.create<SwitchCaseStmt>(expr, body));
+    _append(_arena->create<SwitchCaseStmt>(expr, body));
 }
 
 void FunctionBuilder::default_(const ScopeStmt *body) noexcept {
-    _append(_arena.create<SwitchDefaultStmt>(body));
+    _append(_arena->create<SwitchDefaultStmt>(body));
 }
 
 void FunctionBuilder::assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept {
-    _append(_arena.create<AssignStmt>(op, lhs, rhs));
+    _append(_arena->create<AssignStmt>(op, lhs, rhs));
 }
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {
-    return _arena.create<LiteralExpr>(type, value);
+    return _arena->create<LiteralExpr>(type, value);
 }
 
 const RefExpr *FunctionBuilder::local(const Type *type, std::span<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    ArenaVector initializer{_arena, init};
-    _append(_arena.create<DeclareStmt>(v, initializer));
+    ArenaVector initializer{*_arena, init};
+    _append(_arena->create<DeclareStmt>(v, initializer));
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    ArenaVector initializer{_arena, init};
-    _append(_arena.create<DeclareStmt>(v, initializer));
+    ArenaVector initializer{*_arena, init};
+    _append(_arena->create<DeclareStmt>(v, initializer));
     return _ref(v);
 }
 
@@ -127,7 +127,7 @@ uint32_t FunctionBuilder::_next_variable_uid() noexcept {
 const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
 const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
 const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
-const RefExpr *FunctionBuilder::launch_size() noexcept { return _builtin(Variable::Tag::LAUNCH_SIZE); }
+const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Variable::Tag::LAUNCH_SIZE); }
 
 const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
@@ -187,41 +187,41 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *element_type, uint64_
 }
 
 const UnaryExpr *FunctionBuilder::unary(const Type *type, UnaryOp op, const Expression *expr) noexcept {
-    return _arena.create<UnaryExpr>(type, op, expr);
+    return _arena->create<UnaryExpr>(type, op, expr);
 }
 
 const BinaryExpr *FunctionBuilder::binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept {
-    return _arena.create<BinaryExpr>(type, op, lhs, rhs);
+    return _arena->create<BinaryExpr>(type, op, lhs, rhs);
 }
 
 const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *self, size_t member_index) noexcept {
-    return _arena.create<MemberExpr>(type, self, member_index);
+    return _arena->create<MemberExpr>(type, self, member_index);
 }
 
 const MemberExpr *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
-    return _arena.create<MemberExpr>(type, self, swizzle_size, swizzle_code);
+    return _arena->create<MemberExpr>(type, self, swizzle_size, swizzle_code);
 }
 
 const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
-    return _arena.create<AccessExpr>(type, range, index);
+    return _arena->create<AccessExpr>(type, range, index);
 }
 
 const CastExpr *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
-    return _arena.create<CastExpr>(type, op, expr);
+    return _arena->create<CastExpr>(type, op, expr);
 }
 
 const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
-    return _arena.create<RefExpr>(v);
+    return _arena->create<RefExpr>(v);
 }
 
 ScopeStmt *FunctionBuilder::scope() noexcept {
-    return _arena.create<ScopeStmt>(ArenaVector<const Statement *>(_arena));
+    return _arena->create<ScopeStmt>(ArenaVector<const Statement *>(*_arena));
 }
 
 const ConstantExpr *FunctionBuilder::constant(const Type *type, uint64_t hash) noexcept {
     if (!type->is_array()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
     _captured_constants.emplace_back(ConstantBinding{type, hash});
-    return _arena.create<ConstantExpr>(type, hash);
+    return _arena->create<ConstantExpr>(type, hash);
 }
 
 void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {
@@ -236,7 +236,7 @@ void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
 }
 
 void FunctionBuilder::for_(const Statement *init, const Expression *condition, const Statement *update, const ScopeStmt *body) noexcept {
-    _append(_arena.create<ForStmt>(init, condition, update, body));
+    _append(_arena->create<ForStmt>(init, condition, update, body));
 }
 
 void FunctionBuilder::mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept {
@@ -245,19 +245,19 @@ void FunctionBuilder::mark_variable_usage(uint32_t uid, Variable::Usage usage) n
     _variable_usages[uid] = u;
 }
 
-FunctionBuilder::FunctionBuilder(Arena &arena, FunctionBuilder::Tag tag) noexcept
+FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcept
     : _arena{arena},
-      _body{ArenaVector<const Statement *>(arena)},
-      _scope_stack{arena},
-      _builtin_variables{arena},
-      _shared_variables{arena},
-      _captured_constants{arena},
-      _captured_buffers{arena},
-      _captured_textures{arena},
-      _arguments{arena},
-      _used_custom_callables{arena},
-      _used_builtin_callables{arena},
-      _variable_usages{arena, 128u},
+      _body{ArenaVector<const Statement *>(*arena)},
+      _scope_stack{*arena},
+      _builtin_variables{*arena},
+      _shared_variables{*arena},
+      _captured_constants{*arena},
+      _captured_buffers{*arena},
+      _captured_textures{*arena},
+      _arguments{*arena},
+      _used_custom_callables{*arena},
+      _used_builtin_callables{*arena},
+      _variable_usages{*arena, 128u},
       _hash{0ul},
       _tag{tag} {}
 
@@ -293,8 +293,8 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::ini
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
     }
-    ArenaVector func_args{_arena, args};
-    auto expr = _arena.create<CallExpr>(type, call_op, func_args);
+    ArenaVector func_args{*_arena, args};
+    auto expr = _arena->create<CallExpr>(type, call_op, func_args);
     if (std::find(_used_builtin_callables.cbegin(),
                   _used_builtin_callables.cend(),
                   call_op)
@@ -308,8 +308,8 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::in
     if (custom.tag() != Function::Tag::CALLABLE) {
         LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
     }
-    ArenaVector func_args{_arena, args};
-    auto expr = _arena.create<CallExpr>(type, custom, func_args);
+    ArenaVector func_args{*_arena, args};
+    auto expr = _arena->create<CallExpr>(type, custom, func_args);
     if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), custom);
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom);
@@ -332,6 +332,12 @@ void FunctionBuilder::_compute_hash() noexcept {
 
 void FunctionBuilder::mark_raytracing() noexcept {
     _raytracing = true;
+}
+
+FunctionBuilder::~FunctionBuilder() noexcept {
+    if (_tag == Function::Tag::KERNEL) {
+        delete _arena;// kernels owns the arena
+    }
 }
 
 }// namespace luisa::compute::detail

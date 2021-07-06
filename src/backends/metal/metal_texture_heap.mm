@@ -29,14 +29,14 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
     auto library = [_device->handle() newLibraryWithSource:src options:nullptr error:nullptr];
     auto function = [library newFunctionWithName:@"k"];
     _encoder = [function newArgumentEncoderWithBufferIndex:0];
-    _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength
-                                             options:MTLResourceOptionCPUCacheModeWriteCombined
-                                                     | MTLResourceStorageModeShared];
     if (auto enc_size = _encoder.encodedLength; enc_size != 16u) {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid heap texture encoded size: {} (expected 16).",
             enc_size);
     }
+    _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * TextureHeap::max_slot_count
+                                             options:MTLResourceOptionCPUCacheModeWriteCombined
+                                                     | MTLResourceStorageModeShared];
 }
 
 id<MTLTexture> MetalTextureHeap::allocate_texture(MTLTextureDescriptor *desc, uint32_t index, TextureSampler sampler) noexcept {

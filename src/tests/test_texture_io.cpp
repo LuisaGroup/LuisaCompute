@@ -38,19 +38,20 @@ int main(int argc, char *argv[]) {
             linear.w);
     };
 
-    Kernel2D clear_image = [](ImageVar<float> image) noexcept {
+    Kernel2D clear_image_kernel = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var rg = make_float2(coord) / make_float2(launch_size().xy());
+        Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
         image.write(coord, make_float4(make_float2(0.3f, 0.4f), 0.5f, 1.0f));
     };
 
-    Kernel2D fill_image = [&linear_to_srgb](ImageVar<float> image) noexcept {
+    Kernel2D fill_image_kernel = [&linear_to_srgb](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var rg = make_float2(coord) / make_float2(launch_size().xy());
+        Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
         image.write(coord, linear_to_srgb(make_float4(rg, 1.0f, 1.0f)));
     };
 
-    device.compile(clear_image, fill_image);
+    auto clear_image = device.compile(clear_image_kernel);
+    auto fill_image = device.compile(fill_image_kernel);
 
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
@@ -58,8 +59,8 @@ int main(int argc, char *argv[]) {
     auto event = device.create_event();
     auto stream = device.create_stream();
 
-    stream << clear_image(device_image).launch(1024u, 1024u)
-           << fill_image(device_image.view(256u, 512u)).launch(512u, 512u)
+    stream << clear_image(device_image).dispatch(1024u, 1024u)
+           << fill_image(device_image.view(256u, 512u)).dispatch(512u, 512u)
            << device_image.view().copy_to(host_image.data())
            << event.signal();
 
