@@ -705,13 +705,13 @@ void MetalCodegen::_emit_statements(std::span<const Statement *const> stmts) noe
 void MetalCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
 
     if (std::find(_generated_constants.cbegin(),
-                  _generated_constants.cend(), c.hash)
+                  _generated_constants.cend(), c.data.hash())
         != _generated_constants.cend()) { return; }
-    _generated_constants.emplace_back(c.hash);
+    _generated_constants.emplace_back(c.data.hash());
 
     _scratch << "constant ";
     _emit_type_name(c.type);
-    _scratch << " c" << hash_to_string(c.hash) << "{";
+    _scratch << " c" << hash_to_string(c.data.hash()) << "{";
     auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
@@ -724,7 +724,7 @@ void MetalCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
                 _scratch << ", ";
             }
         },
-        ConstantData::view(c.hash));
+        c.data.view());
     if (count > 0u) {
         _scratch.pop_back();
         _scratch.pop_back();
@@ -733,7 +733,7 @@ void MetalCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
 }
 
 void MetalCodegen::visit(const ConstantExpr *expr) {
-    _scratch << "c" << hash_to_string(expr->hash());
+    _scratch << "c" << hash_to_string(expr->data().hash());
 }
 
 void MetalCodegen::visit(const ForStmt *stmt) {

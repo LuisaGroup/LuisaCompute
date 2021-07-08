@@ -219,7 +219,7 @@ std::vector<TraceItem> backtrace() noexcept {
     auto info = ::backtrace_symbols(trace, count);
     std::vector<TraceItem> trace_info;
     trace_info.reserve(count - 1u);
-    for (auto i = 1; i < count; i++) {
+    for (auto i = 1 /* skip current frame */; i < count; i++) {
         std::istringstream iss{info[i]};
         auto index = 0;
         char plus = '+';

@@ -23,39 +23,23 @@ namespace detail {
 
 }// namespace detail
 
-uint64_t ConstantData::create(ConstantData::View data) noexcept {
+ConstantData ConstantData::create(ConstantData::View data) noexcept {
     return std::visit(
-        [](auto view) noexcept {
+        [](auto view) noexcept -> ConstantData {
             using T = std::remove_const_t<typename decltype(view)::value_type>;
             auto type = Type::of<T>();
             auto hash = xxh3_hash64(view.data(), view.size_bytes(), type->hash());
             std::scoped_lock lock{detail::constant_registry_mutex()};
-            if (std::none_of(
-                    detail::constant_registry().cbegin(),
-                    detail::constant_registry().cend(),
-                    [hash](auto &&item) noexcept { return item._hash == hash; })) {
-                auto ptr = Arena::global().allocate<T>(view.size());
-                std::memmove(ptr, view.data(), view.size_bytes());
-                std::span<const T> new_view{ptr, view.size()};
-                detail::constant_registry().emplace_back(ConstantData{new_view, hash});
-            }
-            return hash;
+            if (auto iter = std::find_if(detail::constant_registry().cbegin(),
+                                         detail::constant_registry().cend(),
+                                         [hash](auto &&item) noexcept { return item._hash == hash; });
+                iter != detail::constant_registry().cend()) { return *iter; }
+            auto ptr = Arena::global().allocate<T>(view.size());
+            std::memmove(ptr, view.data(), view.size_bytes());
+            std::span<const T> new_view{ptr, view.size()};
+            return detail::constant_registry().emplace_back(ConstantData{new_view, hash});
         },
         data);
-}
-
-ConstantData::View ConstantData::view(uint64_t hash) noexcept {
-
-    auto iter = std::find_if(
-        detail::constant_registry().cbegin(),
-        detail::constant_registry().cend(),
-        [hash](auto &&item) noexcept { return item._hash == hash; });
-
-    if (iter == detail::constant_registry().cend()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid constant data with hash {}.", hash);
-    }
-    return iter->_view;
 }
 
 }// namespace luisa::compute

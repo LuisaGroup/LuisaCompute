@@ -6,6 +6,7 @@
 #include <core/basic_types.h>
 #include <ast/variable.h>
 #include <ast/op.h>
+#include <ast/constant_data.h>
 
 namespace luisa::compute {
 
@@ -45,8 +46,8 @@ public:
     };
     
     struct ConstantBinding {
-        const Type *type;
-        uint64_t hash;
+        const Type *type{nullptr};
+        ConstantData data;
     };
 
 private:

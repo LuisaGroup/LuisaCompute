@@ -14,6 +14,7 @@
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <ast/op.h>
+#include <ast/constant_data.h>
 
 namespace luisa::compute {
 
@@ -219,13 +220,13 @@ public:
 class ConstantExpr : public Expression {
 
 private:
-    uint64_t _hash;
+    ConstantData _data;
     void _mark(Variable::Usage) const noexcept override {}
 
 public:
-    explicit ConstantExpr(const Type *type, uint64_t hash) noexcept
-        : Expression{type}, _hash{hash} {}
-    [[nodiscard]] auto hash() const noexcept { return _hash; }
+    explicit ConstantExpr(const Type *type, ConstantData data) noexcept
+        : Expression{type}, _data{data} {}
+    [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 

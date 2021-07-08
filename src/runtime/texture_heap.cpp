@@ -39,9 +39,7 @@ constexpr auto TextureHeap::_compute_mipmap_levels(uint width, uint height, uint
 }
 
 void TextureHeap::_destroy() noexcept {
-    if (_device != nullptr) {
-        _device->dispose_texture_heap(_handle);
-    }
+    if (_device != nullptr) { _device->dispose_texture_heap(_handle); }
 }
 
 TextureHeap::~TextureHeap() noexcept { _destroy(); }

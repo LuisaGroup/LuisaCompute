@@ -218,10 +218,10 @@ ScopeStmt *FunctionBuilder::scope() noexcept {
     return _arena->create<ScopeStmt>(ArenaVector<const Statement *>(*_arena));
 }
 
-const ConstantExpr *FunctionBuilder::constant(const Type *type, uint64_t hash) noexcept {
+const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData data) noexcept {
     if (!type->is_array()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
-    _captured_constants.emplace_back(ConstantBinding{type, hash});
-    return _arena->create<ConstantExpr>(type, hash);
+    _captured_constants.emplace_back(ConstantBinding{type, data});
+    return _arena->create<ConstantExpr>(type, data);
 }
 
 void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {

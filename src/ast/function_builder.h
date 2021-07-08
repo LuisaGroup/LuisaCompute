@@ -14,6 +14,7 @@
 #include <ast/function.h>
 #include <ast/variable.h>
 #include <ast/expression.h>
+#include <ast/constant_data.h>
 #include <ast/type_registry.h>
 
 namespace luisa::compute {
@@ -155,7 +156,7 @@ public:
     [[nodiscard]] const RefExpr *local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
     [[nodiscard]] const RefExpr *shared(const Type *type) noexcept;
 
-    [[nodiscard]] const ConstantExpr *constant(const Type *type, uint64_t hash) noexcept;
+    [[nodiscard]] const ConstantExpr *constant(const Type *type, ConstantData data) noexcept;
     [[nodiscard]] const RefExpr *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle) noexcept;
 
