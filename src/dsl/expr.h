@@ -234,15 +234,14 @@ public:
 
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto operator[](Expr<I> i) const noexcept {
+    [[nodiscard]] auto operator[](Expr<uint> i) const noexcept {
         return Expr<T>{FunctionBuilder::current()->access(
             Type::of<T>(), _expression, i.expression())};
     };
 
-    template<concepts::integral I>
-    [[nodiscard]] decltype(auto) operator[](I i) const noexcept {
-        return this->operator[](Expr<I>{i});
+    [[nodiscard]] auto operator[](Expr<int> i) const noexcept {
+        return Expr<T>{FunctionBuilder::current()->access(
+            Type::of<T>(), _expression, i.expression())};
     };
 };
 
@@ -454,40 +453,35 @@ public:
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto sample(Expr<I> i, Expr<float2> uv) const noexcept {
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
             Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
             {_expression, i.expression(), uv.expression()})};
     }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto sample(Expr<I> i, Expr<float3> uvw) const noexcept {
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
             Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
             {_expression, i.expression(), uvw.expression()})};
     }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto sample(Expr<I> i, Expr<float2> uv, Expr<float> mip) const noexcept {
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv, Expr<float> mip) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
             Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
             {_expression, i.expression(), uv.expression(), mip.expression()})};
     }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto sample(Expr<I> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
             Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
             {_expression, i.expression(), uvw.expression(), mip.expression()})};
     }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto sample(Expr<I> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
             Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
@@ -495,8 +489,51 @@ public:
              dpdx.expression(), dpdy.expression()})};
     }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto sample(Expr<I> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            {_expression, i.expression(), uvw.expression(),
+             dpdx.expression(), dpdy.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            {_expression, i.expression(), uv.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            {_expression, i.expression(), uvw.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv, Expr<float> mip) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            {_expression, i.expression(), uv.expression(), mip.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            {_expression, i.expression(), uvw.expression(), mip.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            {_expression, i.expression(), uv.expression(),
+             dpdx.expression(), dpdy.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
             Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,

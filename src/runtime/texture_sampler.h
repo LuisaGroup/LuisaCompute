@@ -43,12 +43,36 @@ private:
     bool _normalized_coords{true};
 
 public:
-    void set_max_anisotropy(uint a) noexcept { _max_anisotropy = a; }
-    void set_address_mode(AddressMode mode) noexcept { _address[0] = _address[1] = _address[2] = mode; }
-    void set_address_mode(AddressMode u, AddressMode v, AddressMode w = AddressMode::EDGE) noexcept { _address = {u, v, w}; }
-    void set_filter_mode(FilterMode mode) noexcept { _filter = mode; }
-    void set_mip_filter_mode(MipFilterMode mode) noexcept { _mip_filter = mode; }
-    void set_normalized(bool b) noexcept { _normalized_coords = b; }
+    auto &set_max_anisotropy(uint a) noexcept {
+        _max_anisotropy = a;
+        return *this;
+    }
+
+    auto &set_address_mode(AddressMode mode) noexcept {
+        _address[0] = _address[1] = _address[2] = mode;
+        return *this;
+    }
+
+    auto &set_address_mode(AddressMode u, AddressMode v, AddressMode w = AddressMode::EDGE) noexcept {
+        _address = {u, v, w};
+        return *this;
+    }
+
+    auto &set_filter_mode(FilterMode mode) noexcept {
+        _filter = mode;
+        return *this;
+    }
+
+    auto &set_mip_filter_mode(MipFilterMode mode) noexcept {
+        _mip_filter = mode;
+        return *this;
+    }
+
+    auto &set_normalized(bool b) noexcept {
+        _normalized_coords = b;
+        return *this;
+    }
+
     [[nodiscard]] auto max_anisotropy() const noexcept { return _max_anisotropy; }
     [[nodiscard]] auto address_mode() const noexcept { return _address; }
     [[nodiscard]] auto filter_mode() const noexcept { return _filter; }
