@@ -152,6 +152,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
         && (v.tag() == Variable::Tag::UNIFORM
             || v.tag() == Variable::Tag::BUFFER
             || v.tag() == Variable::Tag::TEXTURE
+            || v.tag() == Variable::Tag::TEXTURE_HEAP
             || v.tag() == Variable::Tag::DISPATCH_SIZE)) {
         _scratch << "arg.";
     }
@@ -275,6 +276,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
+        case CallOp::TEXTURE_SAMPLE_LOD: _scratch << "texture_sample_lod"; break;
+        case CallOp::TEXTURE_SAMPLE_GRAD: _scratch << "texture_sample_grad"; break;
         case CallOp::MAKE_BOOL2: _scratch << "bool2"; break;
         case CallOp::MAKE_BOOL3: _scratch << "bool3"; break;
         case CallOp::MAKE_BOOL4: _scratch << "bool4"; break;
@@ -290,6 +293,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::TRACE_CLOSEST: break;
+        case CallOp::TRACE_ANY: break;
     }
 
     _scratch << "(";
@@ -548,6 +553,7 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
+        case Variable::Tag::TEXTURE_HEAP: _scratch << "h" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
@@ -630,6 +636,10 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             } else if (usage == Variable::Usage::READ) {
                 _scratch << ", access::read> ";
             }
+            _emit_variable_name(v);
+            break;
+        case Variable::Tag::TEXTURE_HEAP:
+            _scratch << "device const Texture *";
             _emit_variable_name(v);
             break;
         case Variable::Tag::UNIFORM:
@@ -942,6 +952,42 @@ template<typename X, typename Y>
 template<typename T>
 [[gnu::always_inline, nodiscard]] inline auto select(T f, T t, bool b) {
   return b ? t : f;
+}
+
+struct Texture {
+  metal::texture2d<float> handle2d;
+  metal::texture3d<float> handle3d;
+  metal::sampler sampler;
+};
+
+[[nodiscard]] auto texture_sample(device const Texture *heap, uint index, float2 uv) {
+  device const auto &t = heap[index];
+  return t.handle2d.sample(t.sampler, uv);
+}
+
+[[nodiscard]] auto texture_sample(device const Texture *heap, uint index, float3 uvw) {
+  device const auto &t = heap[index];
+  return t.handle3d.sample(t.sampler, uvw);
+}
+
+[[nodiscard]] auto texture_sample_lod(device const Texture *heap, uint index, float2 uv, float lod) {
+  device const auto &t = heap[index];
+  return t.handle2d.sample(t.sampler, uv, level(lod));
+}
+
+[[nodiscard]] auto texture_sample_lod(device const Texture *heap, uint index, float3 uvw, float lod) {
+  device const auto &t = heap[index];
+  return t.handle3d.sample(t.sampler, uvw, level(lod));
+}
+
+[[nodiscard]] auto texture_sample_grad(device const Texture *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+  device const auto &t = heap[index];
+  return t.handle2d.sample(t.sampler, uv, gradient2d(dpdx, dpdy));
+}
+
+[[nodiscard]] auto texture_sample_grad(device const Texture *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+  device const auto &t = heap[index];
+  return t.handle3d.sample(t.sampler, uvw, gradient3d(dpdx, dpdy));
 }
 
 )";

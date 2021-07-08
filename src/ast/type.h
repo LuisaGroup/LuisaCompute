@@ -44,7 +44,8 @@ public:
         STRUCTURE,
         
         BUFFER,
-        TEXTURE
+        TEXTURE,
+        TEXTURE_HEAP
     };
 
 private:
@@ -100,6 +101,7 @@ public:
     [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == Tag::ATOMIC; }
     [[nodiscard]] constexpr bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
     [[nodiscard]] constexpr bool is_texture() const noexcept { return _tag == Tag::TEXTURE; }
+    [[nodiscard]] constexpr bool is_texture_heap() const noexcept { return _tag == Tag::TEXTURE_HEAP; }
 };
 
 }// namespace luisa::compute

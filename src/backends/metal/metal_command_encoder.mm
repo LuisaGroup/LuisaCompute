@@ -214,6 +214,18 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
             [argument_encoder setTexture:texture atIndex:arg_id];
             mark_usage(texture, command->kernel().variable_usage(vid));
+        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Encoding texture heap #{} at index {}.",
+                argument.handle, argument_index);
+            auto heap = _device->heap(argument.handle);
+            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
+            [argument_encoder setBuffer:heap->buffer()
+                                 offset:0u
+                                atIndex:arg_id];
+            [compute_encoder useResource:heap->buffer()
+                                   usage:MTLResourceUsageRead];
+            [compute_encoder useHeap:heap->handle()];
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());

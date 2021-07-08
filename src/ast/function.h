@@ -44,6 +44,13 @@ public:
         TextureBinding(Variable v, uint64_t handle) noexcept
             : variable{v}, handle{handle} {}
     };
+
+    struct TextureHeapBinding {
+        Variable variable;
+        uint64_t handle;
+        TextureHeapBinding(Variable v, uint64_t handle) noexcept
+            : variable{v}, handle{handle} {}
+    };
     
     struct ConstantBinding {
         const Type *type{nullptr};
@@ -64,6 +71,7 @@ public:
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
     [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
+    [[nodiscard]] std::span<const TextureHeapBinding> captured_texture_heaps() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const Function> custom_callables() const noexcept;
     [[nodiscard]] std::span<const CallOp> builtin_callables() const noexcept;

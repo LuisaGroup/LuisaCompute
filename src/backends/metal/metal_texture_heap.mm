@@ -21,15 +21,16 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
       _handle{[device->handle() newHeapWithDescriptor:_heap_descriptor(size)]} {
 
     static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct alignas(16) Texture {\n"
-                                 "  metal::texture2d<float> handle;\n"
+                                 "struct Texture {\n"
+                                 "  metal::texture2d<float> handle2d;\n"
+                                 "  metal::texture3d<float> handle3d;\n"
                                  "  metal::sampler sampler;\n"
                                  "};\n"
                                  "[[kernel]] void k(device const Texture *heap) {}\n";
     auto library = [_device->handle() newLibraryWithSource:src options:nullptr error:nullptr];
     auto function = [library newFunctionWithName:@"k"];
     _encoder = [function newArgumentEncoderWithBufferIndex:0];
-    if (auto enc_size = _encoder.encodedLength; enc_size != 16u) {
+    if (auto enc_size = _encoder.encodedLength; enc_size != 24u) {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid heap texture encoded size: {} (expected 16).",
             enc_size);
@@ -43,8 +44,8 @@ id<MTLTexture> MetalTextureHeap::allocate_texture(MTLTextureDescriptor *desc, ui
     auto texture = [_handle newTextureWithDescriptor:desc];
     auto sampler_state = _device->texture_sampler(sampler);
     [_encoder setArgumentBuffer:_buffer offset:16u /* checked */ * index];
-    [_encoder setTexture:texture atIndex:0u];
-    [_encoder setSamplerState:sampler_state atIndex:1u];
+    [_encoder setTexture:texture atIndex:desc.textureType == MTLTextureType2D ? 0u : 1u];
+    [_encoder setSamplerState:sampler_state atIndex:2u];
     return texture;
 }
 

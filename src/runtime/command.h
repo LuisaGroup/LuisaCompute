@@ -385,7 +385,8 @@ public:
         enum struct Tag : uint32_t {
             BUFFER,
             TEXTURE,
-            UNIFORM
+            UNIFORM,
+            TEXTURE_HEAP
         };
 
         Tag tag;
@@ -424,6 +425,14 @@ public:
               alignment{alignment} {}
     };
 
+    struct TextureHeapArgument : Argument {
+        uint64_t handle{};
+        TextureHeapArgument() noexcept : Argument{Tag::TEXTURE_HEAP, 0u} {}
+        TextureHeapArgument(uint32_t vid, uint64_t handle) noexcept
+            : Argument{Tag::TEXTURE_HEAP, vid},
+              handle{handle} {}
+    };
+
     struct ArgumentBuffer : std::array<std::byte, 2048u> {};
 
 private:
@@ -446,10 +455,12 @@ public:
     // Note: encode/decode order:
     //   1. captured buffers
     //   2. captured textures
+    //   3. captured texture heaps
     //   3. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
     void encode_texture(uint32_t variable_uid, uint64_t handle, Resource::Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
+    void encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
@@ -479,6 +490,13 @@ public:
                     std::span data{p, uniform_argument.size};
                     visit(argument.variable_uid, data);
                     p += uniform_argument.size;
+                    break;
+                }
+                case Argument::Tag::TEXTURE_HEAP: {
+                    TextureHeapArgument arg;
+                    std::memcpy(&arg, p, sizeof(TextureHeapArgument));
+                    visit(argument.variable_uid, arg);
+                    p += sizeof(TextureHeapArgument);
                     break;
                 }
                 default: {

@@ -35,6 +35,8 @@ class Volume;
 template<typename T>
 class VolumeView;
 
+class TextureHeap;
+
 class TypeRegistry {
 
 private:
@@ -161,6 +163,13 @@ struct TypeDesc<Volume<T>> {
             FMT_STRING("texture<3,{}>"),
             TypeDesc<T>::description());
         return s;
+    }
+};
+
+template<>
+struct TypeDesc<TextureHeap> {
+    static constexpr std::string_view description() noexcept {
+        return "texture_heap";
     }
 };
 

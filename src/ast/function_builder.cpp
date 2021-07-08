@@ -29,7 +29,8 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
         && !(f->builtin_variables().empty()
              && f->shared_variables().empty()
              && f->captured_buffers().empty()
-             && f->captured_textures().empty())) [[unlikely]] {
+             && f->captured_textures().empty()
+             && f->captured_texture_heaps().empty())) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom callables may not have builtin, "
             "shared or captured variables.");
@@ -254,6 +255,7 @@ FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcep
       _captured_constants{*arena},
       _captured_buffers{*arena},
       _captured_textures{*arena},
+      _captured_heaps{*arena},
       _arguments{*arena},
       _used_custom_callables{*arena},
       _used_builtin_callables{*arena},
@@ -338,6 +340,25 @@ FunctionBuilder::~FunctionBuilder() noexcept {
     if (_tag == Function::Tag::KERNEL) {
         delete _arena;// kernels owns the arena
     }
+}
+
+const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
+    if (auto iter = std::find_if(
+            _captured_heaps.cbegin(),
+            _captured_heaps.cend(),
+            [handle](auto &&binding) { return binding.handle == handle; });
+        iter != _captured_heaps.cend()) {
+        return _ref(iter->variable);
+    }
+    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
+    _captured_heaps.emplace_back(TextureHeapBinding{v, handle});
+    return _ref(v);
+}
+
+const RefExpr *FunctionBuilder::texture_heap() noexcept {
+    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return _ref(v);
 }
 
 }// namespace luisa::compute::detail

@@ -104,6 +104,17 @@ struct Var<VolumeView<T>> : public detail::Expr<Volume<T>> {
     Var &operator=(const Var &) noexcept = delete;
 };
 
+template<>
+struct Var<TextureHeap> : public detail::Expr<TextureHeap> {
+    explicit Var(detail::ArgumentCreation) noexcept
+        : detail::Expr<TextureHeap>{
+            detail::FunctionBuilder::current()->texture_heap()} {}
+    Var(Var &&) noexcept = default;
+    Var(const Var &) noexcept = delete;
+    Var &operator=(Var &&) noexcept = delete;
+    Var &operator=(const Var &) noexcept = delete;
+};
+
 template<typename T>
 Var(detail::Expr<T>) -> Var<T>;
 
@@ -121,6 +132,8 @@ using ImageVar = Var<Image<T>>;
 
 template<typename T>
 using VolumeVar = Var<Volume<T>>;
+
+using TextureHeapVar = Var<TextureHeap>;
 
 using Int = Var<int>;
 using Int2 = Var<int2>;

@@ -67,4 +67,8 @@ bool Function::raytracing() const noexcept {
     return _builder->raytracing();
 }
 
+std::span<const Function::TextureHeapBinding> Function::captured_texture_heaps() const noexcept {
+    return _builder->captured_texture_heaps();
+}
+
 }// namespace luisa::compute

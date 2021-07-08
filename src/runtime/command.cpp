@@ -135,6 +135,22 @@ ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) n
     : _handle{handle},
       _kernel{kernel} {}
 
+void ShaderDispatchCommand::encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept {
+    if (_argument_buffer_size + sizeof(TextureHeapArgument) > _argument_buffer.size()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to encode texture heap. "
+            "Shader argument buffer exceeded size limit {}.",
+            _argument_buffer.size());
+    }
+    TextureHeapArgument argument{variable_uid, handle};
+    std::memcpy(
+        _argument_buffer.data() + _argument_buffer_size,
+        &argument, sizeof(TextureHeapArgument));
+    _use_resource(handle, Resource::Tag::TEXTURE, Command::Resource::Usage::READ);
+    _argument_buffer_size += sizeof(TextureHeapArgument);
+    _argument_count++;
+}
+
 namespace detail {
 
 #define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd)       \

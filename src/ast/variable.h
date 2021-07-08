@@ -25,6 +25,7 @@ public:
         // resources
         BUFFER,
         TEXTURE,
+        TEXTURE_HEAP,
         
         // TODO: Bindless Textures
 
