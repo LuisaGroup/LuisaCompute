@@ -30,7 +30,7 @@ private:
 	static void SetSubMode(bool b);
 	size_t size = 0;
 	size_t byteAlign = 0;
-	vengine::vector<size_t> vars;
+	vstd::vector<size_t> vars;
 	friend class CBVarBase;
 
 public:

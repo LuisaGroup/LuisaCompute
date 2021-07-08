@@ -14,7 +14,7 @@ class VENGINE_DLL_COMMON VObject {
 	friend class PtrLink;
 
 private:
-	vengine::vector<Runnable<void(VObject*)>> disposeFuncs;
+	vstd::vector<Runnable<void(VObject*)>> disposeFuncs;
 	static std::atomic<size_t> CurrentID;
 	size_t instanceID;
 
@@ -100,14 +100,14 @@ public:
 		Dispose();
 	}
 };
-namespace vengine {
+namespace vstd {
 template<typename T, typename F>
 size_t GetOffset() {
 	T* const ptr = reinterpret_cast<T*>(1);
 	F* const fPtr = static_cast<F*>(ptr);
 	return (size_t)fPtr - (size_t)1;
 }
-}// namespace vengine
+}// namespace vstd
 template<typename T>
 class ObjWeakPtr;
 template<typename T>
@@ -260,7 +260,7 @@ public:
 
 	template<typename F>
 	inline ObjectPtr<F> CastTo() const& noexcept {
-		return ObjectPtr<F>(link, vengine::GetOffset<T, F>());
+		return ObjectPtr<F>(link, vstd::GetOffset<T, F>());
 	}
 	template<typename F>
 	inline ObjectPtr<F> Reinterpret_CastTo(size_t offset) const& noexcept {
@@ -268,7 +268,7 @@ public:
 	}
 	template<typename F>
 	inline ObjectPtr<F> CastTo() && noexcept {
-		return ObjectPtr<F>(std::move(link), vengine::GetOffset<T, F>());
+		return ObjectPtr<F>(std::move(link), vstd::GetOffset<T, F>());
 	}
 	template<typename F>
 	inline ObjectPtr<F> Reinterpret_CastTo(size_t offset) && noexcept {
@@ -483,7 +483,7 @@ public:
 
 	template<typename F>
 	inline ObjWeakPtr<F> CastTo() const& noexcept {
-		return ObjWeakPtr<F>(link, vengine::GetOffset<T, F>());
+		return ObjWeakPtr<F>(link, vstd::GetOffset<T, F>());
 	}
 	template<typename F>
 	inline ObjWeakPtr<F> Reinterpret_CastTo(size_t offset) const& noexcept {
@@ -491,7 +491,7 @@ public:
 	}
 	template<typename F>
 	inline ObjWeakPtr<F> CastTo() && noexcept {
-		return ObjWeakPtr<F>(std::move(link), vengine::GetOffset<T, F>());
+		return ObjWeakPtr<F>(std::move(link), vstd::GetOffset<T, F>());
 	}
 	template<typename F>
 	inline ObjWeakPtr<F> Reinterpret_CastTo(size_t offset) && noexcept {

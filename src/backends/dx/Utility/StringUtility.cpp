@@ -1,7 +1,7 @@
 
 #include <Utility/StringUtility.h>
 #include <Common/BitArray.h>
-void StringUtil::IndicesOf(const vengine::string& str, const vengine::string& sign, vengine::vector<uint>& v) {
+void StringUtil::IndicesOf(const vstd::string& str, const vstd::string& sign, vstd::vector<uint>& v) {
 	v.clear();
 	if (str.empty()) return;
 	int count = str.length() - sign.length() + 1;
@@ -22,7 +22,7 @@ void StringUtil::IndicesOf(const vengine::string& str, const vengine::string& si
 void StringUtil::SplitCodeString(
 	char const* beg,
 	char const* end,
-	vengine::vector<vengine::string_view>& results,
+	vstd::vector<vstd::string_view>& results,
 	void* ptr,
 	funcPtr_t<CharCutState(void*, char)> func) {
 	for (char const* i = beg; i < end; ++i) {
@@ -44,7 +44,7 @@ void StringUtil::SplitCodeString(
 		results.emplace_back(beg, end);
 }
 
-void StringUtil::IndicesOf(const vengine::string& str, char sign, vengine::vector<uint>& v) {
+void StringUtil::IndicesOf(const vstd::string& str, char sign, vstd::vector<uint>& v) {
 	v.clear();
 	int count = str.length();
 	v.reserve(10);
@@ -55,10 +55,10 @@ void StringUtil::IndicesOf(const vengine::string& str, char sign, vengine::vecto
 	}
 }
 
-void StringUtil::CutToLine(const char* str, const char* end, vengine::vector<vengine::string>& lines) {
+void StringUtil::CutToLine(const char* str, const char* end, vstd::vector<vstd::string>& lines) {
 	lines.clear();
 	lines.reserve(32);
-	vengine::vector<char> c;
+	vstd::vector<char> c;
 	c.reserve(32);
 	for (char const* ite = str; ite < end; ++ite) {
 		if (*ite == '\n') {
@@ -74,10 +74,10 @@ void StringUtil::CutToLine(const char* str, const char* end, vengine::vector<ven
 	}
 }
 
-void StringUtil::CutToLine_ContainEmptyLine(const char* str, const char* end, vengine::vector<vengine::string>& lines) {
+void StringUtil::CutToLine_ContainEmptyLine(const char* str, const char* end, vstd::vector<vstd::string>& lines) {
 	lines.clear();
 	lines.reserve(32);
-	vengine::vector<char> c;
+	vstd::vector<char> c;
 	c.reserve(32);
 	for (char const* ite = str; ite < end; ++ite) {
 		if (*ite == '\n') {
@@ -95,7 +95,7 @@ void StringUtil::CutToLine_ContainEmptyLine(const char* str, const char* end, ve
 	}
 }
 
-void StringUtil::CutToLine_ContainEmptyLine(const char* str, const char* end, vengine::vector<vengine::string_view>& lines) {
+void StringUtil::CutToLine_ContainEmptyLine(const char* str, const char* end, vstd::vector<vstd::string_view>& lines) {
 	lines.clear();
 	lines.reserve(32);
 	char const* start = str;
@@ -123,7 +123,7 @@ void StringUtil::CutToLine_ContainEmptyLine(const char* str, const char* end, ve
 	}
 }
 
-void StringUtil::CutToLine(const char* str, const char* end, vengine::vector<vengine::string_view>& lines) {
+void StringUtil::CutToLine(const char* str, const char* end, vstd::vector<vstd::string_view>& lines) {
 	lines.clear();
 	lines.reserve(32);
 	char const* start = str;
@@ -150,26 +150,26 @@ void StringUtil::CutToLine(const char* str, const char* end, vengine::vector<ven
 	}
 }
 
-void StringUtil::CutToLine(const vengine::string& str, vengine::vector<vengine::string>& lines) {
+void StringUtil::CutToLine(const vstd::string& str, vstd::vector<vstd::string>& lines) {
 	return CutToLine(str.data(), str.data() + str.size(), lines);
 }
 
-void StringUtil::CutToLine_ContainEmptyLine(const vengine::string& str, vengine::vector<vengine::string>& lines) {
+void StringUtil::CutToLine_ContainEmptyLine(const vstd::string& str, vstd::vector<vstd::string>& lines) {
 	return CutToLine_ContainEmptyLine(str.data(), str.data() + str.size(), lines);
 }
 
-void StringUtil::CutToLine(const vengine::string& str, vengine::vector<vengine::string_view>& lines) {
+void StringUtil::CutToLine(const vstd::string& str, vstd::vector<vstd::string_view>& lines) {
 	return CutToLine(str.data(), str.data() + str.size(), lines);
 }
-void StringUtil::CutToLine_ContainEmptyLine(const vengine::string& str, vengine::vector<vengine::string_view>& lines) {
+void StringUtil::CutToLine_ContainEmptyLine(const vstd::string& str, vstd::vector<vstd::string_view>& lines) {
 	return CutToLine_ContainEmptyLine(str.data(), str.data() + str.size(), lines);
 }
 
-void StringUtil::ReadLines(std::ifstream& ifs, vengine::vector<vengine::string>& lines) {
+void StringUtil::ReadLines(std::ifstream& ifs, vstd::vector<vstd::string>& lines) {
 	ifs.seekg(0, std::ios::end);
 	int64_t size = ifs.tellg();
 	ifs.seekg(0, std::ios::beg);
-	vengine::vector<char> buffer(size);
+	vstd::vector<char> buffer(size);
 	memset(buffer.data(), 0, size);
 	ifs.read(buffer.data(), size);
 	for (int64_t sz = buffer.size() - 1; sz >= 0; --sz) {
@@ -181,7 +181,7 @@ void StringUtil::ReadLines(std::ifstream& ifs, vengine::vector<vengine::string>&
 	CutToLine(buffer.data(), buffer.data() + buffer.size(), lines);
 }
 
-int StringUtil::GetFirstIndexOf(const vengine::string& str, char sign) {
+int StringUtil::GetFirstIndexOf(const vstd::string& str, char sign) {
 	int count = str.length();
 	for (int i = 0; i < count; ++i) {
 		if (sign == str[i]) {
@@ -191,7 +191,7 @@ int StringUtil::GetFirstIndexOf(const vengine::string& str, char sign) {
 	return -1;
 }
 
-int StringUtil::GetFirstIndexOf(const vengine::string& str, const vengine::string& sign) {
+int StringUtil::GetFirstIndexOf(const vstd::string& str, const vstd::string& sign) {
 	int count = str.length() - sign.length() + 1;
 	for (int i = 0; i < count; ++i) {
 		bool success = true;
@@ -207,12 +207,12 @@ int StringUtil::GetFirstIndexOf(const vengine::string& str, const vengine::strin
 	return -1;
 }
 
-void StringUtil::Split(const vengine::string& str, char sign, vengine::vector<vengine::string>& v) {
-	vengine::vector<uint> indices;
+void StringUtil::Split(const vstd::string& str, char sign, vstd::vector<vstd::string>& v) {
+	vstd::vector<uint> indices;
 	IndicesOf(str, sign, indices);
 	v.clear();
 	v.reserve(10);
-	vengine::string s;
+	vstd::string s;
 	s.reserve(str.size());
 	uint startPos = 0;
 	for (auto index = indices.begin(); index != indices.end(); ++index) {
@@ -228,30 +228,30 @@ void StringUtil::Split(const vengine::string& str, char sign, vengine::vector<ve
 		v.push_back(s);
 }
 
-void StringUtil::Split(const vengine::string& str, char sign, vengine::vector<vengine::string_view>& v) {
-	vengine::vector<uint> indices;
+void StringUtil::Split(const vstd::string& str, char sign, vstd::vector<vstd::string_view>& v) {
+	vstd::vector<uint> indices;
 	IndicesOf(str, sign, indices);
 	v.clear();
 	v.reserve(10);
-	vengine::string_view s;
+	vstd::string_view s;
 	int startPos = 0;
 	for (auto index = indices.begin(); index != indices.end(); ++index) {
-		s = vengine::string_view(&str[startPos], *index - startPos);
+		s = vstd::string_view(&str[startPos], *index - startPos);
 		startPos = *index + 1;
 		if (s.size() > 0)
 			v.push_back(s);
 	}
-	s = vengine::string_view(&str[startPos], str.length() - startPos);
+	s = vstd::string_view(&str[startPos], str.length() - startPos);
 	if (s.size() > 0)
 		v.push_back(s);
 }
 
-void StringUtil::Split(const vengine::string& str, const vengine::string& sign, vengine::vector<vengine::string>& v) {
-	vengine::vector<uint> indices;
+void StringUtil::Split(const vstd::string& str, const vstd::string& sign, vstd::vector<vstd::string>& v) {
+	vstd::vector<uint> indices;
 	IndicesOf(str, sign, indices);
 	v.clear();
 	v.reserve(10);
-	vengine::string s;
+	vstd::string s;
 	s.reserve(str.size());
 	uint startPos = 0;
 	for (auto index = indices.begin(); index != indices.end(); ++index) {
@@ -267,20 +267,20 @@ void StringUtil::Split(const vengine::string& str, const vengine::string& sign, 
 		v.push_back(s);
 }
 
-void StringUtil::Split(const vengine::string& str, const vengine::string& sign, vengine::vector<vengine::string_view>& v) {
-	vengine::vector<uint> indices;
+void StringUtil::Split(const vstd::string& str, const vstd::string& sign, vstd::vector<vstd::string_view>& v) {
+	vstd::vector<uint> indices;
 	IndicesOf(str, sign, indices);
 	v.clear();
 	v.reserve(10);
-	vengine::string_view s;
+	vstd::string_view s;
 	int startPos = 0;
 	for (auto index = indices.begin(); index != indices.end(); ++index) {
-		s = vengine::string_view(&str[startPos], *index - startPos);
+		s = vstd::string_view(&str[startPos], *index - startPos);
 		startPos = *index + 1;
 		if (s.size() > 0)
 			v.push_back(s);
 	}
-	s = vengine::string_view(&str[startPos], str.length() - startPos);
+	s = vstd::string_view(&str[startPos], str.length() - startPos);
 	if (s.size() > 0)
 		v.push_back(s);
 }
@@ -293,7 +293,7 @@ inline void mtoupper(char& c) {
 		c = c + ('A' - 'a');
 }
 
-void StringUtil::ToLower(vengine::string& str) {
+void StringUtil::ToLower(vstd::string& str) {
 	char* c = str.data();
 	const uint size = str.length();
 	for (uint i = 0; i < size; ++i) {
@@ -324,14 +324,14 @@ bool StringUtil::CheckStringIsFloat(const char* beg, const char* end) {
 	}
 	return true;
 }
-void StringUtil::ToUpper(vengine::string& str) {
+void StringUtil::ToUpper(vstd::string& str) {
 	char* c = str.data();
 	const uint size = str.length();
 	for (uint i = 0; i < size; ++i) {
 		mtoupper(c[i]);
 	}
 }
-void StringUtil::CullCharacater(vengine::string const& source, vengine::string& dest, std::initializer_list<char> const& lists) {
+void StringUtil::CullCharacater(vstd::string const& source, vstd::string& dest, std::initializer_list<char> const& lists) {
 	BitArray bit(256);
 	for (auto i : lists) {
 		bit[(uint8_t)i] = 1;
@@ -355,7 +355,7 @@ void StringUtil::CullCharacater(vengine::string const& source, vengine::string& 
 		dest.push_back_all(last, sz);
 	}
 }
-void StringUtil::CullCharacater(vengine::string_view const& source, vengine::string& dest, std::initializer_list<char> const& lists) {
+void StringUtil::CullCharacater(vstd::string_view const& source, vstd::string& dest, std::initializer_list<char> const& lists) {
 	BitArray bit(256);
 	for (auto i : lists) {
 		bit[(uint8_t)i] = 1;
@@ -408,7 +408,7 @@ bool StringUtil::IsCharAvaliableCode(char c) {
 	}
 	return true;
 }
-bool StringUtil::ReadStringFromFile(vengine::string const& path, vengine::string& data) {
+bool StringUtil::ReadStringFromFile(vstd::string const& path, vstd::string& data) {
 	std::ifstream ifs(path.c_str());
 	if (!ifs) return false;
 	ifs.seekg(0, std::ios::end);
@@ -429,7 +429,7 @@ bool StringUtil::ReadStringFromFile(vengine::string const& path, vengine::string
 namespace StringUtilGlobal {
 template<bool containType>
 void InputCommentFunc(
-	vengine::vector<StringUtil::CodeChunk>& vec,
+	vstd::vector<StringUtil::CodeChunk>& vec,
 	StringUtil::CodeType type,
 	char const*& lastPtr,
 	char const*& ite,
@@ -486,21 +486,21 @@ bool StringUtil::CompareCharArray(
 	return CompareCharArray(first, second, len);
 }
 
-void StringUtil::SampleCodeFile(vengine::string const& fileData, vengine::vector<CodeChunk>& results, bool separateCodeAndString, bool disposeComment) {
+void StringUtil::SampleCodeFile(vstd::string const& fileData, vstd::vector<CodeChunk>& results, bool separateCodeAndString, bool disposeComment) {
 	using namespace StringUtilGlobal;
 	results.clear();
 	if (fileData.empty()) return;
 	char const* begin = fileData.data();
 	char const* end = fileData.data() + fileData.size();
 	char const* codeStart = begin;
-	auto CollectTailFunc = [&](vengine::vector<CodeChunk>& res) -> void {
+	auto CollectTailFunc = [&](vstd::vector<CodeChunk>& res) -> void {
 		if (
 			reinterpret_cast<int64_t>(end) - reinterpret_cast<int64_t>(codeStart) > 0) {
 			res.emplace_back(codeStart, end, CodeType::Code);
 		}
 	};
 	if (separateCodeAndString) {
-		vengine::vector<CodeChunk> codeAndComments;
+		vstd::vector<CodeChunk> codeAndComments;
 		for (char const* ite = begin; ite < end; ++ite) {
 			if (disposeComment) {
 				InputCommentFunc<false>(
@@ -629,9 +629,9 @@ void StringUtil::SampleCodeFile(vengine::string const& fileData, vengine::vector
 	}
 }
 void StringUtil::SeparateString(
-	vengine::string const& str,
+	vstd::string const& str,
 	funcPtr_t<bool(char const*, char const*)> judgeFunc,
-	vengine::vector<std::pair<vengine::string, bool>>& vec) {
+	vstd::vector<std::pair<vstd::string, bool>>& vec) {
 	vec.clear();
 	char const* lastBeg = str.data();
 	bool flag = false;
@@ -658,9 +658,9 @@ void StringUtil::SeparateString(
 	}
 }
 void StringUtil::SeparateString(
-	vengine::string const& str,
+	vstd::string const& str,
 	funcPtr_t<bool(char const*, char const*)> judgeFunc,
-	vengine::vector<vengine::string>& vec) {
+	vstd::vector<vstd::string>& vec) {
 	vec.clear();
 	char const* lastBeg = str.data();
 	bool flag = false;
@@ -680,7 +680,7 @@ void StringUtil::SeparateString(
 		vec.emplace_back(lastBeg, ite);
 	}
 }
-int64_t StringUtil::StringToInt(const vengine::string& str) {
+int64_t StringUtil::StringToInt(const vstd::string& str) {
 	if (str.empty()) return 0;
 	int64_t v;
 	int64_t result = 0;

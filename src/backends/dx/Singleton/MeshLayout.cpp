@@ -22,7 +22,7 @@ void MeshLayout::GenerateDesc(
 	ArrayList<D3D12_INPUT_ELEMENT_DESC>& target,
 	MeshLayoutKey const& layoutKey) {
 	target.reserve(10);
-	vengine::vector<uint> byteOffsets;
+	vstd::vector<uint> byteOffsets;
 	byteOffsets.reserve(10);
 	auto InputStringByte = [&](char const* name, GFXFormat format, uint byteSize, uint semanticIndex, int32 slot) -> void {
 		if (slot >= 0) {

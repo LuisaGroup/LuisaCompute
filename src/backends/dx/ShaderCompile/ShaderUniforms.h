@@ -19,8 +19,8 @@ enum class ShaderFileType : uint8_t {
 	DXRShader
 };
 struct Pass {
-	vengine::string vsShaderr;
-	vengine::string psShader;
+	vstd::string vsShaderr;
+	vstd::string psShader;
 	D3D12_RASTERIZER_DESC rasterizeState;
 	D3D12_DEPTH_STENCIL_DESC depthStencilState;
 	D3D12_BLEND_DESC blendState;
@@ -37,11 +37,11 @@ enum class HitGroupFunctionType : uint8_t {
 
 
 struct PassDescriptor {
-	vengine::string name;
-	vengine::string vertex;
-	vengine::string fragment;
-	vengine::string hull;
-	vengine::string domain;
+	vstd::string name;
+	vstd::string vertex;
+	vstd::string fragment;
+	vstd::string hull;
+	vstd::string domain;
 	D3D12_RASTERIZER_DESC rasterizeState;
 	D3D12_DEPTH_STENCIL_DESC depthStencilState;
 	D3D12_BLEND_DESC blendState;

@@ -4,7 +4,7 @@ CJsonObject::CJsonObject()
 	: m_pJsonData(NULL), m_pExternJsonDataRef(NULL), m_pKeyTravers(NULL) {
 	// m_pJsonData = cJSON_CreateObject();
 }
-CJsonObject::CJsonObject(const vengine::string& strJson)
+CJsonObject::CJsonObject(const vstd::string& strJson)
 	: m_pJsonData(NULL), m_pExternJsonDataRef(NULL), m_pKeyTravers(NULL) {
 	Parse(strJson);
 }
@@ -28,7 +28,7 @@ CJsonObject& CJsonObject::operator=(const CJsonObject& oJsonObject) {
 bool CJsonObject::operator==(const CJsonObject& oJsonObject) const {
 	return (this->ToString() == oJsonObject.ToString());
 }
-bool CJsonObject::AddEmptySubObject(const vengine::string& strKey) {
+bool CJsonObject::AddEmptySubObject(const vstd::string& strKey) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -53,14 +53,14 @@ bool CJsonObject::AddEmptySubObject(const vengine::string& strKey) {
 	}
 	cJSON* pJsonStruct = cJSON_CreateObject();
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("create sub empty object error!"_sv);
+		m_strErrMsg = vstd::string("create sub empty object error!"_sv);
 		return (false);
 	}
 	cJSON_AddItemToObject(pFocusData, strKey.c_str(), pJsonStruct);
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::AddEmptySubArray(const vengine::string& strKey) {
+bool CJsonObject::AddEmptySubArray(const vstd::string& strKey) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -85,14 +85,14 @@ bool CJsonObject::AddEmptySubArray(const vengine::string& strKey) {
 	}
 	cJSON* pJsonStruct = cJSON_CreateArray();
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("create sub empty array error!"_sv);
+		m_strErrMsg = vstd::string("create sub empty array error!"_sv);
 		return (false);
 	}
 	cJSON_AddItemToObject(pFocusData, strKey.c_str(), pJsonStruct);
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::GetKey(vengine::string& strKey) {
+bool CJsonObject::GetKey(vstd::string& strKey) {
 	if (IsArray()) {
 		return (false);
 	}
@@ -125,7 +125,7 @@ void CJsonObject::ResetTraversing() {
 		m_pKeyTravers = m_pExternJsonDataRef;
 	}
 }
-CJsonObject& CJsonObject::operator[](const vengine::string& strKey) {
+CJsonObject& CJsonObject::operator[](const vstd::string& strKey) {
 	auto iter = m_mapJsonObjectRef.Find(strKey);
 	if (!iter) {
 		cJSON* pJsonStruct = NULL;
@@ -177,7 +177,7 @@ CJsonObject& CJsonObject::operator[](uint32_t uiWhich) {
 		return (*(iter.Value()));
 	}
 }
-vengine::string CJsonObject::operator()(const vengine::string& strKey) const {
+vstd::string CJsonObject::operator()(const vstd::string& strKey) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -189,7 +189,7 @@ vengine::string CJsonObject::operator()(const vengine::string& strKey) const {
 		}
 	}
 	if (pJsonStruct == NULL) {
-		return (vengine::string(""_sv));
+		return (vstd::string(""_sv));
 	}
 	if (pJsonStruct->type == cJSON_String) {
 		return (pJsonStruct->valuestring);
@@ -208,7 +208,7 @@ vengine::string CJsonObject::operator()(const vengine::string& strKey) const {
 				snprintf(szNumber, sizeof(szNumber), "%llu", pJsonStruct->valueint);
 			}
 		}
-		return (vengine::string(szNumber));
+		return (vstd::string(szNumber));
 	} else if (pJsonStruct->type == cJSON_Double) {
 		char szNumber[128] = {0};
 		if (fabs(pJsonStruct->valuedouble) < 1.0e-6 || fabs(pJsonStruct->valuedouble) > 1.0e9) {
@@ -217,13 +217,13 @@ vengine::string CJsonObject::operator()(const vengine::string& strKey) const {
 			snprintf(szNumber, sizeof(szNumber), "%f", pJsonStruct->valuedouble);
 		}
 	} else if (pJsonStruct->type == cJSON_False) {
-		return (vengine::string("false"_sv));
+		return (vstd::string("false"_sv));
 	} else if (pJsonStruct->type == cJSON_True) {
-		return (vengine::string("true"_sv));
+		return (vstd::string("true"_sv));
 	}
-	return (vengine::string(""_sv));
+	return (vstd::string(""_sv));
 }
-vengine::string CJsonObject::operator()(uint32_t uiWhich) const {
+vstd::string CJsonObject::operator()(uint32_t uiWhich) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Array) {
@@ -235,7 +235,7 @@ vengine::string CJsonObject::operator()(uint32_t uiWhich) const {
 		}
 	}
 	if (pJsonStruct == NULL) {
-		return (vengine::string(""_sv));
+		return (vstd::string(""_sv));
 	}
 	if (pJsonStruct->type == cJSON_String) {
 		return (pJsonStruct->valuestring);
@@ -254,7 +254,7 @@ vengine::string CJsonObject::operator()(uint32_t uiWhich) const {
 				snprintf(szNumber, sizeof(szNumber), "%llu", pJsonStruct->valueint);
 			}
 		}
-		return (vengine::string(szNumber));
+		return (vstd::string(szNumber));
 	} else if (pJsonStruct->type == cJSON_Double) {
 		char szNumber[128] = {0};
 		if (fabs(pJsonStruct->valuedouble) < 1.0e-6 || fabs(pJsonStruct->valuedouble) > 1.0e9) {
@@ -263,18 +263,18 @@ vengine::string CJsonObject::operator()(uint32_t uiWhich) const {
 			snprintf(szNumber, sizeof(szNumber), "%f", pJsonStruct->valuedouble);
 		}
 	} else if (pJsonStruct->type == cJSON_False) {
-		return (vengine::string("false"_sv));
+		return (vstd::string("false"_sv));
 	} else if (pJsonStruct->type == cJSON_True) {
-		return (vengine::string("true"_sv));
+		return (vstd::string("true"_sv));
 	}
-	return (vengine::string(""_sv));
+	return (vstd::string(""_sv));
 }
-bool CJsonObject::Parse(const vengine::string& strJson) {
+bool CJsonObject::Parse(const vstd::string& strJson) {
 	Clear();
 	m_pJsonData = cJSON_Parse(strJson.c_str());
 	m_pKeyTravers = m_pJsonData;
 	if (m_pJsonData == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
+		m_strErrMsg = vstd::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	return (true);
@@ -293,7 +293,7 @@ void CJsonObject::Clear() {
 		}
 	});
 	m_mapJsonArrayRef.Clear();
-	m_mapJsonObjectRef.IterateAll([&](vengine::string const& key, CJsonObject*& value) -> void {
+	m_mapJsonObjectRef.IterateAll([&](vstd::string const& key, CJsonObject*& value) -> void {
 		if (value != nullptr) {
 			delete value;
 			value = NULL;
@@ -325,9 +325,9 @@ bool CJsonObject::IsArray() const {
 		return (false);
 	}
 }
-vengine::string CJsonObject::ToString() const {
+vstd::string CJsonObject::ToString() const {
 	char* pJsonString = NULL;
-	vengine::string strJsonData = ""_sv;
+	vstd::string strJsonData = ""_sv;
 	if (m_pJsonData != NULL) {
 		pJsonString = cJSON_PrintUnformatted(m_pJsonData);
 	} else if (m_pExternJsonDataRef != NULL) {
@@ -339,9 +339,9 @@ vengine::string CJsonObject::ToString() const {
 	}
 	return (strJsonData);
 }
-vengine::string CJsonObject::ToFormattedString() const {
+vstd::string CJsonObject::ToFormattedString() const {
 	char* pJsonString = NULL;
-	vengine::string strJsonData = ""_sv;
+	vstd::string strJsonData = ""_sv;
 	if (m_pJsonData != NULL) {
 		pJsonString = cJSON_Print(m_pJsonData);
 	} else if (m_pExternJsonDataRef != NULL) {
@@ -353,7 +353,7 @@ vengine::string CJsonObject::ToFormattedString() const {
 	}
 	return (strJsonData);
 }
-bool CJsonObject::Get(const vengine::string& strKey, CJsonObject& oJsonObject) const {
+bool CJsonObject::Get(const vstd::string& strKey, CJsonObject& oJsonObject) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -368,7 +368,7 @@ bool CJsonObject::Get(const vengine::string& strKey, CJsonObject& oJsonObject) c
 		return (false);
 	}
 	char* pJsonString = cJSON_Print(pJsonStruct);
-	vengine::string strJsonData = pJsonString;
+	vstd::string strJsonData = pJsonString;
 	vengine_free(pJsonString);
 	if (oJsonObject.Parse(strJsonData)) {
 		return (true);
@@ -376,7 +376,7 @@ bool CJsonObject::Get(const vengine::string& strKey, CJsonObject& oJsonObject) c
 		return (false);
 	}
 }
-cJSON* CJsonObject::Get(const vengine::string& strKey) const {
+cJSON* CJsonObject::Get(const vstd::string& strKey) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -389,7 +389,7 @@ cJSON* CJsonObject::Get(const vengine::string& strKey) const {
 	}
 	return pJsonStruct;
 }
-bool CJsonObject::Get(const vengine::string& strKey, vengine::string& strValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, vstd::string& strValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -409,7 +409,7 @@ bool CJsonObject::Get(const vengine::string& strKey, vengine::string& strValue) 
 	strValue = pJsonStruct->valuestring;
 	return (true);
 }
-bool CJsonObject::Get(const vengine::string& strKey, int32& iValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, int32& iValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -432,7 +432,7 @@ bool CJsonObject::Get(const vengine::string& strKey, int32& iValue) const {
 	}
 	return (false);
 }
-bool CJsonObject::Get(const vengine::string& strKey, uint32_t& uiValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, uint32_t& uiValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -455,7 +455,7 @@ bool CJsonObject::Get(const vengine::string& strKey, uint32_t& uiValue) const {
 	}
 	return (false);
 }
-bool CJsonObject::Get(const vengine::string& strKey, int64& llValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, int64& llValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -478,7 +478,7 @@ bool CJsonObject::Get(const vengine::string& strKey, int64& llValue) const {
 	}
 	return (false);
 }
-bool CJsonObject::Get(const vengine::string& strKey, uint64& ullValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, uint64& ullValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -501,7 +501,7 @@ bool CJsonObject::Get(const vengine::string& strKey, uint64& ullValue) const {
 	}
 	return (false);
 }
-bool CJsonObject::Get(const vengine::string& strKey, bool& bValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, bool& bValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -521,7 +521,7 @@ bool CJsonObject::Get(const vengine::string& strKey, bool& bValue) const {
 	bValue = pJsonStruct->type;
 	return (true);
 }
-bool CJsonObject::Get(const vengine::string& strKey, float& fValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, float& fValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -541,7 +541,7 @@ bool CJsonObject::Get(const vengine::string& strKey, float& fValue) const {
 	}
 	return (false);
 }
-bool CJsonObject::Get(const vengine::string& strKey, double& dValue) const {
+bool CJsonObject::Get(const vstd::string& strKey, double& dValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -561,7 +561,7 @@ bool CJsonObject::Get(const vengine::string& strKey, double& dValue) const {
 	}
 	return (false);
 }
-bool CJsonObject::IsNull(const vengine::string& strKey) const {
+bool CJsonObject::IsNull(const vstd::string& strKey) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Object) {
@@ -580,7 +580,7 @@ bool CJsonObject::IsNull(const vengine::string& strKey) const {
 	}
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, const CJsonObject& oJsonObject) {
+bool CJsonObject::Add(const vstd::string& strKey, const CJsonObject& oJsonObject) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -605,7 +605,7 @@ bool CJsonObject::Add(const vengine::string& strKey, const CJsonObject& oJsonObj
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
+		m_strErrMsg = vstd::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	cJSON_AddItemToObject(pFocusData, strKey.c_str(), pJsonStruct);
@@ -623,7 +623,7 @@ bool CJsonObject::Add(const vengine::string& strKey, const CJsonObject& oJsonObj
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, const vengine::string& strValue) {
+bool CJsonObject::Add(const vstd::string& strKey, const vstd::string& strValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -657,7 +657,7 @@ bool CJsonObject::Add(const vengine::string& strKey, const vengine::string& strV
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, int32 iValue) {
+bool CJsonObject::Add(const vstd::string& strKey, int32 iValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -691,7 +691,7 @@ bool CJsonObject::Add(const vengine::string& strKey, int32 iValue) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, uint32_t uiValue) {
+bool CJsonObject::Add(const vstd::string& strKey, uint32_t uiValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -725,7 +725,7 @@ bool CJsonObject::Add(const vengine::string& strKey, uint32_t uiValue) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, int64 llValue) {
+bool CJsonObject::Add(const vstd::string& strKey, int64 llValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -759,7 +759,7 @@ bool CJsonObject::Add(const vengine::string& strKey, int64 llValue) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, uint64 ullValue) {
+bool CJsonObject::Add(const vstd::string& strKey, uint64 ullValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -793,7 +793,7 @@ bool CJsonObject::Add(const vengine::string& strKey, uint64 ullValue) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, bool bValue, bool bValueAgain) {
+bool CJsonObject::Add(const vstd::string& strKey, bool bValue, bool bValueAgain) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -827,7 +827,7 @@ bool CJsonObject::Add(const vengine::string& strKey, bool bValue, bool bValueAga
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, float fValue) {
+bool CJsonObject::Add(const vstd::string& strKey, float fValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -861,7 +861,7 @@ bool CJsonObject::Add(const vengine::string& strKey, float fValue) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strKey, double dValue) {
+bool CJsonObject::Add(const vstd::string& strKey, double dValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -895,7 +895,7 @@ bool CJsonObject::Add(const vengine::string& strKey, double dValue) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::AddNull(const vengine::string& strKey) {
+bool CJsonObject::AddNull(const vstd::string& strKey) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -929,7 +929,7 @@ bool CJsonObject::AddNull(const vengine::string& strKey) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Delete(const vengine::string& strKey) {
+bool CJsonObject::Delete(const vstd::string& strKey) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -956,7 +956,7 @@ bool CJsonObject::Delete(const vengine::string& strKey) {
 	m_pKeyTravers = pFocusData;
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, const CJsonObject& oJsonObject) {
+bool CJsonObject::Replace(const vstd::string& strKey, const CJsonObject& oJsonObject) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -973,7 +973,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, const CJsonObject& oJso
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
+		m_strErrMsg = vstd::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	cJSON_ReplaceItemInObject(pFocusData, strKey.c_str(), pJsonStruct);
@@ -990,7 +990,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, const CJsonObject& oJso
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, const vengine::string& strValue) {
+bool CJsonObject::Replace(const vstd::string& strKey, const vstd::string& strValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1023,7 +1023,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, const vengine::string& 
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, int32 iValue) {
+bool CJsonObject::Replace(const vstd::string& strKey, int32 iValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1056,7 +1056,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, int32 iValue) {
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, uint32_t uiValue) {
+bool CJsonObject::Replace(const vstd::string& strKey, uint32_t uiValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1089,7 +1089,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, uint32_t uiValue) {
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, int64 llValue) {
+bool CJsonObject::Replace(const vstd::string& strKey, int64 llValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1122,7 +1122,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, int64 llValue) {
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, uint64 ullValue) {
+bool CJsonObject::Replace(const vstd::string& strKey, uint64 ullValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1155,7 +1155,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, uint64 ullValue) {
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, bool bValue, bool bValueAgain) {
+bool CJsonObject::Replace(const vstd::string& strKey, bool bValue, bool bValueAgain) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1188,7 +1188,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, bool bValue, bool bValu
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, float fValue) {
+bool CJsonObject::Replace(const vstd::string& strKey, float fValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1221,7 +1221,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, float fValue) {
 	}
 	return (true);
 }
-bool CJsonObject::Replace(const vengine::string& strKey, double dValue) {
+bool CJsonObject::Replace(const vstd::string& strKey, double dValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1254,7 +1254,7 @@ bool CJsonObject::Replace(const vengine::string& strKey, double dValue) {
 	}
 	return (true);
 }
-bool CJsonObject::ReplaceWithNull(const vengine::string& strKey) {
+bool CJsonObject::ReplaceWithNull(const vstd::string& strKey) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -1314,7 +1314,7 @@ bool CJsonObject::Get(int32_t iWhich, CJsonObject& oJsonObject) const {
 		return (false);
 	}
 	char* pJsonString = cJSON_Print(pJsonStruct);
-	vengine::string strJsonData = pJsonString;
+	vstd::string strJsonData = pJsonString;
 	vengine_free(pJsonString);
 	if (oJsonObject.Parse(strJsonData)) {
 		return (true);
@@ -1336,7 +1336,7 @@ cJSON* CJsonObject::Get(int32_t iWhich) const {
 	}
 	return pJsonStruct;
 }
-bool CJsonObject::Get(int32_t iWhich, vengine::string& strValue) const {
+bool CJsonObject::Get(int32_t iWhich, vstd::string& strValue) const {
 	cJSON* pJsonStruct = NULL;
 	if (m_pJsonData != NULL) {
 		if (m_pJsonData->type == cJSON_Array) {
@@ -1547,7 +1547,7 @@ bool CJsonObject::Add(const CJsonObject& oJsonObject) {
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
+		m_strErrMsg = vstd::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	int32_t iArraySizeBeforeAdd = cJSON_GetArraySize(pFocusData);
@@ -1573,7 +1573,7 @@ bool CJsonObject::Add(const CJsonObject& oJsonObject) {
 	deleteKeys.clear();
 	return (true);
 }
-bool CJsonObject::Add(const vengine::string& strValue) {
+bool CJsonObject::Add(const vstd::string& strValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -1863,7 +1863,7 @@ bool CJsonObject::AddAsFirst(const CJsonObject& oJsonObject) {
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
+		m_strErrMsg = vstd::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	int32_t iArraySizeBeforeAdd = cJSON_GetArraySize(pFocusData);
@@ -1886,7 +1886,7 @@ bool CJsonObject::AddAsFirst(const CJsonObject& oJsonObject) {
 	deleteKeys.clear();
 	return (true);
 }
-bool CJsonObject::AddAsFirst(const vengine::string& strValue) {
+bool CJsonObject::AddAsFirst(const vstd::string& strValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData != NULL) {
 		pFocusData = m_pJsonData;
@@ -2205,7 +2205,7 @@ bool CJsonObject::Replace(int32_t iWhich, const CJsonObject& oJsonObject) {
 	}
 	cJSON* pJsonStruct = cJSON_Parse(oJsonObject.ToString().c_str());
 	if (pJsonStruct == NULL) {
-		m_strErrMsg = vengine::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
+		m_strErrMsg = vstd::string("prase json string error at "_sv) + cJSON_GetErrorPtr();
 		return (false);
 	}
 	cJSON_ReplaceItemInArray(pFocusData, iWhich, pJsonStruct);
@@ -2222,7 +2222,7 @@ bool CJsonObject::Replace(int32_t iWhich, const CJsonObject& oJsonObject) {
 	}
 	return (true);
 }
-bool CJsonObject::Replace(int32_t iWhich, const vengine::string& strValue) {
+bool CJsonObject::Replace(int32_t iWhich, const vstd::string& strValue) {
 	cJSON* pFocusData = NULL;
 	if (m_pJsonData == NULL) {
 		pFocusData = m_pExternJsonDataRef;
@@ -2523,13 +2523,13 @@ CJsonObject::CJsonObject(cJSON* pJsonData)
 	: m_pJsonData(NULL), m_pExternJsonDataRef(pJsonData), m_pKeyTravers(pJsonData) {
 }
 }// namespace neb
-neb::CJsonObject* ReadJson(const vengine::string& filePath) {
+neb::CJsonObject* ReadJson(const vstd::string& filePath) {
 	std::ifstream ifs(filePath.data());
 	if (!ifs) return nullptr;
 	ifs.seekg(0, std::ios::end);
 	size_t len = ifs.tellg();
 	ifs.seekg(0, 0);
-	vengine::string s(len + 1, ' ');
+	vstd::string s(len + 1, ' ');
 	ifs.read((char*)s.data(), len);
 	neb::CJsonObject* jsonObj = new neb::CJsonObject(s);
 	if (jsonObj->IsEmpty()) {
@@ -2612,14 +2612,14 @@ double GetDoubleFromChar(char* c, size_t t) {
 	return (pointer + num) * type;
 }
 /*
-void ReadJson(const vengine::string& filePath, StackObject<neb::CJsonObject, true>& placementPtr)
+void ReadJson(const vstd::string& filePath, StackObject<neb::CJsonObject, true>& placementPtr)
 {
 	std::ifstream ifs(filePath.data());
 	if (!ifs) return;
 	ifs.seekg(0, std::ios::end);
 	size_t len = ifs.tellg();
 	ifs.seekg(0, 0);
-	vengine::string s(len + 1, ' ');
+	vstd::string s(len + 1, ' ');
 	ifs.read((char*)s.data(), len);
 	placementPtr.New();
 	if (!placementPtr->Parse(s))

@@ -2545,11 +2545,11 @@ private:
 													   // for repointing pointers in subobjects
 	} SUBOBJECT_WRAPPER;
 	D3D12_STATE_OBJECT_DESC m_Desc;
-	vengine::vector<SUBOBJECT_WRAPPER> m_SubobjectList;		// Pointers to list nodes handed out so
+	vstd::vector<SUBOBJECT_WRAPPER> m_SubobjectList;		// Pointers to list nodes handed out so
 															// these can be edited live
-	vengine::vector<D3D12_STATE_SUBOBJECT> m_SubobjectArray;// Built at the end, copying list contents
+	vstd::vector<D3D12_STATE_SUBOBJECT> m_SubobjectArray;// Built at the end, copying list contents
 
-	vengine::vector<D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION>
+	vstd::vector<D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION>
 		m_RepointedAssociations;// subobject type that contains pointers to other subobjects,
 								// repointed to flattened array
 
@@ -2571,7 +2571,7 @@ private:
 		void clear() noexcept { m_Strings.clear(); }
 
 	private:
-		vengine::vector<vengine::wstring> m_Strings;
+		vstd::vector<vstd::wstring> m_Strings;
 	};
 
 	class SUBOBJECT_HELPER_BASE {
@@ -2591,7 +2591,7 @@ private:
 	};
 
 #if (__cplusplus >= 201103L)
-	vengine::vector<std::unique_ptr<const SUBOBJECT_HELPER_BASE>> m_OwnedSubobjectHelpers;
+	vstd::vector<std::unique_ptr<const SUBOBJECT_HELPER_BASE>> m_OwnedSubobjectHelpers;
 #else
 	class OWNED_HELPER {
 	public:
@@ -2601,7 +2601,7 @@ private:
 		const SUBOBJECT_HELPER_BASE* m_pHelper;
 	};
 
-	vengine::vector<OWNED_HELPER> m_OwnedSubobjectHelpers;
+	vstd::vector<OWNED_HELPER> m_OwnedSubobjectHelpers;
 #endif
 
 	friend class CD3DX12_DXIL_LIBRARY_SUBOBJECT;
@@ -2673,7 +2673,7 @@ private:
 	void* Data() noexcept override { return &m_Desc; }
 	D3D12_DXIL_LIBRARY_DESC m_Desc;
 	CD3DX12_STATE_OBJECT_DESC::StringContainer m_Strings;
-	vengine::vector<D3D12_EXPORT_DESC> m_Exports;
+	vstd::vector<D3D12_EXPORT_DESC> m_Exports;
 };
 
 //------------------------------------------------------------------------------------------------
@@ -2733,7 +2733,7 @@ private:
 	D3D12_EXISTING_COLLECTION_DESC m_Desc;
 	D3DX12_COM_PTR<ID3D12StateObject> m_CollectionRef;
 	CD3DX12_STATE_OBJECT_DESC::StringContainer m_Strings;
-	vengine::vector<D3D12_EXPORT_DESC> m_Exports;
+	vstd::vector<D3D12_EXPORT_DESC> m_Exports;
 };
 
 //------------------------------------------------------------------------------------------------
@@ -2783,7 +2783,7 @@ private:
 	void* Data() noexcept override { return &m_Desc; }
 	D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION m_Desc;
 	CD3DX12_STATE_OBJECT_DESC::StringContainer m_Strings;
-	vengine::vector<LPCWSTR> m_Exports;
+	vstd::vector<LPCWSTR> m_Exports;
 };
 
 //------------------------------------------------------------------------------------------------
@@ -2835,7 +2835,7 @@ private:
 	D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION m_Desc;
 	CD3DX12_STATE_OBJECT_DESC::StringContainer m_Strings;
 	CD3DX12_STATE_OBJECT_DESC::StringContainer m_SubobjectName;
-	vengine::vector<LPCWSTR> m_Exports;
+	vstd::vector<LPCWSTR> m_Exports;
 };
 
 //------------------------------------------------------------------------------------------------

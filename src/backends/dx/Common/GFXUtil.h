@@ -27,31 +27,31 @@ using GFXIndexBufferView = D3D12_INDEX_BUFFER_VIEW;
 class DxException {
 public:
 	DxException() = default;
-	DxException(HRESULT hr, const vengine::string& functionName, const vengine::wstring& filename, int32_t lineNumber)
+	DxException(HRESULT hr, const vstd::string& functionName, const vstd::wstring& filename, int32_t lineNumber)
 		: ErrorCode(hr),
 		  FunctionName(functionName),
 		  Filename(filename),
 		  LineNumber(lineNumber) {}
 
-	vengine::string ToString() const {
+	vstd::string ToString() const {
 		// Get the string description of the error code.
 		_com_error err(ErrorCode);
-		vengine::wstring msg = err.ErrorMessage();
-		vengine::string strMsg;
+		vstd::wstring msg = err.ErrorMessage();
+		vstd::string strMsg;
 		strMsg.resize(msg.size());
 		for (size_t i = 0; i < msg.size(); ++i) {
 			strMsg[i] = msg[i];
 		}
-		vengine::string strFileName;
+		vstd::string strFileName;
 		strFileName.resize(Filename.size());
 		for (size_t i = 0; i < Filename.size(); ++i) {
 			strFileName[i] = Filename[i];
 		}
-		return FunctionName + " failed in " + strFileName + "; line " + vengine::to_string(LineNumber) + "; error: " + strMsg;
+		return FunctionName + " failed in " + strFileName + "; line " + vstd::to_string(LineNumber) + "; error: " + strMsg;
 	}
 	HRESULT ErrorCode = S_OK;
-	vengine::string FunctionName;
-	vengine::wstring Filename;
+	vstd::string FunctionName;
+	vstd::wstring Filename;
 	int32_t LineNumber = -1;
 };
 #endif
@@ -269,10 +269,10 @@ INLINE void d3dSetDebugName(ID3D12DeviceChild* obj, const char* name) {
 	}
 }
 
-INLINE vengine::wstring AnsiToWString(const vengine::string& str) {
+INLINE vstd::wstring AnsiToWString(const vstd::string& str) {
 	WCHAR buffer[512];
 	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, buffer, 512);
-	return vengine::wstring(buffer);
+	return vstd::wstring(buffer);
 }
 
 /*
@@ -337,7 +337,7 @@ public:
 #define ThrowIfFailed(x)                                                  \
 	[&] {                                                                 \
 		HRESULT hr__ = x;                                                 \
-		vengine::wstring wfn = AnsiToWString(__FILE__);                   \
+		vstd::wstring wfn = AnsiToWString(__FILE__);                   \
 		if (FAILED(hr__)) { throw DxException(hr__, #x, wfn, __LINE__); } \
 	}()
 #endif
@@ -345,7 +345,7 @@ public:
 #ifndef ThrowHResult
 #define ThrowHResult(hr__, x)                                             \
 	[&] {                                                                 \
-		vengine::wstring wfn = AnsiToWString(__FILE__);                   \
+		vstd::wstring wfn = AnsiToWString(__FILE__);                   \
 		if (FAILED(hr__)) { throw DxException(hr__, #x, wfn, __LINE__); } \
 	}()
 

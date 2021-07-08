@@ -51,7 +51,7 @@ ThreadTaskHandle::ThreadTaskHandle(
 	auto AddTask = [&](size_t beg, size_t ed) {
 		tasks.emplace_back(MakeObjectPtr(
 			pp.New_Lock(pm, pool, [=]() {
-				for (auto c : vengine::range(beg, ed)) {
+				for (auto c : vstd::range(beg, ed)) {
 					func(c);
 				}
 			}),

@@ -38,7 +38,7 @@ public:
 		return _Val;
 	}
 };
-namespace vengine
+namespace vstd
 {
 	template <typename K>
 	struct hash

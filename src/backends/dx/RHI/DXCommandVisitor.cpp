@@ -78,11 +78,11 @@ void DXCommandVisitor::visit(BufferCopyCommand const* cmd) noexcept {
 		cmd->size());
 }
 void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
-	IShader const* funcShader = getFunction(cmd->kernel_uid());
+	IShader const* funcShader = getFunction(cmd->kernel());
 	if (funcShader->GetType() == typeid(ComputeShader)) {//Common compute
 		ComputeShader const* cs = static_cast<ComputeShader const*>(funcShader);
 		auto&& cbData = ShaderCompiler::GetCBufferData(cmd->kernel_uid());
-		vengine::vector<uint8_t> cbufferData(cbData.cbufferSize);
+		vstd::vector<uint8_t> cbufferData(cbData.cbufferSize);
 		memset(cbufferData.data(), 0, cbufferData.size());
 		cs->BindShader(tCmd, Graphics::GetGlobalDescHeap());
 		struct Functor {
@@ -144,7 +144,7 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 				memcpy(cbuffer + ite.Value(), arg.data(), arg.size_bytes());
 			}
 		};
-		Function func = Function::kernel(cmd->kernel_uid());
+		Function func = cmd->kernel();
 		Functor f{
 			cs,
 			func,

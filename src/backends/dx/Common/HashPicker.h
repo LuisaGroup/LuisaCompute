@@ -8,7 +8,7 @@
 #include <Common/Hash.h>
 #include <Common/VAllocator.h>
 
-template<typename K, typename Hash = vengine::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
+template<typename K, typename Hash = vstd::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashPicker {
 public:
 	using KeyType = K;

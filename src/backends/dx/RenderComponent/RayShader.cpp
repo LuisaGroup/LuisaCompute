@@ -9,8 +9,8 @@
 #include <RenderComponent/StructuredBuffer.h>
 #include <PipelineComponent/ThreadCommand.h>
 using Microsoft::WRL::ComPtr;
-RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
-	vengine::vector<char> binaryData;
+RayShader::RayShader(GFXDevice* device, vstd::string const& path) {
+	vstd::vector<char> binaryData;
 	uint64 raypayloadShader = 0;
 	uint64 recursiveCount = 0;
 	ShaderIO::DecodeDXRShader(
@@ -52,15 +52,15 @@ RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 	{
 		auto hitGroup = raytracingPipeline.CreateSubobject<CD3DX12_HIT_GROUP_SUBOBJECT>();
 		if (!hitGroups.functions[(uint8_t)HitGroupFunctionType::ClosestHit].empty()) {
-			hitGroup->SetClosestHitShaderImport(vengine::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::ClosestHit]).c_str());
+			hitGroup->SetClosestHitShaderImport(vstd::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::ClosestHit]).c_str());
 		}
 		if (!hitGroups.functions[(uint8_t)HitGroupFunctionType::AnyHit].empty()) {
-			hitGroup->SetAnyHitShaderImport(vengine::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::AnyHit]).c_str());
+			hitGroup->SetAnyHitShaderImport(vstd::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::AnyHit]).c_str());
 		}
 		if (!hitGroups.functions[(uint8_t)HitGroupFunctionType::Intersect].empty()) {
-			hitGroup->SetIntersectionShaderImport(vengine::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::Intersect]).c_str());
+			hitGroup->SetIntersectionShaderImport(vstd::wstring(hitGroups.functions[(uint8_t)HitGroupFunctionType::Intersect]).c_str());
 		}
-		hitGroup->SetHitGroupExport(vengine::wstring(hitGroups.name).c_str());
+		hitGroup->SetHitGroupExport(vstd::wstring(hitGroups.name).c_str());
 		hitGroup->SetHitGroupType((D3D12_HIT_GROUP_TYPE)hitGroups.shaderType);
 	}
 	identifierBuffer.New(
@@ -80,9 +80,9 @@ RayShader::RayShader(GFXDevice* device, vengine::string const& path) {
 	ThrowIfFailed(static_cast<ID3D12Device5*>(device->device())->CreateStateObject(raytracingPipeline, IID_PPV_ARGS(&mStateObj)));
 	ComPtr<ID3D12StateObjectProperties> stateObjectProperties;
 	ThrowIfFailed(mStateObj.As(&stateObjectProperties));
-	auto BindIdentifier = [&](uint64 bufferIndex, vengine::string const& name) -> std::pair<GpuAddress, uint64> {
+	auto BindIdentifier = [&](uint64 bufferIndex, vstd::string const& name) -> std::pair<GpuAddress, uint64> {
 		if (name.empty()) return {{0}, 0};
-		void* ptr = stateObjectProperties->GetShaderIdentifier(vengine::wstring(name).c_str());
+		void* ptr = stateObjectProperties->GetShaderIdentifier(vstd::wstring(name).c_str());
 		if (!ptr) return {{0}, 0};
 		identifierBuffer->CopyData(
 			bufferIndex,

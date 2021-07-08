@@ -11,9 +11,9 @@ thread_local ShaderLoaderGlobal* ShaderLoader::current = nullptr;
 int32_t ShaderLoader::shaderIDCount = 0;
 class ShaderLoaderGlobal {
 public:
-	HashMap<vengine::string, Shader*> shaderMap;
-	HashMap<vengine::string, ComputeShader*> computeShaderMap;
-	HashMap<vengine::string, RayShader*> rayShaderMap;
+	HashMap<vstd::string, Shader*> shaderMap;
+	HashMap<vstd::string, ComputeShader*> computeShaderMap;
+	HashMap<vstd::string, RayShader*> rayShaderMap;
 	GFXDevice* device;
 	std::mutex mtx;
 	ShaderLoaderGlobal()
@@ -23,13 +23,13 @@ public:
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };
 
-RayShader* ShaderLoader::LoadRayShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
+RayShader* ShaderLoader::LoadRayShader(const vstd::string& name, GFXDevice* device, const vstd::string& path) {
 
 	RayShader* sh = new RayShader(device, path);
 	current->rayShaderMap.Insert(name, sh);
 	return sh;
 }
-RayShader const* ShaderLoader::GetRayShader(const vengine::string& name) {
+RayShader const* ShaderLoader::GetRayShader(const vstd::string& name) {
 
 	std::lock_guard lck(current->mtx);
 	auto ite = current->rayShaderMap.Find(name);
@@ -37,13 +37,13 @@ RayShader const* ShaderLoader::GetRayShader(const vengine::string& name) {
 		return ite.Value();
 	return LoadRayShader(name, current->device, name);
 }
-ComputeShader* ShaderLoader::LoadComputeShader(const vengine::string& name, GFXDevice* device, const vengine::string& path) {
+ComputeShader* ShaderLoader::LoadComputeShader(const vstd::string& name, GFXDevice* device, const vstd::string& path) {
 
 	ComputeShader* sh = new ComputeShader(name, path, device);
 	return current->computeShaderMap.Insert(name, sh).Value();
 }
 
-ComputeShader const* ShaderLoader::GetComputeShader(const vengine::string& name) {
+ComputeShader const* ShaderLoader::GetComputeShader(const vstd::string& name) {
 	std::lock_guard lck(current->mtx);
 	auto ite = current->computeShaderMap.Find(name);
 	if (ite && ite.Value()) return ite.Value();
@@ -65,13 +65,13 @@ ShaderLoaderGlobal* ShaderLoader::Init(GFXDevice* device) {
 	return glb;
 }
 void ShaderLoader::Reload(GFXDevice* device, JobBucket* bucket) {
-	current->rayShaderMap.IterateAll(([&](vengine::string const& name, RayShader*& shader) -> void {
+	current->rayShaderMap.IterateAll(([&](vstd::string const& name, RayShader*& shader) -> void {
 		bucket->GetTask([&name, &shader]() -> void {
 			shader->~RayShader();
 			new (shader) RayShader(current->device, name);
 		});
 	}));
-	current->computeShaderMap.IterateAll([&](vengine::string const& name, ComputeShader*& shader) -> void {
+	current->computeShaderMap.IterateAll([&](vstd::string const& name, ComputeShader*& shader) -> void {
 		bucket->GetTask([&name, &shader]() -> void {
 			shader->~ComputeShader();
 			new (shader) ComputeShader(name, name, current->device);

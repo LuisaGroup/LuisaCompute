@@ -10,21 +10,21 @@ public:
 	~CopyDir();
 	bool success = true;
 	void copy(
-		const vengine::string& srcDirPath,
-		const vengine::string& desDirPath, 
-		HashMap<vengine::string, bool> const& ignoreFolders,
-		HashMap<vengine::string, bool> const& avaliableExtension,
+		const vstd::string& srcDirPath,
+		const vstd::string& desDirPath, 
+		HashMap<vstd::string, bool> const& ignoreFolders,
+		HashMap<vstd::string, bool> const& avaliableExtension,
 		JobBucket* bucket);
 
 private:
-	bool make_dir(const vengine::string& pathName);
+	bool make_dir(const vstd::string& pathName);
 	//    bool mkdir (char const* pathname/*, mode_t mode*/);
 	bool get_src_files_name(
-		vengine::string const& srcFolder, vengine::string const& destFolder,
-		vengine::string const& root, vengine::vector<vengine::string>& fileNameList, HashMap<vengine::string, bool> const& ignoreFolders);
-	void do_copy(const vengine::vector<vengine::string>& fileNameList, HashMap<vengine::string, bool> const& avaliableExtension, JobBucket* bucket);
+		vstd::string const& srcFolder, vstd::string const& destFolder,
+		vstd::string const& root, vstd::vector<vstd::string>& fileNameList, HashMap<vstd::string, bool> const& ignoreFolders);
+	void do_copy(const vstd::vector<vstd::string>& fileNameList, HashMap<vstd::string, bool> const& avaliableExtension, JobBucket* bucket);
 
-	vengine::string srcDirPath, desDirPath;
-	vengine::vector<vengine::string> fileNameList;
+	vstd::string srcDirPath, desDirPath;
+	vstd::vector<vstd::string> fileNameList;
 
 };

@@ -24,7 +24,7 @@ struct ConstBufferElement
 class VENGINE_DLL_RENDERER CBufferPool
 {
 private:
-	vengine::vector<std::unique_ptr<UploadBuffer>> arr;
+	vstd::vector<std::unique_ptr<UploadBuffer>> arr;
 	ArrayList<ConstBufferElement> poolValue;
 	uint capacity;
 	uint stride;

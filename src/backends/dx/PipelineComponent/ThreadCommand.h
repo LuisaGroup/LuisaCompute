@@ -29,7 +29,7 @@ private:
 	uint64 descHeapInstanceID;
 	DescriptorHeap const* descHeap;
 	void const* pso;
-	vengine::vector<D3D12_CPU_DESCRIPTOR_HANDLE> colorHandles;
+	vstd::vector<D3D12_CPU_DESCRIPTOR_HANDLE> colorHandles;
 	D3D12_CPU_DESCRIPTOR_HANDLE depthHandle;
 	ObjectPtr<CommandAllocator> cmdAllocator;
 	Microsoft::WRL::ComPtr<GFXCommandList> cmdList;
@@ -37,7 +37,7 @@ private:
 	bool managingAllocator;
 	bool containedResources = false;
 	GFXCommandListType commandListType;
-	vengine::vector<D3D12_RESOURCE_BARRIER> resourceBarrierCommands;
+	vstd::vector<D3D12_RESOURCE_BARRIER> resourceBarrierCommands;
 	struct ResourceBarrierCommand {
 		GPUResourceBase const* resource;
 		GPUResourceState targetState;
@@ -56,7 +56,7 @@ private:
 	HashPicker<GFXResource*> uavBarriersDict;
 	HashMap<std::pair<GFXResource*, GFXResource*>, bool> aliasBarriersDict;
 	HashMap<GPUResourceBase const*, GPUResourceState> backToInitState;
-	vengine::vector<std::pair<GFXResource*, GFXResource*>> aliasBarriers;
+	vstd::vector<std::pair<GFXResource*, GFXResource*>> aliasBarriers;
 	void KillSame();
 	void Clear();
 

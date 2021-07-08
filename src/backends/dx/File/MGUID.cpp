@@ -1,6 +1,6 @@
 #include <File/MGuid.h>
 
-vengine::string MGuid::GuidToFormattedString(const GUID& guid)
+vstd::string MGuid::GuidToFormattedString(const GUID& guid)
 {
 	char buf[64] = { 0 };
 
@@ -14,10 +14,10 @@ vengine::string MGuid::GuidToFormattedString(const GUID& guid)
 
 		guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
 
-	return vengine::string(buf);
+	return vstd::string(buf);
 }
 
-vengine::string MGuid::GuidToString(const GUID& guid)
+vstd::string MGuid::GuidToString(const GUID& guid)
 {
 	char buf[64] = { 0 };
 
@@ -31,10 +31,10 @@ vengine::string MGuid::GuidToString(const GUID& guid)
 
 		guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
 
-	return vengine::string(buf);
+	return vstd::string(buf);
 }
 
-vengine::string MGuid::GetGUIDString()
+vstd::string MGuid::GetGUIDString()
 {
 	GUID guid;
 
@@ -44,7 +44,7 @@ vengine::string MGuid::GetGUIDString()
 	return "";
 }
 
-vengine::string MGuid::GetFormattedGUIDString()
+vstd::string MGuid::GetFormattedGUIDString()
 {
 	GUID guid;
 

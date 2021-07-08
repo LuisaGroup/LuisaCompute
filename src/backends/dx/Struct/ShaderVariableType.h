@@ -16,9 +16,9 @@ enum class HitGroupFunctionType : uint8_t {
 	Num
 };
 struct DXRHitGroup {
-	vengine::string name;
+	vstd::string name;
 	uint shaderType;
-	vengine::string functions[(uint8_t)HitGroupFunctionType::Num];
+	vstd::string functions[(uint8_t)HitGroupFunctionType::Num];
 
 	GpuAddress missVAddress;
 	uint64 missSize;
@@ -29,9 +29,9 @@ struct DXRHitGroup {
 };
 
 struct CompileDXRHitGroup {
-	vengine::string name;
+	vstd::string name;
 	uint shaderType;
-	vengine::string functions[(uint8_t)HitGroupFunctionType::Num];
+	vstd::string functions[(uint8_t)HitGroupFunctionType::Num];
 };
 struct ShaderVariable {
 	uint varID;

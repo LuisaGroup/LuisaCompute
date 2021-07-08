@@ -34,71 +34,71 @@ namespace neb
 	public:     // method of ordinary json object or json array
 		DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 		CJsonObject();
-		CJsonObject(const vengine::string& strJson);
+		CJsonObject(const vstd::string& strJson);
 		CJsonObject(const CJsonObject* pJsonObject);
 		CJsonObject(const CJsonObject& oJsonObject);
 		virtual ~CJsonObject();
 
 		CJsonObject& operator=(const CJsonObject& oJsonObject);
 		bool operator==(const CJsonObject& oJsonObject) const;
-		bool Parse(const vengine::string& strJson);
+		bool Parse(const vstd::string& strJson);
 		void Clear();
 		bool IsEmpty() const;
 		bool IsArray() const;
-		vengine::string ToString() const;
-		vengine::string ToFormattedString() const;
-		const vengine::string& GetErrMsg() const
+		vstd::string ToString() const;
+		vstd::string ToFormattedString() const;
+		const vstd::string& GetErrMsg() const
 		{
 			return(m_strErrMsg);
 		}
 
 	public:     // method of ordinary json object
-		bool AddEmptySubObject(const vengine::string& strKey);
-		bool AddEmptySubArray(const vengine::string& strKey);
-		bool GetKey(vengine::string& strKey);
+		bool AddEmptySubObject(const vstd::string& strKey);
+		bool AddEmptySubArray(const vstd::string& strKey);
+		bool GetKey(vstd::string& strKey);
 		void ResetTraversing();
-		CJsonObject& operator[](const vengine::string& strKey);
-		vengine::string operator()(const vengine::string& strKey) const;
-		bool Get(const vengine::string& strKey, CJsonObject& oJsonObject) const;
-		cJSON* Get(const vengine::string& strKey) const;
-		bool Get(const vengine::string& strKey, vengine::string& strValue) const;
-		bool Get(const vengine::string& strKey, int32& iValue) const;
-		bool Get(const vengine::string& strKey, uint32_t& uiValue) const;
-		bool Get(const vengine::string& strKey, int64& llValue) const;
-		bool Get(const vengine::string& strKey, uint64& ullValue) const;
-		bool Get(const vengine::string& strKey, bool& bValue) const;
-		bool Get(const vengine::string& strKey, float& fValue) const;
-		bool Get(const vengine::string& strKey, double& dValue) const;
-		bool IsNull(const vengine::string& strKey) const;
-		bool Add(const vengine::string& strKey, const CJsonObject& oJsonObject);
-		bool Add(const vengine::string& strKey, const vengine::string& strValue);
-		bool Add(const vengine::string& strKey, int32 iValue);
-		bool Add(const vengine::string& strKey, uint32_t uiValue);
-		bool Add(const vengine::string& strKey, int64 llValue);
-		bool Add(const vengine::string& strKey, uint64 ullValue);
-		bool Add(const vengine::string& strKey, bool bValue, bool bValueAgain);
-		bool Add(const vengine::string& strKey, float fValue);
-		bool Add(const vengine::string& strKey, double dValue);
-		bool AddNull(const vengine::string& strKey);    // add null like this:   "key":null
-		bool Delete(const vengine::string& strKey);
-		bool Replace(const vengine::string& strKey, const CJsonObject& oJsonObject);
-		bool Replace(const vengine::string& strKey, const vengine::string& strValue);
-		bool Replace(const vengine::string& strKey, int32 iValue);
-		bool Replace(const vengine::string& strKey, uint32_t uiValue);
-		bool Replace(const vengine::string& strKey, int64 llValue);
-		bool Replace(const vengine::string& strKey, uint64 ullValue);
-		bool Replace(const vengine::string& strKey, bool bValue, bool bValueAgain);
-		bool Replace(const vengine::string& strKey, float fValue);
-		bool Replace(const vengine::string& strKey, double dValue);
-		bool ReplaceWithNull(const vengine::string& strKey);    // replace value with null
+		CJsonObject& operator[](const vstd::string& strKey);
+		vstd::string operator()(const vstd::string& strKey) const;
+		bool Get(const vstd::string& strKey, CJsonObject& oJsonObject) const;
+		cJSON* Get(const vstd::string& strKey) const;
+		bool Get(const vstd::string& strKey, vstd::string& strValue) const;
+		bool Get(const vstd::string& strKey, int32& iValue) const;
+		bool Get(const vstd::string& strKey, uint32_t& uiValue) const;
+		bool Get(const vstd::string& strKey, int64& llValue) const;
+		bool Get(const vstd::string& strKey, uint64& ullValue) const;
+		bool Get(const vstd::string& strKey, bool& bValue) const;
+		bool Get(const vstd::string& strKey, float& fValue) const;
+		bool Get(const vstd::string& strKey, double& dValue) const;
+		bool IsNull(const vstd::string& strKey) const;
+		bool Add(const vstd::string& strKey, const CJsonObject& oJsonObject);
+		bool Add(const vstd::string& strKey, const vstd::string& strValue);
+		bool Add(const vstd::string& strKey, int32 iValue);
+		bool Add(const vstd::string& strKey, uint32_t uiValue);
+		bool Add(const vstd::string& strKey, int64 llValue);
+		bool Add(const vstd::string& strKey, uint64 ullValue);
+		bool Add(const vstd::string& strKey, bool bValue, bool bValueAgain);
+		bool Add(const vstd::string& strKey, float fValue);
+		bool Add(const vstd::string& strKey, double dValue);
+		bool AddNull(const vstd::string& strKey);    // add null like this:   "key":null
+		bool Delete(const vstd::string& strKey);
+		bool Replace(const vstd::string& strKey, const CJsonObject& oJsonObject);
+		bool Replace(const vstd::string& strKey, const vstd::string& strValue);
+		bool Replace(const vstd::string& strKey, int32 iValue);
+		bool Replace(const vstd::string& strKey, uint32_t uiValue);
+		bool Replace(const vstd::string& strKey, int64 llValue);
+		bool Replace(const vstd::string& strKey, uint64 ullValue);
+		bool Replace(const vstd::string& strKey, bool bValue, bool bValueAgain);
+		bool Replace(const vstd::string& strKey, float fValue);
+		bool Replace(const vstd::string& strKey, double dValue);
+		bool ReplaceWithNull(const vstd::string& strKey);    // replace value with null
 
 	public:     // method of json array
 		int32_t GetArraySize();
 		CJsonObject& operator[](uint32_t uiWhich);
-		vengine::string operator()(uint32_t uiWhich) const;
+		vstd::string operator()(uint32_t uiWhich) const;
 		bool Get(int32_t iWhich, CJsonObject& oJsonObject) const;
 		cJSON* Get(int32_t iWhich) const;
-		bool Get(int32_t iWhich, vengine::string& strValue) const;
+		bool Get(int32_t iWhich, vstd::string& strValue) const;
 		bool Get(int32_t iWhich, int32& iValue) const;
 		bool Get(int32_t iWhich, uint32_t& uiValue) const;
 		bool Get(int32_t iWhich, int64& llValue) const;
@@ -108,7 +108,7 @@ namespace neb
 		bool Get(int32_t iWhich, double& dValue) const;
 		bool IsNull(int32_t iWhich) const;
 		bool Add(const CJsonObject& oJsonObject);
-		bool Add(const vengine::string& strValue);
+		bool Add(const vstd::string& strValue);
 		bool Add(int32 iValue);
 		bool Add(uint32_t uiValue);
 		bool Add(int64 llValue);
@@ -118,7 +118,7 @@ namespace neb
 		bool Add(double dValue);
 		bool AddNull();   // add a null value
 		bool AddAsFirst(const CJsonObject& oJsonObject);
-		bool AddAsFirst(const vengine::string& strValue);
+		bool AddAsFirst(const vstd::string& strValue);
 		bool AddAsFirst(int32 iValue);
 		bool AddAsFirst(uint32_t uiValue);
 		bool AddAsFirst(int64 llValue);
@@ -129,7 +129,7 @@ namespace neb
 		bool AddNullAsFirst();     // add a null value
 		bool Delete(int32_t iWhich);
 		bool Replace(int32_t iWhich, const CJsonObject& oJsonObject);
-		bool Replace(int32_t iWhich, const vengine::string& strValue);
+		bool Replace(int32_t iWhich, const vstd::string& strValue);
 		bool Replace(int32_t iWhich, int32 iValue);
 		bool Replace(int32_t iWhich, uint32_t uiValue);
 		bool Replace(int32_t iWhich, int64 llValue);
@@ -146,10 +146,10 @@ namespace neb
 		cJSON* m_pJsonData;
 		cJSON* m_pExternJsonDataRef;
 		cJSON* m_pKeyTravers;
-		vengine::string m_strErrMsg;
+		vstd::string m_strErrMsg;
 		HashMap<uint32_t, CJsonObject*> m_mapJsonArrayRef;
-		HashMap<vengine::string, CJsonObject*> m_mapJsonObjectRef;
-		vengine::vector<uint32_t> deleteKeys;
+		HashMap<vstd::string, CJsonObject*> m_mapJsonObjectRef;
+		vstd::vector<uint32_t> deleteKeys;
 	};
 
 }
@@ -157,10 +157,10 @@ namespace neb
 template <typename T>
 struct JsonKeyValuePair
 {
-	const vengine::string& key;
+	const vstd::string& key;
 	PureType_t<T>* value;
-	JsonKeyValuePair(const vengine::string& str, PureType_t<T>* value) : value(value), key(str) {}
-	JsonKeyValuePair(const vengine::string& str, PureType_t<T>& value) : value(&value), key(str) {}
+	JsonKeyValuePair(const vstd::string& str, PureType_t<T>* value) : value(value), key(str) {}
+	JsonKeyValuePair(const vstd::string& str, PureType_t<T>& value) : value(&value), key(str) {}
 };
 
 template <typename ... Args>
@@ -169,11 +169,11 @@ inline void GetValuesFromJson(neb::CJsonObject* cjson, Args&& ... args)
 	char c[] = { (cjson->Get(args.key, *args.value), 0)... };
 }
 
- neb::CJsonObject* ReadJson(const vengine::string& filePath);
+ neb::CJsonObject* ReadJson(const vstd::string& filePath);
  double GetDoubleFromChar(char* c, size_t t);
  float GetFloatFromChar(char* c, size_t t);
  int32_t GetIntFromChar(char* c, size_t t);
-//void  ReadJson(const vengine::string& filePath, StackObject<neb::CJsonObject, true>& placementPtr);
+//void  ReadJson(const vstd::string& filePath, StackObject<neb::CJsonObject, true>& placementPtr);
 template <typename T>
 void ReadStringToVector(char* cPtr, size_t t, T* vec)
 {

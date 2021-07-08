@@ -17,7 +17,7 @@ class VENGINE_DLL_RENDERER IShader : public VObject {
 protected:
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature;
 	HashMap<uint, uint> mVariablesDict;
-	vengine::vector<ShaderVariable> mVariablesVector;
+	vstd::vector<ShaderVariable> mVariablesVector;
 	bool VariableReflection(uint id, void const* ptr, uint& rootSigPos, ShaderVariable& varResult) const;
 
 public:
@@ -28,7 +28,7 @@ public:
 	virtual void BindShader(ThreadCommand* commandList) const = 0;
 	virtual void BindShader(ThreadCommand* commandList, const DescriptorHeap* heap) const = 0;
 	virtual bool SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const = 0;
-	virtual vengine::string const& GetName() const = 0;
+	virtual vstd::string const& GetName() const = 0;
 	virtual bool SetResource(ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset) const = 0;
 	virtual bool SetResource(ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset) const = 0;
 	virtual bool SetResource(ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset) const = 0;

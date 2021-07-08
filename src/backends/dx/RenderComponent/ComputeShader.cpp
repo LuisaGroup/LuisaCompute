@@ -11,14 +11,14 @@
 #include <PipelineComponent/ThreadCommand.h>
 
 using Microsoft::WRL::ComPtr;
-uint ComputeShader::GetKernelIndex(const vengine::string& str) const {
+uint ComputeShader::GetKernelIndex(const vstd::string& str) const {
 	auto ite = kernelNames.Find(str);
 	if (!ite) return -1;
 	return ite.Value();
 }
 ComputeShader::ComputeShader(
-	vengine::string const& name,
-	const vengine::string& csoFilePath,
+	vstd::string const& name,
+	const vstd::string& csoFilePath,
 	GFXDevice* device) : cmdSig(device, CommandSignature::SignatureType::DispatchComputeIndirect), name(name) {
 	ShaderIO::DecodeComputeShader(csoFilePath, mVariablesVector, csShaders, serObj);
 	for (size_t i = 0; i < csShaders.size(); ++i) {

@@ -5,7 +5,7 @@
 class JobBucket;
 struct ComputeKernel
 {
-	vengine::string name;
+	vstd::string name;
 	Microsoft::WRL::ComPtr<ID3DBlob> datas;
 };
 
@@ -14,15 +14,15 @@ class VENGINE_DLL_RENDERER ComputeShader final : public IShader
 	friend class ShaderLoader;
 private:
 	StackObject<SerializedObject, true> serObj;
-	vengine::string name;
-	HashMap<vengine::string, uint> kernelNames;
-	vengine::vector<ComputeKernel> csShaders;
-	vengine::vector<Microsoft::WRL::ComPtr<GFXPipelineState>> pso;
+	vstd::string name;
+	HashMap<vstd::string, uint> kernelNames;
+	vstd::vector<ComputeKernel> csShaders;
+	vstd::vector<Microsoft::WRL::ComPtr<GFXPipelineState>> pso;
 	CommandSignature cmdSig;
 	//	bool TrySetRes(ThreadCommand* commandList, uint id, const VObject* targetObj, uint64 indexOffset, const std::type_info& tyid) const;
 	ComputeShader(
-		vengine::string const& name,
-		const vengine::string& csoFilePath,
+		vstd::string const& name,
+		const vstd::string& csoFilePath,
 		GFXDevice* device);
 
 	~ComputeShader();
@@ -31,11 +31,11 @@ public:
 	{
 		return serObj.Initialized() ? serObj : nullptr;
 	}
-	vengine::string const& GetName() const
+	vstd::string const& GetName() const
 	{
 		return name;
 	}
-	uint GetKernelIndex(const vengine::string& str) const;
+	uint GetKernelIndex(const vstd::string& str) const;
 	void BindShader(ThreadCommand* commandList) const override;
 	void BindShader(ThreadCommand* commandList, const DescriptorHeap* heap) const override;
 	bool SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const override;

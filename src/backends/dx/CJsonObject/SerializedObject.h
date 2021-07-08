@@ -10,10 +10,10 @@ private:
 	bool isArray;
 	struct ArrayData {
 		void* allocatedPtr;
-		vengine::vector<SerializeStruct::SerializedData*> datas;
+		vstd::vector<SerializeStruct::SerializedData*> datas;
 	};
 	union {
-		StackObject<HashMap<vengine::string, SerializeStruct::SerializedData>> keyValueDatas;
+		StackObject<HashMap<vstd::string, SerializeStruct::SerializedData>> keyValueDatas;
 		StackObject<ArrayData> arrayDatas;
 	};
 	void DisposeSelf();
@@ -33,9 +33,9 @@ public:
 	void IterateArray(
 		IteFunc const& func) const;
 
-	SerializedObject(vengine::vector<char> const& data);
-	SerializedObject(vengine::string const& path);
-	SerializedObject(vengine::vector<vengine::string> const& paths);
+	SerializedObject(vstd::vector<char> const& data);
+	SerializedObject(vstd::string const& path);
+	SerializedObject(vstd::vector<vstd::string> const& paths);
 	SerializedObject(char const*& ptr, bool isArray) {
 		Parse(ptr, isArray);
 	}
@@ -43,32 +43,32 @@ public:
 	bool IsArray() const {
 		return isArray;
 	}
-	bool Get(vengine::string const& name, vengine::string& str) const;
-	bool Get(vengine::string const& name, int64& intValue) const;
+	bool Get(vstd::string const& name, vstd::string& str) const;
+	bool Get(vstd::string const& name, int64& intValue) const;
 
-	bool Get(vengine::string const& name, double& floatValue) const;
-	bool Get(vengine::string const& name, bool& boolValue) const;
-	bool Get(vengine::string const& name, SerializedObject*& objValue) const;
-	bool ContainedKey(vengine::string const& name);
-	bool Get(vengine::string const& name, uint& intValue) const {
+	bool Get(vstd::string const& name, double& floatValue) const;
+	bool Get(vstd::string const& name, bool& boolValue) const;
+	bool Get(vstd::string const& name, SerializedObject*& objValue) const;
+	bool ContainedKey(vstd::string const& name);
+	bool Get(vstd::string const& name, uint& intValue) const {
 		int64 v;
 		if (!Get(name, v)) return false;
 		intValue = v;
 		return true;
 	}
-	bool Get(vengine::string const& name, int32_t& intValue) const {
+	bool Get(vstd::string const& name, int32_t& intValue) const {
 		int64 v;
 		if (!Get(name, v)) return false;
 		intValue = v;
 		return true;
 	}
-	bool Get(vengine::string const& name, float& floatValue) const {
+	bool Get(vstd::string const& name, float& floatValue) const {
 		double v;
 		if (!Get(name, v)) return false;
 		floatValue = v;
 		return true;
 	}
-	bool Get(uint64 iWitch, vengine::string& str) const;
+	bool Get(uint64 iWitch, vstd::string& str) const;
 	bool Get(uint64 iWitch, int64& intValue) const;
 	bool Get(uint64 iWitch, double& floatValue) const;
 	bool Get(uint64 iWitch, bool& boolValue) const;
@@ -102,7 +102,7 @@ class  SerializedData {
 public:
 	SerializeStruct::ObjectType type;
 	union {
-		StackObject<vengine::string> str;
+		StackObject<vstd::string> str;
 		StackObject<SerializedObject> obj;
 		int64 intValue;
 		double floatValue;
@@ -125,7 +125,7 @@ template<typename IteFunc>
 inline void SerializedObject::IterateKeyValue(
 	IteFunc const& func) const {
 	if (!isArray) {
-		keyValueDatas->IterateAll([&](vengine::string const& key, SerializeStruct::SerializedData& value) -> void {
+		keyValueDatas->IterateAll([&](vstd::string const& key, SerializeStruct::SerializedData& value) -> void {
 			func(key, value);
 		});
 	}

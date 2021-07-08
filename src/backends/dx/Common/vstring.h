@@ -6,7 +6,7 @@
 #include <Common/Hash.h>
 #include <Common/Memory.h>
 #include <Common/string_view.h>
-namespace vengine {
+namespace vstd {
 class VENGINE_DLL_COMMON string {
 	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
 	friend VENGINE_DLL_COMMON std::istream& operator>>(std::istream& in, string& obj) noexcept;
@@ -316,7 +316,7 @@ inline string to_string(double _Val) noexcept {
 	_CSTD sprintf_s(&_Str[0], _Len + 1, "%f", _Val);
 	return _Str;
 }
-inline void to_string(double _Val, vengine::string& str) noexcept {
+inline void to_string(double _Val, vstd::string& str) noexcept {
 	const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
 	size_t oldSize = str.size();
 	str.resize(oldSize + _Len);
@@ -351,32 +351,32 @@ inline string to_string(uint64_t _Val) noexcept {
 	return IntegerToString(_Val);
 }
 
-inline void to_string(float _Val, vengine::string& str) noexcept {
+inline void to_string(float _Val, vstd::string& str) noexcept {
 	to_string((double)_Val, str);
 }
 
-inline void to_string(int32_t _Val, vengine::string& str) noexcept {
+inline void to_string(int32_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
-inline void to_string(uint32_t _Val, vengine::string& str) noexcept {
+inline void to_string(uint32_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
-inline void to_string(int16_t _Val, vengine::string& str) noexcept {
+inline void to_string(int16_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
-inline void to_string(uint16_t _Val, vengine::string& str) noexcept {
+inline void to_string(uint16_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
-inline void to_string(int8_t _Val, vengine::string& str) noexcept {
+inline void to_string(int8_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
-inline void to_string(uint8_t _Val, vengine::string& str) noexcept {
+inline void to_string(uint8_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
-inline void to_string(int64_t _Val, vengine::string& str) noexcept {
+inline void to_string(int64_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
-inline void to_string(uint64_t _Val, vengine::string& str) noexcept {
+inline void to_string(uint64_t _Val, vstd::string& str) noexcept {
 	IntegerToString(_Val, str);
 }
 template<class _Ty>
@@ -432,39 +432,39 @@ inline wstring to_wstring(uint64_t _Val) noexcept {
 	return IntegerToWString(_Val);
 }
 
-}// namespace vengine
-VENGINE_DLL_COMMON vengine::string_view operator""_sv(char const* str, size_t sz);
+}// namespace vstd
+VENGINE_DLL_COMMON vstd::string_view operator""_sv(char const* str, size_t sz);
 
-VENGINE_DLL_COMMON vengine::wstring_view operator"" _sv(wchar_t const* str, size_t sz);
+VENGINE_DLL_COMMON vstd::wstring_view operator"" _sv(wchar_t const* str, size_t sz);
 
-inline vengine::string operator+(char c, const vengine::string& str) noexcept {
-	return vengine::string(c, str);
+inline vstd::string operator+(char c, const vstd::string& str) noexcept {
+	return vstd::string(c, str);
 }
 
-inline vengine::string operator+(const char* c, const vengine::string& str) noexcept {
-	return vengine::string(c, str);
+inline vstd::string operator+(const char* c, const vstd::string& str) noexcept {
+	return vstd::string(c, str);
 }
 
-inline vengine::wstring operator+(wchar_t c, const vengine::wstring& str) noexcept {
-	return vengine::wstring(c, str);
+inline vstd::wstring operator+(wchar_t c, const vstd::wstring& str) noexcept {
+	return vstd::wstring(c, str);
 }
 
-inline vengine::wstring operator+(const wchar_t* c, const vengine::wstring& str) noexcept {
-	return vengine::wstring(c, str);
+inline vstd::wstring operator+(const wchar_t* c, const vstd::wstring& str) noexcept {
+	return vstd::wstring(c, str);
 }
 
 #include <Common/Hash.h>
-namespace vengine {
+namespace vstd {
 template<>
-struct hash<vengine::string> {
-	inline size_t operator()(const vengine::string& str) const noexcept {
+struct hash<vstd::string> {
+	inline size_t operator()(const vstd::string& str) const noexcept {
 		return Hash::CharArrayHash(str.c_str(), str.size());
 	}
 };
 template<>
-struct hash<vengine::wstring> {
-	inline size_t operator()(const vengine::wstring& str) const noexcept {
+struct hash<vstd::wstring> {
+	inline size_t operator()(const vstd::wstring& str) const noexcept {
 		return Hash::CharArrayHash((const char*)str.c_str(), str.size() * 2);
 	}
 };
-}// namespace vengine
+}// namespace vstd

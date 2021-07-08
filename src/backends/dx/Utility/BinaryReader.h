@@ -16,7 +16,7 @@ private:
 	uint64 currentPos;
 
 public:
-	BinaryReader(vengine::string const& path);
+	BinaryReader(vstd::string const& path);
 	void Read(char* ptr, uint64 len);
 	operator bool() const {
 		return isAvaliable;

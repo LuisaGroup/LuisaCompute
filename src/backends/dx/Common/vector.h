@@ -7,9 +7,10 @@
 #include <type_traits>
 #include <Common/Memory.h>
 #include <Common/VAllocator.h>
-namespace vengine {
+#include <span>
+namespace vstd {
 
-template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool forceTrivial = std::is_trivial_v<T>>
+template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool forceTrivial = false>
 class vector {
 private:
 	using SelfType = vector<T, allocType, forceTrivial>;
@@ -37,13 +38,14 @@ private:
 			reserve(newCapacity);
 		}
 	}
+
 public:
 	using Iterator = T*;
 	void reserve(size_t newCapacity) noexcept {
 		if (newCapacity <= mCapacity) return;
 		T* newArr = Allocate(newCapacity);
 		if (arr) {
-			if constexpr (std::is_trivially_copyable_v<T> || forceTrivial) {
+			if constexpr (std::is_trivially_move_constructible_v<T> || forceTrivial) {
 				memcpy(newArr, arr, sizeof(T) * mSize);
 				if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
 					auto ee = end();
@@ -55,9 +57,6 @@ public:
 				for (size_t i = 0; i < mSize; ++i) {
 					auto oldT = arr + i;
 					new (newArr + i) T(std::move(*oldT));
-					if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
-						(oldT)->~T();
-					}
 				}
 			}
 			auto tempArr = arr;
@@ -82,12 +81,23 @@ public:
 	}
 	vector(std::initializer_list<T> const& lst) : mSize(lst.size()), mCapacity(lst.size()) {
 		arr = Allocate(mCapacity);
+		auto ptr = &static_cast<T const&>(*lst.begin());
 		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
 			for (size_t i = 0; i < mSize; ++i) {
-				new (arr + i) T(lst.begin()[i]);
+				new (arr + i) T(ptr[i]);
 			}
 		} else {
-			memcpy(arr, lst.begin(), sizeof(T) * mSize);
+			memcpy(arr, ptr, sizeof(T) * mSize);
+		}
+	}
+	vector(std::span<T> const& lst) : mSize(lst.size()), mCapacity(lst.size()) {
+		arr = Allocate(mCapacity);
+		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+			for (size_t i = 0; i < mSize; ++i) {
+				new (arr + i) T(lst[i]);
+			}
+		} else {
+			memcpy(arr, &static_cast<T const&>(*lst.begin()), sizeof(T) * mSize);
 		}
 	}
 	vector(const SelfType& another) noexcept
@@ -125,9 +135,10 @@ public:
 		this->~SelfType();
 		new (this) SelfType(std::move(another));
 	}
+	
 	void push_back_all(const T* values, size_t count) noexcept {
 		ResizeRange(count);
-		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
+		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
 			auto endPtr = arr + mSize;
 			for (size_t i = 0; i < count; ++i) {
 				T* ptr = endPtr + i;
@@ -138,7 +149,10 @@ public:
 		}
 		mSize += count;
 	}
-	template <typename Func>
+	void push_back_all(std::span<T> sp) noexcept {
+		push_back_all(sp.data(), sp.size());
+	}
+	template<typename Func>
 	void push_back_func(Func&& f, size_t count) {
 		ResizeRange(count);
 		auto endPtr = arr + mSize;
@@ -147,9 +161,11 @@ public:
 			new (ptr) T(std::move(f(i)));
 		}
 	}
-
+	operator std::span<T>() const {
+		return std::span<T>(begin(), end());
+	}
 	void push_back_all(const std::initializer_list<T>& list) noexcept {
-		push_back_all(list.begin(), list.size());
+		push_back_all(&static_cast<T const&>(*list.begin()), list.size());
 	}
 	void SetZero() const noexcept {
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
@@ -162,12 +178,13 @@ public:
 		clear();
 		reserve(list.size());
 		mSize = list.size();
+		auto ptr = &static_cast<T const&>(*list.begin());
 		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
 			for (size_t i = 0; i < mSize; ++i) {
-				new (arr + i) T(list.begin()[i]);
+				new (arr + i) T(ptr[i]);
 			}
 		} else {
-			memcpy(arr, list.begin(), sizeof(T) * mSize);
+			memcpy(arr, ptr, sizeof(T) * mSize);
 		}
 	}
 	vector() noexcept : mCapacity(0), mSize(0), arr(nullptr) {
@@ -223,13 +240,11 @@ public:
 #if defined(DEBUG)
 		if (index >= mSize) throw "Out of Range!";
 #endif
-		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
-			if constexpr (!(std::is_trivially_copyable_v<T> || forceTrivial)) {
-				if (index < mSize - 1) {
-					auto ee = end() - 1;
-					for (auto i = begin(); i != ee; ++i) {
-						*i = i[1];
-					}
+		if constexpr (!(std::is_trivially_move_constructible_v<T> || forceTrivial)) {
+			if (index < mSize - 1) {
+				auto ee = end() - 1;
+				for (auto i = begin(); i != ee; ++i) {
+					*i = std::move(i[1]);
 				}
 			}
 			if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial))
@@ -291,6 +306,6 @@ public:
 		return arr[index];
 	}
 };
-}// namespace vengine
+}// namespace vstd
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
-using ArrayList = typename vengine::vector<T, allocType, true>;
+using ArrayList = typename vstd::vector<T, allocType, true>;

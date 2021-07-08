@@ -1224,7 +1224,7 @@ inline int4& XM_CALLCONV operator/=(int4& a, const int4& b) {
 	a.w /= b.w;
 	return a;
 }
-namespace vengine {
+namespace vstd {
 template<>
 struct hash<uint2> {
 	inline uint64_t operator()(uint2 const& value) const noexcept {
@@ -1267,7 +1267,7 @@ struct hash<int4> {
 		return Hash::Int32ArrayHash(ptr, ptr + 4);
 	}
 };
-}// namespace vengine
+}// namespace vstd
 namespace std {
 template<>
 struct equal_to<uint2> {

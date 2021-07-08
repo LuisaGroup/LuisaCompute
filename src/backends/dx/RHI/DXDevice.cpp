@@ -123,11 +123,15 @@ public:
 
 	// texture
 	uint64 create_texture(
-		PixelFormat format, uint dimension, uint width, uint height, uint depth,
-		uint mipmap_levels, bool is_bindless) override {
+		PixelFormat format, uint dimension,
+		uint width, uint height, uint depth,
+		uint mipmap_levels,
+		TextureSampler sampler,
+		uint64 heap_handle,// == uint64(-1) when not from heap
+		uint32_t index_in_heap) override {
 		Graphics::current = graphicsInstance;
-		RenderTexturePackage* pack = new RenderTexturePackage();
-		pack->bindless = is_bindless;
+		/* RenderTexturePackage* pack = new RenderTexturePackage();
+		pack->bindless = (is_bindless == heap_handle);
 		pack->format = format;
 		pack->rt.New(
 			dxDevice,
@@ -140,7 +144,7 @@ public:
 			mipmap_levels,
 			RenderTextureState::Common,
 			0);
-		return reinterpret_cast<uint64>(pack);
+		return reinterpret_cast<uint64>(pack);*/
 	}
 	void dispose_texture(uint64 handle) noexcept override {
 		delete reinterpret_cast<RenderTexture*>(handle);
@@ -176,10 +180,10 @@ public:
 			mtx,
 			signalCount);
 	}
-	// kernel
+	/*
 	void compile_kernel(uint32_t uid) noexcept override {
 		ShaderCompiler::TryCompileCompute(uid);
-	}
+	}*/
 	uint64 create_event() noexcept override {
 		return reinterpret_cast<uint64>(new DXEvent());
 	}
@@ -201,26 +205,35 @@ public:
 			stream->GetQueue(),
 			cpuFence.Get());
 	}
-	uint64_t create_mesh(
-		uint64_t vertex_buffer_handle,
+	uint64 create_mesh(
+		uint64 stream_handle,
+		uint64 vertex_buffer_handle,
 		size_t vertex_buffer_offset_bytes,
-		uint vertex_count,
-		uint64_t index_buffer_handle,
+		size_t vertex_count,
+		uint64 index_buffer_handle,
 		size_t index_buffer_offset_bytes,
-		uint index_count) noexcept override {
-		return reinterpret_cast<uint64_t>(
+		size_t triangle_count) noexcept override {
+		/* return reinterpret_cast<uint64>(
 			new LCMesh(
 				reinterpret_cast<StructuredBuffer*>(vertex_buffer_handle),
 				reinterpret_cast<StructuredBuffer*>(index_buffer_handle),
 				vertex_buffer_offset_bytes,
 				index_buffer_offset_bytes,
 				vertex_count,
-				index_count));
+				index_count));*/
 	}
 	void dispose_mesh(
-		uint64_t mesh_handle) noexcept override {
+		uint64 mesh_handle) noexcept override {
 		delete reinterpret_cast<LCMesh*>(mesh_handle);
 	}
+	uint64 create_accel(
+		uint64 stream_handle,
+		uint64 mesh_handle_buffer_handle,
+		size_t mesh_handle_buffer_offset_bytes,
+		uint64 transform_buffer_handle,
+		size_t transform_buffer_offset_bytes,
+		size_t mesh_count) noexcept override {}
+	void dispose_accel(uint64 handle) noexcept override {}
 	/*
 	uint64 signal_event(uint64 handle, uint64 stream_handle);
 	void wait_event(uint64 signal, uint64 stream_handle)
@@ -234,12 +247,18 @@ public:
 			FreeFrameResource(signal);
 		});
 	}
+
+	[[nodiscard]] uint64 create_texture_heap(size_t size) noexcept override {}
+	[[nodiscard]] size_t query_texture_heap_memory_usage(uint64 handle) noexcept override {}
+	void dispose_texture_heap(uint64 handle) noexcept override {}
+	uint64_t create_shader(Function kernel) noexcept override {}
+	void dispose_shader(uint64_t handle) noexcept override {}
 	/*
-	uint64_t create_raytracing_struct() noexcept override {
-		return reinterpret_cast<uint64_t>(new RayTracingManager(dxDevice));
+	uint64 create_raytracing_struct() noexcept override {
+		return reinterpret_cast<uint64>(new RayTracingManager(dxDevice));
 	}
 	void dispose_raytracing_struct(
-		uint64_t handle) noexcept override {
+		uint64 handle) noexcept override {
 		delete reinterpret_cast<RayTracingManager*>(handle);
 	}*/
 	~DXDevice() {
@@ -370,7 +389,7 @@ private:
 }// namespace luisa::compute
 
 LUISA_EXPORT luisa::compute::Device::Interface* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
-	return new luisa::compute::DXDevice{ctx, id};
+	return new luisa::compute::DXDevice(ctx, id);
 }
 
 LUISA_EXPORT void destroy(luisa::compute::Device::Interface* device) noexcept {

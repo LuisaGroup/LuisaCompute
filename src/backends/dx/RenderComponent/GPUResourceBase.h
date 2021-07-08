@@ -20,21 +20,21 @@ protected:
 
 private:
 	GPUResourceType resourceType;
-	vengine::string name;
+	vstd::string name;
 
 public:
 	IGPUAllocator* GetAllocator() const { return allocator; }
 	GPUResourceType GetResourceType() const { return resourceType; }
 	GPUResourceBase(GFXDevice* device, GPUResourceType resourceType, IGPUAllocator* allocator);
-	vengine::string const& GetName() const { return name; }
+	vstd::string const& GetName() const { return name; }
 	void ReleaseAfterFrame(luisa::compute::FrameResource* resource);
 	virtual ~GPUResourceBase();
 	virtual GPUResourceState GetInitState() const = 0;
 	GFXResource* GetResource() const {
 		return Resource.Get();
 	}
-	void SetName(vengine::string const& str) {
+	void SetName(vstd::string const& str) {
 		name = str;
-		Resource->SetName(vengine::wstring(str).c_str());
+		Resource->SetName(vstd::wstring(str).c_str());
 	}
 };

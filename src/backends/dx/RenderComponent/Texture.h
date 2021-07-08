@@ -62,12 +62,12 @@ private:
 	uint64 fileReadOffset = 0;
 	uint64 fileReadSize = 0;
 	ObjectPtr<GFXResource*> resTracker;
-	vengine::string targetFilePath;
+	vstd::string targetFilePath;
 	GPUResourceState initState = GPUResourceState_Common;
 	D3D12_RESOURCE_DESC CreateWithoutResource(
 		TextureData& data,
 		GFXDevice* device,
-		const vengine::string& filePath,
+		const vstd::string& filePath,
 		bool startLoadNow,
 		bool alreadyHaveTextureData,
 		ArrayList<char>* datasPtr,
@@ -81,7 +81,7 @@ public:
 	//Async Load
 	Texture(
 		GFXDevice* device,
-		const vengine::string& filePath,
+		const vstd::string& filePath,
 		bool startLoading = true,
 		TextureDimension type = TextureDimension::Tex2D,
 		uint32_t maximumLoadMipmap = -1,
@@ -92,7 +92,7 @@ public:
 	);
 	Texture(
 		GFXDevice* device,
-		const vengine::string& filePath,
+		const vstd::string& filePath,
 		ITextureAllocator* allocator,
 		IBufferAllocator* bufferAllocator = nullptr,
 		bool startLoading = true,
@@ -104,7 +104,7 @@ public:
 
 	Texture(
 		GFXDevice* device,
-		const vengine::string& filePath,
+		const vstd::string& filePath,
 		const TextureData& texData,
 		bool startLoading = true,
 		uint32_t maximumLoadMipmap = -1,
@@ -115,7 +115,7 @@ public:
 	);
 	Texture(
 		GFXDevice* device,
-		const vengine::string& filePath,
+		const vstd::string& filePath,
 		const TextureData& texData,
 		ITextureAllocator* allocator,
 		IBufferAllocator* bufferAllocator = nullptr,

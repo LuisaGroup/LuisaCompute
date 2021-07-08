@@ -79,7 +79,7 @@ MD5::MD5(std::span<uint8_t> message) {
 	/* Initialization the object according to message. */
 	init(message.data(), message.size());
 }
-std::array<uint8_t, MD5::MD5_SIZE> MD5::GetMD5FromString(vengine::string const& str) {
+std::array<uint8_t, MD5::MD5_SIZE> MD5::GetMD5FromString(vstd::string const& str) {
 	MD5 md5({reinterpret_cast<uint8_t*>(str.data()), str.size()});
 	return md5.GetDigest();
 }

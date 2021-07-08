@@ -4,7 +4,7 @@
 #ifdef DEBUG
 #include <string.h>
 #endif
-namespace vengine {
+namespace vstd {
 VENGINE_DLL_COMMON void AddFunc(
 	string_view const& name,
 	Type funcType,
@@ -41,6 +41,6 @@ Runnable<functor_t<T>, VEngine_AllocType::Default> const& TryGetFunction(
 #endif
 	return *reinterpret_cast<Runnable<functor_t<T>, VEngine_AllocType::Default> const*>(pair);
 }
-}// namespace vengine
-#define VENGINE_LINK_FUNC(FUNC) static vengine::FunctionLoader<decltype(FUNC)> VE_##FUNC(#FUNC##_sv, FUNC)
-#define VENGINE_LINK_CLASS(FUNC, ...) static vengine::FunctionLoader<decltype(FUNC)> VE_##FUNC(#FUNC##_sv, FUNC(__VA_ARGS__))
+}// namespace vstd
+#define VENGINE_LINK_FUNC(FUNC) static vstd::FunctionLoader<decltype(FUNC)> VE_##FUNC(#FUNC##_sv, FUNC)
+#define VENGINE_LINK_CLASS(FUNC, ...) static vstd::FunctionLoader<decltype(FUNC)> VE_##FUNC(#FUNC##_sv, FUNC(__VA_ARGS__))

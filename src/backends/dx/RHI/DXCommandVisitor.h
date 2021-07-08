@@ -23,13 +23,13 @@ public:
 		ThreadCommand* tCmd,
 		FrameResource* res,
 		InternalShaders* internalShaders,
-		Runnable<IShader const*(uint)>&& getFunction);
+		Runnable<IShader const*(Function)>&& getFunction);
 
 private:
 	GFXDevice* device;
 	ThreadCommand* tCmd;
 	FrameResource* res;
 	InternalShaders* internalShaders;
-	Runnable<IShader const*(uint)> getFunction;
+	Runnable<IShader const*(Function)> getFunction;
 };
 }// namespace luisa::compute

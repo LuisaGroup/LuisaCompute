@@ -85,5 +85,4 @@ public:
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
 };
-
 }// namespace luisa::compute

@@ -13,26 +13,26 @@ public:
 	static void PrintErrorMessages();
 	static void InitRegisterData();
 	static void CompileComputeShader(
-		vengine::string const& fileName,
-		vengine::vector<ShaderVariable> const& vars,
-		vengine::string const& passDesc,
-		vengine::vector<char> const& customData,
-		vengine::vector<char>& resultData);
+		vstd::string const& fileName,
+		vstd::vector<ShaderVariable> const& vars,
+		vstd::string const& passDesc,
+		vstd::vector<char> const& customData,
+		vstd::vector<char>& resultData);
 	static void CompileDXRShader(
-		vengine::string const& fileName,
-		vengine::vector<ShaderVariable> const& vars,
+		vstd::string const& fileName,
+		vstd::vector<ShaderVariable> const& vars,
 		CompileDXRHitGroup const& passDescs,
 		uint64 raypayloadMaxSize,
 		uint64 recursiveCount,
-		vengine::vector<char> const& customData,
-		vengine::vector<char>& resultData);
+		vstd::vector<char> const& customData,
+		vstd::vector<char>& resultData);
 	//TODO: Texture Binding, Bindless Texture
 	static void GetShaderVariables(
 		luisa::compute::Function const& func,
-		vengine::vector<ShaderVariable>& result);
+		vstd::vector<ShaderVariable>& result);
 	static bool CheckNeedReCompile(
 		std::array<uint8_t, 16> const& md5,
-		vengine::string const& shaderFileName);
+		vstd::string const& shaderFileName);
 
 private:
 };
