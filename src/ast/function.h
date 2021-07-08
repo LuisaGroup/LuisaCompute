@@ -51,7 +51,7 @@ public:
         TextureHeapBinding(Variable v, uint64_t handle) noexcept
             : variable{v}, handle{handle} {}
     };
-    
+
     struct ConstantBinding {
         const Type *type{nullptr};
         ConstantData data;
@@ -59,7 +59,7 @@ public:
 
 private:
     const detail::FunctionBuilder *_builder{nullptr};
-    
+
 private:
     friend class detail::FunctionBuilder;
 
@@ -85,4 +85,5 @@ public:
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
 };
+
 }// namespace luisa::compute
