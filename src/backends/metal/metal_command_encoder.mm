@@ -181,15 +181,15 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
         using T = decltype(argument);
         auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
             switch (usage) {
-                case Variable::Usage::READ:
+                case Usage::READ:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead];
                     break;
-                case Variable::Usage::WRITE:
+                case Usage::WRITE:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageWrite];
                     break;
-                case Variable::Usage::READ_WRITE:
+                case Usage::READ_WRITE:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead
                                                  | MTLResourceUsageWrite];

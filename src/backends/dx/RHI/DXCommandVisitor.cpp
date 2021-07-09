@@ -93,7 +93,7 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 			ShaderCompiler::ConstBufferData const* cbData;
 			void operator()(uint varID, KernelLaunchCommand::BufferArgument const& arg) {
 				StructuredBuffer* buffer = reinterpret_cast<StructuredBuffer*>(arg.handle);
-				bool isUAV = ((uint)func.variable_usage(varID) & (uint)Variable::Usage::WRITE) != 0;
+				bool isUAV = ((uint)func.variable_usage(varID) & (uint)Usage::WRITE) != 0;
 				if (isUAV) {
 					tCmd->UpdateResState(
 						buffer->GetInitState(),
@@ -115,7 +115,7 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 			}
 			void operator()(uint varID, KernelLaunchCommand::TextureArgument const& arg) {
 				RenderTexture* tex = reinterpret_cast<RenderTexture*>(arg.handle);
-				bool isUAV = ((uint)func.variable_usage(varID) & (uint)Variable::Usage::WRITE) != 0;
+				bool isUAV = ((uint)func.variable_usage(varID) & (uint)Usage::WRITE) != 0;
 				if (isUAV) {
 					tCmd->UpdateResState(
 						tex->GetInitState(),

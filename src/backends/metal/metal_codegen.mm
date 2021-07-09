@@ -618,7 +618,7 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::BUFFER:
             _scratch << "device ";
-            if (_function.variable_usage(v.uid()) == Variable::Usage::READ) {
+            if (_function.variable_usage(v.uid()) == Usage::READ) {
                 _scratch << "const ";
             }
             _emit_type_name(v.type()->element());
@@ -629,11 +629,11 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << "texture" << v.type()->dimension() << "d<";
             _emit_type_name(v.type()->element());
             if (auto usage = _function.variable_usage(v.uid());
-                usage == Variable::Usage::READ_WRITE) {
+                usage == Usage::READ_WRITE) {
                 _scratch << ", access::read_write> ";
-            } else if (usage == Variable::Usage::WRITE) {
+            } else if (usage == Usage::WRITE) {
                 _scratch << ", access::write> ";
-            } else if (usage == Variable::Usage::READ) {
+            } else if (usage == Usage::READ) {
                 _scratch << ", access::read> ";
             }
             _emit_variable_name(v);
@@ -677,8 +677,8 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             break;
         case Variable::Tag::LOCAL:
             if (auto usage = _function.variable_usage(v.uid());
-                usage == Variable::Usage::READ
-                || usage == Variable::Usage::NONE) {
+                usage == Usage::READ
+                || usage == Usage::NONE) {
                 _scratch << "const ";
             }
             _emit_type_name(v.type());

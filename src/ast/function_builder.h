@@ -62,7 +62,8 @@ private:
     ArenaVector<Variable> _arguments;
     ArenaVector<Function> _used_custom_callables;
     ArenaVector<CallOp> _used_builtin_callables;
-    ArenaVector<Variable::Usage> _variable_usages;
+    ArenaVector<Usage> _variable_usages;
+    ArenaVector<const CallExpr *> _call_expressions;
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
@@ -208,7 +209,7 @@ public:
 
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
-    void mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept;
+    void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
     void mark_raytracing() noexcept;
 
     [[nodiscard]] auto function() const noexcept { return Function{this}; }

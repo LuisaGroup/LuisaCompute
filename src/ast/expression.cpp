@@ -9,11 +9,12 @@
 
 namespace luisa::compute {
 
-void RefExpr::_mark(Variable::Usage usage) const noexcept {
-    detail::FunctionBuilder::current()->mark_variable_usage(_variable.uid(), usage);
+void RefExpr::_mark(Usage usage) const noexcept {
+    detail::FunctionBuilder::current()->mark_variable_usage(
+        _variable.uid(), usage);
 }
 
-void CallExpr::_mark(Variable::Usage) const noexcept {
+void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         if (_op == CallOp::TEXTURE_WRITE
             || _op == CallOp::ATOMIC_STORE
@@ -26,13 +27,13 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
             || _op == CallOp::ATOMIC_FETCH_XOR
             || _op == CallOp::ATOMIC_FETCH_MIN
             || _op == CallOp::ATOMIC_FETCH_MAX) {
-            _arguments[0]->mark(Variable::Usage::WRITE);
+            _arguments[0]->mark(Usage::WRITE);
             for (auto i = 1u; i < _arguments.size(); i++) {
-                _arguments[i]->mark(Variable::Usage::READ);
+                _arguments[i]->mark(Usage::READ);
             }
         } else {
             for (auto arg : _arguments) {
-                arg->mark(Variable::Usage::READ);
+                arg->mark(Usage::READ);
             }
         }
     } else {
@@ -43,14 +44,14 @@ void CallExpr::_mark(Variable::Usage) const noexcept {
                 arg.tag() == Variable::Tag::BUFFER
                         || arg.tag() == Variable::Tag::TEXTURE
                     ? _custom.variable_usage(arg.uid())
-                    : Variable::Usage::READ);
+                    : Usage::READ);
         }
     }
 }
 
-void Expression::mark(Variable::Usage usage) const noexcept {
+void Expression::mark(Usage usage) const noexcept {
     if (auto a = to_underlying(_usage), b = to_underlying(usage); (a & b) == 0u) {
-        _usage = static_cast<Variable::Usage>(a | b);
+        _usage = static_cast<Usage>(a | b);
         _mark(usage);
     }
 }

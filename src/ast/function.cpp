@@ -51,7 +51,7 @@ const Type *Function::return_type() const noexcept {
     return _builder->return_type();
 }
 
-Variable::Usage Function::variable_usage(uint32_t uid) const noexcept {
+Usage Function::variable_usage(uint32_t uid) const noexcept {
     return _builder->variable_usage(uid);
 }
 

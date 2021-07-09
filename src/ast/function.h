@@ -78,7 +78,7 @@ public:
     [[nodiscard]] uint3 block_size() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
     [[nodiscard]] const Type *return_type() const noexcept;
-    [[nodiscard]] Variable::Usage variable_usage(uint32_t uid) const noexcept;
+    [[nodiscard]] Usage variable_usage(uint32_t uid) const noexcept;
     [[nodiscard]] const ScopeStmt *body() const noexcept;
     [[nodiscard]] uint64_t hash() const noexcept;
     [[nodiscard]] bool raytracing() const noexcept;

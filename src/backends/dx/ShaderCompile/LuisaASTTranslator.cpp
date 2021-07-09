@@ -8,7 +8,7 @@
 
 namespace luisa::compute {
 static bool _IsVarWritable(Function func, Variable i) {
-	return ((uint)func.variable_usage(i.uid()) & (uint)Variable::Usage::WRITE) != 0;
+	return ((uint)func.variable_usage(i.uid()) & (uint)Usage::WRITE) != 0;
 }
 void CodegenUtility::GetCodegen(Function func, vstd::string& str, HashMap<uint, size_t>& varOffsets, size_t& cbufferSize) {
 	{

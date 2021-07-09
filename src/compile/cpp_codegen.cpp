@@ -558,11 +558,11 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_type_name(v.type()->element());
             _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
-                usage == Variable::Usage::READ_WRITE) {
+                usage == Usage::READ_WRITE) {
                 _scratch << "access::read_write> ";
-            } else if (usage == Variable::Usage::WRITE) {
+            } else if (usage == Usage::WRITE) {
                 _scratch << "access::write> ";
-            } else if (usage == Variable::Usage::READ) {
+            } else if (usage == Usage::READ) {
                 _scratch << "access::read> ";
             }
             _emit_variable_name(v);
@@ -665,10 +665,10 @@ void CppCodegen::visit(const ForStmt *stmt) {
 
 void CppCodegen::_emit_access_attribute(Variable v) noexcept {
     switch (_function.variable_usage(v.uid())) {
-        case Variable::Usage::NONE: _scratch << "[[access::none]]"; break;
-        case Variable::Usage::READ: _scratch << "[[access::read]]"; break;
-        case Variable::Usage::WRITE: _scratch << "[[access::write]]"; break;
-        case Variable::Usage::READ_WRITE: _scratch << "[[access::read_write]]"; break;
+        case Usage::NONE: _scratch << "[[access::none]]"; break;
+        case Usage::READ: _scratch << "[[access::read]]"; break;
+        case Usage::WRITE: _scratch << "[[access::write]]"; break;
+        case Usage::READ_WRITE: _scratch << "[[access::read_write]]"; break;
         default: _scratch << "[[access::unknown]]"; break;
     }
 }

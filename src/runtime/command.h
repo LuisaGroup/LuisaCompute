@@ -98,7 +98,7 @@ public:
             TEXTURE
         };
 
-        using Usage = Variable::Usage;
+        using Usage = Usage;
 
         uint64_t handle{0u};
         Tag tag{Tag::NONE};
