@@ -234,6 +234,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
+        case CallOp::TEXTURE_SAMPLE_LOD: _scratch << "texture_sample_lod"; break;
+        case CallOp::TEXTURE_SAMPLE_GRAD: _scratch << "texture_sample_grad"; break;
 #define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
@@ -246,6 +248,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::TRACE_CLOSEST: break;
+        case CallOp::TRACE_ANY: break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
