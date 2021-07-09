@@ -81,7 +81,14 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
             "Invalid Metal device index {} (#device = {}).",
             index, count);
     }
-    _handle = devices[index];
+    std::vector<id<MTLDevice>> sorted_devices;
+    sorted_devices.reserve(devices.count);
+    for (id<MTLDevice> d in devices) { sorted_devices.emplace_back(d); }
+    std::sort(sorted_devices.begin(), sorted_devices.end(), [](id<MTLDevice> lhs, id<MTLDevice> rhs) noexcept {
+        if (lhs.isLowPower == rhs.isLowPower) { return lhs.registryID < rhs.registryID; }
+        return static_cast<bool>(rhs.isLowPower);
+    });
+    _handle = sorted_devices[index];
     LUISA_INFO(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);

@@ -545,8 +545,7 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::STRUCTURE:
             _scratch << "S" << hash_to_string(type->hash());
             break;
-        case Type::Tag::BUFFER: break;
-        case Type::Tag::TEXTURE: break;
+        default: break;
     }
 }
 
@@ -569,6 +568,10 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             } else if (usage == Usage::READ) {
                 _scratch << "access::read> ";
             }
+            _emit_variable_name(v);
+            break;
+        case Variable::Tag::TEXTURE_HEAP:
+            _scratch << "texture_heap ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::UNIFORM:
