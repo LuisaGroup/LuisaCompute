@@ -93,7 +93,7 @@ public:
         return BufferToTextureCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
             tex.handle(), tex.storage(),
-            mipmap_level, uint3(0u), mipmap_size,
+            mipmap_level, make_uint3(0u), mipmap_size,
             _handle);
     }
 

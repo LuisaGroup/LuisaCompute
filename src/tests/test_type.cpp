@@ -199,9 +199,9 @@ int main() {
 
     static_assert(alignof(float3) == 16);
 
-    auto u = float2(1.0f, 2.0f);
-    auto v = float3(1.0f, 2.0f, 3.0f);
-    auto w = float3(u, 1.0f);
+    auto u = make_float2(1.0f, 2.0f);
+    auto v = make_float3(1.0f, 2.0f, 3.0f);
+    auto w = make_float3(u, 1.0f);
 
     auto vv = v + w;
     auto bvv = v == w;
@@ -212,7 +212,7 @@ int main() {
     v = 2.0f * v;
     auto ff = v[2];
     ff = 1.0f;
-    auto tt = float2{v};
+    auto tt = make_float2(v);
 
     print(Type::of<float3x3>());
 

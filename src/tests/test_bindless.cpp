@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()
-           << fill_image(texture_heap, device_image.view(128u, 1024u - 256u)).dispatch(1024u - 256u)
+           << fill_image(texture_heap, device_image.view(make_uint2(128u), make_uint2(1024u - 256u))).dispatch(make_uint2(1024u - 256u))
            << device_image.view().copy_to(host_image.data())
            << event.signal();
 

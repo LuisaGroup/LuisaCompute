@@ -279,25 +279,30 @@ template<uint N>
 }
 
 // Matrix Functions
+[[nodiscard]] constexpr auto transpose(const float2x2 m) noexcept {
+    return make_float2x2(m[0].x, m[1].x,
+                         m[0].y, m[1].y);
+}
+
 [[nodiscard]] constexpr auto transpose(const float3x3 m) noexcept {
-    return float3x3{m[0].x, m[1].x, m[2].x,
-                    m[0].y, m[1].y, m[2].y,
-                    m[0].z, m[1].z, m[2].z};
+    return make_float3x3(m[0].x, m[1].x, m[2].x,
+                         m[0].y, m[1].y, m[2].y,
+                         m[0].z, m[1].z, m[2].z);
 }
 
 [[nodiscard]] constexpr auto transpose(const float4x4 m) noexcept {
-    return float4x4{m[0].x, m[1].x, m[2].x, m[3].x,
-                    m[0].y, m[1].y, m[2].y, m[3].y,
-                    m[0].z, m[1].z, m[2].z, m[3].z,
-                    m[0].w, m[1].w, m[2].w, m[3].w};
+    return make_float4x4(m[0].x, m[1].x, m[2].x, m[3].x,
+                         m[0].y, m[1].y, m[2].y, m[3].y,
+                         m[0].z, m[1].z, m[2].z, m[3].z,
+                         m[0].w, m[1].w, m[2].w, m[3].w);
 }
 
 [[nodiscard]] constexpr auto inverse(const float2x2 m) noexcept {
     const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
-    return float2x2(m[1][1] * one_over_determinant,
-                    - m[0][1] * one_over_determinant,
-                    - m[1][0] * one_over_determinant,
-                    + m[0][0] * one_over_determinant);
+    return make_float2x2(m[1][1] * one_over_determinant,
+                         -m[0][1] * one_over_determinant,
+                         -m[1][0] * one_over_determinant,
+                         +m[0][0] * one_over_determinant);
 }
 
 [[nodiscard]] constexpr auto inverse(const float3x3 m) noexcept {// from GLM
@@ -305,7 +310,7 @@ template<uint N>
                                       / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
                                          - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
                                          + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
-    return float3x3{
+    return make_float3x3(
         (m[1].y * m[2].z - m[2].y * m[1].z) * one_over_determinant,
         (m[2].y * m[0].z - m[0].y * m[2].z) * one_over_determinant,
         (m[0].y * m[1].z - m[1].y * m[0].z) * one_over_determinant,
@@ -314,7 +319,7 @@ template<uint N>
         (m[1].x * m[0].z - m[0].x * m[1].z) * one_over_determinant,
         (m[1].x * m[2].y - m[2].x * m[1].y) * one_over_determinant,
         (m[2].x * m[0].y - m[0].x * m[2].y) * one_over_determinant,
-        (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant};
+        (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant);
 }
 
 [[nodiscard]] constexpr auto inverse(const float4x4 m) noexcept {// from GLM
@@ -367,11 +372,11 @@ template<uint N>
 
 // transforms
 constexpr auto translation(const float3 v) noexcept {
-    return float4x4{
+    return make_float4x4(
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
-        v.x, v.y, v.z, 1.0f};
+        v.x, v.y, v.z, 1.0f);
 }
 
 inline auto rotation(const float3 axis, float angle) noexcept {
@@ -379,19 +384,19 @@ inline auto rotation(const float3 axis, float angle) noexcept {
     auto s = sin(angle);
     auto a = normalize(axis);
     auto t = (1.0f - c) * a;
-    return float4x4{
+    return make_float4x4(
         c + t.x * a.x, t.x * a.y + s * a.z, t.x * a.z - s * a.y, 0.0f,
         t.y * a.x - s * a.z, c + t.y * a.y, t.y * a.z + s * a.x, 0.0f,
         t.z * a.x + s * a.y, t.z * a.y - s * a.x, c + t.z * a.z, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f};
+        0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 constexpr auto scaling(const float3 s) noexcept {
-    return float4x4{
+    return make_float4x4(
         s.x, 0.0f, 0.0f, 0.0f,
         0.0f, s.y, 0.0f, 0.0f,
         0.0f, 0.0f, s.z, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f};
+        0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 }// namespace luisa

@@ -61,7 +61,7 @@ uint32_t TextureHeap::allocate(PixelStorage storage, uint2 size, TextureSampler 
             "Failed to allocate texture from heap #{} with full slots.", _handle);
         return invalid_index;
     }
-    auto valid_mipmap_levels = _compute_mipmap_levels(uint3(size, 1u), mipmap_levels);
+    auto valid_mipmap_levels = _compute_mipmap_levels(make_uint3(size, 1u), mipmap_levels);
     if (valid_mipmap_levels == 1) { sampler.set_mip_filter_mode(TextureSampler::MipFilterMode::NONE); }
     auto index = _available.back();
     _available.pop_back();
@@ -69,7 +69,7 @@ uint32_t TextureHeap::allocate(PixelStorage storage, uint2 size, TextureSampler 
         pixel_storage_to_format<float>(storage), 2u,
         size.x, size.y, 1u, valid_mipmap_levels,
         sampler, _handle, index);
-    _slots[index] = {handle, storage, 2u, uint3(size, 1u), mipmap_levels};
+    _slots[index] = {handle, storage, 2u, make_uint3(size, 1u), mipmap_levels};
     return index;
 }
 
@@ -105,7 +105,7 @@ void TextureHeap::recycle(uint32_t index) noexcept {
 CommandHandle TextureHeap::emplace(uint32_t index, ImageView<float> view, uint32_t mipmap_level) noexcept {
     if (!_validate_mipmap_level<2>(index, mipmap_level)) { return nullptr; }
     auto tex_desc = _slots[index];
-    auto size = uint2(tex_desc.size());
+    auto size = make_uint2(tex_desc.size());
     auto mipmap_size = max(size >> mipmap_level, 1u);
     if (!all(size == view.size())) {
         LUISA_WARNING_WITH_LOCATION(
@@ -119,8 +119,8 @@ CommandHandle TextureHeap::emplace(uint32_t index, ImageView<float> view, uint32
     return TextureCopyCommand::create(
         view.handle(), tex_desc.handle(),
         0u, mipmap_level,
-        uint3(view.offset(), 0u), uint3(0u),
-        uint3(mipmap_size, 1u), _handle);
+        make_uint3(view.offset(), 0u), make_uint3(0u),
+        make_uint3(mipmap_size, 1u), _handle);
 }
 
 CommandHandle TextureHeap::emplace(uint32_t index, VolumeView<float> view, uint32_t mipmap_level) noexcept {
@@ -141,7 +141,7 @@ CommandHandle TextureHeap::emplace(uint32_t index, VolumeView<float> view, uint3
     return TextureCopyCommand::create(
         view.handle(), tex_desc.handle(),
         0u, mipmap_level,
-        view.offset(), uint3(0u),
+        view.offset(), make_uint3(0u),
         mipmap_size, _handle);
 }
 
@@ -152,7 +152,7 @@ CommandHandle TextureHeap::emplace(uint32_t index, const void *pixels, uint32_t 
     auto mipmap_size = max(size >> mipmap_level, 1u);
     return TextureUploadCommand::create(
         tex.handle(), tex.storage(), mipmap_level,
-        uint3(0u), mipmap_size,
+        make_uint3(0u), mipmap_size,
         pixels, _handle);
 }
 

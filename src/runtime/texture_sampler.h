@@ -14,7 +14,9 @@ class TextureSampler {
 
 public:
     struct Hash {
-        [[nodiscard]] auto operator()(TextureSampler s) const noexcept { return s.hash(); }
+        [[nodiscard]] auto operator()(TextureSampler s) const noexcept {
+            return s.hash();
+        }
     };
 
     enum struct AddressMode : uint8_t {
@@ -34,6 +36,22 @@ public:
         NEAREST,
         LINEAR
     };
+
+    [[nodiscard]] static auto compute_mip_levels(uint3 size, uint requested_levels) noexcept {
+        auto max_size = std::max({size.x, size.y, size.z});
+        auto max_levels = 0u;
+        while (max_size != 0u) {
+            max_size >>= 1u;
+            max_levels++;
+        }
+        return requested_levels == 0u
+                   ? max_levels
+                   : std::min(requested_levels, max_levels);
+    }
+
+    [[nodiscard]] static auto compute_mip_levels(uint2 size, uint requested_levels) noexcept {
+        return compute_mip_levels(make_uint3(size, 1u), requested_levels);
+    }
 
 private:
     uint _max_anisotropy{1u};

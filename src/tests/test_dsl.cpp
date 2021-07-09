@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
         Var v2 = float3{2.0f} - v_vec * 2.0f;
         v2 *= 5.0f + v_float;
 
-        Var<float2> w{v_int, v_float};
+        Var<float2> w{v_int.cast<float>(), v_float};
         w *= float2{1.2f};
 
         if_(1 + 1 == 2, [] {

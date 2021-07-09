@@ -1,6 +1,3 @@
-add_executable(test main.cpp)
-target_link_libraries(test PRIVATE luisa::compute)
-
 add_executable(test_type test_type.cpp)
 target_link_libraries(test_type PRIVATE luisa::compute)
 

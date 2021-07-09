@@ -158,8 +158,8 @@ public:
     [[nodiscard]] auto copy_from(const void *data) const noexcept {
         return TextureUploadCommand::create(
             _handle, _storage,
-            0u, uint3{_offset, 0u},
-            uint3{_size, 1u}, data);
+            0u, make_uint3(_offset, 0u),
+            make_uint3(_size, 1u), data);
     }
 
     [[nodiscard]] auto copy_from(ImageView src) const noexcept {
@@ -172,29 +172,29 @@ public:
         }
         return TextureCopyCommand::create(
             src._handle, _handle, 0u, 0u,
-            uint3(src._offset, 0u), uint3(_offset, 0u),
-            uint3(size, 1u));
+            make_uint3(src._offset, 0u), make_uint3(_offset, 0u),
+            make_uint3(size, 1u));
     }
 
     template<typename U>
     [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
         return BufferToTextureCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, 0u, uint3(_offset, 0u), uint3(_size, 1u));
+            _handle, _storage, 0u, make_uint3(_offset, 0u), make_uint3(_size, 1u));
     }
 
     template<typename U>
     [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
         return TextureToBufferCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, 0u, uint3(_offset, 0u), uint3(_size, 1u));
+            _handle, _storage, 0u, make_uint3(_offset, 0u), make_uint3(_size, 1u));
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return TextureDownloadCommand::create(
             _handle, _storage,
-            0u, uint3{_offset, 0u},
-            uint3{_size, 1u}, data);
+            0u, make_uint3(_offset, 0u),
+            make_uint3(_size, 1u), data);
     }
 
     template<typename UV>

@@ -214,7 +214,7 @@ uint64_t MetalDevice::create_texture(
 
     auto from_heap = heap_handle != TextureHeap::invalid_handle;
     desc.allowGPUOptimizedContents = true;
-    desc.resourceOptions = MTLResourceStorageModePrivate;
+    desc.resourceOptions = MTLResourceStorageModePrivate | MTLResourceHazardTrackingModeTracked;
     desc.usage = from_heap ? MTLTextureUsageShaderRead
                            : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
