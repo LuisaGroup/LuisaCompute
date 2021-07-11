@@ -585,7 +585,7 @@ LUISA_MAKE_TYPE_N(uint)
                     float2{0.0f, s}};
 }
 
-[[nodiscard]] inline auto make_float2x2(
+[[nodiscard]] constexpr auto make_float2x2(
     float m00, float m01,
     float m10, float m11) noexcept {
     return float2x2{float2{m00, m01},

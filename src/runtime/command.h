@@ -98,8 +98,6 @@ public:
             TEXTURE
         };
 
-        using Usage = Usage;
-
         uint64_t handle{0u};
         Tag tag{Tag::NONE};
         Usage usage{Usage::NONE};
@@ -114,7 +112,7 @@ private:
     size_t _resource_count{0u};
 
 protected:
-    void _use_resource(uint64_t handle, Resource::Tag tag, Resource::Usage usage) noexcept;
+    void _use_resource(uint64_t handle, Resource::Tag tag, Usage usage) noexcept;
     void _buffer_read_only(uint64_t handle) noexcept;
     void _buffer_write_only(uint64_t handle) noexcept;
     void _buffer_read_write(uint64_t handle) noexcept;
@@ -457,8 +455,8 @@ public:
     //   2. captured textures
     //   3. captured texture heaps
     //   3. arguments
-    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, Resource::Usage usage) noexcept;
+    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
+    void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
     void encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept;
 
