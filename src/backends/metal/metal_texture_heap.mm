@@ -35,7 +35,7 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
             "Invalid heap texture encoded size: {} (expected 16).",
             enc_size);
     }
-    _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * TextureHeap::max_slot_count
+    _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * TextureHeap::slot_count
                                              options:MTLResourceOptionCPUCacheModeWriteCombined
                                                      | MTLResourceStorageModeShared];
 }

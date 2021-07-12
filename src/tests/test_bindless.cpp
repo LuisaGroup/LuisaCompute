@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
     texture_sampler
         .set_address_mode(TextureSampler::AddressMode::MIRROR)
         .set_filter_mode(TextureSampler::FilterMode::LINEAR);
-    auto texture_index = texture_heap.allocate(PixelStorage::BYTE4, uint2(image_width, image_height), texture_sampler, 1u);
+    auto texture = texture_heap.create(0u, PixelStorage::BYTE4, uint2(image_width, image_height), texture_sampler, 1u);
 
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto upload_stream = device.create_stream();
 
-    upload_stream << texture_heap.emplace(texture_index, image_pixels)
+    upload_stream << texture.load(image_pixels)
                   << event.signal();
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)

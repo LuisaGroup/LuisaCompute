@@ -18,57 +18,101 @@ namespace detail {
 template<typename T>
 class Expr;
 
+template<typename Texture>
+[[nodiscard]] inline auto validate_mip_level(Texture t, uint level) noexcept {
+    auto valid = level < t.mip_levels();
+    if (!valid) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Invalid mipmap level {} (max = {}) for heap texture #{}.",
+            level, t.mip_levels() - 1u, t.handle());
+    }
+    return valid;
 }
+
+class Texture2D {
+
+private:
+    uint64_t _handle;
+    PixelStorage _storage;
+    uint _mip_levels;
+    uint2 _size;
+
+public:
+    Texture2D(uint64_t handle, PixelStorage storage, uint mip_levels, uint2 size) noexcept
+        : _handle{handle}, _storage{storage}, _mip_levels{mip_levels}, _size{size} {}
+
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto storage() const noexcept { return _storage; }
+    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+
+    [[nodiscard]] CommandHandle load(const void *pixels, uint mip_level = 0u) noexcept;
+    [[nodiscard]] CommandHandle load(ImageView<float> image, uint mip_level = 0u) noexcept;
+
+    template<typename T>
+    [[nodiscard]] CommandHandle load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
+        if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+        auto mipmap_size = max(_size >> mip_level, 1u);
+        return BufferToTextureCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage,
+            mip_level, make_uint3(0u), make_uint3(mipmap_size, 1u));
+    }
+};
+
+class Texture3D {
+
+private:
+    uint64_t _handle;
+    PixelStorage _storage;
+    uint _mip_levels;
+    uint3 _size;
+
+public:
+    Texture3D(uint64_t handle, PixelStorage storage, uint mip_levels, uint3 size) noexcept
+        : _handle{handle},
+          _storage{storage},
+          _mip_levels{mip_levels},
+          _size{size} {}
+
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto storage() const noexcept { return _storage; }
+    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+
+    [[nodiscard]] CommandHandle load(const void *pixels, uint mip_level = 0u) noexcept;
+    [[nodiscard]] CommandHandle load(VolumeView<float> image, uint mip_level = 0u) noexcept;
+
+    template<typename T>
+    [[nodiscard]] CommandHandle load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
+        if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+        auto mipmap_size = max(_size >> mip_level, 1u);
+        return BufferToTextureCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage,
+            mip_level, make_uint3(0u), mipmap_size);
+    }
+};
+
+}// namespace detail
 
 class TextureHeap : concepts::Noncopyable {
 
 public:
-    static constexpr auto max_slot_count = 65536u;
-    static constexpr auto invalid_index = std::numeric_limits<uint32_t>::max();
+    static constexpr auto slot_count = 65536u;
     static constexpr auto invalid_handle = std::numeric_limits<uint64_t>::max();
-
-private:
-    class TextureDesc {
-
-    private:
-        uint64_t _handle{invalid_handle};
-        PixelStorage _storage{};
-        uint _mipmap_levels{0u};
-        uint _dimension{};
-        uint _size[3]{};
-
-    public:
-        constexpr TextureDesc() noexcept = default;
-        constexpr TextureDesc(uint64_t handle, PixelStorage storage, uint dim, uint3 size, uint mipmap_levels) noexcept
-            : _handle{handle},
-              _storage{storage},
-              _mipmap_levels{mipmap_levels},
-              _dimension{3u},
-              _size{size.x, size.y, size.z} {}
-        [[nodiscard]] auto handle() const noexcept { return _handle; }
-        [[nodiscard]] auto storage() const noexcept { return _storage; }
-        [[nodiscard]] auto mip_levels() const noexcept { return _mipmap_levels; }
-        [[nodiscard]] auto dimension() const noexcept { return _dimension; }
-        [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
-        [[nodiscard]] auto invalid() const noexcept { return _handle == invalid_handle; }
-        void invalidate() noexcept { _handle = invalid_handle; }
-    };
 
 private:
     Device::Interface *_device;
     uint64_t _handle;
     size_t _capacity;
-    std::vector<TextureDesc> _slots;
-    std::vector<uint32_t> _available;
+    std::vector<uint64_t> _slots;
 
 private:
     friend class Device;
     TextureHeap(Device &device, size_t capacity) noexcept;
-    [[nodiscard]] static constexpr auto _compute_mipmap_levels(uint3 size, uint requested_levels) noexcept;
+    [[nodiscard]] static constexpr auto _compute_mip_levels(uint3 size, uint requested_levels) noexcept;
     void _destroy() noexcept;
-
-    template<uint dim>
-    [[nodiscard]] bool _validate_mipmap_level(uint index, uint level) const noexcept;
 
 public:
     TextureHeap(TextureHeap &&another) noexcept;
@@ -77,25 +121,9 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] auto allocated_size() const noexcept { return _device->query_texture_heap_memory_usage(_handle); }
-    [[nodiscard]] uint32_t allocate(PixelStorage storage, uint2 size, TextureSampler sampler, uint mipmap_levels = 1u) noexcept;
-    [[nodiscard]] uint32_t allocate(PixelStorage storage, uint3 size, TextureSampler sampler, uint mipmap_levels = 1u) noexcept;
-    void recycle(uint32_t index) noexcept;
-
-    [[nodiscard]] CommandHandle emplace(uint32_t index, ImageView<float> view, uint32_t mipmap_level = 0u) noexcept;
-    [[nodiscard]] CommandHandle emplace(uint32_t index, VolumeView<float> view, uint32_t mipmap_level = 0u) noexcept;
-    [[nodiscard]] CommandHandle emplace(uint32_t index, const void *pixels, uint32_t mipmap_level = 0u) noexcept;
-
-    template<typename T>
-    [[nodiscard]] CommandHandle emplace(uint32_t index, BufferView<T> buffer, uint32_t mipmap_level = 0u) noexcept {
-        if (!_validate_mipmap_level<0>(index, mipmap_level)) { return nullptr; }
-        auto tex = _slots[index];
-        auto mipmap_size = max(tex.size() >> mipmap_level, 1u);
-        return BufferToTextureCopyCommand::create(
-            buffer.handle(), buffer.offset_bytes(),
-            tex.handle(), tex.storage(),
-            mipmap_level, make_uint3(0u), mipmap_size,
-            _handle);
-    }
+    [[nodiscard]] detail::Texture2D create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler = {}, uint mip_levels = 1u) noexcept;
+    [[nodiscard]] detail::Texture3D create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler = {}, uint mip_levels = 1u) noexcept;
+    void destroy(uint32_t index) noexcept;
 
     // see implementations in dsl/expr.h
     template<typename I, typename Coord>
