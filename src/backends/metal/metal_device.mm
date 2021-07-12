@@ -38,7 +38,7 @@ uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     return s;
 }
 
-void MetalDevice::dispose_buffer(uint64_t handle) noexcept {
+void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_buffer_mutex};
         _buffer_slots[handle] = nullptr;
@@ -63,7 +63,7 @@ uint64_t MetalDevice::create_stream() noexcept {
     return s;
 }
 
-void MetalDevice::dispose_stream(uint64_t handle) noexcept {
+void MetalDevice::destroy_stream(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_stream_mutex};
         _stream_slots[handle] = nullptr;
@@ -253,7 +253,7 @@ uint64_t MetalDevice::create_texture(
     return s;
 }
 
-void MetalDevice::dispose_texture(uint64_t handle) noexcept {
+void MetalDevice::destroy_texture(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_texture_mutex};
         auto &&tex = _texture_slots[handle];
@@ -285,7 +285,7 @@ uint64_t MetalDevice::create_event() noexcept {
     return s;
 }
 
-void MetalDevice::dispose_event(uint64_t handle) noexcept {
+void MetalDevice::destroy_event(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_event_mutex};
         _event_slots[handle] = nullptr;
@@ -330,7 +330,7 @@ uint64_t MetalDevice::create_mesh(uint64_t stream_handle,
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
-void MetalDevice::dispose_mesh(uint64_t handle) noexcept {
+void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
@@ -341,7 +341,7 @@ uint64_t MetalDevice::create_accel(uint64_t stream_handle,
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
-void MetalDevice::dispose_accel(uint64_t handle) noexcept {
+void MetalDevice::destroy_accel(uint64_t handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
@@ -365,7 +365,7 @@ size_t MetalDevice::query_texture_heap_memory_usage(uint64_t handle) noexcept {
     return [heap(handle)->handle() usedSize];
 }
 
-void MetalDevice::dispose_texture_heap(uint64_t handle) noexcept {
+void MetalDevice::destroy_texture_heap(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_heap_mutex};
         _heap_slots[handle] = nullptr;
@@ -439,7 +439,7 @@ uint64_t MetalDevice::create_shader(Function kernel) noexcept {
     return s;
 }
 
-void MetalDevice::dispose_shader(uint64_t handle) noexcept {
+void MetalDevice::destroy_shader(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_shader_mutex};
         _shader_slots[handle] = {};

@@ -180,7 +180,7 @@ private:
           _kernel{std::move(kernel)} {}
 
 public:
-    ~Shader() noexcept { _device->dispose_shader(_handle); }
+    ~Shader() noexcept { _device->destroy_shader(_handle); }
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         detail::ShaderInvoke<dimension> invoke{_handle, _kernel.get()};
         (invoke << ... << args);

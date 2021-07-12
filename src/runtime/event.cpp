@@ -13,7 +13,7 @@ Event::Event(Device &device) noexcept
 
 Event::~Event() noexcept {
     if (_device != nullptr) {
-        _device->dispose_event(_handle);
+        _device->destroy_event(_handle);
     }
 }
 
@@ -23,7 +23,7 @@ Event::Event(Event &&another) noexcept
 
 Event &Event::operator=(Event &&rhs) noexcept {
     if (this != &rhs) {
-        _device->dispose_event(_handle);
+        _device->destroy_event(_handle);
         _device = rhs._device;
         _handle = rhs._handle;
         rhs._device = nullptr;

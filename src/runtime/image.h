@@ -60,13 +60,13 @@ public:
 
     ~Image() noexcept {
         if (_device != nullptr) {
-            _device->dispose_texture(_handle);
+            _device->destroy_texture(_handle);
         }
     }
 
     Image &operator=(Image &&rhs) noexcept {
         if (&rhs != this) {
-            _device->dispose_texture(_handle);
+            _device->destroy_texture(_handle);
             _device = rhs._device;
             _handle = rhs._handle;
             _size = rhs._size;

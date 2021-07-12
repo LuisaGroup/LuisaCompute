@@ -38,7 +38,7 @@ constexpr auto TextureHeap::_compute_mip_levels(uint3 size, uint requested_level
 
 void TextureHeap::_destroy() noexcept {
     if (_device != nullptr) {
-        _device->dispose_texture_heap(_handle);
+        _device->destroy_texture_heap(_handle);
     }
 }
 
@@ -90,7 +90,7 @@ void TextureHeap::destroy(uint32_t index) noexcept {
             "Recycling already destroyed heap texture at slot {} in heap #{}.",
             index, _handle);
     } else {
-        _device->dispose_texture(h);
+        _device->destroy_texture(h);
         h = invalid_handle;
     }
 }
