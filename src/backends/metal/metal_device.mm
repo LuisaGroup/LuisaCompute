@@ -44,7 +44,7 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
         _buffer_slots[handle] = nullptr;
         _available_buffer_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed buffer #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed buffer #{}.", handle);
 }
 
 uint64_t MetalDevice::create_stream() noexcept {
@@ -69,7 +69,7 @@ void MetalDevice::destroy_stream(uint64_t handle) noexcept {
         _stream_slots[handle] = nullptr;
         _available_stream_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed stream #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed stream #{}.", handle);
 }
 
 MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
@@ -261,7 +261,7 @@ void MetalDevice::destroy_texture(uint64_t handle) noexcept {
         tex = nullptr;
         _available_texture_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed image #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed image #{}.", handle);
 }
 
 id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
@@ -291,7 +291,7 @@ void MetalDevice::destroy_event(uint64_t handle) noexcept {
         _event_slots[handle] = nullptr;
         _available_event_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed event #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed event #{}.", handle);
 }
 
 void MetalDevice::synchronize_event(uint64_t handle) noexcept {
@@ -371,7 +371,7 @@ void MetalDevice::destroy_texture_heap(uint64_t handle) noexcept {
         _heap_slots[handle] = nullptr;
         _available_heap_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed heap #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed heap #{}.", handle);
 }
 
 MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
@@ -445,7 +445,7 @@ void MetalDevice::destroy_shader(uint64_t handle) noexcept {
         _shader_slots[handle] = {};
         _available_shader_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed shader #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed shader #{}.", handle);
 }
 
 }

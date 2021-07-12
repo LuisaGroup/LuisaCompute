@@ -171,6 +171,15 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
 
+    // update texture desc heap if any
+    command->decode([&](auto, auto argument) noexcept -> void {
+        using T = decltype(argument);
+        if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
+            _device->heap(argument.handle)->encode_update(_command_buffer);
+        }
+    });
+
+    // encode compute shader
     auto argument_encoder = compiled_kernel.encoder();
     auto argument_buffer_pool = _device->argument_buffer_pool();
     auto argument_buffer = argument_buffer_pool->allocate();
@@ -197,7 +206,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 default: break;
             }
         };
-        if constexpr (std::is_same_v<T,  ShaderDispatchCommand::BufferArgument>) {
+        if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding buffer #{} at index {} with offset {}.",
                 argument.handle, argument_index, argument.offset);
@@ -220,11 +229,9 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 argument.handle, argument_index);
             auto heap = _device->heap(argument.handle);
             auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
-            [argument_encoder setBuffer:heap->buffer()
-                                 offset:0u
-                                atIndex:arg_id];
-            [compute_encoder useResource:heap->buffer()
-                                   usage:MTLResourceUsageRead];
+            auto desc_buffer = heap->desc_buffer();
+            [argument_encoder setBuffer:desc_buffer offset:0u atIndex:arg_id];
+            [compute_encoder useResource:desc_buffer usage:MTLResourceUsageRead];
             [compute_encoder useHeap:heap->handle()];
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];

@@ -38,15 +38,36 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
     _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * TextureHeap::slot_count
                                              options:MTLResourceOptionCPUCacheModeWriteCombined
                                                      | MTLResourceStorageModeShared];
+    _device_buffer = [_device->handle() newBufferWithLength:_buffer.length
+                                                    options:MTLResourceStorageModePrivate];
 }
 
 id<MTLTexture> MetalTextureHeap::allocate_texture(MTLTextureDescriptor *desc, uint32_t index, TextureSampler sampler) noexcept {
+    std::scoped_lock lock{_mutex};
     auto texture = [_handle newTextureWithDescriptor:desc];
     auto sampler_state = _device->texture_sampler(sampler);
     [_encoder setArgumentBuffer:_buffer offset:16u /* checked */ * index];
     [_encoder setTexture:texture atIndex:desc.textureType == MTLTextureType2D ? 0u : 1u];
     [_encoder setSamplerState:sampler_state atIndex:2u];
+    _dirty = true;
     return texture;
+}
+
+void MetalTextureHeap::encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept {
+    if ([this] {
+            std::scoped_lock lock{_mutex};
+            auto d = _dirty;
+            _dirty = false;
+            return d;
+        }()) {
+        auto blit_encoder = [cmd_buf blitCommandEncoder];
+        [blit_encoder copyFromBuffer:_buffer
+                        sourceOffset:0u
+                            toBuffer:_device_buffer
+                   destinationOffset:0u
+                                size:_buffer.length];
+        [blit_encoder endEncoding];
+    }
 }
 
 }
