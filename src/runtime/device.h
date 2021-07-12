@@ -138,7 +138,7 @@ public:
 
     [[nodiscard]] Stream create_stream() noexcept;
     [[nodiscard]] Event create_event() noexcept;
-    [[nodiscard]] TextureHeap create_texture_heap(size_t size) noexcept;
+    [[nodiscard]] TextureHeap create_texture_heap(size_t size = 128_mb) noexcept;
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height) noexcept {

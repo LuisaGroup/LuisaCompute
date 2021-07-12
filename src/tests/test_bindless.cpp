@@ -11,8 +11,10 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <tests/stb_image.h>
 #include <tests/stb_image_write.h>
+#include <tests/stb_image_resize.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -39,19 +41,20 @@ int main(int argc, char *argv[]) {
 
     Kernel2D fill_image_kernel = [](TextureHeapVar heap, ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var uv = make_float2(coord) / make_float2(dispatch_size().xy()) * 3.0f - 1.0f;
-        image.write(coord, heap.sample(0u, uv));
+        Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
+        Var r = log(sin(length(uv - 0.5f) * 100.0f) + 2.0f);
+        image.write(coord, heap.sample(0u, uv, r * 7.5f));
     };
 
     auto clear_image = device.compile(clear_image_kernel);
     auto fill_image = device.compile(fill_image_kernel);
 
-    auto texture_heap = device.create_texture_heap(512_mb);
+    auto texture_heap = device.create_texture_heap();
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
     auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
-    auto texture = texture_heap.create(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::bilinear_edge(), 1u);
+    auto texture = texture_heap.create(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::trilinear_edge(), 0u);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
@@ -59,8 +62,30 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto upload_stream = device.create_stream();
 
-    upload_stream << texture.load(image_pixels)
-                  << event.signal();
+    {
+        std::vector<uint8_t> mipmaps(image_width * image_height * 4u);
+        auto in_pixels = image_pixels;
+        auto out_pixels = mipmaps.data();
+        auto cmd = upload_stream << texture.load(image_pixels);
+        for (auto i = 1u; i < texture.mip_levels(); i++) {
+            auto half_w = std::max(image_width / 2, 1);
+            auto half_h = std::max(image_height / 2, 1);
+            stbir_resize_uint8_srgb_edgemode(
+                in_pixels,
+                image_width, image_height, 0,
+                out_pixels,
+                half_w, half_h, 0,
+                4, STBIR_ALPHA_CHANNEL_NONE, 0,
+                STBIR_EDGE_REFLECT);
+            image_width = half_w;
+            image_height = half_h;
+            stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
+            cmd << texture.load(out_pixels, i);
+            in_pixels = out_pixels;
+            out_pixels += image_width * image_height * 4u;
+        }
+        cmd << event.signal();
+    }
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()

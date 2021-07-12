@@ -44,6 +44,7 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
         auto sampler = TextureSampler::decode(i);
         auto desc = [[MTLSamplerDescriptor alloc] init];
         desc.supportArgumentBuffers = YES;
+        desc.normalizedCoordinates = YES;
         switch (sampler.address()) {
             case TextureSampler::Address::EDGE:
                 desc.sAddressMode = MTLSamplerAddressModeClampToEdge;
@@ -76,19 +77,17 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
                 desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
                 desc.minFilter = MTLSamplerMinMagFilterLinear;
                 desc.magFilter = MTLSamplerMinMagFilterLinear;
-                desc.maxAnisotropy = 1u;
                 break;
             case TextureSampler::Filter::TRILINEAR:
                 desc.mipFilter = MTLSamplerMipFilterLinear;
                 desc.minFilter = MTLSamplerMinMagFilterLinear;
                 desc.magFilter = MTLSamplerMinMagFilterLinear;
-                desc.maxAnisotropy = 1u;
                 break;
             case TextureSampler::Filter::ANISOTROPIC:
                 desc.mipFilter = MTLSamplerMipFilterLinear;
                 desc.minFilter = MTLSamplerMinMagFilterLinear;
                 desc.magFilter = MTLSamplerMinMagFilterLinear;
-                desc.maxAnisotropy = 4u;
+                desc.maxAnisotropy = 16u;
                 break;
         }
         _samplers[i] = [device->handle() newSamplerStateWithDescriptor:desc];

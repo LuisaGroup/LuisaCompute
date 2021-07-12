@@ -31,7 +31,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
             return {nullptr, 0u, 0u};
         }
     }
-    _free_end = free_next;
+    _free_begin = free_next;
     return {_buffer, offset, size};
 }
 
