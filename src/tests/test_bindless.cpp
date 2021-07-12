@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
 
     Kernel2D fill_image_kernel = [](TextureHeapVar heap, ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var uv = make_float2(coord) / make_float2(dispatch_size().xy()) * 4.0f - 2.0f;
+        Var uv = make_float2(coord) / make_float2(dispatch_size().xy()) * 3.0f - 1.0f;
         image.write(coord, heap.sample(0u, uv));
     };
 
@@ -51,13 +51,7 @@ int main(int argc, char *argv[]) {
     auto image_height = 0;
     auto image_channels = 0;
     auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
-
-    TextureSampler texture_sampler;
-    texture_sampler
-        .set_address_mode(TextureSampler::AddressMode::MIRROR)
-        .set_filter_mode(TextureSampler::FilterMode::LINEAR);
-    auto texture = texture_heap.create(0u, PixelStorage::BYTE4, uint2(image_width, image_height), texture_sampler, 1u);
-
+    auto texture = texture_heap.create(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::bilinear_edge(), 1u);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
@@ -70,7 +64,9 @@ int main(int argc, char *argv[]) {
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()
-           << fill_image(texture_heap, device_image.view(make_uint2(128u), make_uint2(1024u - 256u))).dispatch(make_uint2(1024u - 256u))
+           << fill_image(texture_heap,
+                         device_image.view(make_uint2(128u), make_uint2(1024u - 256u)))
+                  .dispatch(make_uint2(1024u - 256u))
            << device_image.view().copy_to(host_image.data())
            << event.signal();
 

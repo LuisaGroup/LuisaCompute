@@ -75,7 +75,6 @@ public:
     [[nodiscard]] MetalTextureHeap *heap(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
-    [[nodiscard]] id<MTLSamplerState> texture_sampler(TextureSampler sampler) noexcept;
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,

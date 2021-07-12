@@ -58,7 +58,14 @@ detail::Texture2D TextureHeap::create(uint index, PixelStorage storage, uint2 si
         destroy(index);
     }
     auto valid_mip_levels = _compute_mip_levels(make_uint3(size, 1u), mip_levels);
-    if (valid_mip_levels == 1) { sampler.set_mip_filter_mode(TextureSampler::MipFilterMode::NONE); }
+    if (valid_mip_levels == 1u
+        && (sampler.filter() == TextureSampler::Filter::TRILINEAR
+            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Textures without mipmaps do not support "
+            "trilinear or anisotropic sampling.");
+        sampler.set_filter(TextureSampler::Filter::BILINEAR);
+    }
     auto handle = _device->create_texture(
         pixel_storage_to_format<float>(storage), 2u,
         size.x, size.y, 1u, valid_mip_levels,
@@ -75,7 +82,14 @@ detail::Texture3D TextureHeap::create(uint index, PixelStorage storage, uint3 si
         destroy(index);
     }
     auto valid_mip_levels = _compute_mip_levels(size, mip_levels);
-    if (valid_mip_levels == 1) { sampler.set_mip_filter_mode(TextureSampler::MipFilterMode::NONE); }
+    if (valid_mip_levels == 1u
+        && (sampler.filter() == TextureSampler::Filter::TRILINEAR
+            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Textures without mipmaps do not support "
+            "trilinear or anisotropic sampling.");
+        sampler.set_filter(TextureSampler::Filter::BILINEAR);
+    }
     auto handle = _device->create_texture(
         pixel_storage_to_format<float>(storage), 3u,
         size.x, size.y, size.z, valid_mip_levels,

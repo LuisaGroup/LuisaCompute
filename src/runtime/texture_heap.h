@@ -121,8 +121,8 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] auto allocated_size() const noexcept { return _device->query_texture_heap_memory_usage(_handle); }
-    [[nodiscard]] detail::Texture2D create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler = {}, uint mip_levels = 1u) noexcept;
-    [[nodiscard]] detail::Texture3D create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler = {}, uint mip_levels = 1u) noexcept;
+    [[nodiscard]] detail::Texture2D create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
+    [[nodiscard]] detail::Texture3D create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
     void destroy(uint32_t index) noexcept;
 
     // see implementations in dsl/expr.h

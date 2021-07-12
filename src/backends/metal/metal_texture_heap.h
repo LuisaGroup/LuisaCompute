@@ -21,8 +21,10 @@ private:
     id<MTLBuffer> _buffer{nullptr};
     id<MTLBuffer> _device_buffer{nullptr};
     id<MTLArgumentEncoder> _encoder{nullptr};
+    std::array<id<MTLSamplerState>, 16u> _samplers{};
     mutable spin_mutex _mutex;
     mutable bool _dirty{false};
+    static constexpr auto slot_size = 24u;
 
 private:
     [[nodiscard]] static MTLHeapDescriptor *_heap_descriptor(size_t size) noexcept;

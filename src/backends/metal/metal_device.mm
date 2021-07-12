@@ -379,50 +379,6 @@ MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
     return _heap_slots[handle].get();
 }
 
-id<MTLSamplerState> MetalDevice::texture_sampler(TextureSampler sampler) noexcept {
-    std::scoped_lock lock{_texture_sampler_mutex};
-    auto iter = _texture_samplers.find(sampler);
-    if (iter != _texture_samplers.end()) { return iter->second; }
-    auto desc = [[MTLSamplerDescriptor alloc] init];
-    static constexpr auto convert_address_mode = [](TextureSampler::AddressMode mode) noexcept {
-        switch (mode) {
-            case TextureSampler::AddressMode::EDGE: return MTLSamplerAddressModeClampToEdge;
-            case TextureSampler::AddressMode::REPEAT: return MTLSamplerAddressModeRepeat;
-            case TextureSampler::AddressMode::MIRROR: return MTLSamplerAddressModeMirrorRepeat;
-            case TextureSampler::AddressMode::ZERO: return MTLSamplerAddressModeClampToZero; break;
-        }
-    };
-    switch (sampler.filter_mode()) {
-        case TextureSampler::FilterMode::NEAREST:
-            desc.minFilter = MTLSamplerMinMagFilterNearest;
-            desc.magFilter = MTLSamplerMinMagFilterNearest;
-            break;
-        case TextureSampler::FilterMode::LINEAR:
-            desc.minFilter = MTLSamplerMinMagFilterLinear;
-            desc.magFilter = MTLSamplerMinMagFilterLinear;
-            break;
-    }
-    switch (sampler.mip_filter_mode()) {
-        case TextureSampler::MipFilterMode::NONE:
-            desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
-            break;
-        case TextureSampler::MipFilterMode::NEAREST:
-            desc.mipFilter = MTLSamplerMipFilterNearest;
-            break;
-        case TextureSampler::MipFilterMode::LINEAR:
-            desc.mipFilter = MTLSamplerMipFilterLinear;
-            break;
-    }
-    desc.normalizedCoordinates = sampler.normalized() ? YES : NO;
-    desc.maxAnisotropy = sampler.max_anisotropy();
-    desc.supportArgumentBuffers = YES;
-    desc.sAddressMode = convert_address_mode(sampler.address_mode()[0]);
-    desc.tAddressMode = convert_address_mode(sampler.address_mode()[1]);
-    desc.rAddressMode = convert_address_mode(sampler.address_mode()[2]);
-    auto sampler_state = [_handle newSamplerStateWithDescriptor:desc];
-    return _texture_samplers.emplace(sampler, sampler_state).first->second;
-}
-
 uint64_t MetalDevice::create_shader(Function kernel) noexcept {
     Clock clock;
     auto shader = _compiler->compile(kernel);
