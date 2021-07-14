@@ -234,6 +234,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
+        case CallOp::TEXTURE_SAMPLE_LOD: _scratch << "texture_sample_lod"; break;
+        case CallOp::TEXTURE_SAMPLE_GRAD: _scratch << "texture_sample_grad"; break;
 #define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
@@ -246,6 +248,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::TRACE_CLOSEST: break;
+        case CallOp::TRACE_ANY: break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
@@ -541,8 +545,7 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::STRUCTURE:
             _scratch << "S" << hash_to_string(type->hash());
             break;
-        case Type::Tag::BUFFER: break;
-        case Type::Tag::TEXTURE: break;
+        default: break;
     }
 }
 
@@ -558,13 +561,17 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_type_name(v.type()->element());
             _scratch << ", ";
             if (auto usage = _function.variable_usage(v.uid());
-                usage == Variable::Usage::READ_WRITE) {
+                usage == Usage::READ_WRITE) {
                 _scratch << "access::read_write> ";
-            } else if (usage == Variable::Usage::WRITE) {
+            } else if (usage == Usage::WRITE) {
                 _scratch << "access::write> ";
-            } else if (usage == Variable::Usage::READ) {
+            } else if (usage == Usage::READ) {
                 _scratch << "access::read> ";
             }
+            _emit_variable_name(v);
+            break;
+        case Variable::Tag::TEXTURE_HEAP:
+            _scratch << "texture_heap ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::UNIFORM:
@@ -606,13 +613,13 @@ void CppCodegen::_emit_statements(std::span<const Statement *const> stmts) noexc
 void CppCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
 
     if (std::find(_generated_constants.cbegin(),
-                  _generated_constants.cend(), c.hash)
+                  _generated_constants.cend(), c.data.hash())
         != _generated_constants.cend()) { return; }
-    _generated_constants.emplace_back(c.hash);
+    _generated_constants.emplace_back(c.data.hash());
 
     _scratch << "__constant__ ";
     _emit_type_name(c.type);
-    _scratch << " c" << hash_to_string(c.hash) << "{";
+    _scratch << " c" << hash_to_string(c.data.hash()) << "{";
     auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
@@ -625,7 +632,7 @@ void CppCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
                 _scratch << ", ";
             }
         },
-        ConstantData::view(c.hash));
+        c.data.view());
     if (count > 0u) {
         _scratch.pop_back();
         _scratch.pop_back();
@@ -634,7 +641,7 @@ void CppCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
 }
 
 void CppCodegen::visit(const ConstantExpr *expr) {
-    _scratch << "c" << hash_to_string(expr->hash());
+    _scratch << "c" << hash_to_string(expr->data().hash());
 }
 
 void CppCodegen::visit(const ForStmt *stmt) {
@@ -665,10 +672,10 @@ void CppCodegen::visit(const ForStmt *stmt) {
 
 void CppCodegen::_emit_access_attribute(Variable v) noexcept {
     switch (_function.variable_usage(v.uid())) {
-        case Variable::Usage::NONE: _scratch << "[[access::none]]"; break;
-        case Variable::Usage::READ: _scratch << "[[access::read]]"; break;
-        case Variable::Usage::WRITE: _scratch << "[[access::write]]"; break;
-        case Variable::Usage::READ_WRITE: _scratch << "[[access::read_write]]"; break;
+        case Usage::NONE: _scratch << "[[access::none]]"; break;
+        case Usage::READ: _scratch << "[[access::read]]"; break;
+        case Usage::WRITE: _scratch << "[[access::write]]"; break;
+        case Usage::READ_WRITE: _scratch << "[[access::read_write]]"; break;
         default: _scratch << "[[access::unknown]]"; break;
     }
 }

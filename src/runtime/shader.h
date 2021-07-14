@@ -7,6 +7,7 @@
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
 #include <runtime/device.h>
+#include <runtime/texture_heap.h>
 
 namespace luisa::compute {
 
@@ -15,6 +16,11 @@ namespace detail {
 template<typename T>
 struct prototype_to_shader_invocation {
     using type = T;
+};
+
+template<>
+struct prototype_to_shader_invocation<TextureHeap> {
+    using type = const TextureHeap &;
 };
 
 template<typename T>
@@ -65,6 +71,11 @@ public:
                 texture.variable.uid(), texture.handle,
                 _kernel.variable_usage(texture.variable.uid()));
         }
+
+        for (auto heap : _kernel.captured_texture_heaps()) {
+            _dispatch_command()->encode_texture_heap(
+                heap.variable.uid(), heap.handle);
+        }
     }
 
     template<typename T>
@@ -99,6 +110,12 @@ public:
         return *this;
     }
 
+    ShaderInvokeBase &operator<<(const TextureHeap &heap) noexcept {
+        auto v = _kernel.arguments()[_argument_index++].uid();
+        _dispatch_command()->encode_texture_heap(v, heap.handle());
+        return *this;
+    }
+
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) noexcept {
         _dispatch_command()->set_dispatch_size(dispatch_size);
@@ -123,7 +140,7 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
 
 template<>
 struct ShaderInvoke<2> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t  handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
+    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y) noexcept {
         return _parallelize(uint3{size_x, size_y, 1u});
     }
@@ -163,7 +180,7 @@ private:
           _kernel{std::move(kernel)} {}
 
 public:
-    ~Shader() noexcept { _device->dispose_shader(_handle); }
+    ~Shader() noexcept { _device->destroy_shader(_handle); }
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         detail::ShaderInvoke<dimension> invoke{_handle, _kernel.get()};
         (invoke << ... << args);

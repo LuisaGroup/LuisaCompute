@@ -294,9 +294,6 @@ template<concepts::scalar T>
 }
 
 #define LUISA_MAKE_VECTOR(type)                                                                                \
-    [[nodiscard]] inline auto make_##type##2(type s) noexcept {                                                \
-        return make_vector2(detail::Expr{s});                                                                  \
-    }                                                                                                          \
     [[nodiscard]] inline auto make_##type##2(detail::Expr<type> s) noexcept {                                  \
         return make_vector2(s);                                                                                \
     }                                                                                                          \
@@ -322,9 +319,6 @@ template<concepts::scalar T>
         detail::Expr<type> x, detail::Expr<type> y, detail::Expr<type> z) noexcept {                           \
         return make_vector3(x, y, z);                                                                          \
     }                                                                                                          \
-    [[nodiscard]] inline auto make_##type##3(type s) noexcept {                                                \
-        return make_vector3(detail::Expr{s});                                                                  \
-    }                                                                                                          \
     [[nodiscard]] inline auto make_##type##3(detail::Expr<type> s) noexcept {                                  \
         return make_vector3(s);                                                                                \
     }                                                                                                          \
@@ -346,9 +340,6 @@ template<concepts::scalar T>
         }                                                                                                      \
     }                                                                                                          \
                                                                                                                \
-    [[nodiscard]] inline auto make_##type##4(type s) noexcept {                                                \
-        return make_vector4(detail::Expr{s});                                                                  \
-    }                                                                                                          \
     [[nodiscard]] inline auto make_##type##4(detail::Expr<type> s) noexcept {                                  \
         return make_vector4(s);                                                                                \
     }                                                                                                          \

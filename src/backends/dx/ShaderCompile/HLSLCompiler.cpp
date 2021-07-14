@@ -459,7 +459,7 @@ void HLSLCompiler::GetShaderVariables(
 		0,
 		0);
 	auto ProcessBuffer = [&](Variable const& buffer) {
-		if (((uint)func.variable_usage(buffer.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
+		if (((uint)func.variable_usage(buffer.uid()) & (uint)luisa::compute::Usage::WRITE) != 0) {
 			auto& var = result.emplace_back(
 				buffer.uid(),
 				ShaderVariableType::RWStructuredBuffer,
@@ -478,7 +478,7 @@ void HLSLCompiler::GetShaderVariables(
 		}
 	};
 	auto ProcessTexture = [&](Variable const& buffer) {
-		if (((uint)func.variable_usage(buffer.uid()) & (uint)luisa::compute::Variable::Usage::WRITE) != 0) {
+		if (((uint)func.variable_usage(buffer.uid()) & (uint)luisa::compute::Usage::WRITE) != 0) {
 			auto& var = result.emplace_back(
 				buffer.uid(),
 				ShaderVariableType::UAVDescriptorHeap,

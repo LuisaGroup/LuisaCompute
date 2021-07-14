@@ -7,27 +7,35 @@
 namespace luisa::compute {
 
 detail::Expr<float3> origin(detail::Expr<Ray> ray) noexcept {
-    return make_float3(ray.origin[0], ray.origin[1], ray.origin[2]);
+    static Callable _origin = [](Var<Ray> ray) noexcept {
+        return make_float3(ray.origin[0], ray.origin[1], ray.origin[2]);
+    };
+    return _origin(ray);
 }
 
 detail::Expr<float3> direction(detail::Expr<Ray> ray) noexcept {
-    return make_float3(ray.direction[0], ray.direction[1], ray.direction[2]);
+    static Callable _direction = [](Var<Ray> ray) noexcept {
+        return make_float3(ray.direction[0], ray.direction[1], ray.direction[2]);
+    };
+    return _direction(ray);
 }
 
 void set_origin(detail::Expr<Ray> ray, detail::Expr<float3> origin) noexcept {
-    ray.origin[0] = origin.x;
-    ray.origin[1] = origin.y;
-    ray.origin[2] = origin.z;
+    Var o = origin;
+    ray.origin[0] = o.x;
+    ray.origin[1] = o.y;
+    ray.origin[2] = o.z;
 }
 
 void set_direction(detail::Expr<Ray> ray, detail::Expr<float3> direction) noexcept {
-    ray.direction[0] = direction.x;
-    ray.direction[1] = direction.y;
-    ray.direction[2] = direction.z;
+    Var d = direction;
+    ray.direction[0] = d.x;
+    ray.direction[1] = d.y;
+    ray.direction[2] = d.z;
 }
 
 detail::Expr<Ray> make_ray(detail::Expr<float3> origin, detail::Expr<float3> direction, detail::Expr<float> t_min, detail::Expr<float> t_max) noexcept {
-    static Callable f = [](Float3 origin, Float3 direction, Float t_min, Float t_max) noexcept {
+    static Callable _make_ray = [](Float3 origin, Float3 direction, Float t_min, Float t_max) noexcept {
         Var<Ray> ray;
         ray.origin[0] = origin.x;
         ray.origin[1] = origin.y;
@@ -39,7 +47,7 @@ detail::Expr<Ray> make_ray(detail::Expr<float3> origin, detail::Expr<float3> dir
         ray.t_max = t_max;
         return ray;
     };
-    return f(origin, direction, t_min, t_max);
+    return _make_ray(origin, direction, t_min, t_max);
 }
 
 detail::Expr<Ray> make_ray(detail::Expr<float3> origin, detail::Expr<float3> direction) noexcept {

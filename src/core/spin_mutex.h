@@ -5,6 +5,8 @@
 #pragma once
 
 #include <atomic>
+#include <thread>
+
 #include <core/intrin.h>
 
 namespace luisa {
@@ -16,16 +18,13 @@ private:
 
 public:
     spin_mutex() noexcept = default;
-    
+
     void lock() noexcept {
         while (_flag.test_and_set(std::memory_order::acquire)) {// acquire lock
-#ifdef __cpp_lib_atomic_flag_test
+            LUISA_INTRIN_PAUSE();
             while (_flag.test(std::memory_order::relaxed)) {// test lock
-#endif
-                LUISA_INTRIN_PAUSE();
-#ifdef __cpp_lib_atomic_flag_test
+                std::this_thread::yield();
             }
-#endif
         }
     }
 

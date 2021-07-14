@@ -10,6 +10,7 @@
 #include <runtime/image.h>
 #include <runtime/volume.h>
 #include <runtime/buffer.h>
+#include <runtime/texture_heap.h>
 #include <ast/function_builder.h>
 
 namespace luisa::compute {
@@ -233,15 +234,14 @@ public:
 
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
-    template<concepts::integral I>
-    [[nodiscard]] auto operator[](Expr<I> i) const noexcept {
+    [[nodiscard]] auto operator[](Expr<uint> i) const noexcept {
         return Expr<T>{FunctionBuilder::current()->access(
             Type::of<T>(), _expression, i.expression())};
     };
 
-    template<concepts::integral I>
-    [[nodiscard]] decltype(auto) operator[](I i) const noexcept {
-        return this->operator[](Expr<I>{i});
+    [[nodiscard]] auto operator[](Expr<int> i) const noexcept {
+        return Expr<T>{FunctionBuilder::current()->access(
+            Type::of<T>(), _expression, i.expression())};
     };
 };
 
@@ -296,12 +296,11 @@ public:
 
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
-    [[nodiscard]] auto read(Expr<uint2> uv) const noexcept -> Expr<float4> {
+    [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
         auto f = FunctionBuilder::current();
-        auto expr = Expr<Vector<T, 4>>{f->call(
+        return Expr<Vector<T, 4>>{f->call(
             Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
             {_expression, _offset_uv(uv.expression())})};
-        return Var{expr};
     };
 
     void write(Expr<uint2> uv, Expr<Vector<T, 4>> value) const noexcept {
@@ -346,11 +345,10 @@ public:
 
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
-    [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept -> Expr<float4> {
-        auto expr = Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
+    [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept {
+        return Expr<Vector<T, 4>>{FunctionBuilder::current()->call(
             Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
             {_expression, _offset_uvw(uvw.expression())})};
-        return Var{expr};
     };
 
     void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value) const noexcept {
@@ -435,6 +433,115 @@ public:
     };
 };
 
+template<>
+struct Expr<TextureHeap> {
+
+public:
+    using ValueType = TextureHeap;
+
+private:
+    const RefExpr *_expression{nullptr};
+
+public:
+    explicit Expr(const RefExpr *expr) noexcept
+        : _expression{expr} {}
+
+    explicit Expr(const TextureHeap &heap) noexcept
+        : _expression{FunctionBuilder::current()->texture_heap_binding(heap.handle())} {}
+
+    Expr &operator=(Expr) = delete;
+
+    [[nodiscard]] auto expression() const noexcept { return _expression; }
+
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            {_expression, i.expression(), uv.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            {_expression, i.expression(), uvw.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv, Expr<float> mip) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            {_expression, i.expression(), uv.expression(), mip.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            {_expression, i.expression(), uvw.expression(), mip.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            {_expression, i.expression(), uv.expression(),
+             dpdx.expression(), dpdy.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            {_expression, i.expression(), uvw.expression(),
+             dpdx.expression(), dpdy.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            {_expression, i.expression(), uv.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            {_expression, i.expression(), uvw.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv, Expr<float> mip) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            {_expression, i.expression(), uv.expression(), mip.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            {_expression, i.expression(), uvw.expression(), mip.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            {_expression, i.expression(), uv.expression(),
+             dpdx.expression(), dpdy.expression()})};
+    }
+
+    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            {_expression, i.expression(), uvw.expression(),
+             dpdx.expression(), dpdy.expression()})};
+    }
+};
+
 // deduction guides
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;
@@ -459,6 +566,8 @@ Expr(const Volume<T> &) -> Expr<Volume<T>>;
 
 template<typename T>
 Expr(VolumeView<T>) -> Expr<Volume<T>>;
+
+Expr(const TextureHeap &) -> Expr<TextureHeap>;
 
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept {
@@ -500,6 +609,25 @@ template<typename T>
 constexpr auto is_expr_v = is_expr<T>::value;
 
 }// namespace detail
+
+template<typename I, typename Coord>
+detail::Expr<float4> TextureHeap::sample(I &&index, Coord &&coord) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample(
+        std::forward<I>(index), std::forward<Coord>(coord));
+}
+template<typename I, typename Coord, typename Mip>
+detail::Expr<float4> TextureHeap::sample(I &&index, Coord &&coord, Mip &&level) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample(
+        std::forward<I>(index), std::forward<Coord>(coord), std::forward<Mip>(level));
+}
+
+template<typename I, typename Coord, typename DPDX, typename DPDY>
+detail::Expr<float4> TextureHeap::sample(I &&index, Coord &&coord, DPDX &&dpdx, DPDY &&dpdy) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample(
+        std::forward<I>(index), std::forward<Coord>(coord),
+        std::forward<DPDX>(dpdx), std::forward<DPDY>(dpdy));
+}
+
 }// namespace luisa::compute
 
 #define LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(op, op_concept, op_tag)                            \

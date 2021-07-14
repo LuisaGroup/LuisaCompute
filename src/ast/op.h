@@ -143,6 +143,8 @@ enum struct CallOp : uint32_t {
     TEXTURE_READ,
     TEXTURE_WRITE,
     TEXTURE_SAMPLE,
+    TEXTURE_SAMPLE_LOD,
+    TEXTURE_SAMPLE_GRAD,
 
     MAKE_BOOL2,
     MAKE_BOOL3,

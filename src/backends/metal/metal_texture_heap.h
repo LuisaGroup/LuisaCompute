@@ -19,14 +19,22 @@ private:
     MetalDevice *_device;
     id<MTLHeap> _handle;
     id<MTLBuffer> _buffer{nullptr};
+    id<MTLBuffer> _device_buffer{nullptr};
     id<MTLArgumentEncoder> _encoder{nullptr};
+    std::array<id<MTLSamplerState>, 16u> _samplers{};
+    mutable spin_mutex _mutex;
+    mutable bool _dirty{false};
+    static constexpr auto slot_size = 24u;
+
+private:
     [[nodiscard]] static MTLHeapDescriptor *_heap_descriptor(size_t size) noexcept;
 
 public:
     MetalTextureHeap(MetalDevice *device, size_t size) noexcept;
     [[nodiscard]] id<MTLTexture> allocate_texture(MTLTextureDescriptor *desc, uint32_t index, TextureSampler sampler) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto buffer() const noexcept { return _buffer; }
+    [[nodiscard]] auto desc_buffer() const noexcept { return _device_buffer; }
+    void encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept;
 };
 
 }

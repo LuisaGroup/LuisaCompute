@@ -98,8 +98,6 @@ public:
             TEXTURE
         };
 
-        using Usage = Variable::Usage;
-
         uint64_t handle{0u};
         Tag tag{Tag::NONE};
         Usage usage{Usage::NONE};
@@ -114,7 +112,7 @@ private:
     size_t _resource_count{0u};
 
 protected:
-    void _use_resource(uint64_t handle, Resource::Tag tag, Resource::Usage usage) noexcept;
+    void _use_resource(uint64_t handle, Resource::Tag tag, Usage usage) noexcept;
     void _buffer_read_only(uint64_t handle) noexcept;
     void _buffer_write_only(uint64_t handle) noexcept;
     void _buffer_read_write(uint64_t handle) noexcept;
@@ -209,18 +207,15 @@ private:
     uint _texture_level;
     uint _texture_offset[3];
     uint _texture_size[3];
-    uint64_t _heap;
 
 public:
     BufferToTextureCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
-                               uint level, uint3 offset, uint3 size,
-                               uint64_t heap = std::numeric_limits<uint64_t>::max()) noexcept
+                               uint level, uint3 offset, uint3 size) noexcept
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
           _texture_offset{offset.x, offset.y, offset.z},
-          _texture_size{size.x, size.y, size.z},
-          _heap{heap} {
+          _texture_size{size.x, size.y, size.z} {
         _buffer_read_only(_buffer_handle);
         _texture_write_only(_texture_handle);
     }
@@ -231,8 +226,6 @@ public:
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
     [[nodiscard]] auto offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
-    [[nodiscard]] auto heap() const noexcept { return _heap; }
-    [[nodiscard]] auto from_heap() const noexcept { return _heap != std::numeric_limits<uint64_t>::max(); }
     LUISA_MAKE_COMMAND_COMMON(BufferToTextureCopyCommand)
 };
 
@@ -278,7 +271,6 @@ private:
     uint _size[3];
     uint _src_level;
     uint _dst_level;
-    size_t _heap;
 
 public:
     TextureCopyCommand(uint64_t src_handle,
@@ -287,14 +279,12 @@ public:
                        uint dst_level,
                        uint3 src_offset,
                        uint3 dst_offset,
-                       uint3 size,
-                       uint64_t heap = std::numeric_limits<uint64_t>::max()) noexcept
+                       uint3 size) noexcept
         : _src_handle{src_handle}, _dst_handle{dst_handle},
           _src_offset{src_offset.x, src_offset.y, src_offset.z},
           _dst_offset{dst_offset.x, dst_offset.y, dst_offset.z},
           _size{size.x, size.y, size.z},
-          _src_level{src_level}, _dst_level{dst_level},
-          _heap{heap} {
+          _src_level{src_level}, _dst_level{dst_level} {
         _texture_read_only(_src_handle);
         _texture_write_only(_dst_handle);
     }
@@ -305,8 +295,6 @@ public:
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto src_level() const noexcept { return _src_level; }
     [[nodiscard]] auto dst_level() const noexcept { return _dst_level; }
-    [[nodiscard]] auto dst_heap() const noexcept { return _heap; }
-    [[nodiscard]] auto dst_from_heap() const noexcept { return _heap != std::numeric_limits<uint64_t>::max(); }
     LUISA_MAKE_COMMAND_COMMON(TextureCopyCommand)
 };
 
@@ -318,20 +306,17 @@ private:
     uint _level;
     uint _offset[3];
     uint _size[3];
-    uint64_t _heap;
     const void *_data;
 
 public:
     TextureUploadCommand(
         uint64_t handle, PixelStorage storage, uint level,
-        uint3 offset, uint3 size, const void *data,
-        uint64_t heap = std::numeric_limits<uint64_t>::max()) noexcept
+        uint3 offset, uint3 size, const void *data) noexcept
         : _handle{handle},
           _storage{storage},
           _level{level},
           _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
-          _heap{heap},
           _data{data} { _texture_write_only(_handle); }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
@@ -339,8 +324,6 @@ public:
     [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
-    [[nodiscard]] auto heap() const noexcept { return _heap; }
-    [[nodiscard]] auto from_heap() const noexcept { return _heap != std::numeric_limits<uint64_t>::max(); }
     LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand)
 };
 
@@ -385,7 +368,8 @@ public:
         enum struct Tag : uint32_t {
             BUFFER,
             TEXTURE,
-            UNIFORM
+            UNIFORM,
+            TEXTURE_HEAP
         };
 
         Tag tag;
@@ -424,6 +408,14 @@ public:
               alignment{alignment} {}
     };
 
+    struct TextureHeapArgument : Argument {
+        uint64_t handle{};
+        TextureHeapArgument() noexcept : Argument{Tag::TEXTURE_HEAP, 0u} {}
+        TextureHeapArgument(uint32_t vid, uint64_t handle) noexcept
+            : Argument{Tag::TEXTURE_HEAP, vid},
+              handle{handle} {}
+    };
+
     struct ArgumentBuffer : std::array<std::byte, 2048u> {};
 
 private:
@@ -446,10 +438,12 @@ public:
     // Note: encode/decode order:
     //   1. captured buffers
     //   2. captured textures
+    //   3. captured texture heaps
     //   3. arguments
-    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Resource::Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, Resource::Usage usage) noexcept;
+    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
+    void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
+    void encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
@@ -479,6 +473,13 @@ public:
                     std::span data{p, uniform_argument.size};
                     visit(argument.variable_uid, data);
                     p += uniform_argument.size;
+                    break;
+                }
+                case Argument::Tag::TEXTURE_HEAP: {
+                    TextureHeapArgument arg;
+                    std::memcpy(&arg, p, sizeof(TextureHeapArgument));
+                    visit(argument.variable_uid, arg);
+                    p += sizeof(TextureHeapArgument);
                     break;
                 }
                 default: {

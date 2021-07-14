@@ -8,7 +8,7 @@
 
 namespace luisa::compute {
 static bool _IsVarWritable(Function func, Variable i) {
-	return ((uint)func.variable_usage(i.uid()) & (uint)Variable::Usage::WRITE) != 0;
+	return ((uint)func.variable_usage(i.uid()) & (uint)Usage::WRITE) != 0;
 }
 void CodegenUtility::GetCodegen(Function func, vstd::string& str, HashMap<uint, size_t>& varOffsets, size_t& cbufferSize) {
 	{
@@ -291,7 +291,7 @@ void StringExprVisitor::visit(const CastExpr* expr) {
 }
 void StringExprVisitor::visit(const ConstantExpr* expr) {
 	(*str) += "c";
-	vstd::to_string(expr->hash(), (*str));
+	vstd::to_string(expr->data().hash(), (*str));
 }
 StringExprVisitor::StringExprVisitor(vstd::string& str)
 	: str(&str) {}
@@ -653,32 +653,33 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string& data) {
 
 void CodegenUtility::PrintConstant(Function::ConstantBinding const& binding, vstd::string& result) {
 	result += "static const "_sv;
-	auto valueView = ConstantData::view(binding.hash);
-	std::visit([&](auto&& value) -> void {
-		using SpanT = std::remove_cvref_t<decltype(value)>;
-		using T = GetSpanType<SpanT>::Type;
-		PrintValue<T> prt;
-		result += GetName<T>::Get();
-		result += " c"_sv;
-		vstd::to_string(binding.hash, result);
+	auto valueView = binding.data.view();
+	std::visit(
+		[&](auto&& value) -> void {
+			using SpanT = std::remove_cvref_t<decltype(value)>;
+			using T = GetSpanType<SpanT>::Type;
+			PrintValue<T> prt;
+			result += GetName<T>::Get();
+			result += " c"_sv;
+			vstd::to_string(binding.data.hash(), result);
 
-		if (binding.type->is_array()) {
-			result += "[]={"_sv;
-			for (auto&& i : value) {
-				prt(i, result);
-				result += ',';
+			if (binding.type->is_array()) {
+				result += "[]={"_sv;
+				for (auto&& i : value) {
+					prt(i, result);
+					result += ',';
+				}
+				if (result[result.size() - 1] == ',') {
+					result.erase(result.size() - 1);
+				}
+				result += "};\n"_sv;
+			} else {
+				result += '=';
+				prt(value[0], result);
+				result += ";\n"_sv;
 			}
-			if (result[result.size() - 1] == ',') {
-				result.erase(result.size() - 1);
-			}
-			result += "};\n"_sv;
-		} else {
-			result += '=';
-			prt(value[0], result);
-			result += ";\n"_sv;
-		}
-	},
-			   valueView);
+		},
+		valueView);
 }
 static thread_local StackObject<HashMap<Type const*, bool>, true> codegenStructType;
 void CodegenUtility::ClearStructType() {

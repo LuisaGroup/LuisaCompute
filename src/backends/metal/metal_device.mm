@@ -38,13 +38,13 @@ uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     return s;
 }
 
-void MetalDevice::dispose_buffer(uint64_t handle) noexcept {
+void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_buffer_mutex};
         _buffer_slots[handle] = nullptr;
         _available_buffer_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed buffer #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed buffer #{}.", handle);
 }
 
 uint64_t MetalDevice::create_stream() noexcept {
@@ -63,13 +63,13 @@ uint64_t MetalDevice::create_stream() noexcept {
     return s;
 }
 
-void MetalDevice::dispose_stream(uint64_t handle) noexcept {
+void MetalDevice::destroy_stream(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_stream_mutex};
         _stream_slots[handle] = nullptr;
         _available_stream_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed stream #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed stream #{}.", handle);
 }
 
 MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
@@ -81,7 +81,14 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
             "Invalid Metal device index {} (#device = {}).",
             index, count);
     }
-    _handle = devices[index];
+    std::vector<id<MTLDevice>> sorted_devices;
+    sorted_devices.reserve(devices.count);
+    for (id<MTLDevice> d in devices) { sorted_devices.emplace_back(d); }
+    std::sort(sorted_devices.begin(), sorted_devices.end(), [](id<MTLDevice> lhs, id<MTLDevice> rhs) noexcept {
+        if (lhs.isLowPower == rhs.isLowPower) { return lhs.registryID < rhs.registryID; }
+        return static_cast<bool>(rhs.isLowPower);
+    });
+    _handle = sorted_devices[index];
     LUISA_INFO(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
@@ -214,7 +221,7 @@ uint64_t MetalDevice::create_texture(
 
     auto from_heap = heap_handle != TextureHeap::invalid_handle;
     desc.allowGPUOptimizedContents = true;
-    desc.resourceOptions = MTLResourceStorageModePrivate;
+    desc.resourceOptions = MTLResourceStorageModePrivate | MTLResourceHazardTrackingModeTracked;
     desc.usage = from_heap ? MTLTextureUsageShaderRead
                            : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
@@ -246,7 +253,7 @@ uint64_t MetalDevice::create_texture(
     return s;
 }
 
-void MetalDevice::dispose_texture(uint64_t handle) noexcept {
+void MetalDevice::destroy_texture(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_texture_mutex};
         auto &&tex = _texture_slots[handle];
@@ -254,7 +261,7 @@ void MetalDevice::dispose_texture(uint64_t handle) noexcept {
         tex = nullptr;
         _available_texture_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed image #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed image #{}.", handle);
 }
 
 id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
@@ -278,13 +285,13 @@ uint64_t MetalDevice::create_event() noexcept {
     return s;
 }
 
-void MetalDevice::dispose_event(uint64_t handle) noexcept {
+void MetalDevice::destroy_event(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_event_mutex};
         _event_slots[handle] = nullptr;
         _available_event_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed event #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed event #{}.", handle);
 }
 
 void MetalDevice::synchronize_event(uint64_t handle) noexcept {
@@ -323,7 +330,7 @@ uint64_t MetalDevice::create_mesh(uint64_t stream_handle,
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
-void MetalDevice::dispose_mesh(uint64_t handle) noexcept {
+void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
@@ -334,7 +341,7 @@ uint64_t MetalDevice::create_accel(uint64_t stream_handle,
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
-void MetalDevice::dispose_accel(uint64_t handle) noexcept {
+void MetalDevice::destroy_accel(uint64_t handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
@@ -358,62 +365,18 @@ size_t MetalDevice::query_texture_heap_memory_usage(uint64_t handle) noexcept {
     return [heap(handle)->handle() usedSize];
 }
 
-void MetalDevice::dispose_texture_heap(uint64_t handle) noexcept {
+void MetalDevice::destroy_texture_heap(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_heap_mutex};
         _heap_slots[handle] = nullptr;
         _available_heap_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed heap #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed heap #{}.", handle);
 }
 
 MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
     std::scoped_lock lock{_heap_mutex};
     return _heap_slots[handle].get();
-}
-
-id<MTLSamplerState> MetalDevice::texture_sampler(TextureSampler sampler) noexcept {
-    std::scoped_lock lock{_texture_sampler_mutex};
-    auto iter = _texture_samplers.find(sampler);
-    if (iter != _texture_samplers.end()) { return iter->second; }
-    auto desc = [[MTLSamplerDescriptor alloc] init];
-    static constexpr auto convert_address_mode = [](TextureSampler::AddressMode mode) noexcept {
-        switch (mode) {
-            case TextureSampler::AddressMode::EDGE: return MTLSamplerAddressModeClampToEdge;
-            case TextureSampler::AddressMode::REPEAT: return MTLSamplerAddressModeRepeat;
-            case TextureSampler::AddressMode::MIRROR: return MTLSamplerAddressModeMirrorRepeat;
-            case TextureSampler::AddressMode::ZERO: return MTLSamplerAddressModeClampToZero; break;
-        }
-    };
-    switch (sampler.filter_mode()) {
-        case TextureSampler::FilterMode::NEAREST:
-            desc.minFilter = MTLSamplerMinMagFilterNearest;
-            desc.magFilter = MTLSamplerMinMagFilterNearest;
-            break;
-        case TextureSampler::FilterMode::LINEAR:
-            desc.minFilter = MTLSamplerMinMagFilterLinear;
-            desc.magFilter = MTLSamplerMinMagFilterLinear;
-            break;
-    }
-    switch (sampler.mip_filter_mode()) {
-        case TextureSampler::MipFilterMode::NONE:
-            desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
-            break;
-        case TextureSampler::MipFilterMode::NEAREST:
-            desc.mipFilter = MTLSamplerMipFilterNearest;
-            break;
-        case TextureSampler::MipFilterMode::LINEAR:
-            desc.mipFilter = MTLSamplerMipFilterLinear;
-            break;
-    }
-    desc.normalizedCoordinates = sampler.normalized() ? YES : NO;
-    desc.maxAnisotropy = sampler.max_anisotropy();
-    desc.supportArgumentBuffers = YES;
-    desc.sAddressMode = convert_address_mode(sampler.address_mode()[0]);
-    desc.tAddressMode = convert_address_mode(sampler.address_mode()[1]);
-    desc.rAddressMode = convert_address_mode(sampler.address_mode()[2]);
-    auto sampler_state = [_handle newSamplerStateWithDescriptor:desc];
-    return _texture_samplers.emplace(sampler, sampler_state).first->second;
 }
 
 uint64_t MetalDevice::create_shader(Function kernel) noexcept {
@@ -432,13 +395,13 @@ uint64_t MetalDevice::create_shader(Function kernel) noexcept {
     return s;
 }
 
-void MetalDevice::dispose_shader(uint64_t handle) noexcept {
+void MetalDevice::destroy_shader(uint64_t handle) noexcept {
     {
         std::scoped_lock lock{_shader_mutex};
         _shader_slots[handle] = {};
         _available_shader_slots.emplace_back(handle);
     }
-    LUISA_VERBOSE_WITH_LOCATION("Disposed shader #{}.", handle);
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed shader #{}.", handle);
 }
 
 }

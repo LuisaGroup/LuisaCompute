@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
-           << fill_image(device_image.view(256u, 512u)).dispatch(512u, 512u)
+           << fill_image(device_image.view(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
            << device_image.view().copy_to(host_image.data())
            << event.signal();
 

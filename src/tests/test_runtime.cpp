@@ -67,10 +67,12 @@ int main(int argc, char *argv[]) {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
-    auto kernel = LUISA_KERNEL1D(BufferVar<float> buffer_float, Var<uint> count) noexcept {
+    auto kernel = LUISA_KERNEL1D(BufferVar<float> buffer_float, Var<uint> count, TextureHeapVar heap) noexcept {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
+
+        Var color = heap.sample(v_int, float2(0.0f));
 
         auto [a, m] = add_mul(v_int, v_int);
         Var a_copy = a;
@@ -96,7 +98,7 @@ int main(int argc, char *argv[]) {
             Var v2 = float3{2.0f} - v_vec * 2.0f;
             v2 *= 5.0f + v_float;
 
-            Var<float2> w{v_int, v_float};
+            Var<float2> w{v_int.cast<float>(), v_float};
             w *= float2{1.2f};
 
             if_(1 + 1 == 2, [] {
@@ -141,7 +143,7 @@ int main(int argc, char *argv[]) {
 
     auto heap = device.create_texture_heap(1_gb);
     for (auto i = 0u; i < 10u; i++) {
-        static_cast<void>(heap.allocate(PixelStorage::FLOAT4, 1024u, TextureSampler{}, 1u));
+        static_cast<void>(heap.create(0u, PixelStorage::FLOAT4, uint2(1024u)));
         LUISA_INFO("Used size: {}", heap.allocated_size());
     }
 }

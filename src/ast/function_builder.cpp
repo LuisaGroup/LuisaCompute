@@ -29,10 +29,17 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
         && !(f->builtin_variables().empty()
              && f->shared_variables().empty()
              && f->captured_buffers().empty()
-             && f->captured_textures().empty())) [[unlikely]] {
+             && f->captured_textures().empty()
+             && f->captured_texture_heaps().empty())) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom callables may not have builtin, "
             "shared or captured variables.");
+    }
+    // check discarded call expressions to avoid leaked side-effects
+    for (auto e : f->_call_expressions) {
+        if (e->usage() == Usage::NONE) {
+            LUISA_ERROR_WITH_LOCATION("Found leaked call expression in function builder.");
+        }
     }
 }
 
@@ -120,7 +127,7 @@ const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
 
 uint32_t FunctionBuilder::_next_variable_uid() noexcept {
     auto uid = static_cast<uint32_t>(_variable_usages.size());
-    _variable_usages.emplace_back(Variable::Usage::NONE);
+    _variable_usages.emplace_back(Usage::NONE);
     return uid;
 }
 
@@ -218,10 +225,10 @@ ScopeStmt *FunctionBuilder::scope() noexcept {
     return _arena->create<ScopeStmt>(ArenaVector<const Statement *>(*_arena));
 }
 
-const ConstantExpr *FunctionBuilder::constant(const Type *type, uint64_t hash) noexcept {
+const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData data) noexcept {
     if (!type->is_array()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
-    _captured_constants.emplace_back(ConstantBinding{type, hash});
-    return _arena->create<ConstantExpr>(type, hash);
+    _captured_constants.emplace_back(ConstantBinding{type, data});
+    return _arena->create<ConstantExpr>(type, data);
 }
 
 void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {
@@ -239,9 +246,9 @@ void FunctionBuilder::for_(const Statement *init, const Expression *condition, c
     _append(_arena->create<ForStmt>(init, condition, update, body));
 }
 
-void FunctionBuilder::mark_variable_usage(uint32_t uid, Variable::Usage usage) noexcept {
+void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
     auto old_usage = to_underlying(_variable_usages[uid]);
-    auto u = static_cast<Variable::Usage>(old_usage | to_underlying(usage));
+    auto u = static_cast<Usage>(old_usage | to_underlying(usage));
     _variable_usages[uid] = u;
 }
 
@@ -254,10 +261,12 @@ FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcep
       _captured_constants{*arena},
       _captured_buffers{*arena},
       _captured_textures{*arena},
+      _captured_heaps{*arena},
       _arguments{*arena},
       _used_custom_callables{*arena},
       _used_builtin_callables{*arena},
       _variable_usages{*arena, 128u},
+      _call_expressions{*arena},
       _hash{0ul},
       _tag{tag} {}
 
@@ -295,6 +304,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::ini
     }
     ArenaVector func_args{*_arena, args};
     auto expr = _arena->create<CallExpr>(type, call_op, func_args);
+    _call_expressions.emplace_back(expr);
     if (std::find(_used_builtin_callables.cbegin(),
                   _used_builtin_callables.cend(),
                   call_op)
@@ -310,6 +320,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::in
     }
     ArenaVector func_args{*_arena, args};
     auto expr = _arena->create<CallExpr>(type, custom, func_args);
+    _call_expressions.emplace_back(expr);
     if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), custom);
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom);
@@ -338,6 +349,25 @@ FunctionBuilder::~FunctionBuilder() noexcept {
     if (_tag == Function::Tag::KERNEL) {
         delete _arena;// kernels owns the arena
     }
+}
+
+const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
+    if (auto iter = std::find_if(
+            _captured_heaps.cbegin(),
+            _captured_heaps.cend(),
+            [handle](auto &&binding) { return binding.handle == handle; });
+        iter != _captured_heaps.cend()) {
+        return _ref(iter->variable);
+    }
+    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
+    _captured_heaps.emplace_back(TextureHeapBinding{v, handle});
+    return _ref(v);
+}
+
+const RefExpr *FunctionBuilder::texture_heap() noexcept {
+    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return _ref(v);
 }
 
 }// namespace luisa::compute::detail

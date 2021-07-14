@@ -17,10 +17,10 @@ namespace luisa::compute {
 
 void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC& inst, float4x4 const& tr) {
 	using namespace Math;
-	float3 right = tr[0];
-	float3 up = tr[1];
-	float3 forward = tr[2];
-	float3 position = tr[3];
+	float4 right = tr[0];
+	float4 up = tr[1];
+	float4 forward = tr[2];
+	float4 position = tr[3];
 	float4* x = (float4*)(&inst.Transform[0][0]);
 	*x = float4(right.x, up.x, forward.x, position.x);
 	float4* y = (float4*)(&inst.Transform[1][0]);

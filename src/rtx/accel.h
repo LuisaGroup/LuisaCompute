@@ -18,7 +18,7 @@ private:
     uint64_t _handle;
 
 public:
-    ~Accel() noexcept { _device->dispose_accel(_handle); }
+    ~Accel() noexcept { _device->destroy_accel(_handle); }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
    // [[nodiscard]] detail::Expr<Hit> trace_closest(detail::Expr<Ray> ray) const noexcept;
    // [[nodiscard]] detail::Expr<bool> trace_any(detail::Expr<Ray> ray) const noexcept;

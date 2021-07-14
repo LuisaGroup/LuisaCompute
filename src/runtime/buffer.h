@@ -60,7 +60,7 @@ public:
 
     Buffer &operator=(Buffer &&rhs) noexcept {
         if (&rhs != this) {
-            _device->dispose_buffer(_handle);
+            _device->destroy_buffer(_handle);
             _device = rhs._device;
             _handle = rhs._handle;
             _size = rhs._handle;
@@ -71,7 +71,7 @@ public:
 
     ~Buffer() noexcept {
         if (_device != nullptr /* not moved */) {
-            _device->dispose_buffer(_handle);
+            _device->destroy_buffer(_handle);
         }
     }
 

@@ -37,14 +37,16 @@ public:
 
 private:
     View _view;
-    uint64_t _hash;
+    uint64_t _hash{};
     
     ConstantData(View v, uint64_t hash) noexcept
         : _view{v}, _hash{hash}{}
 
 public:
-    [[nodiscard]] static uint64_t create(View data) noexcept;
-    [[nodiscard]] static View view(uint64_t hash) noexcept;
+    ConstantData() noexcept = default;
+    [[nodiscard]] static ConstantData create(View data) noexcept;
+    [[nodiscard]] auto hash() const noexcept { return _hash; }
+    [[nodiscard]] auto view() const noexcept { return _view; }
 };
 
 }// namespace luisa::compute

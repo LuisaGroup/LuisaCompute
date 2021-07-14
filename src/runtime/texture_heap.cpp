@@ -10,8 +10,7 @@ TextureHeap::TextureHeap(TextureHeap &&another) noexcept
     : _device{another._device},
       _handle{another._handle},
       _capacity{another._capacity},
-      _slots{std::move(another._slots)},
-      _available{std::move(another._available)} { another._device = nullptr; }
+      _slots{std::move(another._slots)} { another._device = nullptr; }
 
 TextureHeap &TextureHeap::operator=(TextureHeap &&rhs) noexcept {
     if (&rhs != this) {
@@ -20,14 +19,13 @@ TextureHeap &TextureHeap::operator=(TextureHeap &&rhs) noexcept {
         _handle = rhs._handle;
         _capacity = rhs._capacity;
         _slots = std::move(rhs._slots);
-        _available = std::move(rhs._available);
         rhs._device = nullptr;
     }
     return *this;
 }
 
-constexpr auto TextureHeap::_compute_mipmap_levels(uint width, uint height, uint requested_levels) noexcept {
-    auto max_size = std::max(width, height);
+constexpr auto TextureHeap::_compute_mip_levels(uint3 size, uint requested_levels) noexcept {
+    auto max_size = std::max({size.x, size.y, size.z});
     auto max_levels = 0u;
     while (max_size != 0u) {
         max_size >>= 1u;
@@ -40,7 +38,7 @@ constexpr auto TextureHeap::_compute_mipmap_levels(uint width, uint height, uint
 
 void TextureHeap::_destroy() noexcept {
     if (_device != nullptr) {
-        _device->dispose_texture_heap(_handle);
+        _device->destroy_texture_heap(_handle);
     }
 }
 
@@ -50,89 +48,121 @@ TextureHeap::TextureHeap(Device &device, size_t capacity) noexcept
     : _device{device.impl()},
       _handle{device.impl()->create_texture_heap(capacity)},
       _capacity{capacity},
-      _slots(max_slot_count),
-      _available(max_slot_count) {
-    for (auto i = 0u; i < max_slot_count; i++) {
-        _available[i] = max_slot_count - 1u - i;
-    }
-}
+      _slots(slot_count, invalid_handle) {}
 
-uint32_t TextureHeap::allocate(PixelStorage storage, uint2 size, TextureSampler sampler, uint mipmap_levels) noexcept {
-    if (_available.empty()) {
+detail::Texture2D TextureHeap::create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
+    if (auto h = _slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
-            "Failed to allocate texture from heap #{} with full slots.", _handle);
-        return invalid_index;
+            "Overwriting texture #{} at {} in heap #{}.",
+            h, index, _handle);
+        destroy(index);
     }
-    auto valid_mipmap_levels = _compute_mipmap_levels(size.x, size.y, mipmap_levels);
-    if (valid_mipmap_levels == 1) { sampler.set_mip_filter_mode(TextureSampler::MipFilterMode::NONE); }
-    auto index = _available.back();
-    _available.pop_back();
+    auto valid_mip_levels = _compute_mip_levels(make_uint3(size, 1u), mip_levels);
+    if (valid_mip_levels == 1u
+        && (sampler.filter() == TextureSampler::Filter::TRILINEAR
+            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Textures without mipmaps do not support "
+            "trilinear or anisotropic sampling.");
+        sampler.set_filter(TextureSampler::Filter::BILINEAR);
+    }
     auto handle = _device->create_texture(
         pixel_storage_to_format<float>(storage), 2u,
-        size.x, size.y, 1u, valid_mipmap_levels,
+        size.x, size.y, 1u, valid_mip_levels,
         sampler, _handle, index);
-    _slots[index] = {handle, storage, size, mipmap_levels};
-    return index;
+    _slots[index] = handle;
+    return {handle, storage, valid_mip_levels, size};
 }
 
-void TextureHeap::recycle(uint32_t index) noexcept {
-    if (_slots[index].handle == invalid_handle) {
+detail::Texture3D TextureHeap::create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
+    if (auto h = _slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
-            "Recycling already recycled heap texture at slot {} in heap #{}.",
-            index, _handle);
-        return;
+            "Overwriting texture #{} at {} in heap #{}.",
+            h, index, _handle);
+        destroy(index);
     }
-    _device->dispose_texture(_slots[index].handle);
-    _slots[index].handle = invalid_handle;
+    auto valid_mip_levels = _compute_mip_levels(size, mip_levels);
+    if (valid_mip_levels == 1u
+        && (sampler.filter() == TextureSampler::Filter::TRILINEAR
+            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Textures without mipmaps do not support "
+            "trilinear or anisotropic sampling.");
+        sampler.set_filter(TextureSampler::Filter::BILINEAR);
+    }
+    auto handle = _device->create_texture(
+        pixel_storage_to_format<float>(storage), 3u,
+        size.x, size.y, size.z, valid_mip_levels,
+        sampler, _handle, index);
+    _slots[index] = handle;
+    return {handle, storage, valid_mip_levels, size};
 }
 
-CommandHandle TextureHeap::emplace(uint32_t index, ImageView<float> view, uint32_t mipmap_level) noexcept {
-    if (!_validate_mipmap_level(index, mipmap_level)) {
-        return nullptr;
+void TextureHeap::destroy(uint32_t index) noexcept {
+    if (auto &&h = _slots[index]; h == invalid_handle) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Recycling already destroyed heap texture at slot {} in heap #{}.",
+            index, _handle);
+    } else {
+        _device->destroy_texture(h);
+        h = invalid_handle;
     }
-    auto tex_desc = _slots[index];
-    auto mipmap_size = max(tex_desc.size >> mipmap_level, 1u);
-    if (!all(tex_desc.size == view.size())) {
+}
+
+CommandHandle detail::Texture2D::load(const void *pixels, uint mip_level) noexcept {
+    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+    auto mipmap_size = max(_size >> mip_level, 1u);
+    return TextureUploadCommand::create(
+        _handle, _storage, mip_level,
+        make_uint3(0u),
+        make_uint3(mipmap_size, 1u),
+        pixels);
+}
+
+CommandHandle detail::Texture2D::load(ImageView<float> image, uint mip_level) noexcept {
+    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+    auto mipmap_size = max(_size >> mip_level, 1u);
+    if (!all(mipmap_size == image.size())) {
         LUISA_WARNING_WITH_LOCATION(
             "Sizes mismatch when copying from image #{} "
-            "to texture #{} (mipmap level {}) at {} in heap #{} "
+            "to texture #{} (mipmap level {}) "
             "([{}, {}] vs. [{}, {}]).",
-            view.handle(), tex_desc.handle, mipmap_level, index, _handle,
-            view.size().x, view.size().y, mipmap_size.x, mipmap_size.y);
-        mipmap_size = min(mipmap_size, view.size());
+            image.handle(), _handle, mip_level,
+            image.size().x, image.size().y, mipmap_size.x, mipmap_size.y);
+        mipmap_size = min(mipmap_size, image.size());
     }
     return TextureCopyCommand::create(
-        view.handle(), tex_desc.handle,
-        0u, mipmap_level,
-        uint3(view.offset(), 0u), uint3(0u),
-        uint3(mipmap_size, 1u), _handle);
+        image.handle(), _handle,
+        0u, mip_level,
+        make_uint3(image.offset(), 0u), make_uint3(0u),
+        make_uint3(mipmap_size, 1u));
 }
 
-CommandHandle TextureHeap::emplace(uint32_t index, const void *pixels, uint32_t mipmap_level) noexcept {
-    if (!_validate_mipmap_level(index, mipmap_level)) { return nullptr; }
-    auto tex = _slots[index];
-    auto mipmap_size = max(tex.size >> mipmap_level, 1u);
+CommandHandle detail::Texture3D::load(const void *pixels, uint mip_level) noexcept {
+    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+    auto mipmap_size = max(_size >> mip_level, 1u);
     return TextureUploadCommand::create(
-        tex.handle, tex.storage, mipmap_level,
-        uint3(0u), uint3(mipmap_size, 1u),
-        pixels, _handle);
+        _handle, _storage, mip_level,
+        make_uint3(0u), mipmap_size,
+        pixels);
 }
 
-bool TextureHeap::_validate_mipmap_level(uint index, uint level) const noexcept {
-    auto desc = _slots[index];
-    if (desc.handle == invalid_handle) {
+CommandHandle detail::Texture3D::load(VolumeView<float> volume, uint mip_level) noexcept {
+    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+    auto mipmap_size = max(_size >> mip_level, 1u);
+    if (!all(mipmap_size == volume.size())) {
         LUISA_WARNING_WITH_LOCATION(
-            "Invalid texture at index {} in heap #{}.",
-            index, _handle);
-        return false;
+            "Sizes mismatch when copying from image #{} "
+            "to texture #{} (mipmap level {}) "
+            "([{}, {}, {}] vs. [{}, {}, {}]).",
+            volume.handle(), _handle, mip_level,
+            volume.size().x, volume.size().y, volume.size().z,
+            mipmap_size.x, mipmap_size.y, mipmap_size.z);
+        mipmap_size = min(mipmap_size, volume.size());
     }
-    if (level >= desc.mipmap_levels) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Invalid mipmap level {} (max = {}) for texture #{} at index {} in heap #{}.",
-            level, desc.mipmap_levels - 1u, desc.handle, index, _handle);
-        return false;
-    }
-    return true;
+    return TextureCopyCommand::create(
+        volume.handle(), _handle, 0u, mip_level,
+        volume.offset(), make_uint3(0u), mipmap_size);
 }
 
 }// namespace luisa::compute

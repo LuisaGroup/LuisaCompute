@@ -171,6 +171,15 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
 
+    // update texture desc heap if any
+    command->decode([&](auto, auto argument) noexcept -> void {
+        using T = decltype(argument);
+        if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
+            _device->heap(argument.handle)->encode_update(_command_buffer);
+        }
+    });
+
+    // encode compute shader
     auto argument_encoder = compiled_kernel.encoder();
     auto argument_buffer_pool = _device->argument_buffer_pool();
     auto argument_buffer = argument_buffer_pool->allocate();
@@ -181,15 +190,15 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
         using T = decltype(argument);
         auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
             switch (usage) {
-                case Variable::Usage::READ:
+                case Usage::READ:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead];
                     break;
-                case Variable::Usage::WRITE:
+                case Usage::WRITE:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageWrite];
                     break;
-                case Variable::Usage::READ_WRITE:
+                case Usage::READ_WRITE:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead
                                                  | MTLResourceUsageWrite];
@@ -197,7 +206,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 default: break;
             }
         };
-        if constexpr (std::is_same_v<T,  ShaderDispatchCommand::BufferArgument>) {
+        if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding buffer #{} at index {} with offset {}.",
                 argument.handle, argument_index, argument.offset);
@@ -214,6 +223,16 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
             [argument_encoder setTexture:texture atIndex:arg_id];
             mark_usage(texture, command->kernel().variable_usage(vid));
+        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Encoding texture heap #{} at index {}.",
+                argument.handle, argument_index);
+            auto heap = _device->heap(argument.handle);
+            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
+            auto desc_buffer = heap->desc_buffer();
+            [argument_encoder setBuffer:desc_buffer offset:0u atIndex:arg_id];
+            [compute_encoder useResource:desc_buffer usage:MTLResourceUsageRead];
+            [compute_encoder useHeap:heap->handle()];
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());
@@ -234,6 +253,10 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) noexcept {
     auto buffer = _upload_ring_buffer.allocate(size);
     if (buffer.handle() == nullptr) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to allocate {} bytes for uploading from "
+            "ring buffer, falling back to normal allocation.",
+            size);
         auto options = MTLResourceStorageModeShared
                        | MTLResourceCPUCacheModeWriteCombined
                        | MTLResourceHazardTrackingModeUntracked;
@@ -252,6 +275,10 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
 MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noexcept {
     auto buffer = _download_ring_buffer.allocate(size);
     if (buffer.handle() == nullptr) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to allocate {} bytes for downloading from "
+            "ring buffer, falling back to normal allocation.",
+            size);
         auto options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
         auto handle = [_device->handle() newBufferWithLength:size options:options];
         [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { std::memcpy(host_ptr, handle.contents, size); }];

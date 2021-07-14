@@ -1,6 +1,3 @@
-add_executable(test main.cpp)
-target_link_libraries(test PRIVATE luisa::compute)
-
 add_executable(test_type test_type.cpp)
 target_link_libraries(test_type PRIVATE luisa::compute)
 
@@ -27,6 +24,9 @@ target_link_libraries(test_builtin PRIVATE luisa::compute)
 
 add_executable(test_atomic test_atomic.cpp)
 target_link_libraries(test_atomic PRIVATE luisa::compute)
+
+add_executable(test_bindless test_bindless.cpp)
+target_link_libraries(test_bindless PRIVATE luisa::compute)
 
 find_package(OpenCV CONFIG)
 if (OpenCV_FOUND)

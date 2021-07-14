@@ -16,12 +16,12 @@ class Constant {
 
 private:
     const Type *_type;
-    uint64_t _hash;
+    ConstantData _data;
 
 public:
     Constant(std::span<const T> data) noexcept
         : _type{Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
-          _hash{ConstantData::create(data)} {}
+          _data{ConstantData::create(data)} {}
 
     Constant(const T *data, size_t size) noexcept
         : Constant{std::span{data, size}} {}
@@ -40,7 +40,7 @@ public:
     [[nodiscard]] auto operator[](detail::Expr<U> index) const noexcept {
         return detail::Expr<T>{detail::FunctionBuilder::current()->access(
             Type::of<T>(),
-            detail::FunctionBuilder::current()->constant(_type, _hash),
+            detail::FunctionBuilder::current()->constant(_type, _data),
             index.expression())};
     }
 

@@ -117,7 +117,7 @@ public:
 				GPUResourceState_Common,
 				DXAllocator::GetBufferAllocator()));
 	}
-	void dispose_buffer(uint64 handle) noexcept override {
+	void destroy_buffer(uint64 handle) noexcept override {
 		delete reinterpret_cast<StructuredBuffer*>(handle);
 	}
 
@@ -149,13 +149,13 @@ public:
 		}
 		return reinterpret_cast<uint64>(pack);
 	}
-	void dispose_texture(uint64 handle) noexcept override {
+	void destroy_texture(uint64 handle) noexcept override {
 		delete reinterpret_cast<RenderTexturePackage*>(handle);
 	}
 
 	[[nodiscard]] uint64 create_texture_heap(size_t size) noexcept override { return 0; }
 	[[nodiscard]] size_t query_texture_heap_memory_usage(uint64 handle) noexcept override { return 0; }
-	void dispose_texture_heap(uint64 handle) noexcept override {}
+	void destroy_texture_heap(uint64 handle) noexcept override {}
 
 	// stream
 	uint64 create_stream() noexcept override {
@@ -163,7 +163,7 @@ public:
 			new DXStream(dxDevice, mComputeCommandQueue.Get(), GFXCommandListType_Compute)//TODO: need support copy
 		);
 	}
-	void dispose_stream(uint64 handle) noexcept override {
+	void destroy_stream(uint64 handle) noexcept override {
 		synchronize_stream(handle);
 		delete reinterpret_cast<DXStream*>(handle);
 	}
@@ -194,7 +194,7 @@ public:
 	uint64 create_event() noexcept override {
 		return reinterpret_cast<uint64>(new DXEvent());
 	}
-	void dispose_event(uint64 handle) noexcept override {
+	void destroy_event(uint64 handle) noexcept override {
 		delete reinterpret_cast<DXEvent*>(handle);
 	}
 	void signal_event(uint64 handle, uint64 stream_handle) noexcept override {
@@ -230,7 +230,7 @@ public:
 				index_count));*/
 		return 0;
 	}
-	void dispose_mesh(
+	void destroy_mesh(
 		uint64 mesh_handle) noexcept override {
 		//delete reinterpret_cast<LCMesh*>(mesh_handle);
 	}
@@ -243,7 +243,7 @@ public:
 		size_t mesh_count) noexcept override {
 		return 0;
 	}
-	void dispose_accel(uint64 handle) noexcept override {}
+	void destroy_accel(uint64 handle) noexcept override {}
 	/*
 	uint64 signal_event(uint64 handle, uint64 stream_handle);
 	void wait_event(uint64 signal, uint64 stream_handle)
@@ -261,17 +261,17 @@ public:
 	uint64_t create_shader(Function kernel) noexcept override {
 		return 0;
 	}
-	void dispose_shader(uint64_t handle) noexcept override {}
+	void destroy_shader(uint64_t handle) noexcept override {}
 	/*
 	uint64 create_raytracing_struct() noexcept override {
 		return reinterpret_cast<uint64>(new RayTracingManager(dxDevice));
 	}
-	void dispose_raytracing_struct(
+	void destroy_raytracing_struct(
 		uint64 handle) noexcept override {
 		delete reinterpret_cast<RayTracingManager*>(handle);
 	}*/
 	~DXDevice() {
-		//ShaderLoader::Dispose(shaderGlobal);
+		//ShaderLoader::destroy(shaderGlobal);
 	}
 	//////////// Variables
 	StackObject<GFXDevice, true> dxDevice;
@@ -411,10 +411,10 @@ void CreateDevice_Test() {
 	auto dev = new DXDevice(0);
 	auto stream = dev->create_stream();
 	dev->synchronize_stream(stream);
-	dev->dispose_stream(stream);
+	dev->destroy_stream(stream);
 	auto buffer = dev->create_buffer(
 		64);
-	dev->dispose_buffer(buffer);
+	dev->destroy_buffer(buffer);
 	auto tex = dev->create_texture(
 		PixelFormat::RGBA32F,
 		2,
@@ -424,7 +424,7 @@ void CreateDevice_Test() {
 		0,
 		true
 	);
-	dev->dispose_texture(
+	dev->destroy_texture(
 		tex
 	);
 	delete dev;

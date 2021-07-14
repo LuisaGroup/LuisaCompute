@@ -157,9 +157,14 @@ const Type *Type::from(std::string_view description) noexcept {
             auto m = data.members.emplace_back(from_desc_impl(s));
             if (!m->is_scalar()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Images can only hold scalars."); }
             match('>');
-            info._size = 0u;
-            info._alignment = 0u;
-        } else [[unlikely]] {
+            info._size = 8u;
+            info._alignment = 8u;
+        } else if (type_identifier == "texture_heap"sv) {
+            info._tag = Tag::TEXTURE_HEAP;
+            info._size = 8u;
+            info._alignment = 8u;
+        }
+        else [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Unknown type identifier: {}.", type_identifier);
         }
 

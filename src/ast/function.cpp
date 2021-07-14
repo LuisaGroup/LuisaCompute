@@ -52,7 +52,7 @@ const Type *Function::return_type() const noexcept {
     return _builder->return_type();
 }
 
-Variable::Usage Function::variable_usage(uint32_t uid) const noexcept {
+Usage Function::variable_usage(uint32_t uid) const noexcept {
     return _builder->variable_usage(uid);
 }
 
@@ -66,6 +66,10 @@ uint64_t Function::hash() const noexcept {
 
 bool Function::raytracing() const noexcept {
     return _builder->raytracing();
+}
+
+std::span<const Function::TextureHeapBinding> Function::captured_texture_heaps() const noexcept {
+    return _builder->captured_texture_heaps();
 }
 
 }// namespace luisa::compute

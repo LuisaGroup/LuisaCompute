@@ -58,11 +58,11 @@ int main(int argc, char *argv[]) {
         z += 1;
         static_assert(std::is_same_v<decltype(z), $float>);
 
-        $ v_vec = float3{1.0f};
-        $ v2 = float3{2.0f} - v_vec * 2.0f;
+        $ v_vec = make_float3(1.0f);
+        $ v2 = make_float3(2.0f) - v_vec * 2.0f;
         v2 *= 5.0f + v_float;
 
-        $float2 w{v_int, v_float};
+        $float2 w{v_int.cast<float>(), v_float};
         w *= float2{1.2f};
 
         $if(w.x < 5) {}

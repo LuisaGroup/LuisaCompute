@@ -21,15 +21,15 @@ template<typename T, std::enable_if_t<std::disjunction_v<std::is_enum<T>>, int> 
 
 inline namespace size_literals {
 
-[[nodiscard]] constexpr auto operator""_kb(uint64_t size) noexcept {
+[[nodiscard]] constexpr auto operator""_kb(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u);
 }
 
-[[nodiscard]] constexpr auto operator""_mb(uint64_t size) noexcept {
+[[nodiscard]] constexpr auto operator""_mb(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u * 1024u);
 }
 
-[[nodiscard]] constexpr auto operator""_gb(uint64_t size) noexcept {
+[[nodiscard]] constexpr auto operator""_gb(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u * 1024u * 1024u);
 }
 
@@ -81,31 +81,25 @@ struct VectorStorage {
 template<typename T>
 struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     T x, y;
-    constexpr VectorStorage() noexcept : x{}, y{} {}
-    constexpr explicit VectorStorage(T s) noexcept : x{s}, y{s} {}
+    explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
-    constexpr VectorStorage(VectorStorage<T, 3> v) noexcept : x{v.x}, y{v.y} {}
-    constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y} {}
 
-    template<typename U, std::enable_if_t<std::negation_v<std::is_same<T, U>>, int> = 0>
-    constexpr explicit VectorStorage(VectorStorage<U, 2> v) noexcept
+    template<typename U>
+    constexpr VectorStorage(VectorStorage<U, 2> v) noexcept
         : VectorStorage{static_cast<T>(v.x),
                         static_cast<T>(v.y)} {}
+
 #include <core/swizzle_2.inl.h>
 };
 
 template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     T x, y, z;
-    constexpr VectorStorage() noexcept : x{}, y{}, z{} {}
-    constexpr explicit VectorStorage(T s) noexcept : x{s}, y{s}, z{s} {}
+    explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
-    constexpr VectorStorage(VectorStorage<T, 2> xy, T z) noexcept : x{xy.x}, y{xy.y}, z{z} {}
-    constexpr VectorStorage(T x, VectorStorage<T, 2> yz) noexcept : x{x}, y{yz.x}, z{yz.y} {}
-    constexpr VectorStorage(VectorStorage<T, 4> v) noexcept : x{v.x}, y{v.y}, z{v.z} {}
 
-    template<typename U, std::enable_if_t<std::negation_v<std::is_same<T, U>>, int> = 0>
-    constexpr explicit VectorStorage(VectorStorage<U, 3> v) noexcept
+    template<typename U>
+    constexpr VectorStorage(VectorStorage<U, 3> v) noexcept
         : VectorStorage{static_cast<T>(v.x),
                         static_cast<T>(v.y),
                         static_cast<T>(v.z)} {}
@@ -115,18 +109,11 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
 template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     T x, y, z, w;
-    constexpr VectorStorage() noexcept : x{}, y{}, z{}, w{} {}
-    constexpr explicit VectorStorage(T s) noexcept : x{s}, y{s}, z{s}, w{s} {}
+    explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
-    constexpr VectorStorage(VectorStorage<T, 2> xy, T z, T w) noexcept : x{xy.x}, y{xy.y}, z{z}, w{w} {}
-    constexpr VectorStorage(VectorStorage<T, 2> xy, VectorStorage<T, 2> zw) noexcept : x{xy.x}, y{xy.y}, z{zw.x}, w{zw.y} {}
-    constexpr VectorStorage(T x, VectorStorage<T, 2> yz, T w) noexcept : x{x}, y{yz.x}, z{yz.y}, w{w} {}
-    constexpr VectorStorage(T x, T y, VectorStorage<T, 2> zw) noexcept : x{x}, y{y}, z{zw.x}, w{zw.y} {}
-    constexpr VectorStorage(VectorStorage<T, 3> xyz, T w) noexcept : x{xyz.x}, y{xyz.y}, z{xyz.z}, w{w} {}
-    constexpr VectorStorage(T x, VectorStorage<T, 3> yzw) noexcept : x{x}, y{yzw.x}, z{yzw.y}, w{yzw.z} {}
 
-    template<typename U, std::enable_if_t<std::negation_v<std::is_same<T, U>>, int> = 0>
-    constexpr explicit VectorStorage(VectorStorage<U, 4> v) noexcept
+    template<typename U>
+    constexpr VectorStorage(VectorStorage<U, 4> v) noexcept
         : VectorStorage{static_cast<T>(v.x),
                         static_cast<T>(v.y),
                         static_cast<T>(v.z),
@@ -150,8 +137,7 @@ struct Vector : public detail::VectorStorage<T, N> {
                       std::is_same<T, uint>> && (N == 2 || N == 3 || N == 4),
                   "Invalid vector type");
 
-    template<typename... Args, std::enable_if_t<std::is_constructible_v<Storage, Args...>, int> = 0>
-    constexpr Vector(Args... args) noexcept : Storage(args...) {}
+    using Storage::VectorStorage;
 
     [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
     [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
@@ -183,7 +169,21 @@ struct Vector : public detail::VectorStorage<T, N> {
                  std::conjunction_v<std::is_same<T, U>, __VA_ARGS__>,           \
                  int> = 0>                                                      \
     [[nodiscard]] constexpr auto operator op(U rhs) const noexcept {            \
-        return *this op Vector{rhs};                                            \
+        using R = Vector<                                                       \
+            std::decay_t<decltype(static_cast<T>(0) op static_cast<T>(0))>, N>; \
+        if constexpr (N == 2) {                                                 \
+            return R{this->x op rhs,                                            \
+                     this->y op rhs};                                           \
+        } else if constexpr (N == 3) {                                          \
+            return R{this->x op rhs,                                            \
+                     this->y op rhs,                                            \
+                     this->z op rhs};                                           \
+        } else {                                                                \
+            return R{this->x op rhs,                                            \
+                     this->y op rhs,                                            \
+                     this->z op rhs,                                            \
+                     this->w op rhs};                                           \
+        }                                                                       \
     }
 
 #define LUISA_MAKE_VECTOR_ASSIGNMENT_OPERATOR(op, ...)                \
@@ -211,7 +211,22 @@ struct Vector : public detail::VectorStorage<T, N> {
              std::enable_if_t<                                        \
                  std::conjunction_v<std::is_same<T, U>, __VA_ARGS__>, \
                  int> = 0>                                            \
-    Vector &operator op(U rhs) noexcept { return *this op Vector{rhs}; }
+    Vector &operator op(U rhs) noexcept {                             \
+        if constexpr (N == 2) {                                       \
+            this->x op rhs;                                           \
+            this->y op rhs;                                           \
+        } else if constexpr (N == 3) {                                \
+            this->x op rhs;                                           \
+            this->y op rhs;                                           \
+            this->z op rhs;                                           \
+        } else {                                                      \
+            this->x op rhs;                                           \
+            this->y op rhs;                                           \
+            this->z op rhs;                                           \
+            this->w op rhs;                                           \
+        }                                                             \
+        return *this;                                                 \
+    }
 
 #define LUISA_MAKE_VECTOR_BINARY_AND_ASSIGNMENT_OPERATORS(op, ...) \
     LUISA_MAKE_VECTOR_BINARY_OPERATOR(op, __VA_ARGS__)             \
@@ -264,19 +279,11 @@ struct Matrix<2> {
 
     float2 cols[2];
 
-    explicit constexpr Matrix(float s = 1.0f) noexcept
-        : cols{float2{s, 0.0f}, float2{0.0f, s}} {}
+    constexpr Matrix() noexcept
+        : cols{float2{1.0f, 0.0f}, float2{0.0f, 1.0f}} {}
 
-    explicit constexpr Matrix(const float2 c0, const float2 c1) noexcept
+    constexpr Matrix(const float2 c0, const float2 c1) noexcept
         : cols{c0, c1} {}
-
-    explicit constexpr Matrix(float m00, float m01,
-                              float m10, float m11) noexcept
-        : cols{float2{m00, m01}, float2{m10, m11}} {}
-
-    template<size_t N, std::enable_if_t<N == 3 || N == 4, int> = 0>
-    explicit constexpr Matrix(Matrix<N> m) noexcept
-        : cols{float2{m[0]}, float2{m[1]}} {}
 
     [[nodiscard]] constexpr float2 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float2 &operator[](size_t i) const noexcept { return cols[i]; }
@@ -287,23 +294,11 @@ struct Matrix<3> {
 
     float3 cols[3];
 
-    explicit constexpr Matrix(float s = 1.0f) noexcept
-        : cols{float3{s, 0.0f, 0.0f}, float3{0.0f, s, 0.0f}, float3{0.0f, 0.0f, s}} {}
+    constexpr Matrix() noexcept
+        : cols{float3{1.0f, 0.0f, 0.0f}, float3{0.0f, 1.0f, 0.0f}, float3{0.0f, 0.0f, 1.0f}} {}
 
-    explicit constexpr Matrix(const float3 c0, const float3 c1, const float3 c2) noexcept
+    constexpr Matrix(const float3 c0, const float3 c1, const float3 c2) noexcept
         : cols{c0, c1, c2} {}
-
-    explicit constexpr Matrix(float m00, float m01, float m02,
-                              float m10, float m11, float m12,
-                              float m20, float m21, float m22) noexcept
-        : cols{float3{m00, m01, m02}, float3{m10, m11, m12}, float3{m20, m21, m22}} {}
-
-    template<size_t N, std::enable_if_t<N == 4, int> = 0>
-    explicit constexpr Matrix(Matrix<N> m) noexcept
-        : cols{float3{m[0]}, float3{m[1]}, float3{m[2]}} {}
-
-    explicit constexpr Matrix(Matrix<2> m) noexcept
-        : cols{float3{m[0], 0.0f}, float3{m[1], 0.0f}, float3{0.0f, 0.0f, 1.0f}} {}
 
     [[nodiscard]] constexpr float3 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float3 &operator[](size_t i) const noexcept { return cols[i]; }
@@ -314,29 +309,14 @@ struct Matrix<4> {
 
     float4 cols[4];
 
-    explicit constexpr Matrix(float s = 1.0f) noexcept
-        : cols{float4{s, 0.0f, 0.0f, 0.0f},
-               float4{0.0f, s, 0.0f, 0.0f},
-               float4{0.0f, 0.0f, s, 0.0f},
-               float4{0.0f, 0.0f, 0.0f, s}} {}
-
-    explicit constexpr Matrix(const float4 c0, const float4 c1, const float4 c2, const float4 c3) noexcept
-        : cols{c0, c1, c2, c3} {}
-
-    explicit constexpr Matrix(float m00, float m01, float m02, float m03,
-                              float m10, float m11, float m12, float m13,
-                              float m20, float m21, float m22, float m23,
-                              float m30, float m31, float m32, float m33) noexcept
-        : cols{float4{m00, m01, m02, m03},
-               float4{m10, m11, m12, m13},
-               float4{m20, m21, m22, m23},
-               float4{m30, m31, m32, m33}} {}
-
-    explicit constexpr Matrix(Matrix<3> m) noexcept
-        : cols{float4{m[0], 0.0f},
-               float4{m[1], 0.0f},
-               float4{m[2], 0.0f},
+    constexpr Matrix() noexcept
+        : cols{float4{1.0f, 0.0f, 0.0f, 0.0f},
+               float4{0.0f, 1.0f, 0.0f, 0.0f},
+               float4{0.0f, 0.0f, 1.0f, 0.0f},
                float4{0.0f, 0.0f, 0.0f, 1.0f}} {}
+
+    constexpr Matrix(const float4 c0, const float4 c1, const float4 c2, const float4 c3) noexcept
+        : cols{c0, c1, c2, c3} {}
 
     [[nodiscard]] constexpr float4 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float4 &operator[](size_t i) const noexcept { return cols[i]; }
@@ -413,7 +393,13 @@ template<typename T, size_t N,
                  std::conjunction_v<luisa::is_scalar<T>, __VA_ARGS__>,                  \
                  int> = 0>                                                              \
     [[nodiscard]] constexpr auto operator op(T lhs, luisa::Vector<T, N> rhs) noexcept { \
-        return luisa::Vector<T, N>{lhs} op rhs;                                         \
+        if constexpr (N == 2) {                                                         \
+            return luisa::Vector<T, 2>{lhs, lhs} op rhs;                                \
+        } else if constexpr (N == 3) {                                                  \
+            return luisa::Vector<T, 3>{lhs, lhs, lhs} op rhs;                           \
+        } else {                                                                        \
+            return luisa::Vector<T, 4>{lhs, lhs, lhs, lhs} op rhs;                      \
+        }                                                                               \
     }
 
 LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(+, std::negation<luisa::is_boolean<T>>)
@@ -557,6 +543,149 @@ using is_basic = std::disjunction<is_scalar<T>, is_vector<T>, is_matrix<T>>;
 
 template<typename T>
 constexpr auto is_basic_v = is_basic<T>::value;
+
+// make typeN
+
+#define LUISA_MAKE_TYPE_N(type)                                                                                              \
+    [[nodiscard]] constexpr auto make_##type##2(type s = {}) noexcept { return type##2(s); }                                 \
+    [[nodiscard]] constexpr auto make_##type##2(type x, type y) noexcept { return type##2(x, y); }                           \
+    template<typename T>                                                                                                     \
+    [[nodiscard]] constexpr auto make_##type##2(Vector<T, 2> v) noexcept { return type##2(v); }                              \
+    [[nodiscard]] constexpr auto make_##type##2(type##3 v) noexcept { return type##2(v.x, v.y); }                            \
+    [[nodiscard]] constexpr auto make_##type##2(type##4 v) noexcept { return type##2(v.x, v.y); }                            \
+                                                                                                                             \
+    [[nodiscard]] constexpr auto make_##type##3(type s = {}) noexcept { return type##3(s); }                                 \
+    [[nodiscard]] constexpr auto make_##type##3(type x, type y, type z) noexcept { return type##3(x, y, z); }                \
+    template<typename T>                                                                                                     \
+    [[nodiscard]] constexpr auto make_##type##3(Vector<T, 3> v) noexcept { return type##3(v); }                              \
+    [[nodiscard]] constexpr auto make_##type##3(type##2 v, type z) noexcept { return type##3(v.x, v.y, z); }                 \
+    [[nodiscard]] constexpr auto make_##type##3(type x, type##2 v) noexcept { return type##3(x, v.x, v.y); }                 \
+    [[nodiscard]] constexpr auto make_##type##3(type##4 v) noexcept { return type##3(v.x, v.y, v.z); }                       \
+                                                                                                                             \
+    [[nodiscard]] constexpr auto make_##type##4(type s = {}) noexcept { return type##4(s); }                                 \
+    [[nodiscard]] constexpr auto make_##type##4(type x, type y, type z, type w) noexcept { return type##4(x, y, z, w); }     \
+    template<typename T>                                                                                                     \
+    [[nodiscard]] constexpr auto make_##type##4(Vector<T, 4> v) noexcept { return type##4(v); }                              \
+    [[nodiscard]] constexpr auto make_##type##4(type##2 v, type z, type w) noexcept { return type##4(v.x, v.y, z, w); }      \
+    [[nodiscard]] constexpr auto make_##type##4(type x, type##2 v, type w) noexcept { return type##4(x, v.x, v.y, w); }      \
+    [[nodiscard]] constexpr auto make_##type##4(type x, type y, type##2 v) noexcept { return type##4(x, y, v.x, v.y); }      \
+    [[nodiscard]] constexpr auto make_##type##4(type##2 xy, type##2 zw) noexcept { return type##4(xy.x, xy.y, zw.x, zw.y); } \
+    [[nodiscard]] constexpr auto make_##type##4(type##3 v, type w) noexcept { return type##4(v.x, v.y, v.z, w); }            \
+    [[nodiscard]] constexpr auto make_##type##4(type x, type##3 v) noexcept { return type##4(x, v.x, v.y, v.z); }
+
+LUISA_MAKE_TYPE_N(bool)
+LUISA_MAKE_TYPE_N(float)
+LUISA_MAKE_TYPE_N(int)
+LUISA_MAKE_TYPE_N(uint)
+#undef LUISA_MAKE_TYPE_N
+
+// make float2x2
+[[nodiscard]] constexpr auto make_float2x2(float s = 1.0f) noexcept {
+    return float2x2{float2{s, 0.0f},
+                    float2{0.0f, s}};
+}
+
+[[nodiscard]] constexpr auto make_float2x2(
+    float m00, float m01,
+    float m10, float m11) noexcept {
+    return float2x2{float2{m00, m01},
+                    float2{m10, m11}};
+}
+
+[[nodiscard]] constexpr auto make_float2x2(float2 c0, float2 c1) noexcept {
+    return float2x2{c0, c1};
+}
+
+[[nodiscard]] constexpr auto make_float2x2(float2x2 m) noexcept {
+    return m;
+}
+
+[[nodiscard]] constexpr auto make_float2x2(float3x3 m) noexcept {
+    return float2x2{float2{m[0].x, m[0].y},
+                    float2{m[1].x, m[1].y}};
+}
+
+[[nodiscard]] constexpr auto make_float2x2(float4x4 m) noexcept {
+    return float2x2{float2{m[0].x, m[0].y},
+                    float2{m[1].x, m[1].y}};
+}
+
+// make float3x3
+[[nodiscard]] constexpr auto make_float3x3(float s = 1.0f) noexcept {
+    return float3x3{float3{s, 0.0f, 0.0f},
+                    float3{0.0f, s, 0.0f},
+                    float3{0.0f, 0.0f, s}};
+}
+
+[[nodiscard]] constexpr auto make_float3x3(float3 c0, float3 c1, float3 c2) noexcept {
+    return float3x3{c0, c1, c2};
+}
+
+[[nodiscard]] constexpr auto make_float3x3(
+    float m00, float m01, float m02,
+    float m10, float m11, float m12,
+    float m20, float m21, float m22) noexcept {
+    return float3x3{float3{m00, m01, m02},
+                    float3{m10, m11, m12},
+                    float3{m20, m21, m22}};
+}
+
+[[nodiscard]] constexpr auto make_float3x3(float2x2 m) noexcept {
+    return float3x3{make_float3(m[0], 0.0f),
+                    make_float3(m[1], 0.0f),
+                    make_float3(m[2], 1.0f)};
+}
+
+[[nodiscard]] constexpr auto make_float3x3(float3x3 m) noexcept {
+    return m;
+}
+
+[[nodiscard]] constexpr auto make_float3x3(float4x4 m) noexcept {
+    return float3x3{make_float3(m[0]),
+                    make_float3(m[1]),
+                    make_float3(m[2])};
+}
+
+// make float4x4
+[[nodiscard]] constexpr auto make_float4x4(float s = 1.0f) noexcept {
+    return float4x4{float4{s, 0.0f, 0.0f, 0.0f},
+                    float4{0.0f, s, 0.0f, 0.0f},
+                    float4{0.0f, 0.0f, s, 0.0f},
+                    float4{0.0f, 0.0f, 0.0f, s}};
+}
+
+[[nodiscard]] constexpr auto make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) noexcept {
+    return float4x4{c0, c1, c2, c3};
+}
+
+[[nodiscard]] constexpr auto make_float4x4(
+    float m00, float m01, float m02, float m03,
+    float m10, float m11, float m12, float m13,
+    float m20, float m21, float m22, float m23,
+    float m30, float m31, float m32, float m33) noexcept {
+    return float4x4{float4{m00, m01, m02, m03},
+                    float4{m10, m11, m12, m13},
+                    float4{m20, m21, m22, m23},
+                    float4{m30, m31, m32, m33}};
+}
+
+[[nodiscard]] constexpr auto make_float4x4(float2x2 m) noexcept {
+    return float4x4{make_float4(m[0], 0.0f, 0.0f),
+                    make_float4(m[1], 0.0f, 0.0f),
+                    float4{0.0f, 0.0f, 1.0f, 0.0f},
+                    float4{0.0f, 0.0f, 0.0f, 1.0f}};
+}
+
+[[nodiscard]] constexpr auto make_float4x4(float3x3 m) noexcept {
+    return float4x4{make_float4(m[0], 0.0f),
+                    make_float4(m[1], 0.0f),
+                    make_float4(m[2], 0.0f),
+                    float4{0.0f, 0.0f, 0.0f, 1.0f}};
+}
+
+[[nodiscard]] constexpr auto make_float4x4(float4x4 m) noexcept {
+    return m;
+}
 
 }// namespace luisa
 

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <ast/type.h>
+#include <ast/usage.h>
 
 namespace luisa::compute {
 
@@ -25,6 +26,7 @@ public:
         // resources
         BUFFER,
         TEXTURE,
+        TEXTURE_HEAP,
         
         // TODO: Bindless Textures
 
@@ -33,13 +35,6 @@ public:
         BLOCK_ID,
         DISPATCH_ID,
         DISPATCH_SIZE
-    };
-
-    enum struct Usage : uint32_t {
-        NONE = 0u,
-        READ = 0x01u,
-        WRITE = 0x02u,
-        READ_WRITE = READ | WRITE
     };
 
 private:

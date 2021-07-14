@@ -22,13 +22,13 @@ Stream::Stream(Stream &&s) noexcept
 
 Stream::~Stream() noexcept {
     if (_device != nullptr) {
-        _device->dispose_stream(_handle);
+        _device->destroy_stream(_handle);
     }
 }
 
 Stream &Stream::operator=(Stream &&rhs) noexcept {
     if (this != &rhs) {
-        _device->dispose_stream(_handle);
+        _device->destroy_stream(_handle);
         _device = rhs._device;
         _handle = rhs._handle;
         rhs._device = nullptr;
