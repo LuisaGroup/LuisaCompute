@@ -39,11 +39,16 @@ int main(int argc, char *argv[]) {
         image.write(coord, make_float4(make_float2(0.3f, 0.4f), 0.5f, 1.0f));
     };
 
-    Kernel2D fill_image_kernel = [](TextureHeapVar heap, ImageVar<float> image) noexcept {
+    Callable sample = [](TextureHeapVar heap, Float2 uv, Float mip) noexcept {
+        return heap.sample(0u, uv, mip);
+    };
+
+    Kernel2D fill_image_kernel = [&](TextureHeapVar heap, ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
         Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
-        Var r = log(sin(length(uv - 0.5f) * 100.0f) + 2.0f);
-        image.write(coord, heap.sample(0u, uv, r * 7.5f));
+        Var r = length(uv - 0.5f);
+        Var t = log(sin(sqrt(r) * 100.0f - constants::pi_over_two) + 2.0f);
+        image.write(coord, sample(heap, uv, t * 7.0f));
     };
 
     auto clear_image = device.compile(clear_image_kernel);

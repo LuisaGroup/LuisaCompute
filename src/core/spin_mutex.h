@@ -22,8 +22,10 @@ public:
     void lock() noexcept {
         while (_flag.test_and_set(std::memory_order::acquire)) {// acquire lock
             LUISA_INTRIN_PAUSE();
-            while (_flag.test(std::memory_order::relaxed)) {// test lock
-                std::this_thread::yield();
+            if constexpr (requires { _flag.test(std::memory_order::relaxed); }) {
+                while (_flag.test(std::memory_order::relaxed)) {// test lock
+                    std::this_thread::yield();
+                }
             }
         }
     }
