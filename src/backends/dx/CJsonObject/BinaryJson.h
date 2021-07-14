@@ -1,10 +1,12 @@
 #pragma once
 #include <Common/Common.h>
+#include <Common/VObject.h>
 #include <CJsonObject/SerializeStruct.h>
+class BinaryReader;
 namespace SerializeStruct {
 class SerializedData;
 }
-class  SerializedObject final {
+class VENGINE_DLL_COMMON BinaryJson final : public VObject {
 private:
 	bool initialized = false;
 	bool isArray;
@@ -13,7 +15,7 @@ private:
 		vstd::vector<SerializeStruct::SerializedData*> datas;
 	};
 	union {
-		StackObject<HashMap<vstd::string, SerializeStruct::SerializedData>> keyValueDatas;
+		StackObject<HashMap<vstd::string, std::unique_ptr<SerializeStruct::SerializedData>>> keyValueDatas;
 		StackObject<ArrayData> arrayDatas;
 	};
 	void DisposeSelf();
@@ -33,10 +35,11 @@ public:
 	void IterateArray(
 		IteFunc const& func) const;
 
-	SerializedObject(vstd::vector<char> const& data);
-	SerializedObject(vstd::string const& path);
-	SerializedObject(vstd::vector<vstd::string> const& paths);
-	SerializedObject(char const*& ptr, bool isArray) {
+	BinaryJson(vstd::vector<char> const& data);
+	BinaryJson(vstd::string const& path);
+	BinaryJson(BinaryReader& reader);
+	BinaryJson(vstd::vector<vstd::string> const& paths);
+	BinaryJson(char const*& ptr, bool isArray) {
 		Parse(ptr, isArray);
 	}
 	uint64 GetArraySize() const;
@@ -48,21 +51,21 @@ public:
 
 	bool Get(vstd::string const& name, double& floatValue) const;
 	bool Get(vstd::string const& name, bool& boolValue) const;
-	bool Get(vstd::string const& name, SerializedObject*& objValue) const;
+	bool Get(vstd::string const& name, BinaryJson*& objValue) const;
 	bool ContainedKey(vstd::string const& name);
-	bool Get(vstd::string const& name, uint& intValue) const {
+	inline bool Get(vstd::string const& name, uint& intValue) const {
 		int64 v;
 		if (!Get(name, v)) return false;
 		intValue = v;
 		return true;
 	}
-	bool Get(vstd::string const& name, int32_t& intValue) const {
+	inline bool Get(vstd::string const& name, int32_t& intValue) const {
 		int64 v;
 		if (!Get(name, v)) return false;
 		intValue = v;
 		return true;
 	}
-	bool Get(vstd::string const& name, float& floatValue) const {
+	inline bool Get(vstd::string const& name, float& floatValue) const {
 		double v;
 		if (!Get(name, v)) return false;
 		floatValue = v;
@@ -72,38 +75,38 @@ public:
 	bool Get(uint64 iWitch, int64& intValue) const;
 	bool Get(uint64 iWitch, double& floatValue) const;
 	bool Get(uint64 iWitch, bool& boolValue) const;
-	bool Get(uint64 iWitch, SerializedObject*& objValue) const;
-	bool Get(uint64 iWitch, uint& intValue) const {
+	bool Get(uint64 iWitch, BinaryJson*& objValue) const;
+	inline bool Get(uint64 iWitch, uint& intValue) const {
 		int64 v;
 		if (!Get(iWitch, v)) return false;
 		intValue = v;
 		return true;
 	}
-	bool Get(uint64 iWitch, int32_t& intValue) const {
+	inline bool Get(uint64 iWitch, int32_t& intValue) const {
 		int64 v;
 		if (!Get(iWitch, v)) return false;
 		intValue = v;
 		return true;
 	}
-	bool Get(uint64 iWitch, float& floatValue) const {
+	inline bool Get(uint64 iWitch, float& floatValue) const {
 		double v;
 		if (!Get(iWitch, v)) return false;
 		floatValue = v;
 		return true;
 	}
-	~SerializedObject() {
+	inline ~BinaryJson() {
 		DisposeSelf();
 	}
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-	KILL_COPY_CONSTRUCT(SerializedObject)
+	KILL_COPY_CONSTRUCT(BinaryJson)
 };
 namespace SerializeStruct {
-class  SerializedData {
+class VENGINE_DLL_COMMON SerializedData {
 public:
 	SerializeStruct::ObjectType type;
 	union {
 		StackObject<vstd::string> str;
-		StackObject<SerializedObject> obj;
+		StackObject<BinaryJson> obj;
 		int64 intValue;
 		double floatValue;
 	};
@@ -117,21 +120,23 @@ public:
 	SerializedData(char const* start, char const* end);
 	SerializedData(char const*& ptr, bool isArray);
 	~SerializedData();
+	void Dispose();
+	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	KILL_COPY_CONSTRUCT(SerializedData)
 };
 }// namespace SerializeStruct
 
 template<typename IteFunc>
-inline void SerializedObject::IterateKeyValue(
+inline void BinaryJson::IterateKeyValue(
 	IteFunc const& func) const {
 	if (!isArray) {
-		keyValueDatas->IterateAll([&](vstd::string const& key, SerializeStruct::SerializedData& value) -> void {
-			func(key, value);
+		keyValueDatas->IterateAll([&](vstd::string const& key, std::unique_ptr<SerializeStruct::SerializedData>& value) -> void {
+			func(key, *value.get());
 		});
 	}
 }
 template<typename IteFunc>
-inline void SerializedObject::IterateArray(
+inline void BinaryJson::IterateArray(
 	IteFunc const& func) const {
 	if (isArray) {
 		for (uint64 key = 0; key < arrayDatas->datas.size(); ++key) {

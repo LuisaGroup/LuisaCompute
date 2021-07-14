@@ -39,7 +39,7 @@ void GetShaderVariable(
 }
 void GetShaderSerializedObject(
 	BinaryReader& ifs,
-	StackObject<SerializedObject, true>& serObj) {
+	StackObject<BinaryJson, true>& serObj) {
 	uint64 serObjSize = 0;
 	DragData<uint64>(ifs, serObjSize);
 	if (serObjSize > 0) {
@@ -56,7 +56,7 @@ void ShaderIO::DecodeComputeShader(
 	const vstd::string& fileName,
 	vstd::vector<ShaderVariable>& vars,
 	vstd::vector<ComputeKernel>& datas,
-	StackObject<SerializedObject, true>& serObj) {
+	StackObject<BinaryJson, true>& serObj) {
 	using namespace ShaderIOGlobal;
 	vars.clear();
 	datas.clear();
@@ -66,7 +66,7 @@ void ShaderIO::DecodeComputeShader(
 	GetShaderVariable(vars, ifs);
 	uint blobSize = 0;
 	DragData<uint>(ifs, blobSize);
-	vstd::vector<Microsoft::WRL::ComPtr<ID3DBlob>> kernelBlobs(blobSize);
+	vstd::vector<Microsoft::WRL::ComPtr<ID3DBlob>, VEngine_AllocType::Stack> kernelBlobs(blobSize);
 	for (auto&& i : kernelBlobs) {
 		uint64_t kernelSize = 0;
 		DragData<uint64_t>(ifs, kernelSize);
@@ -89,20 +89,22 @@ HRESULT ShaderIO::GetRootSignature(
 	Microsoft::WRL::ComPtr<ID3DBlob>& serializedRootSig,
 	Microsoft::WRL::ComPtr<ID3DBlob>& errorBlob,
 	D3D_ROOT_SIGNATURE_VERSION rootSigVersion) {
-	vstd::vector<CD3DX12_ROOT_PARAMETER> allParameter;
+	vstd::vector<CD3DX12_ROOT_PARAMETER, VEngine_AllocType::Stack> allParameter;
 	auto&& staticSamplers = GFXUtil::GetStaticSamplers();
-	vstd::vector<CD3DX12_DESCRIPTOR_RANGE> allTexTable;
+	vstd::vector<CD3DX12_DESCRIPTOR_RANGE, VEngine_AllocType::Stack> allTexTable;
 	allParameter.reserve(variables.size());
 	allTexTable.reserve(variables.size());
 	for (auto&& var : variables) {
-		if (var.type == ShaderVariableType::SRVDescriptorHeap) {
-			CD3DX12_DESCRIPTOR_RANGE texTable;
-			texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, var.tableSize, var.registerPos, var.space);
-			allTexTable.push_back(texTable);
-		} else if (var.type == ShaderVariableType::UAVDescriptorHeap) {
-			CD3DX12_DESCRIPTOR_RANGE texTable;
-			texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, var.tableSize, var.registerPos, var.space);
-			allTexTable.push_back(texTable);
+		switch (var.type) {
+			case ShaderVariableType::SRVDescriptorHeap: {
+				allTexTable.emplace_back().Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, var.tableSize, var.registerPos, var.space);
+			} break;
+			case ShaderVariableType::UAVDescriptorHeap: {
+				allTexTable.emplace_back().Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, var.tableSize, var.registerPos, var.space);
+			} break;
+			case ShaderVariableType::SamplerDescHeap: {
+				allTexTable.emplace_back().Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, var.tableSize, var.registerPos, var.space);
+			} break;
 		}
 	}
 	uint offset = 0;
@@ -111,10 +113,8 @@ HRESULT ShaderIO::GetRootSignature(
 		CD3DX12_ROOT_PARAMETER slotRootParameter;
 		switch (var.type) {
 			case ShaderVariableType::SRVDescriptorHeap:
-				slotRootParameter.InitAsDescriptorTable(1, allTexTable.data() + offset);
-				offset++;
-				break;
 			case ShaderVariableType::UAVDescriptorHeap:
+			case ShaderVariableType::SamplerDescHeap:
 				slotRootParameter.InitAsDescriptorTable(1, allTexTable.data() + offset);
 				offset++;
 				break;
@@ -294,7 +294,7 @@ void ShaderIO::DecodeDXRShader(
 	vstd::vector<char>& binaryData,
 	uint64& recursiveCount,
 	uint64& raypayloadSize,
-	StackObject<SerializedObject, true>& serObj) {
+	StackObject<BinaryJson, true>& serObj) {
 	using namespace ShaderIOGlobal;
 	vars.clear();
 	binaryData.clear();

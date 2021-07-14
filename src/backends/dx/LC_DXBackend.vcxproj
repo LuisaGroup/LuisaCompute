@@ -177,10 +177,10 @@
 		<Library Include="Build/spdlog.lib" />
 	</ItemGroup>
 	<ItemGroup>
+		<ClCompile Include="CJsonObject/BinaryJson.cpp" />
 		<ClCompile Include="CJsonObject/cJSON.cpp" />
 		<ClCompile Include="CJsonObject/CJsonObject.cpp" />
 		<ClCompile Include="CJsonObject/JsonCompiler.cpp" />
-		<ClCompile Include="CJsonObject/SerializedObject.cpp" />
 		<ClCompile Include="Common/Common.cpp" />
 		<ClCompile Include="Common/DynamicLink.cpp" />
 		<ClCompile Include="Common/GameTimer.cpp" />
@@ -211,7 +211,6 @@
 		<ClCompile Include="RenderComponent/ComputeShader.cpp" />
 		<ClCompile Include="RenderComponent/DescHeapPool.cpp" />
 		<ClCompile Include="RenderComponent/DescriptorHeap.cpp" />
-		<ClCompile Include="RenderComponent/DescriptorHeapRoot.cpp" />
 		<ClCompile Include="RenderComponent/GPUResourceBase.cpp" />
 		<ClCompile Include="RenderComponent/IShader.cpp" />
 		<ClCompile Include="RenderComponent/LCMesh.cpp" />
@@ -235,6 +234,7 @@
 		<ClCompile Include="RHI/DXCommandVisitor.cpp" />
 		<ClCompile Include="RHI/DXDevice.cpp" />
 		<ClCompile Include="RHI/DXEvent.cpp" />
+		<ClCompile Include="RHI/LCTextureHeap.cpp" />
 		<ClCompile Include="RHI/ShaderCompiler.cpp" />
 		<ClCompile Include="ShaderCompile/HLSLCompiler.cpp" />
 		<ClCompile Include="ShaderCompile/LuisaASTTranslator.cpp" />
@@ -243,7 +243,6 @@
 		<ClCompile Include="Singleton/MathLib.cpp" />
 		<ClCompile Include="Singleton/MeshLayout.cpp" />
 		<ClCompile Include="Singleton/ShaderID.cpp" />
-		<ClCompile Include="Singleton/ShaderLoader.cpp" />
 		<ClCompile Include="Struct/ConstBuffer.cpp" />
 		<ClCompile Include="TestMain.cpp" />
 		<ClCompile Include="Utility/Actor.cpp" />
@@ -258,9 +257,9 @@
 		<ClCompile Include="Utility/ThreadResetEvent.cpp" />
 	</ItemGroup>
 	<ItemGroup>
+		<ClInclude Include="CJsonObject/BinaryJson.h" />
 		<ClInclude Include="CJsonObject/cJSON.h" />
 		<ClInclude Include="CJsonObject/JsonCompiler.h" />
-		<ClInclude Include="CJsonObject/SerializedObject.h" />
 		<ClInclude Include="CJsonObject/SerializeStruct.h" />
 		<ClInclude Include="Common/AllocateType.h" />
 		<ClInclude Include="Common/BitArray.h" />
@@ -333,7 +332,6 @@
 		<ClInclude Include="RenderComponent/ComputeShader.h" />
 		<ClInclude Include="RenderComponent/DescHeapPool.h" />
 		<ClInclude Include="RenderComponent/DescriptorHeap.h" />
-		<ClInclude Include="RenderComponent/DescriptorHeapRoot.h" />
 		<ClInclude Include="RenderComponent/GPUResourceBase.h" />
 		<ClInclude Include="RenderComponent/IBackBuffer.h" />
 		<ClInclude Include="RenderComponent/IBuffer.h" />
@@ -377,6 +375,7 @@
 		<ClInclude Include="RHI/InternalShaders.h" />
 		<ClInclude Include="RHI/IShader.h" />
 		<ClInclude Include="RHI/ITexture.h" />
+		<ClInclude Include="RHI/LCTextureHeap.h" />
 		<ClInclude Include="RHI/RenderTexturePackage.h" />
 		<ClInclude Include="RHI/ShaderCompiler.h" />
 		<ClInclude Include="ShaderCompile/HLSLCompiler.h" />
@@ -387,7 +386,6 @@
 		<ClInclude Include="Singleton/MathLib.h" />
 		<ClInclude Include="Singleton/MeshLayout.h" />
 		<ClInclude Include="Singleton/ShaderID.h" />
-		<ClInclude Include="Singleton/ShaderLoader.h" />
 		<ClInclude Include="Struct/CameraRenderPath.h" />
 		<ClInclude Include="Struct/ConstBuffer.h" />
 		<ClInclude Include="Struct/CopyBufferCommand.h" />

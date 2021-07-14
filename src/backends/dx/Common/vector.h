@@ -57,6 +57,9 @@ public:
 				for (size_t i = 0; i < mSize; ++i) {
 					auto oldT = arr + i;
 					new (newArr + i) T(std::move(*oldT));
+					if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+						oldT->~T();
+					}
 				}
 			}
 			auto tempArr = arr;
@@ -160,6 +163,7 @@ public:
 			T* ptr = endPtr + i;
 			new (ptr) T(std::move(f(i)));
 		}
+		mSize += count;
 	}
 	operator std::span<T>() const {
 		return std::span<T>(begin(), end());
@@ -260,9 +264,12 @@ public:
 	decltype(auto) erase_last() noexcept {
 		mSize--;
 		if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
-			(arr + mSize)->~T();
+			auto disp = vstd::create_disposer([arr, mSize]() {
+				(arr + mSize)->~T();
+			});
+			return arr[mSize];
 		} else {
-			return (T const&)arr[mSize];
+			return std::move(arr[mSize]);
 		}
 	}
 	void clear() noexcept {

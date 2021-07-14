@@ -7,7 +7,7 @@
 #include <PipelineComponent/FrameResource.h>
 #include <Common/Runnable.h>
 #include <RHI/DXCommandVisitor.h>
-#include <Singleton/ShaderLoader.h>
+
 namespace luisa::compute {
 class DXStream {
 public:
@@ -57,7 +57,7 @@ public:
 		std::mutex& mtx,
 		uint64& cpuSignalIndex) {
 		///////////// Local-Thread
-		FrameResource* tempRes = getResource(listType);
+		/* FrameResource* tempRes = getResource(listType);
 		tempRes->tCmd.ResetCommand();
 		//TODO: execute buffer
 		DXCommandVisitor vis(
@@ -82,7 +82,7 @@ public:
 		tempRes->signalIndex = cpuSignalIndex;
 		lastSignal = cpuSignalIndex;
 		cpuSignalIndex++;
-		res.Push(tempRes);
+		res.Push(tempRes);*/
 	}
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	uint64 GetSignal() const {

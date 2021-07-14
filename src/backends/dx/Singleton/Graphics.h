@@ -23,7 +23,6 @@ class Texture;
 class StructuredBuffer;
 class TextureBase;
 class ThreadCommand;
-class DescriptorHeapRoot;
 namespace luisa::compute {
 class DXDevice;
 }
@@ -37,17 +36,14 @@ class Graphics {
 	friend class RenderTexture;
 	friend class TextureBase;
 	friend class DescriptorHeap;
-	friend class DescriptorHeapRoot;
 
 private:
 	static thread_local Graphics* current;
 	spin_mutex mtx;
 	std::unique_ptr<DescriptorHeap> globalDescriptorHeap;
+	std::unique_ptr<DescriptorHeap> globalSamplerHeap;
 	BitArray usedDescs;
 	ArrayList<uint, VEngine_AllocType::Default> unusedDescs;
-	StackObject<ElementAllocator, true> srvAllocator;
-	StackObject<ElementAllocator, true> rtvAllocator;
-	StackObject<ElementAllocator, true> dsvAllocator;
 
 	static void SetRenderTarget(
 		ThreadCommand* commandList,
@@ -75,8 +71,12 @@ private:
 		ThreadCommand* commandList,
 		const std::initializer_list<RenderTarget>& init);
 	static inline DescriptorHeap* GetGlobalDescHeapNonConst() {
-		return current->globalDescriptorHeap.operator->();
+		return current->globalDescriptorHeap.get();
 	}
+	inline static DescriptorHeap* GetSamplerDescHeapNonConst() {
+		return current->globalSamplerHeap.get();
+	}
+
 	static uint GetDescHeapIndexFromPool();
 	static void ReturnDescHeapIndexToPool(uint targetIndex);
 	static void ForceCollectAllHeapIndex();
@@ -87,6 +87,9 @@ public:
 	}
 	static inline DescriptorHeap const* GetGlobalDescHeap() {
 		return current->globalDescriptorHeap.operator->();
+	}
+	static inline DescriptorHeap const* GetSamplerDescHeap() {
+		return current->globalSamplerHeap.operator->();
 	}
 	Graphics(GFXDevice* device);
 

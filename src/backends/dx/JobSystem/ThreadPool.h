@@ -10,25 +10,45 @@ class VENGINE_DLL_COMMON ThreadPool final {
 		void operator()() {
 		}
 	};
-	std::atomic_uint64_t executeCount = 1;
 	using PoolType = typename ThreadTaskHandle::PoolType;
 	ObjectPtr<PoolType> pool;
 	vstd::vector<std::thread> threads;
+	vstd::vector<std::thread> backupThreads;
 	LockFreeArrayQueue<ObjectPtr<ThreadTaskHandle::TaskData>> taskList;
-	void ThreadExecute();
+	void ThreadExecute(ThreadTaskHandle::TaskData*);
 	std::atomic_flag enabled;
 	std::mutex threadLock;
 	std::mutex backupThreadLock;
+	spin_mutex threadVectorLock;
 	std::condition_variable cv;
 	std::condition_variable backupCV;
 	void ExecuteTask(ObjectPtr<ThreadTaskHandle::TaskData> const& task);
 	size_t workerThreadCount;
-	size_t backupThreadCount;
 	void ActiveOneBackupThread();
+	ThreadTaskHandle M_GetParallelTask(Runnable<void(size_t)>&& func, size_t parallelCount, size_t threadCount);
+	ThreadTaskHandle M_GetBeginEndTask(Runnable<void(size_t, size_t)>&& func, size_t parallelCount, size_t threadCount);
+	Runnable<void(size_t)> runBackupThread;
+	int64_t waitingBackupThread = 0;
+	std::atomic_int64_t pausedWorkingThread = 0;
+	static void DoNothing() {}
 public:
 	//Thread Execute
-	ThreadPool(size_t targetThreadCount, size_t backupThreadCount);
+	ThreadPool(size_t targetThreadCount);
 	~ThreadPool();
+	static bool IsWorkerThread();
 	ThreadTaskHandle GetTask(Runnable<void()> func);
-	ThreadTaskHandle GetParallelTask(Runnable<void(size_t)> func, size_t parallelCount, size_t threadCount);
+	ThreadTaskHandle GetFence();
+	ThreadTaskHandle GetParallelTask(Runnable<void(size_t)> func, size_t parallelCount, size_t threadCount) {
+		return M_GetParallelTask(std::move(func), parallelCount, threadCount);
+	}
+	ThreadTaskHandle GetParallelTask(Runnable<void(size_t)> func, size_t parallelCount) {
+		return M_GetParallelTask(std::move(func), parallelCount, parallelCount);
+	}
+
+	ThreadTaskHandle GetBeginEndTask(Runnable<void(size_t, size_t)> func, size_t parallelCount, size_t threadCount) {
+		return M_GetBeginEndTask(std::move(func), parallelCount, threadCount);
+	}
+	ThreadTaskHandle GetBeginEndTask(Runnable<void(size_t, size_t)> func, size_t parallelCount) {
+		return M_GetBeginEndTask(std::move(func), parallelCount, parallelCount);
+	}
 };

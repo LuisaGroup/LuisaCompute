@@ -1,5 +1,7 @@
 #pragma vengine_package vengine_dll
 #include <Common/spin_mutex.h>
+#include <iostream>
+#include <mutex>
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 #define VENGINE_INTRIN_PAUSE() _mm_pause()
@@ -9,25 +11,25 @@
 #elif defined(__aarch64__)
 #define VENGINE_INTRIN_PAUSE() asm volatile("isb"_sv)
 #else
-#include <mutex>
 #define VENGINE_INTRIN_PAUSE() std::this_thread::yield()
 #endif
 
-void spin_mutex_base::lock() noexcept {
-	while (_flag.test_and_set(std::memory_order::acquire)) {// acquire lock
-#ifdef __cpp_lib_atomic_flag_test
-		while (_flag.test(std::memory_order::relaxed)) {// test lock
-#endif
-			VENGINE_INTRIN_PAUSE();
-#ifdef __cpp_lib_atomic_flag_test
+void spin_mutex::lock() noexcept {
+	while (flag.test_and_set(std::memory_order::acquire)) {
+		VENGINE_INTRIN_PAUSE();
+		while (flag.test(std::memory_order::relaxed)) {
+			std::this_thread::yield();
 		}
-#endif
 	}
 }
 
-bool spin_mutex_base::isLocked() const noexcept {
-	return _flag.test(std::memory_order::relaxed);
+
+spin_mutex::spin_mutex() {
+	flag.clear(std::memory_order::release);
 }
-void spin_mutex_base::unlock() noexcept {
-	_flag.clear(std::memory_order::release);
+bool spin_mutex::isLocked() const noexcept {
+	return flag.test(std::memory_order::relaxed);
+}
+void spin_mutex::unlock() noexcept {
+	flag.clear(std::memory_order::release);
 }

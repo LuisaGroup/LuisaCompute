@@ -11,7 +11,6 @@ class StructuredBuffer;
 class RenderTexture;
 class IShader;
 class DescriptorHeap;
-class DescriptorHeapRoot;
 class VENGINE_DLL_RENDERER ThreadCommand final {
 	friend class PipelineComponent;
 	friend class Graphics;
@@ -71,7 +70,7 @@ public:
 	void ResetCommand();
 	void CloseCommand();
 	bool UpdateRegisterShader(IShader const* shader);
-	bool UpdateDescriptorHeap(DescriptorHeap const* descHeap, DescriptorHeapRoot const* descHeapRoot);
+	bool UpdateDescriptorHeap(DescriptorHeap const* descHeap);
 	bool UpdatePSO(void* psoObj);
 	bool UpdateRenderTarget(
 		uint NumRenderTargetDescriptors,

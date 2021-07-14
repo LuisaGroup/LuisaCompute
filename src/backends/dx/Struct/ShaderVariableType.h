@@ -5,7 +5,8 @@ enum class ShaderVariableType : uint8_t {
 	SRVDescriptorHeap,
 	UAVDescriptorHeap,
 	StructuredBuffer,
-	RWStructuredBuffer
+	RWStructuredBuffer,
+	SamplerDescHeap
 };
 enum class HitGroupFunctionType : uint8_t {
 	RayGeneration,

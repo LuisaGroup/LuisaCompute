@@ -1,104 +1,114 @@
 #include <RenderComponent/DescriptorHeap.h>
-//#endif
-#include <RenderComponent/DescriptorHeap.h>
 #include <RenderComponent/GPUResourceBase.h>
-#include <Singleton/Graphics.h>
 #include <PipelineComponent/ThreadCommand.h>
 DescriptorHeap::DescriptorHeap(
 	GFXDevice* pDevice,
 	D3D12_DESCRIPTOR_HEAP_TYPE Type,
 	uint64 NumDescriptors,
 	bool bShaderVisible) {
-	InternalCreate(
-		pDevice,
-		Type,
-		NumDescriptors,
-		bShaderVisible);
-}
-void DescriptorHeap::InternalDispose() {
-	if (rootPtr) {
-		allocator->Release(handle);
-	}
-}
-void DescriptorHeap::InternalCreate(
-	GFXDevice* pDevice,
-	D3D12_DESCRIPTOR_HEAP_TYPE Type,
-	uint64 NumDescriptors,
-	bool bShaderVisible) {
-	ElementAllocator* allocator;
-	switch (Type) {
-		case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV:
-			allocator = Graphics::current->srvAllocator;
-			break;
-		case D3D12_DESCRIPTOR_HEAP_TYPE_RTV:
-			allocator = Graphics::current->rtvAllocator;
-			break;
-		default:
-			allocator = Graphics::current->dsvAllocator;
-			break;
-	}
-	this->allocator = allocator;
-
-	handle = allocator->Allocate(
-		NumDescriptors);
-	std::cout << handle.node->obj.avaliable;
-	rootPtr = handle.GetBlockResource<DescriptorHeapRoot>();
-	size = NumDescriptors;
-	offset = handle.GetPosition();
+	recorder = new BindData[NumDescriptors];
+	memset(recorder, 0, sizeof(BindData) * NumDescriptors);
+	Desc.Type = Type;
+	Desc.NumDescriptors = NumDescriptors;
+	Desc.Flags = (bShaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
+	Desc.NodeMask = 0;
+	ThrowIfFailed(pDevice->device()->CreateDescriptorHeap(
+		&Desc,
+		IID_PPV_ARGS(&pDH)));
+	hCPUHeapStart = pDH->GetCPUDescriptorHandleForHeapStart();
+	hGPUHeapStart = pDH->GetGPUDescriptorHandleForHeapStart();
+	HandleIncrementSize = pDevice->device()->GetDescriptorHandleIncrementSize(Desc.Type);
 }
 DescriptorHeap::~DescriptorHeap() {
-	InternalDispose();
+	if (recorder) {
+		delete recorder;
+	}
 }
 void DescriptorHeap::Create(
 	GFXDevice* pDevice,
 	D3D12_DESCRIPTOR_HEAP_TYPE Type,
 	uint64 NumDescriptors,
 	bool bShaderVisible) {
-	InternalDispose();
-	InternalCreate(
-		pDevice,
-		Type,
-		NumDescriptors,
-		bShaderVisible);
-}
-void DescriptorHeap::SetDescriptorHeap(ThreadCommand* commandList) const {
-	commandList->UpdateDescriptorHeap(this, rootPtr);
+	if (recorder) {
+		delete recorder;
+	}
+	recorder = new BindData[NumDescriptors];
+	memset(recorder, 0, sizeof(BindData) * NumDescriptors);
+	Desc.Type = Type;
+	Desc.NumDescriptors = NumDescriptors;
+	Desc.Flags = (bShaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE);
+	Desc.NodeMask = 0;
+	ThrowIfFailed(pDevice->device()->CreateDescriptorHeap(
+		&Desc,
+		IID_PPV_ARGS(&pDH)));
+	hCPUHeapStart = pDH->GetCPUDescriptorHandleForHeapStart();
+	hGPUHeapStart = pDH->GetGPUDescriptorHandleForHeapStart();
+	HandleIncrementSize = pDevice->device()->GetDescriptorHandleIncrementSize(Desc.Type);
 }
 void DescriptorHeap::CreateUAV(GFXDevice* device, GPUResourceBase const* resource, const D3D12_UNORDERED_ACCESS_VIEW_DESC* pDesc, uint64 index) {
-	rootPtr->CreateUAV(
-		device,
-		resource,
-		pDesc,
-		index + offset);
+	BindData targetBindType = {BindType::UAV, resource->GetInstanceID()};
+	{
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		if (recorder[index] == targetBindType)
+			return;
+		recorder[index] = targetBindType;
+	}
+	device->device()->CreateUnorderedAccessView(resource->GetResource(), nullptr, pDesc, hCPU(index));
+}
+void DescriptorHeap::SetDescriptorHeap(ThreadCommand* tCmd) const {
+	tCmd->UpdateDescriptorHeap(this);
 }
 void DescriptorHeap::CreateSRV(GFXDevice* device, GPUResourceBase const* resource, const D3D12_SHADER_RESOURCE_VIEW_DESC* pDesc, uint64 index) {
-	rootPtr->CreateSRV(
-		device,
-		resource,
-		pDesc,
-		index + offset);
+	BindData targetBindType = {BindType::SRV, resource->GetInstanceID()};
+	{
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		if (recorder[index] == targetBindType)
+			return;
+		recorder[index] = targetBindType;
+	}
+	device->device()->CreateShaderResourceView(resource->GetResource(), pDesc, hCPU(index));
 }
 void DescriptorHeap::CreateRTV(GFXDevice* device, GPUResourceBase const* resource, uint depthSlice, uint mipCount, const D3D12_RENDER_TARGET_VIEW_DESC* pDesc, uint64 index) {
-	rootPtr->CreateRTV(
-		device,
-		resource,
-		depthSlice,
-		mipCount,
-		pDesc,
-		index + offset);
+	BindData targetBindType = {BindType::RTV, resource->GetInstanceID()};
+	{
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		if (recorder[index] == targetBindType)
+			return;
+		recorder[index] = targetBindType;
+	}
+	device->device()->CreateRenderTargetView(resource->GetResource(), pDesc, hCPU(index));
 }
 BindType DescriptorHeap::GetBindType(uint64 index) const {
-	return rootPtr->GetBindType(index + offset);
+	return recorder[index].type;
 }
 void DescriptorHeap::CreateDSV(GFXDevice* device, GPUResourceBase const* resource, uint depthSlice, uint mipCount, const D3D12_DEPTH_STENCIL_VIEW_DESC* pDesc, uint64 index) {
-	rootPtr->CreateDSV(
-		device,
-		resource,
-		depthSlice,
-		mipCount,
-		pDesc,
-		index + offset);
+	BindData targetBindType = {BindType::DSV, resource->GetInstanceID()};
+	{
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		if (recorder[index] == targetBindType)
+			return;
+		recorder[index] = targetBindType;
+	}
+	device->device()->CreateDepthStencilView(resource->GetResource(), pDesc, hCPU(index));
 }
-void DescriptorHeap::ClearView(uint64 index) const {
-	rootPtr->ClearView(index + offset);
+void DescriptorHeap::ClearView(uint64 index) {
+	BindData targetBindType = {BindType::None, (uint64)-1};
+	std::lock_guard<decltype(mtx)> lck(mtx);
+	recorder[index] = targetBindType;
+}
+
+void DescriptorHeap::CreateSampler(
+	GFXDevice* device,
+	VObject* resource,
+	D3D12_SAMPLER_DESC const* sampDesc,
+	uint64 index) {
+	BindData targetBindType = {BindType::Sampler, resource->GetInstanceID()};
+	{
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		if (recorder[index] == targetBindType)
+			return;
+		recorder[index] = targetBindType;
+	}
+	device->device()->CreateSampler(
+		sampDesc, hCPU(index));
 }

@@ -20,8 +20,8 @@ private:
 public:
     ~Accel() noexcept { _device->dispose_accel(_handle); }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] detail::Expr<Hit> trace_closest(detail::Expr<Ray> ray) const noexcept;
-    [[nodiscard]] detail::Expr<bool> trace_any(detail::Expr<Ray> ray) const noexcept;
+   // [[nodiscard]] detail::Expr<Hit> trace_closest(detail::Expr<Ray> ray) const noexcept;
+   // [[nodiscard]] detail::Expr<bool> trace_any(detail::Expr<Ray> ray) const noexcept;
     [[nodiscard]] CommandHandle trace_closest(BufferView<Ray> rays, BufferView<Hit> hits) const noexcept;
     [[nodiscard]] CommandHandle trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits) const noexcept;
     [[nodiscard]] CommandHandle trace_closest(BufferView<Ray> rays, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept;

@@ -200,7 +200,6 @@ def CopyFiles():
 
 
 def main():
-    CopyFiles()
     ClearFilters()
     VCXProjSettingMain()
 

@@ -43,7 +43,7 @@ public:
         TextureBinding(Variable v, uint64_t handle) noexcept
             : variable{v}, handle{handle} {}
     };
-    
+
     struct ConstantBinding {
         const Type *type;
         uint64_t hash;
@@ -51,7 +51,7 @@ public:
 
 private:
     const detail::FunctionBuilder *_builder{nullptr};
-    
+
 private:
     friend class detail::FunctionBuilder;
 
@@ -77,3 +77,17 @@ public:
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
 };
 }// namespace luisa::compute
+
+//Used by dx12 backend
+#ifdef VENGINE_PLATFORM_DIRECTX_12
+#include <Common/Hash.h>
+namespace vstd {
+template<>
+struct hash <luisa::compute::Function>{
+    size_t operator()(luisa::compute::Function func) const {
+        return func.hash();
+    }
+};
+}// namespace vstd
+//template <typename
+#endif

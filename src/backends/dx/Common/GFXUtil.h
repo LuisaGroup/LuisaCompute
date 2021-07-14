@@ -327,7 +327,7 @@ public:
 		return (offset + (D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT - 1)) & ~(D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT - 1);
 	}
 	static constexpr uint STATIC_SAMPLER_COUNT = 13;
-	static std::array<const CD3DX12_STATIC_SAMPLER_DESC, STATIC_SAMPLER_COUNT> const& GetStaticSamplers();
+	static std::span<const CD3DX12_STATIC_SAMPLER_DESC> GetStaticSamplers();
 };
 
 #ifndef ThrowIfFailed

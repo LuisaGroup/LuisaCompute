@@ -114,6 +114,10 @@ public:
 			VENGINE_EXIT;
 		}
 	}
+	template <typename ... Args>
+	StackObject(Args&&... args) {
+		new (storage) T(std::forward<Args>(args)...);
+	}
 	T& operator=(SelfType const& value) {
 		if constexpr (std::is_copy_assignable_v<T>) {
 			operator*() = *value;
@@ -169,8 +173,6 @@ class StackObject<T, true> {
 private:
 	StackObject<T, false> stackObj;
 	bool initialized;
-	template<typename T, VEngine_AllocType allocType>
-	friend class LockFreeArrayQueue;
 
 public:
 	using SelfType = StackObject<T, true>;
@@ -237,6 +239,11 @@ public:
 	}
 	StackObject() noexcept {
 		initialized = false;
+	}
+	template<typename... Args>
+	StackObject(Args&&... args)
+		: stackObj(std::forward<Args>(args)...),
+		  initialized(true) {
 	}
 	StackObject(const SelfType& value) noexcept {
 		initialized = value.initialized;
@@ -523,18 +530,55 @@ private:
 template<typename T>
 struct ptr_range {
 public:
-	T* begin() const {
-		return b;
+	struct rangeIte {
+		T* v;
+		int64 inc;
+		T* operator++() {
+			v += inc;
+			return v;
+		}
+		T* operator++(int) {
+			auto lastV = v;
+			v += inc;
+			return lastV;
+		}
+		T* operator->() const {
+			return v;
+		}
+		T& operator*() const {
+			return *v;
+		}
+		bool operator==(rangeIte r) const {
+			return r.v == v;
+		}
+	};
+
+	rangeIte begin() const {
+		return {b, inc};
 	}
-	T* end() const {
-		return e;
+	rangeIte end() const {
+		return {e};
 	}
-	ptr_range(T* b, T* e) : b(b), e(e) {}
+	ptr_range(T* b, T* e, int64_t inc = 1) : b(b), e(e), inc(inc) {}
 
 private:
 	T* b;
 	T* e;
+	int64_t inc;
 };
+template<typename T>
+struct disposer {
+	T t;
+	~disposer() {
+		t();
+	}
+};
+
+template<typename T>
+disposer<T> create_disposer(T&& t) {
+	return disposer<T>{std::forward<T>(t)};
+}
+
 template<typename T>
 decltype(auto) get_lvalue(T&& data) {
 	return static_cast<std::remove_reference_t<T>&>(data);

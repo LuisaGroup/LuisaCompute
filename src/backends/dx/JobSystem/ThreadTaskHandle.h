@@ -54,16 +54,22 @@ private:
 		Runnable<void(size_t)>&& func,
 		size_t parallelCount,
 		size_t threadCount);
+	ThreadTaskHandle(
+		ThreadPool* pool,
+		ObjectPtr<PoolType> const& tPool,
+		Runnable<void(size_t, size_t)>&& func,
+		size_t parallelCount,
+		size_t threadCount);
 
 public:
-	operator bool() const { return pool; }
-	bool operator!() const { return !pool; }
 	~ThreadTaskHandle();
 	ThreadTaskHandle();
-	void Dispose();
 	ThreadTaskHandle(ThreadTaskHandle const& v);
 	void AddDepend(ThreadTaskHandle const& handle) const;
-	void AddDepend(std::span<ThreadTaskHandle const> handle) const;
+	void AddDepend(std::span<ThreadTaskHandle const> handles) const;
+	void AddDepend(std::initializer_list<ThreadTaskHandle const> handles) const {
+		AddDepend(std::span<ThreadTaskHandle const>(handles.begin(), handles.end()));
+	}
 	ThreadTaskHandle(ThreadTaskHandle&& v);
 	void operator=(ThreadTaskHandle const& v){
 		this->~ThreadTaskHandle();

@@ -6,12 +6,11 @@ class JobBucket;
 class DescriptorHeap;
 class StructuredBuffer;
 class ShaderLoader;
-class VENGINE_DLL_RENDERER RayShader final : public IShader
-{
+class VENGINE_DLL_RENDERER RayShader final : public IShader {
 private:
 	Microsoft::WRL::ComPtr<ID3D12StateObject> mStateObj;
 	DXRHitGroup hitGroups;
-	StackObject<SerializedObject, true> serObj;
+	StackObject<BinaryJson, true> serObj;
 	StackObject<UploadBuffer, true> identifierBuffer;
 
 public:
@@ -24,18 +23,15 @@ public:
 	vstd::string const& GetName() const {
 		return "";
 	}
-	SerializedObject const* GetJsonObject() const override
-	{
-		return serObj.Initialized() ? serObj : nullptr;
+	BinaryJson const* GetJsonObject() const override {
+		return serObj.Initialized() ? static_cast<BinaryJson const*>(serObj) : nullptr;
 	}
 	void BindShader(ThreadCommand* commandList) const override;
 	void BindShader(ThreadCommand* commandList, const DescriptorHeap* heap) const override;
 	bool SetBufferByAddress(ThreadCommand* commandList, uint id, GpuAddress address) const override;
 	template<typename Func>
-	void IterateVariables(const Func& f)
-	{
-		for (int32_t i = 0; i < mVariablesVector.size(); ++i)
-		{
+	void IterateVariables(const Func& f) {
+		for (int32_t i = 0; i < mVariablesVector.size(); ++i) {
 			f(mVariablesVector[i]);
 		}
 	}
@@ -44,8 +40,7 @@ public:
 		ThreadCommand* cmdList,
 		uint width,
 		uint height,
-		uint depth
-	) const;
+		uint depth) const;
 	~RayShader();
 	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 	KILL_COPY_CONSTRUCT(RayShader)

@@ -9,6 +9,7 @@
 #include <JobSystem/JobInclude.h>
 #include <RenderComponent/Utility/ShaderIO.h>
 #include <PipelineComponent/ThreadCommand.h>
+#include <RenderComponent/DescriptorHeap.h>
 
 using Microsoft::WRL::ComPtr;
 uint ComputeShader::GetKernelIndex(const vstd::string& str) const {

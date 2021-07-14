@@ -50,7 +50,8 @@ ElementAllocator::AllocateHandle ElementAllocator::Allocate(size_t size) {
 	GetBinaryLayer(
 		size, size, currentLayer);
 	if (size == 0 || size > maxSize) {
-		throw "Out of Range!";
+		VEngine_Log("Allocator Out of Range!\n");
+		VENGINE_EXIT;
 	}
 	currentLayer = linkLists.size() - currentLayer;
 	auto setBrother = [originSize](AllocatedElement& ele) -> void {

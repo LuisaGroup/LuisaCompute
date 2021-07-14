@@ -8,6 +8,7 @@
 #include <Common/vector.h>
 #include <Common/Memory.h>
 #include <Common/Log.h>
+#include <Common/spin_mutex.h>
 class PtrLink;
 class VObject;
 class VENGINE_DLL_COMMON VObject {

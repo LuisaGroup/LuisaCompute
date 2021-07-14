@@ -14,7 +14,7 @@ public:
 	void visit(BufferUploadCommand const* cmd) noexcept override;
 	void visit(BufferDownloadCommand const* cmd) noexcept override;
 	void visit(BufferCopyCommand const* cmd) noexcept override;
-	void visit(KernelLaunchCommand const* cmd) noexcept override;
+	void visit(ShaderDispatchCommand const* cmd) noexcept override;
 	void visit(TextureUploadCommand const* cmd) noexcept override;
 	void visit(TextureDownloadCommand const* cmd) noexcept override;
 	//VENGINE_CODEGEN end

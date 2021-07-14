@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
 #include <Common/VObject.h>
-#include <CJsonObject/SerializedObject.h>
+#include <CJsonObject/BinaryJson.h>
 #include <Struct/ShaderVariableType.h>
 class DescriptorHeap;
 class StructuredBuffer;
@@ -22,7 +22,7 @@ protected:
 
 public:
 	~IShader() {}
-	virtual SerializedObject const* GetJsonObject() const = 0;
+	virtual BinaryJson const* GetJsonObject() const = 0;
 	size_t VariableLength() const { return mVariablesVector.size(); }
 	int32_t GetPropertyRootSigPos(uint id) const;
 	virtual void BindShader(ThreadCommand* commandList) const = 0;

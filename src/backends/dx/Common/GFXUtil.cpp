@@ -4,7 +4,22 @@
 #include <PipelineComponent/IPipelineResource.h>
 
 using Microsoft::WRL::ComPtr;
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> const& GFXUtil::GetStaticSamplers() {
+struct GFXUtil_StaticSamplerGetter {
+	CD3DX12_STATIC_SAMPLER_DESC descs[16];
+	GFXUtil_StaticSamplerGetter() {
+		for (auto i : vstd::range(0, 4)) {
+			auto&& v = descs[i];
+			v.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+			v.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+			v.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+			v.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+		}
+	}
+};
+static GFXUtil_StaticSamplerGetter gfxUtil_StaticSamplers;
+std::span<const CD3DX12_STATIC_SAMPLER_DESC> GFXUtil::GetStaticSamplers() {
+	return std::span<const CD3DX12_STATIC_SAMPLER_DESC>(gfxUtil_StaticSamplers.descs, 16);
+	/*
 	// Applications usually only need a handful of samplers.  So just define them all up front
 	// and keep them available as part of the root signature.
 	static const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
@@ -102,7 +117,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> con
 		0,
 		16,
 		D3D12_COMPARISON_FUNC_GREATER);// addressW
-	static const std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> arr = {
+	static const std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> arr{
 		pointWrap,
 		pointClamp,
 		bilinearWrap,
@@ -116,7 +131,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, GFXUtil::STATIC_SAMPLER_COUNT> con
 		mipLinearPointClamp,
 		mipLinearPointWrap,
 		pointShadowClamp};
-	return arr;
+	return arr;*/
 }
 void MemcpySubresource(
 	_In_ const D3D12_MEMCPY_DEST* pDest,

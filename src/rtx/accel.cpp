@@ -6,7 +6,7 @@
 #include <rtx/accel.h>
 
 namespace luisa::compute {
-
+/*
 detail::Expr<Hit> Accel::trace_closest(detail::Expr<Ray> ray) const noexcept {
 //    auto f = FunctionBuilder::current();
 //    f->mark_raytracing();
@@ -22,7 +22,7 @@ detail::Expr<bool> Accel::trace_any(detail::Expr<Ray> ray) const noexcept {
 //        f->call(Type::of<bool>(), CallOp::TRACE_ANY,
 //                {detail::extract_expression(_handle), ray.expression()})};
 }
-
+*/
 CommandHandle Accel::trace_closest(BufferView<Ray> rays, BufferView<Hit> hits) const noexcept {
     return luisa::compute::CommandHandle();
 }

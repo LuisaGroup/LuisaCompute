@@ -1,5 +1,5 @@
 #include <Singleton/Graphics.h>
-#include <Singleton/ShaderLoader.h>
+
 #include <Singleton/ShaderID.h>
 #include <RenderComponent/ComputeShader.h>
 #include <Singleton/MeshLayout.h>
@@ -9,13 +9,13 @@
 #include <RenderComponent/Texture.h>
 #include <Common/Memory.h>
 #include <Utility/QuickSort.h>
-#include <RenderComponent/DescriptorHeapRoot.h>
 #include <PipelineComponent/ThreadCommand.h>
 #include <RenderComponent/UploadBuffer.h>
 #include <RenderComponent/ReadbackBuffer.h>
 #include <Utility/QuickSort.h>
-#define MAXIMUM_HEAP_COUNT 32768
+#define MAXIMUM_HEAP_COUNT 65536
 thread_local Graphics* Graphics::current = nullptr;
+
 Graphics::Graphics(GFXDevice* device)
 	: usedDescs(MAXIMUM_HEAP_COUNT),
 	  unusedDescs(MAXIMUM_HEAP_COUNT) {
@@ -25,30 +25,6 @@ Graphics::Graphics(GFXDevice* device)
 	_ReadBuffer = ShaderID::PropertyToID("_ReadBuffer");
 	_WriteBuffer = ShaderID::PropertyToID("_WriteBuffer");
 	copyBufferCS = ShaderLoader::GetComputeShader("CopyBufferRegion");*/
-	srvAllocator.New(
-		65536,
-		[=](uint64 size) -> void* {
-			return new DescriptorHeapRoot(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, size, true);
-		},
-		[](void* ptr) -> void {
-			delete reinterpret_cast<DescriptorHeapRoot*>(ptr);
-		});
-	rtvAllocator.New(
-		2048,
-		[=](uint64 size) -> void* {
-			return new DescriptorHeapRoot(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, size, false);
-		},
-		[](void* ptr) -> void {
-			delete reinterpret_cast<DescriptorHeapRoot*>(ptr);
-		});
-	dsvAllocator.New(
-		2048,
-		[=](uint64 size) -> void* {
-			return new DescriptorHeapRoot(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, size, false);
-		},
-		[](void* ptr) -> void {
-			delete reinterpret_cast<DescriptorHeapRoot*>(ptr);
-		});
 
 	MeshLayout::Initialize();
 	globalDescriptorHeap = std::unique_ptr<DescriptorHeap>(new DescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, MAXIMUM_HEAP_COUNT, true));
@@ -229,9 +205,6 @@ void Graphics::CopyBufferRegion(
 Graphics::~Graphics() {
 	globalDescriptorHeap = nullptr;
 	unusedDescs.dispose();
-	srvAllocator.Delete();
-	rtvAllocator.Delete();
-	dsvAllocator.Delete();
 }
 void Graphics::SetRenderTarget(
 	ThreadCommand* commandList,

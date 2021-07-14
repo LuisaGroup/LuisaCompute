@@ -1,3 +1,4 @@
+#pragma vengine_package vengine_dll
 #include <Common/StackAllocator.h>
 #include <Common/DXMath/DXMath.h>
 #include <Common/vstring.h>
@@ -5,7 +6,7 @@
 namespace valloc {
 
 struct StackData {
-	static constexpr size_t VENGINE_STACK_LENGTH = 1024 * 1024;
+	static constexpr size_t VENGINE_STACK_LENGTH = 1024 * 64;
 	uint8_t* data = nullptr;
 	uint8_t* offset = nullptr;
 	~StackData() {

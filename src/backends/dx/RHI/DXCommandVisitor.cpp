@@ -77,8 +77,8 @@ void DXCommandVisitor::visit(BufferCopyCommand const* cmd) noexcept {
 		cmd->src_offset(),
 		cmd->size());
 }
-void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
-	IShader const* funcShader = getFunction(cmd->kernel());
+void DXCommandVisitor::visit(ShaderDispatchCommand const* cmd) noexcept {
+	/* IShader const* funcShader = getFunction(cmd->kernel());
 	if (funcShader->GetType() == typeid(ComputeShader)) {//Common compute
 		ComputeShader const* cs = static_cast<ComputeShader const*>(funcShader);
 		auto&& cbData = ShaderCompiler::GetCBufferData(cmd->kernel_uid());
@@ -180,7 +180,7 @@ void DXCommandVisitor::visit(KernelLaunchCommand const* cmd) noexcept {
 			launchSize.y,
 			launchSize.z);
 	} else {//Other Type Shaders
-	}
+	}*/
 }
 void DXCommandVisitor::visit(TextureUploadCommand const* cmd) noexcept {
 	struct Params {
@@ -310,7 +310,7 @@ DXCommandVisitor::DXCommandVisitor(
 	ThreadCommand* tCmd,
 	FrameResource* res,
 	InternalShaders* internalShaders,
-	Runnable<IShader const*(uint)>&& getFunction)
+	Runnable<IShader const*(Function)>&& getFunction)
 	: device(device),
 	  tCmd(tCmd),
 	  res(res),

@@ -1,6 +1,7 @@
-#include <CJsonObject/SerializedObject.h>
+#pragma vengine_package vengine_dll
+#include <CJsonObject/BinaryJson.h>
 #include <Utility/BinaryReader.h>
-void SerializedObject::DisposeSelf() {
+void BinaryJson::DisposeSelf() {
 	if (isArray) {
 		if (!arrayDatas->datas.empty())
 			vengine_free(arrayDatas->allocatedPtr);
@@ -24,7 +25,7 @@ SerializedData::SerializedData(char const* start, char const* end) : type(Serial
 SerializedData::SerializedData(char const*& ptr, bool isArray) : type(isArray ? SerializeStruct::ObjectType::JsonArray : SerializeStruct::ObjectType::JsonObject) {
 	obj.New(ptr, isArray);
 }
-SerializedData::~SerializedData() {
+void SerializedData::Dispose() {
 	using namespace SerializeStruct;
 	switch (type) {
 		case ObjectType::JsonArray:
@@ -36,10 +37,13 @@ SerializedData::~SerializedData() {
 			break;
 	}
 }
+SerializedData::~SerializedData() {
+	Dispose();
+}
 SerializedData::SerializedData(std::nullptr_t) : type(SerializeStruct::ObjectType::Null) {
 }
 }// namespace SerializeStruct
-void SerializedObject::Parse(char const*& ptr, bool isArray) {
+void BinaryJson::Parse(char const*& ptr, bool isArray) {
 	using namespace SerializeStruct;
 	uint64 elementCount = *Read<uint64>(ptr);
 	if (!initialized) {
@@ -106,15 +110,15 @@ void SerializedObject::Parse(char const*& ptr, bool isArray) {
 			str.clear();
 			str.push_back_all(ptr, stringLen);
 			ptr += stringLen;
-			auto ite = keyValueDatas->Emplace(str);
-			if (ite.Value().initialized) {
-				ite.Value().~SerializedData();
+			auto ite = keyValueDatas->Emplace(str, new SerializedData());
+			if (ite.Value()->initialized) {
+				ite.Value()->Dispose();
 			}
-			parseLambda(&ite.Value());
+			parseLambda(ite.Value().get());
 		}
 	}
 }
-SerializedObject::SerializedObject(vstd::vector<char> const& data) {
+BinaryJson::BinaryJson(vstd::vector<char> const& data) {
 	using namespace SerializeStruct;
 	char const* ptr = data.data();
 	ObjectType* typePtr = (ObjectType*)ptr;
@@ -128,18 +132,17 @@ SerializedObject::SerializedObject(vstd::vector<char> const& data) {
 		arrayDatas.New();
 	}
 }
-SerializedObject::SerializedObject(vstd::vector<vstd::string> const& paths) {
+BinaryJson::BinaryJson(vstd::vector<vstd::string> const& paths) {
 	using namespace SerializeStruct;
 	for (auto&& path : paths) {
 		BinaryReader ifs(path);
 		if (!ifs) {
-			if (!initialized) {
-				isArray = true;
-				arrayDatas.New();
-			}
+			isArray = true;
+			arrayDatas.New();
+
 			return;
 		}
-		
+
 		vstd::vector<char> data(ifs.GetLength());
 		ifs.Read(data.data(), data.size());
 		char const* ptr = data.data();
@@ -150,23 +153,21 @@ SerializedObject::SerializedObject(vstd::vector<vstd::string> const& paths) {
 		} else if (*typePtr == ObjectType::JsonObject) {
 			Parse(ptr, false);
 		} else {
-			if (!initialized) {
-				isArray = true;
-				arrayDatas.New();
-			}
+			isArray = true;
+			arrayDatas.New();
+
 			return;
 		}
 	}
 }
-SerializedObject::SerializedObject(vstd::string const& path) {
+BinaryJson::BinaryJson(BinaryReader& ifs) {
 	using namespace SerializeStruct;
-	BinaryReader ifs(path);
 	if (!ifs) {
 		isArray = true;
 		arrayDatas.New();
 		return;
 	}
-	
+
 	vstd::vector<char> data(ifs.GetLength());
 	ifs.Read(data.data(), data.size());
 	char const* ptr = data.data();
@@ -181,78 +182,101 @@ SerializedObject::SerializedObject(vstd::string const& path) {
 		arrayDatas.New();
 	}
 }
-uint64 SerializedObject::GetArraySize() const {
+BinaryJson::BinaryJson(vstd::string const& path) {
+	using namespace SerializeStruct;
+	BinaryReader ifs(path);
+	if (!ifs) {
+		isArray = true;
+		arrayDatas.New();
+		return;
+	}
+
+	vstd::vector<char> data(ifs.GetLength());
+	ifs.Read(data.data(), data.size());
+	char const* ptr = data.data();
+	ObjectType* typePtr = (ObjectType*)ptr;
+	ptr += sizeof(ObjectType);
+	if (*typePtr == ObjectType::JsonArray) {
+		Parse(ptr, true);
+	} else if (*typePtr == ObjectType::JsonObject) {
+		Parse(ptr, false);
+	} else {
+		isArray = true;
+		arrayDatas.New();
+	}
+}
+uint64 BinaryJson::GetArraySize() const {
 	if (!isArray) return keyValueDatas->size();
 	return arrayDatas->datas.size();
 }
-bool SerializedObject::Get(vstd::string const& name, vstd::string& str) const {
+bool BinaryJson::Get(vstd::string const& name, vstd::string& str) const {
 	if (isArray)
 		return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite)
 		return false;
-	if (ite.Value().type != SerializeStruct::ObjectType::String) return false;
-	str = *ite.Value().str;
+	if (ite.Value()->type != SerializeStruct::ObjectType::String) return false;
+	str = *ite.Value()->str;
 	return true;
 }
-bool SerializedObject::Get(vstd::string const& name, int64& intValue) const {
+bool BinaryJson::Get(vstd::string const& name, int64& intValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
-	if (ite.Value().type == SerializeStruct::ObjectType::Int) {
-		intValue = ite.Value().intValue;
+	if (ite.Value()->type == SerializeStruct::ObjectType::Int) {
+		intValue = ite.Value()->intValue;
 		return true;
-	} else if (ite.Value().type == SerializeStruct::ObjectType::Float) {
-		intValue = (int64)ite.Value().floatValue;
+	} else if (ite.Value()->type == SerializeStruct::ObjectType::Float) {
+		intValue = (int64)ite.Value()->floatValue;
 		return true;
 	}
 	return false;
 }
-bool SerializedObject::Get(vstd::string const& name, double& floatValue) const {
+bool BinaryJson::Get(vstd::string const& name, double& floatValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
-	if (ite.Value().type == SerializeStruct::ObjectType::Int) {
-		floatValue = (double)ite.Value().intValue;
+	if (ite.Value()->type == SerializeStruct::ObjectType::Int) {
+		floatValue = (double)ite.Value()->intValue;
 		return true;
-	} else if (ite.Value().type == SerializeStruct::ObjectType::Float) {
-		floatValue = ite.Value().floatValue;
+	} else if (ite.Value()->type == SerializeStruct::ObjectType::Float) {
+		floatValue = ite.Value()->floatValue;
 		return true;
 	}
 	return false;
 }
-bool SerializedObject::Get(vstd::string const& name, bool& boolValue) const {
+bool BinaryJson::Get(vstd::string const& name, bool& boolValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
-	uint8_t value = (uint8_t)ite.Value().type - 3;
+	uint8_t value = (uint8_t)ite.Value()->type - 3;
 	if (value > 1) {
 		return false;
 	}
 	boolValue = value;
 	return true;
 }
-bool SerializedObject::Get(vstd::string const& name, SerializedObject*& objValue) const {
+bool BinaryJson::Get(vstd::string const& name, BinaryJson*& objValue) const {
 	if (isArray) return false;
 	auto ite = keyValueDatas->Find(name);
 	if (!ite) return false;
-	uint8_t typeValue = (uint8_t)ite.Value().type;
+	uint8_t typeValue = (uint8_t)ite.Value()->type;
 	if (typeValue > 1) return false;
-	objValue = ite.Value().obj;
+	objValue = ite.Value()->obj;
 	return true;
 }
-bool SerializedObject::ContainedKey(vstd::string const& name) {
+bool BinaryJson::ContainedKey(vstd::string const& name) {
 	if (isArray) return false;
 	return keyValueDatas->Contains(name);
 }
-bool SerializedObject::Get(uint64 iWitch, vstd::string& str) const {
+bool BinaryJson::Get(uint64 iWitch, vstd::string& str) const {
 	if (!isArray) return false;
 	auto&& ite = arrayDatas->datas[iWitch];
 	if (ite->type != SerializeStruct::ObjectType::String) return false;
 	str = *ite->str;
 	return true;
 }
-bool SerializedObject::Get(uint64 iWitch, int64& intValue) const {
+bool BinaryJson::Get(uint64 iWitch, int64& intValue) const {
 	if (!isArray) return false;
 	auto&& ite = arrayDatas->datas[iWitch];
 	if (ite->type == SerializeStruct::ObjectType::Int) {
@@ -264,7 +288,7 @@ bool SerializedObject::Get(uint64 iWitch, int64& intValue) const {
 	}
 	return false;
 }
-bool SerializedObject::Get(uint64 iWitch, double& floatValue) const {
+bool BinaryJson::Get(uint64 iWitch, double& floatValue) const {
 	if (!isArray) return false;
 	auto&& ite = arrayDatas->datas[iWitch];
 	if (ite->type == SerializeStruct::ObjectType::Int) {
@@ -276,7 +300,7 @@ bool SerializedObject::Get(uint64 iWitch, double& floatValue) const {
 	}
 	return false;
 }
-bool SerializedObject::Get(uint64 iWitch, bool& boolValue) const {
+bool BinaryJson::Get(uint64 iWitch, bool& boolValue) const {
 	if (!isArray) return false;
 	auto&& ite = arrayDatas->datas[iWitch];
 	uint8_t value = (uint8_t)ite->type - 3;
@@ -286,7 +310,7 @@ bool SerializedObject::Get(uint64 iWitch, bool& boolValue) const {
 	boolValue = value;
 	return true;
 }
-bool SerializedObject::Get(uint64 iWitch, SerializedObject*& objValue) const {
+bool BinaryJson::Get(uint64 iWitch, BinaryJson*& objValue) const {
 	if (!isArray) return false;
 	auto&& ite = arrayDatas->datas[iWitch];
 	uint8_t typeValue = (uint8_t)ite->type;

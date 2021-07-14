@@ -11,7 +11,7 @@
 #include <ShaderCompile/HLSLCompiler.h>
 #include <PipelineComponent/DXAllocator.h>
 #include <Singleton/Graphics.h>
-#include <Singleton/ShaderLoader.h>
+
 #include <RenderComponent/ComputeShader.h>
 #include <RenderComponent/LCMesh.h>
 #include <Singleton/ShaderID.h>
@@ -101,7 +101,7 @@ public:
 		SCompile::HLSLCompiler::InitRegisterData();
 
 		graphicsInstance.New(dxDevice);
-		shaderGlobal = ShaderLoader::Init(dxDevice);
+		//shaderGlobal = ShaderLoader::Init(dxDevice);
 		cbAlloc.New(dxDevice, false);
 		ShaderID::Init();
 
@@ -130,8 +130,9 @@ public:
 		uint64 heap_handle,// == uint64(-1) when not from heap
 		uint32_t index_in_heap) override {
 		Graphics::current = graphicsInstance;
-		/* RenderTexturePackage* pack = new RenderTexturePackage();
-		pack->bindless = (is_bindless == heap_handle);
+		RenderTexturePackage* pack = new RenderTexturePackage();
+		pack->descHeap = reinterpret_cast<UploadBuffer*>(heap_handle);
+		pack->descIndex = index_in_heap;
 		pack->format = format;
 		pack->rt.New(
 			dxDevice,
@@ -144,11 +145,17 @@ public:
 			mipmap_levels,
 			RenderTextureState::Common,
 			0);
-		return reinterpret_cast<uint64>(pack);*/
+		if (heap_handle != std::numeric_limits<uint64>::max()) {
+		}
+		return reinterpret_cast<uint64>(pack);
 	}
 	void dispose_texture(uint64 handle) noexcept override {
-		delete reinterpret_cast<RenderTexture*>(handle);
+		delete reinterpret_cast<RenderTexturePackage*>(handle);
 	}
+
+	[[nodiscard]] uint64 create_texture_heap(size_t size) noexcept override { return 0; }
+	[[nodiscard]] size_t query_texture_heap_memory_usage(uint64 handle) noexcept override { return 0; }
+	void dispose_texture_heap(uint64 handle) noexcept override {}
 
 	// stream
 	uint64 create_stream() noexcept override {
@@ -221,10 +228,11 @@ public:
 				index_buffer_offset_bytes,
 				vertex_count,
 				index_count));*/
+		return 0;
 	}
 	void dispose_mesh(
 		uint64 mesh_handle) noexcept override {
-		delete reinterpret_cast<LCMesh*>(mesh_handle);
+		//delete reinterpret_cast<LCMesh*>(mesh_handle);
 	}
 	uint64 create_accel(
 		uint64 stream_handle,
@@ -232,7 +240,9 @@ public:
 		size_t mesh_handle_buffer_offset_bytes,
 		uint64 transform_buffer_handle,
 		size_t transform_buffer_offset_bytes,
-		size_t mesh_count) noexcept override {}
+		size_t mesh_count) noexcept override {
+		return 0;
+	}
 	void dispose_accel(uint64 handle) noexcept override {}
 	/*
 	uint64 signal_event(uint64 handle, uint64 stream_handle);
@@ -248,10 +258,9 @@ public:
 		});
 	}
 
-	[[nodiscard]] uint64 create_texture_heap(size_t size) noexcept override {}
-	[[nodiscard]] size_t query_texture_heap_memory_usage(uint64 handle) noexcept override {}
-	void dispose_texture_heap(uint64 handle) noexcept override {}
-	uint64_t create_shader(Function kernel) noexcept override {}
+	uint64_t create_shader(Function kernel) noexcept override {
+		return 0;
+	}
 	void dispose_shader(uint64_t handle) noexcept override {}
 	/*
 	uint64 create_raytracing_struct() noexcept override {
@@ -262,7 +271,7 @@ public:
 		delete reinterpret_cast<RayTracingManager*>(handle);
 	}*/
 	~DXDevice() {
-		ShaderLoader::Dispose(shaderGlobal);
+		//ShaderLoader::Dispose(shaderGlobal);
 	}
 	//////////// Variables
 	StackObject<GFXDevice, true> dxDevice;
@@ -283,7 +292,7 @@ private:
 	std::mutex mtx;
 	StackObject<InternalShaders> internalShaders;
 	StackObject<Graphics, true> graphicsInstance;
-	ShaderLoaderGlobal* shaderGlobal;
+	//ShaderLoaderGlobal* shaderGlobal;
 	ComputeShader* copyShader;
 	StackObject<CBufferAllocator, true> cbAlloc;
 	HashMap<uint, IShader*> loadShaders;
@@ -340,12 +349,13 @@ private:
 	}
 	void EnableThreadLocal() {
 		Graphics::current = graphicsInstance;
-		ShaderLoader::current = shaderGlobal;
+		//ShaderLoader::current = shaderGlobal;
 	}
 	void InitInternal() {
 		EnableThreadLocal();
-		internalShaders->copyShader = ShaderLoader::GetComputeShader(
-			"VEngineCompiler/ShaderCompileResult/copy.compute.cso"_sv);
+		/* internalShaders->copyShader = ShaderLoader::GetComputeShader(
+			"VEngineCompiler/ShaderCompileResult/copy.compute.cso"_sv);*/
+		internalShaders->copyShader = nullptr;
 	}
 
 	void FreeFrameResource(uint64 lastSignal = 0) {

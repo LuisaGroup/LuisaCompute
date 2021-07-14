@@ -3,10 +3,10 @@ if (WIN32)
     message(STATUS "Build with DirectX")
     ##[[[]]]
     set(DX_BACKEND_SOURCES
+        CJsonObject/BinaryJson.cpp
         CJsonObject/cJSON.cpp
         CJsonObject/CJsonObject.cpp
         CJsonObject/JsonCompiler.cpp
-        CJsonObject/SerializedObject.cpp
         Common/Common.cpp
         Common/DynamicLink.cpp
         Common/GameTimer.cpp
@@ -37,7 +37,6 @@ if (WIN32)
         RenderComponent/ComputeShader.cpp
         RenderComponent/DescHeapPool.cpp
         RenderComponent/DescriptorHeap.cpp
-        RenderComponent/DescriptorHeapRoot.cpp
         RenderComponent/GPUResourceBase.cpp
         RenderComponent/IShader.cpp
         RenderComponent/LCMesh.cpp
@@ -61,6 +60,7 @@ if (WIN32)
         RHI/DXCommandVisitor.cpp
         RHI/DXDevice.cpp
         RHI/DXEvent.cpp
+        RHI/LCTextureHeap.cpp
         RHI/ShaderCompiler.cpp
         ShaderCompile/HLSLCompiler.cpp
         ShaderCompile/LuisaASTTranslator.cpp
@@ -69,7 +69,6 @@ if (WIN32)
         Singleton/MathLib.cpp
         Singleton/MeshLayout.cpp
         Singleton/ShaderID.cpp
-        Singleton/ShaderLoader.cpp
         Struct/ConstBuffer.cpp
         TestMain.cpp
         Utility/Actor.cpp

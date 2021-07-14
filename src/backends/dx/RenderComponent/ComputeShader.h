@@ -1,19 +1,17 @@
 #pragma once
 #include <RenderComponent/IShader.h>
 #include <RenderComponent/Utility/CommandSignature.h>
-#include <Singleton/ShaderLoader.h>
 class JobBucket;
-struct ComputeKernel
-{
+struct ComputeKernel {
 	vstd::string name;
 	Microsoft::WRL::ComPtr<ID3DBlob> datas;
 };
 
-class VENGINE_DLL_RENDERER ComputeShader final : public IShader
-{
+class VENGINE_DLL_RENDERER ComputeShader final : public IShader {
 	friend class ShaderLoader;
+
 private:
-	StackObject<SerializedObject, true> serObj;
+	StackObject<BinaryJson, true> serObj;
 	vstd::string name;
 	HashMap<vstd::string, uint> kernelNames;
 	vstd::vector<ComputeKernel> csShaders;
@@ -26,13 +24,12 @@ private:
 		GFXDevice* device);
 
 	~ComputeShader();
+
 public:
-	SerializedObject const* GetJsonObject() const
-	{
-		return serObj.Initialized() ? serObj : nullptr;
+	BinaryJson const* GetJsonObject() const {
+		return serObj.Initialized() ? static_cast<BinaryJson const*>(serObj) : nullptr;
 	}
-	vstd::string const& GetName() const
-	{
+	vstd::string const& GetName() const {
 		return name;
 	}
 	uint GetKernelIndex(const vstd::string& str) const;
@@ -47,10 +44,8 @@ public:
 	bool SetResource(ThreadCommand* commandList, uint id, TextureBase const* texture) const override;
 	bool SetResource(ThreadCommand* commandList, uint id, RenderTexture const* renderTexture, uint64 uavMipLevel) const override;
 	template<typename Func>
-	void IterateVariables(const Func& f)
-	{
-		for (int32_t i = 0; i < mVariablesVector.size(); ++i)
-		{
+	void IterateVariables(const Func& f) {
+		for (int32_t i = 0; i < mVariablesVector.size(); ++i) {
 			f(mVariablesVector[i]);
 		}
 	}

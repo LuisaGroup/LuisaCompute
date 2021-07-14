@@ -15,16 +15,16 @@ struct Data {
 };
 static StackObject<Data, true> data;
 
-ShaderCompiler::ConstBufferData* GetCBufferData(uint kernel_uid) {
+ShaderCompiler::ConstBufferData* GetCBufferData(Function func) {
 	using namespace ShaderCompiler_Global;
 	data.New();
 	ShaderCompiler::ConstBufferData* curData = nullptr;
 	{
 		std::lock_guard lck(data->mtx);
-		auto ite = data->globalVarOffsets.Find(kernel_uid);
+		auto ite = data->globalVarOffsets.Find(func);
 		if (!ite) {
 			ite = data->globalVarOffsets.Emplace(
-				kernel_uid);
+				func);
 		}
 		curData = &ite.Value();
 	}
@@ -32,12 +32,12 @@ ShaderCompiler::ConstBufferData* GetCBufferData(uint kernel_uid) {
 }
 static bool ShaderCompiler_NeedCodegen(Function kernel, vstd::string const& path, vstd::string const& md5Path, vstd::string& codegenResult, std::array<uint8_t, MD5::MD5_SIZE>& md5Result) {
 	data.New();
-	ShaderCompiler::ConstBufferData* curData = GetCBufferData(kernel.uid());
+	ShaderCompiler::ConstBufferData* curData = GetCBufferData(kernel);
 	Path filePath(path);
 	CodegenUtility::GetCodegen(kernel, codegenResult, curData->offsets, curData->cbufferSize);
 	md5Result = MD5::GetMD5FromString(codegenResult);
 	using namespace vstd::linq;
-	if (!filePath.Exists()) 
+	if (!filePath.Exists())
 		return true;
 	{
 		BinaryReader md5Reader(md5Path);
@@ -51,14 +51,13 @@ static bool ShaderCompiler_NeedCodegen(Function kernel, vstd::string const& path
 }
 };// namespace ShaderCompiler_Global
 
-void ShaderCompiler::TryCompileCompute(uint32_t uid) {
+void ShaderCompiler::TryCompileCompute(Function func) {
 	using namespace SCompile;
-	auto kernel = Function::kernel(uid);
 	vstd::string path = ".cache/"_sv;
 	Path folder(path);
 	folder.TryCreateDirectory();
 	vstd::string fileStrPath = path;
-	vstd::string uidStr = vstd::to_string(uid);
+	vstd::string uidStr = vstd::to_string(func.hash());
 	fileStrPath << uidStr
 				<< ".compute"_sv;
 	vstd::string md5Path = path;
@@ -66,7 +65,7 @@ void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 	vstd::string codegenResult;
 	std::array<uint8_t, MD5::MD5_SIZE> md5Result;
 	//Whether need re-compile
-	if (ShaderCompiler_Global::ShaderCompiler_NeedCodegen(kernel, fileStrPath, md5Path, codegenResult, md5Result)) {
+	if (ShaderCompiler_Global::ShaderCompiler_NeedCodegen(func, fileStrPath, md5Path, codegenResult, md5Result)) {
 		{
 			std::ofstream ofs(fileStrPath.data(), std::ios::binary);
 			ofs.write(codegenResult.data(), codegenResult.size());
@@ -80,7 +79,7 @@ void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 		vstd::vector<char> customData;
 		vstd::vector<char> resultData;
 		HLSLCompiler::GetShaderVariables(
-			kernel,
+			func,
 			vars);
 		HLSLCompiler::CompileComputeShader(
 			fileStrPath,
@@ -99,8 +98,8 @@ void ShaderCompiler::TryCompileCompute(uint32_t uid) {
 	}
 	//TODO: read
 }
-ShaderCompiler::ConstBufferData const& ShaderCompiler::GetCBufferData(uint kernel_uid) {
-	return *ShaderCompiler_Global::GetCBufferData(kernel_uid);
+ShaderCompiler::ConstBufferData const& ShaderCompiler::GetCBufferData(Function func) {
+	return *ShaderCompiler_Global::GetCBufferData(func);
 }
 #ifdef NDEBUG
 DLL_EXPORT void CodegenBody(Function func, const Context& ctx) {

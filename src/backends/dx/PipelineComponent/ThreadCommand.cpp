@@ -6,7 +6,6 @@
 #include <RenderComponent/StructuredBuffer.h>
 #include <Singleton/Graphics.h>
 #include <RenderComponent/IShader.h>
-#include <RenderComponent/DescriptorHeapRoot.h>
 void ThreadCommand::ResetCommand() {
 	shaderRootInstanceID = 0;
 	descHeapInstanceID = 0;
@@ -34,13 +33,13 @@ bool ThreadCommand::UpdateRegisterShader(IShader const* shader) {
 	bindedShaderType = typeid(*shader);
 	return true;
 }
-bool ThreadCommand::UpdateDescriptorHeap(DescriptorHeap const* descHeap, DescriptorHeapRoot const* descHeapRoot) {
+bool ThreadCommand::UpdateDescriptorHeap(DescriptorHeap const* descHeap) {
 	this->descHeap = descHeap;
-	uint64 id = descHeapRoot->GetInstanceID();
+	uint64 id = descHeap->GetInstanceID();
 	if (id == descHeapInstanceID)
 		return false;
 	descHeapInstanceID = id;
-	ID3D12DescriptorHeap* heap = descHeapRoot->pDH.Get();
+	ID3D12DescriptorHeap* heap = descHeap->pDH.Get();
 	cmdList->SetDescriptorHeaps(1, &heap);
 	return true;
 }

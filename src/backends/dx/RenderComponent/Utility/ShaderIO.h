@@ -1,8 +1,8 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <CJsonObject/SerializedObject.h>
+#include <CJsonObject/BinaryJson.h>
 #include <RenderComponent/ComputeShader.h>
-class SerializedObject;
+class BinaryJson;
 class ThreadCommand;
 class VENGINE_DLL_RENDERER ShaderIO {
 public:
@@ -10,7 +10,7 @@ public:
 		const vstd::string& fileName,
 		vstd::vector<ShaderVariable>& vars,
 		vstd::vector<ComputeKernel>& datas,
-		StackObject<SerializedObject, true>& serObj);
+		StackObject<BinaryJson, true>& serObj);
 	static HRESULT GetRootSignature(
 		vstd::vector<ShaderVariable> const& variables,
 		Microsoft::WRL::ComPtr<ID3DBlob>& serializedRootSig,
@@ -29,7 +29,7 @@ public:
 		vstd::vector<char>& binaryData,
 		uint64& recursiveCount,
 		uint64& raypayloadSize,
-		StackObject<SerializedObject, true>& serObj);
+		StackObject<BinaryJson, true>& serObj);
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, DescriptorHeap const* descHeap, uint64 elementOffset);
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, UploadBuffer const* buffer, uint64 elementOffset);
 	static bool SetComputeResource(IShader const* shader, ThreadCommand* commandList, uint id, StructuredBuffer const* buffer, uint64 elementOffset);

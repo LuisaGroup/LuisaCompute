@@ -75,6 +75,7 @@ public:
             TextureSampler sampler,
             uint64_t heap_handle,// == uint64(-1) when not from heap
             uint32_t index_in_heap) = 0;
+
         virtual void dispose_texture(uint64_t handle) noexcept = 0;
 
         // texture heap

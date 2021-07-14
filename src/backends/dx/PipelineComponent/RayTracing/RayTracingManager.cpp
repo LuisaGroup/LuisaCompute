@@ -1,7 +1,7 @@
 #include <PipelineComponent/RayTracing/RayTracingManager.h>
 #include <RenderComponent/RenderComponentInclude.h>
 #include <Singleton/ShaderID.h>
-#include <Singleton/ShaderLoader.h>
+
 #include <Common/GameTimer.h>
 #include <PipelineComponent/DXAllocator.h>
 #include <PipelineComponent/ThreadCommand.h>

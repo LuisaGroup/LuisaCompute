@@ -1,5 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
+#include <ast/function.h>
 namespace luisa::compute {
 
 class ShaderCompiler {
@@ -9,8 +10,8 @@ public:
 		size_t cbufferSize;
 		ConstBufferData() {}
 	};
-	static void TryCompileCompute(uint32_t uid);
-	static ConstBufferData const& GetCBufferData(uint kernel_uid);
+	static void TryCompileCompute(Function func);
+	static ConstBufferData const& GetCBufferData(Function func);
 
 private:
 };
