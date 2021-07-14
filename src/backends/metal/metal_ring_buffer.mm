@@ -63,7 +63,7 @@ void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
             "for recycling (expected {}).",
             view.offset(), _free_end);
     }
-    _free_end += view.size();
+    _free_end = (view.offset() + view.size()) & (_size - 1u);
     _alloc_count--;
 }
 
