@@ -21,6 +21,16 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {// FIXME: seems
     }
     size = (size + alignment - 1u) / alignment * alignment;
 
+    auto buffer = [this] {
+      std::scoped_lock lock{_mutex};
+      if (_buffer == nullptr) {// lazily create the device buffer
+          auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
+          if (_optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
+          _buffer = [_device newBufferWithLength:_size options:buffer_options];
+      }
+      return _buffer;
+    }();
+
     // try allocation
     std::scoped_lock lock{_mutex};
     auto offset = [this, size] {
@@ -34,22 +44,13 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {// FIXME: seems
 
     if (offset == _size) {
         LUISA_WARNING_WITH_LOCATION(
-            "Failed to allocate {} bytes from ring buffer with begin {} and end {}.",
+            "Failed to allocate {} bytes from ring "
+            "buffer with begin {} and end {}.",
             size, _free_begin, _free_end);
         return {nullptr, 0u, 0u};
     }
-
     _alloc_count++;
     _free_begin = (offset + size) & (_size - 1u);
-    auto buffer = [this] {
-        std::scoped_lock lock{_mutex};
-        if (_buffer == nullptr) {// lazily create the device buffer
-            auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
-            if (_optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
-            _buffer = [_device newBufferWithLength:_size options:buffer_options];
-        }
-        return _buffer;
-    }();
     return {buffer, offset, size};
 }
 
