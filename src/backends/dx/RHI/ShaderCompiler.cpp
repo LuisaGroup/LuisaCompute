@@ -104,7 +104,7 @@ ShaderCompiler::ConstBufferData const& ShaderCompiler::GetCBufferData(Function f
 #ifdef NDEBUG
 DLL_EXPORT void CodegenBody(Function func, const Context& ctx) {
 	SCompile::HLSLCompiler::InitRegisterData();
-	luisa::compute::ShaderCompiler::TryCompileCompute(func.uid());
+	luisa::compute::ShaderCompiler::TryCompileCompute(func);
 }
 #endif
 }// namespace luisa::compute

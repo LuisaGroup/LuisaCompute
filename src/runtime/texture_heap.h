@@ -41,10 +41,10 @@ public:
     Texture2D(uint64_t handle, PixelStorage storage, uint mip_levels, uint2 size) noexcept
         : _handle{handle}, _storage{storage}, _mip_levels{mip_levels}, _size{size} {}
 
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto storage() const noexcept { return _storage; }
-    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
+    [[nodiscard]] PixelStorage storage() const noexcept { return _storage; }
+    [[nodiscard]] uint mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] uint2 size() const noexcept { return _size; }
 
     [[nodiscard]] CommandHandle load(const void *pixels, uint mip_level = 0u) noexcept;
     [[nodiscard]] CommandHandle load(ImageView<float> image, uint mip_level = 0u) noexcept;
@@ -75,10 +75,10 @@ public:
           _mip_levels{mip_levels},
           _size{size} {}
 
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto storage() const noexcept { return _storage; }
-    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
+    [[nodiscard]] PixelStorage storage() const noexcept { return _storage; }
+    [[nodiscard]] uint mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] uint3 size() const noexcept { return _size; }
 
     [[nodiscard]] CommandHandle load(const void *pixels, uint mip_level = 0u) noexcept;
     [[nodiscard]] CommandHandle load(VolumeView<float> image, uint mip_level = 0u) noexcept;
