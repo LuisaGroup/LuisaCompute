@@ -35,7 +35,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {// FIXME: seems
     std::scoped_lock lock{_mutex};
     auto offset = [this, size] {
         if (_free_begin == _free_end && _alloc_count != 0u) { return _size; }
-        if (_free_end < _free_begin) {
+        if (_free_end <= _free_begin) {
             if (_free_begin + size <= _size) { return _free_begin; }
             return size <= _free_end ? 0u : _size;
         }
