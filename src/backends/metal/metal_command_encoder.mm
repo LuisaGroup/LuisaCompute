@@ -120,6 +120,7 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto size = command->size();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
+    auto texture = _device->texture(command->handle());
     auto image_bytes = pitch_bytes * size.y * size.z;
     auto buffer = _upload(command->data(), image_bytes);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
@@ -128,7 +129,7 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
                sourceBytesPerRow:pitch_bytes
              sourceBytesPerImage:image_bytes
                       sourceSize:MTLSizeMake(size.x, size.y, size.z)
-                       toTexture:_device->texture(command->handle())
+                       toTexture:texture
                 destinationSlice:0u
                 destinationLevel:command->level()
                destinationOrigin:MTLOriginMake(offset.x, offset.y, offset.z)];
