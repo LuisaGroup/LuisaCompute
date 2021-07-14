@@ -64,18 +64,14 @@ public:
                 static constexpr auto link_alignment = alignof(Link);
                 auto link_offset = (alloc_size + link_alignment - 1u) / link_alignment * link_alignment;
                 auto alloc_size_with_link = link_offset + sizeof(Link);
-                Clock clock;
                 auto storage = static_cast<std::byte *>(aligned_alloc(alloc_alignment, alloc_size_with_link));
                 if (storage == nullptr) [[unlikely]] {
                     LUISA_ERROR_WITH_LOCATION(
-                        "Failed to allocate memory: size = {}, alignment = {}.",
+                        "Failed to allocate memory with size {} and alignment {}.",
                         alloc_size_with_link, alloc_alignment);
                 }
                 _head = luisa::construct_at(reinterpret_cast<Link *>(storage + link_offset), storage, _head);
                 _total += alloc_size_with_link;
-                LUISA_VERBOSE_WITH_LOCATION(
-                    "Allocated {} bytes for arena (total = {} bytes) in {} ms.",
-                    alloc_size_with_link, _total, clock.toc());
                 aligned_p = _head->data;
             }
             _current_address = reinterpret_cast<uint64_t>(aligned_p + byte_size);

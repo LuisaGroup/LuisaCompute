@@ -9,43 +9,61 @@
 
 namespace luisa::compute::metal {
 
-MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
-    auto alignment = 16u;
+MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {// FIXME: seems not correct...
+
+    // simple check
+    if (size > _size) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to allocate {} bytes from "
+            "the ring buffer with size {}.",
+            size, _size);
+        return {nullptr, 0u, 0u};
+    }
     size = (size + alignment - 1u) / alignment * alignment;
+
+    // try allocation
     std::scoped_lock lock{_mutex};
-    if (_buffer == nullptr) {
-        auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
-        if (_optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
-        _buffer = [_device newBufferWithLength:_size options:buffer_options];
-    }
-    auto offset = _free_begin & (_size - 1u);
-    auto free_next = _free_begin + size;
-    if (offset + size > _size) {
-        offset = 0u;                // wrap
-        free_next += _size - offset;// skip tail
-        if (free_next > _free_end) {// fails to allocate
-            LUISA_WARNING_WITH_LOCATION(
-                "Failed to allocate {} bytes from ring buffer "
-                "(free_begin = {}, free_end = {}, size = {}).",
-                size, _free_begin, _free_end, _size);
-            return {nullptr, 0u, 0u};
+    auto offset = [this, size] {
+        if (_free_begin == _free_end && _alloc_count != 0u) { return _size; }
+        if (_free_end < _free_begin) {
+            if (_free_begin + size <= _size) { return _free_begin; }
+            return size <= _free_end ? 0u : _size;
         }
+        return _free_begin + size <= _free_end ? _free_begin : _size;
+    }();
+
+    if (offset == _size) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to allocate {} bytes from ring buffer with begin {} and end {}.",
+            size, _free_begin, _free_end);
+        return {nullptr, 0u, 0u};
     }
-    _free_begin = free_next;
-    return {_buffer, offset, size};
+
+    _alloc_count++;
+    _free_begin = (offset + size) & (_size - 1u);
+    auto buffer = [this] {
+        std::scoped_lock lock{_mutex};
+        if (_buffer == nullptr) {// lazily create the device buffer
+            auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
+            if (_optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
+            _buffer = [_device newBufferWithLength:_size options:buffer_options];
+        }
+        return _buffer;
+    }();
+    return {buffer, offset, size};
 }
 
 void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
     std::scoped_lock lock{_mutex};
-    if (auto end_offset = _free_end & (_size - 1u); end_offset + view.size() > _size) {
-        if (view.offset() != 0u) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid ring buffer item offset {} for recycling (expected 0).",
-                view.offset());
-        }
-        _free_end += _size - end_offset;
+    if (_free_end + view.size() > _size) { _free_end = 0u; }
+    if (view.offset() != _free_end) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid ring buffer item offset {} "
+            "for recycling (expected {}).",
+            view.offset(), _free_end);
     }
     _free_end += view.size();
+    _alloc_count--;
 }
 
 }

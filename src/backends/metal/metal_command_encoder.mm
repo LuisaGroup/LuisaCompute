@@ -254,10 +254,6 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) noexcept {
     auto buffer = _upload_ring_buffer.allocate(size);
     if (buffer.handle() == nullptr) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to allocate {} bytes for uploading from "
-            "ring buffer, falling back to normal allocation.",
-            size);
         auto options = MTLResourceStorageModeShared
                        | MTLResourceCPUCacheModeWriteCombined
                        | MTLResourceHazardTrackingModeUntracked;
@@ -276,10 +272,6 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
 MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noexcept {
     auto buffer = _download_ring_buffer.allocate(size);
     if (buffer.handle() == nullptr) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to allocate {} bytes for downloading from "
-            "ring buffer, falling back to normal allocation.",
-            size);
         auto options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
         auto handle = [_device->handle() newBufferWithLength:size options:options];
         [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { std::memcpy(host_ptr, handle.contents, size); }];
