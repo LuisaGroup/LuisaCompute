@@ -29,48 +29,51 @@ class Volume : concepts::Noncopyable {
                   std::is_same<T, float>>);
 
 private:
-    Device::Interface *_device;
-    uint64_t _handle;
-    PixelStorage _storage;
-    uint3 _size;
+    Device::Handle _device;
+    uint64_t _handle{};
+    PixelStorage _storage{};
+    uint3 _size{};
 
 private:
     friend class Device;
-    Volume(Device &device, PixelStorage storage, uint width, uint height, uint depth) noexcept
-        : _device{device.impl()},
-          _handle{device.impl()->create_texture(
+    Volume(Device::Handle device, PixelStorage storage, uint width, uint height, uint depth) noexcept
+        : _device{std::move(device)},
+          _handle{_device->create_texture(
               pixel_storage_to_format<T>(storage), 3u,
-              width, height, depth,1u, {},
+              width, height, depth, 1u, {},
               std::numeric_limits<uint64_t>::max(), 0u)},
           _storage{storage},
           _size{width, height, depth} {}
-    Volume(Device &device, PixelStorage storage, uint3 size) noexcept
-        : Volume{device, storage, size.x, size.y, size.z} {}
+
+    Volume(Device::Handle device, PixelStorage storage, uint3 size) noexcept
+        : Volume{std::move(device), storage, size.x, size.y, size.z} {}
+
+    void _destroy() noexcept {
+        if (*this) { _device->destroy_texture(_handle); }
+    }
 
 public:
+    Volume() noexcept = default;
     Volume(Volume &&another) noexcept
-        : _device{another._device},
+        : _device{std::move(another._device)},
           _handle{another._handle},
           _size{another._size},
-          _storage{another._storage} { another._device = nullptr; }
+          _storage{another._storage} {}
 
-    ~Volume() noexcept {
-        if (_device != nullptr) {
-            _device->destroy_texture(_handle);
-        }
-    }
+    ~Volume() noexcept { _destroy(); }
 
     Volume &operator=(Volume &&rhs) noexcept {
         if (&rhs != this) {
-            _device->destroy_texture(_handle);
-            _device = rhs._device;
+            _destroy();
+            _device = std::move(rhs._device);
             _handle = rhs._handle;
             _size = rhs._size;
             _storage = rhs._storage;
-            rhs._device = nullptr;
         }
         return *this;
     }
+
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }

@@ -18,18 +18,22 @@ public:
     struct Wait { uint64_t handle; };
 
 private:
-    Device::Interface *_device;
-    uint64_t _handle;
+    Device::Handle _device;
+    uint64_t _handle{};
     
 private:
     friend class Device;
-    explicit Event(Device &device) noexcept;
+    explicit Event(Device::Handle device) noexcept;
+    void _destroy() noexcept;
 
 public:
+    Event() noexcept = default;
     ~Event() noexcept;
     
     Event(Event &&another) noexcept;
     Event &operator=(Event &&rhs) noexcept;
+
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
     
     [[nodiscard]] auto signal() const noexcept { return Signal{_handle}; }
     [[nodiscard]] auto wait() const noexcept { return Wait{_handle}; }

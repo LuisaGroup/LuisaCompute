@@ -119,7 +119,7 @@ public:
 
     using Deleter = void(Interface *);
     using Creator = Interface *(const Context &ctx, uint32_t index);
-    using Handle = std::unique_ptr<Interface, Deleter *>;
+    using Handle = std::shared_ptr<Interface>;
 
 private:
     Handle _impl;
@@ -129,11 +129,10 @@ public:
         : _impl{std::move(handle)} {}
 
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
-    [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
     template<typename T, typename... Args>
     [[nodiscard]] auto create(Args &&...args) noexcept {
-        return T{*this, std::forward<Args>(args)...};
+        return T{this->_impl, std::forward<Args>(args)...};
     }
 
     [[nodiscard]] Stream create_stream() noexcept;

@@ -18,20 +18,16 @@ Stream::Delegate Stream::operator<<(CommandHandle cmd) noexcept {
 }
 
 Stream::Stream(Stream &&s) noexcept
-    : _device{s._device}, _handle{s._handle} { s._device = nullptr; }
+    : _device{std::move(s._device)},
+      _handle{s._handle} {}
 
-Stream::~Stream() noexcept {
-    if (_device != nullptr) {
-        _device->destroy_stream(_handle);
-    }
-}
+Stream::~Stream() noexcept { _destroy(); }
 
 Stream &Stream::operator=(Stream &&rhs) noexcept {
     if (this != &rhs) {
-        _device->destroy_stream(_handle);
-        _device = rhs._device;
+        _destroy();
+        _device = std::move(rhs._device);
         _handle = rhs._handle;
-        rhs._device = nullptr;
     }
     return *this;
 }
@@ -46,6 +42,10 @@ Stream &Stream::operator<<(Event::Signal signal) noexcept {
 Stream &Stream::operator<<(Event::Wait wait) noexcept {
     _device->wait_event(wait.handle, _handle);
     return *this;
+}
+
+void Stream::_destroy() noexcept {
+    if (*this) { _device->destroy_stream(_handle); }
 }
 
 Stream::Delegate::~Delegate() noexcept { _commit(); }

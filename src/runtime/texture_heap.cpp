@@ -7,19 +7,18 @@
 namespace luisa::compute {
 
 TextureHeap::TextureHeap(TextureHeap &&another) noexcept
-    : _device{another._device},
+    : _device{std::move(another._device)},
       _handle{another._handle},
       _capacity{another._capacity},
-      _slots{std::move(another._slots)} { another._device = nullptr; }
+      _slots{std::move(another._slots)} {}
 
 TextureHeap &TextureHeap::operator=(TextureHeap &&rhs) noexcept {
     if (&rhs != this) {
         _destroy();
-        _device = rhs._device;
+        _device = std::move(rhs._device);
         _handle = rhs._handle;
         _capacity = rhs._capacity;
         _slots = std::move(rhs._slots);
-        rhs._device = nullptr;
     }
     return *this;
 }
@@ -37,16 +36,14 @@ constexpr auto TextureHeap::_compute_mip_levels(uint3 size, uint requested_level
 }
 
 void TextureHeap::_destroy() noexcept {
-    if (_device != nullptr) {
-        _device->destroy_texture_heap(_handle);
-    }
+    if (*this) { _device->destroy_texture_heap(_handle); }
 }
 
 TextureHeap::~TextureHeap() noexcept { _destroy(); }
 
-TextureHeap::TextureHeap(Device &device, size_t capacity) noexcept
-    : _device{device.impl()},
-      _handle{device.impl()->create_texture_heap(capacity)},
+TextureHeap::TextureHeap(Device::Handle device, size_t capacity) noexcept
+    : _device{std::move(device)},
+      _handle{_device->create_texture_heap(capacity)},
       _capacity{capacity},
       _slots(slot_count, invalid_handle) {}
 

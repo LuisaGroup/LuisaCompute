@@ -163,24 +163,46 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
 }// namespace detail
 
 template<size_t dimension, typename... Args>
-class Shader {
+class Shader : concepts::Noncopyable {
 
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
 
 private:
-    Device::Interface *_device;
-    uint64_t _handle;
+    Device::Handle _device;
+    uint64_t _handle{};
     std::shared_ptr<const detail::FunctionBuilder> _kernel;
 
 private:
     friend class Device;
-    explicit Shader(Device &device, std::shared_ptr<const detail::FunctionBuilder> kernel) noexcept
-        : _device{device.impl()},
-          _handle{device.impl()->create_shader(kernel.get())},
+    explicit Shader(Device::Handle device, std::shared_ptr<const detail::FunctionBuilder> kernel) noexcept
+        : _device{std::move(device)},
+          _handle{_device->create_shader(kernel.get())},
           _kernel{std::move(kernel)} {}
 
+    void _destroy() noexcept {
+        if (*this) { _device->destroy_shader(_handle); }
+    }
+
 public:
-    ~Shader() noexcept { _device->destroy_shader(_handle); }
+    Shader() noexcept = default;
+    ~Shader() noexcept { _destroy(); }
+
+    Shader(Shader &&another) noexcept
+        : _device{std::move(another._device)},
+          _handle{another._handle},
+          _kernel{std::move(another._kernel)} {}
+
+    Shader &operator=(Shader &&rhs) noexcept {
+        if (this != &rhs) {
+            _destroy();
+            _device = std::move(rhs._device);
+            _handle = rhs._handle;
+            _kernel = std::move(rhs._kernel);
+        }
+        return *this;
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         detail::ShaderInvoke<dimension> invoke{_handle, _kernel.get()};
         (invoke << ... << args);

@@ -103,21 +103,23 @@ public:
     static constexpr auto invalid_handle = std::numeric_limits<uint64_t>::max();
 
 private:
-    Device::Interface *_device;
-    uint64_t _handle;
-    size_t _capacity;
+    Device::Handle _device;
+    uint64_t _handle{};
+    size_t _capacity{};
     std::vector<uint64_t> _slots;
 
 private:
     friend class Device;
-    TextureHeap(Device &device, size_t capacity) noexcept;
+    TextureHeap(Device::Handle device, size_t capacity) noexcept;
     [[nodiscard]] static constexpr auto _compute_mip_levels(uint3 size, uint requested_levels) noexcept;
     void _destroy() noexcept;
 
 public:
+    TextureHeap() noexcept = default;
     TextureHeap(TextureHeap &&another) noexcept;
     TextureHeap &operator=(TextureHeap &&rhs) noexcept;
     ~TextureHeap() noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] auto allocated_size() const noexcept { return _device->query_texture_heap_memory_usage(_handle); }

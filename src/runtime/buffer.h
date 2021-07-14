@@ -41,41 +41,43 @@ class Buffer : public concepts::Noncopyable, public detail::BufferAsAtomic<T> {
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
-    Device::Interface *_device;
-    size_t _size;
-    uint64_t _handle;
+    Device::Handle _device;
+    size_t _size{};
+    uint64_t _handle{};
 
 private:
     friend class Device;
-    Buffer(Device &device, size_t size) noexcept
-        : _device{device.impl()},
+    Buffer(Device::Handle device, size_t size) noexcept
+        : _device{std::move(device)},
           _size{size},
-          _handle{device.impl()->create_buffer(size * sizeof(T))} {}
+          _handle{_device->create_buffer(size * sizeof(T))} {}
+
+    void _destroy() noexcept {
+        if (*this) { _device->destroy_buffer(_handle); }
+    }
 
 public:
+    Buffer() noexcept = default;
+
     Buffer(Buffer &&another) noexcept
-        : _device{another._device},
+        : _device{std::move(another._device)},
           _handle{another._handle},
-          _size{another._handle} { another._device = nullptr; }
+          _size{another._size} {}
 
     Buffer &operator=(Buffer &&rhs) noexcept {
         if (&rhs != this) {
-            _device->destroy_buffer(_handle);
-            _device = rhs._device;
+            _destroy();
+            _device = std::move(rhs._device);
             _handle = rhs._handle;
-            _size = rhs._handle;
-            rhs._device = nullptr;
+            _size = rhs._size;
         }
         return *this;
     }
 
-    ~Buffer() noexcept {
-        if (_device != nullptr /* not moved */) {
-            _device->destroy_buffer(_handle);
-        }
-    }
+    ~Buffer() noexcept { _destroy(); }
 
-    [[nodiscard]] auto device() const noexcept { return _device; }
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
+
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
     [[nodiscard]] auto view() const noexcept { return BufferView<T>{_handle, 0u, _size}; }

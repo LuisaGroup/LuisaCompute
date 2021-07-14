@@ -110,17 +110,17 @@ LUISA_MAKE_KERNEL_ND(3)
 // see declarations in runtime/device.h
 template<typename... Args>
 Shader<1, Args...> Device::compile(const Kernel1D<void(Args...)> &kernel) noexcept {
-    return Shader<1, Args...>{*this, kernel.function()};
+    return Shader<1, Args...>{this->_impl, kernel.function()};
 }
 
 template<typename... Args>
 Shader<2, Args...> Device::compile(const Kernel2D<void(Args...)> &kernel) noexcept {
-    return Shader<2, Args...>{*this, kernel.function()};
+    return Shader<2, Args...>{this->_impl, kernel.function()};
 }
 
 template<typename... Args>
 Shader<3, Args...> Device::compile(const Kernel3D<void(Args...)> &kernel) noexcept {
-    return Shader<3, Args...>{*this, kernel.function()};
+    return Shader<3, Args...>{this->_impl, kernel.function()};
 }
 
 namespace detail {

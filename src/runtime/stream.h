@@ -38,18 +38,20 @@ public:
     };
 
 private:
-    Device::Interface *_device;
-    uint64_t _handle;
+    Device::Handle _device;
+    uint64_t _handle{};
 
 private:
     friend class Device;
     void _dispatch(CommandBuffer command_buffer) noexcept;
     
-    explicit Stream(Device &device) noexcept
-        : _device{device.impl()},
-          _handle{device.impl()->create_stream()} {}
+    explicit Stream(Device::Handle device) noexcept
+        : _device{std::move(device)},
+          _handle{_device->create_stream()} {}
+    void _destroy() noexcept;
 
 public:
+    Stream() noexcept = default;
     Stream(Stream &&s) noexcept;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
@@ -57,6 +59,7 @@ public:
     Stream &operator<<(Event::Wait wait) noexcept;
     Delegate operator<<(CommandHandle cmd) noexcept;
     void synchronize() noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };
 
 }// namespace luisa::compute
