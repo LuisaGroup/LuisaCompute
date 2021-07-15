@@ -613,10 +613,6 @@ void MetalCodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << ", ";
             _scratch << type->dimension() << ">";
             break;
-        case Type::Tag::ATOMIC:
-            _scratch << "atomic_";
-            _emit_type_name(type->element());
-            break;
         case Type::Tag::STRUCTURE:
             _scratch << "S" << hash_to_string(type->hash());
             break;

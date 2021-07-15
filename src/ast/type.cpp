@@ -64,14 +64,7 @@ const Type *Type::from(std::string_view description) noexcept {
         TRY_PARSE_SCALAR_TYPE(uint, UINT)
 #undef TRY_PARSE_SCALAR_TYPE
 
-        if (type_identifier == "atomic"sv) {
-            info._tag = Tag::ATOMIC;
-            match('<');
-            data.members.emplace_back(from_desc_impl(s));
-            match('>');
-            info._alignment = data.members.front()->alignment();
-            info._size = data.members.front()->size();
-        } else if (type_identifier == "vector"sv) {
+        if (type_identifier == "vector"sv) {
             info._tag = Tag::VECTOR;
             match('<');
             data.members.emplace_back(from_desc_impl(s));

@@ -62,7 +62,6 @@ struct alignas(32) AA {
     float4 x;
     float ba[16];
     float a;
-    std::atomic<int> atomic;
 };
 
 struct BB {
@@ -71,7 +70,7 @@ struct BB {
     float3x3 m;
 };
 
-LUISA_STRUCT_REFLECT(AA, x, ba, a, atomic)
+LUISA_STRUCT_REFLECT(AA, x, ba, a)
 LUISA_STRUCT_REFLECT(BB, a, b, m)
 
 struct Interface : public concepts::Noncopyable {
@@ -95,7 +94,6 @@ std::string_view tag_name(Type::Tag tag) noexcept {
     if (tag == Type::Tag::VECTOR) { return "vector"sv; }
     if (tag == Type::Tag::MATRIX) { return "matrix"sv; }
     if (tag == Type::Tag::ARRAY) { return "array"sv; }
-    if (tag == Type::Tag::ATOMIC) { return "atomic"sv; }
     if (tag == Type::Tag::STRUCTURE) { return "struct"sv; }
     return "unknown"sv;
 }
@@ -122,9 +120,6 @@ void print(const Type *info, int level = 0) {
         for (auto m : info->members()) { print<max_level>(m, level + 2); }
     } else if (info->is_vector() || info->is_array() || info->is_matrix()) {
         std::cout << indent_string << "  dimension:   " << info->dimension() << "\n";
-        std::cout << indent_string << "  element:\n";
-        print<max_level>(info->element(), level + 2);
-    } else if (info->is_atomic()) {
         std::cout << indent_string << "  element:\n";
         print<max_level>(info->element(), level + 2);
     }

@@ -22,21 +22,10 @@ class BufferView;
 #define LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)                    \
     static_assert(std::is_same_v<T, std::remove_cvref_t<T>>); \
     static_assert(std::is_trivially_copyable_v<T>);           \
-    static_assert(std::is_trivially_destructible_v<T>);       \
-    static_assert(!concepts::atomic<T>);
-
-namespace detail {
-
-template<typename>
-struct BufferAsAtomic {};
-
-template<typename>
-struct BufferViewAsAtomic {};
-
-}// namespace detail
+    static_assert(std::is_trivially_destructible_v<T>);
 
 template<typename T>
-class Buffer : public concepts::Noncopyable, public detail::BufferAsAtomic<T> {
+class Buffer : public concepts::Noncopyable {
 
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
@@ -91,10 +80,15 @@ public:
     [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
         return this->view()[std::forward<I>(i)];
     }
+
+    template<typename I>
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
+        return this->view().atomic(std::forward<I>(i));
+    }
 };
 
 template<typename T>
-class BufferView : public detail::BufferViewAsAtomic<T> {
+class BufferView {
 
 private:
     uint64_t _handle;
@@ -170,6 +164,11 @@ public:
     [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
         return detail::Expr<Buffer<T>>{*this}[std::forward<I>(i)];
     }
+
+    template<typename I>
+    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
+        return detail::Expr<Buffer<T>>{*this}.atomic(std::forward<I>(i));
+    }
 };
 
 template<typename T>
@@ -177,42 +176,6 @@ BufferView(const Buffer<T> &) -> BufferView<T>;
 
 template<typename T>
 BufferView(BufferView<T>) -> BufferView<T>;
-
-namespace detail {
-
-template<>
-struct BufferViewAsAtomic<int> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return Expr<Atomic<int>>{static_cast<const BufferView<int> &>(*this)[std::forward<I>(i)].expression()};
-    }
-};
-
-template<>
-struct BufferViewAsAtomic<uint> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return Expr<Atomic<uint>>{static_cast<const BufferView<uint> &>(*this)[std::forward<I>(i)].expression()};
-    }
-};
-
-template<>
-struct BufferAsAtomic<int> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return static_cast<const Buffer<int> *>(this)->view().atomic(std::forward<I>(i));
-    }
-};
-
-template<>
-struct BufferAsAtomic<uint> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return static_cast<const Buffer<uint> *>(this)->view().atomic(std::forward<I>(i));
-    }
-};
-
-}// namespace detail
 
 #undef LUISA_CHECK_BUFFER_ELEMENT_TYPE
 

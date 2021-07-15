@@ -561,9 +561,9 @@ void CodegenUtility::GetTypeName(Type const& type, vstd::string& str, bool isWri
 		case Type::Tag::ARRAY:
 			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
 			return;
-		case Type::Tag::ATOMIC:
-			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
-			return;
+//		case Type::Tag::ATOMIC:
+//			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
+//			return;
 		case Type::Tag::BOOL:
 			str += "bool"_sv;
 			return;
@@ -978,16 +978,16 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vstd::string& result,
 			}
 		}
 			return;
-		case CallOp::TEXTURE_SAMPLE:
-			/*
-			auto args = expr->arguments();
-			result << '(';
-			StringExprVisitor vis(result);
-			args[0]->accept(vis);
-			result << ".SampleLevel("
-				   << ')';
-			*/
-			return;
+//		case CallOp::TEXTURE_SAMPLE:
+//			/*
+//			auto args = expr->arguments();
+//			result << '(';
+//			StringExprVisitor vis(result);
+//			args[0]->accept(vis);
+//			result << ".SampleLevel("
+//				   << ')';
+//			*/
+//			return;
 		case CallOp::MAKE_BOOL2:
 			if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
 				result << "make_bool2"_sv;
@@ -1157,9 +1157,6 @@ size_t CodegenUtility::PrintGlobalVariables(
 				throw 0;
 			case Type::Tag::BOOL:
 				VEngine_Log("Uniform Variable Cannot be bool!\n"_sv);
-				throw 0;
-			case Type::Tag::ATOMIC:
-				VEngine_Log("Uniform Variable Cannot be atomic!\n"_sv);
 				throw 0;
 			///////////// Valid Types
 			case Type::Tag::MATRIX:

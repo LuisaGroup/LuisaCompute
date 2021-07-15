@@ -248,19 +248,99 @@ struct Expr<BufferView<T>> : public Expr<Buffer<T>> {
     using Expr<Buffer<T>>::Expr;
 };
 
+template<typename T>
+class AtomicRef {
+
+private:
+    const AccessExpr *_expression{nullptr};
+
+public:
+    explicit AtomicRef(const AccessExpr *expr) noexcept
+        : _expression{expr} {}
+
+    void store(Expr<T> value) const noexcept {
+        FunctionBuilder::current()->call(CallOp::ATOMIC_STORE, {this->_expression, value.expression()});
+    }
+
+    [[nodiscard]] auto load() const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_LOAD, {this->_expression});
+        return Expr<T>{expr};
+    };
+
+    [[nodiscard]] auto exchange(Expr<T> desired) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_EXCHANGE, {this->_expression, desired.expression()});
+        return Expr<T>{expr};
+    }
+
+    // stores old == compare ? val : old, returns old
+    [[nodiscard]] auto compare_exchange(Expr<T> expected, Expr<T> desired) const noexcept {
+        auto expr = FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::ATOMIC_COMPARE_EXCHANGE,
+            {this->_expression, expected.expression(), desired.expression()});
+        return Expr<T>{expr};
+    }
+
+    [[nodiscard]] auto fetch_add(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_ADD, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
+
+    [[nodiscard]] auto fetch_sub(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_SUB, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
+
+    [[nodiscard]] auto fetch_and(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_AND, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
+
+    [[nodiscard]] auto fetch_or(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_OR, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
+
+    [[nodiscard]] auto fetch_xor(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_XOR, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
+
+    [[nodiscard]] auto fetch_min(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_MIN, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
+
+    [[nodiscard]] auto fetch_max(Expr<T> val) const noexcept {
+        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_MAX, {this->_expression, val.expression()});
+        return Expr<T>{expr};
+    };
+};
+
 template<>
 struct BufferExprAsAtomic<int> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return Expr<Atomic<int>>{static_cast<const Expr<Buffer<int>> &>(*this)[i].expression()};
+    [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
+        auto f = FunctionBuilder::current();
+        auto buffer = static_cast<const Expr<Buffer<int>> &>(*this).expression();
+        return AtomicRef<int>{f->access(Type::of<int>(), buffer, i.expression())};
+    }
+    [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
+        auto f = FunctionBuilder::current();
+        auto buffer = static_cast<const Expr<Buffer<int>> &>(*this).expression();
+        return AtomicRef<int>{f->access(Type::of<int>(), buffer, i.expression())};
     }
 };
 
 template<>
 struct BufferExprAsAtomic<uint> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return Expr<Atomic<uint>>{static_cast<const Expr<Buffer<uint>> &>(*this)[i].expression()};
+    [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
+        auto f = FunctionBuilder::current();
+        auto buffer = static_cast<const Expr<Buffer<uint>> &>(*this).expression();
+        return AtomicRef<uint>{f->access(Type::of<uint>(), buffer, i.expression())};
+    }
+    [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
+        auto f = FunctionBuilder::current();
+        auto buffer = static_cast<const Expr<Buffer<uint>> &>(*this).expression();
+        return AtomicRef<uint>{f->access(Type::of<uint>(), buffer, i.expression())};
     }
 };
 
@@ -355,76 +435,6 @@ public:
 template<typename T>
 struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
     using Expr<Volume<T>>::Expr;
-};
-
-template<typename T>
-struct Expr<Atomic<T>> {
-
-    using ValueType = Atomic<T>;
-
-private:
-    const Expression *_expression{nullptr};
-
-public:
-    explicit Expr(const Expression *expr) noexcept : _expression{expr} {}
-    [[nodiscard]] auto expression() const noexcept { return _expression; }
-
-    void store(Expr<T> value) const noexcept {
-        FunctionBuilder::current()->call(CallOp::ATOMIC_STORE, {this->_expression, value.expression()});
-    }
-
-    [[nodiscard]] auto load() const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_LOAD, {this->_expression});
-        return Expr<T>{expr};
-    };
-
-    [[nodiscard]] auto exchange(Expr<T> desired) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_EXCHANGE, {this->_expression, desired.expression()});
-        return Expr<T>{expr};
-    }
-
-    // stores old == compare ? val : old, returns old
-    [[nodiscard]] auto compare_exchange(Expr<T> expected, Expr<T> desired) const noexcept {
-        auto expr = FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_COMPARE_EXCHANGE,
-            {this->_expression, expected.expression(), desired.expression()});
-        return Expr<T>{expr};
-    }
-
-    [[nodiscard]] auto fetch_add(Expr<T> val) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_ADD, {this->_expression, val.expression()});
-        return Expr<T>{expr};
-    };
-
-    [[nodiscard]] auto fetch_sub(Expr<T> val) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_SUB, {this->_expression, val.expression()});
-        return Expr<T>{expr};
-    };
-
-    [[nodiscard]] auto fetch_and(Expr<T> val) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_AND, {this->_expression, val.expression()});
-        return Expr<T>{expr};
-    };
-
-    [[nodiscard]] auto fetch_or(Expr<T> val) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_OR, {this->_expression, val.expression()});
-        return Expr<T>{expr};
-    };
-
-    [[nodiscard]] auto fetch_xor(Expr<T> val) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_XOR, {this->_expression, val.expression()});
-        return Expr<T>{expr};
-    };
-
-    [[nodiscard]] auto fetch_min(Expr<T> val) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_MIN, {this->_expression, val.expression()});
-        return Expr<T>{expr};
-    };
-
-    [[nodiscard]] auto fetch_max(Expr<T> val) const noexcept {
-        auto expr = FunctionBuilder::current()->call(Type::of<T>(), CallOp::ATOMIC_FETCH_MAX, {this->_expression, val.expression()});
-        return Expr<T>{expr};
-    };
 };
 
 struct TextureRef2D {

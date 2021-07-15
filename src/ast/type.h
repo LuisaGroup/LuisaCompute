@@ -39,8 +39,6 @@ public:
         MATRIX,
 
         ARRAY,
-
-        ATOMIC,
         STRUCTURE,
         
         BUFFER,
@@ -98,7 +96,6 @@ public:
     [[nodiscard]] constexpr bool is_vector() const noexcept { return _tag == Tag::VECTOR; }
     [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }
     [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
-    [[nodiscard]] constexpr bool is_atomic() const noexcept { return _tag == Tag::ATOMIC; }
     [[nodiscard]] constexpr bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
     [[nodiscard]] constexpr bool is_texture() const noexcept { return _tag == Tag::TEXTURE; }
     [[nodiscard]] constexpr bool is_texture_heap() const noexcept { return _tag == Tag::TEXTURE_HEAP; }

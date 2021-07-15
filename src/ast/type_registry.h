@@ -113,23 +113,6 @@ struct TypeDesc<T[N]> {
     }
 };
 
-// atomics
-template<>
-struct TypeDesc<std::atomic<int>> {
-    static constexpr std::string_view description() noexcept {
-        using namespace std::string_view_literals;
-        return "atomic<int>"sv;
-    }
-};
-
-template<>
-struct TypeDesc<std::atomic<uint>> {
-    static constexpr std::string_view description() noexcept {
-        using namespace std::string_view_literals;
-        return "atomic<uint>"sv;
-    }
-};
-
 template<typename T>
 struct TypeDesc<Buffer<T>> {
     static std::string_view description() noexcept {

@@ -150,9 +150,6 @@ const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
 }
 
 const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
-    if (type->is_atomic()) {
-        LUISA_ERROR_WITH_LOCATION("Functions are not allowed to have atomic arguments.");
-    }
     auto variable_tag = _tag == Function::Tag::KERNEL
                             ? Variable::Tag::UNIFORM
                             : Variable::Tag::LOCAL;
