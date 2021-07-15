@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
 
         Var v_int = 10;
 
-        Var color = heap.sample2d(v_int, float2(0.0f));
+        Var color = heap.tex2d(v_int).sample(float2(0.0f));
 
         auto [a, m] = add_mul(v_int, v_int);
         Var a_copy = a;
@@ -143,7 +143,7 @@ int main(int argc, char *argv[]) {
 
     auto heap = device.create_texture_heap(1_gb);
     for (auto i = 0u; i < 10u; i++) {
-        static_cast<void>(heap.create2d(0u, PixelStorage::FLOAT4, uint2(1024u)));
+        static_cast<void>(heap.create(0u, PixelStorage::FLOAT4, uint2(1024u)));
         LUISA_INFO("Used size: {}", heap.allocated_size());
     }
 }

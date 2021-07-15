@@ -94,6 +94,9 @@ public:
     }
 };
 
+class TextureRef2D;
+class TextureRef3D;
+
 }// namespace detail
 
 class TextureHeap : concepts::Noncopyable {
@@ -123,41 +126,16 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] auto allocated_size() const noexcept { return _device->query_texture_heap_memory_usage(_handle); }
-    [[nodiscard]] detail::Texture2D create2d(uint index, PixelStorage storage, uint2 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
-    [[nodiscard]] detail::Texture3D create3d(uint index, PixelStorage storage, uint3 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
+    [[nodiscard]] detail::Texture2D create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
+    [[nodiscard]] detail::Texture3D create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
     void destroy(uint32_t index) noexcept;
 
     // see implementations in dsl/expr.h
     template<typename I>
-    [[nodiscard]] detail::Expr<float4> sample2d(I &&index, detail::Expr<float2> uv) const noexcept;
-    template<typename I>
-    [[nodiscard]] detail::Expr<float4> sample2d(I &&index, detail::Expr<float2> uv, detail::Expr<float> level) const noexcept;
-    template<typename I>
-    [[nodiscard]] detail::Expr<float4> sample2d(I &&index, detail::Expr<float2> uv, detail::Expr<float2> dpdx, detail::Expr<float2> dpdy) const noexcept;
-    template<typename I>
-    [[nodiscard]] detail::Expr<float4> sample3d(I &&index, detail::Expr<float3> uvw) const noexcept;
-    template<typename I>
-    [[nodiscard]] detail::Expr<float4> sample3d(I &&index, detail::Expr<float3> uvw, detail::Expr<float> level) const noexcept;
-    template<typename I>
-    [[nodiscard]] detail::Expr<float4> sample3d(I &&index, detail::Expr<float3> uvw, detail::Expr<float3> dpdx, detail::Expr<float3> dpdy) const noexcept;
+    detail::TextureRef2D tex2d(I &&index) const noexcept;
 
     template<typename I>
-    [[nodiscard]] detail::Expr<uint2> size2d(I &&index) const noexcept;
-    template<typename I>
-    [[nodiscard]] detail::Expr<uint3> size3d(I &&index) const noexcept;
-    template<typename I, typename Level>
-    [[nodiscard]] detail::Expr<uint2> size2d(I &&index, Level &&level) const noexcept;
-    template<typename I, typename Level>
-    [[nodiscard]] detail::Expr<uint3> size3d(I &&index, Level &&level) const noexcept;
-
-    template<typename I>
-    [[nodiscard]] detail::Expr<uint2> read2d(I &&index, detail::Expr<uint2> coord) const noexcept;
-    template<typename I>
-    [[nodiscard]] detail::Expr<uint3> read3d(I &&index, detail::Expr<uint3> coord) const noexcept;
-    template<typename I, typename Level>
-    [[nodiscard]] detail::Expr<uint2> read2d(I &&index, detail::Expr<uint2> coord, Level &&level) const noexcept;
-    template<typename I, typename Level>
-    [[nodiscard]] detail::Expr<uint3> read3d(I &&index, detail::Expr<uint3> coord, Level &&level) const noexcept;
+    detail::TextureRef2D tex3d(I &&index) const noexcept;
 };
 
 }// namespace luisa::compute
