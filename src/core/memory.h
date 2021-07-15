@@ -51,6 +51,7 @@ public:
     [[nodiscard]] auto allocate(size_t n = 1u) {
 
         static_assert(std::is_trivially_destructible_v<T>);
+
         static constexpr auto size = sizeof(T);
         auto byte_size = n * size;
 
@@ -84,6 +85,7 @@ public:
 
     template<typename T, typename... Args>
     [[nodiscard]] T *create(Args &&...args) {
+        static_assert(std::is_trivially_destructible_v<T>);
         return luisa::construct_at(allocate<T>(1u), std::forward<Args>(args)...);
     }
 };
@@ -106,7 +108,7 @@ public:
           _capacity{capacity} {}
 
     template<typename U>
-    requires concepts::container<U> &&concepts::constructible<T, typename std::remove_cvref_t<U>::value_type>
+    requires concepts::container<U> && concepts::constructible<T, typename std::remove_cvref_t<U>::value_type>
     ArenaVector(Arena &arena, U &&span, size_t capacity = 0u)
         : ArenaVector{arena, std::max(span.size(), capacity)} {
         std::uninitialized_copy_n(span.begin(), span.size(), _data);
@@ -114,7 +116,8 @@ public:
     }
 
     template<typename U>
-    requires concepts::constructible<T, U> explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
+    requires concepts::constructible<T, U>
+    explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
         : ArenaVector{arena, std::max(init.size(), capacity)} {
         std::uninitialized_copy_n(init.begin(), init.size(), _data);
         _size = init.size();
@@ -162,7 +165,8 @@ public:
 
 template<typename T>
 requires concepts::span_convertible<T>
-ArenaVector(Arena &, T &&) -> ArenaVector<typename std::remove_cvref_t<T>::value_type>;
+ArenaVector(Arena &, T &&)
+->ArenaVector<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>
 ArenaVector(Arena &, std::initializer_list<T>) -> ArenaVector<T>;

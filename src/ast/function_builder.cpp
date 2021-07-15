@@ -342,12 +342,6 @@ void FunctionBuilder::mark_raytracing() noexcept {
     _raytracing = true;
 }
 
-FunctionBuilder::~FunctionBuilder() noexcept {
-    if (_tag == Function::Tag::KERNEL) {
-        delete _arena;// kernels owns the arena
-    }
-}
-
 const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
     if (auto iter = std::find_if(
             _captured_heaps.cbegin(),

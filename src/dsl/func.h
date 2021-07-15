@@ -180,7 +180,7 @@ class Callable<Ret(Args...)> {
         "Callables are not allowed to have atomic arguments.");
 
 private:
-    std::shared_ptr<const detail::FunctionBuilder> _builder;
+    const detail::FunctionBuilder *_builder;
 
 public:
     template<typename Def,

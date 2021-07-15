@@ -82,19 +82,15 @@ protected:
 
 private:
     template<typename Def>
-    static auto _define(Arena *arena, Function::Tag tag, Def &&def) noexcept {
-        auto f = new FunctionBuilder{arena, tag};
+    static void _define(FunctionBuilder *f, Def &&def) noexcept {
         push(f);
         f->with(&f->_body, std::forward<Def>(def));
         f->_compute_hash();
         pop(f);
-        // make it immutable to forbid further modification
-        return std::unique_ptr<const FunctionBuilder>{f};
     }
 
 public:
     explicit FunctionBuilder(Arena *arena, Tag tag) noexcept;
-    ~FunctionBuilder() noexcept;
     FunctionBuilder(FunctionBuilder &&) noexcept = delete;
     FunctionBuilder(const FunctionBuilder &) noexcept = delete;
     FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
@@ -123,8 +119,9 @@ public:
     // build primitives
     template<typename Def>
     static auto define_kernel(Def &&def) noexcept {
-        return _define(new Arena, Function::Tag::KERNEL, [&def] {
-            auto &&f = FunctionBuilder::current();
+        auto arena = new Arena;
+        auto f = arena->create<FunctionBuilder>(arena, Function::Tag::KERNEL);
+        _define(f, [f, &def] {
             auto gid = f->dispatch_id();
             auto gs = f->dispatch_size();
             auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
@@ -135,15 +132,17 @@ public:
             f->if_(ret_cond, if_body, nullptr);
             def();
         });
+        return std::shared_ptr<const FunctionBuilder>{f, [](auto f) noexcept { delete f->_arena; }};
     }
 
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
-        return _define(_function_stack().empty()              // callables use
-                           ? &Arena::global()                 // the global arena when defined in global scope, or
-                           : _function_stack().back()->_arena,// the inherited one from parent scope if defined locally
-                       Function::Tag::CALLABLE,
-                       std::forward<Def>(def));
+        auto arena = _function_stack().empty()              // callables use
+                         ? &Arena::global()                 // the global arena when defined in global scope, or
+                         : _function_stack().back()->_arena;// the inherited one from parent scope if defined locally
+        auto f = arena->create<FunctionBuilder>(arena, Function::Tag::CALLABLE);
+        _define(f, std::forward<Def>(def));
+        return std::as_const(f);
     }
 
     // config
