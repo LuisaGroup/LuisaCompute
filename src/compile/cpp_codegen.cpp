@@ -233,17 +233,28 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
-        case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
-        case CallOp::TEXTURE_SAMPLE_LOD: _scratch << "texture_sample_lod"; break;
-        case CallOp::TEXTURE_SAMPLE_GRAD: _scratch << "texture_sample_grad"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE2D: _scratch << "texture_heap_sample2d"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE2D_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE2D_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE3D: _scratch << "texture_heap_sample3d"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE3D_LEVEL: _scratch << "texture_heap_sample3d_level"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE3D_GRAD: _scratch << "texture_heap_sample3d_grad"; break;
+        case CallOp::TEXTURE_HEAP_READ2D: _scratch << "texture_heap_read2d"; break;
+        case CallOp::TEXTURE_HEAP_READ3D: _scratch << "texture_heap_read3d"; break;
+        case CallOp::TEXTURE_HEAP_READ2D_LEVEL: _scratch << "texture_heap_read2d_level"; break;
+        case CallOp::TEXTURE_HEAP_READ3D_LEVEL: _scratch << "texture_heap_read3d_level"; break;
+        case CallOp::TEXTURE_HEAP_SIZE2D: _scratch << "texture_heap_size2d"; break;
+        case CallOp::TEXTURE_HEAP_SIZE3D: _scratch << "texture_heap_size3d"; break;
+        case CallOp::TEXTURE_HEAP_SIZE2D_LEVEL: _scratch << "texture_heap_size2d_level"; break;
+        case CallOp::TEXTURE_HEAP_SIZE3D_LEVEL: _scratch << "texture_heap_size3d_level"; break;
 #define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
     case CallOp::MAKE_##tag##4: _scratch << #type "4"; break;
-        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
-        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
-        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
-        LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
+            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;

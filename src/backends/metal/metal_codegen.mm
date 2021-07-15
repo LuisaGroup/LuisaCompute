@@ -275,9 +275,20 @@ void MetalCodegen::visit(const CallExpr *expr) {
             break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
-        case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
-        case CallOp::TEXTURE_SAMPLE_LOD: _scratch << "texture_sample_lod"; break;
-        case CallOp::TEXTURE_SAMPLE_GRAD: _scratch << "texture_sample_grad"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE2D: _scratch << "texture_heap_sample2d"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE2D_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE2D_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE3D: _scratch << "texture_heap_sample3d"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE3D_LEVEL: _scratch << "texture_heap_sample3d_level"; break;
+        case CallOp::TEXTURE_HEAP_SAMPLE3D_GRAD: _scratch << "texture_heap_sample3d_grad"; break;
+        case CallOp::TEXTURE_HEAP_READ2D: _scratch << "texture_heap_read2d"; break;
+        case CallOp::TEXTURE_HEAP_READ3D: _scratch << "texture_heap_read3d"; break;
+        case CallOp::TEXTURE_HEAP_READ2D_LEVEL: _scratch << "texture_heap_read2d_level"; break;
+        case CallOp::TEXTURE_HEAP_READ3D_LEVEL: _scratch << "texture_heap_read3d_level"; break;
+        case CallOp::TEXTURE_HEAP_SIZE2D: _scratch << "texture_heap_size2d"; break;
+        case CallOp::TEXTURE_HEAP_SIZE3D: _scratch << "texture_heap_size3d"; break;
+        case CallOp::TEXTURE_HEAP_SIZE2D_LEVEL: _scratch << "texture_heap_size2d_level"; break;
+        case CallOp::TEXTURE_HEAP_SIZE3D_LEVEL: _scratch << "texture_heap_size3d_level"; break;
         case CallOp::MAKE_BOOL2: _scratch << "bool2"; break;
         case CallOp::MAKE_BOOL3: _scratch << "bool3"; break;
         case CallOp::MAKE_BOOL4: _scratch << "bool4"; break;
@@ -960,34 +971,66 @@ struct Texture {
   metal::sampler sampler;
 };
 
-[[nodiscard]] auto texture_sample(device const Texture *heap, uint index, float2 uv) {
+[[nodiscard]] auto texture_heap_sample2d(device const Texture *heap, uint index, float2 uv) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv);
 }
 
-[[nodiscard]] auto texture_sample(device const Texture *heap, uint index, float3 uvw) {
+[[nodiscard]] auto texture_heap_sample3d(device const Texture *heap, uint index, float3 uvw) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw);
 }
 
-[[nodiscard]] auto texture_sample_lod(device const Texture *heap, uint index, float2 uv, float lod) {
+[[nodiscard]] auto texture_heap_sample2d_level(device const Texture *heap, uint index, float2 uv, float lod) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, level(lod));
 }
 
-[[nodiscard]] auto texture_sample_lod(device const Texture *heap, uint index, float3 uvw, float lod) {
+[[nodiscard]] auto texture_heap_sample3d_level(device const Texture *heap, uint index, float3 uvw, float lod) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, level(lod));
 }
 
-[[nodiscard]] auto texture_sample_grad(device const Texture *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+[[nodiscard]] auto texture_heap_sample2d_grad(device const Texture *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto texture_sample_grad(device const Texture *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+[[nodiscard]] auto texture_heap_sample3d_grad(device const Texture *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, gradient3d(dpdx, dpdy));
+}
+
+[[nodiscard]] auto texture_heap_size2d(device const Texture *heap, uint i) {
+  return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
+}
+
+[[nodiscard]] auto texture_heap_size3d(device const Texture *heap, uint i) {
+  return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
+}
+
+[[nodiscard]] auto texture_heap_size2d_level(device const Texture *heap, uint i, uint lv) {
+  return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
+}
+
+[[nodiscard]] auto texture_heap_size3d_level(device const Texture *heap, uint i, uint lv) {
+  return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
+}
+
+[[nodiscard]] auto texture_heap_read2d(device const Texture *heap, uint i, uint2 uv) {
+  return heap[i].handle2d.read(uv);
+}
+
+[[nodiscard]] auto texture_heap_read3d(device const Texture *heap, uint i, uint3 uvw) {
+  return heap[i].handle3d.read(uvw);
+}
+
+[[nodiscard]] auto texture_heap_read2d_level(device const Texture *heap, uint i, uint2 uv, uint lv) {
+  return heap[i].handle2d.read(uv, lv);
+}
+
+[[nodiscard]] auto texture_heap_read3d_level(device const Texture *heap, uint i, uint3 uvw, uint lv) {
+  return heap[i].handle3d.read(uvw, lv);
 }
 
 )";

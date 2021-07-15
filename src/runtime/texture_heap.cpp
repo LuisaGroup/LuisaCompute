@@ -47,7 +47,7 @@ TextureHeap::TextureHeap(Device::Handle device, size_t capacity) noexcept
       _capacity{capacity},
       _slots(slot_count, invalid_handle) {}
 
-detail::Texture2D TextureHeap::create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
+detail::Texture2D TextureHeap::create2d(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
     if (auto h = _slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",
@@ -71,7 +71,7 @@ detail::Texture2D TextureHeap::create(uint index, PixelStorage storage, uint2 si
     return {handle, storage, valid_mip_levels, size};
 }
 
-detail::Texture3D TextureHeap::create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
+detail::Texture3D TextureHeap::create3d(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
     if (auto h = _slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",

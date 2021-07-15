@@ -453,92 +453,260 @@ public:
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
-    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv) const noexcept {
+    [[nodiscard]] auto sample2d(Expr<uint> i, Expr<float2> uv) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D,
             {_expression, i.expression(), uv.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw) const noexcept {
+    [[nodiscard]] auto sample3d(Expr<uint> i, Expr<float3> uvw) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D,
             {_expression, i.expression(), uvw.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv, Expr<float> mip) const noexcept {
+    [[nodiscard]] auto sample2d(Expr<uint> i, Expr<float2> uv, Expr<float> mip) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D_LEVEL,
             {_expression, i.expression(), uv.expression(), mip.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
+    [[nodiscard]] auto sample3d(Expr<uint> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D_LEVEL,
             {_expression, i.expression(), uvw.expression(), mip.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<uint> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
+    [[nodiscard]] auto sample2d(Expr<uint> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D_GRAD,
             {_expression, i.expression(), uv.expression(),
              dpdx.expression(), dpdy.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<uint> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
+    [[nodiscard]] auto sample3d(Expr<uint> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D_GRAD,
             {_expression, i.expression(), uvw.expression(),
              dpdx.expression(), dpdy.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv) const noexcept {
+    [[nodiscard]] auto sample2d(Expr<int> i, Expr<float2> uv) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D,
             {_expression, i.expression(), uv.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw) const noexcept {
+    [[nodiscard]] auto sample3d(Expr<int> i, Expr<float3> uvw) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D,
             {_expression, i.expression(), uvw.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv, Expr<float> mip) const noexcept {
+    [[nodiscard]] auto sample2d(Expr<int> i, Expr<float2> uv, Expr<float> mip) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D_LEVEL,
             {_expression, i.expression(), uv.expression(), mip.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
+    [[nodiscard]] auto sample3d(Expr<int> i, Expr<float3> uvw, Expr<float> mip) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_LOD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D_LEVEL,
             {_expression, i.expression(), uvw.expression(), mip.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<int> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
+    [[nodiscard]] auto sample2d(Expr<int> i, Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D_GRAD,
             {_expression, i.expression(), uv.expression(),
              dpdx.expression(), dpdy.expression()})};
     }
 
-    [[nodiscard]] auto sample(Expr<int> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
+    [[nodiscard]] auto sample3d(Expr<int> i, Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
         auto f = FunctionBuilder::current();
         return Expr<float4>{f->call(
-            Type::of<float4>(), CallOp::TEXTURE_SAMPLE_GRAD,
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D_GRAD,
             {_expression, i.expression(), uvw.expression(),
              dpdx.expression(), dpdy.expression()})};
+    }
+
+    [[nodiscard]] auto size2d(Expr<int> index) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint2>{f->call(
+            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D,
+            {_expression, index.expression()})};
+    }
+
+    [[nodiscard]] auto size3d(Expr<int> index) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint3>{f->call(
+            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D,
+            {_expression, index.expression()})};
+    }
+
+    [[nodiscard]] auto size2d(Expr<uint> index) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint2>{f->call(
+            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D,
+            {_expression, index.expression()})};
+    }
+
+    [[nodiscard]] auto size3d(Expr<uint> index) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint3>{f->call(
+            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D,
+            {_expression, index.expression()})};
+    }
+
+    [[nodiscard]] auto size2d(Expr<int> index, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint2>{f->call(
+            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto size3d(Expr<int> index, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint3>{f->call(
+            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto size2d(Expr<uint> index, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint2>{f->call(
+            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto size3d(Expr<uint> index, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint3>{f->call(
+            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto size2d(Expr<int> index, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint2>{f->call(
+            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto size3d(Expr<int> index, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint3>{f->call(
+            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto size2d(Expr<uint> index, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint2>{f->call(
+            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto size3d(Expr<uint> index, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<uint3>{f->call(
+            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D_LEVEL,
+            {_expression, index.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read2d(Expr<int> index, Expr<uint2> coord) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D,
+            {_expression, index.expression(), coord.expression()})};
+    }
+
+    [[nodiscard]] auto read3d(Expr<int> index, Expr<uint3> coord) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D,
+            {_expression, index.expression(), coord.expression()})};
+    }
+
+    [[nodiscard]] auto read2d(Expr<uint> index, Expr<uint2> coord) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D,
+            {_expression, index.expression(), coord.expression()})};
+    }
+
+    [[nodiscard]] auto read3d(Expr<uint> index, Expr<uint3> coord) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D,
+            {_expression, index.expression(), coord.expression()})};
+    }
+
+    [[nodiscard]] auto read2d(Expr<int> index, Expr<uint2> coord, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read3d(Expr<int> index, Expr<uint3> coord, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read2d(Expr<uint> index, Expr<uint2> coord, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read3d(Expr<uint> index, Expr<uint3> coord, Expr<int> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read2d(Expr<int> index, Expr<uint2> coord, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read3d(Expr<int> index, Expr<uint3> coord, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read2d(Expr<uint> index, Expr<uint2> coord, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
+    }
+
+    [[nodiscard]] auto read3d(Expr<uint> index, Expr<uint3> coord, Expr<uint> level) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<float4>{f->call(
+            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D_LEVEL,
+            {_expression, index.expression(), coord.expression(), level.expression()})};
     }
 };
 
@@ -610,22 +778,74 @@ constexpr auto is_expr_v = is_expr<T>::value;
 
 }// namespace detail
 
-template<typename I, typename Coord>
-detail::Expr<float4> TextureHeap::sample(I &&index, Coord &&coord) const noexcept {
-    return detail::Expr<TextureHeap>{*this}.sample(
-        std::forward<I>(index), std::forward<Coord>(coord));
-}
-template<typename I, typename Coord, typename Mip>
-detail::Expr<float4> TextureHeap::sample(I &&index, Coord &&coord, Mip &&level) const noexcept {
-    return detail::Expr<TextureHeap>{*this}.sample(
-        std::forward<I>(index), std::forward<Coord>(coord), std::forward<Mip>(level));
+template<typename I>
+detail::Expr<float4> TextureHeap::sample2d(I &&index, detail::Expr<float2> uv) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample2d(std::forward<I>(index), uv);
 }
 
-template<typename I, typename Coord, typename DPDX, typename DPDY>
-detail::Expr<float4> TextureHeap::sample(I &&index, Coord &&coord, DPDX &&dpdx, DPDY &&dpdy) const noexcept {
-    return detail::Expr<TextureHeap>{*this}.sample(
-        std::forward<I>(index), std::forward<Coord>(coord),
-        std::forward<DPDX>(dpdx), std::forward<DPDY>(dpdy));
+template<typename I>
+detail::Expr<float4> TextureHeap::sample2d(I &&index, detail::Expr<float2> uv, detail::Expr<float> level) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample2d(std::forward<I>(index), uv, level);
+}
+
+template<typename I>
+detail::Expr<float4> TextureHeap::sample2d(I &&index, detail::Expr<float2> uv, detail::Expr<float2> dpdx, detail::Expr<float2> dpdy) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample2d(std::forward<I>(index), uv, dpdx, dpdy);
+}
+
+template<typename I>
+detail::Expr<float4> TextureHeap::sample3d(I &&index, detail::Expr<float3> uvw) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample3d(std::forward<I>(index), uvw);
+}
+
+template<typename I>
+detail::Expr<float4> TextureHeap::sample3d(I &&index, detail::Expr<float3> uvw, detail::Expr<float> level) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample3d(std::forward<I>(index), uvw, level);
+}
+
+template<typename I>
+detail::Expr<float4> TextureHeap::sample3d(I &&index, detail::Expr<float3> uvw, detail::Expr<float3> dpdx, detail::Expr<float3> dpdy) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.sample3d(std::forward<I>(index), uvw, dpdx, dpdy);
+}
+
+template<typename I>
+detail::Expr<uint2> TextureHeap::size2d(I &&index) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.size2d(std::forward<I>(index));
+}
+
+template<typename I>
+detail::Expr<uint3> TextureHeap::size3d(I &&index) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.size3d(std::forward<I>(index));
+}
+
+template<typename I, typename Level>
+detail::Expr<uint2> TextureHeap::size2d(I &&index, Level &&level) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.size2d(std::forward<I>(index), level);
+}
+
+template<typename I, typename Level>
+detail::Expr<uint3> TextureHeap::size3d(I &&index, Level &&level) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.size3d(std::forward<I>(index), level);
+}
+
+template<typename I>
+detail::Expr<uint2> TextureHeap::read2d(I &&index, detail::Expr<uint2> coord) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.read2d(std::forward<I>(index), coord);
+}
+
+template<typename I>
+detail::Expr<uint3> TextureHeap::read3d(I &&index, detail::Expr<uint3> coord) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.read3d(std::forward<I>(index), coord);
+}
+
+template<typename I, typename Level>
+detail::Expr<uint2> TextureHeap::read2d(I &&index, detail::Expr<uint2> coord, Level &&level) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.read2d(std::forward<I>(index), coord, level);
+}
+
+template<typename I, typename Level>
+detail::Expr<uint3> TextureHeap::read3d(I &&index, detail::Expr<uint3> coord, Level &&level) const noexcept {
+    return detail::Expr<TextureHeap>{*this}.read3d(std::forward<I>(index), coord, level);
 }
 
 }// namespace luisa::compute
