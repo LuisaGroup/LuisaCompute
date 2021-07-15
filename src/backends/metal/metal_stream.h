@@ -21,7 +21,7 @@ public:
 
 private:
     id<MTLCommandQueue> _handle;
-    __weak id<MTLCommandBuffer> _last{nullptr};
+    id<MTLCommandBuffer> _last{nullptr};
     MetalRingBuffer _upload_ring_buffer;
     MetalRingBuffer _download_ring_buffer;
     spin_mutex _mutex;
@@ -31,6 +31,7 @@ public:
         : _handle{handle},
           _upload_ring_buffer{handle.device, ring_buffer_size, true},
           _download_ring_buffer{handle.device, ring_buffer_size, false} {}
+
     ~MetalStream() noexcept { _handle = nullptr; }
 
     [[nodiscard]] auto &upload_ring_buffer() noexcept { return _upload_ring_buffer; }
@@ -40,13 +41,12 @@ public:
     void with_command_buffer(Encode &&encode) noexcept {
         @autoreleasepool {
             auto command_buffer = [_handle commandBuffer];
+            encode(command_buffer);
             {
                 std::scoped_lock lock{_mutex};
-                [command_buffer enqueue];
+                [command_buffer commit];
                 _last = command_buffer;
             }
-            encode(command_buffer);
-            [command_buffer commit];
         }
     }
 
