@@ -127,8 +127,7 @@ int main(int argc, char *argv[]) {
         Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
         buffer[v_int + 1] = 123.0f;
     };
-    device.compile(kernel);
-
+    auto compiled_kernel = device.compile(kernel);
     auto stream = device.create<Stream>();
 
     Clock clock;

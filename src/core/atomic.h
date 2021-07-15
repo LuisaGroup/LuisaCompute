@@ -8,11 +8,8 @@
 
 namespace luisa {
 
-template<typename T>
-using Atomic = std::atomic<T>;
-
-using atomic_int = Atomic<int>;
-using atomic_uint = Atomic<unsigned int>;
+using atomic_int = std::atomic<int>;
+using atomic_uint = std::atomic<unsigned int>;
 
 static_assert(sizeof(atomic_int) == 4u);
 static_assert(sizeof(atomic_uint) == 4u);

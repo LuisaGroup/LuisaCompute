@@ -47,17 +47,33 @@ namespace detail {
 
 template<>
 struct SharedAsAtomic<int> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return Expr<Atomic<int>>{static_cast<const Shared<int> &>(*this)[std::forward<I>(i)].expression()};
+    [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
+        return AtomicRef<int>{FunctionBuilder::current()->access(
+            Type::of<int>(),
+            static_cast<const Shared<int> *>(this)->expression(),
+            i.expression())};
+    }
+    [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
+        return AtomicRef<int>{FunctionBuilder::current()->access(
+            Type::of<int>(),
+            static_cast<const Shared<int> *>(this)->expression(),
+            i.expression())};
     }
 };
 
 template<>
 struct SharedAsAtomic<uint> {
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return Expr<Atomic<uint>>{static_cast<const Shared<uint> &>(*this)[std::forward<I>(i)].expression()};
+    [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
+        return AtomicRef<uint>{FunctionBuilder::current()->access(
+            Type::of<uint>(),
+            static_cast<const Shared<uint> *>(this)->expression(),
+            i.expression())};
+    }
+    [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
+        return AtomicRef<uint>{FunctionBuilder::current()->access(
+            Type::of<uint>(),
+            static_cast<const Shared<uint> *>(this)->expression(),
+            i.expression())};
     }
 };
 

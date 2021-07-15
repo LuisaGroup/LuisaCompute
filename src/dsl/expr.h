@@ -319,28 +319,32 @@ public:
 template<>
 struct BufferExprAsAtomic<int> {
     [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
-        auto f = FunctionBuilder::current();
-        auto buffer = static_cast<const Expr<Buffer<int>> &>(*this).expression();
-        return AtomicRef<int>{f->access(Type::of<int>(), buffer, i.expression())};
+        return AtomicRef<int>{FunctionBuilder::current()->access(
+            Type::of<int>(),
+            static_cast<const Expr<Buffer<int>> *>(this)->expression(),
+            i.expression())};
     }
     [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
-        auto f = FunctionBuilder::current();
-        auto buffer = static_cast<const Expr<Buffer<int>> &>(*this).expression();
-        return AtomicRef<int>{f->access(Type::of<int>(), buffer, i.expression())};
+        return AtomicRef<int>{FunctionBuilder::current()->access(
+            Type::of<int>(),
+            static_cast<const Expr<Buffer<int>> *>(this)->expression(),
+            i.expression())};
     }
 };
 
 template<>
 struct BufferExprAsAtomic<uint> {
     [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
-        auto f = FunctionBuilder::current();
-        auto buffer = static_cast<const Expr<Buffer<uint>> &>(*this).expression();
-        return AtomicRef<uint>{f->access(Type::of<uint>(), buffer, i.expression())};
+        return AtomicRef<uint>{FunctionBuilder::current()->access(
+            Type::of<uint>(),
+            static_cast<const Expr<Buffer<uint>> *>(this)->expression(),
+            i.expression())};
     }
     [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
-        auto f = FunctionBuilder::current();
-        auto buffer = static_cast<const Expr<Buffer<uint>> &>(*this).expression();
-        return AtomicRef<uint>{f->access(Type::of<uint>(), buffer, i.expression())};
+        return AtomicRef<uint>{FunctionBuilder::current()->access(
+            Type::of<uint>(),
+            static_cast<const Expr<Buffer<uint>> *>(this)->expression(),
+            i.expression())};
     }
 };
 
