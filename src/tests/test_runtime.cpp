@@ -39,6 +39,8 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
+    Buffer<float> buffer;
+
 #if defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
@@ -47,7 +49,8 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    auto buffer = device.create<Buffer<float>>(16384u);
+    auto buffer2 = device.create<Buffer<float>>(16384u);
+    buffer = std::move(buffer2);
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
     std::iota(data.begin(), data.end(), 1.0f);
@@ -142,7 +145,7 @@ int main(int argc, char *argv[]) {
 
     auto heap = device.create_texture_heap(1_gb);
     for (auto i = 0u; i < 10u; i++) {
-        static_cast<void>(heap.create(0u, PixelStorage::FLOAT4, uint2(1024u)));
+        static_cast<void>(heap.create(i, PixelStorage::FLOAT4, uint2(1024u)));
         LUISA_INFO("Used size: {}", heap.allocated_size());
     }
 }
