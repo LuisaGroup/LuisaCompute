@@ -38,8 +38,6 @@ struct prototype_to_shader_invocation<Volume<T>> {
     using type = VolumeView<T>;
 };
 
-// TODO: texture heap
-
 template<typename T>
 using prototype_to_shader_invocation_t = typename prototype_to_shader_invocation<T>::type;
 
@@ -209,5 +207,14 @@ public:
         return invoke;
     }
 };
+
+template<typename ...Args>
+using Shader1D = Shader<1, Args...>;
+
+template<typename ...Args>
+using Shader2D = Shader<2, Args...>;
+
+template<typename ...Args>
+using Shader3D = Shader<3, Args...>;
 
 }// namespace luisa::compute
