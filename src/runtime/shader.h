@@ -172,7 +172,7 @@ private:
 
 private:
     friend class Device;
-    explicit Shader(Device::Handle device, std::shared_ptr<const detail::FunctionBuilder> kernel) noexcept
+    Shader(Device::Handle device, std::shared_ptr<const detail::FunctionBuilder> kernel) noexcept
         : _device{std::move(device)},
           _handle{_device->create_shader(kernel.get())},
           _kernel{std::move(kernel)} {}

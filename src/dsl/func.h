@@ -65,20 +65,21 @@ template<typename T>
 struct is_callable : std::false_type {};
 
 #define LUISA_MAKE_KERNEL_ND(N)                                                                             \
-    template<typename T>                                                                                    \
-    class Kernel##N##D {                                                                                    \
-        static_assert(always_false_v<T>);                                                                   \
-    };                                                                                                      \
-                                                                                                            \
-    template<typename T>                                                                                    \
-    struct is_kernel<Kernel##N##D<T>> : std::true_type {};                                                  \
+    template<typename... Args>                                                                              \
+    class Kernel##N##D;                                                                                     \
                                                                                                             \
     template<typename... Args>                                                                              \
-    class Kernel##N##D<void(Args...)> {                                                                     \
+    struct is_kernel<Kernel##N##D<Args...>> : std::true_type {};                                            \
+                                                                                                            \
+    template<typename... Args>                                                                              \
+    class Kernel##N##D {                                                                                    \
                                                                                                             \
         static_assert(                                                                                      \
             std::negation_v<std::disjunction<is_atomic<Args>...>>,                                          \
             "Kernels are not allowed to have atomic arguments.");                                           \
+                                                                                                            \
+    public:                                                                                                 \
+        using shader_type = Shader<N, Args...>;                                                             \
                                                                                                             \
     private:                                                                                                \
         std::shared_ptr<const detail::FunctionBuilder> _builder{nullptr};                                   \
@@ -99,7 +100,16 @@ struct is_callable : std::false_type {};
                     std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});      \
             });                                                                                             \
         }                                                                                                   \
+        Kernel##N##D(Kernel##N##D &&) noexcept = default;                                                   \
+        Kernel##N##D(const Kernel##N##D &) noexcept = default;                                              \
+        Kernel##N##D &operator=(Kernel##N##D &&) noexcept = default;                                        \
+        Kernel##N##D &operator=(const Kernel##N##D &) noexcept = default;                                   \
         [[nodiscard]] const auto &function() const noexcept { return _builder; }                            \
+    };                                                                                                      \
+                                                                                                            \
+    template<typename... Args>                                                                              \
+    class Kernel##N##D<void(Args...)> : public Kernel##N##D<Args...> {                                      \
+        using Kernel##N##D<Args...>::Kernel##N##D;                                                          \
     };
 
 LUISA_MAKE_KERNEL_ND(1)
@@ -109,18 +119,21 @@ LUISA_MAKE_KERNEL_ND(3)
 
 // see declarations in runtime/device.h
 template<typename... Args>
-Shader<1, Args...> Device::compile(const Kernel1D<void(Args...)> &kernel) noexcept {
-    return Shader<1, Args...>{this->_impl, kernel.function()};
+auto Device::compile(const Kernel1D<Args...> &kernel) noexcept
+    -> typename Kernel1D<Args...>::shader_type {
+    return {this->_impl, kernel.function()};
 }
 
 template<typename... Args>
-Shader<2, Args...> Device::compile(const Kernel2D<void(Args...)> &kernel) noexcept {
-    return Shader<2, Args...>{this->_impl, kernel.function()};
+auto Device::compile(const Kernel2D<Args...> &kernel) noexcept
+    -> typename Kernel2D<Args...>::shader_type {
+    return {this->_impl, kernel.function()};
 }
 
 template<typename... Args>
-Shader<3, Args...> Device::compile(const Kernel3D<void(Args...)> &kernel) noexcept {
-    return Shader<3, Args...>{this->_impl, kernel.function()};
+auto Device::compile(const Kernel3D<Args...> &kernel) noexcept
+    -> typename Kernel3D<Args...>::shader_type {
+    return {this->_impl, kernel.function()};
 }
 
 namespace detail {
@@ -302,6 +315,16 @@ Kernel2D(T &&) -> Kernel2D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
 Kernel3D(T &&) -> Kernel3D<detail::function_t<std::remove_cvref_t<T>>>;
+
+// Hurry up! Clang!!!
+// template<typename ...Args>
+// using K1D = Kernel1D<void(Args...)>;
+//
+// template<typename ...Args>
+// using K2D = Kernel2D<void(Args...)>;
+//
+// template<typename ...Args>
+// using K3D = Kernel3D<void(Args...)>;
 
 template<typename T>
 Callable(T &&) -> Callable<detail::function_t<std::remove_cvref_t<T>>>;
