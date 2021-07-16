@@ -64,75 +64,88 @@ struct is_kernel : std::false_type {};
 template<typename T>
 struct is_callable : std::false_type {};
 
-#define LUISA_MAKE_KERNEL_ND(N)                                                                             \
-    template<typename... Args>                                                                              \
-    class Kernel##N##D;                                                                                     \
-                                                                                                            \
-    template<typename... Args>                                                                              \
-    struct is_kernel<Kernel##N##D<Args...>> : std::true_type {};                                            \
-                                                                                                            \
-    template<typename... Args>                                                                              \
-    class Kernel##N##D {                                                                                    \
-                                                                                                            \
-        static_assert(                                                                                      \
-            std::negation_v<std::disjunction<is_atomic<Args>...>>,                                          \
-            "Kernels are not allowed to have atomic arguments.");                                           \
-                                                                                                            \
-    public:                                                                                                 \
-        using shader_type = Shader<N, Args...>;                                                             \
-                                                                                                            \
-    private:                                                                                                \
-        std::shared_ptr<const detail::FunctionBuilder> _builder{nullptr};                                   \
-                                                                                                            \
-    public:                                                                                                 \
-        template<typename Def,                                                                              \
-                 std::enable_if_t<                                                                          \
-                     std::conjunction_v<                                                                    \
-                         std::negation<is_callable<std::remove_cvref_t<Def>>>,                              \
-                         std::negation<is_kernel<std::remove_cvref_t<Def>>>>,                               \
-                     int> = 0>                                                                              \
-        requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>       \
-            Kernel##N##D(Def &&def) noexcept {                                                              \
-            _builder = detail::FunctionBuilder::define_kernel([&def] {                                      \
-                detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>()); \
-                std::apply(                                                                                 \
-                    std::forward<Def>(def),                                                                 \
-                    std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});      \
-            });                                                                                             \
-        }                                                                                                   \
-        Kernel##N##D(Kernel##N##D &&) noexcept = default;                                                   \
-        Kernel##N##D(const Kernel##N##D &) noexcept = default;                                              \
-        Kernel##N##D &operator=(Kernel##N##D &&) noexcept = default;                                        \
-        Kernel##N##D &operator=(const Kernel##N##D &) noexcept = default;                                   \
-        [[nodiscard]] const auto &function() const noexcept { return _builder; }                            \
-    };                                                                                                      \
-                                                                                                            \
-    template<typename... Args>                                                                              \
-    class Kernel##N##D<void(Args...)> : public Kernel##N##D<Args...> {                                      \
-        using Kernel##N##D<Args...>::Kernel##N##D;                                                          \
-    };
+template<size_t N, typename... Args>
+class Kernel;
 
-LUISA_MAKE_KERNEL_ND(1)
-LUISA_MAKE_KERNEL_ND(2)
-LUISA_MAKE_KERNEL_ND(3)
-#undef LUISA_MAKE_KERNEL_ND
+template<size_t N, typename... Args>
+struct is_kernel<Kernel<N, Args...>> : std::true_type {};
+
+template<size_t N, typename... Args>
+class Kernel {
+
+    static_assert(
+        N == 1u || N == 2u || N == 3u
+            || std::negation_v<std::disjunction<is_atomic<Args>...>>);
+
+public:
+    using shader_type = Shader<N, Args...>;
+
+private:
+    std::shared_ptr<const detail::FunctionBuilder> _builder{nullptr};
+
+public:
+    template<typename Def,
+             std::enable_if_t<
+                 std::conjunction_v<
+                     std::negation<is_callable<std::remove_cvref_t<Def>>>,
+                     std::negation<is_kernel<std::remove_cvref_t<Def>>>>,
+                 int> = 0>
+    requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
+    Kernel(Def &&def)
+    noexcept {
+        _builder = detail::FunctionBuilder::define_kernel([&def] {
+            detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
+            std::apply(
+                std::forward<Def>(def),
+                std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+        });
+    }
+    Kernel(Kernel &&) noexcept = default;
+    Kernel(const Kernel &) noexcept = default;
+    Kernel &operator=(Kernel &&) noexcept = default;
+    Kernel &operator=(const Kernel &) noexcept = default;
+    [[nodiscard]] const auto &function() const noexcept { return _builder; }
+};
+
+template<size_t N, typename... Args>
+class Kernel<N, void(Args...)> : public Kernel<N, Args...> {
+    using Kernel<N, Args...>::Kernel;
+};
+
+template<typename ...Args>
+class Kernel1D : public Kernel<1u, Args...> {
+    using Kernel<1u, Args...>::Kernel;
+};
+
+template<typename ...Args>
+class Kernel2D : public Kernel<2u, Args...> {
+    using Kernel<2u, Args...>::Kernel;
+};
+
+template<typename ...Args>
+class Kernel3D : public Kernel<3u, Args...> {
+    using Kernel<3u, Args...>::Kernel;
+};
+
+template<typename ...Args>
+class Kernel1D<void(Args...)> : public Kernel1D<Args...> {
+    using Kernel1D<Args...>::Kernel1D;
+};
+
+template<typename ...Args>
+class Kernel2D<void(Args...)> : public Kernel2D<Args...> {
+    using Kernel2D<Args...>::Kernel2D;
+};
+
+template<typename ...Args>
+class Kernel3D<void(Args...)> : public Kernel3D<Args...> {
+    using Kernel3D<Args...>::Kernel3D;
+};
 
 // see declarations in runtime/device.h
-template<typename... Args>
-auto Device::compile(const Kernel1D<Args...> &kernel) noexcept
-    -> typename Kernel1D<Args...>::shader_type {
-    return {this->_impl, kernel.function()};
-}
-
-template<typename... Args>
-auto Device::compile(const Kernel2D<Args...> &kernel) noexcept
-    -> typename Kernel2D<Args...>::shader_type {
-    return {this->_impl, kernel.function()};
-}
-
-template<typename... Args>
-auto Device::compile(const Kernel3D<Args...> &kernel) noexcept
-    -> typename Kernel3D<Args...>::shader_type {
+template<size_t N, typename... Args>
+auto Device::compile(const Kernel<N, Args...> &kernel) noexcept
+    -> typename Kernel<N, Args...>::shader_type {
     return {this->_impl, kernel.function()};
 }
 

@@ -36,14 +36,8 @@ class Volume;
 template<size_t dim, typename... Args>
 class Shader;
 
-template<typename... Args>
-class Kernel1D;
-
-template<typename... Args>
-class Kernel2D;
-
-template<typename... Args>
-class Kernel3D;
+template<size_t N, typename... Args>
+class Kernel;
 
 namespace detail {
 class FunctionBuilder;
@@ -165,17 +159,9 @@ public:
     }
 
     // see definitions in dsl/func.h
-    template<typename... Args>
-    [[nodiscard]] auto compile(const Kernel1D<Args...> &kernel) noexcept
-        -> typename Kernel1D<Args...>::shader_type;
-
-    template<typename... Args>
-    [[nodiscard]] auto compile(const Kernel2D<Args...> &kernel) noexcept
-        -> typename Kernel2D<Args...>::shader_type;
-
-    template<typename... Args>
-    [[nodiscard]] auto compile(const Kernel3D<Args...> &kernel) noexcept
-        -> typename Kernel3D<Args...>::shader_type;
+    template<size_t N, typename... Args>
+    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel) noexcept
+        -> typename Kernel<N, Args...>::shader_type;
 };
 
 }// namespace luisa::compute
