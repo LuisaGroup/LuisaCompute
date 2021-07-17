@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
         return std::make_tuple(a + b, a * b);
     };
 
-    Callable callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
+    Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
@@ -59,10 +59,7 @@ int main(int argc, char *argv[]) {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
-    // With C++17's deduction guides, omitting template arguments here is also supported, i.e.
-    // >>> Kernel kernel = [&](...) { ... }
-    //auto func = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept {
-    Kernel1D<void(Buffer<float>, uint)> kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
+    Kernel1D<Buffer<float>, uint> kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;

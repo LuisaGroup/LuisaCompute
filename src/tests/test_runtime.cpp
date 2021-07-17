@@ -58,11 +58,11 @@ int main(int argc, char *argv[]) {
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
-    auto add_mul = LUISA_CALLABLE(Var<int> a, Var<int> b) noexcept {
+    Callable add_mul = [](Var<int> a, Var<int> b) noexcept {
         return std::make_tuple(a + b, a * b);
     };
 
-    auto callable = LUISA_CALLABLE(Var<int> a, Var<int> b, Var<float> c) noexcept {
+    Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
         Constant int_consts = const_vector;
         return cast<float>(a) + int_consts[b].cast<float>() * c;
     };
@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
-    auto kernel = LUISA_KERNEL1D(BufferVar<float> buffer_float, Var<uint> count, TextureHeapVar heap) noexcept {
+    Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, TextureHeapVar heap) noexcept {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;

@@ -28,12 +28,12 @@ int main(int argc, char *argv[]) {
 
     std::vector<int> const_vector{1, 2, 3, 4};
 
-    auto callable = LUISA_CALLABLE($int a, $int b, $float c) noexcept {
+    Callable callable = [&]($int a, $int b, $float c) noexcept {
         $constant int_consts = const_vector;
         return cast<float>(int_consts[a]) + b.cast<float>() * c;
     };
 
-    auto kernel = LUISA_KERNEL1D($buffer<float> buffer_float, $uint count) noexcept {
+    Kernel1D kernel = [&]($buffer<float> buffer_float, $uint count) noexcept {
 
         $constant float_consts = {1.0f, 2.0f};
         $constant int_consts = const_vector;

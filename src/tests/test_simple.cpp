@@ -38,19 +38,19 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    auto load = LUISA_CALLABLE(BufferVar<float> buffer, Var<uint> index) noexcept {
+    Callable load = [](BufferVar<float> buffer, Var<uint> index) noexcept {
         return buffer[index];
     };
 
-    auto store = LUISA_CALLABLE(BufferVar<float> buffer, Var<uint> index, Var<float> value) noexcept {
+    Callable store = [](BufferVar<float> buffer, Var<uint> index, Var<float> value) noexcept {
         buffer[index] = value;
     };
 
-    auto add = LUISA_CALLABLE(Var<float> a, Var<float> b) noexcept {
+    Callable add = [](Var<float> a, Var<float> b) noexcept {
         return a + b;
     };
 
-    auto kernel_def = LUISA_KERNEL1D(BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
+    Kernel1D kernel_def = [&](BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
         set_block_size(256u);
         auto index = dispatch_id().x;
         store(result, index, add(load(source, index), x));
