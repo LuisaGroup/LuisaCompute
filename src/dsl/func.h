@@ -75,7 +75,7 @@ class Kernel {
 
     static_assert(
         N == 1u || N == 2u || N == 3u
-            || std::negation_v<std::disjunction<is_atomic<Args>...>>);
+        || std::negation_v<std::disjunction<is_atomic<Args>...>>);
 
 public:
     using shader_type = Shader<N, Args...>;
@@ -102,45 +102,49 @@ public:
     }
     Kernel(Kernel &&) noexcept = default;
     Kernel(const Kernel &) noexcept = default;
+    Kernel(Kernel<N, void(Args...)> kernel) noexcept
+        : _builder{std::move(kernel._builder)} {}
     Kernel &operator=(Kernel &&) noexcept = default;
     Kernel &operator=(const Kernel &) noexcept = default;
+    Kernel &operator=(Kernel<N, void(Args...)> rhs) noexcept {
+        _builder = std::move(rhs._builder);
+        return *this;
+    }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
 };
 
 template<size_t N, typename... Args>
-class Kernel<N, void(Args...)> : public Kernel<N, Args...> {
+struct Kernel<N, void(Args...)> : public Kernel<N, Args...> {
     using Kernel<N, Args...>::Kernel;
+    using Kernel<N, Args...>::operator=;
 };
 
-template<typename ...Args>
-class Kernel1D : public Kernel<1u, Args...> {
+template<typename... Args>
+struct Kernel1D : public Kernel<1u, Args...> {
     using Kernel<1u, Args...>::Kernel;
+    using Kernel<1u, Args...>::operator=;
 };
 
-template<typename ...Args>
-class Kernel2D : public Kernel<2u, Args...> {
+template<typename... Args>
+struct Kernel2D : public Kernel<2u, Args...> {
     using Kernel<2u, Args...>::Kernel;
+    using Kernel<2u, Args...>::operator=;
 };
 
-template<typename ...Args>
-class Kernel3D : public Kernel<3u, Args...> {
+template<typename... Args>
+struct Kernel3D : public Kernel<3u, Args...> {
     using Kernel<3u, Args...>::Kernel;
+    using Kernel<3u, Args...>::operator=;
 };
 
-template<typename ...Args>
-class Kernel1D<void(Args...)> : public Kernel1D<Args...> {
-    using Kernel1D<Args...>::Kernel1D;
-};
+template<typename... Args>
+struct is_kernel<Kernel1D<Args...>> : std::true_type {};
 
-template<typename ...Args>
-class Kernel2D<void(Args...)> : public Kernel2D<Args...> {
-    using Kernel2D<Args...>::Kernel2D;
-};
+template<typename... Args>
+struct is_kernel<Kernel2D<Args...>> : std::true_type {};
 
-template<typename ...Args>
-class Kernel3D<void(Args...)> : public Kernel3D<Args...> {
-    using Kernel3D<Args...>::Kernel3D;
-};
+template<typename... Args>
+struct is_kernel<Kernel3D<Args...>> : std::true_type {};
 
 // see declarations in runtime/device.h
 template<size_t N, typename... Args>
@@ -328,16 +332,6 @@ Kernel2D(T &&) -> Kernel2D<detail::function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
 Kernel3D(T &&) -> Kernel3D<detail::function_t<std::remove_cvref_t<T>>>;
-
-// Hurry up! Clang!!!
-// template<typename ...Args>
-// using K1D = Kernel1D<void(Args...)>;
-//
-// template<typename ...Args>
-// using K2D = Kernel2D<void(Args...)>;
-//
-// template<typename ...Args>
-// using K3D = Kernel3D<void(Args...)>;
 
 template<typename T>
 Callable(T &&) -> Callable<detail::function_t<std::remove_cvref_t<T>>>;

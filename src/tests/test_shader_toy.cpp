@@ -91,6 +91,9 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D<Image<float>, float> k = main_kernel;
+    main_kernel = k;
+    k = main_kernel;
+
     auto clear = device.compile(clear_kernel);
     auto shader = device.compile(k);
 
