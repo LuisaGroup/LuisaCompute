@@ -118,16 +118,17 @@ public:
 private:
     Handle _impl;
 
+    template<typename T, typename... Args>
+    [[nodiscard]] auto _create(Args &&...args) noexcept {
+        return T{this->_impl, std::forward<Args>(args)...};
+    }
+
 public:
     explicit Device(Handle handle) noexcept
         : _impl{std::move(handle)} {}
 
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
 
-    template<typename T, typename... Args>
-    [[nodiscard]] auto create(Args &&...args) noexcept {
-        return T{this->_impl, std::forward<Args>(args)...};
-    }
 
     [[nodiscard]] Stream create_stream() noexcept;
     [[nodiscard]] Event create_event() noexcept;
@@ -135,33 +136,34 @@ public:
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height) noexcept {
-        return create<Image<T>>(pixel, width, height);
+        return _create<Image<T>>(pixel, width, height);
     }
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size) noexcept {
-        return create<Image<T>>(pixel, size);
+        return _create<Image<T>>(pixel, size);
     }
 
     template<typename T>
     [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth) noexcept {
-        return create<Volume<T>>(pixel, width, height, depth);
+        return _create<Volume<T>>(pixel, width, height, depth);
     }
 
     template<typename T>
     [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size) noexcept {
-        return create<Volume<T>>(pixel, size);
+        return _create<Volume<T>>(pixel, size);
     }
 
     template<typename T>
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
-        return create<Buffer<T>>(size);
+        return _create<Buffer<T>>(size);
     }
 
     // see definitions in dsl/func.h
     template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel) noexcept
-        -> typename Kernel<N, Args...>::shader_type;
+    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel) noexcept {
+        return _create<Shader<N, Args...>>(kernel.function());
+    }
 };
 
 }// namespace luisa::compute

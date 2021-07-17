@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    auto buffer2 = device.create<Buffer<float>>(16384u);
+    auto buffer2 = device.create_buffer<float>(16384u);
     buffer = std::move(buffer2);
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
         buffer[v_int + 1] = 123.0f;
     };
     auto compiled_kernel = device.compile(kernel);
-    auto stream = device.create<Stream>();
+    auto stream = device.create_stream();
 
     Clock clock;
     stream << buffer.copy_from(data.data())

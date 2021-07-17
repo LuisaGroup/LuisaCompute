@@ -67,8 +67,26 @@ struct is_callable : std::false_type {};
 template<size_t N, typename... Args>
 class Kernel;
 
+template<typename...>
+class Kernel1D;
+
+template<typename...>
+class Kernel2D;
+
+template<typename...>
+class Kernel3D;
+
 template<size_t N, typename... Args>
 struct is_kernel<Kernel<N, Args...>> : std::true_type {};
+
+template<typename... Args>
+struct is_kernel<Kernel1D<Args...>> : std::true_type {};
+
+template<typename... Args>
+struct is_kernel<Kernel2D<Args...>> : std::true_type {};
+
+template<typename... Args>
+struct is_kernel<Kernel3D<Args...>> : std::true_type {};
 
 template<size_t N, typename... Args>
 class Kernel {
@@ -77,11 +95,19 @@ class Kernel {
         N == 1u || N == 2u || N == 3u
         || std::negation_v<std::disjunction<is_atomic<Args>...>>);
 
-public:
-    using shader_type = Shader<N, Args...>;
+    template<typename...>
+    friend class Kernel1D;
+
+    template<typename...>
+    friend class Kernel2D;
+
+    template<typename...>
+    friend class Kernel3D;
 
 private:
-    std::shared_ptr<const detail::FunctionBuilder> _builder{nullptr};
+    using SharedFunctionBuilder = std::shared_ptr<const detail::FunctionBuilder>;
+    SharedFunctionBuilder _builder{nullptr};
+    explicit Kernel(SharedFunctionBuilder builder) noexcept : _builder{std::move(builder)} {}
 
 public:
     template<typename Def,
@@ -100,58 +126,40 @@ public:
                 std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
         });
     }
-    Kernel(Kernel &&) noexcept = default;
-    Kernel(const Kernel &) noexcept = default;
-    Kernel(Kernel<N, void(Args...)> kernel) noexcept
-        : _builder{std::move(kernel._builder)} {}
-    Kernel &operator=(Kernel &&) noexcept = default;
-    Kernel &operator=(const Kernel &) noexcept = default;
-    Kernel &operator=(Kernel<N, void(Args...)> rhs) noexcept {
-        _builder = std::move(rhs._builder);
-        return *this;
-    }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
 };
 
-template<size_t N, typename... Args>
-struct Kernel<N, void(Args...)> : public Kernel<N, Args...> {
-    using Kernel<N, Args...>::Kernel;
-    using Kernel<N, Args...>::operator=;
-};
+#define LUISA_KERNE_BASE(N)                                      \
+public                                                           \
+    Kernel<N, Args...> {                                         \
+        using Kernel<N, Args...>::Kernel;                        \
+        Kernel##N##D(Kernel<N, Args...> k) noexcept              \
+            : Kernel<N, Args...>{std::move(k._builder)} {}       \
+        Kernel##N##D &operator=(Kernel<N, Args...> k) noexcept { \
+            this->_builder = std::move(k._builder);              \
+            return *this;                                        \
+        }                                                        \
+    }
 
 template<typename... Args>
-struct Kernel1D : public Kernel<1u, Args...> {
-    using Kernel<1u, Args...>::Kernel;
-    using Kernel<1u, Args...>::operator=;
-};
+struct Kernel1D : LUISA_KERNE_BASE(1);
 
 template<typename... Args>
-struct Kernel2D : public Kernel<2u, Args...> {
-    using Kernel<2u, Args...>::Kernel;
-    using Kernel<2u, Args...>::operator=;
-};
+struct Kernel2D : LUISA_KERNE_BASE(2);
 
 template<typename... Args>
-struct Kernel3D : public Kernel<3u, Args...> {
-    using Kernel<3u, Args...>::Kernel;
-    using Kernel<3u, Args...>::operator=;
-};
+struct Kernel3D : LUISA_KERNE_BASE(3);
 
 template<typename... Args>
-struct is_kernel<Kernel1D<Args...>> : std::true_type {};
+struct Kernel1D<void(Args...)> : LUISA_KERNE_BASE(1);
 
 template<typename... Args>
-struct is_kernel<Kernel2D<Args...>> : std::true_type {};
+struct Kernel2D<void(Args...)> : LUISA_KERNE_BASE(2);
 
 template<typename... Args>
-struct is_kernel<Kernel3D<Args...>> : std::true_type {};
+struct Kernel3D<void(Args...)> : LUISA_KERNE_BASE(3);
 
-// see declarations in runtime/device.h
-template<size_t N, typename... Args>
-auto Device::compile(const Kernel<N, Args...> &kernel) noexcept
-    -> typename Kernel<N, Args...>::shader_type {
-    return {this->_impl, kernel.function()};
-}
+#undef LUISA_KERNE_BASE
 
 namespace detail {
 

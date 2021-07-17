@@ -59,9 +59,9 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto n = 1024u * 1024u;
 
-    auto stream = device.create<Stream>();
-    auto buffer = device.create<Buffer<float>>(n);
-    auto result_buffer = device.create<Buffer<float>>(n);
+    auto stream = device.create_stream();
+    auto buffer = device.create_buffer<float>(n);
+    auto result_buffer = device.create_buffer<float>(n);
 
     std::vector<float> data(n);
     std::vector<float> results(n);

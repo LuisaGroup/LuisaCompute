@@ -10,15 +10,15 @@
 namespace luisa::compute {
 
 Stream Device::create_stream() noexcept {
-    return create<Stream>();
+    return _create<Stream>();
 }
 
 Event Device::create_event() noexcept {
-    return create<Event>();
+    return _create<Event>();
 }
 
 TextureHeap Device::create_texture_heap(size_t size) noexcept {
-    return create<TextureHeap>(size);
+    return _create<TextureHeap>(size);
 }
 
 }
