@@ -89,47 +89,4 @@ Stream::Delegate &&Stream::Delegate::operator<<(Stream::Synchronize) &&noexcept 
     return std::move(*this);
 }
 
-Stream::CommandBuffer::CommandBuffer(Stream *stream) noexcept
-    : _stream{stream} {}
-
-Stream::CommandBuffer::CommandBuffer(Stream::CommandBuffer &&another) noexcept
-    : _stream{another._stream},
-      _command_list{std::move(another._command_list)} { another._stream = nullptr; }
-
-Stream::CommandBuffer::~CommandBuffer() noexcept {
-    if (!_command_list.empty()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Destructing non-empty command buffer. "
-            "Did you forget to commit?");
-    }
-}
-
-Stream::CommandBuffer &Stream::CommandBuffer::operator<<(Command *cmd) &noexcept {
-    _command_list.append(cmd);
-    return *this;
-}
-
-void Stream::CommandBuffer::_commit() &noexcept {
-    if (!_command_list.empty()) {
-        _stream->_dispatch(std::move(_command_list));
-    }
-}
-
-Stream::CommandBuffer &Stream::CommandBuffer::operator<<(Event::Signal signal) &noexcept {
-    _commit();
-    *_stream << signal;
-    return *this;
-}
-
-Stream::CommandBuffer &Stream::CommandBuffer::operator<<(Event::Wait wait) &noexcept {
-    _commit();
-    *_stream << wait;
-    return *this;
-}
-
-Stream::CommandBuffer &Stream::CommandBuffer::operator<<(Stream::CommandBuffer::Commit) &noexcept {
-    _commit();
-    return *this;
-}
-
 }// namespace luisa::compute

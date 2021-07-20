@@ -10,37 +10,15 @@
 #include <runtime/device.h>
 #include <runtime/event.h>
 #include <runtime/command_list.h>
+#include <runtime/command_buffer.h>
 
 namespace luisa::compute {
 
 class Stream {
 
 public:
-    class CommandBuffer {
-
-    public:
-        struct Commit {};
-
-    private:
-        Stream *_stream;
-        CommandList _command_list;
-
-    private:
-        void _commit() &noexcept;
-
-    public:
-        explicit CommandBuffer(Stream *stream) noexcept;
-        CommandBuffer(CommandBuffer &&another) noexcept;
-        ~CommandBuffer() noexcept;
-        CommandBuffer &operator=(CommandBuffer &&) noexcept = delete;
-        CommandBuffer &operator<<(Command *cmd) &noexcept;
-        CommandBuffer &operator<<(Event::Signal) &noexcept;
-        CommandBuffer &operator<<(Event::Wait) &noexcept;
-        CommandBuffer &operator<<(Commit) &noexcept;
-        void commit() &noexcept { _commit(); }
-    };
-
     struct Synchronize {};
+    friend class CommandBuffer;
 
     class Delegate {
 
@@ -92,7 +70,6 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };
 
-[[nodiscard]] constexpr auto commit() noexcept { return Stream::CommandBuffer::Commit{}; }
 [[nodiscard]] constexpr auto synchronize() noexcept { return Stream::Synchronize{}; }
 
 }// namespace luisa::compute
