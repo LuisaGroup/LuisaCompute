@@ -56,20 +56,7 @@ namespace detail {
 LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_DECL
 
-class CommandRecycle : private CommandVisitor {
-
-#define LUISA_MAKE_COMMAND_RECYCLE(CMD) \
-    void visit(const CMD *command) noexcept override;
-    LUISA_MAP(LUISA_MAKE_COMMAND_RECYCLE, LUISA_ALL_COMMANDS)
-#undef LUISA_MAKE_COMMAND_RECYCLE
-
-public:
-    void operator()(class Command *command) noexcept;
-};
-
 }// namespace detail
-
-using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
 
 #define LUISA_MAKE_COMMAND_COMMON(Cmd)                                           \
     template<typename... Args>                                                   \
@@ -78,12 +65,12 @@ using CommandHandle = std::unique_ptr<Command, detail::CommandRecycle>;
         auto command = detail::pool_##Cmd().create(std::forward<Args>(args)...); \
         LUISA_VERBOSE_WITH_LOCATION(                                             \
             "Created {} in {} ms.", #Cmd, clock.toc());                          \
-        auto command_ptr = static_cast<Command *>(command.release());            \
-        return CommandHandle{command_ptr};                                       \
+        return command;                                                          \
     }                                                                            \
     void accept(CommandVisitor &visitor) const noexcept override {               \
         visitor.visit(this);                                                     \
-    }
+    }                                                                            \
+    void recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
 
 class Command {
 
@@ -110,6 +97,7 @@ public:
 private:
     std::array<Resource, max_resource_count> _resource_slots{};
     size_t _resource_count{0u};
+    Command *_next{nullptr};
 
 protected:
     void _use_resource(uint64_t handle, Resource::Tag tag, Usage usage) noexcept;
@@ -124,8 +112,21 @@ protected:
     ~Command() noexcept = default;
 
 public:
+    [[nodiscard]] Command *tail() noexcept {
+        auto p = this;
+        for (; p->_next != nullptr; p = p->_next) {}
+        return p;
+    }
+    [[nodiscard]] const Command *tail() const noexcept {
+        return const_cast<Command *>(this)->tail();
+    }
+    [[nodiscard]] auto next() const noexcept { return _next; }
+    Command *set_next(Command *cmd) noexcept {
+        return cmd == nullptr ? this : (_next = cmd)->tail();
+    }
     [[nodiscard]] std::span<const Resource> resources() const noexcept;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
+    virtual void recycle() noexcept = 0;
 };
 
 class BufferUploadCommand : public Command {

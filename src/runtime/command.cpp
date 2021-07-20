@@ -161,20 +161,6 @@ namespace detail {
 LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_IMPL
 
-void CommandRecycle::operator()(Command *command) noexcept {
-    command->accept(*this);
-}
-
-#define LUISA_MAKE_COMMAND_RECYCLE_VISIT(Cmd)                 \
-    void CommandRecycle::visit(const Cmd *command) noexcept { \
-        using Recycle = typename Pool<Cmd>::ObjectRecycle;    \
-        Recycle{&pool_##Cmd()}(                               \
-            const_cast<Cmd *>(                                \
-                static_cast<const volatile Cmd *>(command))); \
-    }
-LUISA_MAP(LUISA_MAKE_COMMAND_RECYCLE_VISIT, LUISA_ALL_COMMANDS)
-#undef LUISA_MAKE_COMMAND_RECYCLE_VISIT
-
 }// namespace detail
 
 }// namespace luisa::compute

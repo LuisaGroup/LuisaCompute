@@ -187,19 +187,6 @@ class Pool : concepts::Noncopyable {
         }
     };
 
-public:
-    class ObjectRecycle {
-
-    private:
-        Pool *_pool;
-
-    public:
-        explicit ObjectRecycle(Pool *pool) noexcept : _pool{pool} {}
-        void operator()(T *object) const noexcept { _pool->_recycle(object); }
-    };
-
-    using Object = std::unique_ptr<T, ObjectRecycle>;
-
 private:
     static_assert(std::is_trivially_destructible_v<T>);
     Arena &_arena;
@@ -207,21 +194,6 @@ private:
     spin_mutex _mutex;
     size_t _count{0u};
     size_t _total{0u};
-
-private:
-    void _recycle(T *object) noexcept {
-        auto node = Node::of(object);
-        auto [count, total] = [node, this] {
-            std::scoped_lock lock{_mutex};
-            node->next = _head;
-            _head = node;
-            _count++;
-            return std::make_pair(_count, _total);
-        }();
-        LUISA_VERBOSE_WITH_LOCATION(
-            "Recycled pool object at address {} (available = {}, total = {}).",
-            fmt::ptr(object), count, total);
-    }
 
 public:
     explicit Pool(Arena &arena) noexcept : _arena{arena} {}
@@ -247,7 +219,21 @@ public:
         LUISA_VERBOSE_WITH_LOCATION(
             "Created pool object at address {} (available = {}, total = {}).",
             fmt::ptr(object), count, total);
-        return Object{object, ObjectRecycle{this}};
+        return object;
+    }
+
+    void recycle(T *object) noexcept {
+        auto node = Node::of(object);
+        auto [count, total] = [node, this] {
+          std::scoped_lock lock{_mutex};
+          node->next = _head;
+          _head = node;
+          _count++;
+          return std::make_pair(_count, _total);
+        }();
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Recycled pool object at address {} (available = {}, total = {}).",
+            fmt::ptr(object), count, total);
     }
 };
 

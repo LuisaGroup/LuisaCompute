@@ -102,6 +102,6 @@ int main(int argc, char *argv[]) {
 
     auto shader = device.compile(kernel);
     auto command = shader(float_buffer, 12u).dispatch(1024u);
-    auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
+    auto launch_command = static_cast<ShaderDispatchCommand *>(command);
     LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
 }

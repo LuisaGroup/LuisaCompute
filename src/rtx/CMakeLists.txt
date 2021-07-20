@@ -1,8 +1,7 @@
 set(LUISA_COMPUTE_RTX_SOURCES
-    accel.cpp accel.h
+    geometry.cpp geometry.h
     ray.cpp ray.h
-    hit.cpp hit.h
-    mesh.cpp mesh.h)
+    hit.cpp hit.h)
 
 add_library(luisa-compute-rtx SHARED ${LUISA_COMPUTE_RTX_SOURCES})
 target_link_libraries(luisa-compute-rtx PUBLIC luisa-compute-runtime luisa-compute-dsl)

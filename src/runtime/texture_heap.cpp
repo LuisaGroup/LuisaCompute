@@ -106,7 +106,7 @@ void TextureHeap::destroy(uint32_t index) noexcept {
     }
 }
 
-CommandHandle detail::Texture2D::load(const void *pixels, uint mip_level) noexcept {
+Command *detail::Texture2D::load(const void *pixels, uint mip_level) noexcept {
     if (!validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     return TextureUploadCommand::create(
@@ -116,7 +116,7 @@ CommandHandle detail::Texture2D::load(const void *pixels, uint mip_level) noexce
         pixels);
 }
 
-CommandHandle detail::Texture2D::load(ImageView<float> image, uint mip_level) noexcept {
+Command *detail::Texture2D::load(ImageView<float> image, uint mip_level) noexcept {
     if (!validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     if (!all(mipmap_size == image.size())) {
@@ -135,7 +135,7 @@ CommandHandle detail::Texture2D::load(ImageView<float> image, uint mip_level) no
         make_uint3(mipmap_size, 1u));
 }
 
-CommandHandle detail::Texture3D::load(const void *pixels, uint mip_level) noexcept {
+Command *detail::Texture3D::load(const void *pixels, uint mip_level) noexcept {
     if (!validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     return TextureUploadCommand::create(
@@ -144,7 +144,7 @@ CommandHandle detail::Texture3D::load(const void *pixels, uint mip_level) noexce
         pixels);
 }
 
-CommandHandle detail::Texture3D::load(VolumeView<float> volume, uint mip_level) noexcept {
+Command *detail::Texture3D::load(VolumeView<float> volume, uint mip_level) noexcept {
     if (!validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     if (!all(mipmap_size == volume.size())) {

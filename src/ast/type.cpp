@@ -195,7 +195,7 @@ std::span<const Type *const> Type::members() const noexcept {
 }
 
 const Type *Type::element() const noexcept {
-    assert(is_array() || is_atomic() || is_vector() || is_matrix() || is_buffer() || is_texture());
+    assert(is_array() || is_vector() || is_matrix() || is_buffer() || is_texture());
     return _data->members.front();
 }
 

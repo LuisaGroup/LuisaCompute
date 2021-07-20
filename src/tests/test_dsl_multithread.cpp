@@ -111,7 +111,7 @@ int main(int argc, char *argv[]) {
 
             auto kernel = device.compile(kernel_def);
             auto command = kernel(float_buffer, 12u).dispatch(1024u);
-            auto function = static_cast<ShaderDispatchCommand *>(command.get())->kernel();
+            auto function = static_cast<ShaderDispatchCommand *>(command)->kernel();
 
             clock.tic();
             Codegen::Scratch scratch;

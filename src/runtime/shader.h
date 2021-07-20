@@ -44,13 +44,13 @@ using prototype_to_shader_invocation_t = typename prototype_to_shader_invocation
 class ShaderInvokeBase {
 
 private:
-    CommandHandle _command;
+    Command *_command;
     Function _kernel;
     size_t _argument_index{0u};
 
 private:
     [[nodiscard]] auto _dispatch_command() noexcept {
-        return static_cast<ShaderDispatchCommand *>(_command.get());
+        return static_cast<ShaderDispatchCommand *>(_command);
     }
 
 public:
@@ -117,8 +117,8 @@ public:
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) noexcept {
         _dispatch_command()->set_dispatch_size(dispatch_size);
-        CommandHandle command{nullptr};
-        command.swap(_command);
+        Command *command{nullptr};
+        std::swap(command, _command);
         return command;
     }
 };

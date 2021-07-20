@@ -46,11 +46,11 @@ public:
     [[nodiscard]] uint mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] uint2 size() const noexcept { return _size; }
 
-    [[nodiscard]] CommandHandle load(const void *pixels, uint mip_level = 0u) noexcept;
-    [[nodiscard]] CommandHandle load(ImageView<float> image, uint mip_level = 0u) noexcept;
+    [[nodiscard]] Command *load(const void *pixels, uint mip_level = 0u) noexcept;
+    [[nodiscard]] Command *load(ImageView<float> image, uint mip_level = 0u) noexcept;
 
     template<typename T>
-    [[nodiscard]] CommandHandle load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
+    [[nodiscard]] Command *load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
         if (!validate_mip_level(*this, mip_level)) { return nullptr; }
         auto mipmap_size = max(_size >> mip_level, 1u);
         return BufferToTextureCopyCommand::create(
@@ -80,11 +80,11 @@ public:
     [[nodiscard]] uint mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] uint3 size() const noexcept { return _size; }
 
-    [[nodiscard]] CommandHandle load(const void *pixels, uint mip_level = 0u) noexcept;
-    [[nodiscard]] CommandHandle load(VolumeView<float> image, uint mip_level = 0u) noexcept;
+    [[nodiscard]] Command *load(const void *pixels, uint mip_level = 0u) noexcept;
+    [[nodiscard]] Command *load(VolumeView<float> image, uint mip_level = 0u) noexcept;
 
     template<typename T>
-    [[nodiscard]] CommandHandle load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
+    [[nodiscard]] Command *load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
         if (!validate_mip_level(*this, mip_level)) { return nullptr; }
         auto mipmap_size = max(_size >> mip_level, 1u);
         return BufferToTextureCopyCommand::create(

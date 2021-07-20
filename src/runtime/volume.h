@@ -102,15 +102,15 @@ public:
             std::forward<Value>(value));
     }
 
-    [[nodiscard]] CommandHandle copy_to(void *data) const noexcept { return view().copy_to(data); }
-    [[nodiscard]] CommandHandle copy_from(const void *data) const noexcept { return view().copy_from(data); }
-    [[nodiscard]] CommandHandle copy_from(VolumeView<T> src) const noexcept { return view().copy_from(src); }
+    [[nodiscard]] Command *copy_to(void *data) const noexcept { return view().copy_to(data); }
+    [[nodiscard]] Command *copy_from(const void *data) const noexcept { return view().copy_from(data); }
+    [[nodiscard]] Command *copy_from(VolumeView<T> src) const noexcept { return view().copy_from(src); }
 
     template<typename U>
-    [[nodiscard]] CommandHandle copy_from(BufferView<U> src) const noexcept { return view().copy_from(src); }
+    [[nodiscard]] Command *copy_from(BufferView<U> src) const noexcept { return view().copy_from(src); }
 
     template<typename U>
-    [[nodiscard]] CommandHandle copy_to(BufferView<U> src) const noexcept { return view().copy_to(src); }
+    [[nodiscard]] Command *copy_to(BufferView<U> src) const noexcept { return view().copy_to(src); }
 };
 
 template<typename T>

@@ -32,7 +32,7 @@ public:
         Delegate &operator=(Delegate &&) noexcept = delete;
         Delegate &operator=(const Delegate &) noexcept = delete;
         ~Delegate() noexcept;
-        Delegate &operator<<(CommandHandle cmd) noexcept;
+        Delegate &operator<<(Command *cmd) noexcept;
         Stream &operator<<(Event::Signal signal) noexcept;
         Stream &operator<<(Event::Wait wait) noexcept;
     };
@@ -57,7 +57,7 @@ public:
     Stream &operator=(Stream &&rhs) noexcept;
     Stream &operator<<(Event::Signal signal) noexcept;
     Stream &operator<<(Event::Wait wait) noexcept;
-    Delegate operator<<(CommandHandle cmd) noexcept;
+    Delegate operator<<(Command *cmd) noexcept;
     void synchronize() noexcept;
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };

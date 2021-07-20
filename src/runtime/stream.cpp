@@ -11,9 +11,9 @@ void Stream::_dispatch(CommandBuffer command_buffer) noexcept {
     _device->dispatch(_handle, std::move(command_buffer));
 }
 
-Stream::Delegate Stream::operator<<(CommandHandle cmd) noexcept {
+Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
     Delegate delegate{this};
-    delegate << std::move(cmd);
+    delegate << cmd;
     return delegate;
 }
 
@@ -50,8 +50,8 @@ void Stream::_destroy() noexcept {
 
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
-Stream::Delegate &Stream::Delegate::operator<<(CommandHandle cmd) noexcept {
-    _command_buffer.append(std::move(cmd));
+Stream::Delegate &Stream::Delegate::operator<<(Command *cmd) noexcept {
+    _command_buffer.append(cmd);
     return *this;
 }
 
@@ -60,9 +60,7 @@ Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
 void Stream::Delegate::_commit() noexcept {
     if (_stream != nullptr && !_command_buffer.empty()) {
         LUISA_VERBOSE_WITH_LOCATION(
-            "Commit {} command{} to stream #{}.",
-            _command_buffer.size(),
-            _command_buffer.size() == 1u ? "" : "s",
+            "Committed command buffer to stream #{}.",
             _stream->_handle);
         _stream->_dispatch(std::move(_command_buffer));
         _stream = nullptr;
