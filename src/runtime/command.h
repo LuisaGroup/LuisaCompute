@@ -34,7 +34,10 @@ namespace luisa::compute {
         TextureToBufferCopyCommand, \
         AccelTraceClosestCommand,   \
         AccelTraceAnyCommand,       \
-        AccelUpdateCommand
+        AccelUpdateCommand,         \
+        AccelBuildCommand,          \
+        MeshUpdateCommand,          \
+        MeshBuildCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
@@ -424,7 +427,6 @@ private:
     Function _kernel;
     size_t _argument_buffer_size{0u};
     uint _dispatch_size[3]{};
-    uint _block_size[3]{};
     uint32_t _argument_count{0u};
     ArgumentBuffer _argument_buffer{};
 
@@ -440,7 +442,7 @@ public:
     //   1. captured buffers
     //   2. captured textures
     //   3. captured texture heaps
-    //   3. arguments
+    //   4. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
     void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
@@ -491,6 +493,26 @@ public:
         }
     }
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand)
+};
+
+class MeshBuildCommand : public Command {
+
+private:
+public:
+    LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
+};
+
+class MeshUpdateCommand : public Command {
+
+public:
+    LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
+};
+
+class AccelBuildCommand : public Command {
+
+private:
+public:
+    LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
 
 class AccelUpdateCommand : public Command {

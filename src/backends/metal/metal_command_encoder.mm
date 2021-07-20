@@ -293,5 +293,11 @@ void MetalCommandEncoder::visit(const AccelTraceAnyCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
 }
+void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
+}
+void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
+}
+void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
+}
 
 }

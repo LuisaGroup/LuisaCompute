@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class CommandBuffer : concepts::Noncopyable {
+class CommandList : concepts::Noncopyable {
 
 public:
     class Iterator {
@@ -20,12 +20,12 @@ public:
     public:
         explicit Iterator(Command *cmd) noexcept : _command{cmd} {}
         [[nodiscard]] decltype(auto) operator++() noexcept {
-            _command =_command->next();
+            _command = _command->next();
             return *this;
         }
         [[nodiscard]] auto operator++(int) noexcept {
             auto self = *this;
-            _command =_command->next();
+            _command = _command->next();
             return self;
         }
         [[nodiscard]] decltype(auto) operator*() const noexcept { return _command; }
@@ -40,10 +40,10 @@ private:
     void _recycle() noexcept;
 
 public:
-    CommandBuffer() noexcept = default;
-    ~CommandBuffer() noexcept;
-    CommandBuffer(CommandBuffer &&) noexcept;
-    CommandBuffer &operator=(CommandBuffer &&rhs) noexcept;
+    CommandList() noexcept = default;
+    ~CommandList() noexcept;
+    CommandList(CommandList &&) noexcept;
+    CommandList &operator=(CommandList &&rhs) noexcept;
 
     void append(Command *cmd) noexcept;
     [[nodiscard]] auto begin() const noexcept { return Iterator{_head}; }

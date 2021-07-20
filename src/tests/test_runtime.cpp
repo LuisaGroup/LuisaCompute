@@ -135,8 +135,8 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     stream << buffer.copy_from(data.data())
-           << buffer.copy_to(results.data());
-    stream.synchronize();
+           << buffer.copy_to(results.data())
+           << synchronize();
     LUISA_INFO("Finished in {} ms.", clock.toc());
 
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",

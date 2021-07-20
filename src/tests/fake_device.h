@@ -23,7 +23,7 @@ public:
     uint64_t create_stream() noexcept override { return _handle++; }
     void destroy_stream(uint64_t) noexcept override {}
     void synchronize_stream(uint64_t stream_handle) noexcept override {}
-    void dispatch(uint64_t stream_handle, CommandBuffer) noexcept override {}
+    void dispatch(uint64_t stream_handle, CommandList) noexcept override {}
     uint64_t create_shader(Function kernel) noexcept override { return _handle++; }
     void destroy_shader(uint64_t handle) noexcept override {}
     uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels,

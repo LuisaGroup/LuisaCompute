@@ -298,7 +298,7 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
     event(handle)->synchronize();
 }
 
-void MetalDevice::dispatch(uint64_t stream_handle, CommandBuffer buffer) noexcept {
+void MetalDevice::dispatch(uint64_t stream_handle, CommandList buffer) noexcept {
     auto s = stream(stream_handle);
     s->with_command_buffer([this,
                             &u = s->upload_ring_buffer(),

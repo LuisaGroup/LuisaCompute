@@ -67,30 +67,32 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto upload_stream = device.create_stream();
 
-    {
-        std::vector<uint8_t> mipmaps(image_width * image_height * 4u);
-        auto in_pixels = image_pixels;
-        auto out_pixels = mipmaps.data();
-        auto cmd = upload_stream << texture.load(image_pixels);
-        for (auto i = 1u; i < texture.mip_levels(); i++) {
-            auto half_w = std::max(image_width / 2, 1);
-            auto half_h = std::max(image_height / 2, 1);
-            stbir_resize_uint8_srgb_edgemode(
-                in_pixels,
-                image_width, image_height, 0,
-                out_pixels,
-                half_w, half_h, 0,
-                4, STBIR_ALPHA_CHANNEL_NONE, 0,
-                STBIR_EDGE_REFLECT);
-            image_width = half_w;
-            image_height = half_h;
-            stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
-            cmd << texture.load(out_pixels, i);
-            in_pixels = out_pixels;
-            out_pixels += image_width * image_height * 4u;
-        }
-        cmd << event.signal();
+    std::vector<uint8_t> mipmaps(image_width * image_height * 4u);
+    auto in_pixels = image_pixels;
+    auto out_pixels = mipmaps.data();
+
+    // generate mip-maps
+    auto cmd = upload_stream.command_buffer();
+    cmd << texture.load(image_pixels);
+    for (auto i = 1u; i < texture.mip_levels(); i++) {
+        auto half_w = std::max(image_width / 2, 1);
+        auto half_h = std::max(image_height / 2, 1);
+        stbir_resize_uint8_srgb_edgemode(
+            in_pixels,
+            image_width, image_height, 0,
+            out_pixels,
+            half_w, half_h, 0,
+            4, STBIR_ALPHA_CHANNEL_NONE, 0,
+            STBIR_EDGE_REFLECT);
+        image_width = half_w;
+        image_height = half_h;
+        stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
+        cmd << texture.load(out_pixels, i);
+        in_pixels = out_pixels;
+        out_pixels += image_width * image_height * 4u;
     }
+    cmd << event.signal()
+        << commit();
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()
@@ -98,8 +100,8 @@ int main(int argc, char *argv[]) {
                          device_image.view(make_uint2(128u), make_uint2(1024u - 256u)))
                   .dispatch(make_uint2(1024u - 256u))
            << device_image.view().copy_to(host_image.data())
-           << event.signal();
+           << event.signal()
+           << synchronize();
 
-    event.synchronize();
     stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
 }

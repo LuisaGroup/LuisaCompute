@@ -60,32 +60,39 @@ Command *Geometry::update() noexcept {
 }
 
 Command *Geometry::build() noexcept {
+    Command *command = nullptr;
+    Command *tail = nullptr;
     for (auto i = 0u; i < _mesh_built.size(); i++) {
         if (!_mesh_built[i]) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Mesh #{} at index {} in geometry #{} is not built.",
+            LUISA_WARNING_WITH_LOCATION(
+                "Mesh #{} at index {} in geometry #{} is not built; building it first.",
                 _mesh_handles[i], i, _handle);
+            // TODO...
         }
     }
     return nullptr;
 }
 
-void Geometry::_mark_built(uint mesh_index) noexcept {
+void Geometry::_mark_mesh_built(uint mesh_index) noexcept {
     _mesh_built[mesh_index] = true;
 }
 
-void Geometry::_mark_dirty(uint mesh_index) noexcept {
+void Geometry::_mark_dirty() noexcept {
     _dirty = true;
 }
 
 Command *detail::Mesh::build() const noexcept {
-    _geometry->_mark_built(_index);
+    _geometry->_mark_mesh_built(_index);
     return nullptr;
 }
 
 Command *detail::Mesh::update() const noexcept {
-    _geometry->_mark_dirty(_index);
+    _geometry->_mark_dirty();
     return nullptr;
+}
+
+uint64_t detail::Mesh::handle() const noexcept {
+    return _geometry->_mesh_handles[_index];
 }
 
 }// namespace luisa::compute

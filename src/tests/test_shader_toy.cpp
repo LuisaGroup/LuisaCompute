@@ -117,8 +117,8 @@ int main(int argc, char *argv[]) {
     while (time < max_time) {
         Clock clock;
         stream << shader(device_image, time).dispatch(width, height)
-               << device_image.copy_to(host_image.data);
-        stream.synchronize();
+               << device_image.copy_to(host_image.data)
+               << synchronize();
         LUISA_INFO("Frame #{} ({}%): {} ms", i++, (time + frame_time) / max_time * 100.0f, clock.toc());
         cv::cvtColor(host_image, frame, cv::COLOR_BGRA2BGR);
         video.write(frame);

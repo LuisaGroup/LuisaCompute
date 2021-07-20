@@ -44,8 +44,8 @@ int main(int argc, char *argv[]) {
     clock.tic();
     stream << buffer.copy_from(&host_buffer)
            << count(buffer).dispatch(102400u)
-           << buffer.copy_to(&host_buffer);
-    stream.synchronize();
+           << buffer.copy_to(&host_buffer)
+           << synchronize();
     auto time = clock.toc();
 
     LUISA_INFO("Count: {}, Time: {} ms", host_buffer, time);

@@ -202,7 +202,7 @@
 		<ClCompile Include="JobSystem/ThreadPool.cpp" />
 		<ClCompile Include="JobSystem/ThreadTaskHandle.cpp" />
 		<ClCompile Include="PipelineComponent/CommandAllocator.cpp" />
-		<ClCompile Include="PipelineComponent/CommandBuffer.cpp" />
+		<ClCompile Include="PipelineComponent/CommandList.cpp" />
 		<ClCompile Include="PipelineComponent/FrameResource.cpp" />
 		<ClCompile Include="PipelineComponent/RayTracing/RayTracingManager.cpp" />
 		<ClCompile Include="PipelineComponent/ThreadCommand.cpp" />
@@ -320,7 +320,7 @@
 		<ClInclude Include="PipelineComponent/CameraData/LightCBuffer.h" />
 		<ClInclude Include="PipelineComponent/CameraData/LightMacro.h" />
 		<ClInclude Include="PipelineComponent/CommandAllocator.h" />
-		<ClInclude Include="PipelineComponent/CommandBuffer.h" />
+		<ClInclude Include="PipelineComponent/CommandList.h" />
 		<ClInclude Include="PipelineComponent/CommandListType.h" />
 		<ClInclude Include="PipelineComponent/DXAllocator.h" />
 		<ClInclude Include="PipelineComponent/FrameResource.h" />

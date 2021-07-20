@@ -84,8 +84,8 @@ int main(int argc, char *argv[]) {
     stream << prev.copy_from(host_image.data);
     while (cv::waitKey(1) != 'q') {
         stream << shader(prev, curr).dispatch(width, height)
-               << curr.copy_to(host_image.data);
-        stream.synchronize();
+               << curr.copy_to(host_image.data)
+               << synchronize();
         std::swap(curr, prev);
         cv::imshow("Display", host_image);
     }

@@ -6,7 +6,7 @@
 #include <render_graph/rg_enum.h>
 #include <span>
 #include <initializer_list>
-#include <runtime/command_buffer.h>
+#include <runtime/command_list.h>
 namespace luisa::compute {
 class RGSystem;
 class RGExecutor;

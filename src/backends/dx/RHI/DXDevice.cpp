@@ -172,7 +172,7 @@ public:
 		stream->Sync(cpuFence.Get(), mtx);
 		FreeFrameResource(stream->GetSignal());
 	}
-	void dispatch(uint64 stream_handle, CommandBuffer cmd_buffer) noexcept override {
+	void dispatch(uint64 stream_handle, CommandList cmd_buffer) noexcept override {
 		EnableThreadLocal();
 		DXStream* stream = reinterpret_cast<DXStream*>(stream_handle);
 		stream->Execute(

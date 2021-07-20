@@ -69,15 +69,14 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     stream << buffer.copy_from(data.data());
-    {
-        auto s = stream << kernel(buffer, result_buffer, 2).dispatch(n);
-        for (auto i = 0; i < 10; i++) {
-            s << kernel(buffer, result_buffer, 3).dispatch(n);
-        }
+    auto command_buffer = stream.command_buffer();
+    for (auto i = 0; i < 10; i++) {
+        command_buffer << kernel(buffer, result_buffer, 3).dispatch(n);
     }
+    command_buffer << commit();
     stream << result_buffer.copy_to(results.data());
     auto t1 = clock.toc();
-    stream.synchronize();
+    stream << synchronize();
     auto t2 = clock.toc();
 
     LUISA_INFO("Dispatched in {} ms. Finished in {} ms.", t1, t2);

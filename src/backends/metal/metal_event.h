@@ -28,15 +28,19 @@ public:
             _last = command_buffer;
             return ++_counter;
         }();
-        [command_buffer encodeSignalEvent:_handle value:value];
+        [command_buffer encodeSignalEvent:_handle
+                                    value:value];
     }
 
     void wait(id<MTLCommandBuffer> command_buffer) noexcept {
-        [command_buffer encodeWaitForEvent:_handle
-                                     value:[this] {
-                                         std::scoped_lock lock{_mutex};
-                                         return _counter;
-                                     }()];
+        if (auto value = [this] {
+                std::scoped_lock lock{_mutex};
+                return _counter;
+            }();
+            value != 0u) {
+            [command_buffer encodeWaitForEvent:_handle
+                                         value:value];
+        }
     }
 
     void synchronize() noexcept {

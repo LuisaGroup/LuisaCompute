@@ -2,11 +2,11 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
-#include <runtime/command_buffer.h>
+#include <runtime/command_list.h>
 
 namespace luisa::compute {
 
-void CommandBuffer::_recycle() noexcept {
+void CommandList::_recycle() noexcept {
     while (_head != nullptr) {
         auto cmd = _head;
         _head = _head->next();
@@ -14,19 +14,19 @@ void CommandBuffer::_recycle() noexcept {
     }
 }
 
-void CommandBuffer::append(Command *cmd) noexcept {
+void CommandList::append(Command *cmd) noexcept {
     if (_head == nullptr) { _head = cmd; }
     _tail = _tail == nullptr ? cmd->tail() : _tail->set_next(cmd);
 }
 
-CommandBuffer::CommandBuffer(CommandBuffer &&another) noexcept
+CommandList::CommandList(CommandList &&another) noexcept
     : _head{another._head},
       _tail{another._tail} {
     another._head = nullptr;
     another._tail = nullptr;
 }
 
-CommandBuffer &CommandBuffer::operator=(CommandBuffer &&rhs) noexcept {
+CommandList &CommandList::operator=(CommandList &&rhs) noexcept {
     if (&rhs != this) {
         _recycle();
         _head = rhs._head;
@@ -37,6 +37,6 @@ CommandBuffer &CommandBuffer::operator=(CommandBuffer &&rhs) noexcept {
     return *this;
 }
 
-CommandBuffer::~CommandBuffer() noexcept { _recycle(); }
+CommandList::~CommandList() noexcept { _recycle(); }
 
 }// namespace luisa::compute

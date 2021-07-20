@@ -13,7 +13,7 @@
 #include <core/concepts.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>
-#include <runtime/command_buffer.h>
+#include <runtime/command_list.h>
 #include <runtime/texture_sampler.h>
 
 namespace luisa::compute {
@@ -80,7 +80,7 @@ public:
         [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
-        virtual void dispatch(uint64_t stream_handle, CommandBuffer) noexcept = 0;
+        virtual void dispatch(uint64_t stream_handle, CommandList) noexcept = 0;
 
         // kernel
         virtual uint64_t create_shader(Function kernel) noexcept = 0;
