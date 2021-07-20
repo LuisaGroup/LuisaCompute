@@ -132,7 +132,7 @@ public:
             f->if_(ret_cond, if_body, nullptr);
             def();
         });
-        return std::shared_ptr<const FunctionBuilder>{f, [](auto f) noexcept { delete f->_arena; }};
+        return std::shared_ptr<const FunctionBuilder>{f, [](FunctionBuilder *f) noexcept { delete f->_arena; }};
     }
 
     template<typename Def>
