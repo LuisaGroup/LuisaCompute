@@ -4,10 +4,12 @@
 
 #pragma once
 
+#include <bit>
 #include <span>
 #include <array>
 #include <vector>
 #include <memory>
+#include <concepts>
 
 #include <core/clock.h>
 #include <core/platform.h>
@@ -18,11 +20,17 @@
 
 namespace luisa {
 
-template<typename T, typename... Args>
-constexpr decltype(auto) construct_at(T *p, Args &&...args) {
-    return ::new (const_cast<void *>(static_cast<const volatile void *>(p)))
-        T(std::forward<Args>(args)...);
+using std::construct_at;
+using std::destroy_at;
+
+#ifdef __clang__
+template<typename To, typename From>
+[[nodiscard]] constexpr auto bit_cast(From &&src) noexcept {
+    return __builtin_bit_cast(To, std::forward<From>(src));
 }
+#else
+using std::bit_cast;
+#endif
 
 class Arena : public concepts::Noncopyable {
 
@@ -225,11 +233,11 @@ public:
     void recycle(T *object) noexcept {
         auto node = Node::of(object);
         auto [count, total] = [node, this] {
-          std::scoped_lock lock{_mutex};
-          node->next = _head;
-          _head = node;
-          _count++;
-          return std::make_pair(_count, _total);
+            std::scoped_lock lock{_mutex};
+            node->next = _head;
+            _head = node;
+            _count++;
+            return std::make_pair(_count, _total);
         }();
         LUISA_VERBOSE_WITH_LOCATION(
             "Recycled pool object at address {} (available = {}, total = {}).",

@@ -9,6 +9,8 @@
 
 namespace luisa::compute {
 
+using namespace luisa;
+
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto cast(detail::Expr<Src> s) noexcept { return s.template cast<Dest>(); }
 

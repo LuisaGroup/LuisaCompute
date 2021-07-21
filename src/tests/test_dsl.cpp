@@ -30,6 +30,9 @@ LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
 
+    constexpr auto f = 10;
+    auto g = bit_cast<uint>(f);
+
     luisa::log_level_verbose();
 
     Context context{argv[0]};
