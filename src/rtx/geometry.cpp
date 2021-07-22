@@ -6,93 +6,117 @@
 #include <rtx/geometry.h>
 
 namespace luisa::compute {
-/*
-detail::Expr<Hit> Accel::trace_closest(detail::Expr<Ray> ray) const noexcept {
-//    auto f = FunctionBuilder::current();
-//    f->mark_raytracing();
-//    return detail::Expr<Hit>{
-//        f->call(Type::of<Hit>(), CallOp::TRACE_CLOSEST,
-//                {detail::extract_expression(_handle), ray.expression()})};
+
+Accel::Accel(Device::Handle device) noexcept
+    : _device{std::move(device)},
+      _handle{_device->create_accel()} {}
+
+void Accel::_destroy() noexcept {
+    if (*this) { _device->destroy_accel(_handle); }
 }
 
-detail::Expr<bool> Accel::trace_any(detail::Expr<Ray> ray) const noexcept {
-//    auto f = FunctionBuilder::current();
-//    f->mark_raytracing();
-//    return detail::Expr<bool>{
-//        f->call(Type::of<bool>(), CallOp::TRACE_ANY,
-//                {detail::extract_expression(_handle), ray.expression()})};
-}
-*/
-Command *Geometry::trace_closest(BufferView<Ray> rays, BufferView<Hit> hits) const noexcept {
-    return nullptr;
-}
-Command *Geometry::trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits) const noexcept {
+Accel::~Accel() noexcept { _destroy(); }
+
+Command *Accel::trace_closest(BufferView<Ray> rays, BufferView<Hit> hits) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::trace_closest(BufferView<Ray> rays, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept {
+Command *Accel::trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept {
+Command *Accel::trace_closest(BufferView<Ray> rays, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::trace_any(BufferView<Ray> rays, BufferView<bool> hits) const noexcept {
+Command *Accel::trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits) const noexcept {
+Command *Accel::trace_any(BufferView<Ray> rays, BufferView<bool> hits) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::trace_any(BufferView<Ray> rays, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept {
+Command *Accel::trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept {
+Command *Accel::trace_any(BufferView<Ray> rays, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::update() noexcept {
-    _dirty = false;
+Command *Accel::trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept {
+    _check_built();
     return nullptr;
 }
 
-Command *Geometry::build() noexcept {
-    Command *command = nullptr;
-    Command *tail = nullptr;
-    for (auto i = 0u; i < _mesh_built.size(); i++) {
-        if (!_mesh_built[i]) {
-            LUISA_WARNING_WITH_LOCATION(
-                "Mesh #{} at index {} in geometry #{} is not built; building it first.",
-                _mesh_handles[i], i, _handle);
-            // TODO...
-        }
+Command *Accel::update() noexcept {
+    if (!_built) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Geometry #{} is not built when updating.",
+            _handle);
     }
-    return nullptr;
+    _dirty = false;
+    return AccelUpdateCommand::create(_handle, _instance_transforms);
 }
 
-void Geometry::_mark_mesh_built(uint mesh_index) noexcept {
-    _mesh_built[mesh_index] = true;
+Command *Accel::build(AccelBuildMode mode) noexcept {
+    _built = true;
+    _dirty = false;
+    return AccelBuildCommand::create(
+        _handle, mode,
+        _instance_mesh_handles, _instance_transforms);
 }
 
-void Geometry::_mark_dirty() noexcept {
-    _dirty = true;
+void Accel::_mark_dirty() noexcept { _dirty = true; }
+
+Instance Accel::add(const Mesh &mesh, float4x4 transform) noexcept {
+    auto instance_index = _instance_mesh_handles.size();
+    _instance_mesh_handles.emplace_back(mesh.handle());
+    _instance_transforms.emplace_back(transform);
+    _built = false;// adding instances requires rebuilding
+    return {this, instance_index};
 }
 
-Command *detail::Mesh::build() const noexcept {
-    _geometry->_mark_mesh_built(_index);
-    return nullptr;
+Instance Accel::instance(size_t i) noexcept {
+    return {this, i};
 }
 
-Command *detail::Mesh::update() const noexcept {
+void Accel::_check_built() const noexcept {
+    if (!_built) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Geometry #{} is not built.",
+            _handle);
+    }
+}
+
+Accel &Accel::operator=(Accel &&rhs) noexcept {
+    if (&rhs != this) {
+        _destroy();
+        _device = std::move(rhs._device);
+        _handle = rhs._handle;
+        _instance_mesh_handles = std::move(rhs._instance_mesh_handles);
+        _instance_transforms = std::move(rhs._instance_transforms);
+        _built = rhs._built;
+        _dirty = rhs._dirty;
+    }
+    return *this;
+}
+
+void Instance::set_transform(float4x4 m) noexcept {
+    _geometry->_instance_transforms[_index] = m;
     _geometry->_mark_dirty();
-    return nullptr;
 }
 
-uint64_t detail::Mesh::handle() const noexcept {
-    return _geometry->_mesh_handles[_index];
+uint64_t Instance::mesh() const noexcept {
+    return _geometry->_instance_mesh_handles[_index];
 }
 
 }// namespace luisa::compute

@@ -234,6 +234,16 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             [argument_encoder setBuffer:desc_buffer offset:0u atIndex:arg_id];
             [compute_encoder useResource:desc_buffer usage:MTLResourceUsageRead];
             [compute_encoder useHeap:heap->handle()];
+        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Encoding geometry #{} at index {}.",
+                argument.handle, argument_index);
+//            auto heap = _device->heap(argument.handle);
+//            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
+//            auto desc_buffer = heap->desc_buffer();
+//            [argument_encoder setBuffer:desc_buffer offset:0u atIndex:arg_id];
+//            [compute_encoder useResource:desc_buffer usage:MTLResourceUsageRead];
+//            [compute_encoder useHeap:heap->handle()];
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());

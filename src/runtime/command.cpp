@@ -146,8 +146,23 @@ void ShaderDispatchCommand::encode_texture_heap(uint32_t variable_uid, uint64_t 
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureHeapArgument));
-    _use_resource(handle, Resource::Tag::TEXTURE, Usage::READ);
+    _use_resource(handle, Resource::Tag::TEXTURE_HEAP, Usage::READ);
     _argument_buffer_size += sizeof(TextureHeapArgument);
+    _argument_count++;
+}
+
+void ShaderDispatchCommand::encode_geometry(uint32_t variable_uid, uint64_t handle) noexcept {
+    constexpr auto size = sizeof(AccelArgument);
+    if (_argument_buffer_size + size > _argument_buffer.size()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to encode geometry. "
+            "Shader argument buffer exceeded size limit {}.",
+            _argument_buffer.size());
+    }
+    AccelArgument argument{variable_uid, handle};
+    std::memcpy(_argument_buffer.data() + _argument_buffer_size, &argument, size);
+    _use_resource(handle, Resource::Tag::GEOMETRY, Usage::READ);
+    _argument_buffer_size += size;
     _argument_count++;
 }
 

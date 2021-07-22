@@ -54,14 +54,8 @@ private:
 
 public:
     Volume() noexcept = default;
-    Volume(Volume &&another) noexcept
-        : _device{std::move(another._device)},
-          _handle{another._handle},
-          _size{another._size},
-          _storage{another._storage} {}
-
     ~Volume() noexcept { _destroy(); }
-
+    Volume(Volume &&another) noexcept = default;
     Volume &operator=(Volume &&rhs) noexcept {
         if (&rhs != this) {
             _destroy();

@@ -15,10 +15,6 @@ Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
     return Delegate{this} << cmd;
 }
 
-Stream::Stream(Stream &&s) noexcept
-    : _device{std::move(s._device)},
-      _handle{s._handle} {}
-
 Stream::~Stream() noexcept { _destroy(); }
 
 Stream &Stream::operator=(Stream &&rhs) noexcept {

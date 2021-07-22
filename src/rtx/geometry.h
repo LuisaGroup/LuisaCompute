@@ -8,57 +8,53 @@
 #include <runtime/buffer.h>
 #include <rtx/ray.h>
 #include <rtx/hit.h>
+#include <rtx/mesh.h>
 
 namespace luisa::compute {
 
-struct Triangle {
-    uint i[3];
-};
+class Accel;
 
-class Geometry;
-
-namespace detail {
-
-class Mesh {
+class Instance {
 
 private:
-    Geometry *_geometry;
-    uint _index;
-    BufferView<float3> _vertices;
-    BufferView<Triangle> _triangles;
+    Accel *_geometry;
+    size_t _index;
+
+private:
+    friend class Accel;
+    Instance(Accel *geom, size_t index) noexcept
+        : _geometry{geom}, _index{index} {}
 
 public:
-    Mesh(Geometry *geom, uint index, BufferView<float3> vertices, BufferView<Triangle> triangles) noexcept
-        : _geometry{geom}, _index{index}, _vertices{vertices}, _triangles{triangles} {}
-    [[nodiscard]] Command *build() const noexcept;
-    [[nodiscard]] Command *update() const noexcept;
-    [[nodiscard]] uint64_t handle() const noexcept;
-    [[nodiscard]] auto vertex_buffer() const noexcept { return _vertices; }
-    [[nodiscard]] auto triangle_buffer() const noexcept { return _triangles; }
+    [[nodiscard]] uint64_t mesh() const noexcept;
+    void set_transform(float4x4 m) noexcept;
 };
 
-}
-
-class Geometry : concepts::Noncopyable {
+class Accel : concepts::Noncopyable {
 
 private:
-    Device::Interface *_device;
+    Device::Handle _device;
     uint64_t _handle;
-    std::vector<uint64_t> _mesh_handles;
     std::vector<uint64_t> _instance_mesh_handles;
     std::vector<float4x4> _instance_transforms;
-    std::vector<bool> _mesh_built;
     bool _built{false};
     bool _dirty{false};
 
 private:
-    friend class detail::Mesh;
-    void _mark_mesh_built(uint mesh_index) noexcept;
+    friend class Device;
+    friend class Mesh;
+    friend class Instance;
+
+    explicit Accel(Device::Handle device) noexcept;
+
+    void _destroy() noexcept;
     void _mark_dirty() noexcept;
+    void _check_built() const noexcept;
 
 public:
-    ~Geometry() noexcept { _device->destroy_accel(_handle); }
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    ~Accel() noexcept;
+    Accel(Accel &&) noexcept = default;
+    Accel &operator=(Accel &&rhs) noexcept;
     [[nodiscard]] Command *trace_closest(BufferView<Ray> rays, BufferView<Hit> hits) const noexcept;
     [[nodiscard]] Command *trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits) const noexcept;
     [[nodiscard]] Command *trace_closest(BufferView<Ray> rays, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept;
@@ -68,9 +64,10 @@ public:
     [[nodiscard]] Command *trace_any(BufferView<Ray> rays, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept;
     [[nodiscard]] Command *trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept;
     [[nodiscard]] Command *update() noexcept;
-    [[nodiscard]] Command *build() noexcept;
+    [[nodiscard]] Command *build(AccelBuildMode mode) noexcept;
+    [[nodiscard]] Instance add(const Mesh &mesh, float4x4 transform) noexcept;
+    [[nodiscard]] Instance instance(size_t i) noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };
 
-}
-
-LUISA_STRUCT(luisa::compute::Triangle, i)
+}// namespace luisa::compute

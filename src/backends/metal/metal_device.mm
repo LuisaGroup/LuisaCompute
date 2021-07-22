@@ -324,9 +324,7 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
     return _event_slots[handle].get();
 }
 
-uint64_t MetalDevice::create_mesh(uint64_t stream_handle,
-                                  uint64_t vertex_buffer_handle, size_t vertex_buffer_offset_bytes, size_t vertex_count,
-                                  uint64_t index_buffer_handle, size_t index_buffer_offset_bytes, size_t triangle_count) noexcept {
+uint64_t MetalDevice::create_mesh() noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
@@ -334,10 +332,7 @@ void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
-uint64_t MetalDevice::create_accel(uint64_t stream_handle,
-                                   uint64_t mesh_handle_buffer_handle, size_t mesh_handle_buffer_offset_bytes,
-                                   uint64_t transform_buffer_handle, size_t transform_buffer_offset_bytes,
-                                   size_t mesh_count) noexcept {
+uint64_t MetalDevice::create_accel() noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 

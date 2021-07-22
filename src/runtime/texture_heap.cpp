@@ -6,12 +6,6 @@
 
 namespace luisa::compute {
 
-TextureHeap::TextureHeap(TextureHeap &&another) noexcept
-    : _device{std::move(another._device)},
-      _handle{another._handle},
-      _capacity{another._capacity},
-      _slots{std::move(another._slots)} {}
-
 TextureHeap &TextureHeap::operator=(TextureHeap &&rhs) noexcept {
     if (&rhs != this) {
         _destroy();
@@ -36,7 +30,14 @@ constexpr auto TextureHeap::_compute_mip_levels(uint3 size, uint requested_level
 }
 
 void TextureHeap::_destroy() noexcept {
-    if (*this) { _device->destroy_texture_heap(_handle); }
+    if (*this) {
+        for (auto texture : _slots) {
+            if (texture != invalid_handle) {
+                _device->destroy_texture(texture);
+            }
+        }
+        _device->destroy_texture_heap(_handle);
+    }
 }
 
 TextureHeap::~TextureHeap() noexcept { _destroy(); }
@@ -47,7 +48,7 @@ TextureHeap::TextureHeap(Device::Handle device, size_t capacity) noexcept
       _capacity{capacity},
       _slots(slot_count, invalid_handle) {}
 
-detail::Texture2D TextureHeap::create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
+Texture2D TextureHeap::create(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
     if (auto h = _slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",
@@ -71,7 +72,7 @@ detail::Texture2D TextureHeap::create(uint index, PixelStorage storage, uint2 si
     return {handle, storage, valid_mip_levels, size};
 }
 
-detail::Texture3D TextureHeap::create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
+Texture3D TextureHeap::create(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
     if (auto h = _slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",
@@ -106,8 +107,8 @@ void TextureHeap::destroy(uint32_t index) noexcept {
     }
 }
 
-Command *detail::Texture2D::load(const void *pixels, uint mip_level) noexcept {
-    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+Command *Texture2D::load(const void *pixels, uint mip_level) noexcept {
+    if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     return TextureUploadCommand::create(
         _handle, _storage, mip_level,
@@ -116,8 +117,8 @@ Command *detail::Texture2D::load(const void *pixels, uint mip_level) noexcept {
         pixels);
 }
 
-Command *detail::Texture2D::load(ImageView<float> image, uint mip_level) noexcept {
-    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+Command *Texture2D::load(ImageView<float> image, uint mip_level) noexcept {
+    if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     if (!all(mipmap_size == image.size())) {
         LUISA_WARNING_WITH_LOCATION(
@@ -135,8 +136,8 @@ Command *detail::Texture2D::load(ImageView<float> image, uint mip_level) noexcep
         make_uint3(mipmap_size, 1u));
 }
 
-Command *detail::Texture3D::load(const void *pixels, uint mip_level) noexcept {
-    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+Command *Texture3D::load(const void *pixels, uint mip_level) noexcept {
+    if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     return TextureUploadCommand::create(
         _handle, _storage, mip_level,
@@ -144,8 +145,8 @@ Command *detail::Texture3D::load(const void *pixels, uint mip_level) noexcept {
         pixels);
 }
 
-Command *detail::Texture3D::load(VolumeView<float> volume, uint mip_level) noexcept {
-    if (!validate_mip_level(*this, mip_level)) { return nullptr; }
+Command *Texture3D::load(VolumeView<float> volume, uint mip_level) noexcept {
+    if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     if (!all(mipmap_size == volume.size())) {
         LUISA_WARNING_WITH_LOCATION(

@@ -57,15 +57,8 @@ private:
 
 public:
     Image() noexcept = default;
-
-    Image(Image &&another) noexcept
-        : _device{std::move(another._device)},
-          _handle{another._handle},
-          _size{another._size},
-          _storage{another._storage} {}
-
     ~Image() noexcept { _destroy(); }
-
+    Image(Image &&another) noexcept = default;
     Image &operator=(Image &&rhs) noexcept {
         if (&rhs != this) {
             _destroy();

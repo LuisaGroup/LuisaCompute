@@ -185,11 +185,7 @@ public:
     Shader() noexcept = default;
     ~Shader() noexcept { _destroy(); }
 
-    Shader(Shader &&another) noexcept
-        : _device{std::move(another._device)},
-          _handle{another._handle},
-          _kernel{std::move(another._kernel)} {}
-
+    Shader(Shader &&another) noexcept = default;
     Shader &operator=(Shader &&rhs) noexcept {
         if (this != &rhs) {
             _destroy();

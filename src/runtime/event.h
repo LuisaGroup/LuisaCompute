@@ -30,7 +30,7 @@ public:
     Event() noexcept = default;
     ~Event() noexcept;
     
-    Event(Event &&another) noexcept;
+    Event(Event &&another) noexcept = default;
     Event &operator=(Event &&rhs) noexcept;
 
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }

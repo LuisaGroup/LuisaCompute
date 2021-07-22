@@ -13,10 +13,6 @@ Event::Event(Device::Handle device) noexcept
 
 Event::~Event() noexcept { _destroy(); }
 
-Event::Event(Event &&another) noexcept
-    : _device{std::move(another._device)},
-      _handle{another._handle} {}
-
 Event &Event::operator=(Event &&rhs) noexcept {
     if (this != &rhs) {
         _destroy();

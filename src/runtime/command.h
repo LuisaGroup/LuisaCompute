@@ -85,7 +85,9 @@ public:
         enum struct Tag : uint32_t {
             NONE,
             BUFFER,
-            TEXTURE
+            TEXTURE,
+            TEXTURE_HEAP,
+            GEOMETRY
         };
 
         uint64_t handle{0u};
@@ -373,7 +375,8 @@ public:
             BUFFER,
             TEXTURE,
             UNIFORM,
-            TEXTURE_HEAP
+            TEXTURE_HEAP,
+            ACCEL,
         };
 
         Tag tag;
@@ -420,6 +423,14 @@ public:
               handle{handle} {}
     };
 
+    struct AccelArgument : Argument {
+        uint64_t handle{};
+        AccelArgument() noexcept : Argument{Tag::ACCEL, 0u} {}
+        AccelArgument(uint32_t vid, uint64_t handle) noexcept
+            : Argument{Tag::ACCEL, vid},
+              handle{handle} {}
+    };
+
     struct ArgumentBuffer : std::array<std::byte, 2048u> {};
 
 private:
@@ -442,11 +453,13 @@ public:
     //   1. captured buffers
     //   2. captured textures
     //   3. captured texture heaps
+    //   4. captured acceleration structures
     //   4. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
     void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
     void encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept;
+    void encode_geometry(uint32_t variable_uid, uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
@@ -485,6 +498,13 @@ public:
                     p += sizeof(TextureHeapArgument);
                     break;
                 }
+                case Argument::Tag::ACCEL: {
+                    AccelArgument arg;
+                    std::memcpy(&arg, p, sizeof(AccelArgument));
+                    visit(argument.variable_uid, arg);
+                    p += sizeof(AccelArgument);
+                    break;
+                }
                 default: {
                     LUISA_ERROR_WITH_LOCATION("Invalid argument.");
                     break;
@@ -495,29 +515,89 @@ public:
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand)
 };
 
+enum struct AccelBuildMode {
+    FAST_BUILD,
+    FAST_UPDATE
+};
+
 class MeshBuildCommand : public Command {
 
 private:
+    uint64_t _handle;
+    AccelBuildMode _mode;
+    uint64_t _vertex_buffer_handle;
+    size_t _vertex_buffer_offset;
+    size_t _vertex_stride;
+    size_t _vertex_count;
+    uint64_t _triangle_buffer_handle;
+    size_t _triangle_buffer_offset;
+    size_t _triangle_count;
+
 public:
+    MeshBuildCommand(uint64_t handle, AccelBuildMode mode,
+                     uint64_t v_handle, size_t v_offset, size_t v_stride, size_t v_count,
+                     uint64_t t_handle, size_t t_offset, size_t t_count) noexcept
+        : _handle{handle}, _mode{mode},
+          _vertex_buffer_handle{v_handle}, _vertex_buffer_offset{v_offset}, _vertex_stride{v_stride}, _vertex_count{v_count},
+          _triangle_buffer_handle{t_handle}, _triangle_buffer_offset{t_offset}, _triangle_count{t_count} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto vertex_buffer_handle() const noexcept { return _vertex_buffer_handle; }
+    [[nodiscard]] auto vertex_buffer_offset() const noexcept { return _vertex_buffer_offset; }
+    [[nodiscard]] auto vertex_stride() const noexcept { return _vertex_stride; }
+    [[nodiscard]] auto vertex_count() const noexcept { return _vertex_count; }
+    [[nodiscard]] auto triangle_buffer_handle() const noexcept { return _triangle_buffer_handle; }
+    [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
+    [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
+    [[nodiscard]] auto mode() const noexcept { return _mode; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
 class MeshUpdateCommand : public Command {
 
+private:
+    uint64_t _handle;
+
 public:
+    explicit MeshUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
     LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
 };
 
 class AccelBuildCommand : public Command {
 
 private:
+    uint64_t _handle;
+    AccelBuildMode _mode;
+    std::span<const uint64_t> _instance_mesh_handles;
+    std::span<const float4x4> _instance_transforms;
+
 public:
+    AccelBuildCommand(uint64_t handle, AccelBuildMode mode,
+                      std::span<const uint64_t> instance_mesh_handles,
+                      std::span<const float4x4> instance_transforms) noexcept
+        : _handle{handle}, _mode{mode},
+          _instance_mesh_handles{instance_mesh_handles},
+          _instance_transforms{instance_transforms} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto mode() const noexcept { return _mode; }
+    [[nodiscard]] auto instance_mesh_handles() const noexcept { return _instance_mesh_handles; }
+    [[nodiscard]] auto instance_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
 
 class AccelUpdateCommand : public Command {
 
+private:
+    uint64_t _handle;
+    std::span<const float4x4> _instance_transforms;
+
 public:
+    AccelUpdateCommand(uint64_t handle,
+                       std::span<const float4x4> instance_transforms) noexcept
+        : _handle{handle},
+          _instance_transforms{instance_transforms} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto instance_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 

@@ -58,7 +58,7 @@ private:
 
 public:
     Stream() noexcept = default;
-    Stream(Stream &&s) noexcept;
+    Stream(Stream &&s) noexcept = default;
     ~Stream() noexcept;
     Stream &operator=(Stream &&rhs) noexcept;
     Stream &operator<<(Event::Signal signal) noexcept;

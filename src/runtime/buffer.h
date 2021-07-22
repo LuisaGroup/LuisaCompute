@@ -47,12 +47,9 @@ private:
 
 public:
     Buffer() noexcept = default;
+    ~Buffer() noexcept { _destroy(); }
 
-    Buffer(Buffer &&another) noexcept
-        : _device{std::move(another._device)},
-          _handle{another._handle},
-          _size{another._size} {}
-
+    Buffer(Buffer &&another) noexcept = default;
     Buffer &operator=(Buffer &&rhs) noexcept {
         if (&rhs != this) {
             _destroy();
@@ -62,8 +59,6 @@ public:
         }
         return *this;
     }
-
-    ~Buffer() noexcept { _destroy(); }
 
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 
