@@ -35,7 +35,6 @@ int main(int argc, char *argv[]) {
 
     Kernel2D clear_image_kernel = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
         image.write(coord, make_float4(make_float2(0.3f, 0.4f), 0.5f, 1.0f));
     };
 

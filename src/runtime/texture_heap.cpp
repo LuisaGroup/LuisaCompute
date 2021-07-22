@@ -6,6 +6,10 @@
 
 namespace luisa::compute {
 
+TextureHeap Device::create_texture_heap(size_t size) noexcept {
+    return _create<TextureHeap>(size);
+}
+
 TextureHeap &TextureHeap::operator=(TextureHeap &&rhs) noexcept {
     if (&rhs != this) {
         _destroy();

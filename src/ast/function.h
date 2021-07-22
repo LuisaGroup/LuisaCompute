@@ -52,6 +52,13 @@ public:
             : variable{v}, handle{handle} {}
     };
 
+    struct AccelBinding {
+        Variable variable;
+        uint64_t handle;
+        AccelBinding(Variable v, uint64_t handle) noexcept
+            : variable{v}, handle{handle} {}
+    };
+
     struct ConstantBinding {
         const Type *type{nullptr};
         ConstantData data;
@@ -72,6 +79,7 @@ public:
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
     [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
     [[nodiscard]] std::span<const TextureHeapBinding> captured_texture_heaps() const noexcept;
+    [[nodiscard]] std::span<const AccelBinding> captured_accels() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const Function> custom_callables() const noexcept;
     [[nodiscard]] std::span<const CallOp> builtin_callables() const noexcept;

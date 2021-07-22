@@ -7,6 +7,10 @@
 
 namespace luisa::compute {
 
+Stream Device::create_stream() noexcept {
+    return _create<Stream>();
+}
+
 void Stream::_dispatch(CommandList command_buffer) noexcept {
     _device->dispatch(_handle, std::move(command_buffer));
 }

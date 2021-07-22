@@ -23,6 +23,8 @@ class Context;
 class Event;
 class Stream;
 class TextureHeap;
+class Mesh;
+class Accel;
 
 template<typename T>
 class Buffer;
@@ -118,10 +120,11 @@ public:
 
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
 
-
-    [[nodiscard]] Stream create_stream() noexcept;
-    [[nodiscard]] Event create_event() noexcept;
-    [[nodiscard]] TextureHeap create_texture_heap(size_t size = 128_mb) noexcept;
+    [[nodiscard]] Stream create_stream() noexcept;                               // see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;                                 // see definition in runtime/event.cpp
+    [[nodiscard]] TextureHeap create_texture_heap(size_t size = 128_mb) noexcept;// see definition in runtime/texture_heap.cpp
+    [[nodiscard]] Mesh create_mesh() noexcept;                                   // see definition in rtx/mesh.cpp
+    [[nodiscard]] Accel create_accel() noexcept;                                 // see definition in rtx/accel.cpp
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height) noexcept {

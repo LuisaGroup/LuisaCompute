@@ -259,6 +259,7 @@ FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcep
       _captured_buffers{*arena},
       _captured_textures{*arena},
       _captured_heaps{*arena},
+      _captured_accels{*arena},
       _arguments{*arena},
       _used_custom_callables{*arena},
       _used_builtin_callables{*arena},
@@ -357,6 +358,25 @@ const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
 
 const RefExpr *FunctionBuilder::texture_heap() noexcept {
     Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return _ref(v);
+}
+
+const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
+    if (auto iter = std::find_if(
+            _captured_accels.cbegin(),
+            _captured_accels.cend(),
+            [handle](auto &&binding) { return binding.handle == handle; });
+        iter != _captured_accels.cend()) {
+        return _ref(iter->variable);
+    }
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
+    _captured_accels.emplace_back(AccelBinding{v, handle});
+    return _ref(v);
+}
+
+const RefExpr *FunctionBuilder::accel() noexcept {
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }

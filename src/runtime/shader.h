@@ -11,6 +11,8 @@
 
 namespace luisa::compute {
 
+class Accel;
+
 namespace detail {
 
 template<typename T>
@@ -21,6 +23,11 @@ struct prototype_to_shader_invocation {
 template<>
 struct prototype_to_shader_invocation<TextureHeap> {
     using type = const TextureHeap &;
+};
+
+template<>
+struct prototype_to_shader_invocation<Accel> {
+    using type = const Accel &;
 };
 
 template<typename T>
@@ -57,22 +64,23 @@ public:
     explicit ShaderInvokeBase(uint64_t handle, Function kernel) noexcept
         : _command{ShaderDispatchCommand::create(handle, kernel)},
           _kernel{kernel} {
-
         for (auto buffer : _kernel.captured_buffers()) {
             _dispatch_command()->encode_buffer(
                 buffer.variable.uid(), buffer.handle, buffer.offset_bytes,
                 _kernel.variable_usage(buffer.variable.uid()));
         }
-
         for (auto texture : _kernel.captured_textures()) {
             _dispatch_command()->encode_texture(
                 texture.variable.uid(), texture.handle,
                 _kernel.variable_usage(texture.variable.uid()));
         }
-
         for (auto heap : _kernel.captured_texture_heaps()) {
             _dispatch_command()->encode_texture_heap(
                 heap.variable.uid(), heap.handle);
+        }
+        for (auto accel : _kernel.captured_accels()) {
+            _dispatch_command()->encode_texture_heap(
+                accel.variable.uid(), accel.handle);
         }
     }
 
@@ -113,6 +121,9 @@ public:
         _dispatch_command()->encode_texture_heap(v, heap.handle());
         return *this;
     }
+
+    // see definition in rtx/accel.cpp
+    ShaderInvokeBase &operator<<(const Accel &accel) noexcept;
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) noexcept {

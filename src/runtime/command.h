@@ -515,16 +515,17 @@ public:
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand)
 };
 
-enum struct AccelBuildMode {
-    FAST_BUILD,
-    FAST_UPDATE
+enum struct AccelBuildHint {
+    FAST_TRACE,  // build with best quality
+    FAST_UPDATE, // optimize for frequent update, usually with compaction
+    FAST_REBUILD // optimize for frequent rebuild, maybe without compaction
 };
 
 class MeshBuildCommand : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildMode _mode;
+    AccelBuildHint _mode;
     uint64_t _vertex_buffer_handle;
     size_t _vertex_buffer_offset;
     size_t _vertex_stride;
@@ -534,7 +535,7 @@ private:
     size_t _triangle_count;
 
 public:
-    MeshBuildCommand(uint64_t handle, AccelBuildMode mode,
+    MeshBuildCommand(uint64_t handle, AccelBuildHint mode,
                      uint64_t v_handle, size_t v_offset, size_t v_stride, size_t v_count,
                      uint64_t t_handle, size_t t_offset, size_t t_count) noexcept
         : _handle{handle}, _mode{mode},
@@ -567,12 +568,12 @@ class AccelBuildCommand : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildMode _mode;
+    AccelBuildHint _mode;
     std::span<const uint64_t> _instance_mesh_handles;
     std::span<const float4x4> _instance_transforms;
 
 public:
-    AccelBuildCommand(uint64_t handle, AccelBuildMode mode,
+    AccelBuildCommand(uint64_t handle, AccelBuildHint mode,
                       std::span<const uint64_t> instance_mesh_handles,
                       std::span<const float4x4> instance_transforms) noexcept
         : _handle{handle}, _mode{mode},

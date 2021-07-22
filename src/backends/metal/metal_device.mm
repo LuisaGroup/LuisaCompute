@@ -3,7 +3,7 @@
 //
 
 #if !__has_feature(objc_arc)
-#error failed to compile the Metal backend with ARC off.
+#error Compiling the Metal backend with ARC off.
 #endif
 
 #import <chrono>
@@ -128,9 +128,6 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     for (auto i = 0u; i < initial_event_count; i++) { _event_slots.emplace_back(nullptr); }
     _available_event_slots.resize(initial_event_count);
     std::iota(_available_event_slots.rbegin(), _available_event_slots.rend(), 0u);
-
-    static constexpr auto initial_texture_sampler_count = 64u;
-    _texture_samplers.reserve(initial_texture_sampler_count);
 }
 
 MetalDevice::~MetalDevice() noexcept {

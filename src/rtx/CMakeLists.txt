@@ -1,5 +1,5 @@
 set(LUISA_COMPUTE_RTX_SOURCES
-    geometry.cpp geometry.h
+    accel.cpp accel.h
     ray.cpp ray.h
     hit.cpp hit.h
     mesh.cpp mesh.h)

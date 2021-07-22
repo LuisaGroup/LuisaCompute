@@ -7,6 +7,10 @@
 
 namespace luisa::compute {
 
+Event Device::create_event() noexcept {
+    return _create<Event>();
+}
+
 Event::Event(Device::Handle device) noexcept
     : _device{std::move(device)},
       _handle{_device->create_event()} {}

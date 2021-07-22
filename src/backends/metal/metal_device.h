@@ -31,38 +31,46 @@ private:
     std::unique_ptr<MetalArgumentBufferPool> _argument_buffer_pool{nullptr};
 
     // for buffers
-    mutable spin_mutex _buffer_mutex;
     std::vector<id<MTLBuffer>> _buffer_slots;
     std::vector<size_t> _available_buffer_slots;
 
     // for streams
-    mutable spin_mutex _stream_mutex;
     std::vector<std::unique_ptr<MetalStream>> _stream_slots;
     std::vector<size_t> _available_stream_slots;
 
     // for textures
-    mutable spin_mutex _texture_mutex;
     std::vector<id<MTLTexture>> _texture_slots;
     std::vector<size_t> _available_texture_slots;
 
     // for shaders
-    mutable spin_mutex _shader_mutex;
     std::vector<MetalShader> _shader_slots;
     std::vector<size_t> _available_shader_slots;
 
     // for heaps
-    mutable spin_mutex _heap_mutex;
     std::vector<std::unique_ptr<MetalTextureHeap>> _heap_slots;
     std::vector<size_t> _available_heap_slots;
 
-    // for texture samplers
-    spin_mutex _texture_sampler_mutex;
-    std::unordered_map<TextureSampler, id<MTLSamplerState>, TextureSampler::Hash> _texture_samplers;
+    // for meshes
+    std::vector<id<MTLAccelerationStructure>> _mesh_slots;
+    std::vector<size_t> _available_mesh_slots;
+
+    // for acceleration structures
+    std::vector<id<MTLAccelerationStructure>> _accel_slots;
+    std::vector<size_t> _available_accel_slots;
 
     // for events
-    mutable spin_mutex _event_mutex;
     std::vector<std::unique_ptr<MetalEvent>> _event_slots;
     std::vector<size_t> _available_event_slots;
+
+    // mutexes
+    mutable spin_mutex _buffer_mutex;
+    mutable spin_mutex _stream_mutex;
+    mutable spin_mutex _texture_mutex;
+    mutable spin_mutex _shader_mutex;
+    mutable spin_mutex _heap_mutex;
+    mutable spin_mutex _mesh_mutex;
+    mutable spin_mutex _accel_mutex;
+    mutable spin_mutex _event_mutex;
 
 public:
     explicit MetalDevice(const Context &ctx, uint32_t index) noexcept;

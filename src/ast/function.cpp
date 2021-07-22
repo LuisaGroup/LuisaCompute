@@ -72,4 +72,8 @@ std::span<const Function::TextureHeapBinding> Function::captured_texture_heaps()
     return _builder->captured_texture_heaps();
 }
 
+std::span<const Function::AccelBinding> Function::captured_accels() const noexcept {
+    return _builder->captured_accels();
+}
+
 }// namespace luisa::compute

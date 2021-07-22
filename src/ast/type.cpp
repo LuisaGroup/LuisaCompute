@@ -156,8 +156,11 @@ const Type *Type::from(std::string_view description) noexcept {
             info._tag = Tag::TEXTURE_HEAP;
             info._size = 8u;
             info._alignment = 8u;
-        }
-        else [[unlikely]] {
+        } else if (type_identifier == "accel"sv) {
+            info._tag = Tag::ACCEL;
+            info._size = 8u;
+            info._alignment = 8u;
+        } else [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Unknown type identifier: {}.", type_identifier);
         }
 

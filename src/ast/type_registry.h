@@ -36,6 +36,7 @@ template<typename T>
 class VolumeView;
 
 class TextureHeap;
+class Accel;
 
 class TypeRegistry {
 
@@ -153,6 +154,13 @@ template<>
 struct TypeDesc<TextureHeap> {
     static constexpr std::string_view description() noexcept {
         return "texture_heap";
+    }
+};
+
+template<>
+struct TypeDesc<Accel> {
+    static constexpr std::string_view description() noexcept {
+        return "accel";
     }
 };
 

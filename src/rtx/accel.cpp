@@ -3,9 +3,22 @@
 //
 
 #include <ast/function_builder.h>
-#include <rtx/geometry.h>
+#include <runtime/shader.h>
+#include <rtx/accel.h>
 
 namespace luisa::compute {
+
+namespace detail {
+
+ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
+    auto v = _kernel.arguments()[_argument_index++].uid();
+    _dispatch_command()->encode_texture_heap(v, accel.handle());
+    return *this;
+}
+
+}
+
+Accel Device::create_accel() noexcept { return _create<Accel>(); }
 
 Accel::Accel(Device::Handle device) noexcept
     : _device{std::move(device)},
@@ -67,7 +80,7 @@ Command *Accel::update() noexcept {
     return AccelUpdateCommand::create(_handle, _instance_transforms);
 }
 
-Command *Accel::build(AccelBuildMode mode) noexcept {
+Command *Accel::build(AccelBuildHint mode) noexcept {
     _built = true;
     _dirty = false;
     return AccelBuildCommand::create(
@@ -76,12 +89,13 @@ Command *Accel::build(AccelBuildMode mode) noexcept {
 }
 
 void Accel::_mark_dirty() noexcept { _dirty = true; }
+void Accel::_mark_should_rebuild() noexcept { _built = false; }
 
 Instance Accel::add(const Mesh &mesh, float4x4 transform) noexcept {
     auto instance_index = _instance_mesh_handles.size();
     _instance_mesh_handles.emplace_back(mesh.handle());
     _instance_transforms.emplace_back(transform);
-    _built = false;// adding instances requires rebuilding
+    _mark_should_rebuild();// adding instances requires rebuilding
     return {this, instance_index};
 }
 
@@ -110,12 +124,25 @@ Accel &Accel::operator=(Accel &&rhs) noexcept {
     return *this;
 }
 
+detail::Expr<Hit> Accel::trace_closest(detail::Expr<Ray> ray) const noexcept {
+    return detail::Expr<Accel>{*this}.trace_closest(ray);
+}
+
+detail::Expr<bool> Accel::trace_any(detail::Expr<Ray> ray) const noexcept {
+    return detail::Expr<Accel>{*this}.trace_any(ray);
+}
+
 void Instance::set_transform(float4x4 m) noexcept {
     _geometry->_instance_transforms[_index] = m;
     _geometry->_mark_dirty();
 }
 
-uint64_t Instance::mesh() const noexcept {
+void Instance::set_mesh(const Mesh &mesh) noexcept {
+    _geometry->_instance_mesh_handles[_index] = mesh.handle();
+    _geometry->_mark_should_rebuild();
+}
+
+uint64_t Instance::mesh_handle() const noexcept {
     return _geometry->_instance_mesh_handles[_index];
 }
 

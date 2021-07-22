@@ -6,6 +6,8 @@
 
 namespace luisa::compute {
 
+Mesh Device::create_mesh() noexcept { return _create<Mesh>(); }
+
 Command *Mesh::update() const noexcept { return MeshUpdateCommand::create(_handle); }
 
 void Mesh::_destroy() noexcept {

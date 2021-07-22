@@ -20,6 +20,7 @@ private:
     uint64_t _handle{};
 
 private:
+    friend class Device;
     explicit Mesh(Device::Handle device) noexcept
         : _device{std::move(device)},
           _handle{_device->create_mesh()} {}
@@ -32,7 +33,7 @@ public:
     Mesh &operator=(Mesh &&rhs) noexcept;
 
     template<typename Vertex>
-    [[nodiscard]] Command *build(AccelBuildMode mode, BufferView<Vertex> vertices, BufferView<Triangle> triangles) const noexcept {
+    [[nodiscard]] Command *build(AccelBuildHint mode, BufferView<Vertex> vertices, BufferView<Triangle> triangles) const noexcept {
         return MeshBuildCommand::create(
             _handle, mode,
             vertices.handle(), vertices.offset_bytes(), sizeof(Vertex), vertices.size(),
