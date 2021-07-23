@@ -212,14 +212,7 @@ public:
 			stream->GetQueue(),
 			cpuFence.Get());
 	}
-	uint64 create_mesh(
-		uint64 stream_handle,
-		uint64 vertex_buffer_handle,
-		size_t vertex_buffer_offset_bytes,
-		size_t vertex_count,
-		uint64 index_buffer_handle,
-		size_t index_buffer_offset_bytes,
-		size_t triangle_count) noexcept override {
+	uint64 create_mesh() noexcept override {
 		/* return reinterpret_cast<uint64>(
 			new LCMesh(
 				reinterpret_cast<StructuredBuffer*>(vertex_buffer_handle),
@@ -234,13 +227,7 @@ public:
 		uint64 mesh_handle) noexcept override {
 		//delete reinterpret_cast<LCMesh*>(mesh_handle);
 	}
-	uint64 create_accel(
-		uint64 stream_handle,
-		uint64 mesh_handle_buffer_handle,
-		size_t mesh_handle_buffer_offset_bytes,
-		uint64 transform_buffer_handle,
-		size_t transform_buffer_offset_bytes,
-		size_t mesh_count) noexcept override {
+	uint64 create_accel() noexcept override {
 		return 0;
 	}
 	void destroy_accel(uint64 handle) noexcept override {}
