@@ -43,7 +43,7 @@ public:
         
         BUFFER,
         TEXTURE,
-        TEXTURE_HEAP,
+        HEAP,
         ACCEL
     };
 
@@ -99,7 +99,7 @@ public:
     [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
     [[nodiscard]] constexpr bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
     [[nodiscard]] constexpr bool is_texture() const noexcept { return _tag == Tag::TEXTURE; }
-    [[nodiscard]] constexpr bool is_texture_heap() const noexcept { return _tag == Tag::TEXTURE_HEAP; }
+    [[nodiscard]] constexpr bool is_heap() const noexcept { return _tag == Tag::HEAP; }
     [[nodiscard]] constexpr bool is_accel() const noexcept { return _tag == Tag::ACCEL; }
 };
 

@@ -18,7 +18,7 @@
 #import <backends/metal/metal_event.h>
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
-#import <backends/metal/metal_texture_heap.h>
+#import <backends/metal/metal_heap.h>
 #import <backends/metal/metal_shared_buffer_pool.h>
 #import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_accel.h>
@@ -98,7 +98,7 @@ public:
                             uint width, uint height, uint depth, uint mipmap_levels,
                             TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
     void destroy_texture(uint64_t handle) noexcept override;
-    uint64_t create_buffer(size_t size_bytes) noexcept override;
+    uint64_t create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     uint64_t create_stream() noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
@@ -115,9 +115,9 @@ public:
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
-    uint64_t create_texture_heap(size_t size) noexcept override;
-    size_t query_texture_heap_memory_usage(uint64_t handle) noexcept override;
-    void destroy_texture_heap(uint64_t handle) noexcept override;
+    uint64_t create_heap(size_t size) noexcept override;
+    size_t query_heap_memory_usage(uint64_t handle) noexcept override;
+    void destroy_heap(uint64_t handle) noexcept override;
 };
 
 }// namespace luisa::compute::metal

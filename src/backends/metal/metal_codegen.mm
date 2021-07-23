@@ -154,7 +154,7 @@ void MetalCodegen::visit(const RefExpr *expr) {
         && (v.tag() == Variable::Tag::UNIFORM
             || v.tag() == Variable::Tag::BUFFER
             || v.tag() == Variable::Tag::TEXTURE
-            || v.tag() == Variable::Tag::TEXTURE_HEAP
+            || v.tag() == Variable::Tag::HEAP
             || v.tag() == Variable::Tag::ACCEL
             || v.tag() == Variable::Tag::DISPATCH_SIZE)) {
         _scratch << "arg.";
@@ -567,7 +567,7 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
-        case Variable::Tag::TEXTURE_HEAP: _scratch << "h" << v.uid(); break;
+        case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
         case Variable::Tag::ACCEL: _scratch << "a" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
@@ -660,7 +660,7 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             }
             _emit_variable_name(v);
             break;
-        case Variable::Tag::TEXTURE_HEAP:
+        case Variable::Tag::HEAP:
             _scratch << "device const Texture *";
             _emit_variable_name(v);
             break;
@@ -980,10 +980,11 @@ template<typename T>
   return b ? t : f;
 }
 
-struct Texture {
+struct HeapItem {
   metal::texture2d<float> handle2d;
   metal::texture3d<float> handle3d;
   metal::sampler sampler;
+  const void *buffer;
 };
 
 struct alignas(16) Ray {
@@ -999,65 +1000,65 @@ struct alignas(16) Hit {
   float2 m2;
 };
 
-[[nodiscard]] auto texture_heap_sample2d(device const Texture *heap, uint index, float2 uv) {
+[[nodiscard]] auto texture_heap_sample2d(device const HeapItem *heap, uint index, float2 uv) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv);
 }
 
-[[nodiscard]] auto texture_heap_sample3d(device const Texture *heap, uint index, float3 uvw) {
+[[nodiscard]] auto texture_heap_sample3d(device const HeapItem *heap, uint index, float3 uvw) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw);
 }
 
-[[nodiscard]] auto texture_heap_sample2d_level(device const Texture *heap, uint index, float2 uv, float lod) {
+[[nodiscard]] auto texture_heap_sample2d_level(device const HeapItem *heap, uint index, float2 uv, float lod) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, level(lod));
 }
 
-[[nodiscard]] auto texture_heap_sample3d_level(device const Texture *heap, uint index, float3 uvw, float lod) {
+[[nodiscard]] auto texture_heap_sample3d_level(device const HeapItem *heap, uint index, float3 uvw, float lod) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, level(lod));
 }
 
-[[nodiscard]] auto texture_heap_sample2d_grad(device const Texture *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+[[nodiscard]] auto texture_heap_sample2d_grad(device const HeapItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto texture_heap_sample3d_grad(device const Texture *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+[[nodiscard]] auto texture_heap_sample3d_grad(device const HeapItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto texture_heap_size2d(device const Texture *heap, uint i) {
+[[nodiscard]] auto texture_heap_size2d(device const HeapItem *heap, uint i) {
   return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
 }
 
-[[nodiscard]] auto texture_heap_size3d(device const Texture *heap, uint i) {
+[[nodiscard]] auto texture_heap_size3d(device const HeapItem *heap, uint i) {
   return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
 }
 
-[[nodiscard]] auto texture_heap_size2d_level(device const Texture *heap, uint i, uint lv) {
+[[nodiscard]] auto texture_heap_size2d_level(device const HeapItem *heap, uint i, uint lv) {
   return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
 }
 
-[[nodiscard]] auto texture_heap_size3d_level(device const Texture *heap, uint i, uint lv) {
+[[nodiscard]] auto texture_heap_size3d_level(device const HeapItem *heap, uint i, uint lv) {
   return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
 }
 
-[[nodiscard]] auto texture_heap_read2d(device const Texture *heap, uint i, uint2 uv) {
+[[nodiscard]] auto texture_heap_read2d(device const HeapItem *heap, uint i, uint2 uv) {
   return heap[i].handle2d.read(uv);
 }
 
-[[nodiscard]] auto texture_heap_read3d(device const Texture *heap, uint i, uint3 uvw) {
+[[nodiscard]] auto texture_heap_read3d(device const HeapItem *heap, uint i, uint3 uvw) {
   return heap[i].handle3d.read(uvw);
 }
 
-[[nodiscard]] auto texture_heap_read2d_level(device const Texture *heap, uint i, uint2 uv, uint lv) {
+[[nodiscard]] auto texture_heap_read2d_level(device const HeapItem *heap, uint i, uint2 uv, uint lv) {
   return heap[i].handle2d.read(uv, lv);
 }
 
-[[nodiscard]] auto texture_heap_read3d_level(device const Texture *heap, uint i, uint3 uvw, uint lv) {
+[[nodiscard]] auto texture_heap_read3d_level(device const HeapItem *heap, uint i, uint3 uvw, uint lv) {
   return heap[i].handle3d.read(uvw, lv);
 }
 

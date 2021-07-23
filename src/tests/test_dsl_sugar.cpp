@@ -34,7 +34,6 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel1D kernel = [&]($buffer<float> buffer_float, $uint count) noexcept {
-
         $constant float_consts = {1.0f, 2.0f};
         $constant int_consts = const_vector;
 
@@ -45,7 +44,8 @@ int main(int argc, char *argv[]) {
         $ v_int = 10;
         static_assert(std::is_same_v<decltype(v_int), $int>);
 
-        $for(x) : $range(v_int / 2) {
+        $for(x
+             : range(v_int / 2)) {
             array[x] = v_int.cast<float>();
         };
 
@@ -65,7 +65,8 @@ int main(int argc, char *argv[]) {
         $float2 w{v_int.cast<float>(), v_float};
         w *= float2{1.2f};
 
-        $if(w.x < 5) {}
+        $if(w.x < 5) {
+        }
         $elif(w.x > 0) {
         }
         $else{

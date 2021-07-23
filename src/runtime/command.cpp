@@ -135,7 +135,7 @@ ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) n
     : _handle{handle},
       _kernel{kernel} {}
 
-void ShaderDispatchCommand::encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept {
+void ShaderDispatchCommand::encode_heap(uint32_t variable_uid, uint64_t handle) noexcept {
     if (_argument_buffer_size + sizeof(TextureHeapArgument) > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode texture heap. "
@@ -146,7 +146,7 @@ void ShaderDispatchCommand::encode_texture_heap(uint32_t variable_uid, uint64_t 
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureHeapArgument));
-    _use_resource(handle, Resource::Tag::TEXTURE_HEAP, Usage::READ);
+    _use_resource(handle, Resource::Tag::HEAP, Usage::READ);
     _argument_buffer_size += sizeof(TextureHeapArgument);
     _argument_count++;
 }
@@ -161,7 +161,7 @@ void ShaderDispatchCommand::encode_accel(uint32_t variable_uid, uint64_t handle)
     }
     AccelArgument argument{variable_uid, handle};
     std::memcpy(_argument_buffer.data() + _argument_buffer_size, &argument, size);
-    _use_resource(handle, Resource::Tag::GEOMETRY, Usage::READ);
+    _use_resource(handle, Resource::Tag::ACCEL, Usage::READ);
     _argument_buffer_size += size;
     _argument_count++;
 }

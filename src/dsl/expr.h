@@ -10,7 +10,7 @@
 #include <runtime/image.h>
 #include <runtime/volume.h>
 #include <runtime/buffer.h>
-#include <runtime/texture_heap.h>
+#include <runtime/heap.h>
 #include <ast/function_builder.h>
 
 namespace luisa::compute {
@@ -592,10 +592,10 @@ public:
 };
 
 template<>
-struct Expr<TextureHeap> {
+struct Expr<Heap> {
 
 public:
-    using ValueType = TextureHeap;
+    using ValueType = Heap;
 
 private:
     const RefExpr *_expression{nullptr};
@@ -604,8 +604,8 @@ public:
     explicit Expr(const RefExpr *expr) noexcept
         : _expression{expr} {}
 
-    explicit Expr(const TextureHeap &heap) noexcept
-        : _expression{FunctionBuilder::current()->texture_heap_binding(heap.handle())} {}
+    explicit Expr(const Heap &heap) noexcept
+        : _expression{FunctionBuilder::current()->heap_binding(heap.handle())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto tex2d(Expr<int> index) const noexcept { return TextureRef2D{_expression, index.expression()}; }
     [[nodiscard]] auto tex2d(Expr<uint> index) const noexcept { return TextureRef2D{_expression, index.expression()}; }
@@ -638,7 +638,7 @@ Expr(const Volume<T> &) -> Expr<Volume<T>>;
 template<typename T>
 Expr(VolumeView<T>) -> Expr<Volume<T>>;
 
-Expr(const TextureHeap &) -> Expr<TextureHeap>;
+Expr(const Heap &) -> Expr<Heap>;
 
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept {
@@ -682,13 +682,13 @@ constexpr auto is_expr_v = is_expr<T>::value;
 }// namespace detail
 
 template<typename I>
-detail::TextureRef2D TextureHeap::tex2d(I &&index) const noexcept {
-    return detail::Expr<TextureHeap>{*this}.tex2d(std::forward<I>(index));
+detail::TextureRef2D Heap::tex2d(I &&index) const noexcept {
+    return detail::Expr<Heap>{*this}.tex2d(std::forward<I>(index));
 }
 
 template<typename I>
-detail::TextureRef2D TextureHeap::tex3d(I &&index) const noexcept {
-    return detail::Expr<TextureHeap>{*this}.tex3d(std::forward<I>(index));
+detail::TextureRef2D Heap::tex3d(I &&index) const noexcept {
+    return detail::Expr<Heap>{*this}.tex3d(std::forward<I>(index));
 }
 
 }// namespace luisa::compute

@@ -152,8 +152,8 @@ const Type *Type::from(std::string_view description) noexcept {
             match('>');
             info._size = 8u;
             info._alignment = 8u;
-        } else if (type_identifier == "texture_heap"sv) {
-            info._tag = Tag::TEXTURE_HEAP;
+        } else if (type_identifier == "heap"sv) {
+            info._tag = Tag::HEAP;
             info._size = 8u;
             info._alignment = 8u;
         } else if (type_identifier == "accel"sv) {

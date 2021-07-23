@@ -10,7 +10,7 @@
 #include <runtime/context.h>
 #include <runtime/stream.h>
 #include <runtime/buffer.h>
-#include <runtime/texture_heap.h>
+#include <runtime/heap.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
-    Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, TextureHeapVar heap) noexcept {
+    Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, HeapVar heap) noexcept {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
@@ -143,9 +143,9 @@ int main(int argc, char *argv[]) {
                results[0], results[1], results[2], results[3],
                results[16382], results[16383]);
 
-    auto heap = device.create_texture_heap(1_gb);
+    auto heap = device.create_heap(1_gb);
     for (auto i = 0u; i < 10u; i++) {
-        static_cast<void>(heap.create(i, PixelStorage::FLOAT4, uint2(1024u)));
+        static_cast<void>(heap.create_tex2d(i, PixelStorage::FLOAT4, uint2(1024u)));
         LUISA_INFO("Used size: {}", heap.allocated_size());
     }
 }

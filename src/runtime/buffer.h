@@ -39,7 +39,10 @@ private:
     Buffer(Device::Handle device, size_t size) noexcept
         : _device{std::move(device)},
           _size{size},
-          _handle{_device->create_buffer(size * sizeof(T))} {}
+          _handle{_device->create_buffer(
+              size * sizeof(T),
+              std::numeric_limits<uint64_t>::max(),
+              std::numeric_limits<uint32_t>::max())} {}
 
     void _destroy() noexcept {
         if (*this) { _device->destroy_buffer(_handle); }

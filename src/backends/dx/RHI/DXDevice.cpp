@@ -153,9 +153,9 @@ public:
 		delete reinterpret_cast<RenderTexturePackage*>(handle);
 	}
 
-	[[nodiscard]] uint64 create_texture_heap(size_t size) noexcept override { return 0; }
-	[[nodiscard]] size_t query_texture_heap_memory_usage(uint64 handle) noexcept override { return 0; }
-	void destroy_texture_heap(uint64 handle) noexcept override {}
+	[[nodiscard]] uint64 create_heap(size_t size) noexcept override { return 0; }
+	[[nodiscard]] size_t query_heap_memory_usage(uint64 handle) noexcept override { return 0; }
+	void destroy_heap(uint64 handle) noexcept override {}
 
 	// stream
 	uint64 create_stream() noexcept override {

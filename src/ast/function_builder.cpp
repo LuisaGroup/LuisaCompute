@@ -30,7 +30,7 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
              && f->shared_variables().empty()
              && f->captured_buffers().empty()
              && f->captured_textures().empty()
-             && f->captured_texture_heaps().empty())) [[unlikely]] {
+             && f->captured_heaps().empty())) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom callables may not have builtin, "
             "shared or captured variables.");
@@ -339,7 +339,7 @@ void FunctionBuilder::_compute_hash() noexcept {
     _hash = std::hash<uint64_t>{}(reinterpret_cast<uint64_t>(this));
 }
 
-const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
+const RefExpr *FunctionBuilder::heap_binding(uint64_t handle) noexcept {
     if (auto iter = std::find_if(
             _captured_heaps.cbegin(),
             _captured_heaps.cend(),
@@ -347,13 +347,13 @@ const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
         iter != _captured_heaps.cend()) {
         return _ref(iter->variable);
     }
-    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
-    _captured_heaps.emplace_back(TextureHeapBinding{v, handle});
+    Variable v{Type::of<Heap>(), Variable::Tag::HEAP, _next_variable_uid()};
+    _captured_heaps.emplace_back(HeapBinding{v, handle});
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::texture_heap() noexcept {
-    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
+const RefExpr *FunctionBuilder::heap() noexcept {
+    Variable v{Type::of<Heap>(), Variable::Tag::HEAP, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }

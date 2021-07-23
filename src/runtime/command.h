@@ -91,8 +91,8 @@ public:
             NONE,
             BUFFER,
             TEXTURE,
-            TEXTURE_HEAP,
-            GEOMETRY
+            HEAP,
+            ACCEL
         };
 
         uint64_t handle{0u};
@@ -380,7 +380,7 @@ public:
             BUFFER,
             TEXTURE,
             UNIFORM,
-            TEXTURE_HEAP,
+            HEAP,
             ACCEL,
         };
 
@@ -422,9 +422,9 @@ public:
 
     struct TextureHeapArgument : Argument {
         uint64_t handle{};
-        TextureHeapArgument() noexcept : Argument{Tag::TEXTURE_HEAP, 0u} {}
+        TextureHeapArgument() noexcept : Argument{Tag::HEAP, 0u} {}
         TextureHeapArgument(uint32_t vid, uint64_t handle) noexcept
-            : Argument{Tag::TEXTURE_HEAP, vid},
+            : Argument{Tag::HEAP, vid},
               handle{handle} {}
     };
 
@@ -463,7 +463,7 @@ public:
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
     void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
-    void encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept;
+    void encode_heap(uint32_t variable_uid, uint64_t handle) noexcept;
     void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;
 
     template<typename Visit>
@@ -496,7 +496,7 @@ public:
                     p += uniform_argument.size;
                     break;
                 }
-                case Argument::Tag::TEXTURE_HEAP: {
+                case Argument::Tag::HEAP: {
                     TextureHeapArgument arg;
                     std::memcpy(&arg, p, sizeof(TextureHeapArgument));
                     visit(argument.variable_uid, arg);

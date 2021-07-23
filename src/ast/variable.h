@@ -26,7 +26,7 @@ public:
         // resources
         BUFFER,
         TEXTURE,
-        TEXTURE_HEAP,
+        HEAP,
         ACCEL,
 
         // builtins

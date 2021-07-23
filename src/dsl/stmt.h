@@ -153,6 +153,13 @@ public:
     }
 };
 
+struct ForStmtBodyInvoke {
+    template<typename F>
+    void operator%(F &&body) const noexcept {
+        std::invoke(std::forward<F>(body));
+    }
+};
+
 template<typename T, bool has_begin>
 class ForRange {
 

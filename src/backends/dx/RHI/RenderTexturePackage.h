@@ -1,7 +1,7 @@
 #pragma once
 #include <RenderComponent/RenderTexture.h>
 #include <runtime/pixel.h>
-#include <runtime/texture_sampler.h>
+#include <runtime/texture.h>
 class UploadBuffer;
 namespace luisa::compute {
 class RenderTexturePackage {

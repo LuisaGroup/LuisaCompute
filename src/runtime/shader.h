@@ -7,7 +7,7 @@
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
 #include <runtime/device.h>
-#include <runtime/texture_heap.h>
+#include <runtime/heap.h>
 
 namespace luisa::compute {
 
@@ -21,8 +21,8 @@ struct prototype_to_shader_invocation {
 };
 
 template<>
-struct prototype_to_shader_invocation<TextureHeap> {
-    using type = const TextureHeap &;
+struct prototype_to_shader_invocation<Heap> {
+    using type = const Heap &;
 };
 
 template<>
@@ -74,8 +74,8 @@ public:
                 texture.variable.uid(), texture.handle,
                 _kernel.variable_usage(texture.variable.uid()));
         }
-        for (auto heap : _kernel.captured_texture_heaps()) {
-            _dispatch_command()->encode_texture_heap(
+        for (auto heap : _kernel.captured_heaps()) {
+            _dispatch_command()->encode_heap(
                 heap.variable.uid(), heap.handle);
         }
         for (auto accel : _kernel.captured_accels()) {
@@ -116,9 +116,9 @@ public:
         return *this;
     }
 
-    ShaderInvokeBase &operator<<(const TextureHeap &heap) noexcept {
+    ShaderInvokeBase &operator<<(const Heap &heap) noexcept {
         auto v = _kernel.arguments()[_argument_index++].uid();
-        _dispatch_command()->encode_texture_heap(v, heap.handle());
+        _dispatch_command()->encode_heap(v, heap.handle());
         return *this;
     }
 

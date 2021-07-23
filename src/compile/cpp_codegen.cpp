@@ -499,7 +499,7 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
-        case Variable::Tag::TEXTURE_HEAP: _scratch << "h" << v.uid(); break;
+        case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
         case Variable::Tag::ACCEL: _scratch << "a" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
@@ -577,8 +577,8 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             }
             _emit_variable_name(v);
             break;
-        case Variable::Tag::TEXTURE_HEAP:
-            _scratch << "texture_heap ";
+        case Variable::Tag::HEAP:
+            _scratch << "heap ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:

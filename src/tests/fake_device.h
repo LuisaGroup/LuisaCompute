@@ -18,7 +18,7 @@ public:
     explicit FakeDevice(const Context &ctx) noexcept
         : Device::Interface{ctx} {}
     ~FakeDevice() noexcept override = default;
-    uint64_t create_buffer(size_t) noexcept override { return _handle++; }
+    uint64_t create_buffer(size_t, uint64_t heap_handle, uint32_t index_in_heap) noexcept override { return _handle++; }
     void destroy_buffer(uint64_t) noexcept override {}
     uint64_t create_stream() noexcept override { return _handle++; }
     void destroy_stream(uint64_t) noexcept override {}
@@ -43,9 +43,9 @@ public:
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};
     }
-    virtual uint64_t create_texture_heap(size_t size) noexcept override { return _handle++; }
-    virtual size_t query_texture_heap_memory_usage(uint64_t handle) noexcept override { return 0u; }
-    virtual void destroy_texture_heap(uint64_t handle) noexcept override {}
+    virtual uint64_t create_heap(size_t size) noexcept override { return _handle++; }
+    virtual size_t query_heap_memory_usage(uint64_t handle) noexcept override { return 0u; }
+    virtual void destroy_heap(uint64_t handle) noexcept override {}
 };
 
 }// namespace luisa::compute

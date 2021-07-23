@@ -55,7 +55,7 @@ template<>
 struct Expr<Accel> {
 
 public:
-    using ValueType = TextureHeap;
+    using ValueType = Heap;
 
 private:
     const RefExpr *_expression{nullptr};

@@ -14,7 +14,6 @@
 #include <ast/function.h>
 #include <runtime/pixel.h>
 #include <runtime/command_list.h>
-#include <runtime/texture_sampler.h>
 
 namespace luisa::compute {
 
@@ -22,7 +21,8 @@ class Context;
 
 class Event;
 class Stream;
-class TextureHeap;
+class Heap;
+class TextureSampler;
 class Mesh;
 class Accel;
 
@@ -60,7 +60,10 @@ public:
         [[nodiscard]] const Context &context() const noexcept { return _ctx; }
 
         // buffer
-        [[nodiscard]] virtual uint64_t create_buffer(size_t size_bytes) noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_buffer(
+            size_t size_bytes,
+            uint64_t heap_handle,// == uint64(-1) when not from heap
+            uint32_t index_in_heap) noexcept = 0;
         virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
         // texture
@@ -74,9 +77,9 @@ public:
         virtual void destroy_texture(uint64_t handle) noexcept = 0;
 
         // texture heap
-        [[nodiscard]] virtual uint64_t create_texture_heap(size_t size) noexcept = 0;
-        [[nodiscard]] virtual size_t query_texture_heap_memory_usage(uint64_t handle) noexcept = 0;
-        virtual void destroy_texture_heap(uint64_t handle) noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_heap(size_t size) noexcept = 0;
+        [[nodiscard]] virtual size_t query_heap_memory_usage(uint64_t handle) noexcept = 0;
+        virtual void destroy_heap(uint64_t handle) noexcept = 0;
 
         // stream
         [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
@@ -120,11 +123,11 @@ public:
 
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
 
-    [[nodiscard]] Stream create_stream() noexcept;                               // see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;                                 // see definition in runtime/event.cpp
-    [[nodiscard]] TextureHeap create_texture_heap(size_t size = 128_mb) noexcept;// see definition in runtime/texture_heap.cpp
-    [[nodiscard]] Mesh create_mesh() noexcept;                                   // see definition in rtx/mesh.cpp
-    [[nodiscard]] Accel create_accel() noexcept;                                 // see definition in rtx/accel.cpp
+    [[nodiscard]] Stream create_stream() noexcept;                // see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;                  // see definition in runtime/event.cpp
+    [[nodiscard]] Mesh create_mesh() noexcept;                    // see definition in rtx/mesh.cpp
+    [[nodiscard]] Accel create_accel() noexcept;                  // see definition in rtx/accel.cpp
+    [[nodiscard]] Heap create_heap(size_t size = 128_mb) noexcept;// see definition in runtime/heap.cpp
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height) noexcept {

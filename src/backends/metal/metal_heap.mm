@@ -3,7 +3,7 @@
 //
 
 #include <backends/metal/metal_device.h>
-#include <backends/metal/metal_texture_heap.h>
+#include <backends/metal/metal_heap.h>
 
 namespace luisa::compute::metal {
 
@@ -21,12 +21,13 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
       _handle{[device->handle() newHeapWithDescriptor:_heap_descriptor(size)]} {
 
     static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct Texture {\n"
+                                 "struct HeapItem {\n"
                                  "  metal::texture2d<float> handle2d;\n"
                                  "  metal::texture3d<float> handle3d;\n"
                                  "  metal::sampler sampler;\n"
+                                 "  const void *buffer;\n"
                                  "};\n"
-                                 "[[kernel]] void k(device const Texture *heap) {}\n";
+                                 "[[kernel]] void k(device const HeapItem *heap) {}\n";
     auto library = [_device->handle() newLibraryWithSource:src options:nullptr error:nullptr];
     auto function = [library newFunctionWithName:@"k"];
     _encoder = [function newArgumentEncoderWithBufferIndex:0];
@@ -35,7 +36,7 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
             "Invalid heap texture encoded size: {} (expected {}).",
             enc_size, slot_size);
     }
-    _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * TextureHeap::slot_count
+    _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * Heap::slot_count
                                              options:MTLResourceOptionCPUCacheModeWriteCombined
                                                      | MTLResourceStorageModeShared];
     _device_buffer = [_device->handle() newBufferWithLength:_buffer.length
@@ -120,6 +121,20 @@ void MetalTextureHeap::encode_update(id<MTLCommandBuffer> cmd_buf) const noexcep
                                 size:_buffer.length];
         [blit_encoder endEncoding];
     }
+}
+
+id<MTLBuffer> MetalTextureHeap::allocate_buffer(size_t size_bytes, uint32_t index_in_heap) noexcept {
+    std::scoped_lock lock{_mutex};
+    auto buffer = [_handle newBufferWithLength:size_bytes
+                                       options:MTLResourceStorageModePrivate
+                                               | MTLResourceHazardTrackingModeDefault];
+    [_encoder setArgumentBuffer:_buffer
+                         offset:slot_size * index_in_heap];
+    [_encoder setBuffer:buffer
+                 offset:0u
+                atIndex:3u];
+    _dirty = true;
+    return buffer;
 }
 
 }
