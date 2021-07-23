@@ -335,6 +335,7 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
 }
 
 uint64_t MetalDevice::create_mesh() noexcept {
+    check_raytracing_supported();
     Clock clock;
     auto mesh = std::make_unique<MetalMesh>(_handle);
     LUISA_VERBOSE_WITH_LOCATION("Created mesh in {} ms.", clock.toc());
@@ -360,6 +361,7 @@ void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
 }
 
 uint64_t MetalDevice::create_accel() noexcept {
+    check_raytracing_supported();
     Clock clock;
     auto accel = std::make_unique<MetalAccel>(this);
     LUISA_VERBOSE_WITH_LOCATION("Created accel in {} ms.", clock.toc());
@@ -419,6 +421,7 @@ MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
 }
 
 uint64_t MetalDevice::create_shader(Function kernel) noexcept {
+    if (kernel.raytracing()) { check_raytracing_supported(); }
     Clock clock;
     auto shader = _compiler->compile(kernel);
     LUISA_VERBOSE_WITH_LOCATION("Compiled shader in {} ms.", clock.toc());
@@ -464,6 +467,14 @@ NSMutableArray<id<MTLAccelerationStructure>> *MetalDevice::mesh_handles(std::spa
 
 MetalSharedBufferPool *MetalDevice::compacted_size_buffer_pool() const noexcept {
     return _compacted_size_buffer_pool.get();
+}
+
+void MetalDevice::check_raytracing_supported() const noexcept {
+    if (!_handle.supportsRaytracing) {
+        LUISA_ERROR_WITH_LOCATION(
+            "This device does not support raytracing: {}.",
+            [_handle.description cStringUsingEncoding:NSUTF8StringEncoding]);
+    }
 }
 
 }

@@ -91,6 +91,7 @@ public:
     [[nodiscard]] MetalSharedBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     [[nodiscard]] MetalSharedBufferPool *compacted_size_buffer_pool() const noexcept;
+    void check_raytracing_supported() const noexcept;
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
