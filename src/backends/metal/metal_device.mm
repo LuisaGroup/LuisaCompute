@@ -295,25 +295,31 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
     event(handle)->synchronize();
 }
 
-void MetalDevice::dispatch(uint64_t stream_handle, CommandList buffer) noexcept {
+void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcept {
     auto s = stream(stream_handle);
-    s->with_command_buffer([this,
-                            &u = s->upload_ring_buffer(),
-                            &d = s->download_ring_buffer(),
-                            buffer = std::move(buffer)](id<MTLCommandBuffer> command_buffer) noexcept {
-        MetalCommandEncoder encoder{this, command_buffer, u, d};
-        for (auto &&command : buffer) { command->accept(encoder); }
+    s->dispatch([this, cmd_list = std::move(cmd_list)](MetalStream *stream) noexcept {
+        MetalCommandEncoder encoder{this, stream};
+        for (auto &&command : cmd_list) { command->accept(encoder); }
+        return encoder.command_buffer();
     });
 }
 
 void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
     auto e = event(handle);
-    stream(stream_handle)->with_command_buffer([e](auto buffer) noexcept { e->signal(buffer); });
+    stream(stream_handle)->dispatch([e](auto s) noexcept {
+        auto cb = s->command_buffer();
+        e->signal(cb);
+        return cb;
+    });
 }
 
 void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     auto e = event(handle);
-    stream(stream_handle)->with_command_buffer([e](auto buffer) noexcept { e->wait(buffer); });
+    stream(stream_handle)->dispatch([e](auto s) noexcept {
+        auto cb = s->command_buffer();
+        e->wait(cb);
+        return cb;
+    });
 }
 
 MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
@@ -322,19 +328,53 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
 }
 
 uint64_t MetalDevice::create_mesh() noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    Clock clock;
+    auto mesh = std::make_unique<MetalMesh>(_handle);
+    LUISA_VERBOSE_WITH_LOCATION("Created mesh in {} ms.", clock.toc());
+    std::scoped_lock lock{_mesh_mutex};
+    if (_available_mesh_slots.empty()) {
+        auto s = _mesh_slots.size();
+        _mesh_slots.emplace_back(std::move(mesh));
+        return s;
+    }
+    auto s = _available_mesh_slots.back();
+    _available_mesh_slots.pop_back();
+    _mesh_slots[s] = std::move(mesh);
+    return s;
 }
 
 void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    {
+        std::scoped_lock lock{_mesh_mutex};
+        _mesh_slots[handle] = {};
+        _available_mesh_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed mesh #{}.", handle);
 }
 
 uint64_t MetalDevice::create_accel() noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    Clock clock;
+    auto accel = std::make_unique<MetalAccel>(this);
+    LUISA_VERBOSE_WITH_LOCATION("Created accel in {} ms.", clock.toc());
+    std::scoped_lock lock{_accel_mutex};
+    if (_available_accel_slots.empty()) {
+        auto s = _accel_slots.size();
+        _accel_slots.emplace_back(std::move(accel));
+        return s;
+    }
+    auto s = _available_accel_slots.back();
+    _available_accel_slots.pop_back();
+    _accel_slots[s] = std::move(accel);
+    return s;
 }
 
 void MetalDevice::destroy_accel(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    {
+        std::scoped_lock lock{_accel_mutex};
+        _accel_slots[handle] = {};
+        _available_accel_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed accel #{}.", handle);
 }
 
 uint64_t MetalDevice::create_texture_heap(size_t size) noexcept {
@@ -394,6 +434,25 @@ void MetalDevice::destroy_shader(uint64_t handle) noexcept {
         _available_shader_slots.emplace_back(handle);
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed shader #{}.", handle);
+}
+
+MetalMesh *MetalDevice::mesh(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_mesh_mutex};
+    return _mesh_slots[handle].get();
+}
+
+MetalAccel *MetalDevice::accel(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_accel_mutex};
+    return _accel_slots[handle].get();
+}
+
+NSMutableArray<id<MTLAccelerationStructure>> *MetalDevice::mesh_handles(std::span<const uint64_t> handles) noexcept {
+    auto array = [[NSMutableArray alloc] init];
+    std::scoped_lock lock{_mesh_mutex};
+    for (auto h : handles) {
+        [array addObject:_mesh_slots[h]->handle()];
+    }
+    return array;
 }
 
 }

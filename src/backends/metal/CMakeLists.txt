@@ -17,8 +17,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         metal_ring_buffer.mm metal_ring_buffer.h
         metal_texture_heap.mm metal_texture_heap.h
         metal_shader.h
-        metal_mesh.cpp metal_mesh.h
-        metal_accel.cpp metal_accel.h)
+        metal_mesh.mm metal_mesh.h
+        metal_accel.mm metal_accel.h)
     
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
     set_target_properties(luisa-compute-backend-metal PROPERTIES

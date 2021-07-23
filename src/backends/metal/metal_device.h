@@ -20,6 +20,8 @@
 #import <backends/metal/metal_compiler.h>
 #import <backends/metal/metal_texture_heap.h>
 #import <backends/metal/metal_argument_buffer_pool.h>
+#import <backends/metal/metal_mesh.h>
+#import <backends/metal/metal_accel.h>
 
 namespace luisa::compute::metal {
 
@@ -51,11 +53,11 @@ private:
     std::vector<size_t> _available_heap_slots;
 
     // for meshes
-    std::vector<id<MTLAccelerationStructure>> _mesh_slots;
+    std::vector<std::unique_ptr<MetalMesh>> _mesh_slots;
     std::vector<size_t> _available_mesh_slots;
 
     // for acceleration structures
-    std::vector<id<MTLAccelerationStructure>> _accel_slots;
+    std::vector<std::unique_ptr<MetalAccel>> _accel_slots;
     std::vector<size_t> _available_accel_slots;
 
     // for events
@@ -79,6 +81,9 @@ public:
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
     [[nodiscard]] MetalStream *stream(uint64_t handle) const noexcept;
     [[nodiscard]] MetalEvent *event(uint64_t handle) const noexcept;
+    [[nodiscard]] MetalMesh *mesh(uint64_t handle) const noexcept;
+    [[nodiscard]] NSMutableArray<id<MTLAccelerationStructure>> *mesh_handles(std::span<const uint64_t> handles) noexcept;
+    [[nodiscard]] MetalAccel *accel(uint64_t handle) const noexcept;
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalTextureHeap *heap(uint64_t handle) const noexcept;
     [[nodiscard]] MetalArgumentBufferPool *argument_buffer_pool() const noexcept;

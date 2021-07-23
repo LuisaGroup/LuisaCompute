@@ -525,7 +525,7 @@ class MeshBuildCommand : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildHint _mode;
+    AccelBuildHint _hint;
     uint64_t _vertex_buffer_handle;
     size_t _vertex_buffer_offset;
     size_t _vertex_stride;
@@ -535,10 +535,10 @@ private:
     size_t _triangle_count;
 
 public:
-    MeshBuildCommand(uint64_t handle, AccelBuildHint mode,
+    MeshBuildCommand(uint64_t handle, AccelBuildHint hint,
                      uint64_t v_handle, size_t v_offset, size_t v_stride, size_t v_count,
                      uint64_t t_handle, size_t t_offset, size_t t_count) noexcept
-        : _handle{handle}, _mode{mode},
+        : _handle{handle}, _hint{hint},
           _vertex_buffer_handle{v_handle}, _vertex_buffer_offset{v_offset}, _vertex_stride{v_stride}, _vertex_count{v_count},
           _triangle_buffer_handle{t_handle}, _triangle_buffer_offset{t_offset}, _triangle_count{t_count} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -549,7 +549,7 @@ public:
     [[nodiscard]] auto triangle_buffer_handle() const noexcept { return _triangle_buffer_handle; }
     [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
     [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
-    [[nodiscard]] auto mode() const noexcept { return _mode; }
+    [[nodiscard]] auto hint() const noexcept { return _hint; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
@@ -568,19 +568,19 @@ class AccelBuildCommand : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildHint _mode;
+    AccelBuildHint _hint;
     std::span<const uint64_t> _instance_mesh_handles;
     std::span<const float4x4> _instance_transforms;
 
 public:
-    AccelBuildCommand(uint64_t handle, AccelBuildHint mode,
+    AccelBuildCommand(uint64_t handle, AccelBuildHint hint,
                       std::span<const uint64_t> instance_mesh_handles,
                       std::span<const float4x4> instance_transforms) noexcept
-        : _handle{handle}, _mode{mode},
+        : _handle{handle}, _hint{hint},
           _instance_mesh_handles{instance_mesh_handles},
           _instance_transforms{instance_transforms} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto mode() const noexcept { return _mode; }
+    [[nodiscard]] auto hint() const noexcept { return _hint; }
     [[nodiscard]] auto instance_mesh_handles() const noexcept { return _instance_mesh_handles; }
     [[nodiscard]] auto instance_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
@@ -598,7 +598,8 @@ public:
         : _handle{handle},
           _instance_transforms{instance_transforms} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto instance_transforms() const noexcept { return _instance_transforms; }
+    [[nodiscard]] auto should_update_transforms() const noexcept { return !_instance_transforms.empty(); }
+    [[nodiscard]] auto updated_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 

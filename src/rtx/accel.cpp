@@ -76,8 +76,12 @@ Command *Accel::update() noexcept {
             "Geometry #{} is not built when updating.",
             _handle);
     }
-    _dirty = false;
-    return AccelUpdateCommand::create(_handle, _instance_transforms);
+    std::span<const float4x4> transforms;
+    if (_dirty) {
+        transforms = _instance_transforms;
+        _dirty = false;
+    }
+    return AccelUpdateCommand::create(_handle, transforms);
 }
 
 Command *Accel::build(AccelBuildHint mode) noexcept {

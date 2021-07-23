@@ -6,6 +6,7 @@
 
 #include <runtime/device.h>
 #include <runtime/buffer.h>
+#include <dsl/syntax.h>
 
 namespace luisa::compute {
 

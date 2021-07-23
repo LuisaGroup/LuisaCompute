@@ -2,22 +2,21 @@
 // Created by Mike Smith on 2021/3/19.
 //
 
-#import <core/clock.h>
 #import <core/platform.h>
+#import <core/clock.h>
 #import <ast/function.h>
+#import <backends/metal/metal_device.h>
+#import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {
 
 MetalCommandEncoder::MetalCommandEncoder(
     MetalDevice *device,
-    id<MTLCommandBuffer> cb,
-    MetalRingBuffer &upload_ring_buffer,
-    MetalRingBuffer &download_ring_buffer) noexcept
+    MetalStream *stream) noexcept
     : _device{device},
-      _command_buffer{cb},
-      _upload_ring_buffer{upload_ring_buffer},
-      _download_ring_buffer{download_ring_buffer} {}
+      _stream{stream},
+      _command_buffer{stream->command_buffer()} {}
 
 void MetalCommandEncoder::visit(const BufferCopyCommand *command) noexcept {
     auto blit_encoder = [_command_buffer blitCommandEncoder];
@@ -238,12 +237,10 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding geometry #{} at index {}.",
                 argument.handle, argument_index);
-//            auto heap = _device->heap(argument.handle);
-//            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
-//            auto desc_buffer = heap->desc_buffer();
-//            [argument_encoder setBuffer:desc_buffer offset:0u atIndex:arg_id];
-//            [compute_encoder useResource:desc_buffer usage:MTLResourceUsageRead];
-//            [compute_encoder useHeap:heap->handle()];
+            auto accel = _device->accel(argument.handle)->handle();
+            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
+            [argument_encoder setAccelerationStructure:accel atIndex:arg_id];
+            [compute_encoder useResource:accel usage:MTLResourceUsageRead];
         } else {// uniform
             auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());
@@ -262,7 +259,8 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 }
 
 MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) noexcept {
-    auto buffer = _upload_ring_buffer.allocate(size);
+    auto rb = &_stream->upload_ring_buffer();
+    auto buffer = rb->allocate(size);
     if (buffer.handle() == nullptr) {
         auto options = MTLResourceStorageModeShared
                        | MTLResourceCPUCacheModeWriteCombined
@@ -274,20 +272,19 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
     if (host_ptr != nullptr) {
         std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
     }
-    auto rb = &_upload_ring_buffer;
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { rb->recycle(buffer); }];
     return buffer;
 }
 
 MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noexcept {
-    auto buffer = _download_ring_buffer.allocate(size);
+    auto rb = &_stream->download_ring_buffer();
+    auto buffer = rb->allocate(size);
     if (buffer.handle() == nullptr) {
         auto options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
         auto handle = [_device->handle() newBufferWithLength:size options:options];
         [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { std::memcpy(host_ptr, handle.contents, size); }];
         return {handle, 0u, size};
     }
-    auto rb = &_download_ring_buffer;
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
       std::memcpy(host_ptr, static_cast<const std::byte *>(buffer.handle().contents) + buffer.offset(), size);
       rb->recycle(buffer);
@@ -302,12 +299,34 @@ void MetalCommandEncoder::visit(const AccelTraceAnyCommand *command) noexcept {
 }
 
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
+    auto accel = _device->accel(command->handle());
+    _command_buffer = accel->update(
+        _command_buffer,
+        command->should_update_transforms(),
+        command->updated_transforms());
 }
+
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
+    auto accel = _device->accel(command->handle());
+    _command_buffer = accel->build(
+        _command_buffer, command->hint(),
+        command->instance_mesh_handles(),
+        command->instance_transforms());
 }
+
 void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
+    auto mesh = _device->mesh(command->handle());
+    _command_buffer = mesh->update(_command_buffer);
 }
+
 void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
+    auto mesh = _device->mesh(command->handle());
+    auto v_buffer = _device->buffer(command->vertex_buffer_handle());
+    auto t_buffer = _device->buffer(command->triangle_buffer_handle());
+    _command_buffer = mesh->build(
+        _command_buffer, command->hint(),
+        v_buffer, command->vertex_buffer_offset(), command->vertex_stride(),
+        t_buffer, command->triangle_buffer_offset(), command->triangle_count());
 }
 
 }

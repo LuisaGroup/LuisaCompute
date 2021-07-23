@@ -34,14 +34,14 @@ public:
 
     ~MetalStream() noexcept { _handle = nullptr; }
 
+    [[nodiscard]] auto command_buffer() noexcept { return [_handle commandBuffer]; }
     [[nodiscard]] auto &upload_ring_buffer() noexcept { return _upload_ring_buffer; }
     [[nodiscard]] auto &download_ring_buffer() noexcept { return _download_ring_buffer; }
 
-    template<typename Encode>
-    void with_command_buffer(Encode &&encode) noexcept {
+    template<typename Dispatch>
+    void dispatch(Dispatch d) noexcept {
         @autoreleasepool {
-            auto command_buffer = [_handle commandBuffer];
-            encode(command_buffer);
+            auto command_buffer = d(this);
             {
                 std::scoped_lock lock{_mutex};
                 [command_buffer commit];
