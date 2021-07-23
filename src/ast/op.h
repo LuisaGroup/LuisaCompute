@@ -158,6 +158,8 @@ enum struct CallOp : uint32_t {
     TEXTURE_HEAP_SIZE2D_LEVEL,
     TEXTURE_HEAP_SIZE3D_LEVEL,
 
+    BUFFER_HEAP_READ,
+
     MAKE_BOOL2,
     MAKE_BOOL3,
     MAKE_BOOL4,

@@ -21,11 +21,11 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
       _handle{[device->handle() newHeapWithDescriptor:_heap_descriptor(size)]} {
 
     static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct HeapItem {\n"
+                                 "struct alignas(16) HeapItem {\n"
                                  "  metal::texture2d<float> handle2d;\n"
                                  "  metal::texture3d<float> handle3d;\n"
                                  "  metal::sampler sampler;\n"
-                                 "  const void *buffer;\n"
+                                 "  device const void *buffer;\n"
                                  "};\n"
                                  "[[kernel]] void k(device const HeapItem *heap) {}\n";
     auto library = [_device->handle() newLibraryWithSource:src options:nullptr error:nullptr];

@@ -16,6 +16,8 @@ template<typename T>
 struct Expr;
 }
 
+class Heap;
+
 template<typename T>
 class BufferView;
 
@@ -94,6 +96,7 @@ private:
     size_t _size;
 
 private:
+    friend class Heap;
     friend class Buffer<T>;
     BufferView(uint64_t handle, size_t offset_bytes, size_t size) noexcept
         : _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {

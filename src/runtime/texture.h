@@ -89,9 +89,6 @@ template<typename Texture>
     return valid;
 }
 
-class TextureRef2D;
-class TextureRef3D;
-
 }// namespace detail
 
 class Heap;

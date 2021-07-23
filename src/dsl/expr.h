@@ -441,7 +441,34 @@ struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
     using Expr<Volume<T>>::Expr;
 };
 
-struct TextureRef2D {
+template<typename T>
+class BufferRef {
+
+private:
+    const RefExpr *_heap{nullptr};
+    const Expression *_index{nullptr};
+
+public:
+    BufferRef(const RefExpr *heap, const Expression *index) noexcept
+        : _heap{heap},
+          _index{index} {}
+
+    [[nodiscard]] auto read(Expr<int> i) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<T>{f->call(
+            Type::of<T>(), CallOp::BUFFER_HEAP_READ,
+            {_heap, _index, i.expression()})};
+    }
+
+    [[nodiscard]] auto read(Expr<uint> i) const noexcept {
+        auto f = FunctionBuilder::current();
+        return Expr<T>{f->call(
+            Type::of<T>(), CallOp::BUFFER_HEAP_READ,
+            {_heap, _index, i.expression()})};
+    }
+};
+
+class TextureRef2D {
 
 private:
     const RefExpr *_heap{nullptr};
@@ -516,7 +543,7 @@ public:
     }
 };
 
-struct TextureRef3D {
+class TextureRef3D {
 
 private:
     const RefExpr *_heap{nullptr};
@@ -611,6 +638,12 @@ public:
     [[nodiscard]] auto tex2d(Expr<uint> index) const noexcept { return TextureRef2D{_expression, index.expression()}; }
     [[nodiscard]] auto tex3d(Expr<int> index) const noexcept { return TextureRef3D{_expression, index.expression()}; }
     [[nodiscard]] auto tex3d(Expr<uint> index) const noexcept { return TextureRef3D{_expression, index.expression()}; }
+
+    template<typename T>
+    [[nodiscard]] auto buffer(Expr<int> index) const noexcept { return BufferRef<T>{_expression, index.expression()}; }
+
+    template<typename T>
+    [[nodiscard]] auto buffer(Expr<uint> index) const noexcept { return BufferRef<T>{_expression, index.expression()}; }
 };
 
 // deduction guides
@@ -689,6 +722,11 @@ detail::TextureRef2D Heap::tex2d(I &&index) const noexcept {
 template<typename I>
 detail::TextureRef2D Heap::tex3d(I &&index) const noexcept {
     return detail::Expr<Heap>{*this}.tex3d(std::forward<I>(index));
+}
+
+template<typename T, typename I>
+detail::BufferRef<T> Heap::buffer(I &&index) const noexcept {
+    return detail::Expr<Heap>{*this}.buffer(std::forward<I>(index));
 }
 
 }// namespace luisa::compute

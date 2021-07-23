@@ -292,6 +292,11 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_HEAP_SIZE3D: _scratch << "texture_heap_size3d"; break;
         case CallOp::TEXTURE_HEAP_SIZE2D_LEVEL: _scratch << "texture_heap_size2d_level"; break;
         case CallOp::TEXTURE_HEAP_SIZE3D_LEVEL: _scratch << "texture_heap_size3d_level"; break;
+        case CallOp::BUFFER_HEAP_READ:
+            _scratch << "buffer_heap_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
         case CallOp::MAKE_BOOL2: _scratch << "bool2"; break;
         case CallOp::MAKE_BOOL3: _scratch << "bool3"; break;
         case CallOp::MAKE_BOOL4: _scratch << "bool4"; break;
@@ -661,7 +666,7 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::HEAP:
-            _scratch << "device const Texture *";
+            _scratch << "device const HeapItem *";
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
@@ -980,11 +985,11 @@ template<typename T>
   return b ? t : f;
 }
 
-struct HeapItem {
+struct alignas(16) HeapItem {
   metal::texture2d<float> handle2d;
   metal::texture3d<float> handle3d;
   metal::sampler sampler;
-  const void *buffer;
+  device const void *buffer;
 };
 
 struct alignas(16) Ray {
@@ -1060,6 +1065,11 @@ struct alignas(16) Hit {
 
 [[nodiscard]] auto texture_heap_read3d_level(device const HeapItem *heap, uint i, uint3 uvw, uint lv) {
   return heap[i].handle3d.read(uvw, lv);
+}
+
+template<typename T>
+[[nodiscard]] auto buffer_heap_read(device const HeapItem *heap, uint buffer_index, uint i) {
+  return static_cast<device const T *>(heap[buffer_index].buffer)[i];
 }
 
 )";

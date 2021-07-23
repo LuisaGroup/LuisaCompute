@@ -247,6 +247,11 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_HEAP_SIZE3D: _scratch << "texture_heap_size3d"; break;
         case CallOp::TEXTURE_HEAP_SIZE2D_LEVEL: _scratch << "texture_heap_size2d_level"; break;
         case CallOp::TEXTURE_HEAP_SIZE3D_LEVEL: _scratch << "texture_heap_size3d_level"; break;
+        case CallOp::BUFFER_HEAP_READ:
+            _scratch << "buffer_heap_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
 #define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
     case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \

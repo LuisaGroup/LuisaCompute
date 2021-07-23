@@ -42,6 +42,11 @@ int main(int argc, char *argv[]) {
         return heap.tex2d(0u).sample(uv, mip);
     };
 
+    Kernel1D useless_kernel = [](HeapVar heap) noexcept {
+        Var x = heap.buffer<uint>(0).read(1u);
+    };
+    auto useless_shader = device.compile(useless_kernel);
+
     Kernel2D fill_image_kernel = [&](HeapVar heap, ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
         Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
@@ -58,7 +63,7 @@ int main(int argc, char *argv[]) {
     auto image_height = 0;
     auto image_channels = 0;
     auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
-    auto texture = heap.create_tex2d(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::trilinear_edge(), 0u);
+    auto texture = heap.create_texture(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::trilinear_edge(), 0u);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 

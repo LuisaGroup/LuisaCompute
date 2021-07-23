@@ -17,7 +17,7 @@ Heap &Heap::operator=(Heap &&rhs) noexcept {
         _device = std::move(rhs._device);
         _handle = rhs._handle;
         _capacity = rhs._capacity;
-        _slots = std::move(rhs._slots);
+        _texture_slots = std::move(rhs._texture_slots);
     }
     return *this;
 }
@@ -36,7 +36,7 @@ constexpr auto Heap::_compute_mip_levels(uint3 size, uint requested_levels) noex
 
 void Heap::_destroy() noexcept {
     if (*this) {
-        for (auto texture : _slots) {
+        for (auto texture : _texture_slots) {
             if (texture != invalid_handle) {
                 _device->destroy_texture(texture);
             }
@@ -51,14 +51,15 @@ Heap::Heap(Device::Handle device, size_t capacity) noexcept
     : _device{std::move(device)},
       _handle{_device->create_heap(capacity)},
       _capacity{capacity},
-      _slots(slot_count, invalid_handle) {}
+      _texture_slots(slot_count, invalid_handle),
+      _buffer_slots(slot_count, invalid_handle) {}
 
-Texture2D Heap::create_tex2d(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
-    if (auto h = _slots[index]; h != invalid_handle) {
+Texture2D Heap::create_texture(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
+    if (auto h = _texture_slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",
             h, index, _handle);
-        destroy(index);
+        destroy_texture(index);
     }
     auto valid_mip_levels = _compute_mip_levels(make_uint3(size, 1u), mip_levels);
     if (valid_mip_levels == 1u
@@ -73,16 +74,16 @@ Texture2D Heap::create_tex2d(uint index, PixelStorage storage, uint2 size, Textu
         pixel_storage_to_format<float>(storage), 2u,
         size.x, size.y, 1u, valid_mip_levels,
         sampler, _handle, index);
-    _slots[index] = handle;
+    _texture_slots[index] = handle;
     return {handle, storage, valid_mip_levels, size};
 }
 
-Texture3D Heap::create_tex3d(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
-    if (auto h = _slots[index]; h != invalid_handle) {
+Texture3D Heap::create_texture(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
+    if (auto h = _texture_slots[index]; h != invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",
             h, index, _handle);
-        destroy(index);
+        destroy_texture(index);
     }
     auto valid_mip_levels = _compute_mip_levels(size, mip_levels);
     if (valid_mip_levels == 1u
@@ -97,17 +98,28 @@ Texture3D Heap::create_tex3d(uint index, PixelStorage storage, uint3 size, Textu
         pixel_storage_to_format<float>(storage), 3u,
         size.x, size.y, size.z, valid_mip_levels,
         sampler, _handle, index);
-    _slots[index] = handle;
+    _texture_slots[index] = handle;
     return {handle, storage, valid_mip_levels, size};
 }
 
-void Heap::destroy(uint32_t index) noexcept {
-    if (auto &&h = _slots[index]; h == invalid_handle) {
+void Heap::destroy_texture(uint32_t index) noexcept {
+    if (auto &&h = _texture_slots[index]; h == invalid_handle) {
         LUISA_WARNING_WITH_LOCATION(
-            "Recycling already destroyed heap texture at slot {} in heap #{}.",
+            "Destroying already destroyed heap texture at slot {} in heap #{}.",
             index, _handle);
     } else {
         _device->destroy_texture(h);
+        h = invalid_handle;
+    }
+}
+
+void Heap::destroy_buffer(uint32_t index) noexcept {
+    if (auto &&h = _buffer_slots[index]; h == invalid_handle) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Destroying already destroyed heap buffer at slot {} in heap #{}.",
+            index, _handle);
+    } else {
+        _device->destroy_buffer(h);
         h = invalid_handle;
     }
 }
