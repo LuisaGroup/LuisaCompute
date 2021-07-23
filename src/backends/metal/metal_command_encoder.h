@@ -31,8 +31,6 @@ public:
     void visit(const BufferDownloadCommand *command) noexcept override;
     void visit(const TextureUploadCommand *command) noexcept override;
     void visit(const TextureDownloadCommand *command) noexcept override;
-    void visit(const AccelTraceClosestCommand *command) noexcept override;
-    void visit(const AccelTraceAnyCommand *command) noexcept override;
     void visit(const AccelUpdateCommand *command) noexcept override;
     void visit(const BufferToTextureCopyCommand *command) noexcept override;
     void visit(const TextureCopyCommand *command) noexcept override;

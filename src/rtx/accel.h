@@ -13,61 +13,34 @@
 
 namespace luisa::compute {
 
-class Accel;
-
-class Instance {
-
-private:
-    Accel *_geometry;
-    size_t _index;
-
-private:
-    friend class Accel;
-    Instance(Accel *geom, size_t index) noexcept
-        : _geometry{geom}, _index{index} {}
-
-public:
-    [[nodiscard]] uint64_t mesh_handle() const noexcept;
-    void set_mesh(const Mesh &mesh) noexcept;
-    void set_transform(float4x4 m) noexcept;
-};
-
 class Accel : concepts::Noncopyable {
 
 private:
     Device::Handle _device;
     uint64_t _handle;
-    std::vector<uint64_t> _instance_mesh_handles;
-    std::vector<float4x4> _instance_transforms;
     bool _built{false};
-    bool _dirty{false};
 
 private:
     friend class Device;
-    friend class Instance;
     explicit Accel(Device::Handle device) noexcept;
 
     void _destroy() noexcept;
     void _mark_dirty() noexcept;
     void _mark_should_rebuild() noexcept;
-    void _check_built() const noexcept;
 
 public:
     ~Accel() noexcept;
     Accel(Accel &&) noexcept = default;
     Accel &operator=(Accel &&rhs) noexcept;
-    [[nodiscard]] Command *trace_closest(BufferView<Ray> rays, BufferView<Hit> hits) const noexcept;
-    [[nodiscard]] Command *trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits) const noexcept;
-    [[nodiscard]] Command *trace_closest(BufferView<Ray> rays, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept;
-    [[nodiscard]] Command *trace_closest(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<Hit> hits, BufferView<uint> ray_count) const noexcept;
-    [[nodiscard]] Command *trace_any(BufferView<Ray> rays, BufferView<bool> hits) const noexcept;
-    [[nodiscard]] Command *trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits) const noexcept;
-    [[nodiscard]] Command *trace_any(BufferView<Ray> rays, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept;
-    [[nodiscard]] Command *trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept;
+    [[nodiscard]] Command *update(
+        size_t first,
+        size_t count,
+        const float4x4 *transforms) noexcept;
     [[nodiscard]] Command *update() noexcept;
-    [[nodiscard]] Command *build(AccelBuildHint mode) noexcept;
-    Instance add_instance(const Mesh &mesh, float4x4 transform = {}) noexcept;
-    [[nodiscard]] Instance instance(size_t i) noexcept;
+    [[nodiscard]] Command *build(
+        AccelBuildHint mode,
+        std::span<const uint64_t> mesh_handles,
+        std::span<const float4x4> transforms) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 

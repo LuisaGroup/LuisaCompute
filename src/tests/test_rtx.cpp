@@ -43,11 +43,14 @@ int main(int argc, char *argv[]) {
     auto triangle_buffer = device.create_buffer<Triangle>(1u);
     auto mesh = device.create_mesh();
     auto accel = device.create_accel();
-    accel.add_instance(mesh, scaling(1.5f));
+    std::vector instances{mesh.handle(), mesh.handle()};
+    std::vector transforms{scaling(1.5f),
+                           translation(float3(-0.25f, 0.0f, 0.1f)) * rotation(float3(0.0f, 0.0f, 1.0f), 0.5f)};
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data())
            << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer)
-           << accel.build(AccelBuildHint::FAST_TRACE);
+           << accel.build(AccelBuildHint::FAST_TRACE, instances, transforms)
+           << synchronize();
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -119,14 +122,17 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    auto command_buffer = stream.command_buffer();
-    for (auto i = 0u; i < 128u; i++) {
-        command_buffer << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
+    static constexpr auto spp = 1024u;
+    for (auto i = 0u; i < spp; i++) {
+        auto t = static_cast<float>(i) * (1.0f / spp);
+        transforms[1] = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f))
+                        * rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
+        stream << accel.update(1u, 1u, &transforms[1])
+               << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
     }
-    command_buffer << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)
-                   << ldr_image.copy_to(pixels.data())
-                   << commit();
-    stream << synchronize();
+    stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)
+           << ldr_image.copy_to(pixels.data())
+           << synchronize();
     auto time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
     stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);

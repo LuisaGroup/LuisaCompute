@@ -14,11 +14,12 @@ struct Triangle {
     uint i[3];
 };
 
-class Mesh {
+class Mesh : concepts::Noncopyable {
 
 private:
     Device::Handle _device;
     uint64_t _handle{};
+    bool _built{false};
 
 private:
     friend class Device;
@@ -34,7 +35,8 @@ public:
     Mesh &operator=(Mesh &&rhs) noexcept;
 
     template<typename Vertex>
-    [[nodiscard]] Command *build(AccelBuildHint mode, BufferView<Vertex> vertices, BufferView<Triangle> triangles) const noexcept {
+    [[nodiscard]] Command *build(AccelBuildHint mode, BufferView<Vertex> vertices, BufferView<Triangle> triangles) noexcept {
+        _built = true;
         return MeshBuildCommand::create(
             _handle, mode,
             vertices.handle(), vertices.offset_bytes(), sizeof(Vertex), vertices.size(),
@@ -42,11 +44,11 @@ public:
     }
 
     template<typename Vertex>
-    [[nodiscard]] Command *build(AccelBuildHint mode, const Buffer<Vertex> &vertices, BufferView<Triangle> triangles) const noexcept {
+    [[nodiscard]] Command *build(AccelBuildHint mode, const Buffer<Vertex> &vertices, BufferView<Triangle> triangles) noexcept {
         return build(mode, vertices.view(), triangles);
     }
 
-    [[nodiscard]] Command *update() const noexcept;
+    [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };

@@ -32,8 +32,6 @@ namespace luisa::compute {
         TextureDownloadCommand,     \
         TextureCopyCommand,         \
         TextureToBufferCopyCommand, \
-        AccelTraceClosestCommand,   \
-        AccelTraceAnyCommand,       \
         AccelUpdateCommand,         \
         AccelBuildCommand,          \
         MeshUpdateCommand,          \
@@ -61,7 +59,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 
 }// namespace detail
 
-#define LUISA_MAKE_COMMAND_COMMON(Cmd)                                           \
+#define LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)                                    \
     template<typename... Args>                                                   \
     [[nodiscard]] static auto create(Args &&...args) noexcept {                  \
         Clock clock;                                                             \
@@ -69,11 +67,18 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
         LUISA_VERBOSE_WITH_LOCATION(                                             \
             "Created {} in {} ms.", #Cmd, clock.toc());                          \
         return command;                                                          \
-    }                                                                            \
-    void accept(CommandVisitor &visitor) const noexcept override {               \
-        visitor.visit(this);                                                     \
-    }                                                                            \
+    }
+
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+    void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); }
+
+#define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     void recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
+
+#define LUISA_MAKE_COMMAND_COMMON(Cmd)    \
+    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd)
 
 class Command {
 
@@ -516,9 +521,9 @@ public:
 };
 
 enum struct AccelBuildHint {
-    FAST_TRACE,  // build with best quality
-    FAST_UPDATE, // optimize for frequent update, usually with compaction
-    FAST_REBUILD // optimize for frequent rebuild, maybe without compaction
+    FAST_TRACE, // build with best quality
+    FAST_UPDATE,// optimize for frequent update, usually with compaction
+    FAST_REBUILD// optimize for frequent rebuild, maybe without compaction
 };
 
 class MeshBuildCommand : public Command {
@@ -590,31 +595,25 @@ class AccelUpdateCommand : public Command {
 
 private:
     uint64_t _handle;
+    size_t _first_instance{0u};
     std::span<const float4x4> _instance_transforms;
 
 public:
-    AccelUpdateCommand(uint64_t handle,
-                       std::span<const float4x4> instance_transforms) noexcept
+    explicit AccelUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
+    AccelUpdateCommand(uint64_t handle, std::span<const float4x4> instance_transforms, size_t first) noexcept
         : _handle{handle},
+          _first_instance{first},
           _instance_transforms{instance_transforms} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto should_update_transforms() const noexcept { return !_instance_transforms.empty(); }
+    [[nodiscard]] auto first_instance_to_update() const noexcept { return _first_instance; }
     [[nodiscard]] auto updated_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 
-class AccelTraceClosestCommand : public Command {
-
-public:
-    LUISA_MAKE_COMMAND_COMMON(AccelTraceClosestCommand)
-};
-
-class AccelTraceAnyCommand : public Command {
-
-public:
-    LUISA_MAKE_COMMAND_COMMON(AccelTraceAnyCommand)
-};
-
+#undef LUISA_MAKE_COMMAND_COMMON_CREATE
+#undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
+#undef LUISA_MAKE_COMMAND_COMMON_RECYCLE
 #undef LUISA_MAKE_COMMAND_COMMON
 
 }// namespace luisa::compute

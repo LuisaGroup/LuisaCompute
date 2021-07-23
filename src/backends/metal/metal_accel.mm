@@ -94,10 +94,10 @@ id<MTLCommandBuffer> MetalAccel::build(
 
 id<MTLCommandBuffer> MetalAccel::update(
     id<MTLCommandBuffer> command_buffer,
-    bool should_update_transforms,
-    std::span<const float4x4> transforms) noexcept {
+    std::span<const float4x4> transforms,
+    size_t first) noexcept {
 
-    if (should_update_transforms) {
+    if (!transforms.empty()) {
         // wait until last update finishes
         if (auto last_update = _last_update;
             last_update != nullptr) {
@@ -105,19 +105,20 @@ id<MTLCommandBuffer> MetalAccel::update(
             _last_update = nullptr;
         }
         // now we can safely modify the instance buffer...
-        auto instances = static_cast<MTLAccelerationStructureInstanceDescriptor *>(_instance_buffer_host.contents);
+        using Instance = MTLAccelerationStructureInstanceDescriptor;
+        auto instances = static_cast<Instance *>(_instance_buffer_host.contents);
         for (auto i = 0u; i < transforms.size(); i++) {
             auto t = transforms[i];
             for (auto c = 0; c < 4; c++) {
-                instances[i].transformationMatrix[c] = {t[c].x, t[c].y, t[c].z};
+                instances[i + first].transformationMatrix[c] = {t[c].x, t[c].y, t[c].z};
             }
         }
         auto blit_encoder = [command_buffer blitCommandEncoder];
         [blit_encoder copyFromBuffer:_instance_buffer_host
-                        sourceOffset:0u
+                        sourceOffset:first * sizeof(Instance)
                             toBuffer:_instance_buffer
-                   destinationOffset:0u
-                                size:_instance_buffer_host.length];
+                   destinationOffset:first * sizeof(Instance)
+                                size:transforms.size() * sizeof(Instance)];
         [blit_encoder endEncoding];
         // commit the command buffer and start a new one to avoid dead locks
         [command_buffer commit];
