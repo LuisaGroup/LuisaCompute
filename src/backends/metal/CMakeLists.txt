@@ -26,12 +26,11 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
                           OBJCXX_STANDARD 20
                           OBJC_STANDARD_REQUIRED ON
                           OBJCXX_STANDARD_REQUIRED ON
-                          OBJC_EXTENSIONS OFF
-                          OBJCXX_EXTENSIONS OFF)
+                          OBJC_EXTENSIONS ON
+                          OBJCXX_EXTENSIONS ON
+                          UNITY_BUILD ON)
     target_compile_options(luisa-compute-backend-metal PRIVATE -fobjc-arc)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
                           "-framework Foundation"
-                          "-framework Metal"
-                          "-framework MetalKit"
-                          "-framework MetalPerformanceShaders")
+                          "-framework Metal")
 endif ()

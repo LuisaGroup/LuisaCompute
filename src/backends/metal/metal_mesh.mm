@@ -14,7 +14,7 @@ id<MTLCommandBuffer> MetalMesh::build(
     id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count,
     MetalSharedBufferPool *pool) noexcept {
 
-    auto mesh_desc = [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+    auto mesh_desc = [[MTLAccelerationStructureTriangleGeometryDescriptor alloc] init];
     mesh_desc.vertexBuffer = v_buffer;
     mesh_desc.vertexBufferOffset = v_offset;
     mesh_desc.vertexStride = v_stride;
@@ -23,7 +23,7 @@ id<MTLCommandBuffer> MetalMesh::build(
     mesh_desc.indexType = MTLIndexTypeUInt32;
     mesh_desc.triangleCount = t_count;
     mesh_desc.opaque = YES;
-    _descriptor = [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+    _descriptor = [[MTLPrimitiveAccelerationStructureDescriptor alloc] init];
     _descriptor.geometryDescriptors = @[mesh_desc];
     switch (hint) {
         case AccelBuildHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;

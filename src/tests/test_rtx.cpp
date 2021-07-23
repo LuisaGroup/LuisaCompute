@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
         Var f = 1.0f;
         Var invB = 1.0f / b;
         Var r = 0.0f;
-        while_(i > 0, [&] {
+        while_(i > 0u, [&] {
             f = f * invB;
             r = r + f * (i % b);
             i = i / b;
