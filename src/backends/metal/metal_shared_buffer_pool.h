@@ -11,22 +11,20 @@
 
 namespace luisa::compute::metal {
 
-class MetalArgumentBufferPool {
-
-public:
-    static constexpr auto argument_buffer_size = 4096u;
-    static constexpr auto trunk_size = 64u;
+class MetalSharedBufferPool {
 
 private:
     __weak id<MTLDevice> _device;
     std::vector<MetalBufferView> _available_buffers;
+    size_t _block_size;
+    size_t _trunk_size;
     spin_mutex _mutex;
 
 private:
     void _create_new_trunk_if_empty() noexcept;
 
 public:
-    explicit MetalArgumentBufferPool(id<MTLDevice> device) noexcept;
+    MetalSharedBufferPool(id<MTLDevice> device, size_t block_size, size_t trunk_size) noexcept;
     [[nodiscard]] MetalBufferView allocate() noexcept;
     void recycle(MetalBufferView buffer) noexcept;
 };

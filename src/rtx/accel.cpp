@@ -16,7 +16,7 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
     return *this;
 }
 
-}
+}// namespace detail
 
 Accel Device::create_accel() noexcept { return _create<Accel>(); }
 
@@ -77,7 +77,7 @@ Command *Accel::update() noexcept {
             _handle);
     }
     std::span<const float4x4> transforms;
-    if (_dirty) {
+    if (_dirty) {// dirty indicates we need to update instance transforms
         transforms = _instance_transforms;
         _dirty = false;
     }

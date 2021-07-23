@@ -3,6 +3,7 @@
 //
 
 #import <backends/metal/metal_mesh.h>
+#import <backends/metal/metal_shared_buffer_pool.h>
 
 namespace luisa::compute::metal {
 
@@ -10,7 +11,8 @@ id<MTLCommandBuffer> MetalMesh::build(
     id<MTLCommandBuffer> command_buffer,
     AccelBuildHint hint,
     id<MTLBuffer> v_buffer, size_t v_offset, size_t v_stride,
-    id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count) noexcept {
+    id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count,
+    MetalSharedBufferPool *pool) noexcept {
 
     auto mesh_desc = [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
     mesh_desc.vertexBuffer = v_buffer;
@@ -32,23 +34,26 @@ id<MTLCommandBuffer> MetalMesh::build(
     _handle = [_device newAccelerationStructureWithSize:_sizes.accelerationStructureSize];
     auto scratch_buffer = [_device newBufferWithLength:_sizes.buildScratchBufferSize
                                                options:MTLResourceStorageModePrivate
-                                                   | MTLResourceHazardTrackingModeUntracked];
+                                                       | MTLResourceHazardTrackingModeUntracked];
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
     [command_encoder buildAccelerationStructure:_handle
                                      descriptor:_descriptor
                                   scratchBuffer:scratch_buffer
                             scratchBufferOffset:0u];
     if (hint != AccelBuildHint::FAST_REBUILD) {
-        auto compacted_size_buffer = [_device newBufferWithLength:sizeof(uint)
-                                                          options:MTLResourceStorageModeShared
-                                                                  | MTLResourceHazardTrackingModeUntracked];
+        auto compacted_size_buffer = pool->allocate();
         [command_encoder writeCompactedAccelerationStructureSize:_handle
-                                                        toBuffer:compacted_size_buffer
-                                                          offset:0u];
+                                                        toBuffer:compacted_size_buffer.handle()
+                                                          offset:compacted_size_buffer.offset()];
         [command_encoder endEncoding];
+        auto compacted_size = 0u;
+        auto p_compacted_size = &compacted_size;
+        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          *p_compacted_size = reinterpret_cast<const uint *>(
+              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset())[0];
+        }];
         [command_buffer commit];
         [command_buffer waitUntilCompleted];
-        auto compacted_size = static_cast<const uint *>(compacted_size_buffer.contents)[0];
         auto accel = _handle;
         _handle = [_device newAccelerationStructureWithSize:compacted_size];
         command_buffer = [[command_buffer commandQueue] commandBuffer];

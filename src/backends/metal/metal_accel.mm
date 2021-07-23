@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/7/22.
 //
 
-#import <backends/metal/metal_device.h>
 #import <backends/metal/metal_accel.h>
+#import <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
 
@@ -11,7 +11,8 @@ id<MTLCommandBuffer> MetalAccel::build(
     id<MTLCommandBuffer> command_buffer,
     AccelBuildHint hint,
     std::span<const uint64_t> mesh_handles,
-    std::span<const float4x4> transforms) noexcept {
+    std::span<const float4x4> transforms,
+    MetalSharedBufferPool *pool) noexcept {
 
     // build instance buffer
     auto instance_buffer_size = mesh_handles.size() * sizeof(MTLAccelerationStructureInstanceDescriptor);
@@ -65,16 +66,19 @@ id<MTLCommandBuffer> MetalAccel::build(
                                   scratchBuffer:scratch_buffer
                             scratchBufferOffset:0u];
     if (hint != AccelBuildHint::FAST_REBUILD) {
-        auto compacted_size_buffer = [_device->handle() newBufferWithLength:sizeof(uint)
-                                                                    options:MTLResourceStorageModeShared
-                                                                            | MTLResourceHazardTrackingModeUntracked];
+        auto compacted_size_buffer = pool->allocate();
         [command_encoder writeCompactedAccelerationStructureSize:_handle
-                                                        toBuffer:compacted_size_buffer
-                                                          offset:0u];
+                                                        toBuffer:compacted_size_buffer.handle()
+                                                          offset:compacted_size_buffer.offset()];
         [command_encoder endEncoding];
+        auto compacted_size = 0u;
+        auto p_compacted_size = &compacted_size;
+        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          *p_compacted_size = reinterpret_cast<const uint *>(
+              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset())[0];
+        }];
         [command_buffer commit];
         [command_buffer waitUntilCompleted];
-        auto compacted_size = static_cast<const uint *>(compacted_size_buffer.contents)[0];
         auto accel = _handle;
         _handle = [_device->handle() newAccelerationStructureWithSize:compacted_size];
         command_buffer = [[command_buffer commandQueue] commandBuffer];

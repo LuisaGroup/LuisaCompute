@@ -311,7 +311,8 @@ void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     _command_buffer = accel->build(
         _command_buffer, command->hint(),
         command->instance_mesh_handles(),
-        command->instance_transforms());
+        command->instance_transforms(),
+        _device->compacted_size_buffer_pool());
 }
 
 void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
@@ -326,7 +327,8 @@ void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     _command_buffer = mesh->build(
         _command_buffer, command->hint(),
         v_buffer, command->vertex_buffer_offset(), command->vertex_stride(),
-        t_buffer, command->triangle_buffer_offset(), command->triangle_count());
+        t_buffer, command->triangle_buffer_offset(), command->triangle_count(),
+        _device->compacted_size_buffer_pool());
 }
 
 }

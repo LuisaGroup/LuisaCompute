@@ -94,7 +94,8 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
 
     _compiler = std::make_unique<MetalCompiler>(this);
-    _argument_buffer_pool = std::make_unique<MetalArgumentBufferPool>(_handle);
+    _argument_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, 4096u, 16u);
+    _compacted_size_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint));
 
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
@@ -160,7 +161,7 @@ MetalShader MetalDevice::compiled_kernel(uint64_t handle) const noexcept {
     return _shader_slots[handle];
 }
 
-MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
+MetalSharedBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
     return _argument_buffer_pool.get();
 }
 
@@ -453,6 +454,10 @@ NSMutableArray<id<MTLAccelerationStructure>> *MetalDevice::mesh_handles(std::spa
         [array addObject:_mesh_slots[h]->handle()];
     }
     return array;
+}
+
+MetalSharedBufferPool *MetalDevice::compacted_size_buffer_pool() const noexcept {
+    return _compacted_size_buffer_pool.get();
 }
 
 }

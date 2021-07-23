@@ -9,6 +9,8 @@
 
 namespace luisa::compute::metal {
 
+class MetalSharedBufferPool;
+
 class MetalMesh {
 
 private:
@@ -26,7 +28,8 @@ public:
         id<MTLCommandBuffer> command_buffer,
         AccelBuildHint hint,
         id<MTLBuffer> v_buffer, size_t v_offset, size_t v_stride,
-        id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count) noexcept;
+        id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count,
+        MetalSharedBufferPool *pool) noexcept;
     id<MTLCommandBuffer> update(id<MTLCommandBuffer> command_buffer);
 };
 

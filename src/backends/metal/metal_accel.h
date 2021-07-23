@@ -13,6 +13,7 @@
 namespace luisa::compute::metal {
 
 class MetalDevice;
+class MetalSharedBufferPool;
 
 class MetalAccel {
 
@@ -34,7 +35,8 @@ public:
         id<MTLCommandBuffer> command_buffer,
         AccelBuildHint hint,
         std::span<const uint64_t> mesh_handles,
-        std::span<const float4x4> transforms) noexcept;
+        std::span<const float4x4> transforms,
+        MetalSharedBufferPool *pool) noexcept;
     [[nodiscard]] id<MTLCommandBuffer> update(
         id<MTLCommandBuffer> command_buffer,
         bool should_update_transforms,
