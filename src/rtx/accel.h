@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/basic_types.h>
 #include <runtime/device.h>
 #include <runtime/buffer.h>
 #include <rtx/ray.h>
@@ -65,7 +66,7 @@ public:
     [[nodiscard]] Command *trace_any(BufferView<Ray> rays, BufferView<uint32_t> indices, BufferView<bool> hits, BufferView<uint> ray_count) const noexcept;
     [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] Command *build(AccelBuildHint mode) noexcept;
-    [[nodiscard]] Instance add(const Mesh &mesh, float4x4 transform) noexcept;
+    Instance add_instance(const Mesh &mesh, float4x4 transform = {}) noexcept;
     [[nodiscard]] Instance instance(size_t i) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }

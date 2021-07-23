@@ -151,11 +151,11 @@ void ShaderDispatchCommand::encode_texture_heap(uint32_t variable_uid, uint64_t 
     _argument_count++;
 }
 
-void ShaderDispatchCommand::encode_geometry(uint32_t variable_uid, uint64_t handle) noexcept {
+void ShaderDispatchCommand::encode_accel(uint32_t variable_uid, uint64_t handle) noexcept {
     constexpr auto size = sizeof(AccelArgument);
     if (_argument_buffer_size + size > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to encode geometry. "
+            "Failed to encode accel. "
             "Shader argument buffer exceeded size limit {}.",
             _argument_buffer.size());
     }

@@ -459,7 +459,7 @@ public:
     void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
     void encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept;
-    void encode_geometry(uint32_t variable_uid, uint64_t handle) noexcept;
+    void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {

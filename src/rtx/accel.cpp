@@ -12,7 +12,7 @@ namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
     auto v = _kernel.arguments()[_argument_index++].uid();
-    _dispatch_command()->encode_texture_heap(v, accel.handle());
+    _dispatch_command()->encode_accel(v, accel.handle());
     return *this;
 }
 
@@ -95,7 +95,7 @@ Command *Accel::build(AccelBuildHint mode) noexcept {
 void Accel::_mark_dirty() noexcept { _dirty = true; }
 void Accel::_mark_should_rebuild() noexcept { _built = false; }
 
-Instance Accel::add(const Mesh &mesh, float4x4 transform) noexcept {
+Instance Accel::add_instance(const Mesh &mesh, float4x4 transform) noexcept {
     auto instance_index = _instance_mesh_handles.size();
     _instance_mesh_handles.emplace_back(mesh.handle());
     _instance_transforms.emplace_back(transform);

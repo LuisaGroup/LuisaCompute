@@ -79,7 +79,7 @@ public:
                 heap.variable.uid(), heap.handle);
         }
         for (auto accel : _kernel.captured_accels()) {
-            _dispatch_command()->encode_texture_heap(
+            _dispatch_command()->encode_accel(
                 accel.variable.uid(), accel.handle);
         }
     }

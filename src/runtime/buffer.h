@@ -67,8 +67,8 @@ public:
     [[nodiscard]] auto view() const noexcept { return BufferView<T>{_handle, 0u, _size}; }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
 
-    [[nodiscard]] auto copy_to(T *data) const noexcept { return this->view().copy_to(data); }
-    [[nodiscard]] auto copy_from(const T *data) { return this->view().copy_from(data); }
+    [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
+    [[nodiscard]] auto copy_from(const void *data) { return this->view().copy_from(data); }
     [[nodiscard]] auto copy_from(BufferView<T> source) { return this->view().copy_from(source); }
 
     template<typename I>
@@ -130,16 +130,11 @@ public:
         return BufferView{this->device(), this->handle(), this->offset_bytes(), byte_size / sizeof(U)};
     }
 
-    [[nodiscard]] auto copy_to(T *data) const {
-        if (reinterpret_cast<size_t>(data) % alignof(T) != 0u) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid host pointer {} for elements with alignment {}.",
-                fmt::ptr(data), alignof(T));
-        }
+    [[nodiscard]] auto copy_to(void *data) const {
         return BufferDownloadCommand::create(_handle, offset_bytes(), size_bytes(), data);
     }
 
-    [[nodiscard]] auto copy_from(const T *data) {
+    [[nodiscard]] auto copy_from(const void *data) {
         return BufferUploadCommand::create(this->handle(), this->offset_bytes(), this->size_bytes(), data);
     }
 

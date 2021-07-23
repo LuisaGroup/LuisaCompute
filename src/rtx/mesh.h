@@ -40,6 +40,12 @@ public:
             vertices.handle(), vertices.offset_bytes(), sizeof(Vertex), vertices.size(),
             triangles.handle(), triangles.offset_bytes(), triangles.size());
     }
+
+    template<typename Vertex>
+    [[nodiscard]] Command *build(AccelBuildHint mode, const Buffer<Vertex> &vertices, BufferView<Triangle> triangles) const noexcept {
+        return build(mode, vertices.view(), triangles);
+    }
+
     [[nodiscard]] Command *update() const noexcept;
     [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
