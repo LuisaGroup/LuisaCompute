@@ -18,6 +18,7 @@ Heap &Heap::operator=(Heap &&rhs) noexcept {
         _handle = rhs._handle;
         _capacity = rhs._capacity;
         _texture_slots = std::move(rhs._texture_slots);
+        _buffer_slots = std::move(rhs._buffer_slots);
     }
     return *this;
 }
@@ -39,6 +40,11 @@ void Heap::_destroy() noexcept {
         for (auto texture : _texture_slots) {
             if (texture != invalid_handle) {
                 _device->destroy_texture(texture);
+            }
+        }
+        for (auto buffer : _buffer_slots) {
+            if (buffer != invalid_handle) {
+                _device->destroy_buffer(buffer);
             }
         }
         _device->destroy_heap(_handle);
