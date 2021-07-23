@@ -165,11 +165,14 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
     auto block_size = command->kernel().block_size();
     auto blocks = (launch_size + block_size - 1u) / block_size;
     LUISA_VERBOSE_WITH_LOCATION(
-        "Dispatch shader #{} in ({}, {}, {}) blocks "
+        "Dispatching shader #{} in ({}, {}, {}) blocks "
         "with block_size ({}, {}, {}).",
         command->handle(),
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Kernel arguments: {}.",
+        [compiled_kernel.arguments().description cStringUsingEncoding:NSUTF8StringEncoding]);
 
     // update texture desc heap if any
     command->decode([&](auto, auto argument) noexcept -> void {
@@ -242,17 +245,23 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             [argument_encoder setAccelerationStructure:accel atIndex:arg_id];
             [compute_encoder useResource:accel usage:MTLResourceUsageRead];
         } else {// uniform
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Encoding uniform at index {}.",
+                argument_index);
             auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];
             std::memcpy(ptr, argument.data(), argument.size_bytes());
         }
     });
+
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Encoding dispatch size at index {}.",
+        argument_index);
     auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index].argumentIndex];
     std::memcpy(ptr, &launch_size, sizeof(launch_size));
     [compute_encoder setBuffer:argument_buffer.handle() offset:argument_buffer.offset() atIndex:0];
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)
                     threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
     [compute_encoder endEncoding];
-
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
       argument_buffer_pool->recycle(argument_buffer);
     }];
@@ -265,13 +274,10 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
         auto options = MTLResourceStorageModeShared
                        | MTLResourceCPUCacheModeWriteCombined
                        | MTLResourceHazardTrackingModeUntracked;
-        auto handle = [_device->handle() newBufferWithLength:size options:options];
-        if (host_ptr != nullptr) { std::memcpy(handle.contents, host_ptr, size); }
+        auto handle = [_device->handle() newBufferWithBytes:host_ptr length:size options:options];
         return {handle, 0u, size};
     }
-    if (host_ptr != nullptr) {
-        std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
-    }
+    std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { rb->recycle(buffer); }];
     return buffer;
 }

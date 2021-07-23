@@ -339,10 +339,6 @@ void FunctionBuilder::_compute_hash() noexcept {
     _hash = std::hash<uint64_t>{}(reinterpret_cast<uint64_t>(this));
 }
 
-void FunctionBuilder::mark_raytracing() noexcept {
-    _raytracing = true;
-}
-
 const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
     if (auto iter = std::find_if(
             _captured_heaps.cbegin(),
@@ -363,6 +359,7 @@ const RefExpr *FunctionBuilder::texture_heap() noexcept {
 }
 
 const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
+    _raytracing = true;
     if (auto iter = std::find_if(
             _captured_accels.cbegin(),
             _captured_accels.cend(),
@@ -376,6 +373,7 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
 }
 
 const RefExpr *FunctionBuilder::accel() noexcept {
+    _raytracing = true;
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);

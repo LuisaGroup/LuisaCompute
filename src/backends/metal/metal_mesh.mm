@@ -49,16 +49,18 @@ id<MTLCommandBuffer> MetalMesh::build(
         auto compacted_size = 0u;
         auto p_compacted_size = &compacted_size;
         [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          *p_compacted_size = reinterpret_cast<const uint *>(
-              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset())[0];
+          *p_compacted_size = *reinterpret_cast<const uint *>(
+              static_cast<const std::byte *>(compacted_size_buffer.handle().contents)
+              + compacted_size_buffer.offset());
+          pool->recycle(compacted_size_buffer);
         }];
         [command_buffer commit];
         [command_buffer waitUntilCompleted];
-        auto accel = _handle;
+        auto accel_before_compaction = _handle;
         _handle = [_device newAccelerationStructureWithSize:compacted_size];
         command_buffer = [[command_buffer commandQueue] commandBuffer];
         command_encoder = [command_buffer accelerationStructureCommandEncoder];
-        [command_encoder copyAndCompactAccelerationStructure:accel
+        [command_encoder copyAndCompactAccelerationStructure:accel_before_compaction
                                      toAccelerationStructure:_handle];
     }
     [command_encoder endEncoding];

@@ -94,8 +94,8 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
 
     _compiler = std::make_unique<MetalCompiler>(this);
-    _argument_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, 4096u, 16u);
-    _compacted_size_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint));
+    _argument_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, 4096u, 16u, true);
+    _compacted_size_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
 
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
@@ -297,10 +297,16 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
 }
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcept {
-    auto s = stream(stream_handle);
-    s->dispatch([this, cmd_list = std::move(cmd_list)](MetalStream *stream) noexcept {
+    stream(stream_handle)->dispatch([this, cmd_list = std::move(cmd_list)](MetalStream *stream) noexcept {
         MetalCommandEncoder encoder{this, stream};
-        for (auto &&command : cmd_list) { command->accept(encoder); }
+        auto command_index = 0u;
+        for (auto command : cmd_list) {
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Encoding command at index {}.",
+                command_index);
+            command->accept(encoder);
+            command_index++;
+        }
         return encoder.command_buffer();
     });
 }

@@ -29,7 +29,6 @@ public:
             return self;
         }
         [[nodiscard]] decltype(auto) operator*() const noexcept { return _command; }
-        [[nodiscard]] auto operator->() const noexcept { return _command; }
         [[nodiscard]] auto operator==(Iterator rhs) const noexcept { return _command == rhs._command; }
     };
 

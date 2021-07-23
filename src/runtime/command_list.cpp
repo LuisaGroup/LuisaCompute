@@ -15,8 +15,10 @@ void CommandList::_recycle() noexcept {
 }
 
 void CommandList::append(Command *cmd) noexcept {
-    if (_head == nullptr) { _head = cmd; }
-    _tail = _tail == nullptr ? cmd->tail() : _tail->set_next(cmd);
+    if (cmd != nullptr) {
+        if (_head == nullptr) { _head = cmd; }
+        _tail = _tail == nullptr ? cmd->tail() : _tail->set_next(cmd);
+    }
 }
 
 CommandList::CommandList(CommandList &&another) noexcept

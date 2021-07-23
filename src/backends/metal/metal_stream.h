@@ -21,7 +21,7 @@ public:
 
 private:
     id<MTLCommandQueue> _handle;
-    id<MTLCommandBuffer> _last{nullptr};
+    __weak id<MTLCommandBuffer> _last{nullptr};
     MetalRingBuffer _upload_ring_buffer;
     MetalRingBuffer _download_ring_buffer;
     spin_mutex _mutex;
@@ -31,22 +31,18 @@ public:
         : _handle{handle},
           _upload_ring_buffer{handle.device, ring_buffer_size, true},
           _download_ring_buffer{handle.device, ring_buffer_size, false} {}
-
     ~MetalStream() noexcept { _handle = nullptr; }
-
-    [[nodiscard]] auto command_buffer() noexcept { return [_handle commandBuffer]; }
+    [[nodiscard]] auto command_buffer() noexcept { return _handle.commandBuffer; }
     [[nodiscard]] auto &upload_ring_buffer() noexcept { return _upload_ring_buffer; }
     [[nodiscard]] auto &download_ring_buffer() noexcept { return _download_ring_buffer; }
 
     template<typename Dispatch>
-    void dispatch(Dispatch d) noexcept {
+    void dispatch(Dispatch &&d) noexcept {
         @autoreleasepool {
-            auto command_buffer = d(this);
-            {
-                std::scoped_lock lock{_mutex};
-                [command_buffer commit];
-                _last = command_buffer;
-            }
+            auto command_buffer = std::invoke(std::forward<Dispatch>(d), this);
+            std::scoped_lock lock{_mutex};
+            [command_buffer commit];
+            _last = command_buffer;
         }
     }
 
@@ -57,7 +53,10 @@ public:
                 auto last_cmd = _last;
                 _last = nullptr;
                 return last_cmd;
-            }()) { [last waitUntilCompleted]; }
+            }()) {
+            LUISA_VERBOSE_WITH_LOCATION("Synchronizing stream...");
+            [last waitUntilCompleted];
+        }
     }
 };
 

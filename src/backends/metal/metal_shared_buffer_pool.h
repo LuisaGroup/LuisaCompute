@@ -18,15 +18,19 @@ private:
     std::vector<MetalBufferView> _available_buffers;
     size_t _block_size;
     size_t _trunk_size;
+    bool _optimize_for_write;
     spin_mutex _mutex;
 
 private:
     void _create_new_trunk_if_empty() noexcept;
 
 public:
-    MetalSharedBufferPool(id<MTLDevice> device, size_t block_size, size_t trunk_size) noexcept;
+    MetalSharedBufferPool(
+        id<MTLDevice> device,
+        size_t block_size, size_t trunk_size,
+        bool optimize_for_write) noexcept;
     [[nodiscard]] MetalBufferView allocate() noexcept;
     void recycle(MetalBufferView buffer) noexcept;
 };
 
-}
+}// namespace luisa::compute::metal

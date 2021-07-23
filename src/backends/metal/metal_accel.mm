@@ -41,8 +41,8 @@ id<MTLCommandBuffer> MetalAccel::build(
                destinationOffset:0u
                             size:instance_buffer_size];
     [blit_encoder endEncoding];
-    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { _semaphore.release(); }];
     [command_buffer commit];// to avoid dead locks...
+    _last_update = command_buffer;
 
     // build accel and (possibly) compact
     command_buffer = [[command_buffer commandQueue] commandBuffer];
@@ -74,16 +74,18 @@ id<MTLCommandBuffer> MetalAccel::build(
         auto compacted_size = 0u;
         auto p_compacted_size = &compacted_size;
         [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          *p_compacted_size = reinterpret_cast<const uint *>(
-              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset())[0];
+          *p_compacted_size = *reinterpret_cast<const uint *>(
+              static_cast<const std::byte *>(compacted_size_buffer.handle().contents)
+              + compacted_size_buffer.offset());
+          pool->recycle(compacted_size_buffer);
         }];
         [command_buffer commit];
         [command_buffer waitUntilCompleted];
-        auto accel = _handle;
+        auto accel_before_compaction = _handle;
         _handle = [_device->handle() newAccelerationStructureWithSize:compacted_size];
         command_buffer = [[command_buffer commandQueue] commandBuffer];
         command_encoder = [command_buffer accelerationStructureCommandEncoder];
-        [command_encoder copyAndCompactAccelerationStructure:accel
+        [command_encoder copyAndCompactAccelerationStructure:accel_before_compaction
                                      toAccelerationStructure:_handle];
     }
     [command_encoder endEncoding];
@@ -95,9 +97,14 @@ id<MTLCommandBuffer> MetalAccel::update(
     bool should_update_transforms,
     std::span<const float4x4> transforms) noexcept {
 
-    // update transforms
     if (should_update_transforms) {
-        _semaphore.acquire();
+        // wait until last update finishes
+        if (auto last_update = _last_update;
+            last_update != nullptr) {
+            [last_update waitUntilCompleted];
+            _last_update = nullptr;
+        }
+        // now we can safely modify the instance buffer...
         auto instances = static_cast<MTLAccelerationStructureInstanceDescriptor *>(_instance_buffer_host.contents);
         for (auto i = 0u; i < transforms.size(); i++) {
             auto t = transforms[i];
@@ -112,8 +119,9 @@ id<MTLCommandBuffer> MetalAccel::update(
                    destinationOffset:0u
                                 size:_instance_buffer_host.length];
         [blit_encoder endEncoding];
-        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { _semaphore.release(); }];
-        [command_buffer commit];// to avoid dead locks
+        // commit the command buffer and start a new one to avoid dead locks
+        [command_buffer commit];
+        _last_update = command_buffer;
         command_buffer = [[command_buffer commandQueue] commandBuffer];
     }
 

@@ -51,10 +51,11 @@ private:
     virtual void _emit_indent() noexcept;
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
     virtual void _emit_constant(Function::ConstantBinding c) noexcept;
-    virtual void _emit_preamble() noexcept;
+    virtual void _emit_preamble(Function f) noexcept;
 
 public:
     explicit MetalCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}
     void emit(Function f) override;
 };
+
 }// namespace luisa::compute::metal

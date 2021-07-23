@@ -25,7 +25,7 @@ private:
     id<MTLBuffer> _update_buffer{nullptr};
     MTLInstanceAccelerationStructureDescriptor *_descriptor{nullptr};
     MTLAccelerationStructureSizes _sizes{};
-    std::binary_semaphore _semaphore;
+    __weak id<MTLCommandBuffer> _last_update{nullptr};
 
 public:
     explicit MetalAccel(MetalDevice *device) noexcept

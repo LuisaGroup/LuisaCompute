@@ -214,7 +214,6 @@ public:
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
-    void mark_raytracing() noexcept;
 
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
 };
