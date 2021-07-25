@@ -22,8 +22,11 @@ private:
     id<MTLBuffer> _device_buffer{nullptr};
     id<MTLArgumentEncoder> _encoder{nullptr};
     std::array<id<MTLSamplerState>, 16u> _samplers{};
+    id<MTLEvent> _event{nullptr};
+    mutable uint64_t _event_value{0u};
+    mutable __weak id<MTLCommandBuffer> _last_update{nullptr};
     mutable spin_mutex _mutex;
-    mutable bool _dirty{false};
+    mutable bool _dirty{true};
     static constexpr auto slot_size = 32u;
 
 private:
@@ -35,7 +38,7 @@ public:
     [[nodiscard]] id<MTLBuffer> allocate_buffer(size_t size_bytes, uint32_t index_in_heap) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto desc_buffer() const noexcept { return _device_buffer; }
-    void encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept;
+    [[nodiscard]] id<MTLCommandBuffer> encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept;
 };
 
 }

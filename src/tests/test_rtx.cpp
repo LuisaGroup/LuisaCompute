@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
         auto t = static_cast<float>(i) * (1.0f / spp);
         transforms[1] = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f))
                         * rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
-        stream << accel.update(1u, 1u, &transforms[1])
+        stream << accel.refit(1u, 1u, &transforms[1])
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)

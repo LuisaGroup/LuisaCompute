@@ -18,7 +18,8 @@ MTLHeapDescriptor *MetalTextureHeap::_heap_descriptor(size_t size) noexcept {
 
 MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
     : _device{device},
-      _handle{[device->handle() newHeapWithDescriptor:_heap_descriptor(size)]} {
+      _handle{[device->handle() newHeapWithDescriptor:_heap_descriptor(size)]},
+      _event{[device->handle() newEvent]} {
 
     static constexpr auto src = @"#include <metal_stdlib>\n"
                                  "struct alignas(16) HeapItem {\n"
@@ -106,13 +107,15 @@ id<MTLTexture> MetalTextureHeap::allocate_texture(MTLTextureDescriptor *desc, ui
     return texture;
 }
 
-void MetalTextureHeap::encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept {
-    if ([this] {
-            std::scoped_lock lock{_mutex};
-            auto d = _dirty;
-            _dirty = false;
-            return d;
-        }()) {
+id<MTLCommandBuffer> MetalTextureHeap::encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept {
+    std::scoped_lock lock{_mutex};
+    if (_dirty) {
+        if (auto last = _last_update;
+            last != nullptr) {
+            [last waitUntilCompleted];
+        }
+        _last_update = cmd_buf;
+        _dirty = false;
         auto blit_encoder = [cmd_buf blitCommandEncoder];
         [blit_encoder copyFromBuffer:_buffer
                         sourceOffset:0u
@@ -120,7 +123,15 @@ void MetalTextureHeap::encode_update(id<MTLCommandBuffer> cmd_buf) const noexcep
                    destinationOffset:0u
                                 size:_buffer.length];
         [blit_encoder endEncoding];
+        [cmd_buf encodeSignalEvent:_event
+                             value:++_event_value];
+        // create a new command buffer to avoid dead locks
+        [cmd_buf commit];
+        cmd_buf = [[cmd_buf commandQueue] commandBuffer];
     }
+    [cmd_buf encodeWaitForEvent:_event
+                          value:_event_value];
+    return cmd_buf;
 }
 
 id<MTLBuffer> MetalTextureHeap::allocate_buffer(size_t size_bytes, uint32_t index_in_heap) noexcept {

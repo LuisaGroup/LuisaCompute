@@ -59,7 +59,7 @@ public:
                 h, index, _handle);
             destroy_buffer(index);
         }
-        auto buffer_handle = _device->create_buffer(size, _handle, index);
+        auto buffer_handle = _device->create_buffer(size * sizeof(T), _handle, index);
         return {buffer_handle, 0u, size};
     }
     void destroy_buffer(uint32_t index) noexcept;

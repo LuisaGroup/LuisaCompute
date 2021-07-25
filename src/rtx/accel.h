@@ -23,20 +23,17 @@ private:
 private:
     friend class Device;
     explicit Accel(Device::Handle device) noexcept;
-
     void _destroy() noexcept;
-    void _mark_dirty() noexcept;
-    void _mark_should_rebuild() noexcept;
 
 public:
     ~Accel() noexcept;
     Accel(Accel &&) noexcept = default;
     Accel &operator=(Accel &&rhs) noexcept;
-    [[nodiscard]] Command *update(
+    [[nodiscard]] Command *refit(
         size_t first,
         size_t count,
         const float4x4 *transforms) noexcept;
-    [[nodiscard]] Command *update() noexcept;
+    [[nodiscard]] Command *refit() noexcept;
     [[nodiscard]] Command *build(
         AccelBuildHint mode,
         std::span<const uint64_t> mesh_handles,

@@ -30,7 +30,7 @@ void Accel::_destroy() noexcept {
 
 Accel::~Accel() noexcept { _destroy(); }
 
-Command *Accel::update() noexcept {
+Command *Accel::refit() noexcept {
     if (!_built) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Geometry #{} is not built when updating.",
@@ -57,7 +57,7 @@ detail::Expr<bool> Accel::trace_any(detail::Expr<Ray> ray) const noexcept {
     return detail::Expr<Accel>{*this}.trace_any(ray);
 }
 
-Command *Accel::update(
+Command *Accel::refit(
     size_t first,
     size_t count,
     const float4x4 *transforms) noexcept {

@@ -178,7 +178,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
     command->decode([&](auto, auto argument) noexcept -> void {
         using T = decltype(argument);
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
-            _device->heap(argument.handle)->encode_update(_command_buffer);
+            _command_buffer = _device->heap(argument.handle)->encode_update(_command_buffer);
         }
     });
 

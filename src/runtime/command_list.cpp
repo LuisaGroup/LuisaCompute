@@ -9,15 +9,20 @@ namespace luisa::compute {
 void CommandList::_recycle() noexcept {
     while (_head != nullptr) {
         auto cmd = _head;
-        _head = _head->next();
-        cmd->recycle();
+        _head = _head->_next();
+        cmd->_recycle();
     }
 }
 
 void CommandList::append(Command *cmd) noexcept {
     if (cmd != nullptr) {
+        if (cmd->_next() != nullptr) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Adding composed command to command list is not allowed.");
+        }
         if (_head == nullptr) { _head = cmd; }
-        _tail = _tail == nullptr ? cmd->tail() : _tail->set_next(cmd);
+        if (_tail != nullptr) { _tail->_set_next(cmd); }
+        _tail = cmd;
     }
 }
 

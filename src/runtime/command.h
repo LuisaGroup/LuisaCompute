@@ -49,6 +49,7 @@ struct CommandVisitor {
 };
 
 class Command;
+class CommandList;
 
 namespace detail {
 
@@ -73,7 +74,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); }
 
 #define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
-    void recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
+    void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
 
 #define LUISA_MAKE_COMMAND_COMMON(Cmd)    \
     LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd) \
@@ -107,7 +108,7 @@ public:
 private:
     std::array<Resource, max_resource_count> _resource_slots{};
     size_t _resource_count{0u};
-    Command *_next{nullptr};
+    Command *_next_command{nullptr};
 
 protected:
     void _use_resource(uint64_t handle, Resource::Tag tag, Usage usage) noexcept;
@@ -118,25 +119,18 @@ protected:
     void _texture_write_only(uint64_t handle) noexcept;
     void _texture_read_write(uint64_t handle) noexcept;
 
+private:
+    friend class CommandList;
+    [[nodiscard]] auto _next() const noexcept { return _next_command; }
+    Command *_set_next(Command *cmd) noexcept { return cmd == nullptr ? this : (_next_command = cmd); }
+    virtual void _recycle() noexcept = 0;
+
 protected:
     ~Command() noexcept = default;
 
 public:
-    [[nodiscard]] Command *tail() noexcept {
-        auto p = this;
-        for (; p->_next != nullptr; p = p->_next) {}
-        return p;
-    }
-    [[nodiscard]] const Command *tail() const noexcept {
-        return const_cast<Command *>(this)->tail();
-    }
-    [[nodiscard]] auto next() const noexcept { return _next; }
-    Command *set_next(Command *cmd) noexcept {
-        return cmd == nullptr ? this : (_next = cmd)->tail();
-    }
     [[nodiscard]] std::span<const Resource> resources() const noexcept;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
-    virtual void recycle() noexcept = 0;
 };
 
 class BufferUploadCommand : public Command {
