@@ -6,6 +6,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     enable_language(OBJCXX)
     
     set(METAL_SOURCES
+        metal_mesh.mm metal_mesh.h
+        metal_accel.mm metal_accel.h
         metal_device.mm metal_device.h
         metal_command_encoder.mm metal_command_encoder.h
         metal_compiler.mm metal_compiler.h
@@ -16,9 +18,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         metal_buffer_view.h
         metal_ring_buffer.mm metal_ring_buffer.h
         metal_heap.mm metal_heap.h
-        metal_shader.h
-        metal_mesh.mm metal_mesh.h
-        metal_accel.mm metal_accel.h)
+        metal_shader.h)
     
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
     set_target_properties(luisa-compute-backend-metal PROPERTIES

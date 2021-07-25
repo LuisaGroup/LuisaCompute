@@ -46,10 +46,11 @@ id<MTLCommandBuffer> MetalAccel::build(
 
     // build accel and (possibly) compact
     command_buffer = [[command_buffer commandQueue] commandBuffer];
-    _descriptor = [[MTLInstanceAccelerationStructureDescriptor alloc] init];
-    _descriptor.instancedAccelerationStructures = _device->mesh_handles(mesh_handles);
-    _descriptor.instanceCount = mesh_handles.size();
-    _descriptor.instanceDescriptorBuffer = _instance_buffer;
+    auto descriptor = [[MTLInstanceAccelerationStructureDescriptor alloc] init];
+    descriptor.instancedAccelerationStructures = _device->mesh_handles(mesh_handles);
+    descriptor.instanceCount = mesh_handles.size();
+    descriptor.instanceDescriptorBuffer = _instance_buffer;
+    _descriptor = descriptor;
     switch (hint) {
         case AccelBuildHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
         case AccelBuildHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;

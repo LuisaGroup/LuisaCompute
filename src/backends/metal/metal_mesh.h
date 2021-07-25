@@ -17,7 +17,7 @@ private:
     id<MTLDevice> _device{nullptr};
     id<MTLAccelerationStructure> _handle{nullptr};
     id<MTLBuffer> _update_buffer{nullptr};
-    MTLPrimitiveAccelerationStructureDescriptor *_descriptor{nullptr};
+    MTLAccelerationStructureDescriptor *_descriptor{nullptr};
     MTLAccelerationStructureSizes _sizes{};
 
 public:

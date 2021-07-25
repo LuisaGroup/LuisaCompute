@@ -23,8 +23,9 @@ id<MTLCommandBuffer> MetalMesh::build(
     mesh_desc.indexType = MTLIndexTypeUInt32;
     mesh_desc.triangleCount = t_count;
     mesh_desc.opaque = YES;
-    _descriptor = [[MTLPrimitiveAccelerationStructureDescriptor alloc] init];
-    _descriptor.geometryDescriptors = @[mesh_desc];
+    auto descriptor = [[MTLPrimitiveAccelerationStructureDescriptor alloc] init];
+    descriptor.geometryDescriptors = @[mesh_desc];
+    _descriptor = descriptor;
     switch (hint) {
         case AccelBuildHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
         case AccelBuildHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;

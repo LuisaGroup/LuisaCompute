@@ -5,7 +5,6 @@
 #pragma once
 
 #import <vector>
-#import <semaphore>
 
 #import <Metal/Metal.h>
 #import <rtx/accel.h>
@@ -23,7 +22,7 @@ private:
     id<MTLBuffer> _instance_buffer{nullptr};
     id<MTLBuffer> _instance_buffer_host{nullptr};
     id<MTLBuffer> _update_buffer{nullptr};
-    MTLInstanceAccelerationStructureDescriptor *_descriptor{nullptr};
+    MTLAccelerationStructureDescriptor *_descriptor{nullptr};
     MTLAccelerationStructureSizes _sizes{};
     __weak id<MTLCommandBuffer> _last_update{nullptr};
 
