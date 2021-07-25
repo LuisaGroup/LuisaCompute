@@ -125,9 +125,12 @@ int main(int argc, char *argv[]) {
     static constexpr auto spp = 1024u;
     for (auto i = 0u; i < spp; i++) {
         auto t = static_cast<float>(i) * (1.0f / spp);
+        vertices[2].y = 0.5f - 0.2f * t;
         transforms[1] = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f))
                         * rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
-        stream << accel.refit(1u, 1u, &transforms[1])
+        stream << vertex_buffer.copy_from(vertices.data())
+               << mesh.update()
+               << accel.refit(1u, 1u, &transforms[1])
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)

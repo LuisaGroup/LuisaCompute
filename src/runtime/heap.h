@@ -53,7 +53,7 @@ public:
 
     template<typename T>
     [[nodiscard]] BufferView<T> create_buffer(uint index, size_t size) noexcept {
-        if (auto h = _buffer_slots[index]; h != invalid_handle) {
+        if (auto h = _buffer_slots[index]; h != invalid_handle) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Overwriting buffer #{} at {} in heap #{}.",
                 h, index, _handle);

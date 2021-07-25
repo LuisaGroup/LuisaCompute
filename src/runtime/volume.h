@@ -57,7 +57,7 @@ public:
     ~Volume() noexcept { _destroy(); }
     Volume(Volume &&another) noexcept = default;
     Volume &operator=(Volume &&rhs) noexcept {
-        if (&rhs != this) {
+        if (&rhs != this) [[likely]] {
             _destroy();
             _device = std::move(rhs._device);
             _handle = rhs._handle;

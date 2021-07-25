@@ -12,7 +12,7 @@ Heap Device::create_heap(size_t size) noexcept {
 }
 
 Heap &Heap::operator=(Heap &&rhs) noexcept {
-    if (&rhs != this) {
+    if (&rhs != this) [[likely]] {
         _destroy();
         _device = std::move(rhs._device);
         _handle = rhs._handle;
@@ -61,7 +61,7 @@ Heap::Heap(Device::Handle device, size_t capacity) noexcept
       _buffer_slots(slot_count, invalid_handle) {}
 
 Texture2D Heap::create_texture(uint index, PixelStorage storage, uint2 size, TextureSampler sampler, uint mip_levels) noexcept {
-    if (auto h = _texture_slots[index]; h != invalid_handle) {
+    if (auto h = _texture_slots[index]; h != invalid_handle) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",
             h, index, _handle);
@@ -70,7 +70,7 @@ Texture2D Heap::create_texture(uint index, PixelStorage storage, uint2 size, Tex
     auto valid_mip_levels = _compute_mip_levels(make_uint3(size, 1u), mip_levels);
     if (valid_mip_levels == 1u
         && (sampler.filter() == TextureSampler::Filter::TRILINEAR
-            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) {
+            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Textures without mipmaps do not support "
             "trilinear or anisotropic sampling.");
@@ -85,7 +85,7 @@ Texture2D Heap::create_texture(uint index, PixelStorage storage, uint2 size, Tex
 }
 
 Texture3D Heap::create_texture(uint index, PixelStorage storage, uint3 size, TextureSampler sampler, uint mip_levels) noexcept {
-    if (auto h = _texture_slots[index]; h != invalid_handle) {
+    if (auto h = _texture_slots[index]; h != invalid_handle) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Overwriting texture #{} at {} in heap #{}.",
             h, index, _handle);
@@ -94,7 +94,7 @@ Texture3D Heap::create_texture(uint index, PixelStorage storage, uint3 size, Tex
     auto valid_mip_levels = _compute_mip_levels(size, mip_levels);
     if (valid_mip_levels == 1u
         && (sampler.filter() == TextureSampler::Filter::TRILINEAR
-            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) {
+            || sampler.filter() == TextureSampler::Filter::ANISOTROPIC)) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Textures without mipmaps do not support "
             "trilinear or anisotropic sampling.");
@@ -109,7 +109,7 @@ Texture3D Heap::create_texture(uint index, PixelStorage storage, uint3 size, Tex
 }
 
 void Heap::destroy_texture(uint32_t index) noexcept {
-    if (auto &&h = _texture_slots[index]; h == invalid_handle) {
+    if (auto &&h = _texture_slots[index]; h == invalid_handle) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Destroying already destroyed heap texture at slot {} in heap #{}.",
             index, _handle);
@@ -120,7 +120,7 @@ void Heap::destroy_texture(uint32_t index) noexcept {
 }
 
 void Heap::destroy_buffer(uint32_t index) noexcept {
-    if (auto &&h = _buffer_slots[index]; h == invalid_handle) {
+    if (auto &&h = _buffer_slots[index]; h == invalid_handle) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Destroying already destroyed heap buffer at slot {} in heap #{}.",
             index, _handle);

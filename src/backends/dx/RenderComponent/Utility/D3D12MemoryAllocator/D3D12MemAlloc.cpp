@@ -654,7 +654,7 @@ public:
 		Free(m_AllocationCallbacks, m_pArray);
 	}
 	Vector& operator=(const Vector<T>& rhs) {
-		if (&rhs != this) {
+		if (&rhs != this) [[likely]] {
 			resize(rhs.m_Count);
 			if (m_Count != 0) {
 				memcpy(m_pArray, rhs.m_pArray, m_Count * sizeof(T));

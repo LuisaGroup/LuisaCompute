@@ -16,7 +16,7 @@ void CommandList::_recycle() noexcept {
 
 void CommandList::append(Command *cmd) noexcept {
     if (cmd != nullptr) {
-        if (cmd->_next() != nullptr) {
+        if (cmd->_next() != nullptr) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Adding composed command to command list is not allowed.");
         }
@@ -34,7 +34,7 @@ CommandList::CommandList(CommandList &&another) noexcept
 }
 
 CommandList &CommandList::operator=(CommandList &&rhs) noexcept {
-    if (&rhs != this) {
+    if (&rhs != this) [[likely]] {
         _recycle();
         _head = rhs._head;
         _tail = rhs._tail;

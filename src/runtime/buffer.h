@@ -56,7 +56,7 @@ public:
 
     Buffer(Buffer &&another) noexcept = default;
     Buffer &operator=(Buffer &&rhs) noexcept {
-        if (&rhs != this) {
+        if (&rhs != this) [[likely]] {
             _destroy();
             _device = std::move(rhs._device);
             _handle = rhs._handle;

@@ -40,7 +40,7 @@ Command *Accel::refit() noexcept {
 }
 
 Accel &Accel::operator=(Accel &&rhs) noexcept {
-    if (&rhs != this) {
+    if (&rhs != this) [[likely]] {
         _destroy();
         _device = std::move(rhs._device);
         _handle = rhs._handle;

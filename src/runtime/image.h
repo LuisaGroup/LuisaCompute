@@ -60,7 +60,7 @@ public:
     ~Image() noexcept { _destroy(); }
     Image(Image &&another) noexcept = default;
     Image &operator=(Image &&rhs) noexcept {
-        if (&rhs != this) {
+        if (&rhs != this) [[likely]] {
             _destroy();
             _device = std::move(rhs._device);
             _handle = rhs._handle;
