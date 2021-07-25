@@ -237,6 +237,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             [compute_encoder useResource:desc_buffer usage:MTLResourceUsageRead];
             [compute_encoder useHeap:heap->handle()];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding geometry #{} at index {}.",
                 argument.handle, argument_index);
@@ -244,6 +245,9 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
             [argument_encoder setAccelerationStructure:accel atIndex:arg_id];
             [compute_encoder useResource:accel usage:MTLResourceUsageRead];
+#else
+            LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+#endif
         } else {// uniform
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding uniform at index {}.",
@@ -298,6 +302,8 @@ MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noex
     return buffer;
 }
 
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
+
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
     auto accel = _device->accel(command->handle());
     _command_buffer = accel->update(
@@ -330,5 +336,25 @@ void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
         t_buffer, command->triangle_buffer_offset(), command->triangle_count(),
         _device->compacted_size_buffer_pool());
 }
+
+#else
+
+void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+#endif
 
 }

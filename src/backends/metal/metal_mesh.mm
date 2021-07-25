@@ -23,6 +23,8 @@ id<MTLCommandBuffer> MetalMesh::build(
     mesh_desc.indexType = MTLIndexTypeUInt32;
     mesh_desc.triangleCount = t_count;
     mesh_desc.opaque = YES;
+    mesh_desc.intersectionFunctionTableOffset = 0u;
+    mesh_desc.allowDuplicateIntersectionFunctionInvocation = NO;
     auto descriptor = [[MTLPrimitiveAccelerationStructureDescriptor alloc] init];
     descriptor.geometryDescriptors = @[mesh_desc];
     _descriptor = descriptor;

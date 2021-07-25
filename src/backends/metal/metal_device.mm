@@ -106,7 +106,10 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
 
     _compiler = std::make_unique<MetalCompiler>(this);
     _argument_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, 4096u, 16u, true);
+
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
     _compacted_size_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
+#endif
 
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
@@ -345,6 +348,8 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
     return _event_slots[handle].get();
 }
 
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
+
 uint64_t MetalDevice::create_mesh() noexcept {
     check_raytracing_supported();
     Clock clock;
@@ -396,6 +401,26 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed accel #{}.", handle);
 }
+
+#else
+
+uint64_t MetalDevice::create_mesh() noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+uint64_t MetalDevice::create_accel() noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+void MetalDevice::destroy_accel(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+#endif
 
 uint64_t MetalDevice::create_heap(size_t size) noexcept {
     Clock clock;
@@ -457,6 +482,8 @@ void MetalDevice::destroy_shader(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Destroyed shader #{}.", handle);
 }
 
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
+
 MetalMesh *MetalDevice::mesh(uint64_t handle) const noexcept {
     std::scoped_lock lock{_mesh_mutex};
     return _mesh_slots[handle].get();
@@ -479,6 +506,8 @@ NSMutableArray<id<MTLAccelerationStructure>> *MetalDevice::mesh_handles(std::spa
 MetalSharedBufferPool *MetalDevice::compacted_size_buffer_pool() const noexcept {
     return _compacted_size_buffer_pool.get();
 }
+
+#endif
 
 void MetalDevice::check_raytracing_supported() const noexcept {
     if (!_handle.supportsRaytracing) {

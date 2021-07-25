@@ -20,8 +20,11 @@
 #import <backends/metal/metal_compiler.h>
 #import <backends/metal/metal_heap.h>
 #import <backends/metal/metal_shared_buffer_pool.h>
+
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
 #import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_accel.h>
+#endif
 
 namespace luisa::compute::metal {
 
@@ -32,7 +35,6 @@ private:
     std::unique_ptr<MetalCompiler> _compiler{nullptr};
 
     std::unique_ptr<MetalSharedBufferPool> _argument_buffer_pool{nullptr};
-    std::unique_ptr<MetalSharedBufferPool> _compacted_size_buffer_pool{nullptr};
 
     // for buffers
     std::vector<id<MTLBuffer>> _buffer_slots;
@@ -54,6 +56,7 @@ private:
     std::vector<std::unique_ptr<MetalTextureHeap>> _heap_slots;
     std::vector<size_t> _available_heap_slots;
 
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
     // for meshes
     std::vector<std::unique_ptr<MetalMesh>> _mesh_slots;
     std::vector<size_t> _available_mesh_slots;
@@ -61,6 +64,9 @@ private:
     // for acceleration structures
     std::vector<std::unique_ptr<MetalAccel>> _accel_slots;
     std::vector<size_t> _available_accel_slots;
+
+    std::unique_ptr<MetalSharedBufferPool> _compacted_size_buffer_pool{nullptr};
+#endif
 
     // for events
     std::vector<std::unique_ptr<MetalEvent>> _event_slots;
@@ -83,9 +89,11 @@ public:
     [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
     [[nodiscard]] MetalStream *stream(uint64_t handle) const noexcept;
     [[nodiscard]] MetalEvent *event(uint64_t handle) const noexcept;
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
     [[nodiscard]] MetalMesh *mesh(uint64_t handle) const noexcept;
     [[nodiscard]] NSMutableArray<id<MTLAccelerationStructure>> *mesh_handles(std::span<const uint64_t> handles) noexcept;
     [[nodiscard]] MetalAccel *accel(uint64_t handle) const noexcept;
+#endif
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalTextureHeap *heap(uint64_t handle) const noexcept;
     [[nodiscard]] MetalSharedBufferPool *argument_buffer_pool() const noexcept;
