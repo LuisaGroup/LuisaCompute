@@ -726,7 +726,7 @@ detail::TextureRef2D Heap::tex3d(I &&index) const noexcept {
 
 template<typename T, typename I>
 detail::BufferRef<T> Heap::buffer(I &&index) const noexcept {
-    return detail::Expr<Heap>{*this}.buffer(std::forward<I>(index));
+    return detail::Expr<Heap>{*this}.buffer<T>(std::forward<I>(index));
 }
 
 }// namespace luisa::compute

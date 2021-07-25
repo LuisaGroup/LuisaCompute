@@ -89,4 +89,9 @@ Stream::Delegate &&Stream::Delegate::operator<<(Stream::Synchronize) &&noexcept 
     return std::move(*this);
 }
 
+Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcept {
+    _commit();
+    return std::move(*this);
+}
+
 }// namespace luisa::compute

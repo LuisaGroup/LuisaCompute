@@ -183,8 +183,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::CTZ: _scratch << "ctz"; break;
         case CallOp::POPCOUNT: _scratch << "popcount"; break;
         case CallOp::REVERSE: _scratch << "reverse_bits"; break;
-        case CallOp::ISINF: _scratch << "precise::isinf"; break;
-        case CallOp::ISNAN: _scratch << "precise::isnan"; break;
+        case CallOp::ISINF: _scratch << "is_inf"; break;
+        case CallOp::ISNAN: _scratch << "is_nan"; break;
         case CallOp::ACOS: _scratch << "acos"; break;
         case CallOp::ACOSH: _scratch << "acosh"; break;
         case CallOp::ASIN: _scratch << "asin"; break;
@@ -331,6 +331,20 @@ void MetalCodegen::visit(const CallExpr *expr) {
         for (auto arg : expr->arguments()) {
             arg->accept(*this);
             _scratch << ", ";
+            if (expr->op() == CallOp::CUSTOM && arg->type()->is_texture()) {
+                auto texture_arg = static_cast<const RefExpr *>(arg);
+                auto texture_offset = *std::find_if(
+                    _function.arguments().begin(),
+                    _function.arguments().end(),
+                    [uid = texture_arg->variable().uid()](auto v) noexcept {
+                        return v.uid() == uid + 1u;
+                    });
+                if (_function.tag() == Function::Tag::KERNEL) {
+                    _scratch << "arg.";
+                }
+                _emit_variable_name(texture_offset);
+                _scratch << ", ";
+            }
         }
         _scratch.pop_back();
         _scratch.pop_back();
@@ -346,7 +360,7 @@ void MetalCodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "as<";
+            _scratch << "as_type<";
             _emit_type_name(expr->type());
             _scratch << ">(";
             break;
@@ -497,6 +511,16 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         for (auto image : f.captured_textures()) {
             _scratch << "\n  ";
             _emit_variable_decl(image.variable);
+            _scratch << ";";
+        }
+        for (auto heap : f.captured_heaps()) {
+            _scratch << "\n  ";
+            _emit_variable_decl(heap.variable);
+            _scratch << ";";
+        }
+        for (auto accel : f.captured_accels()) {
+            _scratch << "\n  ";
+            _emit_variable_decl(accel.variable);
             _scratch << ";";
         }
         for (auto arg : f.arguments()) {
@@ -978,6 +1002,16 @@ template<typename T>
 template<typename X, typename Y>
 [[gnu::always_inline, nodiscard]] inline auto glsl_mod(X x, Y y) {
   return x - y * floor(x / y);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_nan(float x) {
+  auto u = as_type<uint>(x);
+  return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_inf(float x) {
+  auto u = as_type<uint>(x);
+  return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
 }
 
 template<typename T>

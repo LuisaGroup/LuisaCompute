@@ -100,8 +100,10 @@ id<MTLTexture> MetalTextureHeap::allocate_texture(MTLTextureDescriptor *desc, ui
     std::scoped_lock lock{_mutex};
     auto texture = [_handle newTextureWithDescriptor:desc];
     auto sampler_state = _samplers[sampler.code()];
-    [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
-    [_encoder setTexture:texture atIndex:desc.textureType == MTLTextureType2D ? 0u : 1u];
+    [_encoder setArgumentBuffer:_buffer
+                         offset:slot_size * index];
+    [_encoder setTexture:texture
+                 atIndex:desc.textureType == MTLTextureType2D ? 0u : 1u];
     [_encoder setSamplerState:sampler_state atIndex:2u];
     _dirty = true;
     return texture;

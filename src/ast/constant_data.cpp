@@ -6,6 +6,7 @@
 #include <core/spin_mutex.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
+#include <ast/function_builder.h>
 
 namespace luisa::compute {
 
@@ -34,7 +35,10 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
                                          detail::constant_registry().cend(),
                                          [hash](auto &&item) noexcept { return item._hash == hash; });
                 iter != detail::constant_registry().cend()) { return *iter; }
-            auto ptr = Arena::global().allocate<T>(view.size());
+            auto &&arena = detail::FunctionBuilder::current() == nullptr
+                           ? Arena::global()
+                           : detail::FunctionBuilder::current()->arena();
+            auto ptr = arena.allocate<T>(view.size());
             std::memmove(ptr, view.data(), view.size_bytes());
             std::span<const T> new_view{ptr, view.size()};
             return detail::constant_registry().emplace_back(ConstantData{new_view, hash});

@@ -11,7 +11,9 @@
 namespace luisa::compute {
 
 struct Triangle {
-    uint i[3];
+    uint i0;
+    uint i1;
+    uint i2;
 };
 
 class Mesh : concepts::Noncopyable {
@@ -55,4 +57,4 @@ public:
 
 }
 
-LUISA_STRUCT(luisa::compute::Triangle, i)
+LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2)

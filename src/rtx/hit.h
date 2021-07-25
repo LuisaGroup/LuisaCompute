@@ -21,4 +21,4 @@ struct alignas(16) Hit {
 
 }
 
-LUISA_STRUCT(luisa::compute::Hit, prim, inst, uv)
+LUISA_STRUCT(luisa::compute::Hit, inst, prim, uv)

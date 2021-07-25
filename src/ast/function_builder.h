@@ -215,6 +215,7 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
 
+    [[nodiscard]] decltype(auto) arena() const noexcept { return *_arena; }
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
 };
 

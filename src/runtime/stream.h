@@ -39,6 +39,7 @@ public:
         Delegate &&operator<<(Command *cmd) &&noexcept;
         Delegate &&operator<<(Event::Signal signal) &&noexcept;
         Delegate &&operator<<(Event::Wait wait) &&noexcept;
+        Delegate &&operator<<(CommandBuffer::Commit) &&noexcept;
         Delegate &&operator<<(Synchronize) &&noexcept;
     };
 
@@ -64,9 +65,10 @@ public:
     Stream &operator<<(Event::Signal signal) noexcept;
     Stream &operator<<(Event::Wait wait) noexcept;
     Stream &operator<<(Synchronize) noexcept;
-    void synchronize() noexcept { _synchronize(); }
+    Stream &operator<<(CommandBuffer::Commit) noexcept { return *this; }
     Delegate operator<<(Command *cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
+    void synchronize() noexcept { _synchronize(); }
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };
 
