@@ -182,7 +182,10 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel, UInt frame_index) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel) noexcept {
+
+        set_block_size(8u, 8u, 1u);
+
         Var coord = dispatch_id().xy();
         Var frame_size = min(dispatch_size().x, dispatch_size().y).cast<float>();
         Var state = state_image.read(coord).x;
@@ -265,8 +268,8 @@ int main(int argc, char *argv[]) {
         }
         Var old = image.read(coord);
         if_(isnan(radiance.x) || isnan(radiance.y) || isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
-        Var t = 1.0f / (frame_index + 1.0f);
-        image.write(coord, make_float4(lerp(old.xyz(), clamp(radiance, 0.0f, 30.0f), t), 1.0f));
+        Var t = 1.0f / (old.w + 1.0f);
+        image.write(coord, make_float4(lerp(old.xyz(), clamp(radiance, 0.0f, 30.0f), t), old.w + 1.0f));
         state_image.write(coord, make_uint4(state));
     };
 
@@ -286,7 +289,7 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         Var coord = dispatch_id().xy();
         Var hdr = hdr_image.read(coord);
-        Var ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * (scale / hdr.w)));
+        Var ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -312,7 +315,7 @@ int main(int argc, char *argv[]) {
     for (auto d = 0u; d < dispatch_count; d++) {
         auto command_buffer = stream.command_buffer();
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(hdr_image, state_image, accel, d * spp_per_dispatch + i).dispatch(width, height);
+            command_buffer << raytracing_shader(hdr_image, state_image, accel).dispatch(width, height);
         }
         command_buffer << commit();
         LUISA_INFO("Progress: {}/{}", d + 1u, dispatch_count);
