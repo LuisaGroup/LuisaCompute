@@ -83,13 +83,9 @@ MetalShader MetalCompiler::compile(Function kernel) noexcept {
             hash_string, [error.description cStringUsingEncoding:NSUTF8StringEncoding]);
     }
 
-    MTLAutoreleasedArgument reflection;
-    auto encoder = [func newArgumentEncoderWithBufferIndex:0 reflection:&reflection];
-    auto members = reflection.bufferStructType.members;
-
     // TODO: LRU
     std::scoped_lock lock{_cache_mutex};
-    return _cache.try_emplace(hash, pso, encoder, members).first->second;
+    return _cache.try_emplace(hash, pso).first->second;
 }
 
 }

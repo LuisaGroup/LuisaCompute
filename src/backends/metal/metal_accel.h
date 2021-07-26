@@ -23,7 +23,8 @@ private:
     id<MTLBuffer> _instance_buffer{nullptr};
     id<MTLBuffer> _instance_buffer_host{nullptr};
     id<MTLBuffer> _update_buffer{nullptr};
-    MTLAccelerationStructureDescriptor *_descriptor{nullptr};
+    std::vector<id<MTLAccelerationStructure>> _meshes;
+    MTLInstanceAccelerationStructureDescriptor *_descriptor{nullptr};
     MTLAccelerationStructureSizes _sizes{};
     __weak id<MTLCommandBuffer> _last_update{nullptr};
 
@@ -43,6 +44,9 @@ public:
         id<MTLCommandBuffer> command_buffer,
         std::span<const float4x4> transforms,
         size_t first) noexcept;
+    [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
+    [[nodiscard]] auto descriptor() const noexcept { return _descriptor; }
+    [[nodiscard]] auto meshes() noexcept { return std::span{_meshes}; }
 };
 
 }

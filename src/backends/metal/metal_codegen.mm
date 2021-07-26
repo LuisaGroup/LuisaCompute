@@ -149,16 +149,6 @@ void MetalCodegen::visit(const LiteralExpr *expr) {
 }
 
 void MetalCodegen::visit(const RefExpr *expr) {
-    auto v = expr->variable();
-    if (_function.tag() == Function::Tag::KERNEL
-        && (v.tag() == Variable::Tag::UNIFORM
-            || v.tag() == Variable::Tag::BUFFER
-            || v.tag() == Variable::Tag::TEXTURE
-            || v.tag() == Variable::Tag::HEAP
-            || v.tag() == Variable::Tag::ACCEL
-            || v.tag() == Variable::Tag::DISPATCH_SIZE)) {
-        _scratch << "arg.";
-    }
     _emit_variable_name(expr->variable());
 }
 
@@ -339,9 +329,6 @@ void MetalCodegen::visit(const CallExpr *expr) {
                     [uid = texture_arg->variable().uid()](auto v) noexcept {
                         return v.uid() == uid + 1u;
                     });
-                if (_function.tag() == Function::Tag::KERNEL) {
-                    _scratch << "arg.";
-                }
                 _emit_variable_name(texture_offset);
                 _scratch << ", ";
             }
@@ -501,42 +488,40 @@ void MetalCodegen::_emit_function(Function f) noexcept {
 
     if (f.tag() == Function::Tag::KERNEL) {
 
-        // argument buffer
-        _scratch << "struct Argument {";
-        for (auto buffer : f.captured_buffers()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(buffer.variable);
-            _scratch << ";";
-        }
-        for (auto image : f.captured_textures()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(image.variable);
-            _scratch << ";";
-        }
-        for (auto heap : f.captured_heaps()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(heap.variable);
-            _scratch << ";";
-        }
-        for (auto accel : f.captured_accels()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(accel.variable);
-            _scratch << ";";
-        }
-        for (auto arg : f.arguments()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(arg);
-            _scratch << ";";
-        }
-        _scratch << "\n  const uint3 ls;\n};\n\n";
-
         // function signature
         _scratch << "[[kernel]] // block_size = ("
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"
-                 << "void kernel_" << hash_to_string(f.hash())
-                 << "(\n    device const Argument &arg,";
+                 << "void kernel_" << hash_to_string(f.hash()) << "(";
+
+        // arguments
+        for (auto buffer : f.captured_buffers()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(buffer.variable);
+            _scratch << ",";
+        }
+        for (auto image : f.captured_textures()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(image.variable);
+            _scratch << ",";
+        }
+        for (auto heap : f.captured_heaps()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(heap.variable);
+            _scratch << ",";
+        }
+        for (auto accel : f.captured_accels()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(accel.variable);
+            _scratch << ",";
+        }
+        for (auto arg : f.arguments()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(arg);
+            _scratch << ",";
+        }
+        _scratch << "\n    constant uint3 &ls,";
         for (auto builtin : f.builtin_variables()) {
             if (builtin.tag() != Variable::Tag::DISPATCH_SIZE) {
                 _scratch << "\n    ";
@@ -698,9 +683,9 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::UNIFORM:
-            _scratch << "const ";
+            _scratch << "constant ";
             _emit_type_name(v.type());
-            _scratch << " ";
+            _scratch << " &";
             _emit_variable_name(v);
             break;
         case Variable::Tag::THREAD_ID:

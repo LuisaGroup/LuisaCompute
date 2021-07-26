@@ -159,7 +159,8 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
 void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 
     auto compiled_kernel = _device->compiled_kernel(command->handle());
-    auto argument_index = 0u;
+    auto buffer_index = 0u;
+    auto texture_index = 0u;
 
     auto launch_size = command->dispatch_size();
     auto block_size = command->kernel().block_size();
@@ -170,105 +171,66 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
         command->handle(),
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Kernel arguments: {}.",
-        [compiled_kernel.arguments().description cStringUsingEncoding:NSUTF8StringEncoding]);
 
     // update texture desc heap if any
     command->decode([&](auto, auto argument) noexcept -> void {
-        using T = decltype(argument);
-        if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
+        if constexpr (std::is_same_v<decltype(argument), ShaderDispatchCommand::TextureHeapArgument>) {
             _command_buffer = _device->heap(argument.handle)->encode_update(_stream, _command_buffer);
         }
     });
 
     // encode compute shader
-    auto argument_encoder = compiled_kernel.encoder();
-    auto pool = _device->argument_buffer_pool();
-    auto argument_buffer = pool->allocate();
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:compiled_kernel.handle()];
-    [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
     command->decode([&](auto vid, auto argument) noexcept -> void {
         using T = decltype(argument);
-        auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
-            switch (usage) {
-                case Usage::WRITE:
-                    [compute_encoder useResource:res
-                                           usage:MTLResourceUsageWrite];
-                    break;
-                case Usage::READ_WRITE:
-                    [compute_encoder useResource:res
-                                           usage:MTLResourceUsageRead
-                                                 | MTLResourceUsageWrite];
-                    break;
-                default:
-                    [compute_encoder useResource:res
-                                           usage:MTLResourceUsageRead];
-                    break;
-            }
-        };
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding buffer #{} at index {} with offset {}.",
-                argument.handle, argument_index, argument.offset);
+                argument.handle, buffer_index, argument.offset);
             auto buffer = _device->buffer(argument.handle);
-            [argument_encoder setBuffer:buffer
-                                 offset:argument.offset
-                                atIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];
-            mark_usage(buffer, command->kernel().variable_usage(vid));
+            [compute_encoder setBuffer:buffer offset:argument.offset atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture #{} at index {}.",
-                argument.handle, argument_index);
+                argument.handle, texture_index);
             auto texture = _device->texture(argument.handle);
-            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
-            [argument_encoder setTexture:texture atIndex:arg_id];
-            auto usage = command->kernel().variable_usage(vid);
-            mark_usage(texture, usage);
+            [compute_encoder setTexture:texture atIndex:texture_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture heap #{} at index {}.",
-                argument.handle, argument_index);
+                argument.handle, buffer_index);
             auto heap = _device->heap(argument.handle);
-            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
-            auto desc_buffer = heap->desc_buffer();
-            [argument_encoder setBuffer:desc_buffer offset:0u atIndex:arg_id];
-            [compute_encoder useResource:desc_buffer usage:MTLResourceUsageRead];
             [compute_encoder useHeap:heap->handle()];
+            [compute_encoder setBuffer:heap->desc_buffer() offset:0u atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding geometry #{} at index {}.",
-                argument.handle, argument_index);
-            auto accel = _device->accel(argument.handle)->handle();
-            auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
-            [argument_encoder setAccelerationStructure:accel atIndex:arg_id];
-            [compute_encoder useResource:accel usage:MTLResourceUsageRead];
+                argument.handle, buffer_index);
+            auto accel = _device->accel(argument.handle);
+            auto mesh_accels = accel->meshes();
+            [compute_encoder useResources:mesh_accels.data() count:mesh_accels.size() usage:MTLResourceUsageRead];
+            [compute_encoder useResource:accel->instance_buffer() usage:MTLResourceUsageRead];
+            [compute_encoder setAccelerationStructure:accel->handle() atBufferIndex:buffer_index++];
 #else
             LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
 #endif
         } else {// uniform
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding uniform at index {}.",
-                argument_index);
-            auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index++].argumentIndex];
-            std::memcpy(ptr, argument.data(), argument.size_bytes());
+                buffer_index);
+            [compute_encoder setBytes:argument.data() length:argument.size_bytes() atIndex:buffer_index++];
         }
     });
 
     LUISA_VERBOSE_WITH_LOCATION(
         "Encoding dispatch size at index {}.",
-        argument_index);
-    auto ptr = [argument_encoder constantDataAtIndex:compiled_kernel.arguments()[argument_index].argumentIndex];
-    std::memcpy(ptr, &launch_size, sizeof(launch_size));
-    [compute_encoder setBuffer:argument_buffer.handle() offset:argument_buffer.offset() atIndex:0];
+        buffer_index);
+    [compute_encoder setBytes:&launch_size length:sizeof(launch_size) atIndex:buffer_index];
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)
                     threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
     [compute_encoder endEncoding];
-    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-      pool->recycle(argument_buffer);
-    }];
 }
 
 MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) noexcept {

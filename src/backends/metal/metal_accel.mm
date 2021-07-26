@@ -49,7 +49,14 @@ id<MTLCommandBuffer> MetalAccel::build(
     // build accel and (possibly) compact
     command_buffer = [[command_buffer commandQueue] commandBuffer];
     auto descriptor = [MTLInstanceAccelerationStructureDescriptor descriptor];
-    descriptor.instancedAccelerationStructures = _device->mesh_handles(mesh_handles);
+    auto mesh_accels = _device->mesh_handles(mesh_handles);
+    _meshes.clear();
+    _meshes.reserve(mesh_accels.count);
+    for (id<MTLAccelerationStructure> m in mesh_accels) { _meshes.emplace_back(m); }
+    std::sort(_meshes.begin(), _meshes.end());
+    _meshes.erase(std::unique(_meshes.begin(), _meshes.end()), _meshes.end());
+
+    descriptor.instancedAccelerationStructures = mesh_accels;
     descriptor.instanceCount = mesh_handles.size();
     descriptor.instanceDescriptorBuffer = _instance_buffer;
     _descriptor = descriptor;
