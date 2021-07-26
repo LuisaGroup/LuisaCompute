@@ -14,9 +14,6 @@
 
 #include <opencv2/opencv.hpp>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <tests/stb_image_write.h>
-
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/tiny_obj_loader.h>
 
@@ -310,20 +307,16 @@ int main(int argc, char *argv[]) {
     auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, width, height);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    std::vector<uint8_t> pixels(width * height * 4u);
-
     cv::Mat cv_accum{width, height, CV_8UC4, cv::Scalar::all(0.0)};
     cv::Mat cv_curr{width, height, CV_8UC4, cv::Scalar::all(0.0)};
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 256u;
-    static constexpr auto spp_per_dispatch = 1u;
-    static constexpr auto dispatch_count = spp / spp_per_dispatch;
     stream << clear_shader(accum_image).dispatch(width, height)
            << make_sampler_shader(state_image).dispatch(width, height);
     for (auto d = 0u;; d++) {
         auto command_buffer = stream.command_buffer();
+        static constexpr auto spp_per_dispatch = 4u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, state_image, accel).dispatch(width, height)
                            << accumulate_shader(accum_image, framebuffer).dispatch(width, height);
@@ -336,13 +329,8 @@ int main(int argc, char *argv[]) {
         stream << synchronize();
         cv::imshow("Accumulated", cv_accum);
         cv::imshow("Current", cv_curr);
-        cv::waitKey(1);
+        if (cv::waitKey(1) == 'q') { break; }
         LUISA_INFO("Progress: {}spp | {}s", (d + 1u) * spp_per_dispatch, clock.toc() * 1e-3f);
     }
-    stream << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(width, height)
-           << ldr_image.copy_to(pixels.data())
-           << synchronize();
-    auto time = clock.toc();
-    LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_path_tracing.png", width, height, 4, pixels.data(), 0);
+    cv::imwrite("test_path_tracing.png", cv_accum);
 }

@@ -31,14 +31,15 @@ target_link_libraries(test_bindless PRIVATE luisa::compute)
 add_executable(test_rtx test_rtx.cpp)
 target_link_libraries(test_rtx PRIVATE luisa::compute)
 
-find_package(OpenCV CONFIG)
-
 add_executable(test_path_tracing test_path_tracing.cpp)
-target_link_libraries(test_path_tracing PRIVATE luisa::compute ${OpenCV_LIBS})
+target_link_libraries(test_path_tracing PRIVATE luisa::compute)
 
+find_package(OpenCV CONFIG)
 if (OpenCV_FOUND)
     add_executable(test_shader_toy test_shader_toy.cpp)
     target_link_libraries(test_shader_toy PRIVATE luisa::compute ${OpenCV_LIBS})
     add_executable(test_game_of_life test_game_of_life.cpp)
     target_link_libraries(test_game_of_life PRIVATE luisa::compute ${OpenCV_LIBS})
+    add_executable(test_path_tracing_display test_path_tracing_display.cpp)
+    target_link_libraries(test_path_tracing_display PRIVATE luisa::compute ${OpenCV_LIBS})
 endif ()
