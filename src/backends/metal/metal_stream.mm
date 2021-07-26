@@ -7,7 +7,7 @@
 namespace luisa::compute::metal {
 
 MetalStream::MetalStream(id<MTLDevice> device, uint max_command_buffers) noexcept
-    : _handle{[device newCommandQueueWithMaxCommandBufferCount:max_command_buffers + 1u]},
+    : _handle{[device newCommandQueueWithMaxCommandBufferCount:max_command_buffers]},
       _upload_ring_buffer{device, ring_buffer_size, true},
       _download_ring_buffer{device, ring_buffer_size, false},
       _sem{max_command_buffers} {
@@ -44,15 +44,13 @@ void MetalStream::dispatch(id<MTLCommandBuffer> command_buffer) noexcept {
 }
 
 void MetalStream::synchronize() noexcept {
-    if (auto last = [this]() noexcept
-        -> id<MTLCommandBuffer> {
+    if (auto last = [this]() noexcept {
             std::scoped_lock lock{_mutex};
-            auto last_cmd = _last;
+            id<MTLCommandBuffer> last_cmd = _last;
             _last = nullptr;
             return last_cmd;
-        }()) {
-        [last waitUntilCompleted];
-    }
+        }();
+        last != nullptr) { [last waitUntilCompleted]; }
 }
 
 }

@@ -35,7 +35,7 @@ public:
     void visit(const BufferToTextureCopyCommand *command) noexcept override;
     void visit(const TextureCopyCommand *command) noexcept override;
     void visit(const TextureToBufferCopyCommand *command) noexcept override;
-    void visit(const ShaderDispatchCommand *command) noexcept override;
+    void visit(const ShaderDispatchCommand *resource) noexcept override;
     void visit(const AccelBuildCommand *command) noexcept override;
     void visit(const MeshUpdateCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;

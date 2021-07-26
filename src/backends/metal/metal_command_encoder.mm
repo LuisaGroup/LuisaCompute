@@ -191,22 +191,13 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
     [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
     command->decode([&](auto vid, auto argument) noexcept -> void {
         using T = decltype(argument);
-        auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
-//            switch (usage) {
-//                case Usage::WRITE:
-//                    [compute_encoder useResource:res
-//                                           usage:MTLResourceUsageWrite];
-//                    break;
-//                case Usage::READ_WRITE:
-                    [compute_encoder useResource:res
-                                           usage:MTLResourceUsageRead
-                                                 | MTLResourceUsageWrite];
-//                    break;
-//                default:
-//                    [compute_encoder useResource:res
-//                                           usage:MTLResourceUsageRead];
-//                    break;
-//            }
+        auto mark_usage = [compute_encoder](id<MTLResource> resource, auto usage) noexcept {
+            auto res_usage = static_cast<uint>(MTLResourceUsageRead);
+            if (to_underlying(usage) & to_underlying(Usage::WRITE)) {
+                res_usage |= MTLResourceUsageWrite;
+            }
+            [compute_encoder useResource:resource
+                                   usage:static_cast<MTLResourceUsage>(res_usage)];
         };
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
