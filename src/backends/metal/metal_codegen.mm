@@ -834,35 +834,35 @@ void MetalCodegen::_emit_preamble(Function f) noexcept {
 using namespace metal;
 
 template<typename T>
-[[nodiscard]] auto none(T v) { return !any(v); }
+[[nodiscard, gnu::always_inline]] inline auto none(T v) { return !any(v); }
 
 template<typename T, access a>
-[[nodiscard]] auto texture_read(texture2d<T, a> t, uint2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto texture_read(texture2d<T, a> t, uint2 uv) {
   return t.read(uv);
 }
 
 template<typename T, access a>
-[[nodiscard]] auto texture_read(texture3d<T, a> t, uint3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto texture_read(texture3d<T, a> t, uint3 uvw) {
   return t.read(uvw);
 }
 
 template<typename T, access a, typename Value>
-void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
+[[gnu::always_inline]] inline void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
   t.write(value, uv);
 }
 
 template<typename T, access a, typename Value>
-void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
+[[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
   t.write(value, uvw);
 }
 
 template<typename T>
-[[nodiscard]] auto radians(T v) { return v * (M_PI_F / 180.0f); }
+[[nodiscard, gnu::always_inline]] inline auto radians(T v) { return v * (M_PI_F / 180.0f); }
 
 template<typename T>
-[[nodiscard]] auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
+[[nodiscard, gnu::always_inline]] inline auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
 
-[[nodiscard]] auto inverse(float2x2 m) {
+[[nodiscard]] inline auto inverse(float2x2 m) {
   const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
   return float2x2(m[1][1] * one_over_determinant,
 				- m[0][1] * one_over_determinant,
@@ -870,7 +870,7 @@ template<typename T>
 				+ m[0][0] * one_over_determinant);
 }
 
-[[nodiscard]] auto inverse(float3x3 m) {
+[[nodiscard]] inline auto inverse(float3x3 m) {
   const auto one_over_determinant = 1.0f / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
                                           - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
                                           + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
@@ -886,7 +886,7 @@ template<typename T>
     (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant);
 }
 
-[[nodiscard]] auto inverse(float4x4 m) {
+[[nodiscard]] inline auto inverse(float4x4 m) {
   const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
   const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
   const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;

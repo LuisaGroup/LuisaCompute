@@ -166,7 +166,7 @@ int main(int argc, char *argv[]) {
 
     Callable generate_ray = [](Float2 p) noexcept {
         static constexpr auto fov = radians(27.8f);
-        static constexpr auto origin = make_float3(-0.01f, 1.0f, 5.0f);
+        static constexpr auto origin = make_float3(-0.01f, 0.995f, 5.0f);
         Var pixel = origin + make_float3(p * tan(0.5f * fov), -1.0f);
         Var direction = normalize(pixel - origin);
         return make_ray(origin, direction);
@@ -183,7 +183,6 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel) noexcept {
-
         set_block_size(8u, 8u, 1u);
 
         Var coord = dispatch_id().xy();
@@ -204,7 +203,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        for (auto depth : range(10u)) {
+        for (auto depth : range(5u)) {
 
             // trace
             Var hit = accel.trace_closest(ray);
@@ -266,11 +265,12 @@ int main(int argc, char *argv[]) {
             if_(r >= q, break_);
             beta *= 1.0f / q;
         }
+        state_image.write(coord, make_uint4(state));
         Var old = image.read(coord);
         if_(isnan(radiance.x) || isnan(radiance.y) || isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
         Var t = 1.0f / (old.w + 1.0f);
-        image.write(coord, make_float4(lerp(old.xyz(), clamp(radiance, 0.0f, 30.0f), t), old.w + 1.0f));
-        state_image.write(coord, make_uint4(state));
+        Var color = lerp(old.xyz(), clamp(radiance, 0.0f, 30.0f), t);
+        image.write(coord, make_float4(color, old.w + 1.0f));
     };
 
     Callable aces_tonemapping = [](Float3 x) noexcept {
@@ -298,8 +298,8 @@ int main(int argc, char *argv[]) {
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
-    static constexpr auto width = 512u;
-    static constexpr auto height = 512u;
+    static constexpr auto width = 1024u;
+    static constexpr auto height = 1024u;
     auto state_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
     auto hdr_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
@@ -307,7 +307,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 1024u;
+    static constexpr auto spp = 256u;
     static constexpr auto spp_per_dispatch = 16u;
     static constexpr auto dispatch_count = spp / spp_per_dispatch;
     stream << clear_shader(hdr_image).dispatch(width, height)
