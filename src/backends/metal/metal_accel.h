@@ -12,6 +12,7 @@
 namespace luisa::compute::metal {
 
 class MetalDevice;
+class MetalStream;
 class MetalSharedBufferPool;
 
 class MetalAccel {
@@ -31,12 +32,14 @@ public:
         : _device{device} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] id<MTLCommandBuffer> build(
+        MetalStream *stream,
         id<MTLCommandBuffer> command_buffer,
         AccelBuildHint hint,
         std::span<const uint64_t> mesh_handles,
         std::span<const float4x4> transforms,
         MetalSharedBufferPool *pool) noexcept;
     [[nodiscard]] id<MTLCommandBuffer> update(
+        MetalStream *stream,
         id<MTLCommandBuffer> command_buffer,
         std::span<const float4x4> transforms,
         size_t first) noexcept;

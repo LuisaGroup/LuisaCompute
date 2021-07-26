@@ -109,7 +109,10 @@ id<MTLTexture> MetalTextureHeap::allocate_texture(MTLTextureDescriptor *desc, ui
     return texture;
 }
 
-id<MTLCommandBuffer> MetalTextureHeap::encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept {
+id<MTLCommandBuffer> MetalTextureHeap::encode_update(
+    MetalStream *stream,
+    id<MTLCommandBuffer> cmd_buf) const noexcept {
+
     std::scoped_lock lock{_mutex};
     if (_dirty) {
         if (auto last = _last_update;
@@ -128,8 +131,8 @@ id<MTLCommandBuffer> MetalTextureHeap::encode_update(id<MTLCommandBuffer> cmd_bu
         [cmd_buf encodeSignalEvent:_event
                              value:++_event_value];
         // create a new command buffer to avoid dead locks
-        [cmd_buf commit];
-        cmd_buf = [[cmd_buf commandQueue] commandBuffer];
+        stream->dispatch(cmd_buf);
+        cmd_buf = stream->command_buffer();
     }
     [cmd_buf encodeWaitForEvent:_event
                           value:_event_value];

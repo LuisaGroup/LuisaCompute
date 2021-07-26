@@ -8,6 +8,7 @@
 namespace luisa::compute::metal {
 
 id<MTLCommandBuffer> MetalAccel::build(
+    MetalStream *stream,
     id<MTLCommandBuffer> command_buffer,
     AccelBuildHint hint,
     std::span<const uint64_t> mesh_handles,
@@ -41,12 +42,13 @@ id<MTLCommandBuffer> MetalAccel::build(
                destinationOffset:0u
                             size:instance_buffer_size];
     [blit_encoder endEncoding];
+    [command_buffer enqueue];
     [command_buffer commit];// to avoid dead locks...
     _last_update = command_buffer;
 
     // build accel and (possibly) compact
     command_buffer = [[command_buffer commandQueue] commandBuffer];
-    auto descriptor = [[MTLInstanceAccelerationStructureDescriptor alloc] init];
+    auto descriptor = [MTLInstanceAccelerationStructureDescriptor descriptor];
     descriptor.instancedAccelerationStructures = _device->mesh_handles(mesh_handles);
     descriptor.instanceCount = mesh_handles.size();
     descriptor.instanceDescriptorBuffer = _instance_buffer;
@@ -80,11 +82,12 @@ id<MTLCommandBuffer> MetalAccel::build(
               + compacted_size_buffer.offset());
           pool->recycle(compacted_size_buffer);
         }];
-        [command_buffer commit];
+
+        stream->dispatch(command_buffer);
         [command_buffer waitUntilCompleted];
         auto accel_before_compaction = _handle;
         _handle = [_device->handle() newAccelerationStructureWithSize:compacted_size];
-        command_buffer = [[command_buffer commandQueue] commandBuffer];
+        command_buffer = stream->command_buffer();
         command_encoder = [command_buffer accelerationStructureCommandEncoder];
         [command_encoder copyAndCompactAccelerationStructure:accel_before_compaction
                                      toAccelerationStructure:_handle];
@@ -94,6 +97,7 @@ id<MTLCommandBuffer> MetalAccel::build(
 }
 
 id<MTLCommandBuffer> MetalAccel::update(
+    MetalStream *stream,
     id<MTLCommandBuffer> command_buffer,
     std::span<const float4x4> transforms,
     size_t first) noexcept {
@@ -121,10 +125,11 @@ id<MTLCommandBuffer> MetalAccel::update(
                    destinationOffset:first * sizeof(Instance)
                                 size:transforms.size() * sizeof(Instance)];
         [blit_encoder endEncoding];
-        // commit the command buffer and start a new one to avoid dead locks
-        [command_buffer commit];
         _last_update = command_buffer;
-        command_buffer = [[command_buffer commandQueue] commandBuffer];
+
+        // commit the command buffer and start a new one to avoid dead locks
+        stream->dispatch(command_buffer);
+        command_buffer = stream->command_buffer();
     }
 
     // update accel

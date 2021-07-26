@@ -12,6 +12,7 @@
 namespace luisa::compute::metal {
 
 class MetalDevice;
+class MetalStream;
 
 class MetalTextureHeap {
 
@@ -38,7 +39,7 @@ public:
     [[nodiscard]] id<MTLBuffer> allocate_buffer(size_t size_bytes, uint32_t index_in_heap) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto desc_buffer() const noexcept { return _device_buffer; }
-    [[nodiscard]] id<MTLCommandBuffer> encode_update(id<MTLCommandBuffer> cmd_buf) const noexcept;
+    [[nodiscard]] id<MTLCommandBuffer> encode_update(MetalStream *stream, id<MTLCommandBuffer> cmd_buf) const noexcept;
 };
 
 }

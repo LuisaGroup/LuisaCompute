@@ -5,10 +5,12 @@
 #pragma once
 
 #import <mutex>
+#import <semaphore>
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 
+#import <core/logging.h>
 #import <core/spin_mutex.h>
 #import <backends/metal/metal_ring_buffer.h>
 
@@ -21,43 +23,21 @@ public:
 
 private:
     id<MTLCommandQueue> _handle;
+    MTLCommandBufferDescriptor *_command_buffer_desc{nullptr};
     __weak id<MTLCommandBuffer> _last{nullptr};
     MetalRingBuffer _upload_ring_buffer;
     MetalRingBuffer _download_ring_buffer;
+    std::counting_semaphore<> _sem;
     spin_mutex _mutex;
 
 public:
-    explicit MetalStream(id<MTLCommandQueue> handle) noexcept
-        : _handle{handle},
-          _upload_ring_buffer{handle.device, ring_buffer_size, true},
-          _download_ring_buffer{handle.device, ring_buffer_size, false} {}
-    ~MetalStream() noexcept { _handle = nullptr; }
-    [[nodiscard]] auto command_buffer() noexcept { return _handle.commandBuffer; }
+    explicit MetalStream(id<MTLDevice> device, uint max_command_buffers) noexcept;
+    ~MetalStream() noexcept;
+    [[nodiscard]] id<MTLCommandBuffer> command_buffer() noexcept;
+    void dispatch(id<MTLCommandBuffer> command_buffer) noexcept;
+    void synchronize() noexcept;
     [[nodiscard]] auto &upload_ring_buffer() noexcept { return _upload_ring_buffer; }
     [[nodiscard]] auto &download_ring_buffer() noexcept { return _download_ring_buffer; }
-
-    template<typename Dispatch>
-    void dispatch(Dispatch &&d) noexcept {
-        @autoreleasepool {
-            auto command_buffer = std::invoke(std::forward<Dispatch>(d), this);
-            std::scoped_lock lock{_mutex};
-            [command_buffer commit];
-            _last = command_buffer;
-        }
-    }
-
-    void synchronize() noexcept {
-        if (auto last = [this]() noexcept
-            -> id<MTLCommandBuffer> {
-                std::scoped_lock lock{_mutex};
-                auto last_cmd = _last;
-                _last = nullptr;
-                return last_cmd;
-            }()) {
-            LUISA_VERBOSE_WITH_LOCATION("Synchronizing stream...");
-            [last waitUntilCompleted];
-        }
-    }
 };
 
 }// namespace luisa::compute::metal

@@ -178,36 +178,35 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
     command->decode([&](auto, auto argument) noexcept -> void {
         using T = decltype(argument);
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
-            _command_buffer = _device->heap(argument.handle)->encode_update(_command_buffer);
+            _command_buffer = _device->heap(argument.handle)->encode_update(_stream, _command_buffer);
         }
     });
 
     // encode compute shader
     auto argument_encoder = compiled_kernel.encoder();
-    auto argument_buffer_pool = _device->argument_buffer_pool();
-    auto argument_buffer = argument_buffer_pool->allocate();
+    auto pool = _device->argument_buffer_pool();
+    auto argument_buffer = pool->allocate();
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:compiled_kernel.handle()];
     [argument_encoder setArgumentBuffer:argument_buffer.handle() offset:argument_buffer.offset()];
     command->decode([&](auto vid, auto argument) noexcept -> void {
         using T = decltype(argument);
         auto mark_usage = [compute_encoder](id<MTLResource> res, auto usage) noexcept {
-            switch (usage) {
-                case Usage::READ:
-                    [compute_encoder useResource:res
-                                           usage:MTLResourceUsageRead];
-                    break;
-                case Usage::WRITE:
-                    [compute_encoder useResource:res
-                                           usage:MTLResourceUsageWrite];
-                    break;
-                case Usage::READ_WRITE:
+//            switch (usage) {
+//                case Usage::WRITE:
+//                    [compute_encoder useResource:res
+//                                           usage:MTLResourceUsageWrite];
+//                    break;
+//                case Usage::READ_WRITE:
                     [compute_encoder useResource:res
                                            usage:MTLResourceUsageRead
                                                  | MTLResourceUsageWrite];
-                    break;
-                default: break;
-            }
+//                    break;
+//                default:
+//                    [compute_encoder useResource:res
+//                                           usage:MTLResourceUsageRead];
+//                    break;
+//            }
         };
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
@@ -225,7 +224,8 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             auto texture = _device->texture(argument.handle);
             auto arg_id = compiled_kernel.arguments()[argument_index++].argumentIndex;
             [argument_encoder setTexture:texture atIndex:arg_id];
-            mark_usage(texture, command->kernel().variable_usage(vid));
+            auto usage = command->kernel().variable_usage(vid);
+            mark_usage(texture, usage);
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture heap #{} at index {}.",
@@ -267,7 +267,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                     threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
     [compute_encoder endEncoding];
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-      argument_buffer_pool->recycle(argument_buffer);
+      pool->recycle(argument_buffer);
     }];
 }
 
@@ -307,6 +307,7 @@ MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noex
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
     auto accel = _device->accel(command->handle());
     _command_buffer = accel->update(
+        _stream,
         _command_buffer,
         command->updated_transforms(),
         command->first_instance_to_update());
@@ -315,6 +316,7 @@ void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = _device->accel(command->handle());
     _command_buffer = accel->build(
+        _stream,
         _command_buffer, command->hint(),
         command->instance_mesh_handles(),
         command->instance_transforms(),
@@ -323,7 +325,7 @@ void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
     auto mesh = _device->mesh(command->handle());
-    _command_buffer = mesh->update(_command_buffer);
+    _command_buffer = mesh->update(_stream, _command_buffer);
 }
 
 void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
@@ -331,6 +333,7 @@ void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto v_buffer = _device->buffer(command->vertex_buffer_handle());
     auto t_buffer = _device->buffer(command->triangle_buffer_handle());
     _command_buffer = mesh->build(
+        _stream,
         _command_buffer, command->hint(),
         v_buffer, command->vertex_buffer_offset(), command->vertex_stride(),
         t_buffer, command->triangle_buffer_offset(), command->triangle_count(),

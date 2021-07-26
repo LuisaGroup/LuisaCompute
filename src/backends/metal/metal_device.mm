@@ -60,7 +60,8 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::create_stream() noexcept {
     Clock clock;
-    auto stream = std::make_unique<MetalStream>([_handle newCommandQueue]);
+    auto max_command_buffer_count = _handle.isLowPower ? 3u : 15u;
+    auto stream = std::make_unique<MetalStream>(_handle, max_command_buffer_count);
     LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
     std::scoped_lock lock{_stream_mutex};
     if (_available_stream_slots.empty()) {
@@ -233,7 +234,9 @@ uint64_t MetalDevice::create_texture(
 
     auto from_heap = heap_handle != Heap::invalid_handle;
     desc.allowGPUOptimizedContents = YES;
-    desc.resourceOptions = MTLResourceStorageModePrivate | MTLResourceHazardTrackingModeDefault;
+    desc.storageMode = MTLStorageModePrivate;
+    desc.hazardTrackingMode = from_heap ? MTLHazardTrackingModeUntracked
+                                        : MTLHazardTrackingModeTracked;
     desc.usage = from_heap ? MTLTextureUsageShaderRead
                            : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
@@ -311,36 +314,32 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
 }
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcept {
-    stream(stream_handle)->dispatch([this, cmd_list = std::move(cmd_list)](MetalStream *stream) noexcept {
-        MetalCommandEncoder encoder{this, stream};
-        auto command_index = 0u;
-        for (auto command : cmd_list) {
-            LUISA_VERBOSE_WITH_LOCATION(
-                "Encoding command at index {}.",
-                command_index);
-            command->accept(encoder);
-            command_index++;
-        }
-        return encoder.command_buffer();
-    });
+    @autoreleasepool {
+        auto s = stream(stream_handle);
+        MetalCommandEncoder encoder{this, s};
+        for (auto command : cmd_list) { command->accept(encoder); }
+        s->dispatch(encoder.command_buffer());
+    }
 }
 
 void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    auto e = event(handle);
-    stream(stream_handle)->dispatch([e](auto s) noexcept {
-        auto cb = s->command_buffer();
-        e->signal(cb);
-        return cb;
-    });
+    @autoreleasepool {
+        auto e = event(handle);
+        auto s = stream(stream_handle);
+        auto command_buffer = s->command_buffer();
+        e->signal(command_buffer);
+        s->dispatch(command_buffer);
+    }
 }
 
 void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    auto e = event(handle);
-    stream(stream_handle)->dispatch([e](auto s) noexcept {
-        auto cb = s->command_buffer();
-        e->wait(cb);
-        return cb;
-    });
+    @autoreleasepool {
+        auto e = event(handle);
+        auto s = stream(stream_handle);
+        auto command_buffer = s->command_buffer();
+        e->wait(command_buffer);
+        s->dispatch(command_buffer);
+    }
 }
 
 MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {

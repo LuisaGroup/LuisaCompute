@@ -2,19 +2,21 @@
 // Created by Mike Smith on 2021/7/22.
 //
 
+#import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_shared_buffer_pool.h>
 
 namespace luisa::compute::metal {
 
 id<MTLCommandBuffer> MetalMesh::build(
+    MetalStream *stream,
     id<MTLCommandBuffer> command_buffer,
     AccelBuildHint hint,
     id<MTLBuffer> v_buffer, size_t v_offset, size_t v_stride,
     id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count,
     MetalSharedBufferPool *pool) noexcept {
 
-    auto mesh_desc = [[MTLAccelerationStructureTriangleGeometryDescriptor alloc] init];
+    auto mesh_desc = [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
     mesh_desc.vertexBuffer = v_buffer;
     mesh_desc.vertexBufferOffset = v_offset;
     mesh_desc.vertexStride = v_stride;
@@ -23,9 +25,7 @@ id<MTLCommandBuffer> MetalMesh::build(
     mesh_desc.indexType = MTLIndexTypeUInt32;
     mesh_desc.triangleCount = t_count;
     mesh_desc.opaque = YES;
-    mesh_desc.intersectionFunctionTableOffset = 0u;
-    mesh_desc.allowDuplicateIntersectionFunctionInvocation = NO;
-    auto descriptor = [[MTLPrimitiveAccelerationStructureDescriptor alloc] init];
+    auto descriptor = [MTLPrimitiveAccelerationStructureDescriptor descriptor];
     descriptor.geometryDescriptors = @[mesh_desc];
     _descriptor = descriptor;
     switch (hint) {
@@ -57,11 +57,11 @@ id<MTLCommandBuffer> MetalMesh::build(
               + compacted_size_buffer.offset());
           pool->recycle(compacted_size_buffer);
         }];
-        [command_buffer commit];
+        stream->dispatch(command_buffer);
         [command_buffer waitUntilCompleted];
         auto accel_before_compaction = _handle;
         _handle = [_device newAccelerationStructureWithSize:compacted_size];
-        command_buffer = [[command_buffer commandQueue] commandBuffer];
+        command_buffer = stream->command_buffer();
         command_encoder = [command_buffer accelerationStructureCommandEncoder];
         [command_encoder copyAndCompactAccelerationStructure:accel_before_compaction
                                      toAccelerationStructure:_handle];
@@ -70,7 +70,10 @@ id<MTLCommandBuffer> MetalMesh::build(
     return command_buffer;
 }
 
-id<MTLCommandBuffer> MetalMesh::update(id<MTLCommandBuffer> command_buffer) {
+id<MTLCommandBuffer> MetalMesh::update(
+    MetalStream *,
+    id<MTLCommandBuffer> command_buffer) {
+
     if (_update_buffer == nullptr || _update_buffer.length < _sizes.refitScratchBufferSize) {
         _update_buffer = [_device newBufferWithLength:_sizes.refitScratchBufferSize
                                               options:MTLResourceStorageModePrivate];

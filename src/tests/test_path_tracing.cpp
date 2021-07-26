@@ -166,7 +166,7 @@ int main(int argc, char *argv[]) {
 
     Callable generate_ray = [](Float2 p) noexcept {
         static constexpr auto fov = radians(27.8f);
-        static constexpr auto origin = make_float3(-0.01f, 0.99f, 5.0f);
+        static constexpr auto origin = make_float3(-0.01f, 1.0f, 5.0f);
         Var pixel = origin + make_float3(p * tan(0.5f * fov), -1.0f);
         Var direction = normalize(pixel - origin);
         return make_ray(origin, direction);
@@ -182,7 +182,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel, UInt frame_index) noexcept {
         Var coord = dispatch_id().xy();
         Var frame_size = min(dispatch_size().x, dispatch_size().y).cast<float>();
         Var state = state_image.read(coord).x;
@@ -265,7 +265,8 @@ int main(int argc, char *argv[]) {
         }
         Var old = image.read(coord);
         if_(isnan(radiance.x) || isnan(radiance.y) || isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
-        image.write(coord, make_float4(old.xyz() + clamp(radiance, 0.0f, 30.0f), old.w + 1.0f));
+        Var t = 1.0f / (frame_index + 1.0f);
+        image.write(coord, make_float4(lerp(old.xyz(), clamp(radiance, 0.0f, 30.0f), t), 1.0f));
         state_image.write(coord, make_uint4(state));
     };
 
@@ -303,21 +304,20 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 4096u;
-    static constexpr auto spp_per_dispatch = 64u;
+    static constexpr auto spp = 1024u;
+    static constexpr auto spp_per_dispatch = 16u;
     static constexpr auto dispatch_count = spp / spp_per_dispatch;
     stream << clear_shader(hdr_image).dispatch(width, height)
-           << make_sampler_shader(state_image).dispatch(width, height)
-           << synchronize();
+           << make_sampler_shader(state_image).dispatch(width, height);
     for (auto d = 0u; d < dispatch_count; d++) {
         auto command_buffer = stream.command_buffer();
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(hdr_image, state_image, accel).dispatch(width, height);
+            command_buffer << raytracing_shader(hdr_image, state_image, accel, d * spp_per_dispatch + i).dispatch(width, height);
         }
         command_buffer << commit();
         LUISA_INFO("Progress: {}/{}", d + 1u, dispatch_count);
     }
-    stream << hdr2ldr_shader(hdr_image, ldr_image, 2.0f).dispatch(width, height)
+    stream << hdr2ldr_shader(hdr_image, ldr_image, 1.0f).dispatch(width, height)
            << ldr_image.copy_to(pixels.data())
            << synchronize();
     auto time = clock.toc();
