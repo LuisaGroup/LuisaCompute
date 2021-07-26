@@ -89,9 +89,10 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
 
     auto devices = MTLCopyAllDevices();
     if (auto count = devices.count; index >= count) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid Metal device index {} (#device = {}).",
-            index, count);
+        LUISA_WARNING_WITH_LOCATION(
+            "Invalid Metal device index {}. Limited to max index {}.",
+            index, count - 1u);
+        index = static_cast<uint>(count - 1u);
     }
     std::vector<id<MTLDevice>> sorted_devices;
     sorted_devices.reserve(devices.count);
