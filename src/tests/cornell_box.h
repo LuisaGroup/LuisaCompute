@@ -1,3 +1,10 @@
+//
+// Created by Mike Smith on 2021/7/27.
+//
+
+#pragma once
+
+static const char *obj_string = R"(
 # The original Cornell Box in OBJ format.
 # Note that the real box is not a perfect cube, so
 # the faces are imperfect in this data set.
@@ -139,4 +146,4 @@ v	-0.24  1.98   0.16
 v	-0.24  1.98  -0.22
 v	 0.23  1.98  -0.22
 v	 0.23  1.98   0.16
-f -4 -3 -2 -1
+f -4 -3 -2 -1)";

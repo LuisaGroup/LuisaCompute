@@ -11,6 +11,7 @@
 #include <dsl/syntax.h>
 #include <rtx/accel.h>
 #include <tests/fake_device.h>
+#include <tests/cornell_box.h>
 
 #include <opencv2/opencv.hpp>
 
@@ -53,7 +54,7 @@ int main(int argc, char *argv[]) {
     obj_reader_config.triangulate = true;
     obj_reader_config.vertex_color = false;
     tinyobj::ObjReader obj_reader;
-    if (!obj_reader.ParseFromFile("src/tests/cornell-box.obj", obj_reader_config)) {
+    if (!obj_reader.ParseFromString(obj_string, "", obj_reader_config)) {
         std::string_view error_message = "unknown error.";
         if (auto &&e = obj_reader.Error(); !e.empty()) { error_message = e; }
         LUISA_ERROR_WITH_LOCATION("Failed to load OBJ file: {}", error_message);
@@ -316,7 +317,7 @@ int main(int argc, char *argv[]) {
            << make_sampler_shader(state_image).dispatch(width, height);
     for (auto d = 0u;; d++) {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 4u;
+        static constexpr auto spp_per_dispatch = 1u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, state_image, accel).dispatch(width, height)
                            << accumulate_shader(accum_image, framebuffer).dispatch(width, height);

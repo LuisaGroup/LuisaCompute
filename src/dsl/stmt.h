@@ -235,6 +235,8 @@ public:
 
 }// namespace detail
 
+inline namespace dsl {// to avoid conflicts
+
 // statements
 inline void break_() noexcept { detail::FunctionBuilder::current()->break_(); }
 inline void continue_() noexcept { detail::FunctionBuilder::current()->continue_(); }
@@ -255,10 +257,14 @@ inline auto switch_(T &&expr) noexcept {
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(T end) noexcept { return detail::ForRange<T, false>{static_cast<T>(0), end, static_cast<T>(1)}; }
+[[nodiscard]] inline auto range(T end) noexcept {
+    return detail::ForRange<T, false>{static_cast<T>(0), end, static_cast<T>(1)};
+}
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept { return detail::ForRange<T, false>{static_cast<T>(0), Var{end}, static_cast<T>(1)}; }
+[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept {
+    return detail::ForRange<T, false>{static_cast<T>(0), Var{end}, static_cast<T>(1)};
+}
 
 template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, T end, T step = 1) noexcept {
@@ -279,5 +285,7 @@ template<concepts::integral T>
 [[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, detail::Expr<T> step) noexcept {
     return detail::ForRange<T, true>{begin, Var{end}, Var{step}};
 }
+
+}// namespace dsl
 
 }// namespace luisa::compute

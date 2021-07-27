@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-using namespace luisa;
+inline namespace dsl {
 
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto cast(detail::Expr<Src> s) noexcept { return s.template cast<Dest>(); }
@@ -107,6 +107,8 @@ template<typename... T>
     return std::make_tuple(detail::Expr{v}...);
 }
 
+}
+
 namespace detail {
 
 template<typename T>
@@ -141,6 +143,8 @@ template<typename T>
 }
 
 }// namespace detail
+
+inline namespace dsl {// to avoid conflicts
 
 template<concepts::scalar T>
 [[nodiscard]] inline auto make_vector2(detail::Expr<T> s) noexcept {
@@ -1460,5 +1464,7 @@ inline void device_memory_barrier() noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::DEVICE_MEMORY_BARRIER, {});
 }
+
+}// namespace dsl
 
 }// namespace luisa::compute

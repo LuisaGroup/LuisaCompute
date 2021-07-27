@@ -11,6 +11,7 @@
 #include <dsl/syntax.h>
 #include <rtx/accel.h>
 #include <tests/fake_device.h>
+#include <tests/cornell_box.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <tests/stb_image_write.h>
@@ -33,7 +34,7 @@ struct Onb {
 };
 
 LUISA_STRUCT(Material, albedo, emission)
-LUISA_STRUCT(Onb, tangent, binormal, normal);
+LUISA_STRUCT(Onb, tangent, binormal, normal)
 
 int main(int argc, char *argv[]) {
 
@@ -54,7 +55,7 @@ int main(int argc, char *argv[]) {
     obj_reader_config.triangulate = true;
     obj_reader_config.vertex_color = false;
     tinyobj::ObjReader obj_reader;
-    if (!obj_reader.ParseFromFile("src/tests/cornell-box.obj", obj_reader_config)) {
+    if (!obj_reader.ParseFromString(obj_string, "", obj_reader_config)) {
         std::string_view error_message = "unknown error.";
         if (auto &&e = obj_reader.Error(); !e.empty()) { error_message = e; }
         LUISA_ERROR_WITH_LOCATION("Failed to load OBJ file: {}", error_message);
