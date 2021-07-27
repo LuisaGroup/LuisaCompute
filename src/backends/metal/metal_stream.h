@@ -23,7 +23,6 @@ public:
 
 private:
     id<MTLCommandQueue> _handle;
-    MTLCommandBufferDescriptor *_command_buffer_desc{nullptr};
     __weak id<MTLCommandBuffer> _last{nullptr};
     MetalRingBuffer _upload_ring_buffer;
     MetalRingBuffer _download_ring_buffer;
