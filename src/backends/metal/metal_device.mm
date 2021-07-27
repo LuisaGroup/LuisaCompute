@@ -60,7 +60,7 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::create_stream() noexcept {
     Clock clock;
-    auto max_command_buffer_count = _handle.isLowPower ? 3u : 15u;
+    auto max_command_buffer_count = _handle.isLowPower ? 4u : 16u;
     auto stream = std::make_unique<MetalStream>(_handle, max_command_buffer_count);
     LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
     std::scoped_lock lock{_stream_mutex};
