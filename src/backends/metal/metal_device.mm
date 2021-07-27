@@ -111,7 +111,6 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
 
     _compiler = std::make_unique<MetalCompiler>(this);
-    _argument_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, 4096u, 16u, true);
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
     _compacted_size_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
@@ -179,10 +178,6 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
 MetalShader MetalDevice::compiled_kernel(uint64_t handle) const noexcept {
     std::scoped_lock lock{_shader_mutex};
     return _shader_slots[handle];
-}
-
-MetalSharedBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
-    return _argument_buffer_pool.get();
 }
 
 uint64_t MetalDevice::create_texture(

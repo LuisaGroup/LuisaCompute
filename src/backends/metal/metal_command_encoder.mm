@@ -189,30 +189,40 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 "Encoding buffer #{} at index {} with offset {}.",
                 argument.handle, buffer_index, argument.offset);
             auto buffer = _device->buffer(argument.handle);
-            [compute_encoder setBuffer:buffer offset:argument.offset atIndex:buffer_index++];
+            [compute_encoder setBuffer:buffer
+                                offset:argument.offset
+                               atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture #{} at index {}.",
                 argument.handle, texture_index);
             auto texture = _device->texture(argument.handle);
-            [compute_encoder setTexture:texture atIndex:texture_index++];
+            [compute_encoder setTexture:texture
+                                atIndex:texture_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture heap #{} at index {}.",
                 argument.handle, buffer_index);
             auto heap = _device->heap(argument.handle);
             [compute_encoder useHeap:heap->handle()];
-            [compute_encoder setBuffer:heap->desc_buffer() offset:0u atIndex:buffer_index++];
+            [compute_encoder setBuffer:heap->desc_buffer()
+                                offset:0u
+                               atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding geometry #{} at index {}.",
                 argument.handle, buffer_index);
             auto accel = _device->accel(argument.handle);
-            auto mesh_accels = accel->meshes();
-            [compute_encoder useResources:mesh_accels.data() count:mesh_accels.size() usage:MTLResourceUsageRead];
-            [compute_encoder useResource:accel->instance_buffer() usage:MTLResourceUsageRead];
-            [compute_encoder setAccelerationStructure:accel->handle() atBufferIndex:buffer_index++];
+            if (auto mesh_accels = accel->meshes(); !mesh_accels.empty()) {
+                [compute_encoder useResources:mesh_accels.data()
+                                        count:mesh_accels.size()
+                                        usage:MTLResourceUsageRead];
+            }
+            [compute_encoder useResource:accel->instance_buffer()
+                                   usage:MTLResourceUsageRead];
+            [compute_encoder setAccelerationStructure:accel->handle()
+                                        atBufferIndex:buffer_index++];
 #else
             LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
 #endif
@@ -220,14 +230,18 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding uniform at index {}.",
                 buffer_index);
-            [compute_encoder setBytes:argument.data() length:argument.size_bytes() atIndex:buffer_index++];
+            [compute_encoder setBytes:argument.data()
+                               length:argument.size_bytes()
+                              atIndex:buffer_index++];
         }
     });
 
     LUISA_VERBOSE_WITH_LOCATION(
         "Encoding dispatch size at index {}.",
         buffer_index);
-    [compute_encoder setBytes:&launch_size length:sizeof(launch_size) atIndex:buffer_index];
+    [compute_encoder setBytes:&launch_size
+                       length:sizeof(launch_size)
+                      atIndex:buffer_index];
     [compute_encoder dispatchThreadgroups:MTLSizeMake(blocks.x, blocks.y, blocks.z)
                     threadsPerThreadgroup:MTLSizeMake(block_size.x, block_size.y, block_size.z)];
     [compute_encoder endEncoding];

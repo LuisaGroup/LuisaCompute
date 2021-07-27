@@ -34,8 +34,6 @@ private:
     id<MTLDevice> _handle{nullptr};
     std::unique_ptr<MetalCompiler> _compiler{nullptr};
 
-    std::unique_ptr<MetalSharedBufferPool> _argument_buffer_pool{nullptr};
-
     // for buffers
     std::vector<id<MTLBuffer>> _buffer_slots;
     std::vector<size_t> _available_buffer_slots;
@@ -96,7 +94,6 @@ public:
 #endif
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalTextureHeap *heap(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalSharedBufferPool *argument_buffer_pool() const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     [[nodiscard]] MetalSharedBufferPool *compacted_size_buffer_pool() const noexcept;
     void check_raytracing_supported() const noexcept;
