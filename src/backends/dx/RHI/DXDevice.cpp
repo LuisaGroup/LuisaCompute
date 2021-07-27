@@ -108,7 +108,7 @@ public:
 		internalShaders.New();
 		InitInternal();
 	}
-	uint64 create_buffer(size_t size_bytes) noexcept override {
+	uint64 create_buffer(size_t size_bytes, uint64_t heap_handle, uint index_in_heap) noexcept override {
 		Graphics::current = graphicsInstance;
 		return reinterpret_cast<uint64>(
 			new StructuredBuffer(
