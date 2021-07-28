@@ -10,7 +10,7 @@ MetalStream::MetalStream(id<MTLDevice> device, uint max_command_buffers) noexcep
     : _handle{[device newCommandQueueWithMaxCommandBufferCount:max_command_buffers]},
       _upload_ring_buffer{device, ring_buffer_size, true},
       _download_ring_buffer{device, ring_buffer_size, false},
-      _sem{max_command_buffers} {}
+      _sem{dispatch_semaphore_create(max_command_buffers)} {}
 
 MetalStream::~MetalStream() noexcept {
     synchronize();
@@ -31,9 +31,9 @@ void MetalStream::dispatch(id<MTLCommandBuffer> command_buffer) noexcept {
               "Error occurred when executing command buffer in stream: {}",
               [cb.error.description cStringUsingEncoding:NSUTF8StringEncoding]);
       }
-      _sem.release();
+      dispatch_semaphore_signal(_sem);
     }];
-    _sem.acquire();
+    dispatch_semaphore_wait(_sem, DISPATCH_TIME_FOREVER);
     std::scoped_lock lock{_mutex};
     _last = command_buffer;
     [command_buffer commit];
