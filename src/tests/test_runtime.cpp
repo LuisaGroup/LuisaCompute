@@ -70,11 +70,18 @@ int main(int argc, char *argv[]) {
     Constant float_consts = {1.0f, 2.0f};
     Constant int_consts = const_vector;
 
+    Callable add = [](Float a, Float b) noexcept { return a + b; };
+    Callable sub = [](Float a, Float b) noexcept { return a - b; };
+    Callable mul = [](Float a, Float b) noexcept { return a * b; };
+    std::vector ftab{add, sub, mul};
     Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, HeapVar heap) noexcept {
-        Shared<float4> shared_floats{16};
+        Var tag = 114514;
+        match({123, 6666, 114514}, tag, [&](auto i) noexcept {
+            ftab[i](1.0f, 2.0f);
+        });
 
         Var v_int = 10;
-
+        Shared<float4> shared_floats{16};
         Var color = heap.tex2d(v_int).sample(float2(0.0f));
 
         auto [a, m] = add_mul(v_int, v_int);
