@@ -286,6 +286,43 @@ template<concepts::integral T>
     return detail::ForRange<T, true>{begin, Var{end}, Var{step}};
 }
 
+template<concepts::iterable AllTags, typename Tag, typename IndexedCase, typename Otherwise>
+requires concepts::invocable<IndexedCase, int> && concepts::invocable<Otherwise>
+inline void match(AllTags &&tags, Tag &&tag, IndexedCase &&indexed_case, Otherwise &&otherwise) noexcept {
+    auto s = switch_(std::forward<Tag>(tag));
+    auto index = 0;
+    for (auto &&t : std::forward<AllTags>(tags)) {
+        s.case_(t, [&c = indexed_case, i = index] { c(i); });
+        index++;
+    }
+    s.default_(std::forward<Otherwise>(otherwise));
+}
+
+template<typename T, typename Tag, typename IndexedCase, typename Otherwise>
+requires concepts::invocable<IndexedCase, int> && concepts::invocable<Otherwise>
+inline void match(std::initializer_list<T> all_tags, Tag &&tag, IndexedCase &&indexed_case, Otherwise &&otherwise) noexcept {
+    auto s = switch_(std::forward<Tag>(tag));
+    auto index = 0;
+    for (auto &&t : all_tags) {
+        s.case_(t, [&c = indexed_case, i = index] { c(i); });
+        index++;
+    }
+    s.default_(std::forward<Otherwise>(otherwise));
+}
+
+template<typename AllTags, typename Tag, typename IndexedCase>
+inline void match(AllTags &&tags, Tag &&tag, IndexedCase &&indexed_case) noexcept {
+    match(std::forward<AllTags>(tags),
+          std::forward<Tag>(tag),
+          std::forward<IndexedCase>(indexed_case),
+          [] {});
+}
+
+template<typename T, typename Tag, typename IndexedCase>
+inline void match(std::initializer_list<T> tags, Tag &&tag, IndexedCase &&indexed_case) noexcept {
+    match(tags, std::forward<Tag>(tag), std::forward<IndexedCase>(indexed_case), [] {});
+}
+
 }// namespace dsl
 
 }// namespace luisa::compute

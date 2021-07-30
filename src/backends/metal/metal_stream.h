@@ -5,7 +5,6 @@
 #pragma once
 
 #import <mutex>
-#import <semaphore>
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
@@ -26,7 +25,7 @@ private:
     __weak id<MTLCommandBuffer> _last{nullptr};
     MetalRingBuffer _upload_ring_buffer;
     MetalRingBuffer _download_ring_buffer;
-    std::counting_semaphore<> _sem;
+    dispatch_semaphore_t _sem;
     spin_mutex _mutex;
 
 public:

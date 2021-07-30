@@ -24,6 +24,12 @@ struct Noncopyable {
 };
 
 template<typename T>
+concept iterable = requires(T v) {
+    v.begin();
+    v.end();
+};
+
+template<typename T>
 concept span_convertible = requires(T v) {
     std::span{std::forward<T>(v)};
 };

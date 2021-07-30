@@ -5,7 +5,7 @@
 #pragma once
 
 #include <runtime/pixel.h>
-#include <runtime/device.h>
+#include <runtime/resource.h>
 
 namespace luisa::compute {
 
@@ -21,7 +21,7 @@ struct Expr;
 
 // Volumes are 3D textures without sampling.
 template<typename T>
-class Volume : concepts::Noncopyable {
+class Volume : public Resource {
 
     static_assert(std::disjunction_v<
                   std::is_same<T, int>,
@@ -29,59 +29,41 @@ class Volume : concepts::Noncopyable {
                   std::is_same<T, float>>);
 
 private:
-    Device::Handle _device;
-    uint64_t _handle{};
     PixelStorage _storage{};
     uint3 _size{};
 
 private:
     friend class Device;
-    Volume(Device::Handle device, PixelStorage storage, uint width, uint height, uint depth) noexcept
-        : _device{std::move(device)},
-          _handle{_device->create_texture(
+    Volume(Device::Interface *device, PixelStorage storage, uint width, uint height, uint depth) noexcept
+        : Resource{
+            device, Tag::TEXTURE,
+            device->create_texture(
               pixel_storage_to_format<T>(storage), 3u,
               width, height, depth, 1u, {},
               std::numeric_limits<uint64_t>::max(), 0u)},
           _storage{storage},
           _size{width, height, depth} {}
 
-    Volume(Device::Handle device, PixelStorage storage, uint3 size) noexcept
-        : Volume{std::move(device), storage, size.x, size.y, size.z} {}
-
-    void _destroy() noexcept {
-        if (*this) { _device->destroy_texture(_handle); }
-    }
+    Volume(Device::Interface *device, PixelStorage storage, uint3 size) noexcept
+        : Volume{device, storage, size.x, size.y, size.z} {}
 
 public:
     Volume() noexcept = default;
-    ~Volume() noexcept { _destroy(); }
-    Volume(Volume &&another) noexcept = default;
-    Volume &operator=(Volume &&rhs) noexcept {
-        if (&rhs != this) [[likely]] {
-            _destroy();
-            _device = std::move(rhs._device);
-            _handle = rhs._handle;
-            _size = rhs._size;
-            _storage = rhs._storage;
-        }
-        return *this;
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
+    using Resource::operator bool;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{_handle, _storage, {}, _size}; }
+    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{handle(), _storage, {}, _size}; }
     [[nodiscard]] auto view(uint3 offset, uint3 size) const noexcept {
         if (any(offset + size >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid offset[{}, {}, {}] and size[{}, {}, {}] of view "
                 "for volume #{} with size[{}, {}, {}].",
                 offset.x, offset.y, offset.z, size.x, size.y, size.z,
-                _handle, _size.x, _size.y, _size.z);
+                handle(), _size.x, _size.y, _size.z);
         }
-        return VolumeView<T>{_handle, _storage, offset, size};
+        return VolumeView<T>{handle(), _storage, offset, size};
     }
 
     template<typename UVW>

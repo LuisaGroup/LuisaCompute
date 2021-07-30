@@ -44,10 +44,7 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
-    if (_function_stack().empty()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Function stack is empty.");
-    }
-    return _function_stack().back();
+    return _function_stack().empty() ? nullptr : _function_stack().back();
 }
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {

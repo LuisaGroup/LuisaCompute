@@ -51,7 +51,7 @@ private:
     std::vector<size_t> _available_shader_slots;
 
     // for heaps
-    std::vector<std::unique_ptr<MetalTextureHeap>> _heap_slots;
+    std::vector<std::unique_ptr<MetalHeap>> _heap_slots;
     std::vector<size_t> _available_heap_slots;
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
@@ -93,7 +93,7 @@ public:
     [[nodiscard]] MetalAccel *accel(uint64_t handle) const noexcept;
 #endif
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalTextureHeap *heap(uint64_t handle) const noexcept;
+    [[nodiscard]] MetalHeap *heap(uint64_t handle) const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     [[nodiscard]] MetalSharedBufferPool *compacted_size_buffer_pool() const noexcept;
     void check_raytracing_supported() const noexcept;

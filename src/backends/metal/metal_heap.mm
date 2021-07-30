@@ -7,7 +7,7 @@
 
 namespace luisa::compute::metal {
 
-MTLHeapDescriptor *MetalTextureHeap::_heap_descriptor(size_t size) noexcept {
+MTLHeapDescriptor *MetalHeap::_heap_descriptor(size_t size) noexcept {
     auto desc = [[MTLHeapDescriptor alloc] init];
     desc.size = size;
     desc.hazardTrackingMode = MTLHazardTrackingModeUntracked;
@@ -16,7 +16,7 @@ MTLHeapDescriptor *MetalTextureHeap::_heap_descriptor(size_t size) noexcept {
     return desc;
 }
 
-MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
+MetalHeap::MetalHeap(MetalDevice *device, size_t size) noexcept
     : _device{device},
       _handle{[device->handle() newHeapWithDescriptor:_heap_descriptor(size)]},
       _event{[device->handle() newEvent]} {
@@ -96,20 +96,11 @@ MetalTextureHeap::MetalTextureHeap(MetalDevice *device, size_t size) noexcept
     }
 }
 
-id<MTLTexture> MetalTextureHeap::allocate_texture(MTLTextureDescriptor *desc, uint32_t index, TextureSampler sampler) noexcept {
-    std::scoped_lock lock{_mutex};
-    auto texture = [_handle newTextureWithDescriptor:desc];
-    auto sampler_state = _samplers[sampler.code()];
-    [_encoder setArgumentBuffer:_buffer
-                         offset:slot_size * index];
-    [_encoder setTexture:texture
-                 atIndex:desc.textureType == MTLTextureType2D ? 0u : 1u];
-    [_encoder setSamplerState:sampler_state atIndex:2u];
-    _dirty = true;
-    return texture;
+id<MTLTexture> MetalHeap::allocate_texture(MTLTextureDescriptor *desc) noexcept {
+    return [_handle newTextureWithDescriptor:desc];
 }
 
-id<MTLCommandBuffer> MetalTextureHeap::encode_update(
+id<MTLCommandBuffer> MetalHeap::encode_update(
     MetalStream *stream,
     id<MTLCommandBuffer> cmd_buf) const noexcept {
 
@@ -139,18 +130,40 @@ id<MTLCommandBuffer> MetalTextureHeap::encode_update(
     return cmd_buf;
 }
 
-id<MTLBuffer> MetalTextureHeap::allocate_buffer(size_t size_bytes, uint32_t index_in_heap) noexcept {
+void MetalHeap::emplace_buffer(uint32_t index, uint64_t buffer_handle) noexcept {
+    auto buffer = _device->buffer(buffer_handle);
     std::scoped_lock lock{_mutex};
-    auto buffer = [_handle newBufferWithLength:size_bytes
-                                       options:MTLResourceStorageModePrivate
-                                               | MTLResourceHazardTrackingModeDefault];
-    [_encoder setArgumentBuffer:_buffer
-                         offset:slot_size * index_in_heap];
-    [_encoder setBuffer:buffer
-                 offset:0u
-                atIndex:3u];
+    [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
+    [_encoder setBuffer:buffer offset:0u atIndex:3u];
+    _active_buffers.emplace(buffer_handle);
     _dirty = true;
-    return buffer;
+}
+
+void MetalHeap::emplace_texture(uint32_t index, uint64_t texture_handle, TextureSampler sampler) noexcept {
+    auto sampler_state = _samplers[sampler.code()];
+    auto texture = _device->texture(texture_handle);
+    std::scoped_lock lock{_mutex};
+    [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
+    [_encoder setTexture:texture atIndex:texture.textureType == MTLTextureType2D ? 0u : 1u];
+    [_encoder setSamplerState:sampler_state atIndex:2u];
+    _active_textures.emplace(texture_handle);
+    _dirty = true;
+}
+
+void MetalHeap::destroy_buffer(uint64_t b) noexcept {
+    std::scoped_lock lock{_mutex};
+    _active_buffers.erase(b);
+}
+
+void MetalHeap::destroy_texture(uint64_t t) noexcept {
+    std::scoped_lock lock{_mutex};
+    _active_textures.erase(t);
+}
+
+id<MTLBuffer> MetalHeap::allocate_buffer(size_t size_bytes) noexcept {
+    return [_handle newBufferWithLength:size_bytes
+                                options:MTLResourceStorageModePrivate
+                                        | MTLResourceHazardTrackingModeDefault];
 }
 
 }

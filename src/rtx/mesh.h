@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <runtime/device.h>
 #include <runtime/buffer.h>
 #include <dsl/syntax.h>
 
@@ -16,31 +15,25 @@ struct Triangle {
     uint i2;
 };
 
-class Mesh : concepts::Noncopyable {
+class Mesh : public Resource {
 
 private:
-    Device::Handle _device;
-    uint64_t _handle{};
     bool _built{false};
 
 private:
     friend class Device;
-    explicit Mesh(Device::Handle device) noexcept
-        : _device{std::move(device)},
-          _handle{_device->create_mesh()} {}
-    void _destroy() noexcept;
+    explicit Mesh(Device::Interface *device) noexcept
+        : Resource{device, Tag::MESH, device->create_mesh()} {}
 
 public:
     Mesh() noexcept = default;
-    ~Mesh() noexcept { _destroy(); }
-    Mesh(Mesh &&) noexcept = default;
-    Mesh &operator=(Mesh &&rhs) noexcept;
+    using Resource::operator bool;
 
     template<typename Vertex>
     [[nodiscard]] Command *build(AccelBuildHint mode, BufferView<Vertex> vertices, BufferView<Triangle> triangles) noexcept {
         _built = true;
         return MeshBuildCommand::create(
-            _handle, mode,
+            handle(), mode,
             vertices.handle(), vertices.offset_bytes(), sizeof(Vertex), vertices.size(),
             triangles.handle(), triangles.offset_bytes(), triangles.size());
     }
@@ -51,8 +44,6 @@ public:
     }
 
     [[nodiscard]] Command *update() noexcept;
-    [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };
 
 }

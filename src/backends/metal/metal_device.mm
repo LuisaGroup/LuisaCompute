@@ -16,6 +16,7 @@
 #import <runtime/heap.h>
 
 #import <backends/metal/metal_device.h>
+#import <backends/metal/metal_heap.h>
 #import <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {
@@ -23,37 +24,49 @@ namespace luisa::compute::metal {
 uint64_t MetalDevice::create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept {
     Clock clock;
     id<MTLBuffer> buffer = nullptr;
-    if (heap_handle == std::numeric_limits<uint64_t>::max()) {
+    MetalHeap *heap = nullptr;
+    if (heap_handle == Heap::invalid_handle) {
         buffer = [_handle newBufferWithLength:size_bytes
                                       options:MTLResourceStorageModePrivate];
         LUISA_VERBOSE_WITH_LOCATION(
             "Created buffer with size {} in {} ms.",
             size_bytes, clock.toc());
     } else {
-        buffer = heap(heap_handle)->allocate_buffer(size_bytes, index_in_heap);
+        heap = this->heap(heap_handle);
+        buffer = heap->allocate_buffer(size_bytes);
         LUISA_VERBOSE_WITH_LOCATION(
             "Created buffer from heap #{} at index {} "
             "with size {} in {} ms.",
             heap_handle, index_in_heap,
             size_bytes, clock.toc());
     }
-    std::scoped_lock lock{_buffer_mutex};
-    if (_available_buffer_slots.empty()) {
-        auto s = _buffer_slots.size();
-        _buffer_slots.emplace_back(buffer);
-        return s;
-    }
-    auto s = _available_buffer_slots.back();
-    _available_buffer_slots.pop_back();
-    _buffer_slots[s] = buffer;
-    return s;
+
+    auto buffer_handle = [&] {
+        auto h = 0ull;
+        std::scoped_lock lock{_buffer_mutex};
+        if (_available_buffer_slots.empty()) {
+            h = _buffer_slots.size();
+            _buffer_slots.emplace_back(buffer);
+        } else {
+            h = _available_buffer_slots.back();
+            _buffer_slots[h] = buffer;
+            _available_buffer_slots.pop_back();
+        }
+        return h;
+    }();
+    if (heap != nullptr) { heap->emplace_buffer(index_in_heap, buffer_handle); }
+    return buffer_handle | (heap_handle << 32u);
 }
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     {
+        auto buffer_handle = handle & 0xffffffffu;
+        if (auto heap_index = handle >> 32u; heap_index != 0xffffffffu) {
+            heap(heap_index)->destroy_buffer(buffer_handle);
+        }
         std::scoped_lock lock{_buffer_mutex};
-        _buffer_slots[handle] = nullptr;
-        _available_buffer_slots.emplace_back(handle);
+        _buffer_slots[buffer_handle] = nullptr;
+        _available_buffer_slots.emplace_back(buffer_handle);
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed buffer #{}.", handle);
 }
@@ -163,7 +176,7 @@ void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 
 id<MTLBuffer> MetalDevice::buffer(uint64_t handle) const noexcept {
     std::scoped_lock lock{_buffer_mutex};
-    return _buffer_slots[handle];
+    return _buffer_slots[handle & 0xffffffffu];
 }
 
 MetalStream *MetalDevice::stream(uint64_t handle) const noexcept {
@@ -240,10 +253,15 @@ uint64_t MetalDevice::create_texture(
     desc.usage = from_heap ? MTLTextureUsageShaderRead
                            : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
-    auto texture = [&] {
-        if (from_heap) { return heap(heap_handle)->allocate_texture(desc, index_in_heap, sampler); }
-        return [_handle newTextureWithDescriptor:desc];
-    }();
+
+    id<MTLTexture> texture = nullptr;
+    MetalHeap *heap = nullptr;
+    if (from_heap) {
+        heap = this->heap(heap_handle);
+        texture = heap->allocate_texture(desc);
+    } else {
+        texture = [_handle newTextureWithDescriptor:desc];
+    }
 
     if (texture == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
@@ -256,32 +274,43 @@ uint64_t MetalDevice::create_texture(
         mipmap_levels, mipmap_levels <= 1u ? "" : "s",
         clock.toc());
 
-    std::scoped_lock lock{_texture_mutex};
-    if (_available_texture_slots.empty()) {
-        auto s = _texture_slots.size();
-        _texture_slots.emplace_back(texture);
-        return s;
+    auto texture_handle = [&] {
+        auto h = 0ull;
+        std::scoped_lock lock{_texture_mutex};
+        if (_available_texture_slots.empty()) {
+            h = _texture_slots.size();
+            _texture_slots.emplace_back(texture);
+        } else {
+            h = _available_texture_slots.back();
+            _texture_slots[h] = texture;
+            _available_texture_slots.pop_back();
+        }
+        return h;
+    }();
+    if (heap != nullptr) {
+        heap->emplace_texture(index_in_heap, texture_handle, sampler);
     }
-    auto s = _available_texture_slots.back();
-    _available_texture_slots.pop_back();
-    _texture_slots[s] = texture;
-    return s;
+    return texture_handle | (heap_handle << 32u);
 }
 
 void MetalDevice::destroy_texture(uint64_t handle) noexcept {
     {
+        auto texture_handle = handle & 0xffffffffu;
+        if (auto heap_handle = handle >> 32u; heap_handle != 0xffffffffu) {
+            heap(heap_handle)->destroy_texture(texture_handle);
+        }
         std::scoped_lock lock{_texture_mutex};
-        auto &&tex = _texture_slots[handle];
+        auto &&tex = _texture_slots[texture_handle];
         if (tex.heap != nullptr) { [tex makeAliasable]; }
         tex = nullptr;
-        _available_texture_slots.emplace_back(handle);
+        _available_texture_slots.emplace_back(texture_handle);
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed image #{}.", handle);
 }
 
 id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
     std::scoped_lock lock{_texture_mutex};
-    return _texture_slots[handle];
+    return _texture_slots[handle & 0xffffffffu];
 }
 
 uint64_t MetalDevice::create_event() noexcept {
@@ -423,7 +452,7 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::create_heap(size_t size) noexcept {
     Clock clock;
-    auto heap = std::make_unique<MetalTextureHeap>(this, size);
+    auto heap = std::make_unique<MetalHeap>(this, size);
     LUISA_VERBOSE_WITH_LOCATION("Created texture heap in {} ms.", clock.toc());
     std::scoped_lock lock{_heap_mutex};
     if (_available_heap_slots.empty()) {
@@ -442,15 +471,32 @@ size_t MetalDevice::query_heap_memory_usage(uint64_t handle) noexcept {
 }
 
 void MetalDevice::destroy_heap(uint64_t handle) noexcept {
-    {
+    auto heap = [&] {
         std::scoped_lock lock{_heap_mutex};
-        _heap_slots[handle] = nullptr;
+        auto h = std::move(_heap_slots[handle]);
         _available_heap_slots.emplace_back(handle);
+        return h;
+    }();
+    // destroy all buffers
+    {
+        std::scoped_lock lock{_buffer_mutex};
+        heap->traverse_buffers([&](auto b) noexcept {
+            _buffer_slots[b] = nullptr;
+            _available_buffer_slots.emplace_back(b);
+        });
+    }
+    // destroy all textures
+    {
+        std::scoped_lock lock{_texture_mutex};
+        heap->traverse_textures([&](auto t) noexcept {
+            _texture_slots[t] = nullptr;
+            _available_texture_slots.emplace_back(t);
+        });
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed heap #{}.", handle);
 }
 
-MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
+MetalHeap *MetalDevice::heap(uint64_t handle) const noexcept {
     std::scoped_lock lock{_heap_mutex};
     return _heap_slots[handle].get();
 }
