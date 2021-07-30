@@ -20,33 +20,16 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 
 Accel Device::create_accel() noexcept { return _create<Accel>(); }
 
-Accel::Accel(Device::Handle device) noexcept
-    : _device{std::move(device)},
-      _handle{_device->create_accel()} {}
-
-void Accel::_destroy() noexcept {
-    if (*this) { _device->destroy_accel(_handle); }
-}
-
-Accel::~Accel() noexcept { _destroy(); }
+Accel::Accel(Device::Interface *device) noexcept
+    : Resource{device, Tag::ACCEL, device->create_accel()} {}
 
 Command *Accel::refit() noexcept {
     if (!_built) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Geometry #{} is not built when updating.",
-            _handle);
+            handle());
     }
-    return AccelUpdateCommand::create(_handle);
-}
-
-Accel &Accel::operator=(Accel &&rhs) noexcept {
-    if (&rhs != this) [[likely]] {
-        _destroy();
-        _device = std::move(rhs._device);
-        _handle = rhs._handle;
-        _built = rhs._built;
-    }
-    return *this;
+    return AccelUpdateCommand::create(handle());
 }
 
 detail::Expr<Hit> Accel::trace_closest(detail::Expr<Ray> ray) const noexcept {
@@ -65,10 +48,10 @@ Command *Accel::refit(
     if (!_built) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Geometry #{} is not built when updating.",
-            _handle);
+            handle());
     }
     return AccelUpdateCommand::create(
-        _handle,
+        handle(),
         std::span{transforms, count},
         first);
 }
@@ -78,7 +61,7 @@ Command *Accel::build(
     std::span<const uint64_t> mesh_handles,
     std::span<const float4x4> transforms) noexcept {
     _built = true;
-    return AccelBuildCommand::create(_handle, mode, mesh_handles, transforms);
+    return AccelBuildCommand::create(handle(), mode, mesh_handles, transforms);
 }
 
 }// namespace luisa::compute

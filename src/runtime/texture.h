@@ -93,7 +93,7 @@ template<typename Texture>
 
 class Heap;
 
-class Texture2D {
+class TextureView2D {
 
 private:
     uint64_t _handle;
@@ -103,7 +103,7 @@ private:
 
 private:
     friend class Heap;
-    Texture2D(uint64_t handle, PixelStorage storage, uint mip_levels, uint2 size) noexcept
+    TextureView2D(uint64_t handle, PixelStorage storage, uint mip_levels, uint2 size) noexcept
         : _handle{handle}, _storage{storage}, _mip_levels{mip_levels}, _size{size} {}
 
 public:
@@ -126,7 +126,7 @@ public:
     }
 };
 
-class Texture3D {
+class TextureView3D {
 
 private:
     uint64_t _handle;
@@ -136,7 +136,7 @@ private:
 
 private:
     friend class Heap;
-    Texture3D(uint64_t handle, PixelStorage storage, uint mip_levels, uint3 size) noexcept
+    TextureView3D(uint64_t handle, PixelStorage storage, uint mip_levels, uint3 size) noexcept
         : _handle{handle},
           _storage{storage},
           _mip_levels{mip_levels},

@@ -48,7 +48,7 @@ class FunctionBuilder;
 class Device {
 
 public:
-    class Interface {
+    class Interface : public std::enable_shared_from_this<Interface> {
 
     private:
         const Context &_ctx;
@@ -114,7 +114,7 @@ private:
 
     template<typename T, typename... Args>
     [[nodiscard]] auto _create(Args &&...args) noexcept {
-        return T{this->_impl, std::forward<Args>(args)...};
+        return T{this->_impl.get(), std::forward<Args>(args)...};
     }
 
 public:

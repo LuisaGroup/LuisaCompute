@@ -5,38 +5,27 @@
 #pragma once
 
 #include <runtime/command.h>
-#include <runtime/device.h>
+#include <runtime/resource.h>
 
 namespace luisa::compute {
 
 class Device;
 
-class Event : concepts::Noncopyable {
+class Event : public Resource {
 
 public:
     struct Signal { uint64_t handle; };
     struct Wait { uint64_t handle; };
-
-private:
-    Device::Handle _device;
-    uint64_t _handle{};
     
 private:
     friend class Device;
-    explicit Event(Device::Handle device) noexcept;
-    void _destroy() noexcept;
+    explicit Event(Device::Interface *device) noexcept;
 
 public:
     Event() noexcept = default;
-    ~Event() noexcept;
-    
-    Event(Event &&another) noexcept = default;
-    Event &operator=(Event &&rhs) noexcept;
-
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
-    
-    [[nodiscard]] auto signal() const noexcept { return Signal{_handle}; }
-    [[nodiscard]] auto wait() const noexcept { return Wait{_handle}; }
+    using Resource::operator bool;
+    [[nodiscard]] auto signal() const noexcept { return Signal{handle()}; }
+    [[nodiscard]] auto wait() const noexcept { return Wait{handle()}; }
     void synchronize() const noexcept;
 };
 

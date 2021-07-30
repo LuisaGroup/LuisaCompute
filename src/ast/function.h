@@ -29,7 +29,7 @@ public:
     enum struct Tag : uint {
         KERNEL,
         CALLABLE,
-        // TODO: Ray-tracing functions...
+        // TODO: Ray-tracing functions, e.g. custom intersectors...
     };
 
     struct BufferBinding {

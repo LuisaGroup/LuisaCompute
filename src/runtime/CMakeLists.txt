@@ -12,7 +12,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
     volume.h
     heap.cpp heap.h
     shader.h
-    texture.cpp texture.h)
+    texture.cpp texture.h resource.cpp resource.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES}  )
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast)

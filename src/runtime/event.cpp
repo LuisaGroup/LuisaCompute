@@ -11,27 +11,14 @@ Event Device::create_event() noexcept {
     return _create<Event>();
 }
 
-Event::Event(Device::Handle device) noexcept
-    : _device{std::move(device)},
-      _handle{_device->create_event()} {}
-
-Event::~Event() noexcept { _destroy(); }
-
-Event &Event::operator=(Event &&rhs) noexcept {
-    if (this != &rhs) {
-        _destroy();
-        _device = std::move(rhs._device);
-        _handle = rhs._handle;
-    }
-    return *this;
-}
+Event::Event(Device::Interface *device) noexcept
+    : Resource{
+        device,
+        Tag::EVENT,
+        device->create_event()} {}
 
 void Event::synchronize() const noexcept {
-    _device->synchronize_event(_handle);
-}
-
-void Event::_destroy() noexcept {
-    if (*this) { _device->destroy_event(_handle); }
+    device()->synchronize_event(handle());
 }
 
 }// namespace luisa::compute

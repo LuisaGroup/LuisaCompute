@@ -5,7 +5,7 @@
 #pragma once
 
 #include <runtime/command.h>
-#include <runtime/device.h>
+#include <runtime/resource.h>
 
 namespace luisa::compute {
 
@@ -24,7 +24,7 @@ struct Expr;
 
 // Images are textures without sampling.
 template<typename T>
-class Image : concepts::Noncopyable {
+class Image : public Resource {
 
     static_assert(std::disjunction_v<
                   std::is_same<T, int>,
@@ -32,59 +32,42 @@ class Image : concepts::Noncopyable {
                   std::is_same<T, float>>);
 
 private:
-    Device::Handle _device;
-    uint64_t _handle{};
     uint2 _size{};
     PixelStorage _storage{};
 
 private:
     friend class Device;
-    Image(Device::Handle device, PixelStorage storage, uint2 size) noexcept
-        : _device{std::move(device)},
-          _handle{_device->create_texture(
+    Image(Device::Interface *device, PixelStorage storage, uint2 size) noexcept
+        : Resource{
+            device,
+            Tag::TEXTURE,
+            device->create_texture(
               pixel_storage_to_format<T>(storage), 2u,
               size.x, size.y, 1u, 1u, {},
               std::numeric_limits<uint64_t>::max(), 0u)},
           _size{size},
           _storage{storage} {}
 
-    Image(Device::Handle device, PixelStorage storage, uint width, uint height) noexcept
-        : Image{std::move(device), storage, uint2{width, height}} {}
-
-    void _destroy() noexcept {
-        if (*this) { _device->destroy_texture(_handle); }
-    }
+    Image(Device::Interface *device, PixelStorage storage, uint width, uint height) noexcept
+        : Image{device, storage, uint2{width, height}} {}
 
 public:
     Image() noexcept = default;
-    ~Image() noexcept { _destroy(); }
-    Image(Image &&another) noexcept = default;
-    Image &operator=(Image &&rhs) noexcept {
-        if (&rhs != this) [[likely]] {
-            _destroy();
-            _device = std::move(rhs._device);
-            _handle = rhs._handle;
-            _size = rhs._size;
-            _storage = rhs._storage;
-        }
-        return *this;
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
+    using Resource::operator bool;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return ImageView<T>{_handle, _storage, {}, _size}; }
+    [[nodiscard]] auto view() const noexcept { return ImageView<T>{handle(), _storage, {}, _size}; }
     [[nodiscard]] auto view(uint2 offset, uint2 size) const noexcept {
         if (any(offset + size >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid offset[{}, {}] and size[{}, {}] of view "
                 "for image #{} with size[{}, {}].",
                 offset.x, offset.y, size.x, size.y,
-                _handle, _size.x, _size.y);
+                handle(), _size.x, _size.y);
         }
-        return ImageView<T>{_handle, _storage, offset, size};
+        return ImageView<T>{handle(), _storage, offset, size};
     }
 
     template<typename UV>

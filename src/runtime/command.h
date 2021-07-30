@@ -86,7 +86,7 @@ class Command {
 public:
     static constexpr auto max_resource_count = 48u;
 
-    struct Resource {
+    struct Binding {
 
         enum struct Tag : uint32_t {
             NONE,
@@ -100,18 +100,18 @@ public:
         Tag tag{Tag::NONE};
         Usage usage{Usage::NONE};
 
-        constexpr Resource() noexcept = default;
-        constexpr Resource(uint64_t handle, Tag tag, Usage usage) noexcept
+        constexpr Binding() noexcept = default;
+        constexpr Binding(uint64_t handle, Tag tag, Usage usage) noexcept
             : handle{handle}, tag{tag}, usage{usage} {}
     };
 
 private:
-    std::array<Resource, max_resource_count> _resource_slots{};
+    std::array<Binding, max_resource_count> _resource_slots{};
     size_t _resource_count{0u};
     Command *_next_command{nullptr};
 
 protected:
-    void _use_resource(uint64_t handle, Resource::Tag tag, Usage usage) noexcept;
+    void _use_resource(uint64_t handle, Binding::Tag tag, Usage usage) noexcept;
     void _buffer_read_only(uint64_t handle) noexcept;
     void _buffer_write_only(uint64_t handle) noexcept;
     void _buffer_read_write(uint64_t handle) noexcept;
@@ -129,7 +129,7 @@ protected:
     ~Command() noexcept = default;
 
 public:
-    [[nodiscard]] std::span<const Resource> resources() const noexcept;
+    [[nodiscard]] std::span<const Binding> resources() const noexcept;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
 };
 

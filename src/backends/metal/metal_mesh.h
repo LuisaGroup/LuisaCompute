@@ -22,8 +22,7 @@ private:
     MTLAccelerationStructureSizes _sizes{};
 
 public:
-    explicit MetalMesh(id<MTLDevice> device) noexcept
-        : _device{device} {}
+    explicit MetalMesh(id<MTLDevice> device) noexcept : _device{device} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     id<MTLCommandBuffer> build(
         MetalStream *stream,

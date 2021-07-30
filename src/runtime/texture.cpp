@@ -6,7 +6,7 @@
 
 namespace luisa::compute {
 
-Command *Texture2D::load(const void *pixels, uint mip_level) noexcept {
+Command *TextureView2D::load(const void *pixels, uint mip_level) noexcept {
     if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     return TextureUploadCommand::create(
@@ -16,7 +16,7 @@ Command *Texture2D::load(const void *pixels, uint mip_level) noexcept {
         pixels);
 }
 
-Command *Texture2D::load(ImageView<float> image, uint mip_level) noexcept {
+Command *TextureView2D::load(ImageView<float> image, uint mip_level) noexcept {
     if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     if (!all(mipmap_size == image.size())) {
@@ -35,7 +35,7 @@ Command *Texture2D::load(ImageView<float> image, uint mip_level) noexcept {
         make_uint3(mipmap_size, 1u));
 }
 
-Command *Texture3D::load(const void *pixels, uint mip_level) noexcept {
+Command *TextureView3D::load(const void *pixels, uint mip_level) noexcept {
     if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     return TextureUploadCommand::create(
@@ -44,7 +44,7 @@ Command *Texture3D::load(const void *pixels, uint mip_level) noexcept {
         pixels);
 }
 
-Command *Texture3D::load(VolumeView<float> volume, uint mip_level) noexcept {
+Command *TextureView3D::load(VolumeView<float> volume, uint mip_level) noexcept {
     if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
     auto mipmap_size = max(_size >> mip_level, 1u);
     if (!all(mipmap_size == volume.size())) {

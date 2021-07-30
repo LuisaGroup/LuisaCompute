@@ -5,30 +5,25 @@
 #pragma once
 
 #include <core/basic_types.h>
-#include <runtime/device.h>
-#include <runtime/buffer.h>
 #include <rtx/ray.h>
 #include <rtx/hit.h>
 #include <rtx/mesh.h>
 
 namespace luisa::compute {
 
-class Accel : concepts::Noncopyable {
+class Accel : public Resource {
 
 private:
-    Device::Handle _device;
-    uint64_t _handle;
     bool _built{false};
 
 private:
     friend class Device;
-    explicit Accel(Device::Handle device) noexcept;
-    void _destroy() noexcept;
+    explicit Accel(Device::Interface *device) noexcept;
 
 public:
-    ~Accel() noexcept;
-    Accel(Accel &&) noexcept = default;
-    Accel &operator=(Accel &&rhs) noexcept;
+    Accel() noexcept = default;
+    using Resource::operator bool;
+
     [[nodiscard]] Command *refit(
         size_t first,
         size_t count,
@@ -38,8 +33,6 @@ public:
         AccelBuildHint mode,
         std::span<const uint64_t> mesh_handles,
         std::span<const float4x4> transforms) noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 
     // shader functions
     [[nodiscard]] detail::Expr<Hit> trace_closest(detail::Expr<Ray> ray) const noexcept;

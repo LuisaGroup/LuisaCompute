@@ -7,7 +7,7 @@
 #include <core/atomic.h>
 #include <core/concepts.h>
 #include <runtime/command.h>
-#include <runtime/device.h>
+#include <runtime/resource.h>
 
 namespace luisa::compute {
 
@@ -27,49 +27,31 @@ class BufferView;
     static_assert(std::is_trivially_destructible_v<T>);
 
 template<typename T>
-class Buffer : public concepts::Noncopyable {
+class Buffer : public Resource {
 
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
-    Device::Handle _device;
     size_t _size{};
-    uint64_t _handle{};
 
 private:
     friend class Device;
-    Buffer(Device::Handle device, size_t size) noexcept
-        : _device{std::move(device)},
-          _size{size},
-          _handle{_device->create_buffer(
-              size * sizeof(T),
-              std::numeric_limits<uint64_t>::max(),
-              std::numeric_limits<uint32_t>::max())} {}
-
-    void _destroy() noexcept {
-        if (*this) { _device->destroy_buffer(_handle); }
-    }
+    Buffer(Device::Interface *device, size_t size) noexcept
+        : Resource{
+            device, Tag::BUFFER,
+            device->create_buffer(
+                size * sizeof(T),
+                std::numeric_limits<uint64_t>::max(),
+                std::numeric_limits<uint32_t>::max())},
+          _size{size} {}
 
 public:
     Buffer() noexcept = default;
-    ~Buffer() noexcept { _destroy(); }
-
-    Buffer(Buffer &&another) noexcept = default;
-    Buffer &operator=(Buffer &&rhs) noexcept {
-        if (&rhs != this) [[likely]] {
-            _destroy();
-            _device = std::move(rhs._device);
-            _handle = rhs._handle;
-            _size = rhs._size;
-        }
-        return *this;
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
+    using Resource::operator bool;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
-    [[nodiscard]] auto view() const noexcept { return BufferView<T>{_handle, 0u, _size}; }
+    [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), 0u, _size}; }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
