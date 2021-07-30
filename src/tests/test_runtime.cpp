@@ -41,7 +41,9 @@ int main(int argc, char *argv[]) {
 
     Buffer<float> buffer;
 
-#if defined(LUISA_BACKEND_METAL_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
