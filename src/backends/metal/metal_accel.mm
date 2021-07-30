@@ -49,14 +49,36 @@ id<MTLCommandBuffer> MetalAccel::build(
     // build accel and (possibly) compact
     command_buffer = [[command_buffer commandQueue] commandBuffer];
     auto descriptor = [MTLInstanceAccelerationStructureDescriptor descriptor];
-    auto mesh_accels = _device->mesh_handles(mesh_handles);
-    _meshes.clear();
-    _meshes.reserve(mesh_accels.count);
-    for (id<MTLAccelerationStructure> m in mesh_accels) { _meshes.emplace_back(m); }
-    std::sort(_meshes.begin(), _meshes.end());
-    _meshes.erase(std::unique(_meshes.begin(), _meshes.end()), _meshes.end());
 
-    descriptor.instancedAccelerationStructures = mesh_accels;
+    _resources.clear();
+    _heaps.clear();
+    auto meshes = [[NSMutableArray<id<MTLAccelerationStructure>> alloc] init];
+    _device->traverse_meshes(mesh_handles, [&](auto mesh) noexcept {
+        [meshes addObject:mesh->handle()];
+        _resources.emplace_back(mesh->handle());
+        if (auto v = mesh->vertex_buffer(); v.heap == nullptr) {
+            _resources.emplace_back(v);
+        } else {
+            _heaps.emplace_back(v.heap);
+        }
+        if (auto t = mesh->triangle_buffer(); t.heap == nullptr) {
+            _resources.emplace_back(t);
+        } else {
+            _heaps.emplace_back(t.heap);
+        }
+    });
+    _resources.emplace_back(_instance_buffer);
+    auto dedup = [](auto &v) noexcept {
+        std::sort(v.begin(), v.end());
+        v.erase(std::unique(v.begin(), v.end()), v.end());
+    };
+    dedup(_resources);
+    dedup(_heaps);
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Building accel with reference to {} resource(s) and {} heap(s).",
+        _resources.size(), _heaps.size());
+
+    descriptor.instancedAccelerationStructures = meshes;
     descriptor.instanceCount = mesh_handles.size();
     descriptor.instanceDescriptorBuffer = _instance_buffer;
     _descriptor = descriptor;
@@ -65,9 +87,10 @@ id<MTLCommandBuffer> MetalAccel::build(
         case AccelBuildHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;
         case AccelBuildHint::FAST_REBUILD: _descriptor.usage = MTLAccelerationStructureUsagePreferFastBuild; break;
     }
-    _sizes = [_device->handle() accelerationStructureSizesWithDescriptor:_descriptor];
-    _handle = [_device->handle() newAccelerationStructureWithSize:_sizes.accelerationStructureSize];
-    auto scratch_buffer = [_device->handle() newBufferWithLength:_sizes.buildScratchBufferSize
+    auto sizes = [_device->handle() accelerationStructureSizesWithDescriptor:_descriptor];
+    _update_scratch_size = sizes.refitScratchBufferSize;
+    _handle = [_device->handle() newAccelerationStructureWithSize:sizes.accelerationStructureSize];
+    auto scratch_buffer = [_device->handle() newBufferWithLength:sizes.buildScratchBufferSize
                                                          options:MTLResourceStorageModePrivate
                                                                  | MTLResourceHazardTrackingModeUntracked];
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
@@ -140,8 +163,8 @@ id<MTLCommandBuffer> MetalAccel::update(
     }
 
     // update accel
-    if (_update_buffer == nullptr || _update_buffer.length < _sizes.refitScratchBufferSize) {
-        _update_buffer = [_device->handle() newBufferWithLength:_sizes.refitScratchBufferSize
+    if (_update_buffer == nullptr || _update_buffer.length < _update_scratch_size) {
+        _update_buffer = [_device->handle() newBufferWithLength:_update_scratch_size
                                                         options:MTLResourceStorageModePrivate];
     }
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];

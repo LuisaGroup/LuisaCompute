@@ -214,13 +214,14 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 "Encoding geometry #{} at index {}.",
                 argument.handle, buffer_index);
             auto accel = _device->accel(argument.handle);
-            if (auto mesh_accels = accel->meshes(); !mesh_accels.empty()) {
-                [compute_encoder useResources:mesh_accels.data()
-                                        count:mesh_accels.size()
+            if (auto resources = accel->resources(); !resources.empty()) {
+                [compute_encoder useResources:resources.data()
+                                        count:resources.size()
                                         usage:MTLResourceUsageRead];
             }
-            [compute_encoder useResource:accel->instance_buffer()
-                                   usage:MTLResourceUsageRead];
+            if (auto heaps = accel->heaps(); !heaps.empty()) {
+                [compute_encoder useHeaps:heaps.data() count:heaps.size()];
+            }
             [compute_encoder setAccelerationStructure:accel->handle()
                                         atBufferIndex:buffer_index++];
 #else

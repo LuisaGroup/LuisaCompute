@@ -33,9 +33,11 @@ id<MTLCommandBuffer> MetalMesh::build(
         case AccelBuildHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;
         case AccelBuildHint::FAST_REBUILD: _descriptor.usage = MTLAccelerationStructureUsagePreferFastBuild; break;
     }
-    _sizes = [_device accelerationStructureSizesWithDescriptor:_descriptor];
-    _handle = [_device newAccelerationStructureWithSize:_sizes.accelerationStructureSize];
-    auto scratch_buffer = [_device newBufferWithLength:_sizes.buildScratchBufferSize
+    auto device = command_buffer.device;
+    auto sizes = [device accelerationStructureSizesWithDescriptor:_descriptor];
+    _update_scratch_size = sizes.refitScratchBufferSize;
+    _handle = [device newAccelerationStructureWithSize:sizes.accelerationStructureSize];
+    auto scratch_buffer = [device newBufferWithLength:sizes.buildScratchBufferSize
                                                options:MTLResourceStorageModePrivate
                                                        | MTLResourceHazardTrackingModeUntracked];
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
@@ -60,7 +62,7 @@ id<MTLCommandBuffer> MetalMesh::build(
         stream->dispatch(command_buffer);
         [command_buffer waitUntilCompleted];
         auto accel_before_compaction = _handle;
-        _handle = [_device newAccelerationStructureWithSize:compacted_size];
+        _handle = [device newAccelerationStructureWithSize:compacted_size];
         command_buffer = stream->command_buffer();
         command_encoder = [command_buffer accelerationStructureCommandEncoder];
         [command_encoder copyAndCompactAccelerationStructure:accel_before_compaction
@@ -74,8 +76,9 @@ id<MTLCommandBuffer> MetalMesh::update(
     MetalStream *,
     id<MTLCommandBuffer> command_buffer) {
 
-    if (_update_buffer == nullptr || _update_buffer.length < _sizes.refitScratchBufferSize) {
-        _update_buffer = [_device newBufferWithLength:_sizes.refitScratchBufferSize
+    auto device = command_buffer.device;
+    if (_update_buffer == nullptr || _update_buffer.length < _update_scratch_size) {
+        _update_buffer = [device newBufferWithLength:_update_scratch_size
                                               options:MTLResourceStorageModePrivate];
     }
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
@@ -86,6 +89,18 @@ id<MTLCommandBuffer> MetalMesh::update(
                             scratchBufferOffset:0u];
     [command_encoder endEncoding];
     return command_buffer;
+}
+
+id<MTLBuffer> MetalMesh::vertex_buffer() const noexcept {
+    auto geom_desc = static_cast<const MTLAccelerationStructureTriangleGeometryDescriptor *>(
+        _descriptor.geometryDescriptors[0]);
+    return geom_desc.vertexBuffer;
+}
+
+id<MTLBuffer> MetalMesh::triangle_buffer() const noexcept {
+    auto geom_desc = static_cast<const MTLAccelerationStructureTriangleGeometryDescriptor *>(
+        _descriptor.geometryDescriptors[0]);
+    return geom_desc.indexBuffer;
 }
 
 }
