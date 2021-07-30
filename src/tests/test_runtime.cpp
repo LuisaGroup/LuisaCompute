@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
     Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, HeapVar heap) noexcept {
         Var tag = 114514;
         match({123, 6666, 114514}, tag, [&](auto i) noexcept {
-            ftab[i](1.0f, 2.0f);
+            Var result = ftab[i](float_consts[0], float_consts[1]);
         });
 
         Var v_int = 10;
