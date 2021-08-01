@@ -8,6 +8,8 @@
 #import <ast/type_registry.h>
 #import <ast/function_builder.h>
 #import <ast/constant_data.h>
+#import <rtx/ray.h>
+#import <rtx/hit.h>
 #import <backends/metal/metal_codegen.h>
 
 namespace luisa::compute::metal {
@@ -147,15 +149,6 @@ void MetalCodegen::visit(const LiteralExpr *expr) {
 }
 
 void MetalCodegen::visit(const RefExpr *expr) {
-    auto v = expr->variable();
-    if (_function.tag() == Function::Tag::KERNEL
-        && (v.tag() == Variable::Tag::UNIFORM
-            || v.tag() == Variable::Tag::BUFFER
-            || v.tag() == Variable::Tag::TEXTURE
-            || v.tag() == Variable::Tag::TEXTURE_HEAP
-            || v.tag() == Variable::Tag::DISPATCH_SIZE)) {
-        _scratch << "arg.";
-    }
     _emit_variable_name(expr->variable());
 }
 
@@ -180,8 +173,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::CTZ: _scratch << "ctz"; break;
         case CallOp::POPCOUNT: _scratch << "popcount"; break;
         case CallOp::REVERSE: _scratch << "reverse_bits"; break;
-        case CallOp::ISINF: _scratch << "precise::isinf"; break;
-        case CallOp::ISNAN: _scratch << "precise::isnan"; break;
+        case CallOp::ISINF: _scratch << "is_inf"; break;
+        case CallOp::ISNAN: _scratch << "is_nan"; break;
         case CallOp::ACOS: _scratch << "acos"; break;
         case CallOp::ACOSH: _scratch << "acosh"; break;
         case CallOp::ASIN: _scratch << "asin"; break;
@@ -289,6 +282,11 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_HEAP_SIZE3D: _scratch << "texture_heap_size3d"; break;
         case CallOp::TEXTURE_HEAP_SIZE2D_LEVEL: _scratch << "texture_heap_size2d_level"; break;
         case CallOp::TEXTURE_HEAP_SIZE3D_LEVEL: _scratch << "texture_heap_size3d_level"; break;
+        case CallOp::BUFFER_HEAP_READ:
+            _scratch << "buffer_heap_read<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
         case CallOp::MAKE_BOOL2: _scratch << "bool2"; break;
         case CallOp::MAKE_BOOL3: _scratch << "bool3"; break;
         case CallOp::MAKE_BOOL4: _scratch << "bool4"; break;
@@ -304,8 +302,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
-        case CallOp::TRACE_CLOSEST: break;
-        case CallOp::TRACE_ANY: break;
+        case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
+        case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
     }
 
     _scratch << "(";
@@ -323,6 +321,17 @@ void MetalCodegen::visit(const CallExpr *expr) {
         for (auto arg : expr->arguments()) {
             arg->accept(*this);
             _scratch << ", ";
+            if (expr->op() == CallOp::CUSTOM && arg->type()->is_texture()) {
+                auto texture_arg = static_cast<const RefExpr *>(arg);
+                auto texture_offset = *std::find_if(
+                    _function.arguments().begin(),
+                    _function.arguments().end(),
+                    [uid = texture_arg->variable().uid()](auto v) noexcept {
+                        return v.uid() == uid + 1u;
+                    });
+                _emit_variable_name(texture_offset);
+                _scratch << ", ";
+            }
         }
         _scratch.pop_back();
         _scratch.pop_back();
@@ -338,7 +347,7 @@ void MetalCodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "as<";
+            _scratch << "as_type<";
             _emit_type_name(expr->type());
             _scratch << ">(";
             break;
@@ -455,7 +464,7 @@ void MetalCodegen::visit(const AssignStmt *stmt) {
 }
 
 void MetalCodegen::emit(Function f) {
-    _emit_preamble();
+    _emit_preamble(f);
     _emit_type_decl();
     _emit_function(f);
 }
@@ -479,32 +488,40 @@ void MetalCodegen::_emit_function(Function f) noexcept {
 
     if (f.tag() == Function::Tag::KERNEL) {
 
-        // argument buffer
-        _scratch << "struct Argument {";
-        for (auto buffer : f.captured_buffers()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(buffer.variable);
-            _scratch << ";";
-        }
-        for (auto image : f.captured_textures()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(image.variable);
-            _scratch << ";";
-        }
-        for (auto arg : f.arguments()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(arg);
-            _scratch << ";";
-        }
-        _scratch << "\n  const uint3 ls;\n};\n\n";
-
         // function signature
         _scratch << "[[kernel]] // block_size = ("
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"
-                 << "void kernel_" << hash_to_string(f.hash())
-                 << "(\n    device const Argument &arg,";
+                 << "void kernel_" << hash_to_string(f.hash()) << "(";
+
+        // arguments
+        for (auto buffer : f.captured_buffers()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(buffer.variable);
+            _scratch << ",";
+        }
+        for (auto image : f.captured_textures()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(image.variable);
+            _scratch << ",";
+        }
+        for (auto heap : f.captured_heaps()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(heap.variable);
+            _scratch << ",";
+        }
+        for (auto accel : f.captured_accels()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(accel.variable);
+            _scratch << ",";
+        }
+        for (auto arg : f.arguments()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(arg);
+            _scratch << ",";
+        }
+        _scratch << "\n    constant uint3 &ls,";
         for (auto builtin : f.builtin_variables()) {
             if (builtin.tag() != Variable::Tag::DISPATCH_SIZE) {
                 _scratch << "\n    ";
@@ -564,7 +581,8 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
-        case Variable::Tag::TEXTURE_HEAP: _scratch << "h" << v.uid(); break;
+        case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
+        case Variable::Tag::ACCEL: _scratch << "a" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
         case Variable::Tag::DISPATCH_ID: _scratch << "did"; break;
@@ -578,6 +596,11 @@ void MetalCodegen::_emit_type_decl() noexcept {
 
 void MetalCodegen::visit(const Type *type) noexcept {
     if (type->is_structure()) {
+        // skip ray or hit
+        if (type->description() == "struct<16,array<float,3>,float,array<float,3>,float>"
+            || type->description() == "struct<16,uint,uint,vector<float,2>>") {
+            return;
+        }
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -614,10 +637,16 @@ void MetalCodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::STRUCTURE:
-            _scratch << "S" << hash_to_string(type->hash());
+            if (type->description() == "struct<16,array<float,3>,float,array<float,3>,float>") {
+                _scratch << "Ray";
+            } else if (type->description() == "struct<16,uint,uint,vector<float,2>>") {
+                _scratch << "Hit";
+            } else {
+                _scratch << "S" << hash_to_string(type->hash());
+            }
             break;
         default:
-            break;
+            LUISA_ERROR_WITH_LOCATION("Invalid type: {}.", type->description());
     }
 }
 
@@ -645,14 +674,18 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             }
             _emit_variable_name(v);
             break;
-        case Variable::Tag::TEXTURE_HEAP:
-            _scratch << "device const Texture *";
+        case Variable::Tag::HEAP:
+            _scratch << "device const HeapItem *";
+            _emit_variable_name(v);
+            break;
+        case Variable::Tag::ACCEL:
+            _scratch << "instance_acceleration_structure ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::UNIFORM:
-            _scratch << "const ";
+            _scratch << "constant ";
             _emit_type_name(v.type());
-            _scratch << " ";
+            _scratch << " &";
             _emit_variable_name(v);
             break;
         case Variable::Tag::THREAD_ID:
@@ -779,42 +812,42 @@ void MetalCodegen::visit(const ForStmt *stmt) {
     stmt->body()->accept(*this);
 }
 
-void MetalCodegen::_emit_preamble() noexcept {
+void MetalCodegen::_emit_preamble(Function f) noexcept {
 
     _scratch << R"(#include <metal_stdlib>
 
 using namespace metal;
 
 template<typename T>
-[[nodiscard]] auto none(T v) { return !any(v); }
+[[nodiscard, gnu::always_inline]] inline auto none(T v) { return !any(v); }
 
 template<typename T, access a>
-[[nodiscard]] auto texture_read(texture2d<T, a> t, uint2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto texture_read(texture2d<T, a> t, uint2 uv) {
   return t.read(uv);
 }
 
 template<typename T, access a>
-[[nodiscard]] auto texture_read(texture3d<T, a> t, uint3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto texture_read(texture3d<T, a> t, uint3 uvw) {
   return t.read(uvw);
 }
 
 template<typename T, access a, typename Value>
-void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
+[[gnu::always_inline]] inline void texture_write(texture2d<T, a> t, uint2 uv, Value value) {
   t.write(value, uv);
 }
 
 template<typename T, access a, typename Value>
-void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
+[[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
   t.write(value, uvw);
 }
 
 template<typename T>
-[[nodiscard]] auto radians(T v) { return v * (M_PI_F / 180.0f); }
+[[nodiscard, gnu::always_inline]] inline auto radians(T v) { return v * (M_PI_F / 180.0f); }
 
 template<typename T>
-[[nodiscard]] auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
+[[nodiscard, gnu::always_inline]] inline auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
 
-[[nodiscard]] auto inverse(float2x2 m) {
+[[nodiscard]] inline auto inverse(float2x2 m) {
   const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
   return float2x2(m[1][1] * one_over_determinant,
 				- m[0][1] * one_over_determinant,
@@ -822,7 +855,7 @@ template<typename T>
 				+ m[0][0] * one_over_determinant);
 }
 
-[[nodiscard]] auto inverse(float3x3 m) {
+[[nodiscard]] inline auto inverse(float3x3 m) {
   const auto one_over_determinant = 1.0f / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
                                           - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
                                           + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
@@ -838,7 +871,7 @@ template<typename T>
     (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant);
 }
 
-[[nodiscard]] auto inverse(float4x4 m) {
+[[nodiscard]] inline auto inverse(float4x4 m) {
   const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
   const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
   const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
@@ -956,80 +989,149 @@ template<typename X, typename Y>
   return x - y * floor(x / y);
 }
 
+[[gnu::always_inline, nodiscard]] inline auto is_nan(float x) {
+  auto u = as_type<uint>(x);
+  return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_inf(float x) {
+  auto u = as_type<uint>(x);
+  return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
+}
+
 template<typename T>
 [[gnu::always_inline, nodiscard]] inline auto select(T f, T t, bool b) {
   return b ? t : f;
 }
 
-struct Texture {
+struct alignas(16) HeapItem {
   metal::texture2d<float> handle2d;
   metal::texture3d<float> handle3d;
   metal::sampler sampler;
+  device const void *buffer;
 };
 
-[[nodiscard]] auto texture_heap_sample2d(device const Texture *heap, uint index, float2 uv) {
+struct alignas(16) Ray {
+  array<float, 3> m0;
+  float m1;
+  array<float, 3> m2;
+  float m3;
+};
+
+struct alignas(16) Hit {
+  uint m0;
+  uint m1;
+  float2 m2;
+};
+
+[[nodiscard]] auto texture_heap_sample2d(device const HeapItem *heap, uint index, float2 uv) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv);
 }
 
-[[nodiscard]] auto texture_heap_sample3d(device const Texture *heap, uint index, float3 uvw) {
+[[nodiscard]] auto texture_heap_sample3d(device const HeapItem *heap, uint index, float3 uvw) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw);
 }
 
-[[nodiscard]] auto texture_heap_sample2d_level(device const Texture *heap, uint index, float2 uv, float lod) {
+[[nodiscard]] auto texture_heap_sample2d_level(device const HeapItem *heap, uint index, float2 uv, float lod) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, level(lod));
 }
 
-[[nodiscard]] auto texture_heap_sample3d_level(device const Texture *heap, uint index, float3 uvw, float lod) {
+[[nodiscard]] auto texture_heap_sample3d_level(device const HeapItem *heap, uint index, float3 uvw, float lod) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, level(lod));
 }
 
-[[nodiscard]] auto texture_heap_sample2d_grad(device const Texture *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+[[nodiscard]] auto texture_heap_sample2d_grad(device const HeapItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto texture_heap_sample3d_grad(device const Texture *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+[[nodiscard]] auto texture_heap_sample3d_grad(device const HeapItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto texture_heap_size2d(device const Texture *heap, uint i) {
+[[nodiscard]] auto texture_heap_size2d(device const HeapItem *heap, uint i) {
   return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
 }
 
-[[nodiscard]] auto texture_heap_size3d(device const Texture *heap, uint i) {
+[[nodiscard]] auto texture_heap_size3d(device const HeapItem *heap, uint i) {
   return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
 }
 
-[[nodiscard]] auto texture_heap_size2d_level(device const Texture *heap, uint i, uint lv) {
+[[nodiscard]] auto texture_heap_size2d_level(device const HeapItem *heap, uint i, uint lv) {
   return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
 }
 
-[[nodiscard]] auto texture_heap_size3d_level(device const Texture *heap, uint i, uint lv) {
+[[nodiscard]] auto texture_heap_size3d_level(device const HeapItem *heap, uint i, uint lv) {
   return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
 }
 
-[[nodiscard]] auto texture_heap_read2d(device const Texture *heap, uint i, uint2 uv) {
+[[nodiscard]] auto texture_heap_read2d(device const HeapItem *heap, uint i, uint2 uv) {
   return heap[i].handle2d.read(uv);
 }
 
-[[nodiscard]] auto texture_heap_read3d(device const Texture *heap, uint i, uint3 uvw) {
+[[nodiscard]] auto texture_heap_read3d(device const HeapItem *heap, uint i, uint3 uvw) {
   return heap[i].handle3d.read(uvw);
 }
 
-[[nodiscard]] auto texture_heap_read2d_level(device const Texture *heap, uint i, uint2 uv, uint lv) {
+[[nodiscard]] auto texture_heap_read2d_level(device const HeapItem *heap, uint i, uint2 uv, uint lv) {
   return heap[i].handle2d.read(uv, lv);
 }
 
-[[nodiscard]] auto texture_heap_read3d_level(device const Texture *heap, uint i, uint3 uvw, uint lv) {
+[[nodiscard]] auto texture_heap_read3d_level(device const HeapItem *heap, uint i, uint3 uvw, uint lv) {
   return heap[i].handle3d.read(uvw, lv);
 }
 
+template<typename T>
+[[nodiscard]] auto buffer_heap_read(device const HeapItem *heap, uint buffer_index, uint i) {
+  return static_cast<device const T *>(heap[buffer_index].buffer)[i];
+}
+
 )";
+
+    if (f.raytracing()) {
+        _scratch << R"(using namespace metal::raytracing;
+
+[[nodiscard]] constexpr auto intersector_closest() {
+  intersector<triangle_data, instancing> i;
+  i.assume_geometry_type(geometry_type::triangle);
+  i.force_opacity(forced_opacity::opaque);
+  i.accept_any_intersection(false);
+  return i;
+}
+
+[[nodiscard]] constexpr auto intersector_any() {
+  intersector<triangle_data, instancing> i;
+  i.assume_geometry_type(geometry_type::triangle);
+  i.force_opacity(forced_opacity::opaque);
+  i.accept_any_intersection(true);
+  return i;
+}
+
+[[nodiscard]] auto make_ray(Ray r_in) {
+  auto o = float3(r_in.m0[0], r_in.m0[1], r_in.m0[2]);
+  auto d = float3(r_in.m2[0], r_in.m2[1], r_in.m2[2]);
+  return ray{o, d, r_in.m1, r_in.m3};
+}
+
+[[nodiscard]] auto trace_closest(instance_acceleration_structure accel, Ray r) {
+  auto isect = intersector_closest().intersect(make_ray(r), accel);
+  return isect.type == intersection_type::none ?
+    Hit{0xffffffffu, 0xffffffffu, float2(0.0f)} :
+    Hit{isect.instance_id, isect.primitive_id, isect.triangle_barycentric_coord};
+}
+
+[[nodiscard]] auto trace_any(instance_acceleration_structure accel, Ray r) {
+  auto isect = intersector_any().intersect(make_ray(r), accel);
+  return isect.type != intersection_type::none;
+}
+
+)";
+    }
 }
 
 }

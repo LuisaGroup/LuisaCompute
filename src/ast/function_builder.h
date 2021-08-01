@@ -46,7 +46,8 @@ public:
     using ConstantBinding = Function::ConstantBinding;
     using BufferBinding = Function::BufferBinding;
     using TextureBinding = Function::TextureBinding;
-    using TextureHeapBinding = Function::TextureHeapBinding;
+    using HeapBinding = Function::HeapBinding;
+    using AccelBinding = Function::AccelBinding;
 
 private:
     Arena *_arena;
@@ -58,7 +59,8 @@ private:
     ArenaVector<ConstantBinding> _captured_constants;
     ArenaVector<BufferBinding> _captured_buffers;
     ArenaVector<TextureBinding> _captured_textures;
-    ArenaVector<TextureHeapBinding> _captured_heaps;
+    ArenaVector<HeapBinding> _captured_heaps;
+    ArenaVector<AccelBinding> _captured_accels;
     ArenaVector<Variable> _arguments;
     ArenaVector<Function> _used_custom_callables;
     ArenaVector<CallOp> _used_builtin_callables;
@@ -104,7 +106,8 @@ public:
     [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants.data(), _captured_constants.size()}; }
     [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
     [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
-    [[nodiscard]] auto captured_texture_heaps() const noexcept { return std::span{_captured_heaps.data(), _captured_heaps.size()}; }
+    [[nodiscard]] auto captured_heaps() const noexcept { return std::span{_captured_heaps.data(), _captured_heaps.size()}; }
+    [[nodiscard]] auto captured_accels() const noexcept { return std::span{_captured_accels.data(), _captured_accels.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
@@ -162,13 +165,15 @@ public:
     [[nodiscard]] const ConstantExpr *constant(const Type *type, ConstantData data) noexcept;
     [[nodiscard]] const RefExpr *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
     [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle) noexcept;
-    [[nodiscard]] const RefExpr *texture_heap_binding(uint64_t handle) noexcept;
+    [[nodiscard]] const RefExpr *heap_binding(uint64_t handle) noexcept;
+    [[nodiscard]] const RefExpr *accel_binding(uint64_t handle) noexcept;
 
     // explicit arguments
     [[nodiscard]] const RefExpr *argument(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *buffer(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
-    [[nodiscard]] const RefExpr *texture_heap() noexcept;
+    [[nodiscard]] const RefExpr *heap() noexcept;
+    [[nodiscard]] const RefExpr *accel() noexcept;
 
     // expressions
     [[nodiscard]] const LiteralExpr *literal(const Type *type, LiteralExpr::Value value) noexcept;
@@ -209,8 +214,8 @@ public:
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
-    void mark_raytracing() noexcept;
 
+    [[nodiscard]] decltype(auto) arena() const noexcept { return *_arena; }
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
 };
 

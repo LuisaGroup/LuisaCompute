@@ -3,54 +3,42 @@
 //
 
 #include <utility>
+#include <runtime/device.h>
 #include <runtime/stream.h>
 
 namespace luisa::compute {
 
+Stream Device::create_stream() noexcept {
+    return _create<Stream>();
+}
+
 void Stream::_dispatch(CommandList command_buffer) noexcept {
-    _device->dispatch(_handle, std::move(command_buffer));
+    device()->dispatch(handle(), std::move(command_buffer));
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
     return Delegate{this} << cmd;
 }
 
-Stream::Stream(Stream &&s) noexcept
-    : _device{std::move(s._device)},
-      _handle{s._handle} {}
-
-Stream::~Stream() noexcept { _destroy(); }
-
-Stream &Stream::operator=(Stream &&rhs) noexcept {
-    if (this != &rhs) {
-        _destroy();
-        _device = std::move(rhs._device);
-        _handle = rhs._handle;
-    }
-    return *this;
-}
-
-void Stream::_synchronize() noexcept { _device->synchronize_stream(_handle); }
+void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }
 
 Stream &Stream::operator<<(Event::Signal signal) noexcept {
-    _device->signal_event(signal.handle, _handle);
+    device()->signal_event(signal.handle, handle());
     return *this;
 }
 
 Stream &Stream::operator<<(Event::Wait wait) noexcept {
-    _device->wait_event(wait.handle, _handle);
+    device()->wait_event(wait.handle, handle());
     return *this;
-}
-
-void Stream::_destroy() noexcept {
-    _synchronize();
-    if (*this) { _device->destroy_stream(_handle); }
 }
 
 Stream &Stream::operator<<(Stream::Synchronize) noexcept {
     _synchronize();
     return *this;
 }
+
+Stream::Stream(Device::Interface *device) noexcept
+    : Resource{device, Tag::STREAM, device->create_stream()} {}
 
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
@@ -86,6 +74,11 @@ Stream::Delegate &&Stream::Delegate::operator<<(Event::Wait wait) &&noexcept {
 Stream::Delegate &&Stream::Delegate::operator<<(Stream::Synchronize) &&noexcept {
     _commit();
     *_stream << Synchronize{};
+    return std::move(*this);
+}
+
+Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcept {
+    _commit();
     return std::move(*this);
 }
 

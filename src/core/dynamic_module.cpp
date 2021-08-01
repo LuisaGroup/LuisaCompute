@@ -3,7 +3,7 @@
 namespace luisa {
 
 DynamicModule &DynamicModule::operator=(DynamicModule &&rhs) noexcept {
-    if (&rhs != this) {
+    if (&rhs != this) [[likely]] {
         _handle = rhs._handle;
         rhs._handle = nullptr;
     }

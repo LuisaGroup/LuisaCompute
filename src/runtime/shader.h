@@ -6,10 +6,13 @@
 
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
-#include <runtime/device.h>
-#include <runtime/texture_heap.h>
+#include <runtime/resource.h>
+#include <runtime/heap.h>
 
 namespace luisa::compute {
+
+class Accel;
+class Heap;
 
 namespace detail {
 
@@ -19,8 +22,13 @@ struct prototype_to_shader_invocation {
 };
 
 template<>
-struct prototype_to_shader_invocation<TextureHeap> {
-    using type = const TextureHeap &;
+struct prototype_to_shader_invocation<Heap> {
+    using type = const Heap &;
+};
+
+template<>
+struct prototype_to_shader_invocation<Accel> {
+    using type = const Accel &;
 };
 
 template<typename T>
@@ -57,22 +65,23 @@ public:
     explicit ShaderInvokeBase(uint64_t handle, Function kernel) noexcept
         : _command{ShaderDispatchCommand::create(handle, kernel)},
           _kernel{kernel} {
-
         for (auto buffer : _kernel.captured_buffers()) {
             _dispatch_command()->encode_buffer(
                 buffer.variable.uid(), buffer.handle, buffer.offset_bytes,
                 _kernel.variable_usage(buffer.variable.uid()));
         }
-
         for (auto texture : _kernel.captured_textures()) {
             _dispatch_command()->encode_texture(
                 texture.variable.uid(), texture.handle,
                 _kernel.variable_usage(texture.variable.uid()));
         }
-
-        for (auto heap : _kernel.captured_texture_heaps()) {
-            _dispatch_command()->encode_texture_heap(
+        for (auto heap : _kernel.captured_heaps()) {
+            _dispatch_command()->encode_heap(
                 heap.variable.uid(), heap.handle);
+        }
+        for (auto accel : _kernel.captured_accels()) {
+            _dispatch_command()->encode_accel(
+                accel.variable.uid(), accel.handle);
         }
     }
 
@@ -108,11 +117,14 @@ public:
         return *this;
     }
 
-    ShaderInvokeBase &operator<<(const TextureHeap &heap) noexcept {
+    ShaderInvokeBase &operator<<(const Heap &heap) noexcept {
         auto v = _kernel.arguments()[_argument_index++].uid();
-        _dispatch_command()->encode_texture_heap(v, heap.handle());
+        _dispatch_command()->encode_heap(v, heap.handle());
         return *this;
     }
+
+    // see definition in rtx/accel.cpp
+    ShaderInvokeBase &operator<<(const Accel &accel) noexcept;
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) noexcept {
@@ -161,48 +173,27 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
 }// namespace detail
 
 template<size_t dimension, typename... Args>
-class Shader : concepts::Noncopyable {
+class Shader : public Resource {
 
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
 
 private:
-    Device::Handle _device;
-    uint64_t _handle{};
     std::shared_ptr<const detail::FunctionBuilder> _kernel;
 
 private:
     friend class Device;
-    Shader(Device::Handle device, std::shared_ptr<const detail::FunctionBuilder> kernel) noexcept
-        : _device{std::move(device)},
-          _handle{_device->create_shader(kernel.get())},
+    Shader(Device::Interface *device, std::shared_ptr<const detail::FunctionBuilder> kernel) noexcept
+        : Resource{
+            device,
+            Tag::SHADER,
+            device->create_shader(kernel.get())},
           _kernel{std::move(kernel)} {}
-
-    void _destroy() noexcept {
-        if (*this) { _device->destroy_shader(_handle); }
-    }
 
 public:
     Shader() noexcept = default;
-    ~Shader() noexcept { _destroy(); }
-
-    Shader(Shader &&another) noexcept
-        : _device{std::move(another._device)},
-          _handle{another._handle},
-          _kernel{std::move(another._kernel)} {}
-
-    Shader &operator=(Shader &&rhs) noexcept {
-        if (this != &rhs) {
-            _destroy();
-            _device = std::move(rhs._device);
-            _handle = rhs._handle;
-            _kernel = std::move(rhs._kernel);
-        }
-        return *this;
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
+    using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        detail::ShaderInvoke<dimension> invoke{_handle, _kernel.get()};
+        detail::ShaderInvoke<dimension> invoke{handle(), _kernel.get()};
         (invoke << ... << args);
         return invoke;
     }

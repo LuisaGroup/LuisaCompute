@@ -30,7 +30,7 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
              && f->shared_variables().empty()
              && f->captured_buffers().empty()
              && f->captured_textures().empty()
-             && f->captured_texture_heaps().empty())) [[unlikely]] {
+             && f->captured_heaps().empty())) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom callables may not have builtin, "
             "shared or captured variables.");
@@ -44,10 +44,7 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
-    if (_function_stack().empty()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Function stack is empty.");
-    }
-    return _function_stack().back();
+    return _function_stack().empty() ? nullptr : _function_stack().back();
 }
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {
@@ -259,6 +256,7 @@ FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcep
       _captured_buffers{*arena},
       _captured_textures{*arena},
       _captured_heaps{*arena},
+      _captured_accels{*arena},
       _arguments{*arena},
       _used_custom_callables{*arena},
       _used_builtin_callables{*arena},
@@ -338,11 +336,7 @@ void FunctionBuilder::_compute_hash() noexcept {
     _hash = std::hash<uint64_t>{}(reinterpret_cast<uint64_t>(this));
 }
 
-void FunctionBuilder::mark_raytracing() noexcept {
-    _raytracing = true;
-}
-
-const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
+const RefExpr *FunctionBuilder::heap_binding(uint64_t handle) noexcept {
     if (auto iter = std::find_if(
             _captured_heaps.cbegin(),
             _captured_heaps.cend(),
@@ -350,13 +344,34 @@ const RefExpr *FunctionBuilder::texture_heap_binding(uint64_t handle) noexcept {
         iter != _captured_heaps.cend()) {
         return _ref(iter->variable);
     }
-    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
-    _captured_heaps.emplace_back(TextureHeapBinding{v, handle});
+    Variable v{Type::of<Heap>(), Variable::Tag::HEAP, _next_variable_uid()};
+    _captured_heaps.emplace_back(HeapBinding{v, handle});
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::texture_heap() noexcept {
-    Variable v{Type::of<TextureHeap>(), Variable::Tag::TEXTURE_HEAP, _next_variable_uid()};
+const RefExpr *FunctionBuilder::heap() noexcept {
+    Variable v{Type::of<Heap>(), Variable::Tag::HEAP, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return _ref(v);
+}
+
+const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
+    _raytracing = true;
+    if (auto iter = std::find_if(
+            _captured_accels.cbegin(),
+            _captured_accels.cend(),
+            [handle](auto &&binding) { return binding.handle == handle; });
+        iter != _captured_accels.cend()) {
+        return _ref(iter->variable);
+    }
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
+    _captured_accels.emplace_back(AccelBinding{v, handle});
+    return _ref(v);
+}
+
+const RefExpr *FunctionBuilder::accel() noexcept {
+    _raytracing = true;
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }

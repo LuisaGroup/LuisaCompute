@@ -56,9 +56,8 @@
 #define $image ::luisa::compute::ImageVar
 #define $volume ::luisa::compute::VolumeVar
 #define $atomic ::luisa::compute::AtomicVar
-
-#define $atomic_int ::luisa::compute::AtomicInt
-#define $atomic_uint ::luisa::compute::AtomicUInt
+#define $heap ::luisa::compute::HeapVar
+#define $accel ::luisa::compute::AccelVar
 
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()
@@ -73,5 +72,6 @@
 #define $case(...) ::luisa::compute::detail::SwitchCaseStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $default ::luisa::compute::detail::SwitchDefaultStmtBuilder{} % [&]() noexcept
 
-#define $for(...) for (auto __VA_ARGS__
-#define $range(...) ::luisa::compute::range(__VA_ARGS__))
+#define $for(...)          \
+    for (auto __VA_ARGS__) \
+    ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept

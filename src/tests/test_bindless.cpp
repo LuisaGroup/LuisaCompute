@@ -35,15 +35,19 @@ int main(int argc, char *argv[]) {
 
     Kernel2D clear_image_kernel = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
         image.write(coord, make_float4(make_float2(0.3f, 0.4f), 0.5f, 1.0f));
     };
 
-    Callable sample = [](TextureHeapVar heap, Float2 uv, Float mip) noexcept {
+    Callable sample = [](HeapVar heap, Float2 uv, Float mip) noexcept {
         return heap.tex2d(0u).sample(uv, mip);
     };
 
-    Kernel2D fill_image_kernel = [&](TextureHeapVar heap, ImageVar<float> image) noexcept {
+    Kernel1D useless_kernel = [](HeapVar heap) noexcept {
+        Var x = heap.buffer<uint>(0).read(1u);
+    };
+    auto useless_shader = device.compile(useless_kernel);
+
+    Kernel2D fill_image_kernel = [&](HeapVar heap, ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
         Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
         Var r = length(uv - 0.5f);
@@ -54,12 +58,12 @@ int main(int argc, char *argv[]) {
     auto clear_image = device.compile(clear_image_kernel);
     auto fill_image = device.compile(fill_image_kernel);
 
-    auto texture_heap = device.create_texture_heap();
+    auto heap = device.create_heap();
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
     auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
-    auto texture = texture_heap.create(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::trilinear_edge(), 0u);
+    auto texture = heap.create_texture(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::trilinear_edge(), 0u);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
@@ -96,7 +100,7 @@ int main(int argc, char *argv[]) {
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()
-           << fill_image(texture_heap,
+           << fill_image(heap,
                          device_image.view(make_uint2(128u), make_uint2(1024u - 256u)))
                   .dispatch(make_uint2(1024u - 256u))
            << device_image.view().copy_to(host_image.data())

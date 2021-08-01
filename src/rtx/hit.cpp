@@ -8,7 +8,7 @@ namespace luisa::compute {
 
 detail::Expr<bool> miss(detail::Expr<Hit> hit) noexcept {
     static Callable _miss = [](Var<Hit> hit) noexcept {
-        return hit.prim == std::numeric_limits<uint>::max();
+        return hit.inst == std::numeric_limits<uint>::max();
     };
     return _miss(hit);
 }

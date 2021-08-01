@@ -7,12 +7,12 @@
 
 namespace luisa::compute {
 
-std::span<const Command::Resource> Command::resources() const noexcept {
+std::span<const Command::Binding> Command::resources() const noexcept {
     return {_resource_slots.data(), _resource_count};
 }
 
 inline void Command::_use_resource(
-    uint64_t handle, Command::Resource::Tag tag,
+    uint64_t handle, Command::Binding::Tag tag,
     Usage usage) noexcept {
 
     if (_resource_count == max_resource_count) [[unlikely]] {
@@ -27,34 +27,34 @@ inline void Command::_use_resource(
                     })) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Aliasing in {} resource with handle {}.",
-            tag == Resource::Tag::BUFFER ? "buffer" : "image",
+            tag == Binding::Tag::BUFFER ? "buffer" : "image",
             handle);
     }
     _resource_slots[_resource_count++] = {handle, tag, usage};
 }
 
 void Command::_buffer_read_only(uint64_t handle) noexcept {
-    _use_resource(handle, Resource::Tag::BUFFER, Usage::READ);
+    _use_resource(handle, Binding::Tag::BUFFER, Usage::READ);
 }
 
 void Command::_buffer_write_only(uint64_t handle) noexcept {
-    _use_resource(handle, Resource::Tag::BUFFER, Usage::WRITE);
+    _use_resource(handle, Binding::Tag::BUFFER, Usage::WRITE);
 }
 
 void Command::_buffer_read_write(uint64_t handle) noexcept {
-    _use_resource(handle, Resource::Tag::BUFFER, Usage::READ_WRITE);
+    _use_resource(handle, Binding::Tag::BUFFER, Usage::READ_WRITE);
 }
 
 void Command::_texture_read_only(uint64_t handle) noexcept {
-    _use_resource(handle, Resource::Tag::TEXTURE, Usage::READ);
+    _use_resource(handle, Binding::Tag::TEXTURE, Usage::READ);
 }
 
 void Command::_texture_write_only(uint64_t handle) noexcept {
-    _use_resource(handle, Resource::Tag::TEXTURE, Usage::WRITE);
+    _use_resource(handle, Binding::Tag::TEXTURE, Usage::WRITE);
 }
 
 void Command::_texture_read_write(uint64_t handle) noexcept {
-    _use_resource(handle, Resource::Tag::TEXTURE, Usage::READ_WRITE);
+    _use_resource(handle, Binding::Tag::TEXTURE, Usage::READ_WRITE);
 }
 
 void ShaderDispatchCommand::encode_buffer(
@@ -74,7 +74,7 @@ void ShaderDispatchCommand::encode_buffer(
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(BufferArgument));
-    _use_resource(handle, Resource::Tag::BUFFER, usage);
+    _use_resource(handle, Binding::Tag::BUFFER, usage);
     _argument_buffer_size += sizeof(BufferArgument);
     _argument_count++;
 }
@@ -95,7 +95,7 @@ void ShaderDispatchCommand::encode_texture(
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureArgument));
-    _use_resource(handle, Resource::Tag::TEXTURE, usage);
+    _use_resource(handle, Binding::Tag::TEXTURE, usage);
     _argument_buffer_size += sizeof(TextureArgument);
     _argument_count++;
 }
@@ -135,7 +135,7 @@ ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) n
     : _handle{handle},
       _kernel{kernel} {}
 
-void ShaderDispatchCommand::encode_texture_heap(uint32_t variable_uid, uint64_t handle) noexcept {
+void ShaderDispatchCommand::encode_heap(uint32_t variable_uid, uint64_t handle) noexcept {
     if (_argument_buffer_size + sizeof(TextureHeapArgument) > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode texture heap. "
@@ -146,8 +146,23 @@ void ShaderDispatchCommand::encode_texture_heap(uint32_t variable_uid, uint64_t 
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureHeapArgument));
-    _use_resource(handle, Resource::Tag::TEXTURE, Usage::READ);
+    _use_resource(handle, Binding::Tag::HEAP, Usage::READ);
     _argument_buffer_size += sizeof(TextureHeapArgument);
+    _argument_count++;
+}
+
+void ShaderDispatchCommand::encode_accel(uint32_t variable_uid, uint64_t handle) noexcept {
+    constexpr auto size = sizeof(AccelArgument);
+    if (_argument_buffer_size + size > _argument_buffer.size()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to encode accel. "
+            "Shader argument buffer exceeded size limit {}.",
+            _argument_buffer.size());
+    }
+    AccelArgument argument{variable_uid, handle};
+    std::memcpy(_argument_buffer.data() + _argument_buffer_size, &argument, size);
+    _use_resource(handle, Binding::Tag::ACCEL, Usage::READ);
+    _argument_buffer_size += size;
     _argument_count++;
 }
 

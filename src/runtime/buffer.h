@@ -7,7 +7,7 @@
 #include <core/atomic.h>
 #include <core/concepts.h>
 #include <runtime/command.h>
-#include <runtime/device.h>
+#include <runtime/resource.h>
 
 namespace luisa::compute {
 
@@ -15,6 +15,8 @@ namespace detail {
 template<typename T>
 struct Expr;
 }
+
+class Heap;
 
 template<typename T>
 class BufferView;
@@ -25,55 +27,35 @@ class BufferView;
     static_assert(std::is_trivially_destructible_v<T>);
 
 template<typename T>
-class Buffer : public concepts::Noncopyable {
+class Buffer : public Resource {
 
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 
 private:
-    Device::Handle _device;
     size_t _size{};
-    uint64_t _handle{};
 
 private:
     friend class Device;
-    Buffer(Device::Handle device, size_t size) noexcept
-        : _device{std::move(device)},
-          _size{size},
-          _handle{_device->create_buffer(size * sizeof(T))} {}
-
-    void _destroy() noexcept {
-        if (*this) { _device->destroy_buffer(_handle); }
-    }
+    Buffer(Device::Interface *device, size_t size) noexcept
+        : Resource{
+            device, Tag::BUFFER,
+            device->create_buffer(
+                size * sizeof(T),
+                std::numeric_limits<uint64_t>::max(),
+                std::numeric_limits<uint32_t>::max())},
+          _size{size} {}
 
 public:
     Buffer() noexcept = default;
-
-    Buffer(Buffer &&another) noexcept
-        : _device{std::move(another._device)},
-          _handle{another._handle},
-          _size{another._size} {}
-
-    Buffer &operator=(Buffer &&rhs) noexcept {
-        if (&rhs != this) {
-            _destroy();
-            _device = std::move(rhs._device);
-            _handle = rhs._handle;
-            _size = rhs._size;
-        }
-        return *this;
-    }
-
-    ~Buffer() noexcept { _destroy(); }
-
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
+    using Resource::operator bool;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
-    [[nodiscard]] auto view() const noexcept { return BufferView<T>{_handle, 0u, _size}; }
+    [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), 0u, _size}; }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
 
-    [[nodiscard]] auto copy_to(T *data) const noexcept { return this->view().copy_to(data); }
-    [[nodiscard]] auto copy_from(const T *data) { return this->view().copy_from(data); }
+    [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
+    [[nodiscard]] auto copy_from(const void *data) { return this->view().copy_from(data); }
     [[nodiscard]] auto copy_from(BufferView<T> source) { return this->view().copy_from(source); }
 
     template<typename I>
@@ -96,6 +78,7 @@ private:
     size_t _size;
 
 private:
+    friend class Heap;
     friend class Buffer<T>;
     BufferView(uint64_t handle, size_t offset_bytes, size_t size) noexcept
         : _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {
@@ -135,16 +118,11 @@ public:
         return BufferView{this->device(), this->handle(), this->offset_bytes(), byte_size / sizeof(U)};
     }
 
-    [[nodiscard]] auto copy_to(T *data) const {
-        if (reinterpret_cast<size_t>(data) % alignof(T) != 0u) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid host pointer {} for elements with alignment {}.",
-                fmt::ptr(data), alignof(T));
-        }
+    [[nodiscard]] auto copy_to(void *data) const {
         return BufferDownloadCommand::create(_handle, offset_bytes(), size_bytes(), data);
     }
 
-    [[nodiscard]] auto copy_from(const T *data) {
+    [[nodiscard]] auto copy_from(const void *data) {
         return BufferUploadCommand::create(this->handle(), this->offset_bytes(), this->size_bytes(), data);
     }
 

@@ -13,26 +13,12 @@ class alignas(16) MetalShader {
 
 private:
     id<MTLComputePipelineState> _handle{nullptr};
-    id<MTLArgumentEncoder> _encoder{nullptr};
-    NSArray<MTLStructMember *> *_arguments{nullptr};
 
 public:
     MetalShader() noexcept = default;
-    MetalShader(id<MTLComputePipelineState> pso,
-                id<MTLArgumentEncoder> encoder,
-                NSArray<MTLStructMember *> *arguments) noexcept
-        : _handle{pso},
-          _encoder{encoder},
-          _arguments{arguments} {}
-    ~MetalShader() noexcept {
-        _handle = nullptr;
-        _encoder = nullptr;
-        _arguments = nullptr;
-    }
-
+    MetalShader(id<MTLComputePipelineState> pso) noexcept : _handle{pso} {}
+    ~MetalShader() noexcept { _handle = nullptr; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto encoder() const noexcept { return _encoder; }
-    [[nodiscard]] auto arguments() const noexcept { return _arguments; }
 };
 
 }// namespace luisa::compute::metal

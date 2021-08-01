@@ -9,8 +9,8 @@
 namespace luisa::compute {
 
 struct alignas(16) Hit {
-    uint prim{0u};
     uint inst{0u};
+    uint prim{0u};
     float2 uv;
 };
 
@@ -21,4 +21,4 @@ struct alignas(16) Hit {
 
 }
 
-LUISA_STRUCT(luisa::compute::Hit, prim, inst, uv)
+LUISA_STRUCT(luisa::compute::Hit, inst, prim, uv)

@@ -26,9 +26,8 @@ public:
         // resources
         BUFFER,
         TEXTURE,
-        TEXTURE_HEAP,
-        
-        // TODO: Bindless Textures
+        HEAP,
+        ACCEL,
 
         // builtins
         THREAD_ID,

@@ -399,4 +399,8 @@ constexpr auto scaling(const float3 s) noexcept {
         0.0f, 0.0f, 0.0f, 1.0f);
 }
 
+constexpr auto scaling(float s) noexcept {
+    return scaling(make_float3(s));
+}
+
 }// namespace luisa

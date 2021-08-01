@@ -3,7 +3,7 @@
 //
 
 #if !__has_feature(objc_arc)
-#error failed to compile the Metal backend with ARC off.
+#error Compiling the Metal backend with ARC off.
 #endif
 
 #import <chrono>
@@ -13,43 +13,68 @@
 #import <core/hash.h>
 #import <core/clock.h>
 #import <runtime/context.h>
-#import <runtime/texture_heap.h>
+#import <runtime/heap.h>
 
 #import <backends/metal/metal_device.h>
+#import <backends/metal/metal_heap.h>
 #import <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {
 
-uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
+uint64_t MetalDevice::create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept {
     Clock clock;
-    auto buffer = [_handle newBufferWithLength:size_bytes options:MTLResourceStorageModePrivate];
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Created buffer with size {} in {} ms.",
-        size_bytes, clock.toc());
-    std::scoped_lock lock{_buffer_mutex};
-    if (_available_buffer_slots.empty()) {
-        auto s = _buffer_slots.size();
-        _buffer_slots.emplace_back(buffer);
-        return s;
+    id<MTLBuffer> buffer = nullptr;
+    MetalHeap *heap = nullptr;
+    if (heap_handle == Heap::invalid_handle) {
+        buffer = [_handle newBufferWithLength:size_bytes
+                                      options:MTLResourceStorageModePrivate];
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Created buffer with size {} in {} ms.",
+            size_bytes, clock.toc());
+    } else {
+        heap = this->heap(heap_handle);
+        buffer = heap->allocate_buffer(size_bytes);
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Created buffer from heap #{} at index {} "
+            "with size {} in {} ms.",
+            heap_handle, index_in_heap,
+            size_bytes, clock.toc());
     }
-    auto s = _available_buffer_slots.back();
-    _available_buffer_slots.pop_back();
-    _buffer_slots[s] = buffer;
-    return s;
+
+    auto buffer_handle = [&] {
+        auto h = 0ull;
+        std::scoped_lock lock{_buffer_mutex};
+        if (_available_buffer_slots.empty()) {
+            h = _buffer_slots.size();
+            _buffer_slots.emplace_back(buffer);
+        } else {
+            h = _available_buffer_slots.back();
+            _buffer_slots[h] = buffer;
+            _available_buffer_slots.pop_back();
+        }
+        return h;
+    }();
+    if (heap != nullptr) { heap->emplace_buffer(index_in_heap, buffer_handle); }
+    return buffer_handle | (heap_handle << 32u);
 }
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     {
+        auto buffer_handle = handle & 0xffffffffu;
+        if (auto heap_index = handle >> 32u; heap_index != 0xffffffffu) {
+            heap(heap_index)->destroy_buffer(buffer_handle);
+        }
         std::scoped_lock lock{_buffer_mutex};
-        _buffer_slots[handle] = nullptr;
-        _available_buffer_slots.emplace_back(handle);
+        _buffer_slots[buffer_handle] = nullptr;
+        _available_buffer_slots.emplace_back(buffer_handle);
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed buffer #{}.", handle);
 }
 
 uint64_t MetalDevice::create_stream() noexcept {
     Clock clock;
-    auto stream = std::make_unique<MetalStream>([_handle newCommandQueue]);
+    auto max_command_buffer_count = _handle.isLowPower ? 4u : 16u;
+    auto stream = std::make_unique<MetalStream>(_handle, max_command_buffer_count);
     LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
     std::scoped_lock lock{_stream_mutex};
     if (_available_stream_slots.empty()) {
@@ -76,10 +101,15 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     : Device::Interface{ctx} {
 
     auto devices = MTLCopyAllDevices();
-    if (auto count = devices.count; index >= count) [[unlikely]] {
+    if (devices.count == 0u) {
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid Metal device index {} (#device = {}).",
-            index, count);
+            "No available devices found for Metal backend.");
+    }
+    if (auto count = devices.count; index >= count) [[unlikely]] {
+        LUISA_WARNING_WITH_LOCATION(
+            "Invalid Metal device index {}. Limited to max index {}.",
+            index, count - 1u);
+        index = static_cast<uint>(count - 1u);
     }
     std::vector<id<MTLDevice>> sorted_devices;
     sorted_devices.reserve(devices.count);
@@ -94,7 +124,10 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
 
     _compiler = std::make_unique<MetalCompiler>(this);
-    _argument_buffer_pool = std::make_unique<MetalArgumentBufferPool>(_handle);
+
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
+    _compacted_size_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
+#endif
 
     static constexpr auto initial_buffer_count = 64u;
     _buffer_slots.resize(initial_buffer_count, nullptr);
@@ -128,9 +161,6 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     for (auto i = 0u; i < initial_event_count; i++) { _event_slots.emplace_back(nullptr); }
     _available_event_slots.resize(initial_event_count);
     std::iota(_available_event_slots.rbegin(), _available_event_slots.rend(), 0u);
-
-    static constexpr auto initial_texture_sampler_count = 64u;
-    _texture_samplers.reserve(initial_texture_sampler_count);
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -146,7 +176,7 @@ void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 
 id<MTLBuffer> MetalDevice::buffer(uint64_t handle) const noexcept {
     std::scoped_lock lock{_buffer_mutex};
-    return _buffer_slots[handle];
+    return _buffer_slots[handle & 0xffffffffu];
 }
 
 MetalStream *MetalDevice::stream(uint64_t handle) const noexcept {
@@ -161,10 +191,6 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
 MetalShader MetalDevice::compiled_kernel(uint64_t handle) const noexcept {
     std::scoped_lock lock{_shader_mutex};
     return _shader_slots[handle];
-}
-
-MetalArgumentBufferPool *MetalDevice::argument_buffer_pool() const noexcept {
-    return _argument_buffer_pool.get();
 }
 
 uint64_t MetalDevice::create_texture(
@@ -219,16 +245,23 @@ uint64_t MetalDevice::create_texture(
         case PixelFormat::RGBA32F: desc.pixelFormat = MTLPixelFormatRGBA32Float; break;
     }
 
-    auto from_heap = heap_handle != TextureHeap::invalid_handle;
+    auto from_heap = heap_handle != Heap::invalid_handle;
     desc.allowGPUOptimizedContents = YES;
-    desc.resourceOptions = MTLResourceStorageModePrivate | MTLResourceHazardTrackingModeDefault;
+    desc.storageMode = MTLStorageModePrivate;
+    desc.hazardTrackingMode = from_heap ? MTLHazardTrackingModeUntracked
+                                        : MTLHazardTrackingModeTracked;
     desc.usage = from_heap ? MTLTextureUsageShaderRead
                            : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
-    auto texture = [&] {
-        if (from_heap) { return heap(heap_handle)->allocate_texture(desc, index_in_heap, sampler); }
-        return [_handle newTextureWithDescriptor:desc];
-    }();
+
+    id<MTLTexture> texture = nullptr;
+    MetalHeap *heap = nullptr;
+    if (from_heap) {
+        heap = this->heap(heap_handle);
+        texture = heap->allocate_texture(desc);
+    } else {
+        texture = [_handle newTextureWithDescriptor:desc];
+    }
 
     if (texture == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
@@ -241,32 +274,43 @@ uint64_t MetalDevice::create_texture(
         mipmap_levels, mipmap_levels <= 1u ? "" : "s",
         clock.toc());
 
-    std::scoped_lock lock{_texture_mutex};
-    if (_available_texture_slots.empty()) {
-        auto s = _texture_slots.size();
-        _texture_slots.emplace_back(texture);
-        return s;
+    auto texture_handle = [&] {
+        auto h = 0ull;
+        std::scoped_lock lock{_texture_mutex};
+        if (_available_texture_slots.empty()) {
+            h = _texture_slots.size();
+            _texture_slots.emplace_back(texture);
+        } else {
+            h = _available_texture_slots.back();
+            _texture_slots[h] = texture;
+            _available_texture_slots.pop_back();
+        }
+        return h;
+    }();
+    if (heap != nullptr) {
+        heap->emplace_texture(index_in_heap, texture_handle, sampler);
     }
-    auto s = _available_texture_slots.back();
-    _available_texture_slots.pop_back();
-    _texture_slots[s] = texture;
-    return s;
+    return texture_handle | (heap_handle << 32u);
 }
 
 void MetalDevice::destroy_texture(uint64_t handle) noexcept {
     {
+        auto texture_handle = handle & 0xffffffffu;
+        if (auto heap_handle = handle >> 32u; heap_handle != 0xffffffffu) {
+            heap(heap_handle)->destroy_texture(texture_handle);
+        }
         std::scoped_lock lock{_texture_mutex};
-        auto &&tex = _texture_slots[handle];
+        auto &&tex = _texture_slots[texture_handle];
         if (tex.heap != nullptr) { [tex makeAliasable]; }
         tex = nullptr;
-        _available_texture_slots.emplace_back(handle);
+        _available_texture_slots.emplace_back(texture_handle);
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed image #{}.", handle);
 }
 
 id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
     std::scoped_lock lock{_texture_mutex};
-    return _texture_slots[handle];
+    return _texture_slots[handle & 0xffffffffu];
 }
 
 uint64_t MetalDevice::create_event() noexcept {
@@ -298,25 +342,33 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
     event(handle)->synchronize();
 }
 
-void MetalDevice::dispatch(uint64_t stream_handle, CommandList buffer) noexcept {
-    auto s = stream(stream_handle);
-    s->with_command_buffer([this,
-                            &u = s->upload_ring_buffer(),
-                            &d = s->download_ring_buffer(),
-                            buffer = std::move(buffer)](id<MTLCommandBuffer> command_buffer) noexcept {
-        MetalCommandEncoder encoder{this, command_buffer, u, d};
-        for (auto &&command : buffer) { command->accept(encoder); }
-    });
+void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcept {
+    @autoreleasepool {
+        auto s = stream(stream_handle);
+        MetalCommandEncoder encoder{this, s};
+        for (auto command : cmd_list) { command->accept(encoder); }
+        s->dispatch(encoder.command_buffer());
+    }
 }
 
 void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    auto e = event(handle);
-    stream(stream_handle)->with_command_buffer([e](auto buffer) noexcept { e->signal(buffer); });
+    @autoreleasepool {
+        auto e = event(handle);
+        auto s = stream(stream_handle);
+        auto command_buffer = s->command_buffer();
+        e->signal(command_buffer);
+        s->dispatch(command_buffer);
+    }
 }
 
 void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    auto e = event(handle);
-    stream(stream_handle)->with_command_buffer([e](auto buffer) noexcept { e->wait(buffer); });
+    @autoreleasepool {
+        auto e = event(handle);
+        auto s = stream(stream_handle);
+        auto command_buffer = s->command_buffer();
+        e->wait(command_buffer);
+        s->dispatch(command_buffer);
+    }
 }
 
 MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
@@ -324,30 +376,83 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
     return _event_slots[handle].get();
 }
 
-uint64_t MetalDevice::create_mesh(uint64_t stream_handle,
-                                  uint64_t vertex_buffer_handle, size_t vertex_buffer_offset_bytes, size_t vertex_count,
-                                  uint64_t index_buffer_handle, size_t index_buffer_offset_bytes, size_t triangle_count) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
+
+uint64_t MetalDevice::create_mesh() noexcept {
+    check_raytracing_supported();
+    Clock clock;
+    auto mesh = std::make_unique<MetalMesh>(_handle);
+    LUISA_VERBOSE_WITH_LOCATION("Created mesh in {} ms.", clock.toc());
+    std::scoped_lock lock{_mesh_mutex};
+    if (_available_mesh_slots.empty()) {
+        auto s = _mesh_slots.size();
+        _mesh_slots.emplace_back(std::move(mesh));
+        return s;
+    }
+    auto s = _available_mesh_slots.back();
+    _available_mesh_slots.pop_back();
+    _mesh_slots[s] = std::move(mesh);
+    return s;
 }
 
 void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    {
+        std::scoped_lock lock{_mesh_mutex};
+        _mesh_slots[handle] = {};
+        _available_mesh_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed mesh #{}.", handle);
 }
 
-uint64_t MetalDevice::create_accel(uint64_t stream_handle,
-                                   uint64_t mesh_handle_buffer_handle, size_t mesh_handle_buffer_offset_bytes,
-                                   uint64_t transform_buffer_handle, size_t transform_buffer_offset_bytes,
-                                   size_t mesh_count) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+uint64_t MetalDevice::create_accel() noexcept {
+    check_raytracing_supported();
+    Clock clock;
+    auto accel = std::make_unique<MetalAccel>(this);
+    LUISA_VERBOSE_WITH_LOCATION("Created accel in {} ms.", clock.toc());
+    std::scoped_lock lock{_accel_mutex};
+    if (_available_accel_slots.empty()) {
+        auto s = _accel_slots.size();
+        _accel_slots.emplace_back(std::move(accel));
+        return s;
+    }
+    auto s = _available_accel_slots.back();
+    _available_accel_slots.pop_back();
+    _accel_slots[s] = std::move(accel);
+    return s;
 }
 
 void MetalDevice::destroy_accel(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    {
+        std::scoped_lock lock{_accel_mutex};
+        _accel_slots[handle] = {};
+        _available_accel_slots.emplace_back(handle);
+    }
+    LUISA_VERBOSE_WITH_LOCATION("Destroyed accel #{}.", handle);
 }
 
-uint64_t MetalDevice::create_texture_heap(size_t size) noexcept {
+#else
+
+uint64_t MetalDevice::create_mesh() noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+uint64_t MetalDevice::create_accel() noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+void MetalDevice::destroy_accel(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+#endif
+
+uint64_t MetalDevice::create_heap(size_t size) noexcept {
     Clock clock;
-    auto heap = std::make_unique<MetalTextureHeap>(this, size);
+    auto heap = std::make_unique<MetalHeap>(this, size);
     LUISA_VERBOSE_WITH_LOCATION("Created texture heap in {} ms.", clock.toc());
     std::scoped_lock lock{_heap_mutex};
     if (_available_heap_slots.empty()) {
@@ -361,25 +466,43 @@ uint64_t MetalDevice::create_texture_heap(size_t size) noexcept {
     return s;
 }
 
-size_t MetalDevice::query_texture_heap_memory_usage(uint64_t handle) noexcept {
+size_t MetalDevice::query_heap_memory_usage(uint64_t handle) noexcept {
     return [heap(handle)->handle() usedSize];
 }
 
-void MetalDevice::destroy_texture_heap(uint64_t handle) noexcept {
-    {
+void MetalDevice::destroy_heap(uint64_t handle) noexcept {
+    auto heap = [&] {
         std::scoped_lock lock{_heap_mutex};
-        _heap_slots[handle] = nullptr;
+        auto h = std::move(_heap_slots[handle]);
         _available_heap_slots.emplace_back(handle);
+        return h;
+    }();
+    // destroy all buffers
+    {
+        std::scoped_lock lock{_buffer_mutex};
+        heap->traverse_buffers([&](auto b) noexcept {
+            _buffer_slots[b] = nullptr;
+            _available_buffer_slots.emplace_back(b);
+        });
+    }
+    // destroy all textures
+    {
+        std::scoped_lock lock{_texture_mutex};
+        heap->traverse_textures([&](auto t) noexcept {
+            _texture_slots[t] = nullptr;
+            _available_texture_slots.emplace_back(t);
+        });
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed heap #{}.", handle);
 }
 
-MetalTextureHeap *MetalDevice::heap(uint64_t handle) const noexcept {
+MetalHeap *MetalDevice::heap(uint64_t handle) const noexcept {
     std::scoped_lock lock{_heap_mutex};
     return _heap_slots[handle].get();
 }
 
 uint64_t MetalDevice::create_shader(Function kernel) noexcept {
+    if (kernel.raytracing()) { check_raytracing_supported(); }
     Clock clock;
     auto shader = _compiler->compile(kernel);
     LUISA_VERBOSE_WITH_LOCATION("Compiled shader in {} ms.", clock.toc());
@@ -402,6 +525,41 @@ void MetalDevice::destroy_shader(uint64_t handle) noexcept {
         _available_shader_slots.emplace_back(handle);
     }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed shader #{}.", handle);
+}
+
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
+
+MetalMesh *MetalDevice::mesh(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_mesh_mutex};
+    return _mesh_slots[handle].get();
+}
+
+MetalAccel *MetalDevice::accel(uint64_t handle) const noexcept {
+    std::scoped_lock lock{_accel_mutex};
+    return _accel_slots[handle].get();
+}
+
+NSMutableArray<id<MTLAccelerationStructure>> *MetalDevice::mesh_handles(std::span<const uint64_t> handles) noexcept {
+    auto array = [[NSMutableArray alloc] init];
+    std::scoped_lock lock{_mesh_mutex};
+    for (auto h : handles) {
+        [array addObject:_mesh_slots[h]->handle()];
+    }
+    return array;
+}
+
+MetalSharedBufferPool *MetalDevice::compacted_size_buffer_pool() const noexcept {
+    return _compacted_size_buffer_pool.get();
+}
+
+#endif
+
+void MetalDevice::check_raytracing_supported() const noexcept {
+    if (!_handle.supportsRaytracing) {
+        LUISA_ERROR_WITH_LOCATION(
+            "This device does not support raytracing: {}.",
+            [_handle.description cStringUsingEncoding:NSUTF8StringEncoding]);
+    }
 }
 
 }

@@ -43,7 +43,7 @@ MetalShader MetalCompiler::compile(Function kernel) noexcept {
                                       encoding:NSUTF8StringEncoding];
 
     auto options = [[MTLCompileOptions alloc] init];
-    options.fastMathEnabled = true;
+    options.fastMathEnabled = YES;
     options.languageVersion = MTLLanguageVersion2_3;
     options.libraryType = MTLLibraryTypeExecutable;
 
@@ -70,7 +70,7 @@ MetalShader MetalCompiler::compile(Function kernel) noexcept {
     auto block_size = kernel.block_size();
     auto desc = [[MTLComputePipelineDescriptor alloc] init];
     desc.computeFunction = func;
-    desc.threadGroupSizeIsMultipleOfThreadExecutionWidth = true;
+    desc.threadGroupSizeIsMultipleOfThreadExecutionWidth = YES;
     desc.maxTotalThreadsPerThreadgroup = block_size.x * block_size.y * block_size.z;
     desc.label = objc_name;
     auto pso = [_device->handle() newComputePipelineStateWithDescriptor:desc
@@ -83,13 +83,9 @@ MetalShader MetalCompiler::compile(Function kernel) noexcept {
             hash_string, [error.description cStringUsingEncoding:NSUTF8StringEncoding]);
     }
 
-    MTLAutoreleasedArgument reflection;
-    auto encoder = [func newArgumentEncoderWithBufferIndex:0 reflection:&reflection];
-    auto members = reflection.bufferStructType.members;
-
     // TODO: LRU
     std::scoped_lock lock{_cache_mutex};
-    return _cache.try_emplace(hash, pso, encoder, members).first->second;
+    return _cache.try_emplace(hash, pso).first->second;
 }
 
 }

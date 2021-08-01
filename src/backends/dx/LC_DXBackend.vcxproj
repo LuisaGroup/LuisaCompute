@@ -219,7 +219,7 @@
 		<ClCompile Include="RenderComponent/StructuredBuffer.cpp" />
 		<ClCompile Include="RenderComponent/Texture.cpp" />
 		<ClCompile Include="RenderComponent/TextureBase.cpp" />
-		<ClCompile Include="RenderComponent/TextureHeap.cpp" />
+		<ClCompile Include="RenderComponent/Heap.cpp" />
 		<ClCompile Include="RenderComponent/UploadBuffer.cpp" />
 		<ClCompile Include="RenderComponent/Utility/CommandSignature.cpp" />
 		<ClCompile Include="RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.cpp" />
@@ -331,7 +331,7 @@
 		<ClInclude Include="RenderComponent/StructuredBuffer.h" />
 		<ClInclude Include="RenderComponent/Texture.h" />
 		<ClInclude Include="RenderComponent/TextureBase.h" />
-		<ClInclude Include="RenderComponent/TextureHeap.h" />
+		<ClInclude Include="RenderComponent/Heap.h" />
 		<ClInclude Include="RenderComponent/UploadBuffer.h" />
 		<ClInclude Include="RenderComponent/Utility/CommandSignature.h" />
 		<ClInclude Include="RenderComponent/Utility/CullingMask.h" />

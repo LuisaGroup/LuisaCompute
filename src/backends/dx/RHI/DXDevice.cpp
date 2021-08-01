@@ -108,7 +108,7 @@ public:
 		internalShaders.New();
 		InitInternal();
 	}
-	uint64 create_buffer(size_t size_bytes) noexcept override {
+	uint64 create_buffer(size_t size_bytes, uint64_t heap_handle, uint index_in_heap) noexcept override {
 		Graphics::current = graphicsInstance;
 		return reinterpret_cast<uint64>(
 			new StructuredBuffer(
@@ -153,9 +153,9 @@ public:
 		delete reinterpret_cast<RenderTexturePackage*>(handle);
 	}
 
-	[[nodiscard]] uint64 create_texture_heap(size_t size) noexcept override { return 0; }
-	[[nodiscard]] size_t query_texture_heap_memory_usage(uint64 handle) noexcept override { return 0; }
-	void destroy_texture_heap(uint64 handle) noexcept override {}
+	[[nodiscard]] uint64 create_heap(size_t size) noexcept override { return 0; }
+	[[nodiscard]] size_t query_heap_memory_usage(uint64 handle) noexcept override { return 0; }
+	void destroy_heap(uint64 handle) noexcept override {}
 
 	// stream
 	uint64 create_stream() noexcept override {
@@ -212,14 +212,7 @@ public:
 			stream->GetQueue(),
 			cpuFence.Get());
 	}
-	uint64 create_mesh(
-		uint64 stream_handle,
-		uint64 vertex_buffer_handle,
-		size_t vertex_buffer_offset_bytes,
-		size_t vertex_count,
-		uint64 index_buffer_handle,
-		size_t index_buffer_offset_bytes,
-		size_t triangle_count) noexcept override {
+	uint64 create_mesh() noexcept override {
 		/* return reinterpret_cast<uint64>(
 			new LCMesh(
 				reinterpret_cast<StructuredBuffer*>(vertex_buffer_handle),
@@ -234,13 +227,7 @@ public:
 		uint64 mesh_handle) noexcept override {
 		//delete reinterpret_cast<LCMesh*>(mesh_handle);
 	}
-	uint64 create_accel(
-		uint64 stream_handle,
-		uint64 mesh_handle_buffer_handle,
-		size_t mesh_handle_buffer_offset_bytes,
-		uint64 transform_buffer_handle,
-		size_t transform_buffer_offset_bytes,
-		size_t mesh_count) noexcept override {
+	uint64 create_accel() noexcept override {
 		return 0;
 	}
 	void destroy_accel(uint64 handle) noexcept override {}

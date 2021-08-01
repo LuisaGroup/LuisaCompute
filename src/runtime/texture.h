@@ -5,8 +5,14 @@
 #pragma once
 
 #include <cstdint>
+
 #include <core/hash.h>
 #include <core/basic_types.h>
+#include <core/mathematics.h>
+#include <runtime/pixel.h>
+#include <runtime/buffer.h>
+#include <runtime/image.h>
+#include <runtime/volume.h>
 
 namespace luisa::compute {
 
@@ -68,6 +74,92 @@ public:
     [[nodiscard]] auto set_address(Address a) noexcept { _address = a; }
     [[nodiscard]] auto set_filter(Filter f) noexcept { _filter = f; }
     [[nodiscard]] auto operator==(TextureSampler rhs) const noexcept { return code() == rhs.code(); }
+};
+
+namespace detail {
+
+template<typename Texture>
+[[nodiscard]] inline auto validate_mip_level(Texture t, uint level) noexcept {
+    auto valid = level < t.mip_levels();
+    if (!valid) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Invalid mipmap level {} (max = {}) for heap texture #{}.",
+            level, t.mip_levels() - 1u, t.handle());
+    }
+    return valid;
+}
+
+}// namespace detail
+
+class Heap;
+
+class TextureView2D {
+
+private:
+    uint64_t _handle;
+    PixelStorage _storage;
+    uint _mip_levels;
+    uint2 _size;
+
+private:
+    friend class Heap;
+    TextureView2D(uint64_t handle, PixelStorage storage, uint mip_levels, uint2 size) noexcept
+        : _handle{handle}, _storage{storage}, _mip_levels{mip_levels}, _size{size} {}
+
+public:
+    [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
+    [[nodiscard]] PixelStorage storage() const noexcept { return _storage; }
+    [[nodiscard]] uint mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] uint2 size() const noexcept { return _size; }
+
+    [[nodiscard]] Command *load(const void *pixels, uint mip_level = 0u) noexcept;
+    [[nodiscard]] Command *load(ImageView<float> image, uint mip_level = 0u) noexcept;
+
+    template<typename T>
+    [[nodiscard]] Command *load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
+        if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
+        auto mipmap_size = max(_size >> mip_level, 1u);
+        return BufferToTextureCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage,
+            mip_level, make_uint3(0u), make_uint3(mipmap_size, 1u));
+    }
+};
+
+class TextureView3D {
+
+private:
+    uint64_t _handle;
+    PixelStorage _storage;
+    uint _mip_levels;
+    uint3 _size;
+
+private:
+    friend class Heap;
+    TextureView3D(uint64_t handle, PixelStorage storage, uint mip_levels, uint3 size) noexcept
+        : _handle{handle},
+          _storage{storage},
+          _mip_levels{mip_levels},
+          _size{size} {}
+
+public:
+    [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
+    [[nodiscard]] PixelStorage storage() const noexcept { return _storage; }
+    [[nodiscard]] uint mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] uint3 size() const noexcept { return _size; }
+
+    [[nodiscard]] Command *load(const void *pixels, uint mip_level = 0u) noexcept;
+    [[nodiscard]] Command *load(VolumeView<float> image, uint mip_level = 0u) noexcept;
+
+    template<typename T>
+    [[nodiscard]] Command *load(BufferView<T> buffer, uint mip_level = 0u) noexcept {
+        if (!detail::validate_mip_level(*this, mip_level)) { return nullptr; }
+        auto mipmap_size = max(_size >> mip_level, 1u);
+        return BufferToTextureCopyCommand::create(
+            buffer.handle(), buffer.offset_bytes(),
+            _handle, _storage,
+            mip_level, make_uint3(0u), mipmap_size);
+    }
 };
 
 }// namespace luisa::compute

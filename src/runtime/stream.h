@@ -7,14 +7,14 @@
 #include <utility>
 
 #include <core/spin_mutex.h>
-#include <runtime/device.h>
+#include <runtime/resource.h>
 #include <runtime/event.h>
 #include <runtime/command_list.h>
 #include <runtime/command_buffer.h>
 
 namespace luisa::compute {
 
-class Stream {
+class Stream : public Resource {
 
 public:
     struct Synchronize {};
@@ -39,35 +39,26 @@ public:
         Delegate &&operator<<(Command *cmd) &&noexcept;
         Delegate &&operator<<(Event::Signal signal) &&noexcept;
         Delegate &&operator<<(Event::Wait wait) &&noexcept;
+        Delegate &&operator<<(CommandBuffer::Commit) &&noexcept;
         Delegate &&operator<<(Synchronize) &&noexcept;
     };
 
 private:
-    Device::Handle _device;
-    uint64_t _handle{};
-
-private:
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
-
-    explicit Stream(Device::Handle device) noexcept
-        : _device{std::move(device)},
-          _handle{_device->create_stream()} {}
+    explicit Stream(Device::Interface *device) noexcept;
     void _synchronize() noexcept;
-    void _destroy() noexcept;
 
 public:
     Stream() noexcept = default;
-    Stream(Stream &&s) noexcept;
-    ~Stream() noexcept;
-    Stream &operator=(Stream &&rhs) noexcept;
+    using Resource::operator bool;
     Stream &operator<<(Event::Signal signal) noexcept;
     Stream &operator<<(Event::Wait wait) noexcept;
     Stream &operator<<(Synchronize) noexcept;
-    void synchronize() noexcept { _synchronize(); }
+    Stream &operator<<(CommandBuffer::Commit) noexcept { return *this; }
     Delegate operator<<(Command *cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
+    void synchronize() noexcept { _synchronize(); }
 };
 
 [[nodiscard]] constexpr auto synchronize() noexcept { return Stream::Synchronize{}; }
