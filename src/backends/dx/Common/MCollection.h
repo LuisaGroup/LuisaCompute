@@ -1,4 +1,4 @@
 #pragma once
-#include <Common/HashMap.h>
-#include <Common/vector.h>
+#include <core/vstl/HashMap.h>
+#include <core/vstl/vector.h>
 #include <Common/vstring.h>

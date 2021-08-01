@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <Common/Pool.h>
+#include <core/vstl/Pool.h>
 #include <mutex>
 #include <Common/LockFreeArrayQueue.h>
 class RenderCommand;

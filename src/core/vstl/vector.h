@@ -1,12 +1,12 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <memory>
 #include <initializer_list>
 #include <type_traits>
-#include <Common/Memory.h>
-#include <Common/VAllocator.h>
+#include <core/vstl/Memory.h>
+#include <core/vstl/VAllocator.h>
 #include <span>
 namespace vstd {
 
@@ -138,7 +138,7 @@ public:
 		this->~SelfType();
 		new (this) SelfType(std::move(another));
 	}
-	
+
 	void push_back_all(const T* values, size_t count) noexcept {
 		ResizeRange(count);
 		if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
@@ -161,9 +161,51 @@ public:
 		auto endPtr = arr + mSize;
 		for (size_t i = 0; i < count; ++i) {
 			T* ptr = endPtr + i;
-			new (ptr) T(std::move(f(i)));
+			if constexpr (std::is_invocable_v<std::remove_cvref_t<Func>, size_t>) {
+				new (ptr) T(std::move(f(i)));
+			} else if constexpr (std::is_invocable_v<std::remove_cvref_t<Func>>) {
+				new (ptr) T(std::move(f()));
+			} else {
+				static_assert(std::_Always_false<Func>, "Invalid Function Type!");
+			}
 		}
 		mSize += count;
+	}
+	template<typename Func>
+	void compact(Func&& f) {
+		T* curPtr = begin();
+		T* lastPtr;
+		T* ed = end();
+		while (curPtr != ed) {
+			if (f(*curPtr))
+				curPtr++;
+			else {
+				lastPtr = curPtr;
+				curPtr++;
+				while (curPtr != ed) {
+					if (f(*curPtr)) {
+						if constexpr (std::is_move_assignable_v<T>) {
+							*lastPtr = std::move(*curPtr);
+						} else if constexpr (std::is_move_constructible_v<T>) {
+							lastPtr->~T();
+							new (lastPtr) T(std::move(*curPtr));
+						} else {
+							static_assert(std::_Always_false<Func>, "Element not movable!");
+						}
+						lastPtr++;
+					}
+					curPtr++;
+				}
+				size_t newSize = lastPtr - begin();
+				if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+					for (auto i = begin() + newSize; i != ed; ++i) {
+						i->~T();
+					}
+				}
+				mSize = newSize;
+				return;
+			}
+		}
 	}
 	operator std::span<T>() const {
 		return std::span<T>(begin(), end());

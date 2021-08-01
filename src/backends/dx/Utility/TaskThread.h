@@ -4,7 +4,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <Common/DLL.h>
-#include <Common/Memory.h>
+#include <core/vstl/Memory.h>
 class   TaskThread
 {
 private:

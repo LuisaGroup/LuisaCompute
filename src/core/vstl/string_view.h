@@ -1,7 +1,7 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <stdint.h>
-#include <Common/MetaLib.h>
+#include <core/vstl/MetaLib.h>
 #include <iostream>
 #include <string.h>
 namespace vstd {

@@ -1,10 +1,12 @@
+#pragma once
 #ifndef VENGINE_CONFIG_INCLUDE_
 #define VENGINE_CONFIG_INCLUDE_
 ///////////////////////// Switchers
 //#define VENGINE_REL_WITH_DEBUG_INFO
 //#define VENGINE_CLANG_COMPILER
-
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 ///////////////////////// Clang
 #ifdef VENGINE_CLANG_COMPILER
 #define _XM_NO_INTRINSICS_
@@ -63,7 +65,6 @@
 #else
 #define VENGINE_C_FUNC_COMMON extern "C" _declspec(dllimport)
 #endif
-
 
 /////////////////////// THREAD PAUSE
 #endif

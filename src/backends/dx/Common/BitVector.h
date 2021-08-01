@@ -2,7 +2,7 @@
 #include <VEngineConfig.h>
 #include <memory>
 #include <stdint.h>
-#include <Common/Memory.h>
+#include <core/vstl/Memory.h>
 class BitVector {
 public:
 	struct Iterator {

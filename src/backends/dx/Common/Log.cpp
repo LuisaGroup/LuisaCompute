@@ -1,4 +1,5 @@
-#include <Common/Log.h>
+#pragma vengine_package vengine_dll
+#include <Common/vstring.h>
 #include <mutex>
 #include <cstdio>
 namespace LogGlobal {
@@ -46,4 +47,12 @@ void VEngine_Log(vstd::string_view const* chunk, size_t chunkCount) {
 }
 void VEngine_Log(std::initializer_list<vstd::string_view> const& initList) {
 	VEngine_Log(initList.begin(), initList.size());
+}
+void VEngine_Log(std::type_info const& t) {
+	VEngine_Log(
+		{t.name(),
+		 " runtime error! Usually did mistake operation, like vstd::optional\n"_sv});
+}
+void VEngine_Log(char const* chunk) {
+	VEngine_Log(vstd::string_view(chunk));
 }

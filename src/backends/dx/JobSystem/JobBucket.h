@@ -2,10 +2,10 @@
 #include <VEngineConfig.h>
 #include <initializer_list>
 #include <JobSystem/JobHandle.h>
-#include <Common/Pool.h>
+#include <core/vstl/Pool.h>
 #include <Common/TypeWiper.h>
 #include <Common/Runnable.h>
-#include <Common/MetaLib.h>
+#include <core/vstl/MetaLib.h>
 #include <JobSystem/JobSystem.h>
 class JobSystem;
 class JobThreadRunnable;

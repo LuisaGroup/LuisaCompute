@@ -1,11 +1,11 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <stdint.h>
 #include <xhash>
 #include <iostream>
-#include <Common/Hash.h>
-#include <Common/Memory.h>
-#include <Common/string_view.h>
+#include <core/vstl/Hash.h>
+#include <core/vstl/Memory.h>
+#include <core/vstl/string_view.h>
 namespace vstd {
 class VENGINE_DLL_COMMON string {
 	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
@@ -20,7 +20,13 @@ private:
 	bool Equal(char const* str, size_t count) const noexcept;
 	void* string_malloc(size_t sz);
 	void string_free(void* freeMem);
-	
+	static constexpr char const* GetEnd(char const* ptr) {
+		while (*ptr != 0) {
+			ptr++;
+		}
+		return ptr;
+	}
+
 public:
 	string(const string& a, const string& b) noexcept;
 	string(string_view a, const string& b) noexcept;
@@ -29,25 +35,27 @@ public:
 	string(const char* a, const string& b) noexcept;
 	string(const string& a, char b) noexcept;
 	string(char a, const string& b) noexcept;
-	size_t size() const noexcept { return lenSize; }
-	size_t length() const noexcept { return lenSize; }
-	size_t getCapacity() const noexcept { return capacity; }
+	inline size_t size() const noexcept { return lenSize; }
+	inline size_t length() const noexcept { return lenSize; }
+	inline size_t getCapacity() const noexcept { return capacity; }
 	string() noexcept;
-	string(const char* cstr) noexcept;
+	string(char const* cstr) noexcept
+		: string(cstr, GetEnd(cstr)) {}
+	string(char* cstr) noexcept : string((char const*)cstr) {}
 	string(const char* cstrBegin, const char* cstrEnd) noexcept;
 	string(string_view tempView);
 	string(const string& data) noexcept;
 	string(string&& data) noexcept;
 	string(size_t size, char c) noexcept;
-	void clear() noexcept {
+	inline void clear() noexcept {
 		if (ptr)
 			ptr[0] = 0;
 		lenSize = 0;
 	}
-	void push_back(char c) noexcept {
+	inline void push_back(char c) noexcept {
 		(*this) += c;
 	}
-	bool empty() const noexcept {
+	inline bool empty() const noexcept {
 		return lenSize == 0;
 	}
 	string& operator=(const string& data) noexcept;
@@ -55,14 +63,14 @@ public:
 	string& operator=(const char* data) noexcept;
 	string& operator=(char data) noexcept;
 	string& operator=(string_view view) noexcept;
-	string& assign(const string& data) noexcept {
+	inline string& assign(const string& data) noexcept {
 		return operator=(data);
 	}
-	string& assign(const char* data) noexcept {
+	inline string& assign(const char* data) noexcept {
 		return operator=(data);
 	}
 	void push_back_all(char const* c, size_t newStrLen) noexcept;
-	string& assign(char data) noexcept {
+	inline string& assign(char data) noexcept {
 		return operator=(data);
 	}
 	void reserve(size_t targetCapacity) noexcept;
@@ -71,53 +79,53 @@ public:
 	char* end() const noexcept { return ptr + lenSize; }
 	void resize(size_t newSize) noexcept;
 	char const* c_str() const noexcept { return ptr; }
-	string operator+(const string& str) const noexcept {
+	inline string operator+(const string& str) const noexcept {
 		return string(*this, str);
 	}
-	string operator+(const char* str) const noexcept {
+	inline string operator+(const char* str) const noexcept {
 		return string(*this, str);
 	}
-	string operator+(string_view str) const noexcept {
+	inline string operator+(string_view str) const noexcept {
 		return string(*this, str);
 	}
-	string operator+(char str) const noexcept {
+	inline string operator+(char str) const noexcept {
 		return string(*this, str);
 	}
 	string& operator+=(const string& str) noexcept;
 	string& operator+=(const char* str) noexcept;
 	string& operator+=(char str) noexcept;
 	string& operator+=(string_view str) noexcept;
-	string& operator<<(string_view str) noexcept {
+	inline string& operator<<(string_view str) noexcept {
 		return operator+=(str);
 	}
-	string& operator<<(const string& str) noexcept {
+	inline string& operator<<(const string& str) noexcept {
 		return operator+=(str);
 	}
-	string& operator<<(const char* str) noexcept {
+	inline string& operator<<(const char* str) noexcept {
 		return operator+=(str);
 	}
-	string& operator<<(char str) noexcept {
+	inline string& operator<<(char str) noexcept {
 		return operator+=(str);
 	}
 	char& operator[](size_t index) noexcept;
 	char const& operator[](size_t index) const noexcept;
-	bool operator==(const string& str) const noexcept {
+	inline bool operator==(const string& str) const noexcept {
 		if (str.lenSize != lenSize) return false;
 		return Equal(str.data(), str.lenSize);
 	}
-	bool operator==(const char* str) const noexcept {
+	inline bool operator==(const char* str) const noexcept {
 		auto sz = strlen(str);
 		if (sz != lenSize) return false;
 		return Equal(str, sz);
 	}
-	bool operator==(string_view v) const noexcept {
+	inline bool operator==(string_view v) const noexcept {
 		if (v.size() != lenSize) return false;
 		return Equal(v.c_str(), v.size());
 	}
-	bool operator!=(const string& str) const noexcept {
+	inline bool operator!=(const string& str) const noexcept {
 		return !operator==(str);
 	}
-	bool operator!=(const char* str) const noexcept {
+	inline bool operator!=(const char* str) const noexcept {
 		return !operator==(str);
 	}
 	void erase(size_t index) noexcept;
@@ -129,12 +137,18 @@ private:
 	size_t lenSize = 0;
 	size_t capacity = 0;
 	bool Equal(wchar_t const* str, size_t count) const noexcept;
-	static size_t wstrLen(wchar_t const* ptr) {
+	inline static size_t wstrLen(wchar_t const* ptr) {
 		size_t sz = 0;
 		while (ptr[sz] != 0) {
 			sz++;
 		}
 		return sz;
+	}
+	static constexpr wchar_t const* GetEnd(wchar_t const* ptr) {
+		while (*ptr != 0) {
+			ptr++;
+		}
+		return ptr;
 	}
 	static constexpr size_t PLACEHOLDERSIZE = 32;
 	std::aligned_storage_t<PLACEHOLDERSIZE, 1> localStorage;
@@ -153,7 +167,8 @@ public:
 	size_t length() const noexcept { return lenSize; }
 	size_t getCapacity() const noexcept { return capacity; }
 	wstring() noexcept;
-	wstring(const wchar_t* wchr) noexcept;
+	wstring(const wchar_t* wchr) noexcept
+		: wstring(wchr, GetEnd(wchr)) {}
 	wstring(const wchar_t* wchr, const wchar_t* wchrEnd) noexcept;
 	wstring(const char* wchr) noexcept;
 	wstring(const char* wchr, const char* wchrEnd) noexcept;
@@ -163,15 +178,15 @@ public:
 	wstring(wstring&& data) noexcept;
 	wstring(size_t size, wchar_t c) noexcept;
 	wstring(string const& str) noexcept;
-	void clear() noexcept {
+	inline void clear() noexcept {
 		if (ptr)
 			ptr[0] = 0;
 		lenSize = 0;
 	}
-	void push_back(wchar_t c) noexcept {
+	inline void push_back(wchar_t c) noexcept {
 		(*this) += c;
 	}
-	bool empty() const noexcept {
+	inline bool empty() const noexcept {
 		return lenSize == 0;
 	}
 	wstring& operator=(const wstring& data) noexcept;
@@ -179,13 +194,13 @@ public:
 	wstring& operator=(const wchar_t* data) noexcept;
 	wstring& operator=(wstring_view data) noexcept;
 	wstring& operator=(wchar_t data) noexcept;
-	wstring& assign(const wstring& data) noexcept {
+	inline wstring& assign(const wstring& data) noexcept {
 		return operator=(data);
 	}
-	wstring& assign(const wchar_t* data) noexcept {
+	inline wstring& assign(const wchar_t* data) noexcept {
 		return operator=(data);
 	}
-	wstring& assign(wchar_t data) noexcept {
+	inline wstring& assign(wchar_t data) noexcept {
 		return operator=(data);
 	}
 	wchar_t const* begin() const noexcept { return ptr; }
@@ -194,53 +209,53 @@ public:
 	wchar_t* data() const noexcept { return ptr; }
 	void resize(size_t newSize) noexcept;
 	wchar_t const* c_str() const noexcept { return ptr; }
-	wstring operator+(const wstring& str) const noexcept {
+	inline wstring operator+(const wstring& str) const noexcept {
 		return wstring(*this, str);
 	}
-	wstring operator+(const wchar_t* str) const noexcept {
+	inline wstring operator+(const wchar_t* str) const noexcept {
 		return wstring(*this, str);
 	}
-	wstring operator+(wstring_view str) const noexcept {
+	inline wstring operator+(wstring_view str) const noexcept {
 		return wstring(*this, str);
 	}
-	wstring operator+(wchar_t str) const noexcept {
+	inline wstring operator+(wchar_t str) const noexcept {
 		return wstring(*this, str);
 	}
 	wstring& operator+=(const wstring& str) noexcept;
 	wstring& operator+=(const wchar_t* str) noexcept;
 	wstring& operator+=(wstring_view str) noexcept;
 	wstring& operator+=(wchar_t str) noexcept;
-	wstring& operator<<(const wstring& str) noexcept {
+	inline wstring& operator<<(const wstring& str) noexcept {
 		return operator+=(str);
 	}
-	wstring& operator<<(const wchar_t* str) noexcept {
+	inline wstring& operator<<(const wchar_t* str) noexcept {
 		return operator+=(str);
 	}
-	wstring& operator<<(wstring_view str) noexcept {
+	inline wstring& operator<<(wstring_view str) noexcept {
 		return operator+=(str);
 	}
-	wstring& operator<<(wchar_t str) noexcept {
+	inline wstring& operator<<(wchar_t str) noexcept {
 		return operator+=(str);
 	}
 	wchar_t& operator[](size_t index) noexcept;
 	wchar_t const& operator[](size_t index) const noexcept;
-	bool operator==(const wstring& str) const noexcept {
+	inline bool operator==(const wstring& str) const noexcept {
 		if (str.lenSize != lenSize) return false;
 		return Equal(str.data(), str.lenSize);
 	}
-	bool operator==(const wchar_t* str) const noexcept {
+	inline bool operator==(const wchar_t* str) const noexcept {
 		auto sz = wstrLen(str);
 		if (sz != lenSize) return false;
 		return Equal(str, sz);
 	}
-	bool operator==(wstring_view v) const noexcept {
+	inline bool operator==(wstring_view v) const noexcept {
 		if (v.size() != lenSize) return false;
 		return Equal(v.c_str(), v.size());
 	}
-	bool operator!=(const string& str) const noexcept {
+	inline bool operator!=(const string& str) const noexcept {
 		return !operator==(str);
 	}
-	bool operator!=(const char* str) const noexcept {
+	inline bool operator!=(const char* str) const noexcept {
 		return !operator==(str);
 	}
 	void erase(size_t index) noexcept;
@@ -453,7 +468,7 @@ inline vstd::wstring operator+(const wchar_t* c, const vstd::wstring& str) noexc
 	return vstd::wstring(c, str);
 }
 
-#include <Common/Hash.h>
+#include <core/vstl/Hash.h>
 namespace vstd {
 template<>
 struct hash<vstd::string> {

@@ -8,7 +8,7 @@
 #include <Singleton/ShaderID.h>
 #include <Singleton/Graphics.h>
 #include <RenderComponent/TextureHeap.h>
-#include <Common/Pool.h>
+#include <core/vstl/Pool.h>
 #include <RenderComponent/Utility/ITextureAllocator.h>
 #include <Utility/BinaryReader.h>
 #include <RenderComponent/UploadBuffer.h>

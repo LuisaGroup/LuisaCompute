@@ -3,9 +3,9 @@
 #include <type_traits>
 #include <stdint.h>
 #include <memory>
-#include <Common/Pool.h>
-#include <Common/vector.h>
-#include <Common/Hash.h>
+#include <core/vstl/Pool.h>
+#include <core/vstl/vector.h>
+#include <core/vstl/Hash.h>
 #include <Common/VAllocator.h>
 
 template<typename K, typename Hash = vstd::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>

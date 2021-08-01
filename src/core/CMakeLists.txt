@@ -12,11 +12,17 @@ set(LUISA_COMPUTE_CORE_SOURCES
     dynamic_module.cpp dynamic_module.h
     basic_types.cpp basic_types.h
     intrin.h
-    clock.h)
+    clock.h
+    vstl/vstl.cpp
+    vstl/vengine_library.cpp
+    vstl/StackAllocator.cpp
+    vstl/VObject.cpp
+    )
 
 find_package(Threads REQUIRED)
 
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
+target_compile_definitions(luisa-compute-core PRIVATE LUISA_COMPUTE_CORE_INTERNAL PUBLIC LUISA_COMPUTE_CORE_EXTERNAL)
 target_link_libraries(luisa-compute-core PUBLIC
                       luisa-compute-include
                       luisa-compute-ext

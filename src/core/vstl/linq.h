@@ -1,5 +1,6 @@
 #pragma once
-#include <Common/Common.h>
+#include <core/vstl/MetaLib.h>
+#include <core/vstl/vector.h>
 
 namespace vstd::linq {
 
@@ -44,7 +45,7 @@ public:
 
 private:
 	StackObject<BeginIteratorType, true> curType;
-	T* colPtr;
+	T const* colPtr;
 	ElementType const* ptr;
 
 public:
@@ -60,7 +61,7 @@ public:
 
 	virtual ~IEnumerator() {}
 	IEnumerator(
-		T& collection) {
+		T const& collection) {
 		colPtr = &collection;
 	}
 	IEnumerator(T&&) = delete;

@@ -59,17 +59,17 @@
   </ImportGroup>
 	<ImportGroup Label="Shared">
   </ImportGroup>
-	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	<ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+		<Import Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" />
 	</ImportGroup>
-	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	<ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+		<Import Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" />
 	</ImportGroup>
-	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	<ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
+		<Import Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" />
 	</ImportGroup>
-	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	<ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
+		<Import Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" />
 	</ImportGroup>
 	<PropertyGroup Label="UserMacros" />
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -182,15 +182,13 @@
 		<ClCompile Include="CJsonObject/CJsonObject.cpp" />
 		<ClCompile Include="CJsonObject/JsonCompiler.cpp" />
 		<ClCompile Include="Common/Common.cpp" />
+		<ClCompile Include="Common/DynamicDLL.cpp" />
 		<ClCompile Include="Common/DynamicLink.cpp" />
 		<ClCompile Include="Common/GameTimer.cpp" />
 		<ClCompile Include="Common/GFXUtil.cpp" />
 		<ClCompile Include="Common/Log.cpp" />
 		<ClCompile Include="Common/MathHelper.cpp" />
 		<ClCompile Include="Common/spin_mutex.cpp" />
-		<ClCompile Include="Common/StackAllocator.cpp" />
-		<ClCompile Include="Common/vengine_library.cpp" />
-		<ClCompile Include="Common/VObject.cpp" />
 		<ClCompile Include="File/CopyDir.cpp" />
 		<ClCompile Include="File/FilePacker.cpp" />
 		<ClCompile Include="File/FileUtility.cpp" />
@@ -202,7 +200,7 @@
 		<ClCompile Include="JobSystem/ThreadPool.cpp" />
 		<ClCompile Include="JobSystem/ThreadTaskHandle.cpp" />
 		<ClCompile Include="PipelineComponent/CommandAllocator.cpp" />
-		<ClCompile Include="PipelineComponent/CommandList.cpp" />
+		<ClCompile Include="PipelineComponent/CommandBuffer.cpp" />
 		<ClCompile Include="PipelineComponent/FrameResource.cpp" />
 		<ClCompile Include="PipelineComponent/RayTracing/RayTracingManager.cpp" />
 		<ClCompile Include="PipelineComponent/ThreadCommand.cpp" />
@@ -261,12 +259,10 @@
 		<ClInclude Include="CJsonObject/cJSON.h" />
 		<ClInclude Include="CJsonObject/JsonCompiler.h" />
 		<ClInclude Include="CJsonObject/SerializeStruct.h" />
-		<ClInclude Include="Common/AllocateType.h" />
 		<ClInclude Include="Common/BitArray.h" />
 		<ClInclude Include="Common/BitVector.h" />
 		<ClInclude Include="Common/Common.h" />
 		<ClInclude Include="Common/d3dx12.h" />
-		<ClInclude Include="Common/DLL.h" />
 		<ClInclude Include="Common/DXMath/Common.h" />
 		<ClInclude Include="Common/DXMath/DXMath.h" />
 		<ClInclude Include="Common/DXMath/Matrix3.h" />
@@ -279,31 +275,17 @@
 		<ClInclude Include="Common/FunctorMeta.h" />
 		<ClInclude Include="Common/GameTimer.h" />
 		<ClInclude Include="Common/GFXUtil.h" />
-		<ClInclude Include="Common/Hash.h" />
-		<ClInclude Include="Common/HashMap.h" />
 		<ClInclude Include="Common/HashPicker.h" />
 		<ClInclude Include="Common/IObjectReference.h" />
 		<ClInclude Include="Common/LinkedList.h" />
-		<ClInclude Include="Common/linq.h" />
-		<ClInclude Include="Common/LockFreeArrayQueue.h" />
 		<ClInclude Include="Common/Log.h" />
 		<ClInclude Include="Common/MathHelper.h" />
 		<ClInclude Include="Common/MCollection.h" />
-		<ClInclude Include="Common/Memory.h" />
-		<ClInclude Include="Common/MetaLib.h" />
-		<ClInclude Include="Common/Pool.h" />
 		<ClInclude Include="Common/PoolAllocator.h" />
 		<ClInclude Include="Common/RandomVector.h" />
-		<ClInclude Include="Common/Runnable.h" />
 		<ClInclude Include="Common/spin_mutex.h" />
-		<ClInclude Include="Common/StackAllocator.h" />
-		<ClInclude Include="Common/string_view.h" />
 		<ClInclude Include="Common/Tuple.h" />
 		<ClInclude Include="Common/TypeWiper.h" />
-		<ClInclude Include="Common/VAllocator.h" />
-		<ClInclude Include="Common/vector.h" />
-		<ClInclude Include="Common/VObject.h" />
-		<ClInclude Include="Common/vstring.h" />
 		<ClInclude Include="File/CopyDir.h" />
 		<ClInclude Include="File/FilePacker.h" />
 		<ClInclude Include="File/FileUtility.h" />
@@ -313,6 +295,7 @@
 		<ClInclude Include="JobSystem/JobHandle.h" />
 		<ClInclude Include="JobSystem/JobInclude.h" />
 		<ClInclude Include="JobSystem/JobNode.h" />
+		<ClInclude Include="JobSystem/JobPool.h" />
 		<ClInclude Include="JobSystem/JobSystem.h" />
 		<ClInclude Include="JobSystem/ThreadPool.h" />
 		<ClInclude Include="JobSystem/ThreadTaskHandle.h" />
@@ -320,7 +303,7 @@
 		<ClInclude Include="PipelineComponent/CameraData/LightCBuffer.h" />
 		<ClInclude Include="PipelineComponent/CameraData/LightMacro.h" />
 		<ClInclude Include="PipelineComponent/CommandAllocator.h" />
-		<ClInclude Include="PipelineComponent/CommandList.h" />
+		<ClInclude Include="PipelineComponent/CommandBuffer.h" />
 		<ClInclude Include="PipelineComponent/CommandListType.h" />
 		<ClInclude Include="PipelineComponent/DXAllocator.h" />
 		<ClInclude Include="PipelineComponent/FrameResource.h" />
