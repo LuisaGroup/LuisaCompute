@@ -19,10 +19,12 @@ CUDAHeap::CUDAHeap(CUDADevice *device, size_t capacity) noexcept
     LUISA_CHECK_CUDA(cuMemPoolCreate(&_handle, &props));
     LUISA_CHECK_CUDA(cuMemPoolSetAttribute(_handle, CU_MEMPOOL_ATTR_RELEASE_THRESHOLD, &capacity));
     _items.resize(Heap::slot_count);
+    LUISA_CHECK_CUDA(cuMemAllocAsync(&_desc_array, sizeof(Item) * Heap::slot_count, nullptr));
 }
 
 CUDAHeap::~CUDAHeap() noexcept {
     for (auto b : _active_buffers) { delete b; }
+    LUISA_CHECK_CUDA(cuMemFreeAsync(_desc_array, nullptr));
     LUISA_CHECK_CUDA(cuMemPoolDestroy(_handle));
 }
 
@@ -60,6 +62,15 @@ size_t CUDAHeap::memory_usage() const noexcept {
     size_t usage = 0u;
     LUISA_CHECK_CUDA(cuMemPoolGetAttribute(_handle, CU_MEMPOOL_ATTR_USED_MEM_CURRENT, &usage));
     return usage;
+}
+
+CUdeviceptr CUDAHeap::descriptor_array() const noexcept {
+    std::scoped_lock lock{_mutex};
+    if (_dirty) {
+        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(_desc_array, _items.data(), sizeof(Item) * Heap::slot_count, nullptr));
+        _dirty = false;
+    }
+    return _desc_array;
 }
 
 }// namespace luisa::compute::cuda

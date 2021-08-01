@@ -23,9 +23,8 @@ class CUDAHeap {
 
 public:
     struct Item {
-        CUtexObject texture;
-        CUsurfObject surface;
-        CUdeviceptr buffer;
+        CUtexObject texture{nullptr};
+        CUdeviceptr buffer{0u};
     };
 
 private:
@@ -34,8 +33,8 @@ private:
     CUdeviceptr _desc_array;
     std::vector<Item> _items;
     std::unordered_set<CUDABuffer *> _active_buffers;
-    spin_mutex _mutex;
-    bool _dirty{true};
+    mutable spin_mutex _mutex;
+    mutable bool _dirty{true};
 
 public:
     CUDAHeap(CUDADevice *device, size_t capacity) noexcept;
@@ -43,6 +42,7 @@ public:
     [[nodiscard]] CUDABuffer *allocate_buffer(size_t size, size_t index) noexcept;
     void destroy_buffer(CUDABuffer *buffer) noexcept;
     [[nodiscard]] size_t memory_usage() const noexcept;
+    [[nodiscard]] CUdeviceptr descriptor_array() const noexcept;
 };
 
 }// namespace luisa::compute::cuda

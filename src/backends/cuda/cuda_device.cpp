@@ -163,7 +163,6 @@ CUDADevice::Handle::Handle(uint index) noexcept {
         index = device_count - 1;
     }
     LUISA_CHECK_CUDA(cuDeviceGet(&_device, index));
-    LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
     auto compute_cap_major = 0;
     auto compute_cap_minor = 0;
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&compute_cap_major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, _device));
@@ -174,6 +173,7 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     auto supports_memory_pools = 0;
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&supports_memory_pools, CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED, _device));
     LUISA_INFO("CUDA device supports memory pools: {}.", supports_memory_pools != 0);
+    LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 }
 
 CUDADevice::Handle::~Handle() noexcept {
