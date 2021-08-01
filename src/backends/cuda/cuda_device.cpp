@@ -3,16 +3,36 @@
 //
 
 #include <runtime/texture.h>
+#include <runtime/heap.h>
+#include <backends/cuda/cuda_heap.h>
 #include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_command_encoder.h>
 
 namespace luisa::compute::cuda {
 
 uint64_t CUDADevice::create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept {
-    return 0;
+    auto from_heap = heap_handle != Heap::invalid_handle;
+    if (from_heap) {
+        return with_handle([heap = reinterpret_cast<CUDAHeap *>(heap_handle), index = index_in_heap, size = size_bytes] {
+            return reinterpret_cast<uint64_t>(heap->allocate_buffer(size, index));
+        });
+    }
+    return with_handle([size = size_bytes] {
+        CUdeviceptr ptr = 0ul;
+        LUISA_CHECK_CUDA(cuMemAlloc(&ptr, size));
+        return reinterpret_cast<uint64_t>(new CUDABuffer{ptr});
+    });
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
-
+    with_handle([buffer = reinterpret_cast<CUDABuffer *>(handle)] {
+        if (auto heap = buffer->heap(); heap != nullptr) {
+            heap->destroy_buffer(buffer);
+        } else {
+            LUISA_CHECK_CUDA(cuMemFree(buffer->handle()));
+            delete buffer;
+        }
+    });
 }
 
 uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) {
@@ -23,19 +43,25 @@ void CUDADevice::destroy_texture(uint64_t handle) noexcept {
 }
 
 uint64_t CUDADevice::create_heap(size_t size) noexcept {
-    return 0;
+    return with_handle([this, size] {
+        return reinterpret_cast<uint64_t>(new CUDAHeap{this, size});
+    });
 }
 
 size_t CUDADevice::query_heap_memory_usage(uint64_t handle) noexcept {
-    return 0;
+    return with_handle([heap = reinterpret_cast<CUDAHeap *>(handle)] {
+        return heap->memory_usage();
+    });
 }
 
 void CUDADevice::destroy_heap(uint64_t handle) noexcept {
-
+    with_handle([heap = reinterpret_cast<CUDAHeap *>(handle)] {
+        delete heap;
+    });
 }
 
 uint64_t CUDADevice::create_stream() noexcept {
-    return _handle.with([&] {
+    return with_handle([&] {
         CUstream stream = nullptr;
         LUISA_CHECK_CUDA(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
         return reinterpret_cast<uint64_t>(stream);
@@ -43,18 +69,24 @@ uint64_t CUDADevice::create_stream() noexcept {
 }
 
 void CUDADevice::destroy_stream(uint64_t handle) noexcept {
-    _handle.with([stream = reinterpret_cast<CUstream>(handle)] {
+    with_handle([stream = reinterpret_cast<CUstream>(handle)] {
         LUISA_CHECK_CUDA(cuStreamDestroy(stream));
     });
 }
 
 void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
-    _handle.with([stream = reinterpret_cast<CUstream>(handle)] {
+    with_handle([stream = reinterpret_cast<CUstream>(handle)] {
         LUISA_CHECK_CUDA(cuStreamSynchronize(stream));
     });
 }
 
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
+    with_handle([stream = reinterpret_cast<CUstream>(stream_handle), cmd_list = std::move(list)] {
+        CUDACommandEncoder encoder{stream};
+        for (auto cmd : cmd_list) {
+            cmd->accept(encoder);
+        }
+    });
 }
 
 uint64_t CUDADevice::create_shader(Function kernel) noexcept {
@@ -65,7 +97,7 @@ void CUDADevice::destroy_shader(uint64_t handle) noexcept {
 }
 
 uint64_t CUDADevice::create_event() noexcept {
-    return _handle.with([] {
+    return with_handle([] {
         CUevent event = nullptr;
         LUISA_CHECK_CUDA(cuEventCreate(
             &event, CU_EVENT_BLOCKING_SYNC | CU_EVENT_DISABLE_TIMING));
@@ -74,27 +106,27 @@ uint64_t CUDADevice::create_event() noexcept {
 }
 
 void CUDADevice::destroy_event(uint64_t handle) noexcept {
-    _handle.with([event = reinterpret_cast<CUevent>(handle)] {
+    with_handle([event = reinterpret_cast<CUevent>(handle)] {
         LUISA_CHECK_CUDA(cuEventDestroy(event));
     });
 }
 
 void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    _handle.with([event = reinterpret_cast<CUevent>(handle),
-                  stream = reinterpret_cast<CUstream>(stream_handle)] {
-      LUISA_CHECK_CUDA(cuEventRecord(event, stream));
+    with_handle([event = reinterpret_cast<CUevent>(handle),
+                 stream = reinterpret_cast<CUstream>(stream_handle)] {
+        LUISA_CHECK_CUDA(cuEventRecord(event, stream));
     });
 }
 
 void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    _handle.with([event = reinterpret_cast<CUevent>(handle),
-                  stream = reinterpret_cast<CUstream>(stream_handle)] {
+    with_handle([event = reinterpret_cast<CUevent>(handle),
+                 stream = reinterpret_cast<CUstream>(stream_handle)] {
         LUISA_CHECK_CUDA(cuStreamWaitEvent(stream, event, CU_EVENT_WAIT_DEFAULT));
     });
 }
 
 void CUDADevice::synchronize_event(uint64_t handle) noexcept {
-    _handle.with([event = reinterpret_cast<CUevent>(handle)] {
+    with_handle([event = reinterpret_cast<CUevent>(handle)] {
         LUISA_CHECK_CUDA(cuEventSynchronize(event));
     });
 }
@@ -139,6 +171,9 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     LUISA_INFO(
         "Created CUDA device at index {}: {} (capability = {}.{}).",
         index, name(), compute_cap_major, compute_cap_minor);
+    auto supports_memory_pools = 0;
+    LUISA_CHECK_CUDA(cuDeviceGetAttribute(&supports_memory_pools, CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED, _device));
+    LUISA_INFO("CUDA device supports memory pools: {}.", supports_memory_pools != 0);
 }
 
 CUDADevice::Handle::~Handle() noexcept {

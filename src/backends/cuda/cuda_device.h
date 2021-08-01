@@ -13,6 +13,26 @@ namespace luisa::compute::cuda {
 
 class CUDADevice : public Device::Interface {
 
+    class ContextGuard {
+
+    private:
+        CUcontext _ctx;
+
+    public:
+        explicit ContextGuard(CUcontext ctx) noexcept : _ctx{ctx} {
+            LUISA_CHECK_CUDA(cuCtxPushCurrent(_ctx));
+        }
+        ~ContextGuard() noexcept {
+            CUcontext ctx = nullptr;
+            LUISA_CHECK_CUDA(cuCtxPopCurrent(&ctx));
+            if (ctx != _ctx) [[unlikely]] {
+              LUISA_ERROR_WITH_LOCATION(
+                  "Invalid CUDA context {} (expected {}).",
+                  fmt::ptr(ctx), fmt::ptr(_ctx));
+            }
+        }
+    };
+
 public:
     class Handle {
 
@@ -28,23 +48,13 @@ public:
         Handle &operator=(Handle &&) noexcept = delete;
         Handle &operator=(const Handle &) noexcept = delete;
         [[nodiscard]] std::string_view name() const noexcept;
-
-        template<typename F>
-        decltype(auto) with(F &&f) const noexcept {
-            LUISA_CHECK_CUDA(cuCtxPushCurrent(_context));
-            CUcontext ctx = nullptr;
-            LUISA_CHECK_CUDA(cuCtxPopCurrent(&ctx));
-            if (ctx != _context) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Invalid CUDA context {} (expected {}).",
-                    fmt::ptr(ctx), fmt::ptr(_context));
-            }
-            return std::invoke(std::forward<F>(f));
-        }
+        [[nodiscard]] auto device() const noexcept { return _device; }
+        [[nodiscard]] auto context() const noexcept { return _context; }
     };
 
 private:
     Handle _handle;
+    std::recursive_mutex _mutex;
 
 public:
     CUDADevice(const Context &ctx, uint device_id) noexcept;
@@ -72,6 +82,18 @@ public:
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
+
+    template<typename F>
+    decltype(auto) with_locked(F &&f) noexcept {
+        std::scoped_lock lock{_mutex};
+        return f();
+    }
+
+    template<typename F>
+    decltype(auto) with_handle(F &&f) const noexcept {
+        ContextGuard guard{_handle.context()};
+        return f();
+    }
 };
 
-}
+}// namespace luisa::compute::cuda

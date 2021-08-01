@@ -154,7 +154,12 @@ int main(int argc, char *argv[]) {
 
     auto heap = device.create_heap(1_gb);
     for (auto i = 0u; i < 10u; i++) {
+        static_cast<void>(heap.create_buffer<float>(i, 1024u));
         static_cast<void>(heap.create_texture(i, PixelStorage::FLOAT4, uint2(1024u)));
+        LUISA_INFO("Used size: {}", heap.allocated_size());
+    }
+    for (auto i = 0u; i < 10u; i++) {
+        static_cast<void>(heap.destroy_buffer(i));
         LUISA_INFO("Used size: {}", heap.allocated_size());
     }
 }

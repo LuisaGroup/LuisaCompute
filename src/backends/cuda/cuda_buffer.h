@@ -13,13 +13,20 @@ class CUDAHeap;
 class CUDABuffer {
 
 private:
-    CUdeviceptr _handle;
+    union {
+        CUdeviceptr _handle;
+        size_t _index;
+    };
     CUDAHeap *_heap{nullptr};
 
 public:
-
-
+    explicit CUDABuffer(CUdeviceptr handle = 0u) noexcept
+        : _handle{handle} {}
+    CUDABuffer(CUDAHeap *heap, size_t index) noexcept
+        : _index{index}, _heap{heap} {}
+    [[nodiscard]] CUdeviceptr handle() const noexcept;
+    [[nodiscard]] auto index() const noexcept { return _index; }
+    [[nodiscard]] auto heap() const noexcept { return _heap; }
 };
 
-
-}
+}// namespace luisa::compute::cuda
