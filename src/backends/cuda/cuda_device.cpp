@@ -6,20 +6,20 @@
 #include <runtime/heap.h>
 #include <backends/cuda/cuda_heap.h>
 #include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_command_encoder.h>
 
 namespace luisa::compute::cuda {
 
 uint64_t CUDADevice::create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept {
-    auto from_heap = heap_handle != Heap::invalid_handle;
-    if (from_heap) {
+    if (heap_handle != Heap::invalid_handle) {// from heap
         return with_handle([heap = reinterpret_cast<CUDAHeap *>(heap_handle), index = index_in_heap, size = size_bytes] {
-            return reinterpret_cast<uint64_t>(heap->allocate_buffer(size, index));
+            return reinterpret_cast<uint64_t>(heap->allocate_buffer(index, size));
         });
     }
     return with_handle([size = size_bytes] {
         CUdeviceptr ptr = 0ul;
-        LUISA_CHECK_CUDA(cuMemAlloc(&ptr, size));
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&ptr, size, nullptr));
         return reinterpret_cast<uint64_t>(new CUDABuffer{ptr});
     });
 }
@@ -29,17 +29,171 @@ void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
         if (auto heap = buffer->heap(); heap != nullptr) {
             heap->destroy_buffer(buffer);
         } else {
-            LUISA_CHECK_CUDA(cuMemFree(buffer->handle()));
+            LUISA_CHECK_CUDA(cuMemFreeAsync(buffer->handle(), nullptr));
             delete buffer;
         }
     });
 }
 
 uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) {
-    return 0;
+
+    if (heap_handle != Heap::invalid_handle) {// from heap
+        return with_handle([heap = reinterpret_cast<CUDAHeap *>(heap_handle),
+                            index = index_in_heap,
+                            format, dimension,
+                            size = make_uint3(width, height, depth),
+                            mipmap_levels, sampler] {
+            return reinterpret_cast<uint64_t>(heap->allocate_texture(index, format, dimension, size, mipmap_levels, sampler));
+        });
+    }
+
+    return with_handle([format, dimension, size = make_uint3(width, height, depth)] {
+        CUarray_format array_format = CU_AD_FORMAT_UNSIGNED_INT8;
+        auto num_channels = 0;
+        switch (format) {
+            case PixelFormat::R8SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT8;
+                num_channels = 1;
+                break;
+            case PixelFormat::R8UInt:
+            case PixelFormat::R8UNorm:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT8;
+                num_channels = 1;
+                break;
+            case PixelFormat::RG8SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT8;
+                num_channels = 2;
+                break;
+            case PixelFormat::RG8UInt:
+            case PixelFormat::RG8UNorm:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT8;
+                num_channels = 2;
+                break;
+            case PixelFormat::RGBA8SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT8;
+                num_channels = 4;
+                break;
+            case PixelFormat::RGBA8UInt:
+            case PixelFormat::RGBA8UNorm:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT8;
+                num_channels = 4;
+                break;
+            case PixelFormat::R16SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT16;
+                num_channels = 1;
+                break;
+            case PixelFormat::R16UInt:
+            case PixelFormat::R16UNorm:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT16;
+                num_channels = 1;
+                break;
+            case PixelFormat::RG16SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT16;
+                num_channels = 2;
+                break;
+            case PixelFormat::RG16UInt:
+            case PixelFormat::RG16UNorm:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT16;
+                num_channels = 2;
+                break;
+            case PixelFormat::RGBA16SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT16;
+                num_channels = 4;
+                break;
+            case PixelFormat::RGBA16UInt:
+            case PixelFormat::RGBA16UNorm:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT16;
+                num_channels = 4;
+                break;
+            case PixelFormat::R32SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT32;
+                num_channels = 1;
+                break;
+            case PixelFormat::R32UInt:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT32;
+                num_channels = 1;
+                break;
+            case PixelFormat::RG32SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT32;
+                num_channels = 2;
+                break;
+            case PixelFormat::RG32UInt:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT32;
+                num_channels = 2;
+                break;
+            case PixelFormat::RGBA32SInt:
+                array_format = CU_AD_FORMAT_SIGNED_INT32;
+                num_channels = 4;
+                break;
+            case PixelFormat::RGBA32UInt:
+                array_format = CU_AD_FORMAT_UNSIGNED_INT32;
+                num_channels = 4;
+                break;
+            case PixelFormat::R16F:
+                array_format = CU_AD_FORMAT_HALF;
+                num_channels = 1;
+                break;
+            case PixelFormat::RG16F:
+                array_format = CU_AD_FORMAT_HALF;
+                num_channels = 2;
+                break;
+            case PixelFormat::RGBA16F:
+                array_format = CU_AD_FORMAT_HALF;
+                num_channels = 4;
+                break;
+            case PixelFormat::R32F:
+                array_format = CU_AD_FORMAT_FLOAT;
+                num_channels = 1;
+                break;
+            case PixelFormat::RG32F:
+                array_format = CU_AD_FORMAT_FLOAT;
+                num_channels = 2;
+                break;
+            case PixelFormat::RGBA32F:
+                array_format = CU_AD_FORMAT_FLOAT;
+                num_channels = 4;
+                break;
+        }
+
+        auto array = [dimension, array_format, num_channels, size] {
+            CUarray array_handle{nullptr};
+            if (dimension == 2u) {
+                CUDA_ARRAY_DESCRIPTOR array_desc{};
+                array_desc.Width = size.x;
+                array_desc.Height = size.y;
+                array_desc.Format = array_format;
+                array_desc.NumChannels = num_channels;
+                LUISA_CHECK_CUDA(cuArrayCreate(&array_handle, &array_desc));
+            } else {
+                CUDA_ARRAY3D_DESCRIPTOR array_desc{};
+                array_desc.Width = size.x;
+                array_desc.Height = size.y;
+                array_desc.Depth = size.z;
+                array_desc.Format = array_format;
+                array_desc.NumChannels = num_channels;
+                LUISA_CHECK_CUDA(cuArray3DCreate(&array_handle, &array_desc));
+            }
+            return array_handle;
+        }();
+        CUDA_RESOURCE_DESC resource_desc{};
+        resource_desc.resType = CU_RESOURCE_TYPE_ARRAY;
+        resource_desc.res.array.hArray = array;
+        CUsurfObject surface = 0u;
+        LUISA_CHECK_CUDA(cuSurfObjectCreate(&surface, &resource_desc));
+        return reinterpret_cast<uint64_t>(new CUDATexture{surface, array, dimension});
+    });
 }
 
 void CUDADevice::destroy_texture(uint64_t handle) noexcept {
+    with_handle([texture = reinterpret_cast<CUDATexture *>(handle)] {
+        if (auto heap = texture->heap(); heap != nullptr) {
+            heap->destroy_texture(texture);
+        } else {
+            LUISA_CHECK_CUDA(cuArrayDestroy(texture->array()));
+            LUISA_CHECK_CUDA(cuSurfObjectDestroy(texture->handle()));
+            delete texture;
+        }
+    });
 }
 
 uint64_t CUDADevice::create_heap(size_t size) noexcept {
@@ -62,26 +216,24 @@ void CUDADevice::destroy_heap(uint64_t handle) noexcept {
 
 uint64_t CUDADevice::create_stream() noexcept {
     return with_handle([&] {
-        CUstream stream = nullptr;
-        LUISA_CHECK_CUDA(cuStreamCreate(&stream, CU_STREAM_DEFAULT));
-        return reinterpret_cast<uint64_t>(stream);
+        return reinterpret_cast<uint64_t>(new CUDAStream);
     });
 }
 
 void CUDADevice::destroy_stream(uint64_t handle) noexcept {
-    with_handle([stream = reinterpret_cast<CUstream>(handle)] {
-        LUISA_CHECK_CUDA(cuStreamDestroy(stream));
+    with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
+        delete stream;
     });
 }
 
 void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
-    with_handle([stream = reinterpret_cast<CUstream>(handle)] {
-        LUISA_CHECK_CUDA(cuStreamSynchronize(stream));
+    with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
+        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle()));
     });
 }
 
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
-    with_handle([stream = reinterpret_cast<CUstream>(stream_handle), cmd_list = std::move(list)] {
+    with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle), cmd_list = std::move(list)] {
         CUDACommandEncoder encoder{stream};
         for (auto cmd : cmd_list) {
             cmd->accept(encoder);
@@ -113,15 +265,15 @@ void CUDADevice::destroy_event(uint64_t handle) noexcept {
 
 void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
     with_handle([event = reinterpret_cast<CUevent>(handle),
-                 stream = reinterpret_cast<CUstream>(stream_handle)] {
-        LUISA_CHECK_CUDA(cuEventRecord(event, stream));
+                 stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
+        LUISA_CHECK_CUDA(cuEventRecord(event, stream->handle()));
     });
 }
 
 void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     with_handle([event = reinterpret_cast<CUevent>(handle),
-                 stream = reinterpret_cast<CUstream>(stream_handle)] {
-        LUISA_CHECK_CUDA(cuStreamWaitEvent(stream, event, CU_EVENT_WAIT_DEFAULT));
+                 stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
+        LUISA_CHECK_CUDA(cuStreamWaitEvent(stream->handle(), event, CU_EVENT_WAIT_DEFAULT));
     });
 }
 
