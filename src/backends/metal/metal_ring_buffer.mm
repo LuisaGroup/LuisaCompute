@@ -42,7 +42,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
         return _free_begin + size <= _free_end ? _free_begin : _size;
     }();
 
-    if (offset == _size) {
+    if (offset == _size) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to allocate {} bytes from ring "
             "buffer with begin {} and end {}.",
@@ -57,7 +57,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
 void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
     std::scoped_lock lock{_mutex};
     if (_free_end + view.size() > _size) { _free_end = 0u; }
-    if (view.offset() != _free_end) {
+    if (view.offset() != _free_end) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid ring buffer item offset {} "
             "for recycling (expected {}).",

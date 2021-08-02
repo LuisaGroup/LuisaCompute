@@ -71,12 +71,12 @@ MetalHeap::MetalHeap(MetalDevice *device, size_t size) noexcept
         }
         switch (sampler.filter()) {
             case TextureSampler::Filter::POINT:
-                desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
+                desc.mipFilter = MTLSamplerMipFilterNearest;
                 desc.minFilter = MTLSamplerMinMagFilterNearest;
                 desc.magFilter = MTLSamplerMinMagFilterNearest;
                 break;
             case TextureSampler::Filter::BILINEAR:
-                desc.mipFilter = MTLSamplerMipFilterNotMipmapped;
+                desc.mipFilter = MTLSamplerMipFilterNearest;
                 desc.minFilter = MTLSamplerMinMagFilterLinear;
                 desc.magFilter = MTLSamplerMinMagFilterLinear;
                 break;

@@ -89,8 +89,15 @@ public:
     [[nodiscard]] MetalEvent *event(uint64_t handle) const noexcept;
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
     [[nodiscard]] MetalMesh *mesh(uint64_t handle) const noexcept;
-    [[nodiscard]] NSMutableArray<id<MTLAccelerationStructure>> *mesh_handles(std::span<const uint64_t> handles) noexcept;
     [[nodiscard]] MetalAccel *accel(uint64_t handle) const noexcept;
+
+    template<typename Visit>
+    void traverse_meshes(std::span<const uint64_t> handles, Visit &&f) const noexcept {
+        std::scoped_lock lock{_mesh_mutex};
+        for (auto h : handles) {
+            std::invoke(std::forward<Visit>(f), _mesh_slots[h].get());
+        }
+    }
 #endif
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
     [[nodiscard]] MetalHeap *heap(uint64_t handle) const noexcept;

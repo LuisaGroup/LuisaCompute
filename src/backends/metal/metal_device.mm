@@ -381,7 +381,7 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
 uint64_t MetalDevice::create_mesh() noexcept {
     check_raytracing_supported();
     Clock clock;
-    auto mesh = std::make_unique<MetalMesh>(_handle);
+    auto mesh = std::make_unique<MetalMesh>();
     LUISA_VERBOSE_WITH_LOCATION("Created mesh in {} ms.", clock.toc());
     std::scoped_lock lock{_mesh_mutex};
     if (_available_mesh_slots.empty()) {
@@ -537,15 +537,6 @@ MetalMesh *MetalDevice::mesh(uint64_t handle) const noexcept {
 MetalAccel *MetalDevice::accel(uint64_t handle) const noexcept {
     std::scoped_lock lock{_accel_mutex};
     return _accel_slots[handle].get();
-}
-
-NSMutableArray<id<MTLAccelerationStructure>> *MetalDevice::mesh_handles(std::span<const uint64_t> handles) noexcept {
-    auto array = [[NSMutableArray alloc] init];
-    std::scoped_lock lock{_mesh_mutex};
-    for (auto h : handles) {
-        [array addObject:_mesh_slots[h]->handle()];
-    }
-    return array;
 }
 
 MetalSharedBufferPool *MetalDevice::compacted_size_buffer_pool() const noexcept {
