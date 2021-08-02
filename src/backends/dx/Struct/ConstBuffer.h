@@ -1,6 +1,6 @@
 #pragma once
-#include <Common/MetaLib.h>
-#include <Common/vector.h>
+#include <core/vstl/MetaLib.h>
+#include <core/vstl/vector.h>
 class VENGINE_DLL_COMMON CBVarBase {
 protected:
 	size_t offset;

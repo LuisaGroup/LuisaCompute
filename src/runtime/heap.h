@@ -54,6 +54,7 @@ public:
             destroy_buffer(index);
         }
         auto buffer_handle = device()->create_buffer(size * sizeof(T), handle(), index);
+        _buffer_slots[index] = buffer_handle;
         return {buffer_handle, 0u, size};
     }
     void destroy_buffer(uint32_t index) noexcept;

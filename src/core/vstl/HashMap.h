@@ -1,13 +1,13 @@
 #pragma once
-#include <VEngineConfig.h>
+#include "vstlconfig.h"
 #include <type_traits>
 #include <stdint.h>
 #include <memory>
-#include <Common/Pool.h>
-#include <Common/vector.h>
-#include <Common/Hash.h>
-#include <Common/MetaLib.h>
-#include <Common/VAllocator.h>
+#include <core/vstl/Pool.h>
+#include <core/vstl/vector.h>
+#include <core/vstl/Hash.h>
+#include <core/vstl/MetaLib.h>
+#include <core/vstl/VAllocator.h>
 
 template<typename K, typename V, typename Hash = vstd::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap {

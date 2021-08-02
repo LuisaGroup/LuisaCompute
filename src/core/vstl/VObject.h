@@ -1,14 +1,14 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <atomic>
 #include <mutex>
-#include <Common/Runnable.h>
-#include <Common/MetaLib.h>
+#include <core/vstl/Runnable.h>
+#include <core/vstl/MetaLib.h>
 #include <assert.h>
-#include <Common/vector.h>
-#include <Common/Memory.h>
-#include <Common/Log.h>
-#include <Common/spin_mutex.h>
+#include <core/vstl/vector.h>
+#include <core/vstl/Memory.h>
+#include <core/vstl/vector.h>
+#include <core/spin_mutex.h>
 class PtrLink;
 class VObject;
 class VENGINE_DLL_COMMON VObject {
@@ -44,7 +44,7 @@ private:
 	std::atomic<int32_t> refCount;
 	std::atomic<int32_t> looseRefCount;
 	static ArrayList<LinkHeap*, VEngine_AllocType::Default> heapPtrs;
-	static spin_mutex mtx;
+	static luisa::spin_mutex mtx;
 	static LinkHeap* GetHeap(void* obj, void (*disp)(void*)) noexcept;
 	static void ReturnHeap(LinkHeap* value) noexcept;
 

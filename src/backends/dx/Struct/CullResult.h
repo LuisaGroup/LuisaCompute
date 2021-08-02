@@ -1,5 +1,5 @@
 #pragma once
-#include <Common/HashMap.h>
+#include <core/vstl/HashMap.h>
 #include <Struct/DrawCommand.h>
 #include <Common/BitVector.h>
 class Shader;

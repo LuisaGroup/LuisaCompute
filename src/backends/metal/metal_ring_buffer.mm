@@ -9,7 +9,7 @@
 
 namespace luisa::compute::metal {
 
-MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {// FIXME: seems not correct...
+MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
 
     // simple check
     if (size > _size) {

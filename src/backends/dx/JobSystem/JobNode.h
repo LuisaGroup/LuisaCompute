@@ -4,9 +4,9 @@
 #include <mutex>
 #include <condition_variable>
 #include <Common/LockFreeArrayQueue.h>
-#include <Common/Pool.h>
+#include <core/vstl/Pool.h>
 #include <Common/TypeWiper.h>
-#include <Common/MetaLib.h>
+#include <core/vstl/MetaLib.h>
 #include <Common/Runnable.h>
 #include <span>
 class JobHandle;

@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <Common/HashMap.h>
-#include <Common/vector.h>
+#include <core/vstl/HashMap.h>
+#include <core/vstl/vector.h>
 #include <Common/DLL.h>
 //Mesh layout generate key
 //input buffer slot, -1 for nothing

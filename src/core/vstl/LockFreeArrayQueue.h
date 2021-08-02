@@ -1,16 +1,16 @@
 #pragma once
 #include <thread>
-#include <Common/MetaLib.h>
-#include <Common/Memory.h>
-#include <Common/VAllocator.h>
-#include <Common/spin_mutex.h>
+#include <core/vstl/MetaLib.h>
+#include <core/vstl/Memory.h>
+#include <core/vstl/VAllocator.h>
+#include <core/spin_mutex.h>
 
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class LockFreeArrayQueue {
 	size_t head;
 	size_t tail;
 	size_t capacity;
-	mutable spin_mutex mtx;
+	mutable luisa::spin_mutex mtx;
 	T* arr;
 	VAllocHandle<allocType> allocHandle;
 	
@@ -28,7 +28,7 @@ public:
 			return ssize;
 		}(capacity);
 		this->capacity = capacity - 1;
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		arr = (T*)allocHandle.Malloc(sizeof(T) * capacity);
 	}
 	LockFreeArrayQueue(SelfType&& v)
@@ -46,7 +46,7 @@ public:
 
 	template<typename... Args>
 	void Push(Args&&... args) {
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
@@ -67,7 +67,7 @@ public:
 	}
 	template<typename... Args>
 	void PushInPlaceNew(Args&&... args) {
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
@@ -92,7 +92,7 @@ public:
 			ptr->~T();
 		}
 
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		if (head == tail)
 			return false;
 		auto&& value = arr[GetIndex(tail++, capacity)];
@@ -107,7 +107,7 @@ public:
 		return true;
 	}
 	vstd::optional<T> Pop() {
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		if (head == tail)
 			return vstd::optional<T>();
 
@@ -120,7 +120,7 @@ public:
 		return vstd::optional<T>(std::move(value));
 	}
 	bool DisposeLast() {
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		if (head == tail)
 			return false;
 		auto&& value = arr[GetIndex(tail++, capacity)];
@@ -136,7 +136,7 @@ public:
 		allocHandle.Free(arr);
 	}
 	size_t Length() const {
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		return head - tail;
 	}
 };

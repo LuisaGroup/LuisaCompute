@@ -1,8 +1,8 @@
 #pragma once
-#include <Common/vector.h>
+#include <core/vstl/vector.h>
 #include <fstream>
 #include <Common/vstring.h>
-#include <Common/MetaLib.h>
+#include <core/vstl/MetaLib.h>
 #include <Common/string_view.h>
 typedef unsigned int uint;
 enum class CharCutState : uint8_t

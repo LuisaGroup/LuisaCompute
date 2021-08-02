@@ -1,7 +1,7 @@
 #pragma once
-#include <Common/AllocateType.h>
-#include <Common/Memory.h>
-#include <Common/StackAllocator.h>
+#include <core/vstl/AllocateType.h>
+#include <core/vstl/Memory.h>
+#include <core/vstl/StackAllocator.h>
 
 template<VEngine_AllocType tt>
 struct VAllocHandle {

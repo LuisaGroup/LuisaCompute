@@ -1,8 +1,8 @@
 #pragma vengine_package vengine_dll
-#include <Common/StackAllocator.h>
-#include <Common/DXMath/DXMath.h>
-#include <Common/vstring.h>
-#include <Common/Log.h>
+#include <core/vstl/StackAllocator.h>
+#include <core/vstl/vstring.h>
+#include <core/vstl/vector.h>
+#include <core/logging.h>
 namespace valloc {
 
 struct StackData {
@@ -34,15 +34,18 @@ struct StackData {
 		offset += sz;
 #ifdef DEBUG
 		if (reinterpret_cast<size_t>(offset) - reinterpret_cast<size_t>(data) > VENGINE_STACK_LENGTH) {
-			VEngine_Log("Stack-Overflow!\n"_sv);
+            LUISA_ERROR_WITH_LOCATION("Stack-Overflow!\n");
 			VENGINE_EXIT;
 		}
 #endif
 		return ptr;
 	}
 	void ReleaseTo(uint8_t* result) {
+        auto getMin = [](auto a, auto b) {
+            return (a < b) ? a : b;
+        };
 		offset = reinterpret_cast<uint8_t*>(
-			Min(reinterpret_cast<size_t>(offset), reinterpret_cast<size_t>(result)));
+            getMin(reinterpret_cast<size_t>(offset), reinterpret_cast<size_t>(result)));
 	}
 };
 

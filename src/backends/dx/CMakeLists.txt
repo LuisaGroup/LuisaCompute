@@ -8,15 +8,13 @@ if (WIN32)
         CJsonObject/CJsonObject.cpp
         CJsonObject/JsonCompiler.cpp
         Common/Common.cpp
+        Common/DynamicDLL.cpp
         Common/DynamicLink.cpp
         Common/GameTimer.cpp
         Common/GFXUtil.cpp
         Common/Log.cpp
         Common/MathHelper.cpp
         Common/spin_mutex.cpp
-        Common/StackAllocator.cpp
-        Common/vengine_library.cpp
-        Common/VObject.cpp
         File/CopyDir.cpp
         File/FilePacker.cpp
         File/FileUtility.cpp

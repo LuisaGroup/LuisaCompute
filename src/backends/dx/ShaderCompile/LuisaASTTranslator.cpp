@@ -3,7 +3,7 @@
 #include <ast/constant_data.h>
 #include <Common/Common.h>
 #include <Common/VObject.h>
-#include <Common/linq.h>
+#include <core/vstl/linq.h>
 #include <ShaderCompile/LuisaASTTranslator.h>
 
 namespace luisa::compute {

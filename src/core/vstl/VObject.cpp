@@ -1,7 +1,10 @@
-#include <Common/VObject.h>
+#include <core/vstl/VObject.h>
+
+
+
 std::atomic<uint64_t> VObject::CurrentID = 0;
 ArrayList<LinkHeap*, VEngine_AllocType::Default> LinkHeap::heapPtrs;
-spin_mutex LinkHeap::mtx;
+luisa::spin_mutex LinkHeap::mtx;
 VObject::~VObject() noexcept {
 	for (auto ite = disposeFuncs.begin(); ite != disposeFuncs.end(); ++ite) {
 		(*ite)(this);
@@ -201,4 +204,15 @@ PtrLink::PtrLink(PtrWeakLink&& p) noexcept
 	}
 	p.heapPtr = nullptr;
 }
+
+
+vstd::string_view operator"" _sv(char const* str, size_t sz) {
+	return vstd::string_view(str, sz);
+}
+
+vstd::wstring_view operator"" _sv(wchar_t const* str, size_t sz) {
+	return vstd::wstring_view(str, sz);
+}
+
+
 #undef PRINT_SIZE

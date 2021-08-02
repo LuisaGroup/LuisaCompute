@@ -1,17 +1,17 @@
 #pragma once
-#include <VEngineConfig.h>
+#include "vstlconfig.h"
 #include <type_traits>
 #include <stdint.h>
 
 #include <atomic>
 #include <type_traits>
 #include <mutex>
-#include <Common/MetaLib.h>
-#include <Common/vector.h>
-#include <Common/Memory.h>
-#include <Common/RandomVector.h>
-#include <Common/VAllocator.h>
-#include <Common/spin_mutex.h>
+#include <core/vstl/MetaLib.h>
+#include <core/vstl/vector.h>
+#include <core/vstl/Memory.h>
+#include <core/vstl/RandomVector.h>
+#include <core/vstl/VAllocator.h>
+#include <core/spin_mutex.h>
 class PoolBase {
 public:
 	virtual void Delete(void* ptr) = 0;
@@ -341,7 +341,7 @@ class JobPool {
 private:
 	ArrayList<T*> allocatedPool;
 	ArrayList<T*> list[2];
-	spin_mutex mtx;
+	luisa::spin_mutex mtx;
 	bool switcher = false;
 	uint32_t capacity;
 	void ReserveList(ArrayList<T*>& vec) {
@@ -377,7 +377,7 @@ public:
 	void Delete(T* value) {
 		ArrayList<T*>& lst = list[!switcher];
 		value->Dispose();
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		lst.push_back(value);
 	}
 

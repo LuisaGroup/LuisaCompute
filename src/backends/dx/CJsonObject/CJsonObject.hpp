@@ -11,7 +11,7 @@
 #ifndef CJSONOBJECT_HPP_
 #define CJSONOBJECT_HPP_
 
-#include <Common/vector.h>
+#include <core/vstl/vector.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <malloc.h>
@@ -22,7 +22,7 @@
 #include <fstream>
 #include <list>
 #include <CJsonObject/cJSON.h>
-#include <Common/HashMap.h>
+#include <core/vstl/HashMap.h>
 #include <Common/DLL.h>
 #include <Common/vstring.h>
 template <typename T, bool b>

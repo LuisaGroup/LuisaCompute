@@ -19,7 +19,7 @@ typedef DirectX::XMFLOAT3X3 float3x3;
 typedef DirectX::XMFLOAT3X4 float3x4;
 typedef DirectX::XMFLOAT4X3 float4x3;
 
-#include <Common/Hash.h>
+#include <core/vstl/Hash.h>
 #include <Common/DXMath/Vector.h>
 #include <Common/DXMath/Quaternion.h>
 #include <Common/DXMath/Matrix4.h>

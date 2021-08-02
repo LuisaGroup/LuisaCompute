@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include <Common/Memory.h>
+#include <core/vstl/Memory.h>
 #include <Common/VAllocator.h>
 
 using uint = uint32_t;

@@ -1,14 +1,9 @@
-#pragma once
+#ifndef VENGINE_CONFIG_INCLUDE_
+#define VENGINE_CONFIG_INCLUDE_
 ///////////////////////// Switchers
 //#define VENGINE_REL_WITH_DEBUG_INFO
 //#define VENGINE_CLANG_COMPILER
-#define VENGINE_WINDOWS
 
-
-
-#ifdef VENGINE_WINDOWS
-#define MSVC
-#endif
 #define NOMINMAX
 ///////////////////////// Clang
 #ifdef VENGINE_CLANG_COMPILER
@@ -22,9 +17,8 @@
 #define VENGINE_EXIT throw 0
 #endif
 #ifndef UNICODE
-#define UNICODE //Disable this in non-unicode system
+#define UNICODE//Disable this in non-unicode system
 #endif
-
 
 #ifdef VENGINE_REL_WITH_DEBUG_INFO
 #define DEBUG
@@ -62,10 +56,14 @@
 #define VENGINE_STD_CALL _stdcall
 #define VENGINE_VECTOR_CALL _vectorcall
 #define VENGINE_FAST_CALL _fastcall
-#define VENGINE_DLL_FUNC extern "C" _declspec(dllexport)
 #define VENGINE_C_FUNC extern "C"
-
-#define VENGINE_EXTERN_C_TO_UNITY extern "C" _declspec(dllexport)
+//TODO: other platform
+#ifdef LUISA_COMPUTE_CORE_INTERNAL
+#define VENGINE_C_FUNC_COMMON extern "C" _declspec(dllexport)
+#else
+#define VENGINE_C_FUNC_COMMON extern "C" _declspec(dllimport)
+#endif
 
 
 /////////////////////// THREAD PAUSE
+#endif
