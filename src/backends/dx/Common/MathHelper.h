@@ -5,11 +5,11 @@
 //***************************************************************************************
 
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <cstdint>
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 #include <Common/Common.h>
 
 class MathHelper

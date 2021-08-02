@@ -2,7 +2,7 @@
 #include <ast/interface.h>
 #include <ast/constant_data.h>
 #include <Common/Common.h>
-#include <Common/VObject.h>
+#include <core/vstl/VObject.h>
 #include <core/vstl/linq.h>
 #include <ShaderCompile/LuisaASTTranslator.h>
 

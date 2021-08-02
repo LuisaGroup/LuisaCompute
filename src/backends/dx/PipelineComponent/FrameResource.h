@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/Common.h>
-#include <Common/VObject.h>
+#include <core/vstl/VObject.h>
 #include <PipelineComponent/ThreadCommand.h>
 #include <RenderComponent/CBufferAllocator.h>
 namespace luisa::compute {

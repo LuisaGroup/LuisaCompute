@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/Common.h>
-#include <Common/VObject.h>
-#include <Common/LockFreeArrayQueue.h>
+#include <core/vstl/VObject.h>
+#include <core/vstl/LockFreeArrayQueue.h>
 #include <JobSystem/ThreadTaskHandle.h>
 class VENGINE_DLL_COMMON ThreadPool final {
 	friend class ThreadTaskHandle;
@@ -19,7 +19,7 @@ class VENGINE_DLL_COMMON ThreadPool final {
 	std::atomic_flag enabled;
 	std::mutex threadLock;
 	std::mutex backupThreadLock;
-	spin_mutex threadVectorLock;
+	luisa::spin_mutex threadVectorLock;
 	std::condition_variable cv;
 	std::condition_variable backupCV;
 	void ExecuteTask(ObjectPtr<ThreadTaskHandle::TaskData> const& task);

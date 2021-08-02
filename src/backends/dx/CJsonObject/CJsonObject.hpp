@@ -23,8 +23,8 @@
 #include <list>
 #include <CJsonObject/cJSON.h>
 #include <core/vstl/HashMap.h>
-#include <Common/DLL.h>
-#include <Common/vstring.h>
+#include <Common/DynamicDLL.h>
+#include <core/vstl/vstring.h>
 template <typename T, bool b>
 class StackObject;
 namespace neb

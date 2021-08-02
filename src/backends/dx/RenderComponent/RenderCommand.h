@@ -2,7 +2,7 @@
 #include <Common/GFXUtil.h>
 #include <core/vstl/Pool.h>
 #include <mutex>
-#include <Common/LockFreeArrayQueue.h>
+#include <core/vstl/LockFreeArrayQueue.h>
 class RenderCommand;
 class ThreadCommand;
 struct RenderCommandExecutable {

@@ -2,7 +2,7 @@
 #include <Common/GFXUtil.h>
 #include <core/vstl/HashMap.h>
 #include <core/vstl/vector.h>
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 //Mesh layout generate key
 //input buffer slot, -1 for nothing
 struct MeshLayoutKey {

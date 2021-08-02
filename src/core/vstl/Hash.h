@@ -1,5 +1,5 @@
 #pragma once
-#include "vstlconfig.h"
+#include <core/vstl/vstlconfig.h>
 #include <stdint.h>
 class Hash
 {

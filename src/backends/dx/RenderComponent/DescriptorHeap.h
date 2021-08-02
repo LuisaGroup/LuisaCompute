@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <Common/VObject.h>
+#include <core/vstl/VObject.h>
 #include <core/vstl/vector.h>
 class GPUResourceBase;
 class ThreadCommand;
@@ -67,7 +67,7 @@ private:
 		}
 	};
 	BindData* recorder = nullptr;
-	mutable spin_mutex mtx;
+	mutable luisa::spin_mutex mtx;
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> pDH;
 	D3D12_DESCRIPTOR_HEAP_DESC Desc;
 	D3D12_CPU_DESCRIPTOR_HANDLE hCPUHeapStart;

@@ -12,7 +12,7 @@
 //
 
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 
 #include <DirectXMath.h>
 #include <intrin.h>

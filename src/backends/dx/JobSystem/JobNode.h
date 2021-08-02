@@ -1,13 +1,13 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
-#include <Common/LockFreeArrayQueue.h>
+#include <core/vstl/LockFreeArrayQueue.h>
 #include <core/vstl/Pool.h>
 #include <Common/TypeWiper.h>
 #include <core/vstl/MetaLib.h>
-#include <Common/Runnable.h>
+#include <core/vstl/Runnable.h>
 #include <span>
 class JobHandle;
 class JobThreadRunnable;

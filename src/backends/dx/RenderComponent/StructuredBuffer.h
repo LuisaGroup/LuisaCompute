@@ -23,7 +23,7 @@ private:
 	ArrayList<uint64_t> offsets;
 	GPUResourceState initState;
 	bool usedAsMesh;
-	mutable spin_mutex descLock;
+	mutable luisa::spin_mutex descLock;
 	mutable uint srvDescIndex = -1;
 	mutable uint uavDescIndex = -1;
 	IBufferAllocator* allocator;

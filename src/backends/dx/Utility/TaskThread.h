@@ -3,7 +3,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 #include <core/vstl/Memory.h>
 class   TaskThread
 {

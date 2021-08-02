@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/Common.h>
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 
 #define Deg2Rad 0.0174532924
 #define Rad2Deg  57.29578

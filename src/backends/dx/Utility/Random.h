@@ -1,6 +1,6 @@
 #pragma once
 #include <random>
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 typedef uint32_t uint;
 class  Random
 {

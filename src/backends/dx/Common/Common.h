@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <memory>
 //#include <algorithm>
 #include <array>
@@ -14,4 +14,4 @@
 #include <core/vstl/vector.h>
 #include <Common/DXMath/DXMath.h>
 #include <Common/MathHelper.h>
-#include <Common/spin_mutex.h>
+#include <core/spin_mutex.h>

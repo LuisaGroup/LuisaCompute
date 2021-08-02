@@ -108,7 +108,7 @@ vstd::string dxcpath;
 vstd::string fxcversion;
 vstd::string fxcpath;
 vstd::string pathFolder;
-static spin_mutex outputMtx;
+static luisa::spin_mutex outputMtx;
 static vstd::vector<vstd::string> errorMessage;
 
 enum class Compiler : bool {
@@ -373,7 +373,7 @@ void HLSLCompiler::CompileComputeShader(
 	ProcessorData data;
 	CreateChildProcess(kernelCommand, &data);
 	if (!func(tempFile, &data)) {
-		std::lock_guard<spin_mutex> lck(outputMtx);
+		std::lock_guard<luisa::spin_mutex> lck(outputMtx);
 		std::cout << kernelCommand << '\n';
 		std::cout << vstd::string("ComputeShader "_sv) + fileName + " Failed!"_sv << std::endl;
 		return;
@@ -395,7 +395,7 @@ void HLSLCompiler::CompileDXRShader(
 	resultData.clear();
 	resultData.reserve(65536);
 	if (raypayloadMaxSize == 0) {
-		std::lock_guard<spin_mutex> lck(outputMtx);
+		std::lock_guard<luisa::spin_mutex> lck(outputMtx);
 		std::cout << "Raypayload Invalid! \n"_sv;
 		std::cout << vstd::string("DXRShader "_sv) + fileName + " Failed!"_sv;
 
@@ -438,7 +438,7 @@ void HLSLCompiler::CompileDXRShader(
 	ProcessorData data;
 	CreateChildProcess(kernelCommand, &data);
 	if (!func(tempPath, &data)) {
-		std::lock_guard<spin_mutex> lck(outputMtx);
+		std::lock_guard<luisa::spin_mutex> lck(outputMtx);
 		std::cout << vstd::string("DXRShader "_sv) + fileName + " Failed!"_sv;
 
 	}
