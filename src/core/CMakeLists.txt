@@ -12,12 +12,15 @@ set(LUISA_COMPUTE_CORE_SOURCES
     dynamic_module.cpp dynamic_module.h
     basic_types.cpp basic_types.h
     intrin.h
-    clock.h
-    vstl/vstl.cpp
-    vstl/vengine_library.cpp
-    vstl/StackAllocator.cpp
-    vstl/VObject.cpp
-    )
+    clock.h)
+
+if (WIN32)
+    list(APPEND LUISA_COMPUTE_CORE_SOURCES
+         vstl/vstl.cpp
+         vstl/vengine_library.cpp
+         vstl/StackAllocator.cpp
+         vstl/VObject.cpp)
+endif ()
 
 find_package(Threads REQUIRED)
 
