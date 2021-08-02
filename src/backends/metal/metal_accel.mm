@@ -68,12 +68,12 @@ id<MTLCommandBuffer> MetalAccel::build(
         }
     });
     _resources.emplace_back(_instance_buffer);
-    auto dedup = [](auto &v) noexcept {
+    auto deduplicate = [](auto &v) noexcept {
         std::sort(v.begin(), v.end());
         v.erase(std::unique(v.begin(), v.end()), v.end());
     };
-    dedup(_resources);
-    dedup(_heaps);
+    deduplicate(_resources);
+    deduplicate(_heaps);
     LUISA_VERBOSE_WITH_LOCATION(
         "Building accel with reference to {} resource(s) and {} heap(s).",
         _resources.size(), _heaps.size());
