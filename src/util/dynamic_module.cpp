@@ -1,4 +1,4 @@
-#include <core/dynamic_module.h>
+#include <util/dynamic_module.h>
 
 namespace luisa {
 

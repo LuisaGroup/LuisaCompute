@@ -9,7 +9,7 @@
 #include <memory>
 #include <functional>
 
-#include <core/memory.h>
+#include <util/arena.h>
 #include <core/concepts.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>

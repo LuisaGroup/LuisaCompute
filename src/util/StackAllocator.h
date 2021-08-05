@@ -1,5 +1,5 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <stdint.h>
 #include <type_traits>
 class VENGINE_DLL_COMMON StackBuffer {

@@ -1,11 +1,11 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <stdint.h>
 #include <xhash>
 #include <iostream>
-#include <core/vstl/Hash.h>
-#include <core/vstl/Memory.h>
-#include <core/vstl/string_view.h>
+#include <util/Hash.h>
+#include <util/Memory.h>
+#include <util/string_view.h>
 namespace vstd {
 class VENGINE_DLL_COMMON string {
 	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const string& obj) noexcept;
@@ -468,7 +468,7 @@ inline vstd::wstring operator+(const wchar_t* c, const vstd::wstring& str) noexc
 	return vstd::wstring(c, str);
 }
 
-#include <core/vstl/Hash.h>
+#include <util/Hash.h>
 namespace vstd {
 template<>
 struct hash<vstd::string> {

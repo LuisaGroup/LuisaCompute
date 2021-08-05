@@ -5,7 +5,7 @@
 #pragma once
 
 #include <core/concepts.h>
-#include <core/memory.h>
+#include <util/arena.h>
 #include <ast/variable.h>
 #include <ast/expression.h>
 

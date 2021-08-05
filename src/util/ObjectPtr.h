@@ -1,5 +1,5 @@
 #pragma once
-#include <core/vstl/Memory.h>
+#include <util/Memory.h>
 class PtrLink;
 class PtrWeakLink;
 class VObject;

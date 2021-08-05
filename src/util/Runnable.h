@@ -1,11 +1,11 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <stdint.h>
-#include <core/vstl/Hash.h>
-#include <core/vstl/Memory.h>
+#include <util/Hash.h>
+#include <util/Memory.h>
 #include <type_traits>
 #include <new>
-#include <core/vstl/VAllocator.h>
+#include <util/VAllocator.h>
 
 template<class T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class Runnable;

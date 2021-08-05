@@ -1,9 +1,9 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <cstdlib>
 #include <stdint.h>
 #include <type_traits>
-#include <core/vstl/MetaLib.h>
+#include <util/MetaLib.h>
 VENGINE_C_FUNC_COMMON void* vengine_default_malloc(size_t sz);
 VENGINE_C_FUNC_COMMON void vengine_default_free(void* ptr);
 

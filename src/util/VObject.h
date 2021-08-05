@@ -1,14 +1,14 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <atomic>
 #include <mutex>
-#include <core/vstl/Runnable.h>
-#include <core/vstl/MetaLib.h>
+#include <util/Runnable.h>
+#include <util/MetaLib.h>
 #include <assert.h>
-#include <core/vstl/vector.h>
-#include <core/vstl/Memory.h>
-#include <core/vstl/vector.h>
-#include <core/spin_mutex.h>
+#include <util/vector.h>
+#include <util/Memory.h>
+#include <util/vector.h>
+#include <util/spin_mutex.h>
 class PtrLink;
 class VObject;
 class VENGINE_DLL_COMMON VObject {

@@ -12,6 +12,7 @@ endif ()
 
 add_subdirectory(ext)
 add_subdirectory(core)
+add_subdirectory(util)
 add_subdirectory(ast)
 add_subdirectory(runtime)
 add_subdirectory(compile)
@@ -23,6 +24,7 @@ add_subdirectory(python)
 add_library(luisa-compute INTERFACE)
 target_link_libraries(luisa-compute INTERFACE
                       luisa-compute-core
+                      luisa-compute-util
                       luisa-compute-ast
                       luisa-compute-compile
                       luisa-compute-runtime

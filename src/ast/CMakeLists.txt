@@ -11,7 +11,7 @@ set(LUISA_COMPUTE_AST_SOURCES
     op.h usage.h)
 
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
-target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core)
+target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-util)
 set_target_properties(luisa-compute-ast PROPERTIES
                       WINDOWS_EXPORT_ALL_SYMBOLS ON
                       UNITY_BUILD ON)

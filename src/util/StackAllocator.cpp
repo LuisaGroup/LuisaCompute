@@ -1,7 +1,7 @@
 #pragma vengine_package vengine_dll
-#include <core/vstl/StackAllocator.h>
-#include <core/vstl/vstring.h>
-#include <core/vstl/vector.h>
+#include <util/StackAllocator.h>
+#include <util/vstring.h>
+#include <util/vector.h>
 #include <core/logging.h>
 namespace valloc {
 

@@ -1,5 +1,5 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <stdint.h>
 enum class VEngine_AllocType : uint8_t {
 	Default,

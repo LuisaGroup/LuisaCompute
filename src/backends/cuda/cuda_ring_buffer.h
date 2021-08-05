@@ -7,7 +7,7 @@
 #include <span>
 #include <cuda.h>
 
-#include <core/spin_mutex.h>
+#include <util/spin_mutex.h>
 #include <core/mathematics.h>
 #include <backends/cuda/cuda_error.h>
 

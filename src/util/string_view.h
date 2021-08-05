@@ -1,7 +1,7 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <stdint.h>
-#include <core/vstl/MetaLib.h>
+#include <util/MetaLib.h>
 #include <iostream>
 #include <string.h>
 namespace vstd {

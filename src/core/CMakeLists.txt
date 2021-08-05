@@ -1,26 +1,15 @@
 set(LUISA_COMPUTE_CORE_SOURCES
     logging.cpp
     logging.h
-    memory.cpp memory.h
     concepts.h
     hash.cpp hash.h
     macro.h
-    union.h
     platform.cpp platform.h
     mathematics.h
     atomic.h
-    dynamic_module.cpp dynamic_module.h
     basic_types.cpp basic_types.h
     intrin.h
     clock.h)
-
-if (WIN32)
-    list(APPEND LUISA_COMPUTE_CORE_SOURCES
-         vstl/vstl.cpp
-         vstl/vengine_library.cpp
-         vstl/StackAllocator.cpp
-         vstl/VObject.cpp)
-endif ()
 
 find_package(Threads REQUIRED)
 

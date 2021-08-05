@@ -1,9 +1,9 @@
 #pragma once
 #include <thread>
-#include <core/vstl/MetaLib.h>
-#include <core/vstl/Memory.h>
-#include <core/vstl/VAllocator.h>
-#include <core/spin_mutex.h>
+#include <util/MetaLib.h>
+#include <util/Memory.h>
+#include <util/VAllocator.h>
+#include <util/spin_mutex.h>
 
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class LockFreeArrayQueue {

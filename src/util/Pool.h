@@ -1,17 +1,17 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <type_traits>
 #include <stdint.h>
 
 #include <atomic>
 #include <type_traits>
 #include <mutex>
-#include <core/vstl/MetaLib.h>
-#include <core/vstl/vector.h>
-#include <core/vstl/Memory.h>
-#include <core/vstl/RandomVector.h>
-#include <core/vstl/VAllocator.h>
-#include <core/spin_mutex.h>
+#include <util/MetaLib.h>
+#include <util/vector.h>
+#include <util/Memory.h>
+#include <util/RandomVector.h>
+#include <util/VAllocator.h>
+#include <util/spin_mutex.h>
 class PoolBase {
 public:
 	virtual void Delete(void* ptr) = 0;

@@ -1,6 +1,6 @@
 #pragma once
-#include <core/vstl/MetaLib.h>
-#include <core/vstl/vector.h>
+#include <util/MetaLib.h>
+#include <util/vector.h>
 
 namespace vstd::linq {
 

@@ -1,5 +1,5 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <type_traits>
 #include <stdint.h>
 using uint = uint32_t;

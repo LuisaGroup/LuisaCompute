@@ -4,7 +4,7 @@
 
 #pragma once
 
-#import <core/spin_mutex.h>
+#import <util/spin_mutex.h>
 #import <core/mathematics.h>
 #import <backends/metal/metal_buffer_view.h>
 

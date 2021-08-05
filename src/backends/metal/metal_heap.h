@@ -7,7 +7,7 @@
 #import <unordered_set>
 #import <Metal/Metal.h>
 
-#import <core/spin_mutex.h>
+#import <util/spin_mutex.h>
 #import <runtime/heap.h>
 
 namespace luisa::compute::metal {

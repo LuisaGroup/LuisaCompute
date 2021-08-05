@@ -1,12 +1,12 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <memory>
 #include <initializer_list>
 #include <type_traits>
-#include <core/vstl/Memory.h>
-#include <core/vstl/VAllocator.h>
+#include <util/Memory.h>
+#include <util/VAllocator.h>
 #include <span>
 namespace vstd {
 

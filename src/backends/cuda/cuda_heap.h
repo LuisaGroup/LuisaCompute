@@ -9,7 +9,7 @@
 
 #include <cuda.h>
 
-#include <core/spin_mutex.h>
+#include <util/spin_mutex.h>
 #include <runtime/texture.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_buffer.h>

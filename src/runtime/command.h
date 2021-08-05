@@ -15,7 +15,7 @@
 #include <core/clock.h>
 #include <core/logging.h>
 #include <core/basic_types.h>
-#include <core/memory.h>
+#include <util/arena.h>
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>

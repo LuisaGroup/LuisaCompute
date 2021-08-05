@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
-#include <core/vstl/Memory.h>
-#include <core/vstl/VAllocator.h>
+#include <util/Memory.h>
+#include <util/VAllocator.h>
 
 using uint = uint32_t;
 template<typename T, bool isPureValueType = false, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
