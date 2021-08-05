@@ -4,7 +4,7 @@ set(LUISA_COMPUTE_UTIL_SOURCES
     spin_mutex.h)
 
 if (WIN32)
-    list(APPEND LUISA_COMPUTE_CORE_SOURCES
+    list(APPEND LUISA_COMPUTE_UTIL_SOURCES
          vstl.cpp
          vengine_library.cpp
          StackAllocator.cpp
