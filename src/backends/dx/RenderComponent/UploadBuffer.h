@@ -33,7 +33,7 @@ private:
 	IBufferAllocator* allocator;
 	uint64 mElementCount;
 	uint64 mElementByteSize;
-	mutable spin_mutex srvDescLock;
+	mutable luisa::spin_mutex srvDescLock;
 	mutable uint srvDescIndex = -1;
 	bool mIsConstantBuffer;
 	void InitGlobalDesc(GFXDevice* device) const;

@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/MCollection.h>
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 class  Actor final
 {
 private:

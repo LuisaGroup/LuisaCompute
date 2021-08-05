@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 class IGPUResourceState {
 public:
 	virtual GFXResourceState GetGFXResourceState(GPUResourceState gfxState) const {

@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <Common/Runnable.h>
+#include <core/vstl/Runnable.h>
 namespace luisa::compute {
 class DXEvent {
 public:

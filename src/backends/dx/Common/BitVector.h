@@ -1,5 +1,5 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <memory>
 #include <stdint.h>
 #include <core/vstl/Memory.h>

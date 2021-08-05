@@ -13,7 +13,7 @@ struct LinkTarget {
 struct LinkMap {
 	using HashMapType = HashMap<string_view, LinkTarget, hash<string_view>, std::equal_to<string_view>, VEngine_AllocType::Default>;
 	StackObject<HashMapType> map;
-	spin_mutex mtx;
+	luisa::spin_mutex mtx;
 	LinkMap() {
 		{
 			std::lock_guard lck(mtx);

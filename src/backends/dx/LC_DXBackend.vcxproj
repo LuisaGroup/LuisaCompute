@@ -188,7 +188,6 @@
 		<ClCompile Include="Common/GFXUtil.cpp" />
 		<ClCompile Include="Common/Log.cpp" />
 		<ClCompile Include="Common/MathHelper.cpp" />
-		<ClCompile Include="Common/spin_mutex.cpp" />
 		<ClCompile Include="File/CopyDir.cpp" />
 		<ClCompile Include="File/FilePacker.cpp" />
 		<ClCompile Include="File/FileUtility.cpp" />
@@ -219,7 +218,7 @@
 		<ClCompile Include="RenderComponent/StructuredBuffer.cpp" />
 		<ClCompile Include="RenderComponent/Texture.cpp" />
 		<ClCompile Include="RenderComponent/TextureBase.cpp" />
-		<ClCompile Include="RenderComponent/Heap.cpp" />
+		<ClCompile Include="RenderComponent/TextureHeap.cpp" />
 		<ClCompile Include="RenderComponent/UploadBuffer.cpp" />
 		<ClCompile Include="RenderComponent/Utility/CommandSignature.cpp" />
 		<ClCompile Include="RenderComponent/Utility/D3D12MemoryAllocator/D3D12MemAlloc.cpp" />
@@ -283,7 +282,6 @@
 		<ClInclude Include="Common/MCollection.h" />
 		<ClInclude Include="Common/PoolAllocator.h" />
 		<ClInclude Include="Common/RandomVector.h" />
-		<ClInclude Include="Common/spin_mutex.h" />
 		<ClInclude Include="Common/Tuple.h" />
 		<ClInclude Include="Common/TypeWiper.h" />
 		<ClInclude Include="File/CopyDir.h" />
@@ -331,7 +329,7 @@
 		<ClInclude Include="RenderComponent/StructuredBuffer.h" />
 		<ClInclude Include="RenderComponent/Texture.h" />
 		<ClInclude Include="RenderComponent/TextureBase.h" />
-		<ClInclude Include="RenderComponent/Heap.h" />
+		<ClInclude Include="RenderComponent/TextureHeap.h" />
 		<ClInclude Include="RenderComponent/UploadBuffer.h" />
 		<ClInclude Include="RenderComponent/Utility/CommandSignature.h" />
 		<ClInclude Include="RenderComponent/Utility/CullingMask.h" />
@@ -390,7 +388,6 @@
 		<ClInclude Include="Utility/StringUtility.h" />
 		<ClInclude Include="Utility/TaskThread.h" />
 		<ClInclude Include="Utility/ThreadResetEvent.h" />
-		<ClInclude Include="VEngineConfig.h" />
 	</ItemGroup>
 	<ItemGroup>
 		<ClInclude Include="CJsonObject/CJsonObject.hpp" />

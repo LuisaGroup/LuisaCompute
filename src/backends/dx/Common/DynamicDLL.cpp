@@ -1,11 +1,11 @@
 #include <Common/DynamicDLL.h>
 #include <Windows.h>
+#include <core/logging.h>
 DynamicDLL::DynamicDLL(char const* name) {
 	inst = reinterpret_cast<size_t>(LoadLibraryA(name));
 	if (inst == 0) {
 		LUISA_ERROR_WITH_LOCATION(
-			{"Can not find DLL ",
-			 name});
+			"Can not find DLL ");
 		VENGINE_EXIT;
 	}
 }

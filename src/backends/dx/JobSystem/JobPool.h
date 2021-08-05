@@ -6,7 +6,7 @@ class JobPool {
 private:
 	ArrayList<T*> allocatedPool;
 	ArrayList<T*> list[2];
-	spin_mutex mtx;
+	luisa::spin_mutex mtx;
 	bool switcher = false;
 	uint32_t capacity;
 	void ReserveList(ArrayList<T*>& vec) {
@@ -42,7 +42,7 @@ public:
 	void Delete(T* value) {
 		ArrayList<T*>& lst = list[!switcher];
 		value->Dispose();
-		std::lock_guard<spin_mutex> lck(mtx);
+		std::lock_guard<luisa::spin_mutex> lck(mtx);
 		lst.push_back(value);
 	}
 

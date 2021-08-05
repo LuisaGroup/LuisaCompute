@@ -1,5 +1,5 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <intrin.h>
@@ -24,7 +24,7 @@ typedef DirectX::XMFLOAT4X3 float4x3;
 #include <Common/DXMath/Quaternion.h>
 #include <Common/DXMath/Matrix4.h>
 #include <Common/DXMath/Matrix3.h>
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 #include <memory>
 #include <initializer_list>
 

@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <Common/VObject.h>
+#include <core/vstl/VObject.h>
 #include <core/vstl/MetaLib.h>
 #include <RenderComponent/DescriptorHeap.h>
 struct DescHeapElement

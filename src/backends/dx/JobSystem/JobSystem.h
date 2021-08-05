@@ -1,7 +1,7 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <core/vstl/Pool.h>
-#include <Common/LockFreeArrayQueue.h>
+#include <core/vstl/LockFreeArrayQueue.h>
 #include <atomic>
 #include <stdint.h>
 #include <core/vstl/MetaLib.h>

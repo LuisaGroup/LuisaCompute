@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/Common.h>
-#include <Common/Runnable.h>
-#include <Common/VObject.h>
+#include <core/vstl/Runnable.h>
+#include <core/vstl/VObject.h>
 #include <span>
 class ThreadPool;
 class VENGINE_DLL_COMMON ThreadTaskHandle {

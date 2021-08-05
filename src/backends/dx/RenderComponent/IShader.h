@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <Common/VObject.h>
+#include <core/vstl/VObject.h>
 #include <CJsonObject/BinaryJson.h>
 #include <Struct/ShaderVariableType.h>
 class DescriptorHeap;

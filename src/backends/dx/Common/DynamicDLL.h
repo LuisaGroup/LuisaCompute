@@ -1,7 +1,7 @@
 #pragma once
-#include <VEngineConfig.h>
-#include <Common/vstring.h>
-#include <Common/Memory.h>
+#include <core/vstl/vstlconfig.h>
+#include <core/vstl/vstring.h>
+#include <core/vstl/Memory.h>
 #include <Common/Log.h>
 class VENGINE_DLL_COMMON DynamicDLL final : public vstd::IOperatorNewBase {
 	size_t inst;

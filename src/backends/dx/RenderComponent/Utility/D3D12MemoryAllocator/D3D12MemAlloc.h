@@ -9,7 +9,7 @@
 #include <d3d12.h>
 #include <dxgi.h>
 #endif
-#include <Common/DLL.h>
+#include <Common/DynamicDLL.h>
 #include <Common/GFXUtil.h>
 
 /*

@@ -2,10 +2,10 @@
 #include <Common/GFXUtil.h>
 #include <PipelineComponent/CommandAllocator.h>
 #include <PipelineComponent/ThreadCommand.h>
-#include <Common/LockFreeArrayQueue.h>
+#include <core/vstl/LockFreeArrayQueue.h>
 #include <runtime/command_list.h>
 #include <PipelineComponent/FrameResource.h>
-#include <Common/Runnable.h>
+#include <core/vstl/Runnable.h>
 #include <RHI/DXCommandVisitor.h>
 
 namespace luisa::compute {

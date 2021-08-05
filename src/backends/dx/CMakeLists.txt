@@ -14,7 +14,6 @@ if (WIN32)
         Common/GFXUtil.cpp
         Common/Log.cpp
         Common/MathHelper.cpp
-        Common/spin_mutex.cpp
         File/CopyDir.cpp
         File/FilePacker.cpp
         File/FileUtility.cpp

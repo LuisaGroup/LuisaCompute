@@ -1,10 +1,10 @@
 #pragma once
-#include <VEngineConfig.h>
+#include <core/vstl/vstlconfig.h>
 #include <initializer_list>
 #include <JobSystem/JobHandle.h>
 #include <core/vstl/Pool.h>
 #include <Common/TypeWiper.h>
-#include <Common/Runnable.h>
+#include <core/vstl/Runnable.h>
 #include <core/vstl/MetaLib.h>
 #include <JobSystem/JobSystem.h>
 class JobSystem;

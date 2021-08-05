@@ -1,5 +1,5 @@
 #pragma once
-#include <Common/VObject.h>
+#include <core/vstl/VObject.h>
 #include <core/vstl/vector.h>
 #include <RenderComponent/TextureBase.h>
 #include <core/vstl/Memory.h>

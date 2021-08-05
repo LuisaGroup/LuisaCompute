@@ -6,7 +6,7 @@ struct ShaderIDGlobal {
 	static constexpr uint INIT_CAPACITY = 128;
 	uint currentCount{};
 	HashMap<uint, uint> lcShaderIndices{INIT_CAPACITY};
-	spin_mutex mtx;
+	luisa::spin_mutex mtx;
 	ShaderIDGlobal() noexcept = default;
 };
 static StackObject<ShaderIDGlobal, true> glb;
