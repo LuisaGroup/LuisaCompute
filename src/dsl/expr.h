@@ -374,7 +374,8 @@ public:
                       ? FunctionBuilder::current()->literal(Type::of<uint2>(), image.offset())
                       : nullptr} {}
 
-    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
+    [[nodiscard]] auto expression() const noexcept { return _expression; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
 
     [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
         auto f = FunctionBuilder::current();
@@ -421,7 +422,8 @@ public:
                       ? FunctionBuilder::current()->literal(Type::of<uint3>(), volume.offset())
                       : nullptr} {}
 
-    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
+    [[nodiscard]] auto expression() const noexcept { return _expression; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
 
     [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept {
         return Expr<Vector<T, 4>>{FunctionBuilder::current()->call(

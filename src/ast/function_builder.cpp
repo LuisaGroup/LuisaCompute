@@ -376,4 +376,44 @@ const RefExpr *FunctionBuilder::accel() noexcept {
     return _ref(v);
 }
 
+const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::span<const Expression *const> args) noexcept {
+    if (call_op == CallOp::CUSTOM) [[unlikely]] {
+      LUISA_ERROR_WITH_LOCATION(
+          "Custom functions are not allowed to "
+          "be called with enum CallOp.");
+    }
+    ArenaVector func_args{*_arena, args};
+    auto expr = _arena->create<CallExpr>(type, call_op, func_args);
+    _call_expressions.emplace_back(expr);
+    if (std::find(_used_builtin_callables.cbegin(),
+                  _used_builtin_callables.cend(),
+                  call_op)
+                  == _used_builtin_callables.cend()) {
+        _used_builtin_callables.emplace_back(call_op);
+    }
+    return expr;
+}
+
+const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::span<const Expression *const> args) noexcept {
+    if (custom.tag() != Function::Tag::CALLABLE) {
+        LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
+    }
+    ArenaVector func_args{*_arena, args};
+    auto expr = _arena->create<CallExpr>(type, custom, func_args);
+    _call_expressions.emplace_back(expr);
+    if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), custom);
+    iter == _used_custom_callables.cend()) {
+        _used_custom_callables.emplace_back(custom);
+    }
+    return expr;
+}
+
+void FunctionBuilder::call(CallOp call_op, std::span<const Expression *const> args) noexcept {
+    _void_expr(call(nullptr, call_op, args));
+}
+
+void FunctionBuilder::call(Function custom, std::span<const Expression *const> args) noexcept {
+    _void_expr(call(nullptr, custom, args));
+}
+
 }// namespace luisa::compute::detail

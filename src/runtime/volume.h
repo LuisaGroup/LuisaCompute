@@ -214,6 +214,6 @@ template<typename T>
 constexpr auto is_volume_view_v = is_volume_view<T>::value;
 
 template<typename T>
-constexpr auto is_volume_or_view_v = is_volume_or_view<T>::view;
+constexpr auto is_volume_or_view_v = is_volume_or_view<T>::value;
 
 }// namespace luisa::compute

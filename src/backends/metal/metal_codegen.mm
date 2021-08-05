@@ -321,17 +321,6 @@ void MetalCodegen::visit(const CallExpr *expr) {
         for (auto arg : expr->arguments()) {
             arg->accept(*this);
             _scratch << ", ";
-            if (expr->op() == CallOp::CUSTOM && arg->type()->is_texture()) {
-                auto texture_arg = static_cast<const RefExpr *>(arg);
-                auto texture_offset = *std::find_if(
-                    _function.arguments().begin(),
-                    _function.arguments().end(),
-                    [uid = texture_arg->variable().uid()](auto v) noexcept {
-                        return v.uid() == uid + 1u;
-                    });
-                _emit_variable_name(texture_offset);
-                _scratch << ", ";
-            }
         }
         _scratch.pop_back();
         _scratch.pop_back();

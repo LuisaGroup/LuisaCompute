@@ -217,6 +217,6 @@ template<typename T>
 constexpr auto is_image_view_v = is_image_view<T>::value;
 
 template<typename T>
-constexpr auto is_image_or_view_v = is_image_or_view<T>::view;
+constexpr auto is_image_or_view_v = is_image_or_view<T>::value;
 
 }// namespace luisa::compute

@@ -217,7 +217,50 @@ class Callable<Ret(Args...)> {
         std::negation_v<std::disjunction<is_atomic<Args>...>>,
         "Callables are not allowed to have atomic arguments.");
 
-private:
+    class Invoke {
+
+    public:
+        static constexpr auto max_argument_count = 64u;
+
+    private:
+        std::array<const Expression *, max_argument_count> _args{};
+        size_t _arg_count{0u};
+
+    public:
+        Invoke() noexcept = default;
+        template<typename T>
+        requires (!is_image_or_view_v<T>) && (!is_volume_or_view_v<T>)
+        Invoke &operator<<(detail::Expr<T> arg) noexcept {
+            if (_arg_count == max_argument_count) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+            }
+            _args[_arg_count++] = arg.expression();
+            return *this;
+        }
+        template<typename T>
+        requires is_image_or_view_v<T>
+        Invoke &operator<<(detail::Expr<T> arg) noexcept {
+            if (_arg_count == max_argument_count - 1u) [[unlikely]] {
+              LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+            }
+            _args[_arg_count++] = arg.expression();
+            _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint2(0u)) : arg.offset();
+            return *this;
+        }
+        template<typename T>
+        requires is_volume_or_view_v<T>
+        Invoke &operator<<(detail::Expr<T> arg) noexcept {
+            if (_arg_count == max_argument_count - 1u) [[unlikely]] {
+              LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+            }
+            _args[_arg_count++] = arg.expression();
+            _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint3(0u)) : arg.offset();
+            return *this;
+        }
+        [[nodiscard]] auto args() const noexcept { return std::span{_args.data(), _arg_count}; }
+    };
+
+    private:
     const detail::FunctionBuilder *_builder;
 
 public:
@@ -249,21 +292,18 @@ public:
           })} {}
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
+        Invoke invoke;
+        (invoke << ... << args);
         if constexpr (std::is_same_v<Ret, void>) {
             detail::FunctionBuilder::current()->call(
-                _builder->function(),
-                {args.expression()...});
+                _builder->function(), invoke.args());
         } else if constexpr (detail::is_tuple_v<Ret>) {
             Var ret = detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
-                Type::of<Ret>(),
-                _builder->function(),
-                {args.expression()...})};
+                Type::of<Ret>(), _builder->function(), invoke.args())};
             return detail::var_to_tuple(ret);
         } else {
             return detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
-                Type::of<Ret>(),
-                _builder->function(),
-                {args.expression()...})};
+                Type::of<Ret>(), _builder->function(), invoke.args())};
         }
     }
 };

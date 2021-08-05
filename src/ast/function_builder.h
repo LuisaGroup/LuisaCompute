@@ -187,6 +187,10 @@ public:
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, std::initializer_list<const Expression *> args) noexcept;
     void call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
     void call(Function custom, std::initializer_list<const Expression *> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, std::span<const Expression *const> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, std::span<const Expression *const> args) noexcept;
+    void call(CallOp call_op, std::span<const Expression *const> args) noexcept;
+    void call(Function custom, std::span<const Expression *const> args) noexcept;
 
     // statements
     void break_() noexcept;
