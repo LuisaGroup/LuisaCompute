@@ -1,5 +1,5 @@
 #pragma vengine_package vengine_dll
-#include <core/vstl/vstring.h>
+#include <util/vstring.h>
 #include <mutex>
 #include <cstdio>
 namespace LogGlobal {

@@ -1,7 +1,7 @@
 #pragma once
 #include <RenderComponent/IGPUResourceState.h>
 #include <RenderComponent/Utility/IGPUAllocator.h>
-#include <core/vstl/VObject.h>
+#include <util/VObject.h>
 namespace luisa::compute {
 class FrameResource;
 }

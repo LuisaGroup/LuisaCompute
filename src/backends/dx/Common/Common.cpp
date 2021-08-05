@@ -1,4 +1,4 @@
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <wrl.h>
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>

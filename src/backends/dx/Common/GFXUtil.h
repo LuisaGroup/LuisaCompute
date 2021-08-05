@@ -4,7 +4,7 @@
 // General helper code.
 //***************************************************************************************
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <windows.h>
 #include <wrl.h>
 #include <dxgi1_4.h>

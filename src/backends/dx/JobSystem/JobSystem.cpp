@@ -4,7 +4,7 @@
 #include <atomic>
 #include <JobSystem/JobBucket.h>
 #include <JobSystem/JobNode.h>
-#include <core/vstl/Memory.h>
+#include <util/Memory.h>
 void JobSystem::UpdateNewBucket() {
 	JobBucket* bucket;
 	while (true) {

@@ -1,5 +1,5 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <RenderComponent/GPUResourceBase.h>
 enum class TextureDimension : uint {
 	Tex2D = 0,

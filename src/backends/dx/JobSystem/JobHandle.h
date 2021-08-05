@@ -1,6 +1,6 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
-#include <core/vstl/vector.h>
+#include <util/vstlconfig.h>
+#include <util/vector.h>
 #include <span>
 class JobNode;
 class JobBucket;

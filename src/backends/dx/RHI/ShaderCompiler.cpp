@@ -6,7 +6,7 @@
 #include <Utility/BinaryReader.h>
 #include <ShaderCompile/LuisaASTTranslator.h>
 #include <Utility/MD5.h>
-#include <core/vstl/linq.h>
+#include <util/linq.h>
 namespace luisa::compute {
 namespace ShaderCompiler_Global {
 struct Data {

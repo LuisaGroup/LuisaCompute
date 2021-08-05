@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/Common.h>
-#include <core/vstl/VObject.h>
-#include <core/vstl/LockFreeArrayQueue.h>
+#include <util/VObject.h>
+#include <util/LockFreeArrayQueue.h>
 #include <JobSystem/ThreadTaskHandle.h>
 class VENGINE_DLL_COMMON ThreadPool final {
 	friend class ThreadTaskHandle;

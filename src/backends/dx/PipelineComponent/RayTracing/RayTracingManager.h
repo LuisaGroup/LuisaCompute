@@ -1,10 +1,10 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <core/vstl/VObject.h>
+#include <util/VObject.h>
 #include <Struct/RenderPackage.h>
 #include <RenderComponent/CBufferPool.h>
 #include <RenderComponent/CBufferAllocator.h>
-#include <core/vstl/LockFreeArrayQueue.h>
+#include <util/LockFreeArrayQueue.h>
 #include <RenderComponent/RayRendererData.h>
 #include <RenderComponent/Utility/SeparableRendererManager.h>
 class IShader;

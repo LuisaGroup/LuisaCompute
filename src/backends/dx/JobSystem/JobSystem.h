@@ -1,10 +1,10 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
-#include <core/vstl/Pool.h>
-#include <core/vstl/LockFreeArrayQueue.h>
+#include <util/vstlconfig.h>
+#include <util/Pool.h>
+#include <util/LockFreeArrayQueue.h>
 #include <atomic>
 #include <stdint.h>
-#include <core/vstl/MetaLib.h>
+#include <util/MetaLib.h>
 class JobNode;
 class JobBucket;
 class JobThreadRunnable;

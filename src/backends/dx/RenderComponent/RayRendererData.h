@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <core/vstl/VObject.h>
+#include <util/VObject.h>
 #include <RenderComponent/IMesh.h>
 #include <RenderComponent/Utility/SeparableRenderer.h>
 #include <core/mathematics.h>

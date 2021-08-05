@@ -11,7 +11,7 @@
 #ifndef CJSONOBJECT_HPP_
 #define CJSONOBJECT_HPP_
 
-#include <core/vstl/vector.h>
+#include <util/vector.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <malloc.h>
@@ -22,9 +22,9 @@
 #include <fstream>
 #include <list>
 #include <CJsonObject/cJSON.h>
-#include <core/vstl/HashMap.h>
+#include <util/HashMap.h>
 #include <Common/DynamicDLL.h>
-#include <core/vstl/vstring.h>
+#include <util/vstring.h>
 template <typename T, bool b>
 class StackObject;
 namespace neb

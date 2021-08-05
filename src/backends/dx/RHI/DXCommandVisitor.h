@@ -1,7 +1,7 @@
 #pragma once
 #include <runtime/command.h>
 #include <Common/GFXUtil.h>
-#include <core/vstl/Runnable.h>
+#include <util/Runnable.h>
 class ThreadCommand;
 class IShader;
 namespace luisa::compute {

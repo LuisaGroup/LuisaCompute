@@ -1,6 +1,6 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
-#include <core/vstl/vstring.h>
+#include <util/vstlconfig.h>
+#include <util/vstring.h>
 #include <initializer_list>
 VENGINE_DLL_COMMON void VEngine_Log(vstd::string_view const& chunk);
 VENGINE_DLL_COMMON void VEngine_Log(vstd::string_view const* chunk, size_t chunkCount);

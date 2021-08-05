@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <core/vstl/MetaLib.h>
+#include <util/MetaLib.h>
 #include <RenderComponent/TextureBase.h>
 #include <RenderComponent/Utility/IGPUAllocator.h>
 class ITextureAllocator : public IGPUAllocator {

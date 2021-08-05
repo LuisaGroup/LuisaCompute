@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <core/vstl/VObject.h>
+#include <util/VObject.h>
 class VENGINE_DLL_RENDERER TextureHeap
 {
 private:

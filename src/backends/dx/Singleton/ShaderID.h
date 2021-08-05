@@ -1,7 +1,7 @@
 #pragma once
-#include <core/vstl/HashMap.h>
-#include <core/vstl/vstring.h>
-#include <core/vstl/vector.h>
+#include <util/HashMap.h>
+#include <util/vstring.h>
+#include <util/vector.h>
 class VENGINE_DLL_RENDERER ShaderID {
 public:
 	static void Init();

@@ -1,5 +1,5 @@
 #pragma once
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <stdint.h>
 class VENGINE_DLL_COMMON GameTimer
 {

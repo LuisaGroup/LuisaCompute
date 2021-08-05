@@ -1,4 +1,4 @@
-#include <core/vstl/vstlconfig.h>
+#include <util/vstlconfig.h>
 #include <Common/Common.h>
 #include <Common/GameTimer.h>
 #include <Windows.h>

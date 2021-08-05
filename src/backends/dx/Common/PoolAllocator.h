@@ -1,8 +1,8 @@
 #pragma once
-#include <core/vstl/MetaLib.h>
-#include <core/vstl/Memory.h>
-#include <core/vstl/vector.h>
-#include <core/vstl/Pool.h>
+#include <util/MetaLib.h>
+#include <util/Memory.h>
+#include <util/vector.h>
+#include <util/Pool.h>
 template<typename T>
 class PoolAllocator {
 private:

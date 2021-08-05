@@ -4,7 +4,7 @@
 #include <mutex>
 #include <atomic>
 #include <PipelineComponent/CommandAllocator.h>
-#include <core/vstl/LockFreeArrayQueue.h>
+#include <util/LockFreeArrayQueue.h>
 #include <Singleton/Graphics.h>
 class PipelineComponent;
 class StructuredBuffer;
