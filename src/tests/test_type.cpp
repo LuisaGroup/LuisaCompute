@@ -16,7 +16,6 @@
 #include <core/hash.h>
 #include <ast/type.h>
 #include <ast/type_registry.h>
-#include <core/union.h>
 
 #include <ast/expression.h>
 #include <ast/statement.h>
@@ -140,27 +139,6 @@ int main() {
 
     LUISA_INFO("size = {}, alignment = {}", sizeof(AA), alignof(AA));
     LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
-
-    Union<int, float, void *, Interface> un{5};
-    Union<int, float, void *, Interface> un2{Interface{}};
-    LUISA_INFO("holds-float: {}, as-int: {}", un.holds<float>(), un.as<int>());
-    un.emplace(2.0f);
-    un.dispatch([](auto &x) noexcept {
-        using T = std::remove_cvref_t<decltype(x)>;
-        if constexpr (std::is_same_v<T, int>) {
-            LUISA_INFO("int: {}", x);
-            x = 3;
-        } else if constexpr (std::is_same_v<T, float>) {
-            LUISA_INFO("float: {}", x);
-            x = 1.5f;
-        } else {
-            LUISA_INFO("unknown...");
-        }
-    });
-
-    un.emplace<Interface>();
-    auto another_un = std::move(un);
-    another_un.assign(std::move(un2));
 
     Arena arena;
     ArenaVector<int> vec{arena, {1, 2, 3}};
