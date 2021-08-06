@@ -92,9 +92,9 @@ int main(int argc, char *argv[]) {
         Var<float2> w{v_int.cast<float>(), v_float};
         w *= float2{1.2f};
 
-        if_(1 + 1 == 2, [] {
+        if_(v_int == v_int, [] {
             Var a = 0.0f;
-        }).elif (1 + 2 == 3, [] {
+        }).elif (1 + 2 == v_int, [] {
               Var b = 1.0f;
           }).else_([] {
             Var c = 2.0f;

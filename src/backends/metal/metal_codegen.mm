@@ -370,6 +370,10 @@ void MetalCodegen::visit(const ScopeStmt *stmt) {
 
 void MetalCodegen::visit(const DeclareStmt *stmt) {
     auto v = stmt->variable();
+    if (auto usage = _function.variable_usage(v.uid());
+        usage == Usage::NONE || usage == Usage::READ) {
+        _scratch << "const ";
+    }
     _scratch << "auto ";
     _emit_variable_name(v);
     _scratch << " = ";
@@ -487,36 +491,33 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         // arguments
         for (auto buffer : f.captured_buffers()) {
             _scratch << "\n    ";
-            _emit_variable_decl(buffer.variable);
+            _emit_argument_decl(buffer.variable);
             _scratch << ",";
         }
         for (auto image : f.captured_textures()) {
             _scratch << "\n    ";
-            _emit_variable_decl(image.variable);
+            _emit_argument_decl(image.variable);
             _scratch << ",";
         }
         for (auto heap : f.captured_heaps()) {
             _scratch << "\n    ";
-            _emit_variable_decl(heap.variable);
+            _emit_argument_decl(heap.variable);
             _scratch << ",";
         }
         for (auto accel : f.captured_accels()) {
             _scratch << "\n    ";
-            _emit_variable_decl(accel.variable);
+            _emit_argument_decl(accel.variable);
             _scratch << ",";
         }
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
-            _emit_variable_decl(arg);
+            _emit_argument_decl(arg);
             _scratch << ",";
         }
-        _scratch << "\n    constant uint3 &ls,";
         for (auto builtin : f.builtin_variables()) {
-            if (builtin.tag() != Variable::Tag::DISPATCH_SIZE) {
-                _scratch << "\n    ";
-                _emit_variable_decl(builtin);
-                _scratch << ",";
-            }
+            _scratch << "\n    ";
+            _emit_argument_decl(builtin);
+            _scratch << ",";
         }
         _scratch.pop_back();
     } else if (f.tag() == Function::Tag::CALLABLE) {
@@ -526,38 +527,45 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _scratch << "void";
         }
         _scratch << " custom_" << hash_to_string(f.hash()) << "(";
-        for (auto buffer : f.captured_buffers()) {
-            _scratch << "\n    ";
-            _emit_variable_decl(buffer.variable);
-            _scratch << ",";
-        }
-        for (auto tex : f.captured_textures()) {
-            _scratch << "\n    ";
-            _emit_variable_decl(tex.variable);
-            _scratch << ",";
-        }
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
-            _emit_variable_decl(arg);
+            _emit_argument_decl(arg);
             _scratch << ",";
         }
-        if (!f.arguments().empty()
-            || !f.captured_textures().empty()
-            || !f.captured_buffers().empty()) {
+        if (!f.arguments().empty()) {
             _scratch.pop_back();
         }
     } else [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     _scratch << ") {";
-    if (!f.shared_variables().empty()) {
-        _scratch << "\n";
-        for (auto s : f.shared_variables()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(s);
-            _scratch << ";";
+
+    // emit shared or "mutable" uniform variables for kernel
+    if (f.tag() == Function::Tag::KERNEL) {
+        if (!f.shared_variables().empty()) {
+            _scratch << "\n";
+            for (auto s : f.shared_variables()) {
+                _scratch << "\n  ";
+                _emit_argument_decl(s);
+                _scratch << ";";
+            }
+            _scratch << "\n";
         }
-        _scratch << "\n";
+        auto has_mutable_args = false;
+        for (auto v : f.arguments()) {
+            if (v.tag() == Variable::Tag::LOCAL) {
+                if (auto usage = f.variable_usage(v.uid());
+                    usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                    has_mutable_args = true;
+                    _scratch << "\n  auto ";
+                    _emit_variable_name(v);
+                    _scratch << " = u";
+                    _emit_variable_name(v);
+                    _scratch << ";";
+                }
+            }
+        }
+        if (has_mutable_args) { _scratch << "\n"; }
     }
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
@@ -567,7 +575,6 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
-        case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
@@ -639,8 +646,33 @@ void MetalCodegen::_emit_type_name(const Type *type) noexcept {
     }
 }
 
-void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
+void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
     switch (v.tag()) {
+        case Variable::Tag::LOCAL:
+            if (_function.tag() == Function::Tag::KERNEL) {
+                _scratch << "constant ";
+                _emit_type_name(v.type());
+                _scratch << " &";
+                if (auto usage = _function.variable_usage(v.uid());
+                    usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                    _scratch << "u";
+                }
+            } else {
+                if (auto usage = _function.variable_usage(v.uid());
+                    usage == Usage::NONE || usage == Usage::READ) {
+                    _scratch << "const ";
+                }
+                _emit_type_name(v.type());
+                _scratch << " ";
+            }
+            _emit_variable_name(v);
+            break;
+        case Variable::Tag::SHARED:
+            _scratch << "threadgroup ";
+            _emit_type_name(v.type());
+            _scratch << " ";
+            _emit_variable_name(v);
+            break;
         case Variable::Tag::BUFFER:
             _scratch << "device ";
             if (_function.variable_usage(v.uid()) == Usage::READ) {
@@ -671,53 +703,23 @@ void MetalCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << "instance_acceleration_structure ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::UNIFORM:
-            _scratch << "constant ";
-            _emit_type_name(v.type());
-            _scratch << " &";
-            _emit_variable_name(v);
-            break;
         case Variable::Tag::THREAD_ID:
-            _scratch << "const ";
-            _emit_type_name(v.type());
-            _scratch << " ";
+            _scratch << "const uint3 ";
             _emit_variable_name(v);
             _scratch << " [[thread_position_in_threadgroup]]";
             break;
         case Variable::Tag::BLOCK_ID:
-            _scratch << "const ";
-            _emit_type_name(v.type());
-            _scratch << " ";
+            _scratch << "const uint3 ";
             _emit_variable_name(v);
             _scratch << " [[threadgroup_position_in_grid]]";
             break;
         case Variable::Tag::DISPATCH_ID:
-            _scratch << "const ";
-            _emit_type_name(v.type());
-            _scratch << " ";
+            _scratch << "const uint3 ";
             _emit_variable_name(v);
             _scratch << " [[thread_position_in_grid]]";
             break;
         case Variable::Tag::DISPATCH_SIZE:
-            _scratch << "const ";
-            _emit_type_name(v.type());
-            _scratch << " ";
-            _emit_variable_name(v);
-            break;
-        case Variable::Tag::LOCAL:
-            if (auto usage = _function.variable_usage(v.uid());
-                usage == Usage::READ
-                || usage == Usage::NONE) {
-                _scratch << "const ";
-            }
-            _emit_type_name(v.type());
-            _scratch << " ";
-            _emit_variable_name(v);
-            break;
-        case Variable::Tag::SHARED:
-            _scratch << "threadgroup ";
-            _emit_type_name(v.type());
-            _scratch << " ";
+            _scratch << "constant uint3 &";
             _emit_variable_name(v);
             break;
     }

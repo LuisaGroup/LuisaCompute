@@ -441,7 +441,7 @@ void CppCodegen::_emit_function(Function f) noexcept {
     _scratch << "(";
     for (auto arg : f.arguments()) {
         _scratch << "\n    ";
-        if (f.tag() == Function::Tag::KERNEL && arg.tag() == Variable::Tag::UNIFORM) {
+        if (f.tag() == Function::Tag::KERNEL && arg.tag() == Variable::Tag::LOCAL) {
             _scratch << "__uniform__ ";
         }
         _emit_variable_decl(arg);
@@ -501,7 +501,6 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
-        case Variable::Tag::UNIFORM: _scratch << "u" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
@@ -590,7 +589,6 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             _scratch << "accel ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::UNIFORM:
         case Variable::Tag::THREAD_ID:
         case Variable::Tag::BLOCK_ID:
         case Variable::Tag::DISPATCH_ID:

@@ -10,9 +10,9 @@
 namespace luisa::compute {
 
 struct alignas(16) Ray {
-    float origin[3];
+    std::array<float, 3> origin;
     float t_min;
-    float direction[3];
+    std::array<float, 3> direction;
     float t_max;
 };
 

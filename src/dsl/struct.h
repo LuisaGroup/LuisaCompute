@@ -6,22 +6,42 @@
 
 #include <dsl/var.h>
 
-#define LUISA_STRUCT_MAKE_MEMBER_EXPR(m)                                    \
-private:                                                                    \
-    using Type_##m = std::remove_cvref_t<decltype(std::declval<This>().m)>; \
-                                                                            \
-public:                                                                     \
-    Expr<Type_##m> m{FunctionBuilder::current()->member(                    \
-        Type::of<Type_##m>(),                                               \
-        ExprBase<This>::_expression,                                        \
+namespace luisa::compute::detail {
+
+template<typename T>
+struct c_array_to_std_array {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct c_array_to_std_array<T[N]> {
+    using type = std::array<T, N>;
+};
+
+template<typename T>
+using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
+
+};// namespace luisa::compute::detail
+
+#define LUISA_STRUCT_MAKE_MEMBER_EXPR(m)                 \
+private:                                                 \
+    using Type_##m = c_array_to_std_array_t<             \
+        std::remove_cvref_t<                             \
+            decltype(std::declval<This>().m)>>;          \
+                                                         \
+public:                                                  \
+    Expr<Type_##m> m{FunctionBuilder::current()->member( \
+        Type::of<Type_##m>(),                            \
+        this->_expression,                               \
         _member_index(#m))};
 
 #define LUISA_STRUCT(S, ...)                                                                                     \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                                         \
     namespace luisa::compute::detail {                                                                           \
     template<>                                                                                                   \
-    struct Expr<S> : public ExprBase<S> {                                                                        \
+    struct Expr<S> {                                                                                             \
     private:                                                                                                     \
+        const Expression *_expression;                                                                           \
         using This = S;                                                                                          \
         [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                    \
             constexpr const std::string_view member_names[]{LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};       \
@@ -29,11 +49,22 @@ public:                                                                     \
         }                                                                                                        \
                                                                                                                  \
     public:                                                                                                      \
-        using ExprBase<S>::ExprBase;                                                                             \
+        explicit Expr(const Expression *e) noexcept : _expression{e} {}                                          \
+        [[nodiscard]] auto expression() const noexcept { return this->_expression; }                             \
         Expr(Expr &&another) noexcept = default;                                                                 \
         Expr(const Expr &another) noexcept = default;                                                            \
-        void operator=(Expr &&rhs) noexcept { ExprBase<S>::operator=(rhs); }                                     \
-        void operator=(const Expr &rhs) noexcept { ExprBase<S>::operator=(rhs); }                                \
+        void operator=(const Expr &rhs) noexcept {                                                               \
+            FunctionBuilder::current()->assign(                                                                  \
+                AssignOp::ASSIGN,                                                                                \
+                this->expression(),                                                                              \
+                rhs.expression());                                                                               \
+        }                                                                                                        \
+        void operator=(Expr &&rhs) noexcept {                                                                    \
+            FunctionBuilder::current()->assign(                                                                  \
+                AssignOp::ASSIGN,                                                                                \
+                this->expression(),                                                                              \
+                rhs.expression());                                                                               \
+        }                                                                                                        \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR, __VA_ARGS__)                                                    \
     };                                                                                                           \
     }

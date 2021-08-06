@@ -29,8 +29,8 @@ struct Var : public detail::Expr<T> {
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{detail::Expr{another}} {}
-    void operator=(Var &&rhs) noexcept { detail::ExprBase<T>::operator=(rhs); }
-    void operator=(const Var &rhs) noexcept { detail::ExprBase<T>::operator=(rhs); }
+    void operator=(Var &&rhs) noexcept { detail::Expr<T>::operator=(rhs); }
+    void operator=(const Var &rhs) noexcept { detail::Expr<T>::operator=(rhs); }
 };
 
 template<typename T>

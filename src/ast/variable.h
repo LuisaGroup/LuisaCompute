@@ -21,7 +21,6 @@ public:
         // data
         LOCAL,
         SHARED,
-        UNIFORM,
 
         // resources
         BUFFER,
