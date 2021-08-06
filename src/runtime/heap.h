@@ -9,18 +9,14 @@
 
 namespace luisa::compute {
 
-namespace detail {
-
-template<typename T>
-struct Expr;
-
 class TextureRef2D;
 class TextureRef3D;
 
 template<typename T>
 class BufferRef;
 
-}
+template<typename T>
+struct Expr;
 
 class Heap : public Resource {
 
@@ -65,13 +61,13 @@ public:
 
     // see implementations in dsl/expr.h
     template<typename I>
-    detail::TextureRef2D tex2d(I &&index) const noexcept;
+    TextureRef2D tex2d(I &&index) const noexcept;
 
     template<typename I>
-    detail::TextureRef2D tex3d(I &&index) const noexcept;
+    TextureRef2D tex3d(I &&index) const noexcept;
 
     template<typename T, typename I>
-    detail::BufferRef<T> buffer(I &&index) const noexcept;
+    BufferRef<T> buffer(I &&index) const noexcept;
 };
 
 }// namespace luisa::compute

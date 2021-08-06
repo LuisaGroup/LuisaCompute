@@ -12,12 +12,8 @@ namespace luisa::compute {
 template<typename T>
 class VolumeView;
 
-namespace detail {
-
 template<typename T>
 struct Expr;
-
-}// namespace detail
 
 // Volumes are 3D textures without sampling.
 template<typename T>
@@ -38,11 +34,10 @@ private:
         : Resource{
             device, Tag::TEXTURE,
             device->create_texture(
-              pixel_storage_to_format<T>(storage), 3u,
-              width, height, depth, 1u, {},
-              std::numeric_limits<uint64_t>::max(), 0u)},
-          _storage{storage},
-          _size{width, height, depth} {}
+                pixel_storage_to_format<T>(storage), 3u,
+                width, height, depth, 1u, {},
+                std::numeric_limits<uint64_t>::max(), 0u)},
+          _storage{storage}, _size{width, height, depth} {}
 
     Volume(Device::Interface *device, PixelStorage storage, uint3 size) noexcept
         : Volume{device, storage, size.x, size.y, size.z} {}
@@ -175,12 +170,12 @@ public:
 
     template<typename UVW>
     [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
-        return detail::Expr<Volume<T>>{*this}.read(std::forward<UVW>(uvw));
+        return Expr<Volume<T>>{*this}.read(std::forward<UVW>(uvw));
     }
 
     template<typename UVW, typename Value>
     [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value) const noexcept {
-        return detail::Expr<Volume<T>>{*this}.write(
+        return Expr<Volume<T>>{*this}.write(
             std::forward<UVW>(uvw),
             std::forward<Value>(value));
     }

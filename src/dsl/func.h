@@ -229,8 +229,7 @@ class Callable<Ret(Args...)> {
     public:
         Invoke() noexcept = default;
         template<typename T>
-        requires (!is_image_or_view_v<T>) && (!is_volume_or_view_v<T>)
-        Invoke &operator<<(detail::Expr<T> arg) noexcept {
+        requires(!is_image_or_view_v<T>) && (!is_volume_or_view_v<T>)Invoke &operator<<(Expr<T> arg) noexcept {
             if (_arg_count == max_argument_count) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
             }
@@ -239,9 +238,9 @@ class Callable<Ret(Args...)> {
         }
         template<typename T>
         requires is_image_or_view_v<T>
-        Invoke &operator<<(detail::Expr<T> arg) noexcept {
+            Invoke &operator<<(Expr<T> arg) noexcept {
             if (_arg_count == max_argument_count - 1u) [[unlikely]] {
-              LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+                LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
             }
             _args[_arg_count++] = arg.expression();
             _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint2(0u)) : arg.offset();
@@ -249,9 +248,9 @@ class Callable<Ret(Args...)> {
         }
         template<typename T>
         requires is_volume_or_view_v<T>
-        Invoke &operator<<(detail::Expr<T> arg) noexcept {
+            Invoke &operator<<(Expr<T> arg) noexcept {
             if (_arg_count == max_argument_count - 1u) [[unlikely]] {
-              LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+                LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
             }
             _args[_arg_count++] = arg.expression();
             _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint3(0u)) : arg.offset();
@@ -260,7 +259,7 @@ class Callable<Ret(Args...)> {
         [[nodiscard]] auto args() const noexcept { return std::span{_args.data(), _arg_count}; }
     };
 
-    private:
+private:
     const detail::FunctionBuilder *_builder;
 
 public:
@@ -298,11 +297,11 @@ public:
             detail::FunctionBuilder::current()->call(
                 _builder->function(), invoke.args());
         } else if constexpr (detail::is_tuple_v<Ret>) {
-            Var ret = detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
+            Var ret = Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(), _builder->function(), invoke.args())};
             return detail::var_to_tuple(ret);
         } else {
-            return detail::Expr<Ret>{detail::FunctionBuilder::current()->call(
+            return Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(), _builder->function(), invoke.args())};
         }
     }

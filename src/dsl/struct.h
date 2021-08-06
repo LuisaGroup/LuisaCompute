@@ -23,21 +23,21 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 
 };// namespace luisa::compute::detail
 
-#define LUISA_STRUCT_MAKE_MEMBER_EXPR(m)                 \
-private:                                                 \
-    using Type_##m = c_array_to_std_array_t<             \
-        std::remove_cvref_t<                             \
-            decltype(std::declval<This>().m)>>;          \
-                                                         \
-public:                                                  \
-    Expr<Type_##m> m{FunctionBuilder::current()->member( \
-        Type::of<Type_##m>(),                            \
-        this->_expression,                               \
+#define LUISA_STRUCT_MAKE_MEMBER_EXPR(m)                         \
+private:                                                         \
+    using Type_##m = detail::c_array_to_std_array_t<             \
+        std::remove_cvref_t<                                     \
+            decltype(std::declval<This>().m)>>;                  \
+                                                                 \
+public:                                                          \
+    Expr<Type_##m> m{detail::FunctionBuilder::current()->member( \
+        Type::of<Type_##m>(),                                    \
+        this->_expression,                                       \
         _member_index(#m))};
 
 #define LUISA_STRUCT(S, ...)                                                                                     \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                                         \
-    namespace luisa::compute::detail {                                                                           \
+    namespace luisa::compute {                                                                                   \
     template<>                                                                                                   \
     struct Expr<S> {                                                                                             \
     private:                                                                                                     \
@@ -54,13 +54,13 @@ public:                                                  \
         Expr(Expr &&another) noexcept = default;                                                                 \
         Expr(const Expr &another) noexcept = default;                                                            \
         void operator=(const Expr &rhs) noexcept {                                                               \
-            FunctionBuilder::current()->assign(                                                                  \
+            detail::FunctionBuilder::current()->assign(                                                          \
                 AssignOp::ASSIGN,                                                                                \
                 this->expression(),                                                                              \
                 rhs.expression());                                                                               \
         }                                                                                                        \
         void operator=(Expr &&rhs) noexcept {                                                                    \
-            FunctionBuilder::current()->assign(                                                                  \
+            detail::FunctionBuilder::current()->assign(                                                          \
                 AssignOp::ASSIGN,                                                                                \
                 this->expression(),                                                                              \
                 rhs.expression());                                                                               \

@@ -6,35 +6,35 @@
 
 namespace luisa::compute {
 
-detail::Expr<float3> origin(detail::Expr<Ray> ray) noexcept {
+Expr<float3> origin(Expr<Ray> ray) noexcept {
     static Callable _origin = [](Var<Ray> ray) noexcept {
         return make_float3(ray.origin[0], ray.origin[1], ray.origin[2]);
     };
     return _origin(ray);
 }
 
-detail::Expr<float3> direction(detail::Expr<Ray> ray) noexcept {
+Expr<float3> direction(Expr<Ray> ray) noexcept {
     static Callable _direction = [](Var<Ray> ray) noexcept {
         return make_float3(ray.direction[0], ray.direction[1], ray.direction[2]);
     };
     return _direction(ray);
 }
 
-void set_origin(detail::Expr<Ray> ray, detail::Expr<float3> origin) noexcept {
+void set_origin(Expr<Ray> ray, Expr<float3> origin) noexcept {
     Var o = origin;
     ray.origin[0] = o.x;
     ray.origin[1] = o.y;
     ray.origin[2] = o.z;
 }
 
-void set_direction(detail::Expr<Ray> ray, detail::Expr<float3> direction) noexcept {
+void set_direction(Expr<Ray> ray, Expr<float3> direction) noexcept {
     Var d = direction;
     ray.direction[0] = d.x;
     ray.direction[1] = d.y;
     ray.direction[2] = d.z;
 }
 
-detail::Expr<Ray> make_ray(detail::Expr<float3> origin, detail::Expr<float3> direction, detail::Expr<float> t_min, detail::Expr<float> t_max) noexcept {
+Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {
     static Callable _make_ray = [](Float3 origin, Float3 direction, Float t_min, Float t_max) noexcept {
         Var<Ray> ray;
         ray.origin[0] = origin.x;
@@ -50,13 +50,13 @@ detail::Expr<Ray> make_ray(detail::Expr<float3> origin, detail::Expr<float3> dir
     return _make_ray(origin, direction, t_min, t_max);
 }
 
-detail::Expr<Ray> make_ray(detail::Expr<float3> origin, detail::Expr<float3> direction) noexcept {
+Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction) noexcept {
     return make_ray(origin, direction, 0.0f, std::numeric_limits<float>::max());
 }
 
-detail::Expr<Ray> make_ray_robust(
-    detail::Expr<float3> p, detail::Expr<float3> ng,
-    detail::Expr<float3> direction, detail::Expr<float> t_min, detail::Expr<float> t_max) noexcept {
+Expr<Ray> make_ray_robust(
+    Expr<float3> p, Expr<float3> ng,
+    Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {
 
     static Callable offset_origin = [](Float3 p, Float3 d, Float3 ng) noexcept {
         constexpr auto origin = 1.0f / 32.0f;
@@ -70,7 +70,7 @@ detail::Expr<Ray> make_ray_robust(
     return make_ray(offset_origin(p, direction, ng), direction, t_min, t_max);
 }
 
-detail::Expr<Ray> make_ray_robust(detail::Expr<float3> p, detail::Expr<float3> ng, detail::Expr<float3> direction) noexcept {
+Expr<Ray> make_ray_robust(Expr<float3> p, Expr<float3> ng, Expr<float3> direction) noexcept {
     return make_ray_robust(p, ng, direction, 0.0f, std::numeric_limits<float>::max());
 }
 

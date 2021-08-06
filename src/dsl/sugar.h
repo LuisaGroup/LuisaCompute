@@ -64,7 +64,7 @@
 
 #define $if(...) ::luisa::compute::detail::IfStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $else / [&]() noexcept
-#define $elif(...) / ::luisa::compute::detail::Expr{__VA_ARGS__} % [&]() noexcept
+#define $elif(...) / ::luisa::compute::Expr{__VA_ARGS__} % [&]() noexcept
 
 #define $while(...) ::luisa::compute::detail::WhileStmtBuilder{__VA_ARGS__} % [&]() noexcept
 

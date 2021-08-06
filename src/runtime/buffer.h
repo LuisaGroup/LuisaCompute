@@ -11,10 +11,8 @@
 
 namespace luisa::compute {
 
-namespace detail {
 template<typename T>
 struct Expr;
-}
 
 class Heap;
 
@@ -140,12 +138,12 @@ public:
 
     template<typename I>
     [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
-        return detail::Expr<Buffer<T>>{*this}[std::forward<I>(i)];
+        return Expr<Buffer<T>>{*this}[std::forward<I>(i)];
     }
 
     template<typename I>
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return detail::Expr<Buffer<T>>{*this}.atomic(std::forward<I>(i));
+        return Expr<Buffer<T>>{*this}.atomic(std::forward<I>(i));
     }
 };
 

@@ -242,12 +242,12 @@ inline void break_() noexcept { detail::FunctionBuilder::current()->break_(); }
 inline void continue_() noexcept { detail::FunctionBuilder::current()->continue_(); }
 
 template<typename True>
-inline auto if_(detail::Expr<bool> condition, True &&t) noexcept {
+inline auto if_(Expr<bool> condition, True &&t) noexcept {
     return detail::IfStmtBuilder{condition} % std::forward<True>(t);
 }
 
 template<typename Body>
-inline void while_(detail::Expr<bool> condition, Body &&body) noexcept {
+inline void while_(Expr<bool> condition, Body &&body) noexcept {
     detail::WhileStmtBuilder{condition} % std::forward<Body>(body);
 }
 
@@ -262,27 +262,27 @@ template<concepts::integral T>
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> end) noexcept {
+[[nodiscard]] inline auto range(Expr<T> end) noexcept {
     return detail::ForRange<T, false>{static_cast<T>(0), Var{end}, static_cast<T>(1)};
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> begin, T end, T step = 1) noexcept {
+[[nodiscard]] inline auto range(Expr<T> begin, T end, T step = 1) noexcept {
     return detail::ForRange<T, true>{begin, end, step};
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, T step = 1) noexcept {
+[[nodiscard]] inline auto range(Expr<T> begin, Expr<T> end, T step = 1) noexcept {
     return detail::ForRange<T, true>{begin, Var{end}, step};
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> begin, T end, detail::Expr<T> step) noexcept {
+[[nodiscard]] inline auto range(Expr<T> begin, T end, Expr<T> step) noexcept {
     return detail::ForRange<T, true>{begin, end, Var{step}};
 }
 
 template<concepts::integral T>
-[[nodiscard]] inline auto range(detail::Expr<T> begin, detail::Expr<T> end, detail::Expr<T> step) noexcept {
+[[nodiscard]] inline auto range(Expr<T> begin, Expr<T> end, Expr<T> step) noexcept {
     return detail::ForRange<T, true>{begin, Var{end}, Var{step}};
 }
 

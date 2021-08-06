@@ -15,12 +15,8 @@ class ImageView;
 template<typename T>
 class BufferView;
 
-namespace detail {
-
 template<typename T>
 struct Expr;
-
-}// namespace detail
 
 // Images are textures without sampling.
 template<typename T>
@@ -42,11 +38,10 @@ private:
             device,
             Tag::TEXTURE,
             device->create_texture(
-              pixel_storage_to_format<T>(storage), 2u,
-              size.x, size.y, 1u, 1u, {},
-              std::numeric_limits<uint64_t>::max(), 0u)},
-          _size{size},
-          _storage{storage} {}
+                pixel_storage_to_format<T>(storage), 2u,
+                size.x, size.y, 1u, 1u, {},
+                std::numeric_limits<uint64_t>::max(), 0u)},
+          _size{size}, _storage{storage} {}
 
     Image(Device::Interface *device, PixelStorage storage, uint width, uint height) noexcept
         : Image{device, storage, uint2{width, height}} {}
@@ -178,12 +173,12 @@ public:
 
     template<typename UV>
     [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
-        return detail::Expr<Image<T>>{*this}.read(std::forward<UV>(uv));
+        return Expr<Image<T>>{*this}.read(std::forward<UV>(uv));
     }
 
     template<typename UV, typename Value>
     void write(UV uv, Value &&value) const noexcept {
-        detail::Expr<Image<T>>{*this}.write(
+        Expr<Image<T>>{*this}.write(
             std::forward<UV>(uv),
             std::forward<Value>(value));
     }

@@ -10,33 +10,33 @@
 namespace luisa::compute {
 
 template<typename T>
-struct Var : public detail::Expr<T> {
+struct Var : public Expr<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
     // for local variables
     template<typename... Args>
-    requires concepts::constructible<T, detail::expr_value_t<Args>...>
+    requires concepts::constructible<T, expr_value_t<Args>...>
     Var(Args &&...args)
     noexcept
-        : detail::Expr<T>{detail::FunctionBuilder::current()->local(
+        : Expr<T>{detail::FunctionBuilder::current()->local(
             Type::of<T>(),
             {detail::extract_expression(std::forward<Args>(args))...})} {}
 
     // for internal use only...
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
+        : Expr<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
 
     Var(Var &&) noexcept = default;
-    Var(const Var &another) noexcept : Var{detail::Expr{another}} {}
-    void operator=(Var &&rhs) noexcept { detail::Expr<T>::operator=(rhs); }
-    void operator=(const Var &rhs) noexcept { detail::Expr<T>::operator=(rhs); }
+    Var(const Var &another) noexcept : Var{Expr{another}} {}
+    void operator=(Var &&rhs) noexcept { Expr<T>::operator=(rhs); }
+    void operator=(const Var &rhs) noexcept { Expr<T>::operator=(rhs); }
 };
 
 template<typename T>
-struct Var<Buffer<T>> : public detail::Expr<Buffer<T>> {
+struct Var<Buffer<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Buffer<T>>{
+        : Expr<Buffer<T>>{
             detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
@@ -45,9 +45,9 @@ struct Var<Buffer<T>> : public detail::Expr<Buffer<T>> {
 };
 
 template<typename T>
-struct Var<BufferView<T>> : public detail::Expr<Buffer<T>> {
+struct Var<BufferView<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Buffer<T>>{
+        : Expr<Buffer<T>>{
             detail::FunctionBuilder::buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
@@ -56,9 +56,9 @@ struct Var<BufferView<T>> : public detail::Expr<Buffer<T>> {
 };
 
 template<typename T>
-struct Var<Image<T>> : public detail::Expr<Image<T>> {
+struct Var<Image<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Image<T>>{
+        : Expr<Image<T>>{
             detail::FunctionBuilder::current()->texture(Type::of<Image<T>>()),
             detail::FunctionBuilder::current()->argument(Type::of<uint2>())} {
     }
@@ -69,9 +69,9 @@ struct Var<Image<T>> : public detail::Expr<Image<T>> {
 };
 
 template<typename T>
-struct Var<ImageView<T>> : public detail::Expr<Image<T>> {
+struct Var<ImageView<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Image<T>>{
+        : Expr<Image<T>>{
             detail::FunctionBuilder::texture(Type::of<Image<T>>()),
             detail::FunctionBuilder::current()->argument(Type::of<uint2>())} {}
     Var(Var &&) noexcept = default;
@@ -81,9 +81,9 @@ struct Var<ImageView<T>> : public detail::Expr<Image<T>> {
 };
 
 template<typename T>
-struct Var<Volume<T>> : public detail::Expr<Volume<T>> {
+struct Var<Volume<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Volume<T>>{
+        : Expr<Volume<T>>{
             detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>()),
             detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
     Var(Var &&) noexcept = default;
@@ -93,9 +93,9 @@ struct Var<Volume<T>> : public detail::Expr<Volume<T>> {
 };
 
 template<typename T>
-struct Var<VolumeView<T>> : public detail::Expr<Volume<T>> {
+struct Var<VolumeView<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Volume<T>>{
+        : Expr<Volume<T>>{
             detail::FunctionBuilder::texture(Type::of<Volume<T>>()),
             detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
     Var(Var &&) noexcept = default;
@@ -105,9 +105,9 @@ struct Var<VolumeView<T>> : public detail::Expr<Volume<T>> {
 };
 
 template<>
-struct Var<Heap> : public detail::Expr<Heap> {
+struct Var<Heap> : public Expr<Heap> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : detail::Expr<Heap>{
+        : Expr<Heap>{
             detail::FunctionBuilder::current()->heap()} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
@@ -116,7 +116,7 @@ struct Var<Heap> : public detail::Expr<Heap> {
 };
 
 template<typename T>
-Var(detail::Expr<T>) -> Var<T>;
+Var(Expr<T>) -> Var<T>;
 
 template<typename T>
 Var(T &&) -> Var<T>;
