@@ -23,15 +23,6 @@ namespace luisa {
 using std::construct_at;
 using std::destroy_at;
 
-#ifdef __clang__
-template<typename To, typename From>
-[[nodiscard]] constexpr auto bit_cast(From &&src) noexcept {
-    return __builtin_bit_cast(To, std::forward<From>(src));
-}
-#else
-using std::bit_cast;
-#endif
-
 class Arena : public concepts::Noncopyable {
 
 public:

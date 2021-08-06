@@ -35,12 +35,6 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
             "Custom callables may not have builtin, "
             "shared or captured variables.");
     }
-    // check discarded call expressions to avoid leaked side-effects
-    for (auto e : f->_call_expressions) {
-        if (e->usage() == Usage::NONE) {
-            LUISA_ERROR_WITH_LOCATION("Found leaked call expression in function builder.");
-        }
-    }
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
@@ -259,9 +253,7 @@ FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcep
       _captured_accels{*arena},
       _arguments{*arena},
       _used_custom_callables{*arena},
-      _used_builtin_callables{*arena},
       _variable_usages{*arena, 128u},
-      _call_expressions{*arena},
       _hash{0ul},
       _tag{tag} {}
 
@@ -297,16 +289,9 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::ini
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
     }
+    _used_builtin_callables.mark(call_op);
     ArenaVector func_args{*_arena, args};
-    auto expr = _arena->create<CallExpr>(type, call_op, func_args);
-    _call_expressions.emplace_back(expr);
-    if (std::find(_used_builtin_callables.cbegin(),
-                  _used_builtin_callables.cend(),
-                  call_op)
-        == _used_builtin_callables.cend()) {
-        _used_builtin_callables.emplace_back(call_op);
-    }
-    return expr;
+    return _arena->create<CallExpr>(type, call_op, func_args);
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::initializer_list<const Expression *> args) noexcept {
@@ -315,7 +300,6 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::in
     }
     ArenaVector func_args{*_arena, args};
     auto expr = _arena->create<CallExpr>(type, custom, func_args);
-    _call_expressions.emplace_back(expr);
     if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), custom);
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom);
@@ -382,16 +366,9 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::spa
           "Custom functions are not allowed to "
           "be called with enum CallOp.");
     }
+    _used_builtin_callables.mark(call_op);
     ArenaVector func_args{*_arena, args};
-    auto expr = _arena->create<CallExpr>(type, call_op, func_args);
-    _call_expressions.emplace_back(expr);
-    if (std::find(_used_builtin_callables.cbegin(),
-                  _used_builtin_callables.cend(),
-                  call_op)
-                  == _used_builtin_callables.cend()) {
-        _used_builtin_callables.emplace_back(call_op);
-    }
-    return expr;
+    return _arena->create<CallExpr>(type, call_op, func_args);
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::span<const Expression *const> args) noexcept {
@@ -400,7 +377,6 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::sp
     }
     ArenaVector func_args{*_arena, args};
     auto expr = _arena->create<CallExpr>(type, custom, func_args);
-    _call_expressions.emplace_back(expr);
     if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), custom);
     iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom);

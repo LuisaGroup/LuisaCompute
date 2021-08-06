@@ -44,7 +44,7 @@ std::span<const Function> Function::custom_callables() const noexcept {
     return _builder->custom_callables();
 }
 
-std::span<const CallOp> Function::builtin_callables() const noexcept {
+CallOpSet Function::builtin_callables() const noexcept {
     return _builder->builtin_callables();
 }
 

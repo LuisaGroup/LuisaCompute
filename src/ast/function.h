@@ -82,7 +82,7 @@ public:
     [[nodiscard]] std::span<const AccelBinding> captured_accels() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const Function> custom_callables() const noexcept;
-    [[nodiscard]] std::span<const CallOp> builtin_callables() const noexcept;
+    [[nodiscard]] CallOpSet builtin_callables() const noexcept;
     [[nodiscard]] uint3 block_size() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
     [[nodiscard]] const Type *return_type() const noexcept;

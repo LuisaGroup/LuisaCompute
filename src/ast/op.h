@@ -4,7 +4,8 @@
 
 #pragma once
 
-#include <cstdint>
+#include <bitset>
+#include <core/basic_types.h>
 
 namespace luisa::compute {
 
@@ -179,6 +180,45 @@ enum struct CallOp : uint32_t {
 
     TRACE_CLOSEST,
     TRACE_ANY
+};
+
+static constexpr size_t call_op_count = to_underlying(CallOp::TRACE_ANY) + 1u;
+
+class CallOpSet {
+
+public:
+    using Bitset = std::bitset<call_op_count>;
+
+    class Iterator {
+
+    public:
+        struct End {};
+
+    private:
+        const CallOpSet &_set;
+        uint _index{0u};
+
+    private:
+        friend class CallOpSet;
+        Iterator(const CallOpSet &set) noexcept;
+
+    public:
+        [[nodiscard]] CallOp operator*() const noexcept;
+        Iterator &operator++() noexcept;
+        Iterator operator++(int) noexcept;
+        [[nodiscard]] bool operator==(End) const noexcept;
+    };
+
+private:
+    Bitset _bits;
+
+public:
+    CallOpSet() noexcept = default;
+    ~CallOpSet() noexcept = default;
+    void mark(CallOp op) noexcept { _bits.set(to_underlying(op)); }
+    [[nodiscard]] auto test(CallOp op) const noexcept { return _bits.test(to_underlying(op)); }
+    [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
+    [[nodiscard]] auto end() const noexcept { return Iterator::End{}; }
 };
 
 }// namespace luisa::compute

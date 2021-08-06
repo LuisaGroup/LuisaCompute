@@ -63,9 +63,8 @@ private:
     ArenaVector<AccelBinding> _captured_accels;
     ArenaVector<Variable> _arguments;
     ArenaVector<Function> _used_custom_callables;
-    ArenaVector<CallOp> _used_builtin_callables;
     ArenaVector<Usage> _variable_usages;
-    ArenaVector<const CallExpr *> _call_expressions;
+    CallOpSet _used_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
@@ -110,7 +109,7 @@ public:
     [[nodiscard]] auto captured_accels() const noexcept { return std::span{_captured_accels.data(), _captured_accels.size()}; }
     [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
-    [[nodiscard]] auto builtin_callables() const noexcept { return std::span{_used_builtin_callables.data(), _used_builtin_callables.size()}; }
+    [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
     [[nodiscard]] auto return_type() const noexcept { return _ret; }
