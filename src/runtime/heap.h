@@ -12,7 +12,7 @@ namespace luisa::compute {
 namespace detail {
 
 template<typename T>
-class Expr;
+struct Expr;
 
 class TextureRef2D;
 class TextureRef3D;

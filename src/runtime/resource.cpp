@@ -32,6 +32,6 @@ Resource &Resource::operator=(Resource &&rhs) noexcept {
 }
 
 Resource::Resource(Device::Interface *device, Resource::Tag tag, uint64_t handle) noexcept
-    : _device{device->shared_from_this()}, _tag{tag}, _handle{handle} {}
+: _device{device->shared_from_this()}, _handle{handle}, _tag{tag} {}
 
 }

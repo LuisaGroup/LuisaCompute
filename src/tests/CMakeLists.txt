@@ -34,6 +34,9 @@ target_link_libraries(test_rtx PRIVATE luisa::compute)
 add_executable(test_path_tracing test_path_tracing.cpp)
 target_link_libraries(test_path_tracing PRIVATE luisa::compute)
 
+add_executable(test_wavefront_pt test_wavefront_pt.cpp)
+target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
+
 find_package(OpenCV CONFIG)
 if (OpenCV_FOUND)
     add_executable(test_shader_toy test_shader_toy.cpp)

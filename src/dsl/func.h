@@ -68,13 +68,13 @@ template<size_t N, typename... Args>
 class Kernel;
 
 template<typename...>
-class Kernel1D;
+struct Kernel1D;
 
 template<typename...>
-class Kernel2D;
+struct Kernel2D;
 
 template<typename...>
-class Kernel3D;
+struct Kernel3D;
 
 template<size_t N, typename... Args>
 struct is_kernel<Kernel<N, Args...>> : std::true_type {};
@@ -96,13 +96,13 @@ class Kernel {
         || std::negation_v<std::disjunction<is_atomic<Args>...>>);
 
     template<typename...>
-    friend class Kernel1D;
+    friend struct Kernel1D;
 
     template<typename...>
-    friend class Kernel2D;
+    friend struct Kernel2D;
 
     template<typename...>
-    friend class Kernel3D;
+    friend struct Kernel3D;
 
 private:
     using SharedFunctionBuilder = std::shared_ptr<const detail::FunctionBuilder>;

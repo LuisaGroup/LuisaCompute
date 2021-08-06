@@ -182,7 +182,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
     // encode compute shader
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:compiled_kernel.handle()];
-    command->decode([&](auto vid, auto argument) noexcept -> void {
+    command->decode([&](auto, auto argument) noexcept -> void {
         using T = decltype(argument);
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(

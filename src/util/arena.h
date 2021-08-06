@@ -211,7 +211,7 @@ public:
     template<typename... Args>
     [[nodiscard]] auto create(Args &&...args) {
         Node *node = nullptr;
-        auto [count, total] = [this, &node] {
+        [[maybe_unused]] auto [count, total] = [this, &node] {
             std::scoped_lock lock{_mutex};
             if (_head == nullptr) {// empty pool
                 _total++;
@@ -232,7 +232,7 @@ public:
 
     void recycle(T *object) noexcept {
         auto node = Node::of(object);
-        auto [count, total] = [node, this] {
+        [[maybe_unused]] auto [count, total] = [node, this] {
             std::scoped_lock lock{_mutex};
             node->next = _head;
             _head = node;
