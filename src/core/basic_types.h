@@ -561,6 +561,7 @@ struct IsMatrixN<Matrix<N>, N> : std::true_type {};
 
 template<typename T>
 struct VectorValue {
+    static_assert(is_scalar_v<T>);
     using type = T;
 };
 
@@ -571,6 +572,7 @@ struct VectorValue<Vector<T, N>> {
 
 template<typename T>
 struct VectorDim {
+    static_assert(is_scalar_v<T>);
     static constexpr auto value = static_cast<size_t>(1u);
 };
 

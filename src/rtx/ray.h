@@ -43,7 +43,6 @@ void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept;
     Expr<float3> p,
     Expr<float3> ng,
     Expr<float3> direction,
-    Expr<float> t_min,
     Expr<float> t_max) noexcept;
 
 [[nodiscard]] Expr<Ray> make_ray_robust(

@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
             Var p_light = light_position + ux_light * light_u + uy_light * light_v;
             Var d_light = distance(p, p_light);
             Var wi_light = normalize(p_light - p);
-            Var shadow_ray = make_ray_robust(p, n, wi_light, 0.0f, d_light - 1e-3f);
+            Var shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
             Var occluded = accel.trace_any(shadow_ray);
             Var cos_wi_light = dot(wi_light, n);
             Var cos_light = -dot(light_normal, wi_light);

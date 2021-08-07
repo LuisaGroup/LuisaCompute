@@ -75,6 +75,12 @@ using is_vector_expr_same_dimension = is_vector_same_dimension<expr_value_t<T>..
 template<typename... T>
 constexpr auto is_vector_expr_same_dimension_v = is_vector_expr_same_dimension<T...>::value;
 
+template<typename... T>
+using is_vector_expr_same_element = concepts::is_same<vector_expr_element_t<T>...>;
+
+template<typename... T>
+constexpr auto is_vector_expr_same_element_v = is_vector_expr_same_element<T...>::value;
+
 namespace detail {
 template<typename T>
 struct is_dsl_impl : std::false_type {};
