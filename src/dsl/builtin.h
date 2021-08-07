@@ -650,6 +650,16 @@ requires any_dsl_v<Tf, Tt, Tp> && is_vector_expr_same_element_v<Tf, Tt> && is_bo
         std::forward<Tp>(p));
 }
 
+template<typename Tf, typename Tt>
+requires is_same_expr_v<Tf, Tt>
+[[nodiscard]] inline auto select(Tf &&f, Tt &&t, Expr<bool> p) noexcept {
+    using T = expr_value_t<Tf>;
+    return Expr<T>{
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), CallOp::NONE,
+            {LUISA_EXPR(f), LUISA_EXPR(t), p.expression()})};
+}
+
 template<typename Tp, typename Tt, typename Tf>
 requires any_dsl_v<Tp, Tt, Tf>
 [[nodiscard]] inline auto ite(Tp &&p, Tt &&t, Tf &&f) noexcept {
