@@ -656,7 +656,7 @@ requires is_same_expr_v<Tf, Tt>
     using T = expr_value_t<Tf>;
     return Expr<T>{
         detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::NONE,
+            Type::of<T>(), CallOp::SELECT,
             {LUISA_EXPR(f), LUISA_EXPR(t), p.expression()})};
 }
 
