@@ -12,10 +12,14 @@ namespace luisa::compute {
 inline namespace dsl {
 
 template<typename Dest, typename Src>
-[[nodiscard]] inline auto cast(Expr<Src> s) noexcept { return s.template cast<Dest>(); }
+[[nodiscard]] inline auto cast(Src &&s) noexcept {
+    return Expr{std::forward<Src>(s)}.template cast<Dest>();
+}
 
 template<typename Dest, typename Src>
-[[nodiscard]] inline auto as(Expr<Src> s) noexcept { return s.template as<Dest>(); }
+[[nodiscard]] inline auto as(Src &&s) noexcept {
+    return Expr{std::forward<Src>(s)}.template as<Dest>();
+}
 
 [[nodiscard]] inline auto thread_id() noexcept {
     return Expr<uint3>{detail::FunctionBuilder::current()->thread_id()};
@@ -142,157 +146,220 @@ template<typename T>
     }
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector2(Expr<T> s) noexcept {
+#define LUISA_EXPR(value) \
+    detail::extract_expression(std::forward<decltype(value)>(value))
+
+template<typename Ts>
+requires is_scalar_expr_v<Ts>
+[[nodiscard]] inline auto make_vector2(Ts &&s) noexcept {
+    using V = Vector<expr_value_t<Ts>, 2>;
+    return Expr<V>{
+        FunctionBuilder::current()->call(
+            Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(s)})};
+}
+
+template<typename Tx, typename Ty>
+requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_same_expr_v<Tx, Ty>
+[[nodiscard]] inline auto make_vector2(Tx &&x, Ty &&y) noexcept {
+    using V = Vector<expr_value_t<Tx>, 2>;
+    return Expr<V>{
+        FunctionBuilder::current()->call(
+            Type::of<V>(), make_vector_tag<V>(),
+            {LUISA_EXPR(x), LUISA_EXPR(y)})};
+}
+
+template<typename T, typename Tv>
+requires is_vector_expr_v<Tv>
+[[nodiscard]] inline auto make_vector2(Tv &&v) noexcept {
     using V = Vector<T, 2>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {s.expression()})};
+            {LUISA_EXPR(v)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector2(Expr<T> x, Expr<T> y) noexcept {
-    using V = Vector<T, 2>;
+template<typename Ts>
+requires is_scalar_expr_v<Ts>
+[[nodiscard]] inline auto make_vector3(Ts &&s) noexcept {
+    using V = Vector<expr_value_t<Ts>, 3>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {x.expression(), y.expression()})};
+            {LUISA_EXPR(s)})};
 }
 
-template<concepts::vector T>
-[[nodiscard]] inline auto make_vector2(Expr<T> v) noexcept {
-    using V = Vector<typename T::value_type, 2>;
+template<typename Tx, typename Ty, typename Tz>
+requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_scalar_expr_v<Tz> && is_same_expr_v<Tx, Ty, Tz>
+[[nodiscard]] inline auto make_vector3(Tx &&x, Ty &&y, Tz &&z) noexcept {
+    using V = Vector<expr_value_t<Tx>, 3>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {v.expression()})};
+            {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(z)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector3(Expr<T> s) noexcept {
+template<typename T, typename Tv>
+requires is_vector3_expr_v<Tv> || is_vector4_expr_v<Tv>
+[[nodiscard]] inline auto make_vector3(Tv &&v) noexcept {
     using V = Vector<T, 3>;
     return Expr<V>{
         FunctionBuilder::current()->call(
-            Type::of<V>(), make_vector_tag<V>(),
-            {s.expression()})};
+            Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(v)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector3(Expr<T> x, Expr<T> y, Expr<T> z) noexcept {
-    using V = Vector<T, 3>;
+template<typename Txy, typename Tz>
+requires is_vector2_expr_v<Txy> && is_scalar_expr_v<Tz> && std::same_as<vector_expr_element_t<Txy>, expr_value_t<Tz>>
+[[nodiscard]] inline auto make_vector3(Txy &&xy, Tz &&z) noexcept {
+    using V = Vector<expr_value_t<Tz>, 3>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {x.expression(), y.expression(), z.expression()})};
+            {LUISA_EXPR(xy), LUISA_EXPR(z)})};
 }
 
-template<concepts::scalar T, size_t N>
-requires(N == 3) || (N == 4) [[nodiscard]] inline auto make_vector3(Expr<Vector<T, N>> v) noexcept {
-    using V = Vector<T, 3>;
+template<typename Tx, typename Tyz>
+requires is_scalar_expr_v<Tx> && is_vector2_expr_v<Tyz> && std::same_as<expr_value_t<Tx>, vector_expr_element_t<Tyz>>
+[[nodiscard]] inline auto make_vector3(Tx &&x, Tyz &&yz) noexcept {
+    using V = Vector<expr_value_t<Tx>, 3>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {v.expression()})};
+            {LUISA_EXPR(x), LUISA_EXPR(yz)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector3(Expr<Vector<T, 2>> xy, Expr<T> z) noexcept {
-    using V = Vector<T, 3>;
+template<typename Ts>
+requires is_scalar_expr_v<Ts>
+[[nodiscard]] inline auto make_vector4(Ts &&s) noexcept {
+    using V = Vector<expr_value_t<Ts>, 4>;
+    return Expr<V>{
+        FunctionBuilder::current()->call(
+            Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(s)})};
+}
+
+template<typename Tx, typename Ty, typename Tz, typename Tw>
+requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_scalar_expr_v<Tz> && is_scalar_expr_v<Tw> && is_same_expr_v<Tx, Ty, Tz, Tw>
+[[nodiscard]] inline auto make_vector4(Tx &&x, Ty &&y, Tz &&z, Tw &&w) noexcept {
+    using V = Vector<expr_value_t<Tx>, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {xy.expression(), z.expression()})};
+            {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(z), LUISA_EXPR(w)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector3(Expr<T> x, Expr<Vector<T, 2>> yz) noexcept {
-    using V = Vector<T, 3>;
-    return Expr<V>{
-        FunctionBuilder::current()->call(
-            Type::of<V>(), make_vector_tag<V>(),
-            {x.expression(), yz.expression()})};
-}
-
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<T> s) noexcept {
+template<typename T, typename Tv>
+requires is_vector4_expr_v<Tv>
+[[nodiscard]] inline auto make_vector4(Tv &&v) noexcept {
     using V = Vector<T, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
-            Type::of<V>(), make_vector_tag<V>(),
-            {s.expression()})};
+            Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(v)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<T> x, Expr<T> y, Expr<T> z, Expr<T> w) noexcept {
-    using V = Vector<T, 4>;
+template<typename Txy, typename Tz, typename Tw>
+requires is_vector2_expr_v<Txy> && is_scalar_expr_v<Tz> && is_scalar_expr_v<Tw> && concepts::same<vector_expr_element_t<Txy>, expr_value_t<Tz>, expr_value_t<Tw>>
+[[nodiscard]] inline auto make_vector4(Txy &&xy, Tz &&z, Tw &&w) noexcept {
+    using V = Vector<expr_value_t<Tz>, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {x.expression(), y.expression(), z.expression(), w.expression()})};
+            {LUISA_EXPR(xy), LUISA_EXPR(z), LUISA_EXPR(w)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<Vector<T, 4>> v) noexcept {
-    using V = Vector<T, 4>;
+template<typename Tx, typename Tyz, typename Tw>
+requires is_scalar_expr_v<Tx> && is_vector2_expr_v<Tyz> && is_scalar_expr_v<Tw> && concepts::same<expr_value_t<Tx>, vector_expr_element_t<Tyz>, expr_value_t<Tw>>
+[[nodiscard]] inline auto make_vector4(Tx &&x, Tyz &&yz, Tw &&w) noexcept {
+    using V = Vector<expr_value_t<Tx>, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {v.expression()})};
+            {LUISA_EXPR(x), LUISA_EXPR(yz), LUISA_EXPR(w)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<Vector<T, 2>> xy, Expr<T> z, Expr<T> w) noexcept {
-    using V = Vector<T, 4>;
+template<typename Tx, typename Ty, typename Tzw>
+requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_vector2_expr_v<Tzw> && concepts::same<expr_value_t<Tx>, expr_value_t<Ty>, vector_expr_element_t<Tzw>>
+[[nodiscard]] inline auto make_vector4(Tx &&x, Ty &&y, Tzw &&zw) noexcept {
+    using V = Vector<expr_value_t<Tx>, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {xy.expression(), z.expression(), w.expression()})};
+            {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(zw)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<T> x, Expr<Vector<T, 2>> yz, Expr<T> w) noexcept {
-    using V = Vector<T, 4>;
+template<typename Txy, typename Tzw>
+requires is_vector2_expr_v<Txy> && is_vector2_expr_v<Tzw> && std::same_as<vector_expr_element_t<Txy>, vector_expr_element_t<Tzw>>
+[[nodiscard]] inline auto make_vector4(Txy &&xy, Tzw &&zw) noexcept {
+    using V = Vector<vector_expr_element_t<Txy>, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {x.expression(), yz.expression(), w.expression()})};
+            {LUISA_EXPR(xy), LUISA_EXPR(zw)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<T> x, Expr<T> y, Expr<Vector<T, 2>> zw) noexcept {
-    using V = Vector<T, 4>;
+template<typename Txyz, typename Tw>
+requires is_vector3_expr_v<Txyz> && is_scalar_expr_v<Tw> && std::same_as<vector_expr_element_t<Txyz>, expr_value_t<Tw>>
+[[nodiscard]] inline auto make_vector4(Txyz &&xyz, Tw &&w) noexcept {
+    using V = Vector<expr_value_t<Tw>, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {x.expression(), y.expression(), zw.expression()})};
+            {LUISA_EXPR(xyz), LUISA_EXPR(w)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<Vector<T, 2>> xy, Expr<Vector<T, 2>> zw) noexcept {
-    using V = Vector<T, 4>;
+template<typename Tx, typename Tyzw>
+requires is_scalar_expr_v<Tx> && is_vector3_expr_v<Tyzw> && std::same_as<expr_value_t<Tx>, vector_expr_element_t<Tyzw>>
+[[nodiscard]] inline auto make_vector4(Tx &&x, Tyzw &&yzw) noexcept {
+    using V = Vector<expr_value_t<Tx>, 4>;
     return Expr<V>{
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
-            {xy.expression(), zw.expression()})};
+            {LUISA_EXPR(x), LUISA_EXPR(yzw)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<Vector<T, 3>> xyz, Expr<T> w) noexcept {
-    using V = Vector<T, 4>;
-    return Expr<V>{
-        FunctionBuilder::current()->call(
-            Type::of<V>(), make_vector_tag<V>(),
-            {xyz.expression(), w.expression()})};
+template<template<typename> typename scalar_check, typename Tx>
+requires is_scalar_expr_v<Tx> && scalar_check<expr_value_t<Tx>>::value
+    [[nodiscard]] auto
+    make_vector_call(CallOp op, Tx &&x) noexcept {
+    using T = expr_value_t<Tx>;
+    return Expr<T>{
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), op, {LUISA_EXPR(x)})};
 }
 
-template<concepts::scalar T>
-[[nodiscard]] inline auto make_vector4(Expr<T> x, Expr<Vector<T, 3>> yzw) noexcept {
-    using V = Vector<T, 4>;
-    return Expr<V>{
-        FunctionBuilder::current()->call(
-            Type::of<V>(), make_vector_tag<V>(),
-            {x.expression(), yzw.expression()})};
+template<template<typename> typename scalar_check, typename Tx>
+requires is_vector_expr_v<Tx> && scalar_check<vector_expr_element_t<Tx>>::value
+    [[nodiscard]] auto
+    make_vector_call(CallOp op, Tx &&x) noexcept {
+    using T = expr_value_t<Tx>;
+    return Expr<T>{
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), op, {LUISA_EXPR(x)})};
+}
+
+template<typename Tx, typename Ty>
+requires any_dsl_v<Tx, Ty> && is_same_expr_v<Tx, Ty> &&(is_scalar_expr_v<Tx> || is_vector_expr_v<Tx>)
+    [[nodiscard]] auto make_vector_call(CallOp op, Tx &&x, Ty &&y) noexcept {
+    using T = expr_value_t<Tx>;
+    return Expr<T>{
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), op, {LUISA_EXPR(x), LUISA_EXPR(y)})};
+}
+
+template<typename Tx, typename Ty>
+requires any_dsl_v<Tx, Ty> && is_scalar_expr_v<Tx> && is_vector_expr_v<Ty> && std::same_as<expr_value_t<Tx>, vector_expr_element_t<Ty>>
+[[nodiscard]] auto make_vector_call(CallOp op, Tx &&x, Ty &&y) noexcept {
+    using T = expr_value_t<Ty>;
+    return Expr<T>{
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), op, {LUISA_EXPR(x), LUISA_EXPR(y)})};
+}
+
+template<typename Tx, typename Ty>
+requires any_dsl_v<Tx, Ty> && is_vector_expr_v<Tx> && is_scalar_expr_v<Ty> && std::same_as<vector_expr_element_t<Tx>, expr_value_t<Ty>>
+[[nodiscard]] auto make_vector_call(CallOp op, Tx &&x, Ty &&y) noexcept {
+    using T = expr_value_t<Tx>;
+    return Expr<T>{
+        detail::FunctionBuilder::current()->call(
+            Type::of<T>(), op, {LUISA_EXPR(x), LUISA_EXPR(y)})};
 }
 
 }// namespace detail
@@ -307,18 +374,15 @@ inline namespace dsl {// to avoid conflicts
         return detail::make_vector2(x, y);                                                     \
     }                                                                                          \
     [[nodiscard]] inline auto make_##type##2(Expr<Vector<type, 3>> v) noexcept {               \
-        return detail::make_vector2(v);                                                        \
+        return detail::make_vector2<type>(v);                                                  \
     }                                                                                          \
     [[nodiscard]] inline auto make_##type##2(Expr<Vector<type, 4>> v) noexcept {               \
-        return detail::make_vector2(v);                                                        \
+        return detail::make_vector2<type>(v);                                                  \
     }                                                                                          \
-    template<typename T>                                                                       \
-    [[nodiscard]] inline auto make_##type##2(Expr<Vector<T, 2>> v) noexcept {                  \
-        if constexpr (std::is_same_v<T, type>) {                                               \
-            return detail::make_vector2(v);                                                    \
-        } else {                                                                               \
-            return cast<type##2>(detail::make_vector2(v));                                     \
-        }                                                                                      \
+    template<typename Tv>                                                                      \
+    requires is_dsl_v<Tv> && is_vector2_expr_v<Tv>                                             \
+    [[nodiscard]] inline auto make_##type##2(Tv && v) noexcept {                               \
+        return detail::make_vector2<type>(std::forward<Tv>(v));                                \
     }                                                                                          \
                                                                                                \
     [[nodiscard]] inline auto make_##type##3(                                                  \
@@ -335,15 +399,12 @@ inline namespace dsl {// to avoid conflicts
         return detail::make_vector3(x, v);                                                     \
     }                                                                                          \
     [[nodiscard]] inline auto make_##type##3(Expr<Vector<type, 4>> v) noexcept {               \
-        return detail::make_vector3(v);                                                        \
+        return detail::make_vector3<type>(v);                                                  \
     }                                                                                          \
-    template<typename T>                                                                       \
-    [[nodiscard]] inline auto make_##type##3(Expr<Vector<T, 3>> v) noexcept {                  \
-        if constexpr (std::is_same_v<T, type>) {                                               \
-            return detail::make_vector3(v);                                                    \
-        } else {                                                                               \
-            return cast<type##3>(detail::make_vector3(v));                                     \
-        }                                                                                      \
+    template<typename Tv>                                                                      \
+    requires is_dsl_v<Tv> && is_vector3_expr_v<Tv>                                             \
+    [[nodiscard]] inline auto make_##type##3(Tv && v) noexcept {                               \
+        return detail::make_vector3<type>(std::forward<Tv>(v));                                \
     }                                                                                          \
                                                                                                \
     [[nodiscard]] inline auto make_##type##4(Expr<type> s) noexcept {                          \
@@ -377,13 +438,10 @@ inline namespace dsl {// to avoid conflicts
         Expr<type> x, Expr<Vector<type, 3>> yzw) noexcept {                                    \
         return detail::make_vector4(x, yzw);                                                   \
     }                                                                                          \
-    template<typename T>                                                                       \
-    [[nodiscard]] inline auto make_##type##4(Expr<Vector<T, 4>> v) noexcept {                  \
-        if constexpr (std::is_same_v<T, type>) {                                               \
-            return detail::make_vector4(v);                                                    \
-        } else {                                                                               \
-            return cast<type##4>(detail::make_vector4(v));                                     \
-        }                                                                                      \
+    template<typename Tv>                                                                      \
+    requires is_dsl_v<Tv> && is_vector4_expr_v<Tv>                                             \
+    [[nodiscard]] inline auto make_##type##4(Tv && v) noexcept {                               \
+        return detail::make_vector4<type>(std::forward<Tv>(v));                                \
     }
 LUISA_MAKE_VECTOR(bool)
 LUISA_MAKE_VECTOR(int)
@@ -527,96 +585,76 @@ LUISA_MAKE_VECTOR(float)
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4, {m.expression()})};
 }
 
-template<size_t N>
-[[nodiscard]] inline auto all(Expr<Vector<bool, N>> x) noexcept {
+template<typename Tx>
+requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
+[[nodiscard]] inline auto all(Tx &&x) noexcept {
     return Expr<bool>{
         detail::FunctionBuilder::current()->call(
-            Type::of<bool>(), CallOp::ALL, {x.expression()})};
+            Type::of<bool>(), CallOp::ALL, {LUISA_EXPR(x)})};
 }
 
-template<size_t N>
-[[nodiscard]] inline auto any(Expr<Vector<bool, N>> x) noexcept {
+template<typename Tx>
+requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
+[[nodiscard]] inline auto any(Tx &&x) noexcept {
     return Expr<bool>{
         detail::FunctionBuilder::current()->call(
-            Type::of<bool>(), CallOp::ANY, {x.expression()})};
+            Type::of<bool>(), CallOp::ANY, {LUISA_EXPR(x)})};
 }
 
-template<size_t N>
-[[nodiscard]] inline auto none(Expr<Vector<bool, N>> x) noexcept {
+template<typename Tx>
+requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
+[[nodiscard]] inline auto none(Tx &&x) noexcept {
     return Expr<bool>{
         detail::FunctionBuilder::current()->call(
-            Type::of<bool>(), CallOp::NONE, {x.expression()})};
+            Type::of<bool>(), CallOp::NONE, {LUISA_EXPR(x)})};
 }
 
-template<typename T>
-[[nodiscard]] inline auto select(Expr<T> false_value, Expr<T> true_value, Expr<bool> pred) noexcept {
+template<typename Tf, typename Tt>
+requires is_same_expr_v<Tf, Tt>
+[[nodiscard]] inline auto select(Tf &&f, Tt &&t, Expr<bool> pred) noexcept {
+    using T = expr_value_t<Tf>;
     return Expr<T>{
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::SELECT,
-            {false_value.expression(), true_value.expression(), pred.expression()})};
+            {LUISA_EXPR(f), LUISA_EXPR(t), pred.expression()})};
 }
 
-template<concepts::scalar T, size_t N>
-[[nodiscard]] inline auto select(Expr<Vector<T, N>> false_value, Expr<Vector<T, N>> true_value, Expr<Vector<bool, N>> pred) noexcept {
-    return Expr<Vector<T, N>>{
+template<typename Tf, typename Tt, typename Tp>
+requires any_dsl_v<Tf, Tt, Tp> && is_same_expr_v<Tf, Tt> && is_vector_expr_v<Tf> && is_bool_vector_expr_v<Tp> && is_vector_expr_same_dimension_v<Tf, Tt, Tp>
+[[nodiscard]] inline auto select(Tf &&f, Tt &&t, Tp &&p) noexcept {
+    using V = Vector<vector_expr_element_t<Tf>, vector_expr_dimension_v<Tf>>;
+    return Expr<V>{
         detail::FunctionBuilder::current()->call(
-            Type::of<Vector<T, N>>(), CallOp::SELECT,
-            {false_value.expression(), true_value.expression(), pred.expression()})};
+            Type::of<V>(), CallOp::SELECT,
+            {LUISA_EXPR(f), LUISA_EXPR(t), LUISA_EXPR(p)})};
 }
 
-template<concepts::scalar T, size_t N>
-[[nodiscard]] inline auto select(Expr<T> false_value, Expr<T> true_value, Expr<Vector<bool, N>> pred) noexcept {
-    return Expr<Vector<T, N>>{
+template<typename Tf, typename Tt, typename Tp>
+requires any_dsl_v<Tf, Tt, Tp> && is_same_expr_v<Tf, Tt> && is_scalar_expr_v<Tf> && is_bool_vector_expr_v<Tp>
+[[nodiscard]] inline auto select(Tf &&f, Tt &&t, Tp &&p) noexcept {
+    using V = Vector<expr_value_t<Tf>, vector_expr_dimension_v<Tp>>;
+    return Expr<V>{
         detail::FunctionBuilder::current()->call(
-            Type::of<Vector<T, N>>(), CallOp::SELECT,
-            {false_value.expression(), true_value.expression(), pred.expression()})};
+            Type::of<V>(), CallOp::SELECT,
+            {LUISA_EXPR(f), LUISA_EXPR(t), LUISA_EXPR(p)})};
 }
 
-template<typename X, typename Y, typename Z,
-         std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<Z>>>,
-                          int> = 0>
-[[nodiscard]] inline auto select(X &&x, Y &&y, Z &&z) noexcept {
-    return select(Expr{std::forward<X>(x)},
-                  Expr{std::forward<Y>(y)},
-                  Expr{std::forward<Z>(z)});
+template<typename Tp, typename Tt, typename Tf>
+requires any_dsl_v<Tp, Tt, Tf>
+[[nodiscard]] inline auto ite(Tp &&p, Tt &&t, Tf &&f) noexcept {
+    return select(std::forward<Tf>(f),
+                  std::forward<Tt>(t),
+                  std::forward<Tp>(p));
 }
 
-template<typename T>
-[[nodiscard]] inline auto ite(Expr<bool> pred, Expr<T> true_value, Expr<T> false_value) noexcept {
-    return select(false_value, true_value, pred);
-}
-
-template<concepts::scalar T, size_t N>
-[[nodiscard]] inline auto ite(Expr<Vector<bool, N>> pred, Expr<Vector<T, N>> true_value, Expr<Vector<T, N>> false_value) noexcept {
-    return select(false_value, true_value, pred);
-}
-
-template<concepts::scalar T, size_t N>
-[[nodiscard]] inline auto ite(Expr<Vector<bool, N>> pred, Expr<T> true_value, Expr<T> false_value) noexcept {
-    return select(false_value, true_value, pred);
-}
-
-template<typename X, typename Y, typename Z,
-         std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<Z>>>,
-                          int> = 0>
-[[nodiscard]] inline auto ite(X &&x, Y &&y, Z &&z) noexcept {
-    return ite(Expr{std::forward<X>(x)},
-               Expr{std::forward<Y>(y)},
-               Expr{std::forward<Z>(z)});
-}
-
-template<concepts::scalar T>
-[[nodiscard]] inline auto clamp(Expr<T> value, Expr<T> lb, Expr<T> ub) noexcept {
+template<typename Tv, typename Tl, typename Tu>
+requires any_dsl_v<Tv, Tl, Tu> && is_same_expr_v<Tv, Tl, Tu> && is_scalar_expr_v<Tv>
+[[nodiscard]] inline auto clamp(Tv &&v, Tl &&l, Tu &&u) noexcept {
+    using T = expr_value_t<Tv>;
     return Expr<T>{
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::CLAMP,
-            {value.expression(), lb.expression(), ub.expression()})};
+            {LUISA_EXPR(v), LUISA_EXPR(l), LUISA_EXPR(u)})};
 }
 
 template<concepts::scalar T, size_t N>
@@ -645,9 +683,9 @@ template<concepts::vector T>
 
 template<typename X, typename Y, typename Z,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<Z>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>,
+                              is_dsl<std::remove_cvref_t<Z>>>,
                           int> = 0>
 [[nodiscard]] inline auto clamp(X &&x, Y &&y, Z &&z) noexcept {
     return clamp(Expr{std::forward<X>(x)},
@@ -688,9 +726,9 @@ template<size_t N>
 
 template<typename X, typename Y, typename Z,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<Z>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>,
+                              is_dsl<std::remove_cvref_t<Z>>>,
                           int> = 0>
 [[nodiscard]] inline auto lerp(X &&x, Y &&y, Z &&z) noexcept {
     return lerp(Expr{std::forward<X>(x)},
@@ -698,30 +736,16 @@ template<typename X, typename Y, typename Z,
                 Expr{std::forward<Z>(z)});
 }
 
-[[nodiscard]] inline auto saturate(Expr<float> value) noexcept {
-    return Expr<float>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::SATURATE, {value.expression()})};
+template<typename Tv>
+requires is_dsl_v<Tv>
+[[nodiscard]] inline auto saturate(Tv &&v) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::SATURATE, std::forward<Tv>(v));
 }
 
-template<size_t N>
-[[nodiscard]] inline auto saturate(Expr<Vector<float, N>> value) noexcept {
-    return Expr<Vector<float, N>>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<Vector<float, N>>(), CallOp::SATURATE, {value.expression()})};
-}
-
-[[nodiscard]] inline auto sign(Expr<float> value) noexcept {
-    return Expr<float>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::SIGN, {value.expression()})};
-}
-
-template<size_t N>
-[[nodiscard]] inline auto sign(Expr<Vector<float, N>> value) noexcept {
-    return Expr<Vector<float, N>>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<Vector<float, N>>(), CallOp::SIGN, {value.expression()})};
+template<typename Tv>
+requires is_dsl_v<Tv>
+[[nodiscard]] inline auto sign(Tv &&v) noexcept {
+    return detail::make_vector_call<is_signed>(CallOp::SIGN, std::forward<Tv>(v));
 }
 
 [[nodiscard]] inline auto step(Expr<float> edge, Expr<float> x) noexcept {
@@ -757,8 +781,8 @@ template<size_t N>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto step(X &&x, Y &&y) noexcept {
     return step(Expr{std::forward<X>(x)},
@@ -797,9 +821,9 @@ template<size_t N>
 
 template<typename X, typename Y, typename Z,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<Z>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>,
+                              is_dsl<std::remove_cvref_t<Z>>>,
                           int> = 0>
 [[nodiscard]] inline auto smoothstep(X &&x, Y &&y, Z &&z) noexcept {
     return smoothstep(Expr{std::forward<X>(x)},
@@ -807,20 +831,10 @@ template<typename X, typename Y, typename Z,
                       Expr{std::forward<Z>(z)});
 }
 
-template<typename T>
-requires std::same_as<T, int> || std::same_as<T, float>
-[[nodiscard]] inline auto abs(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ABS, {x.expression()})};
-}
-
-template<typename T, size_t N>
-requires std::same_as<T, int> || std::same_as<T, float>
-[[nodiscard]] inline auto abs(Expr<Vector<T, N>> x) noexcept {
-    return Expr<Vector<T, N>>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<Vector<T, N>>(), CallOp::ABS, {x.expression()})};
+template<typename Tx>
+requires is_dsl_v<Tx>
+[[nodiscard]] inline auto abs(Tx &&x) noexcept {
+    return detail::make_vector_call<is_signed>(CallOp::ABS, std::forward<Tx>(x));
 }
 
 template<concepts::scalar T, size_t N>
@@ -853,8 +867,8 @@ template<concepts::scalar T>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto mod(X &&x, Y &&y) noexcept {
     return mod(Expr{std::forward<X>(x)},
@@ -891,8 +905,8 @@ template<concepts::scalar T>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto fmod(X &&x, Y &&y) noexcept {
     return fmod(Expr{std::forward<X>(x)},
@@ -929,8 +943,8 @@ template<concepts::scalar T>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto min(X &&x, Y &&y) noexcept {
     return min(Expr{std::forward<X>(x)},
@@ -967,8 +981,8 @@ template<concepts::scalar T>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto max(X &&x, Y &&y) noexcept {
     return max(Expr{std::forward<X>(x)},
@@ -1017,43 +1031,33 @@ template<typename X, typename Y,
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto acos(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ACOS, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto acos(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::ACOS, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto acosh(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ACOSH, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto acosh(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::ACOSH, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto asin(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ASIN, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto asin(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::ASIN, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto asinh(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ASINH, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto asinh(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::ASINH, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto atan(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATAN, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto atan(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::ATAN, std::forward<T>(x));
 }
 
 template<typename T>
@@ -1066,8 +1070,8 @@ requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, fl
 
 template<typename Y, typename X,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<X>>>,
+                              is_dsl<std::remove_cvref_t<Y>>,
+                              is_dsl<std::remove_cvref_t<X>>>,
                           int> = 0>
 [[nodiscard]] inline auto atan2(Y &&y, X &&x) noexcept {
     return atan2(Expr{std::forward<Y>(y)},
@@ -1075,107 +1079,81 @@ template<typename Y, typename X,
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto atanh(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATANH, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto atanh(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::ATANH, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto cos(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::COS, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto cos(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::COS, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto cosh(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::COSH, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto cosh(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::COSH, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto sin(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::SIN, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto sin(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::SIN, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto sinh(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::SINH, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto sinh(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::SINH, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto tan(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::TAN, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto tan(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::TAN, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto tanh(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::TANH, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto tanh(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::TANH, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto exp(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::EXP, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto exp(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::EXP, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto exp2(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::EXP2, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto exp2(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::EXP2, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto exp10(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::EXP10, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto exp10(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::EXP10, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto log(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::LOG, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto log(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::LOG, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto log2(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::LOG2, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto log2(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::LOG2, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto log10(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::LOG10, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto log10(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::LOG10, std::forward<T>(x));
 }
 
 [[nodiscard]] inline auto pow(Expr<float> x, Expr<float> a) noexcept {
@@ -1203,8 +1181,8 @@ template<size_t N>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto pow(X &&x, Y &&y) noexcept {
     return pow(Expr{std::forward<X>(x)},
@@ -1212,75 +1190,57 @@ template<typename X, typename Y,
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto sqrt(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::SQRT, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto sqrt(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::SQRT, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto rsqrt(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::RSQRT, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto rsqrt(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::RSQRT, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto ceil(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::CEIL, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto ceil(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::CEIL, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto floor(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::FLOOR, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto floor(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::FLOOR, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto fract(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::FRACT, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto fract(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::FRACT, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto trunc(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::TRUNC, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto trunc(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::TRUNC, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto round(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ROUND, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto round(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::ROUND, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto degrees(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::DEGREES, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto degrees(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::DEGREES, std::forward<T>(x));
 }
 
 template<typename T>
-requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, float3> || std::same_as<T, float4>
-[[nodiscard]] inline auto radians(Expr<T> x) noexcept {
-    return Expr<T>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::RADIANS, {x.expression()})};
+requires is_dsl_v<T>
+[[nodiscard]] inline auto radians(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::RADIANS, std::forward<T>(x));
 }
 
 template<typename T>
@@ -1293,9 +1253,9 @@ requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, fl
 
 template<typename X, typename Y, typename Z,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<Z>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>,
+                              is_dsl<std::remove_cvref_t<Z>>>,
                           int> = 0>
 [[nodiscard]] inline auto fma(X &&x, Y &&y, Z &&z) noexcept {
     return fma(Expr{std::forward<X>(x)},
@@ -1313,8 +1273,8 @@ requires std::same_as<T, float> || std::same_as<T, float2> || std::same_as<T, fl
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto copysign(X &&x, Y &&y) noexcept {
     return copysign(Expr{std::forward<X>(x)},
@@ -1329,8 +1289,8 @@ template<typename X, typename Y,
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto cross(X &&x, Y &&y) noexcept {
     return cross(Expr{std::forward<X>(x)},
@@ -1346,8 +1306,8 @@ template<size_t N>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto dot(X &&x, Y &&y) noexcept {
     return dot(Expr{std::forward<X>(x)},
@@ -1363,8 +1323,8 @@ template<size_t N>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto distance(X &&x, Y &&y) noexcept {
     return distance(Expr{std::forward<X>(x)},
@@ -1380,33 +1340,34 @@ template<size_t N>
 
 template<typename X, typename Y,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>>,
                           int> = 0>
 [[nodiscard]] inline auto distance_squared(X &&x, Y &&y) noexcept {
     return distance_squared(Expr{std::forward<X>(x)},
                             Expr{std::forward<Y>(y)});
 }
 
-template<size_t N>
-[[nodiscard]] inline auto length(Expr<Vector<float, N>> u) noexcept {
+template<typename Tx>
+requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
+[[nodiscard]] inline auto length(Tx &&x) noexcept {
     return Expr<float>{
         detail::FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::LENGTH, {u.expression()})};
+            Type::of<float>(), CallOp::LENGTH, {LUISA_EXPR(x)})};
 }
 
-template<size_t N>
-[[nodiscard]] inline auto length_squared(Expr<Vector<float, N>> u) noexcept {
+template<typename Tx>
+requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
+[[nodiscard]] inline auto length_squared(Tx &&x) noexcept {
     return Expr<float>{
         detail::FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::LENGTH_SQUARED, {u.expression()})};
+            Type::of<float>(), CallOp::LENGTH_SQUARED, {LUISA_EXPR(x)})};
 }
 
-template<size_t N>
-[[nodiscard]] inline auto normalize(Expr<Vector<float, N>> u) noexcept {
-    return Expr<Vector<float, N>>{
-        detail::FunctionBuilder::current()->call(
-            Type::of<Vector<float, N>>(), CallOp::NORMALIZE, {u.expression()})};
+template<typename T>
+requires is_dsl_v<T> && is_vector_expr_v<T>
+[[nodiscard]] inline auto normalize(T &&x) noexcept {
+    return detail::make_vector_call<is_floating_point>(CallOp::NORMALIZE, std::forward<T>(x));
 }
 
 [[nodiscard]] inline auto faceforward(Expr<float3> n, Expr<float3> i, Expr<float3> n_ref) noexcept {
@@ -1418,9 +1379,9 @@ template<size_t N>
 
 template<typename X, typename Y, typename Z,
          std::enable_if_t<std::disjunction_v<
-                              is_expr<std::remove_cvref_t<X>>,
-                              is_expr<std::remove_cvref_t<Y>>,
-                              is_expr<std::remove_cvref_t<Z>>>,
+                              is_dsl<std::remove_cvref_t<X>>,
+                              is_dsl<std::remove_cvref_t<Y>>,
+                              is_dsl<std::remove_cvref_t<Z>>>,
                           int> = 0>
 [[nodiscard]] inline auto faceforward(X &&n, Y &&i, Z &&n_ref) noexcept {
     return faceforward(Expr{std::forward<X>(n)},
@@ -1428,25 +1389,30 @@ template<typename X, typename Y, typename Z,
                        Expr{std::forward<Z>(n_ref)});
 }
 
-template<concepts::matrix T>
-[[nodiscard]] inline auto determinant(Expr<T> mat) noexcept {
+template<typename Tm>
+requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
+[[nodiscard]] inline auto determinant(Tm &&m) noexcept {
     return Expr<float>{
         detail::FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::DETERMINANT, {mat.expression()})};
+            Type::of<float>(), CallOp::DETERMINANT, {LUISA_EXPR(m)})};
 }
 
-template<concepts::matrix T>
-[[nodiscard]] inline auto transpose(Expr<T> mat) noexcept {
+template<typename Tm>
+requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
+[[nodiscard]] inline auto transpose(Tm &&m) noexcept {
+    using T = expr_value_t<Tm>;
     return Expr<T>{
         detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::TRANSPOSE, {mat.expression()})};
+            Type::of<T>(), CallOp::TRANSPOSE, {LUISA_EXPR(m)})};
 }
 
-template<concepts::matrix T>
-[[nodiscard]] inline auto inverse(Expr<T> mat) noexcept {
+template<typename Tm>
+requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
+[[nodiscard]] inline auto inverse(Tm &&m) noexcept {
+    using T = expr_value_t<Tm>;
     return Expr<T>{
         detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::INVERSE, {mat.expression()})};
+            Type::of<T>(), CallOp::INVERSE, {LUISA_EXPR(m)})};
 }
 
 // memory barriers

@@ -35,6 +35,18 @@ public:                                                          \
         this->_expression,                                       \
         _member_index(#m))};
 
+#define LUISA_STRUCT_MAKE_MEMBER_REF(m)                         \
+private:                                                        \
+    using Type_##m = detail::c_array_to_std_array_t<            \
+        std::remove_cvref_t<                                    \
+            decltype(std::declval<This>().m)>>;                 \
+                                                                \
+public:                                                         \
+    Ref<Type_##m> m{detail::FunctionBuilder::current()->member( \
+        Type::of<Type_##m>(),                                   \
+        this->_expression,                                      \
+        _member_index(#m))};
+
 #define LUISA_STRUCT(S, ...)                                                                                     \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                                         \
     namespace luisa::compute {                                                                                   \
@@ -53,18 +65,36 @@ public:                                                          \
         [[nodiscard]] auto expression() const noexcept { return this->_expression; }                             \
         Expr(Expr &&another) noexcept = default;                                                                 \
         Expr(const Expr &another) noexcept = default;                                                            \
-        void operator=(const Expr &rhs) noexcept {                                                               \
-            detail::FunctionBuilder::current()->assign(                                                          \
-                AssignOp::ASSIGN,                                                                                \
-                this->expression(),                                                                              \
-                rhs.expression());                                                                               \
-        }                                                                                                        \
-        void operator=(Expr &&rhs) noexcept {                                                                    \
-            detail::FunctionBuilder::current()->assign(                                                          \
-                AssignOp::ASSIGN,                                                                                \
-                this->expression(),                                                                              \
-                rhs.expression());                                                                               \
-        }                                                                                                        \
+        Expr &operator=(Expr &&) noexcept = delete;                                                              \
+        Expr &operator=(const Expr &) noexcept = delete;                                                         \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR, __VA_ARGS__)                                                    \
+    };                                                                                                           \
+    template<>                                                                                                   \
+    struct Ref<S> {                                                                                              \
+    private:                                                                                                     \
+        const Expression *_expression;                                                                           \
+        using This = S;                                                                                          \
+        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                    \
+            constexpr const std::string_view member_names[]{LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};       \
+            return std::find(std::begin(member_names), std::end(member_names), name) - std::begin(member_names); \
+        }                                                                                                        \
+                                                                                                                 \
+    public:                                                                                                      \
+        explicit Ref(const Expression *e) noexcept : _expression{e} {}                                           \
+        [[nodiscard]] auto expression() const noexcept { return this->_expression; }                             \
+        Ref(Ref &&another) noexcept = default;                                                                   \
+        Ref(const Ref &another) noexcept = default;                                                              \
+        [[nodiscard]] operator Expr<S>() const noexcept { return Expr<S>{this->expression()}; }                  \
+        void operator=(Expr<S> rhs) const noexcept {                                                             \
+            detail::FunctionBuilder::current()->assign(                                                          \
+                AssignOp::ASSIGN,                                                                                \
+                this->expression(),                                                                              \
+                rhs.expression());                                                                               \
+        }                                                                                                        \
+        void operator=(Ref &&rhs) const noexcept { (*this) = Expr{rhs}; }                                        \
+        void operator=(const Ref &rhs) const noexcept { (*this) = Expr{rhs}; }                                   \
+        template<typename Rhs>                                                                                   \
+        void assign(Rhs &&v) const noexcept { (*this) = std::forward<Rhs>(v); }                                  \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_REF, __VA_ARGS__)                                                     \
     };                                                                                                           \
     }

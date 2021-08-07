@@ -25,8 +25,8 @@ namespace luisa::compute {
 [[nodiscard]] Expr<float3> origin(Expr<Ray> ray) noexcept;
 [[nodiscard]] Expr<float3> direction(Expr<Ray> ray) noexcept;
 
-void set_origin(Expr<Ray> ray, Expr<float3> origin) noexcept;
-void set_direction(Expr<Ray> ray, Expr<float3> direction) noexcept;
+void set_origin(Ref<Ray> ray, Expr<float3> origin) noexcept;
+void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept;
 
 [[nodiscard]] Expr<Ray> make_ray(
     Expr<float3> origin,

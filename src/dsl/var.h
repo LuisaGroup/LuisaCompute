@@ -10,7 +10,7 @@
 namespace luisa::compute {
 
 template<typename T>
-struct Var : public Expr<T> {
+struct Var : public Ref<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
@@ -19,18 +19,18 @@ struct Var : public Expr<T> {
     requires concepts::constructible<T, expr_value_t<Args>...>
     Var(Args &&...args)
     noexcept
-        : Expr<T>{detail::FunctionBuilder::current()->local(
+        : Ref<T>{detail::FunctionBuilder::current()->local(
             Type::of<T>(),
             {detail::extract_expression(std::forward<Args>(args))...})} {}
 
     // for internal use only...
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
+        : Ref<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{Expr{another}} {}
-    void operator=(Var &&rhs) noexcept { Expr<T>::operator=(rhs); }
-    void operator=(const Var &rhs) noexcept { Expr<T>::operator=(rhs); }
+    void operator=(Var &&rhs) noexcept { Ref<T>::operator=(rhs); }
+    void operator=(const Var &rhs) noexcept { Ref<T>::operator=(rhs); }
 };
 
 template<typename T>
@@ -40,8 +40,6 @@ struct Var<Buffer<T>> : public Expr<Buffer<T>> {
             detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<typename T>
@@ -51,8 +49,6 @@ struct Var<BufferView<T>> : public Expr<Buffer<T>> {
             detail::FunctionBuilder::buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<typename T>
@@ -64,8 +60,6 @@ struct Var<Image<T>> : public Expr<Image<T>> {
     }
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<typename T>
@@ -76,8 +70,6 @@ struct Var<ImageView<T>> : public Expr<Image<T>> {
             detail::FunctionBuilder::current()->argument(Type::of<uint2>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<typename T>
@@ -88,8 +80,6 @@ struct Var<Volume<T>> : public Expr<Volume<T>> {
             detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<typename T>
@@ -100,8 +90,6 @@ struct Var<VolumeView<T>> : public Expr<Volume<T>> {
             detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<>
@@ -111,12 +99,13 @@ struct Var<Heap> : public Expr<Heap> {
             detail::FunctionBuilder::current()->heap()} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
-    Var &operator=(Var &&) noexcept = delete;
-    Var &operator=(const Var &) noexcept = delete;
 };
 
 template<typename T>
 Var(Expr<T>) -> Var<T>;
+
+template<typename T>
+Var(Ref<T>) -> Var<T>;
 
 template<typename T>
 Var(T &&) -> Var<T>;

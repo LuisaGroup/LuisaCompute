@@ -20,14 +20,14 @@ Expr<float3> direction(Expr<Ray> ray) noexcept {
     return _direction(ray);
 }
 
-void set_origin(Expr<Ray> ray, Expr<float3> origin) noexcept {
+void set_origin(Ref<Ray> ray, Expr<float3> origin) noexcept {
     Var o = origin;
     ray.origin[0] = o.x;
     ray.origin[1] = o.y;
     ray.origin[2] = o.z;
 }
 
-void set_direction(Expr<Ray> ray, Expr<float3> direction) noexcept {
+void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept {
     Var d = direction;
     ray.direction[0] = d.x;
     ray.direction[1] = d.y;

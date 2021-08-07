@@ -1,4 +1,3 @@
-#pragma once
 [[nodiscard]] auto xx() const noexcept { return Expr<Vector<T, 2>>{detail::FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x00u)}; }
 [[nodiscard]] auto xy() const noexcept { return Expr<Vector<T, 2>>{detail::FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x10u)}; }
 [[nodiscard]] auto xz() const noexcept { return Expr<Vector<T, 2>>{detail::FunctionBuilder::current()->swizzle(Type::of<Vector<T, 2>>(), this->expression(), 2u, 0x20u)}; }

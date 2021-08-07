@@ -172,14 +172,19 @@ struct is_tuple<std::tuple<T...>> : std::true_type {};
 template<typename T>
 constexpr auto is_tuple_v = is_tuple<T>::value;
 
-template<typename... T, size_t... i>
-[[nodiscard]] inline auto tuple_to_var_impl(std::tuple<T...> tuple, std::index_sequence<i...>) noexcept {
-    return Var<std::tuple<expr_value_t<T>...>>{std::get<i>(tuple)...};
+template<size_t i, size_t n, typename Tuple, typename Var>
+void tuple_to_var_assign(const Tuple &tuple, Var &var) noexcept {
+    if constexpr (i < n) {
+        var.template member<i>() = std::get<i>(tuple);
+        tuple_to_var_assign<i + 1u, n>(tuple, var);
+    }
 }
 
 template<typename... T>
 [[nodiscard]] inline auto tuple_to_var(std::tuple<T...> tuple) noexcept {
-    return tuple_to_var_impl(std::move(tuple), std::index_sequence_for<T...>{});
+    Var<std::tuple<expr_value_t<T>...>> v;
+    tuple_to_var_assign<0u, sizeof...(T)>(tuple, v);
+    return v;
 }
 
 template<typename... T, size_t... i>
@@ -188,8 +193,13 @@ template<typename... T, size_t... i>
 }
 
 template<typename... T>
-[[nodiscard]] inline auto var_to_tuple(Expr<std::tuple<T...>> v) noexcept {
+[[nodiscard]] inline auto var_to_tuple_impl(Expr<std::tuple<T...>> v) noexcept {
     return var_to_tuple_impl(v, std::index_sequence_for<T...>{});
+}
+
+template<typename T>
+[[nodiscard]] inline auto var_to_tuple(T &&v) noexcept {
+    return var_to_tuple_impl(Expr{std::forward<T>(v)});
 }
 
 }// namespace detail

@@ -33,14 +33,13 @@ public:
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
-    template<concepts::integral U>
-    [[nodiscard]] auto operator[](Expr<U> index) const noexcept {
-        return Expr<T>{detail::FunctionBuilder::current()->access(
-            Type::of<T>(), _expression, index.expression())};
+    template<typename U>
+    requires is_integral_expr_v<U>
+    [[nodiscard]] auto operator[](U &&index) const noexcept {
+        return Ref<T>{detail::FunctionBuilder::current()->access(
+            Type::of<T>(), _expression,
+            detail::extract_expression(std::forward<U>(index)))};
     }
-
-    template<concepts::integral U>
-    [[nodiscard]] auto operator[](U index) const noexcept { return (*this)[Expr{index}]; }
 };
 
 namespace detail {

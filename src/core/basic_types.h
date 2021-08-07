@@ -11,8 +11,17 @@
 
 namespace luisa {
 
-template<typename... U>
-constexpr auto always_false_v = false;
+template<typename... T>
+struct always_false : std::false_type {};
+
+template<typename... T>
+constexpr auto always_false_v = always_false<T...>::value;
+
+template<typename... T>
+struct always_true : std::true_type {};
+
+template<typename... T>
+constexpr auto always_true_v = always_true<T...>::value;
 
 template<typename T, std::enable_if_t<std::disjunction_v<std::is_enum<T>>, int> = 0>
 [[nodiscard]] constexpr auto to_underlying(T e) noexcept {
@@ -40,23 +49,37 @@ using uint = unsigned int;
 
 template<typename T>
 using is_integral = std::disjunction<
-    std::is_same<T, int>,
-    std::is_same<T, uint>>;
+    std::is_same<std::remove_cvref_t<T>, int>,
+    std::is_same<std::remove_cvref_t<T>, uint>>;
 
 template<typename T>
 constexpr auto is_integral_v = is_integral<T>::value;
 
 template<typename T>
-using is_boolean = std::is_same<T, bool>;
+using is_boolean = std::is_same<std::remove_cvref_t<T>, bool>;
 
 template<typename T>
 constexpr auto is_boolean_v = is_boolean<T>::value;
 
 template<typename T>
-using is_floating_point = std::is_same<T, float>;
+using is_floating_point = std::is_same<std::remove_cvref_t<T>, float>;
 
 template<typename T>
 constexpr auto is_floating_point_v = is_floating_point<T>::value;
+
+template<typename T>
+using is_signed = std::disjunction<
+    is_floating_point<T>,
+    std::is_same<std::remove_cvref_t<T>, int>>;
+
+template<typename T>
+constexpr auto is_signed_v = is_signed<T>::value;
+
+template<typename T>
+using is_unsigned = std::is_same<std::remove_cvref_t<T>, uint>;
+
+template<typename T>
+constexpr auto is_unsigned_v = is_unsigned<T>::value;
 
 template<typename T>
 using is_scalar = std::disjunction<
@@ -518,25 +541,169 @@ struct IsVector : std::false_type {};
 template<typename T, size_t N>
 struct IsVector<Vector<T, N>> : std::true_type {};
 
+template<typename T, size_t N>
+struct IsVectorN : std::false_type {};
+
+template<typename T, size_t N>
+struct IsVectorN<Vector<T, N>, N> : std::true_type {};
+
 template<typename T>
 struct IsMatrix : std::false_type {};
 
 template<size_t N>
 struct IsMatrix<Matrix<N>> : std::true_type {};
 
+template<typename T, size_t N>
+struct IsMatrixN : std::false_type {};
+
+template<size_t N>
+struct IsMatrixN<Matrix<N>, N> : std::true_type {};
+
+template<typename T>
+struct VectorValue {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct VectorValue<Vector<T, N>> {
+    using type = T;
+};
+
+template<typename T>
+struct VectorDim {
+    static constexpr auto value = static_cast<size_t>(1u);
+};
+
+template<typename T, size_t N>
+struct VectorDim<Vector<T, N>> {
+    static constexpr auto value = N;
+};
+
+template<typename T>
+struct MatrixDim {
+    static constexpr auto value = static_cast<size_t>(1u);
+};
+
+template<size_t N>
+struct MatrixDim<Matrix<N>> {
+    static constexpr auto value = N;
+};
+
+template<typename U, typename V>
+struct VectorSameDim : std::false_type {};
+
+template<typename U, typename V, size_t N>
+struct VectorSameDim<Vector<U, N>, Vector<V, N>> : std::true_type {};
+
+template<typename... T>
+struct VectorAllSameDim : std::false_type {};
+
+template<>
+struct VectorAllSameDim<> : std::true_type {};
+
+template<typename T>
+struct VectorAllSameDim<T> : std::true_type {};
+
+template<typename First, typename... Other>
+struct VectorAllSameDim<First, Other...> : std::conjunction<VectorSameDim<First, Other>...> {};
+
 }// namespace detail
+
+template<typename... T>
+using is_vector_same_dimension = detail::VectorAllSameDim<std::remove_cvref_t<T>...>;
+
+template<typename... T>
+constexpr auto is_vector_same_dimension_v = is_vector_same_dimension<T...>::value;
+
+template<typename T>
+using vector_dimension = detail::VectorDim<std::remove_cvref_t<T>>;
+
+template<typename T>
+constexpr auto vector_dimension_v = vector_dimension<T>::value;
+
+template<typename T>
+using matrix_dimension = detail::MatrixDim<std::remove_cvref_t<T>>;
+
+template<typename T>
+constexpr auto matrix_dimension_v = matrix_dimension<T>::value;
+
+template<typename T>
+using vector_element = detail::VectorValue<std::remove_cvref_t<T>>;
+
+template<typename T>
+using vector_element_t = typename vector_element<T>::type;
 
 template<typename T>
 using is_vector = detail::IsVector<T>;
 
 template<typename T>
+using is_vector2 = detail::IsVectorN<T, 2>;
+
+template<typename T>
+using is_vector3 = detail::IsVectorN<T, 3>;
+
+template<typename T>
+using is_vector4 = detail::IsVectorN<T, 4>;
+
+template<typename T>
+using is_bool_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, bool>>;
+
+template<typename T>
+constexpr auto is_bool_vector_v = is_bool_vector<T>::value;
+
+template<typename T>
+using is_float_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, float>>;
+
+template<typename T>
+constexpr auto is_float_vector_v = is_float_vector<T>::value;
+
+template<typename T>
+using is_int_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, int>>;
+
+template<typename T>
+constexpr auto is_int_vector_v = is_int_vector<T>::value;
+
+template<typename T>
+using is_uint_vector = std::conjunction<is_vector<T>, std::is_same<vector_element_t<T>, uint>>;
+
+template<typename T>
+constexpr auto is_uint_vector_v = is_uint_vector<T>::value;
+
+template<typename T>
 constexpr auto is_vector_v = is_vector<T>::value;
+
+template<typename T>
+constexpr auto is_vector2_v = is_vector2<T>::value;
+
+template<typename T>
+constexpr auto is_vector3_v = is_vector3<T>::value;
+
+template<typename T>
+constexpr auto is_vector4_v = is_vector4<T>::value;
 
 template<typename T>
 using is_matrix = detail::IsMatrix<T>;
 
 template<typename T>
+using is_matrix2 = detail::IsMatrixN<T, 2>;
+
+template<typename T>
+using is_matrix3 = detail::IsMatrixN<T, 3>;
+
+template<typename T>
+using is_matrix4 = detail::IsMatrixN<T, 4>;
+
+template<typename T>
 constexpr auto is_matrix_v = is_matrix<T>::value;
+
+template<typename T>
+constexpr auto is_matrix2_v = is_matrix2<T>::value;
+
+template<typename T>
+constexpr auto is_matrix3_v = is_matrix3<T>::value;
+
+template<typename T>
+constexpr auto is_matrix4_v = is_matrix4<T>::value;
 
 template<typename T>
 using is_basic = std::disjunction<is_scalar<T>, is_vector<T>, is_matrix<T>>;

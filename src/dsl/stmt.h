@@ -256,34 +256,29 @@ inline auto switch_(T &&expr) noexcept {
     return detail::SwitchStmtBuilder{std::forward<T>(expr)};
 }
 
-template<concepts::integral T>
-[[nodiscard]] inline auto range(T end) noexcept {
-    return detail::ForRange<T, false>{static_cast<T>(0), end, static_cast<T>(1)};
+template<typename Te>
+requires is_integral_expr_v<Te>
+[[nodiscard]] inline auto range(Te &&end) noexcept {
+    using T = expr_value_t<Te>;
+    Var e{std::forward<Te>(end)};
+    return detail::ForRange<T, false>{static_cast<T>(0), e, static_cast<T>(1)};
 }
 
-template<concepts::integral T>
-[[nodiscard]] inline auto range(Expr<T> end) noexcept {
-    return detail::ForRange<T, false>{static_cast<T>(0), Var{end}, static_cast<T>(1)};
+template<typename Tb, typename Te>
+requires is_same_expr_v<Tb, Te> && is_integral_expr_v<Tb>
+[[nodiscard]] inline auto range(Tb &&begin, Te &&end) noexcept {
+    using T = expr_value_t<Tb>;
+    Var e{std::forward<Te>(end)};
+    return detail::ForRange<T, true>{std::forward<Tb>(begin), e, static_cast<T>(1)};
 }
 
-template<concepts::integral T>
-[[nodiscard]] inline auto range(Expr<T> begin, T end, T step = 1) noexcept {
-    return detail::ForRange<T, true>{begin, end, step};
-}
-
-template<concepts::integral T>
-[[nodiscard]] inline auto range(Expr<T> begin, Expr<T> end, T step = 1) noexcept {
-    return detail::ForRange<T, true>{begin, Var{end}, step};
-}
-
-template<concepts::integral T>
-[[nodiscard]] inline auto range(Expr<T> begin, T end, Expr<T> step) noexcept {
-    return detail::ForRange<T, true>{begin, end, Var{step}};
-}
-
-template<concepts::integral T>
-[[nodiscard]] inline auto range(Expr<T> begin, Expr<T> end, Expr<T> step) noexcept {
-    return detail::ForRange<T, true>{begin, Var{end}, Var{step}};
+template<typename Tb, typename Te, typename Ts>
+requires is_same_expr_v<Tb, Te, Ts> && is_integral_expr_v<Tb>
+[[nodiscard]] inline auto range(Tb &&begin, Te &&end, Ts &&step) noexcept {
+    using T = expr_value_t<Tb>;
+    Var e{std::forward<Te>(end)};
+    Var s{std::forward<Ts>(step)};
+    return detail::ForRange<T, true>{std::forward<Tb>(begin), e, s};
 }
 
 template<concepts::iterable AllTags, typename Tag, typename IndexedCase, typename Otherwise>

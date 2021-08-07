@@ -83,7 +83,37 @@ template<typename T>
 concept vector = is_vector_v<T>;
 
 template<typename T>
+concept vector2 = is_vector2_v<T>;
+
+template<typename T>
+concept vector3 = is_vector3_v<T>;
+
+template<typename T>
+concept vector4 = is_vector4_v<T>;
+
+template<typename T>
+concept bool_vector = is_bool_vector_v<T>;
+
+template<typename T>
+concept float_vector = is_float_vector_v<T>;
+
+template<typename T>
+concept int_vector = is_int_vector_v<T>;
+
+template<typename T>
+concept uint_vector = is_uint_vector_v<T>;
+
+template<typename T>
 concept matrix = is_matrix_v<T>;
+
+template<typename T>
+concept matrix2 = is_matrix2_v<T>;
+
+template<typename T>
+concept matrix3 = is_matrix3_v<T>;
+
+template<typename T>
+concept matrix4 = is_matrix4_v<T>;
 
 template<typename T>
 concept basic = is_basic_v<T>;
@@ -141,5 +171,33 @@ concept operator_access = requires(Lhs lhs, Rhs rhs) { lhs[rhs]; };
 
 template<typename T>
 concept function = std::is_function_v<T>;
+
+namespace detail {
+
+    template<typename... T>
+    struct all_same_impl : std::false_type {};
+
+    template<>
+    struct all_same_impl<> : std::true_type {};
+
+    template<typename T>
+    struct all_same_impl<T> : std::true_type {};
+
+    template<typename First, typename... Other>
+    struct all_same_impl<First, Other...> : std::conjunction<std::is_same<First, Other>...> {};
+
+}// namespace detail
+
+template<typename... T>
+using is_same = detail::all_same_impl<T...>;
+
+template<typename... T>
+constexpr auto is_same_v = is_same<T...>::value;
+
+template<typename... T>
+concept same = is_same_v<T...>;
+
+template<typename... T>
+concept vector_same_dimension = is_vector_same_dimension_v<T...>;
 
 }// namespace luisa::concepts

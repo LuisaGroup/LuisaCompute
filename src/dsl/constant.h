@@ -36,16 +36,14 @@ public:
     Constant &operator=(Constant &&) noexcept = delete;
     Constant &operator=(const Constant &) noexcept = delete;
 
-    template<concepts::integral U>
-    [[nodiscard]] auto operator[](Expr<U> index) const noexcept {
+    template<typename U>
+    requires is_integral_expr_v<U>
+    [[nodiscard]] auto operator[](U &&index) const noexcept {
         return Expr<T>{detail::FunctionBuilder::current()->access(
             Type::of<T>(),
             detail::FunctionBuilder::current()->constant(_type, _data),
-            index.expression())};
+            detail::extract_expression(std::forward<U>(index)))};
     }
-
-    template<concepts::integral U>
-    [[nodiscard]] auto operator[](U index) const noexcept { return (*this)[Expr{index}]; }
 };
 
 template<typename T>
