@@ -561,7 +561,6 @@ struct IsMatrixN<Matrix<N>, N> : std::true_type {};
 
 template<typename T>
 struct VectorValue {
-    static_assert(is_scalar_v<T>);
     using type = T;
 };
 
