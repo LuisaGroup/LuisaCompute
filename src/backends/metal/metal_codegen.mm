@@ -8,8 +8,6 @@
 #import <ast/type_registry.h>
 #import <ast/function_builder.h>
 #import <ast/constant_data.h>
-#import <rtx/ray.h>
-#import <rtx/hit.h>
 #import <backends/metal/metal_codegen.h>
 
 namespace luisa::compute::metal {
@@ -985,9 +983,33 @@ template<typename X, typename Y>
   return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
 }
 
+[[gnu::always_inline, nodiscard]] inline auto is_nan(float2 v) {
+  return bool2(is_nan(v.x), is_nan(v.y));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_nan(float3 v) {
+  return bool3(is_nan(v.x), is_nan(v.y), is_nan(v.z));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_nan(float4 v) {
+  return bool4(is_nan(v.x), is_nan(v.y), is_nan(v.z), is_nan(v.w));
+}
+
 [[gnu::always_inline, nodiscard]] inline auto is_inf(float x) {
   auto u = as_type<uint>(x);
   return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_inf(float2 v) {
+  return bool2(is_inf(v.x), is_inf(v.y));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_inf(float3 v) {
+  return bool3(is_inf(v.x), is_inf(v.y), is_inf(v.z));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto is_inf(float4 v) {
+  return bool4(is_inf(v.x), is_inf(v.y), is_inf(v.z), is_inf(v.w));
 }
 
 template<typename T>

@@ -126,6 +126,7 @@ private:
 
 public:
     template<typename T>
+    requires is_integral_expr_v<T>
     explicit SwitchStmtBuilder(T &&cond) noexcept
         : _body{FunctionBuilder::current()->scope()} {
         FunctionBuilder::current()->switch_(

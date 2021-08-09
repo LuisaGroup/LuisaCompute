@@ -239,7 +239,8 @@ class Callable<Ret(Args...)> {
     public:
         Invoke() noexcept = default;
         template<typename T>
-        requires(!is_image_or_view_v<T>) && (!is_volume_or_view_v<T>)Invoke &operator<<(Expr<T> arg) noexcept {
+        requires std::negation_v<std::disjunction<is_image_or_view<T>, is_volume_or_view<T>>>
+            Invoke &operator<<(Expr<T> arg) noexcept {
             if (_arg_count == max_argument_count) [[unlikely]] {
                 LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
             }

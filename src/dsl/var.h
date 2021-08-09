@@ -101,6 +101,11 @@ struct Var<Heap> : public Expr<Heap> {
     Var(const Var &) noexcept = delete;
 };
 
+template<typename... T>
+struct VarGroup {
+
+};
+
 template<typename T>
 Var(Expr<T>) -> Var<T>;
 

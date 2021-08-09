@@ -381,7 +381,7 @@ concept vector_expr_compatible = std::conjunction<
     is_dimension_compatible<
         vectorized_dimension_v<T...>, T>...>::value;
 
-// two-argument vectorized call
+// vectorized call
 template<typename Scalar, typename... T>
 requires vector_expr_compatible<T...>
 [[nodiscard]] inline auto make_vector_call(CallOp op, T &&...x) noexcept {
@@ -691,13 +691,15 @@ requires any_dsl_v<Ta, Tb, Tt> && is_float_or_vector_expr_v<Ta> && is_vector_exp
 template<typename Tv>
 requires is_dsl_v<Tv> && is_float_or_vector_expr_v<Tv>
 [[nodiscard]] inline auto saturate(Tv &&v) noexcept {
-    return detail::make_vector_call<float>(CallOp::SATURATE, std::forward<Tv>(v));
+    return detail::make_vector_call<float>(
+        CallOp::SATURATE, std::forward<Tv>(v));
 }
 
 template<typename Tv>
 requires is_dsl_v<Tv> && is_float_or_vector_expr_v<Tv>
 [[nodiscard]] inline auto sign(Tv &&v) noexcept {
-    return detail::make_vector_call<float>(CallOp::SIGN, std::forward<Tv>(v));
+    return detail::make_vector_call<float>(
+        CallOp::SIGN, std::forward<Tv>(v));
 }
 
 template<typename E, typename X>
