@@ -65,8 +65,7 @@ public:                                                         \
         [[nodiscard]] auto expression() const noexcept { return this->_expression; }                             \
         Expr(Expr &&another) noexcept = default;                                                                 \
         Expr(const Expr &another) noexcept = default;                                                            \
-        Expr &operator=(Expr &&) noexcept = delete;                                                              \
-        Expr &operator=(const Expr &) noexcept = delete;                                                         \
+        Expr &operator=(Expr) noexcept = delete;                                                                 \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR, __VA_ARGS__)                                                    \
     };                                                                                                           \
     template<>                                                                                                   \
@@ -91,8 +90,7 @@ public:                                                         \
                 this->expression(),                                                                              \
                 rhs.expression());                                                                               \
         }                                                                                                        \
-        void operator=(Ref &&rhs) const noexcept { (*this) = Expr{rhs}; }                                        \
-        void operator=(const Ref &rhs) const noexcept { (*this) = Expr{rhs}; }                                   \
+        void operator=(Ref rhs) const noexcept { (*this) = Expr{rhs}; }                                          \
         template<typename Rhs>                                                                                   \
         void assign(Rhs &&v) const noexcept { (*this) = std::forward<Rhs>(v); }                                  \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_REF, __VA_ARGS__)                                                     \

@@ -1,6 +1,7 @@
 set(LUISA_COMPUTE_DSL_SOURCES
     var.h
     expr.h
+    expr_traits.h
     syntax.h
     func.h
     shared.h

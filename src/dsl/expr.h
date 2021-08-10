@@ -12,229 +12,14 @@
 #include <runtime/buffer.h>
 #include <runtime/heap.h>
 #include <ast/function_builder.h>
+#include <dsl/expr_traits.h>
 
 namespace luisa::compute {
 
-template<typename T>
-struct Expr;
-
-template<typename T>
-struct Ref;
-
-template<typename T>
-struct Var;
-
 namespace detail {
-
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept;
-
-template<typename T>
-struct expr_value_impl {
-    using type = T;
-};
-
-template<typename T>
-struct expr_value_impl<Expr<T>> {
-    using type = T;
-};
-
-template<typename T>
-struct expr_value_impl<Ref<T>> {
-    using type = T;
-};
-
-template<typename T>
-struct expr_value_impl<Var<T>> {
-    using type = T;
-};
-
-}// namespace detail
-
-template<typename T>
-using expr_value = detail::expr_value_impl<std::remove_cvref_t<T>>;
-
-template<typename T>
-using expr_value_t = typename expr_value<T>::type;
-
-template<typename T>
-using vector_expr_element = vector_element<expr_value_t<T>>;
-
-template<typename T>
-using vector_expr_element_t = typename vector_expr_element<T>::type;
-
-template<typename T>
-using vector_expr_dimension = vector_dimension<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto vector_expr_dimension_v = vector_expr_dimension<T>::value;
-
-template<typename... T>
-using is_vector_expr_same_dimension = is_vector_same_dimension<expr_value_t<T>...>;
-
-template<typename... T>
-constexpr auto is_vector_expr_same_dimension_v = is_vector_expr_same_dimension<T...>::value;
-
-template<typename... T>
-using is_vector_expr_same_element = concepts::is_same<vector_expr_element_t<T>...>;
-
-template<typename... T>
-constexpr auto is_vector_expr_same_element_v = is_vector_expr_same_element<T...>::value;
-
-namespace detail {
-template<typename T>
-struct is_dsl_impl : std::false_type {};
-
-template<typename T>
-struct is_dsl_impl<Expr<T>> : std::true_type {};
-
-template<typename T>
-struct is_dsl_impl<Ref<T>> : std::true_type {};
-
-template<typename T>
-struct is_dsl_impl<Var<T>> : std::true_type {};
-
-}// namespace detail
-
-template<typename T>
-using is_dsl = typename detail::is_dsl_impl<std::remove_cvref_t<T>>::type;
-
-template<typename T>
-constexpr auto is_dsl_v = is_dsl<T>::value;
-
-template<typename... T>
-using any_dsl = std::disjunction<is_dsl<T>...>;
-
-template<typename... T>
-constexpr auto any_dsl_v = any_dsl<T...>::value;
-
-template<typename... T>
-using is_same_expr = concepts::is_same<expr_value_t<T>...>;
-
-template<typename... T>
-constexpr auto is_same_expr_v = is_same_expr<T...>::value;
-
-template<typename T>
-using is_integral_expr = is_integral<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_integral_expr_v = is_integral_expr<T>::value;
-
-template<typename T>
-using is_floating_point_expr = is_floating_point<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_floating_point_expr_v = is_floating_point_expr<T>::value;
-
-template<typename T>
-using is_scalar_expr = is_scalar<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_scalar_expr_v = is_scalar_expr<T>::value;
-
-template<typename T>
-using is_vector_expr = is_vector<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_vector_expr_v = is_vector_expr<T>::value;
-
-template<typename T>
-using is_vector2_expr = is_vector2<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_vector2_expr_v = is_vector2_expr<T>::value;
-
-template<typename T>
-using is_vector3_expr = is_vector3<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_vector3_expr_v = is_vector3_expr<T>::value;
-
-template<typename T>
-using is_vector4_expr = is_vector4<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_vector4_expr_v = is_vector4_expr<T>::value;
-
-template<typename T>
-using is_bool_vector_expr = is_bool_vector<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_bool_vector_expr_v = is_bool_vector_expr<T>::value;
-
-template<typename T>
-using is_float_vector_expr = is_float_vector<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_float_vector_expr_v = is_float_vector_expr<T>::value;
-
-template<typename T>
-using is_int_vector_expr = is_int_vector<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_int_vector_expr_v = is_int_vector_expr<T>::value;
-
-template<typename T>
-using is_uint_vector_expr = is_uint_vector<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_uint_vector_expr_v = is_uint_vector_expr<T>::value;
-
-template<typename T>
-using is_matrix_expr = is_matrix<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_matrix_expr_v = is_matrix_expr<T>::value;
-
-template<typename T>
-using is_matrix2_expr = is_matrix2<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_matrix2_expr_v = is_matrix2_expr<T>::value;
-
-template<typename T>
-using is_matrix3_expr = is_matrix3<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_matrix3_expr_v = is_matrix3_expr<T>::value;
-
-template<typename T>
-using is_matrix4_expr = is_matrix4<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_matrix4_expr_v = is_matrix4_expr<T>::value;
-
-template<typename T>
-using is_float_or_vector_expr = std::disjunction<
-    is_floating_point_expr<T>,
-    is_float_vector_expr<T>>;
-
-template<typename T>
-constexpr auto is_float_or_vector_expr_v = is_float_or_vector_expr<T>::value;
-
-template<typename T>
-using is_int_or_vector_expr = std::disjunction<
-    std::is_same<expr_value_t<T>, int>,
-    is_int_vector_expr<T>>;
-
-template<typename T>
-constexpr auto is_int_or_vector_expr_v = is_int_or_vector_expr<T>::value;
-
-template<typename T>
-using is_bool_or_vector_expr = std::disjunction<
-    std::is_same<expr_value_t<T>, bool>,
-    is_bool_vector_expr<T>>;
-
-template<typename T>
-constexpr auto is_bool_or_vector_expr_v = is_bool_or_vector_expr<T>::value;
-
-template<typename T>
-using is_uint_or_vector_expr = std::disjunction<
-    std::is_same<expr_value_t<T>, uint>,
-    is_uint_vector_expr<T>>;
-
-template<typename T>
-constexpr auto is_uint_or_vector_expr_v = is_uint_or_vector_expr<T>::value;
+}
 
 #define LUISA_EXPR_COMMON(...)                                                   \
 private:                                                                         \
@@ -245,8 +30,7 @@ public:                                                                         
     [[nodiscard]] auto expression() const noexcept { return this->_expression; } \
     Expr(Expr &&another) noexcept = default;                                     \
     Expr(const Expr &another) noexcept = default;                                \
-    Expr &operator=(Expr &&) noexcept = delete;                                  \
-    Expr &operator=(const Expr &) noexcept = delete;
+    Expr &operator=(Expr) noexcept = delete;
 
 #define LUISA_REF_COMMON(...)                                              \
 private:                                                                   \
@@ -266,10 +50,7 @@ public:                                                                    \
     [[nodiscard]] operator Expr<__VA_ARGS__>() const noexcept {            \
         return Expr<__VA_ARGS__>{this->expression()};                      \
     }                                                                      \
-    void operator=(Ref &&rhs) const noexcept {                             \
-        (*this) = Expr<__VA_ARGS__>{rhs};                                  \
-    }                                                                      \
-    void operator=(const Ref &rhs) const noexcept {                        \
+    void operator=(Ref rhs) const noexcept {                               \
         (*this) = Expr<__VA_ARGS__>{rhs};                                  \
     }                                                                      \
     template<typename Value>                                               \
@@ -286,6 +67,24 @@ public:                                                                    \
 
 namespace detail {
 
+template<typename T, typename E>
+struct expr_as {
+    static_assert(always_false_v<T>);
+};
+
+template<typename T, typename E>
+struct expr_as<Expr<T>, E> {
+    using type = Expr<E>;
+};
+
+template<typename T, typename E>
+struct expr_as<Ref<T>, E> {
+    using type = Ref<E>;
+};
+
+template<typename T, typename E>
+using expr_as_t = typename expr_as<T, E>::type;
+
 template<typename T>
 struct ExprEnableStaticCast;
 
@@ -293,26 +92,17 @@ template<typename T>
 struct ExprEnableBitwiseCast;
 
 template<typename T>
-struct ExprEnableAccessOp;
+struct ExprEnableSubscriptAccess;
 
 template<typename T>
-struct RefEnableStaticCast;
-
-template<typename T>
-struct RefEnableBitwiseCast;
-
-template<typename T>
-struct RefEnableAccessOp;
-
-template<typename T>
-struct RefEnableArithmeticAssign;
+struct ExprEnableArithmeticAssign;
 
 }// namespace detail
 
 template<typename T>
 struct Expr
-    : detail::ExprEnableStaticCast<T>,
-      detail::ExprEnableBitwiseCast<T> {
+    : detail::ExprEnableStaticCast<Expr<T>>,
+      detail::ExprEnableBitwiseCast<Expr<T>> {
     static_assert(concepts::basic<T>);
     LUISA_EXPR_COMMON(T)
     LUISA_EXPR_FROM_LITERAL(T)
@@ -320,13 +110,13 @@ struct Expr
 
 template<typename T, size_t N>
 struct Expr<std::array<T, N>>
-    : detail::ExprEnableAccessOp<std::array<T, N>> {
+    : detail::ExprEnableSubscriptAccess<Expr<std::array<T, N>>> {
     LUISA_EXPR_COMMON(std::array<T, N>)
 };
 
 template<size_t N>
 struct Expr<Matrix<N>>
-    : detail::ExprEnableAccessOp<Matrix<N>> {
+    : detail::ExprEnableSubscriptAccess<Expr<Matrix<N>>> {
     LUISA_EXPR_COMMON(Matrix<N>)
     LUISA_EXPR_FROM_LITERAL(Matrix<N>)
 };
@@ -344,9 +134,9 @@ struct Expr<std::tuple<T...>> {
 
 template<typename T>
 struct Expr<Vector<T, 2>>
-    : detail::ExprEnableStaticCast<Vector<T, 2>>,
-      detail::ExprEnableBitwiseCast<Vector<T, 2>>,
-      detail::ExprEnableAccessOp<Vector<T, 2>> {
+    : detail::ExprEnableStaticCast<Expr<Vector<T, 2>>>,
+      detail::ExprEnableBitwiseCast<Expr<Vector<T, 2>>>,
+      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 2>>> {
     LUISA_EXPR_COMMON(Vector<T, 2>)
     LUISA_EXPR_FROM_LITERAL(Vector<T, 2>)
     Expr<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
@@ -356,9 +146,9 @@ struct Expr<Vector<T, 2>>
 
 template<typename T>
 struct Expr<Vector<T, 3>>
-    : detail::ExprEnableStaticCast<Vector<T, 3>>,
-      detail::ExprEnableBitwiseCast<Vector<T, 3>>,
-      detail::ExprEnableAccessOp<Vector<T, 3>> {
+    : detail::ExprEnableStaticCast<Expr<Vector<T, 3>>>,
+      detail::ExprEnableBitwiseCast<Expr<Vector<T, 3>>>,
+      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 3>>> {
     LUISA_EXPR_COMMON(Vector<T, 3>)
     LUISA_EXPR_FROM_LITERAL(Vector<T, 3>)
     Expr<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
@@ -369,9 +159,9 @@ struct Expr<Vector<T, 3>>
 
 template<typename T>
 struct Expr<Vector<T, 4>>
-    : detail::ExprEnableStaticCast<Vector<T, 4>>,
-      detail::ExprEnableBitwiseCast<Vector<T, 4>>,
-      detail::ExprEnableAccessOp<Vector<T, 4>> {
+    : detail::ExprEnableStaticCast<Expr<Vector<T, 4>>>,
+      detail::ExprEnableBitwiseCast<Expr<Vector<T, 4>>>,
+      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 4>>> {
     LUISA_EXPR_COMMON(Vector<T, 4>)
     LUISA_EXPR_FROM_LITERAL(Vector<T, 4>)
     Expr<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
@@ -383,24 +173,24 @@ struct Expr<Vector<T, 4>>
 
 template<typename T>
 struct Ref
-    : detail::RefEnableStaticCast<T>,
-      detail::RefEnableBitwiseCast<T>,
-      detail::RefEnableArithmeticAssign<T> {
+    : detail::ExprEnableStaticCast<Ref<T>>,
+      detail::ExprEnableBitwiseCast<Ref<T>>,
+      detail::ExprEnableArithmeticAssign<Ref<T>> {
     static_assert(concepts::basic<T>);
     LUISA_REF_COMMON(T)
 };
 
 template<typename T, size_t N>
 struct Ref<std::array<T, N>>
-    : detail::RefEnableAccessOp<std::array<T, N>>,
-      detail::RefEnableArithmeticAssign<std::array<T, N>> {
+    : detail::ExprEnableSubscriptAccess<Ref<std::array<T, N>>>,
+      detail::ExprEnableArithmeticAssign<Ref<std::array<T, N>>> {
     LUISA_REF_COMMON(std::array<T, N>)
 };
 
 template<size_t N>
 struct Ref<Matrix<N>>
-    : detail::RefEnableAccessOp<Matrix<N>>,
-      detail::RefEnableArithmeticAssign<Matrix<N>> {
+    : detail::ExprEnableSubscriptAccess<Ref<Matrix<N>>>,
+      detail::ExprEnableArithmeticAssign<Ref<Matrix<N>>> {
     LUISA_REF_COMMON(Matrix<N>)
 };
 
@@ -417,10 +207,10 @@ struct Ref<std::tuple<T...>> {
 
 template<typename T>
 struct Ref<Vector<T, 2>>
-    : detail::RefEnableStaticCast<Vector<T, 2>>,
-      detail::RefEnableBitwiseCast<Vector<T, 2>>,
-      detail::RefEnableAccessOp<Vector<T, 2>>,
-      detail::RefEnableArithmeticAssign<Vector<T, 2>> {
+    : detail::ExprEnableStaticCast<Ref<Vector<T, 2>>>,
+      detail::ExprEnableBitwiseCast<Ref<Vector<T, 2>>>,
+      detail::ExprEnableSubscriptAccess<Ref<Vector<T, 2>>>,
+      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 2>>> {
     LUISA_REF_COMMON(Vector<T, 2>)
     Ref<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Ref<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -429,10 +219,10 @@ struct Ref<Vector<T, 2>>
 
 template<typename T>
 struct Ref<Vector<T, 3>>
-    : detail::RefEnableStaticCast<Vector<T, 3>>,
-      detail::RefEnableBitwiseCast<Vector<T, 3>>,
-      detail::RefEnableAccessOp<Vector<T, 3>>,
-      detail::RefEnableArithmeticAssign<Vector<T, 3>> {
+    : detail::ExprEnableStaticCast<Ref<Vector<T, 3>>>,
+      detail::ExprEnableBitwiseCast<Ref<Vector<T, 3>>>,
+      detail::ExprEnableSubscriptAccess<Ref<Vector<T, 3>>>,
+      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 3>>> {
     LUISA_REF_COMMON(Vector<T, 3>)
     Ref<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Ref<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -442,10 +232,10 @@ struct Ref<Vector<T, 3>>
 
 template<typename T>
 struct Ref<Vector<T, 4>>
-    : detail::RefEnableStaticCast<Vector<T, 4>>,
-      detail::RefEnableBitwiseCast<Vector<T, 4>>,
-      detail::RefEnableAccessOp<Vector<T, 4>>,
-      detail::RefEnableArithmeticAssign<Vector<T, 4>> {
+    : detail::ExprEnableStaticCast<Ref<Vector<T, 4>>>,
+      detail::ExprEnableBitwiseCast<Ref<Vector<T, 4>>>,
+      detail::ExprEnableSubscriptAccess<Ref<Vector<T, 4>>>,
+      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 4>>> {
     LUISA_REF_COMMON(Vector<T, 4>)
     Ref<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Ref<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -463,104 +253,72 @@ namespace detail {
 template<typename T>
 struct ExprEnableStaticCast {
     template<typename Dest>
-    requires concepts::static_convertible<T, expr_value_t<Dest>>
+    requires concepts::static_convertible<expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto cast() const noexcept {
         using TrueDest = expr_value_t<Dest>;
         return Expr<TrueDest>{FunctionBuilder::current()->cast(
             Type::of<TrueDest>(),
             CastOp::STATIC,
-            static_cast<const Expr<T> *>(this)->expression())};
+            static_cast<const T *>(this)->expression())};
     }
 };
 
 template<typename T>
 struct ExprEnableBitwiseCast {
     template<typename Dest>
-    requires concepts::bitwise_convertible<T, expr_value_t<Dest>>
+    requires concepts::bitwise_convertible<expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto as() const noexcept {
         using TrueDest = expr_value_t<Dest>;
         return Expr<TrueDest>{FunctionBuilder::current()->cast(
             Type::of<TrueDest>(),
             CastOp::BITWISE,
-            static_cast<const Expr<T> *>(this)->expression())};
+            static_cast<const T *>(this)->expression())};
     }
 };
 
 template<typename T>
-struct ExprEnableAccessOp {
+struct ExprEnableSubscriptAccess {
     template<typename I>
     requires is_integral_expr_v<I>
     [[nodiscard]] auto operator[](I &&index) const noexcept {
-        using Elem = std::remove_cvref_t<decltype(std::declval<T>()[0])>;
-        return Expr<Elem>{FunctionBuilder::current()->access(
+        using Elem = std::remove_cvref_t<
+            decltype(std::declval<expr_value_t<T>>()[0])>;
+        using R = expr_as_t<T, Elem>;
+        return R{FunctionBuilder::current()->access(
             Type::of<Elem>(),
-            static_cast<const Expr<T> *>(this)->expression(),
+            static_cast<const T *>(this)->expression(),
             extract_expression(std::forward<I>(index)))};
     }
 };
 
 template<typename T>
-struct RefEnableArithmeticAssign {
-#define LUISA_EXPR_ASSIGN_OP(op, op_concept_name, op_tag_name) \
-    template<typename U>                                       \
-    requires concepts::op_concept_name<                        \
-        T, expr_value_t<U>>                                    \
-    void operator op(U &&rhs) noexcept {                       \
-        FunctionBuilder::current()->assign(                    \
-            AssignOp::op_tag_name,                             \
-            static_cast<const Ref<T> *>(this)->expression(),   \
-            extract_expression(std::forward<U>(rhs)));         \
+struct ExprEnableArithmeticAssign {
+#define LUISA_EXPR_ASSIGN_OP(op, op_name, op_tag_name)  \
+    template<typename U>                                \
+    requires concepts::op_name##able<                   \
+        expr_value_t<T>,                                \
+        expr_value_t<U>> void                           \
+    operator op(U &&rhs) const noexcept {               \
+        FunctionBuilder::current()->assign(             \
+            AssignOp::op_tag_name,                      \
+            static_cast<const T *>(this)->expression(), \
+            extract_expression(std::forward<U>(rhs)));  \
+    }                                                   \
+    template<typename U>                                \
+    void op_name(U &&rhs) const noexcept {              \
+        (*this) op std::forward<U>(rhs);                \
     }
-    LUISA_EXPR_ASSIGN_OP(+=, add_assignable, ADD_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(-=, sub_assignable, SUB_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(*=, mul_assignable, MUL_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(/=, div_assignable, DIV_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(%=, mod_assignable, MOD_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(&=, bit_and_assignable, BIT_AND_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(|=, bit_or_assignable, BIT_OR_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(^=, bit_xor_assignable, BIT_XOR_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(<<=, shift_left_assignable, SHL_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(>>=, shift_right_assignable, SHR_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(+=, add_assign, ADD_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(-=, sub_assign, SUB_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(*=, mul_assign, MUL_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(/=, div_assign, DIV_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(%=, mod_assign, MOD_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(&=, bit_and_assign, BIT_AND_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(|=, bit_or_assign, BIT_OR_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(^=, bit_xor_assign, BIT_XOR_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(<<=, shift_left_assign, SHL_ASSIGN)
+    LUISA_EXPR_ASSIGN_OP(>>=, shift_right_assign, SHR_ASSIGN)
 #undef LUISA_EXPR_ASSIGN_OP
-};
-
-template<typename T>
-struct RefEnableStaticCast {
-    template<typename Dest>
-    requires concepts::static_convertible<T, expr_value_t<Dest>>
-    [[nodiscard]] auto cast() const noexcept {
-        using TrueDest = expr_value_t<Dest>;
-        return Expr<TrueDest>{FunctionBuilder::current()->cast(
-            Type::of<TrueDest>(),
-            CastOp::STATIC,
-            static_cast<const Ref<T> *>(this)->expression())};
-    }
-};
-
-template<typename T>
-struct RefEnableBitwiseCast {
-    template<typename Dest>
-    requires concepts::bitwise_convertible<T, expr_value_t<Dest>>
-    [[nodiscard]] auto as() const noexcept {
-        using TrueDest = expr_value_t<Dest>;
-        return Expr<TrueDest>{FunctionBuilder::current()->cast(
-            Type::of<TrueDest>(),
-            CastOp::BITWISE,
-            static_cast<const Ref<T> *>(this)->expression())};
-    }
-};
-
-template<typename T>
-struct RefEnableAccessOp {
-    template<typename I>
-    requires is_integral_expr_v<I>
-    [[nodiscard]] auto operator[](I &&index) const noexcept {
-        using Elem = std::remove_cvref_t<decltype(std::declval<T>()[0])>;
-        return Ref<Elem>{FunctionBuilder::current()->access(
-            Type::of<Elem>(),
-            static_cast<const Ref<T> *>(this)->expression(),
-            extract_expression(std::forward<I>(index)))};
-    }
 };
 
 template<typename>
@@ -810,14 +568,14 @@ struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
 };
 
 template<typename T>
-class BufferRef {
+class HeapBuffer {
 
 private:
     const RefExpr *_heap{nullptr};
     const Expression *_index{nullptr};
 
 public:
-    BufferRef(const RefExpr *heap, const Expression *index) noexcept
+    HeapBuffer(const RefExpr *heap, const Expression *index) noexcept
         : _heap{heap},
           _index{index} {}
 
@@ -831,14 +589,14 @@ public:
     }
 };
 
-class TextureRef2D {
+class HeapTexture2D {
 
 private:
     const RefExpr *_heap{nullptr};
     const Expression *_index{nullptr};
 
 public:
-    TextureRef2D(const RefExpr *heap, const Expression *index) noexcept
+    HeapTexture2D(const RefExpr *heap, const Expression *index) noexcept
         : _heap{heap},
           _index{index} {}
 
@@ -902,14 +660,14 @@ public:
     }
 };
 
-class TextureRef3D {
+class HeapTexture3D {
 
 private:
     const RefExpr *_heap{nullptr};
     const Expression *_index{nullptr};
 
 public:
-    TextureRef3D(const RefExpr *heap, const Expression *index) noexcept
+    HeapTexture3D(const RefExpr *heap, const Expression *index) noexcept
         : _heap{heap},
           _index{index} {}
 
@@ -990,19 +748,19 @@ public:
     template<typename I>
     requires is_integral_expr_v<I>
     [[nodiscard]] auto tex2d(I index) const noexcept {
-        return TextureRef2D{_expression, detail::extract_expression(std::forward<I>(index))};
+        return HeapTexture2D{_expression, detail::extract_expression(std::forward<I>(index))};
     }
 
     template<typename I>
     requires is_integral_expr_v<I>
     [[nodiscard]] auto tex3d(I &&index) const noexcept {
-        return TextureRef3D{_expression, detail::extract_expression(std::forward<I>(index))};
+        return HeapTexture3D{_expression, detail::extract_expression(std::forward<I>(index))};
     }
 
     template<typename T, typename I>
     requires is_integral_expr_v<I>
     [[nodiscard]] auto buffer(I &&index) const noexcept {
-        return BufferRef<T>{_expression, detail::extract_expression(std::forward<I>(index))};
+        return HeapBuffer<T>{_expression, detail::extract_expression(std::forward<I>(index))};
     }
 };
 
@@ -1050,17 +808,17 @@ template<typename T>
 }// namespace detail
 
 template<typename I>
-TextureRef2D Heap::tex2d(I &&index) const noexcept {
+HeapTexture2D Heap::tex2d(I &&index) const noexcept {
     return Expr<Heap>{*this}.tex2d(std::forward<I>(index));
 }
 
 template<typename I>
-TextureRef2D Heap::tex3d(I &&index) const noexcept {
+HeapTexture2D Heap::tex3d(I &&index) const noexcept {
     return Expr<Heap>{*this}.tex3d(std::forward<I>(index));
 }
 
 template<typename T, typename I>
-BufferRef<T> Heap::buffer(I &&index) const noexcept {
+HeapBuffer<T> Heap::buffer(I &&index) const noexcept {
     return Expr<Heap>{*this}.buffer<T>(std::forward<I>(index));
 }
 
