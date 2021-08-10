@@ -59,12 +59,16 @@ public:
 
         [[nodiscard]] const Context &context() const noexcept { return _ctx; }
 
+        // native handle
+        [[nodiscard]] virtual void *native_handle() const noexcept = 0;
+
         // buffer
         [[nodiscard]] virtual uint64_t create_buffer(
             size_t size_bytes,
             uint64_t heap_handle,// == uint64(-1) when not from heap
             uint32_t index_in_heap) noexcept = 0;
         virtual void destroy_buffer(uint64_t handle) noexcept = 0;
+        virtual void *buffer_native_handle(uint64_t handle) const noexcept = 0;
 
         // texture
         [[nodiscard]] virtual uint64_t create_texture(
@@ -75,6 +79,7 @@ public:
             uint64_t heap_handle,// == uint64(-1) when not from heap
             uint32_t index_in_heap) = 0;
         virtual void destroy_texture(uint64_t handle) noexcept = 0;
+        virtual void *texture_native_handle(uint64_t handle) const noexcept = 0;
 
         // texture heap
         [[nodiscard]] virtual uint64_t create_heap(size_t size) noexcept = 0;
@@ -86,6 +91,7 @@ public:
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, CommandList) noexcept = 0;
+        virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
 
         // kernel
         virtual uint64_t create_shader(Function kernel) noexcept = 0;

@@ -15,7 +15,7 @@ class VolumeView;
 template<typename T>
 struct Expr;
 
-// Volumes are 3D textures without sampling.
+// Volumes are 3D textures without sampling, i.e., 3D surfaces.
 template<typename T>
 class Volume : public Resource {
 
@@ -45,6 +45,8 @@ private:
 public:
     Volume() noexcept = default;
     using Resource::operator bool;
+
+    [[nodiscard]] auto native_handle() const noexcept { return device()->texture_native_handle(handle()); }
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }

@@ -553,6 +553,22 @@ void MetalDevice::check_raytracing_supported() const noexcept {
     }
 }
 
+void *MetalDevice::buffer_native_handle(uint64_t handle) const noexcept {
+    return (__bridge void *)buffer(handle);
+}
+
+void *MetalDevice::texture_native_handle(uint64_t handle) const noexcept {
+    return (__bridge void *)texture(handle);
+}
+
+void *MetalDevice::native_handle() const noexcept {
+    return (__bridge void *)_handle;
+}
+
+void *MetalDevice::stream_native_handle(uint64_t handle) const noexcept {
+    return (__bridge void *)stream(handle)->handle();
+}
+
 }
 
 LUISA_EXPORT luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {

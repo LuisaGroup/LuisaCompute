@@ -58,6 +58,7 @@ public:
     Stream &operator<<(CommandBuffer::Commit) noexcept { return *this; }
     Delegate operator<<(Command *cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
+    [[nodiscard]] auto native_handle() const noexcept { return device()->stream_native_handle(handle()); }
     void synchronize() noexcept { _synchronize(); }
 };
 

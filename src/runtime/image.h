@@ -18,7 +18,7 @@ class BufferView;
 template<typename T>
 struct Expr;
 
-// Images are textures without sampling.
+// Images are textures without sampling, i.e., surfaces.
 template<typename T>
 class Image : public Resource {
 
@@ -49,6 +49,8 @@ private:
 public:
     Image() noexcept = default;
     using Resource::operator bool;
+
+    [[nodiscard]] auto native_handle() const noexcept { return device()->texture_native_handle(handle()); }
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }

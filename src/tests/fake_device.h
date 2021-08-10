@@ -46,6 +46,10 @@ public:
     virtual uint64_t create_heap(size_t size) noexcept override { return _handle++; }
     virtual size_t query_heap_memory_usage(uint64_t handle) noexcept override { return 0u; }
     virtual void destroy_heap(uint64_t handle) noexcept override {}
+    virtual void *buffer_native_handle(uint64_t handle) const noexcept override { return nullptr; }
+    virtual void *texture_native_handle(uint64_t handle) const noexcept override { return nullptr; }
+    virtual void *native_handle() const noexcept override { return nullptr; }
+    virtual void *stream_native_handle(uint64_t) const noexcept override { return nullptr; }
 };
 
 }// namespace luisa::compute

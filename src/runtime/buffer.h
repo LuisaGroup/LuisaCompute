@@ -46,7 +46,7 @@ private:
 public:
     Buffer() noexcept = default;
     using Resource::operator bool;
-
+    [[nodiscard]] void *native_handle() const noexcept { return device()->buffer_native_handle(handle()); }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
     [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), 0u, _size}; }

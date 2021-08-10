@@ -31,6 +31,7 @@ private:
 public:
     explicit MetalStream(id<MTLDevice> device, uint max_command_buffers) noexcept;
     ~MetalStream() noexcept;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] id<MTLCommandBuffer> command_buffer() noexcept;
     void dispatch(id<MTLCommandBuffer> command_buffer) noexcept;
     void synchronize() noexcept;

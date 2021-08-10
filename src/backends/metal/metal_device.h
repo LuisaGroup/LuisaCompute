@@ -130,6 +130,10 @@ public:
     uint64_t create_heap(size_t size) noexcept override;
     size_t query_heap_memory_usage(uint64_t handle) noexcept override;
     void destroy_heap(uint64_t handle) noexcept override;
+    virtual void *buffer_native_handle(uint64_t handle) const noexcept override;
+    virtual void *texture_native_handle(uint64_t handle) const noexcept override;
+    virtual void *native_handle() const noexcept override;
+    virtual void *stream_native_handle(uint64_t handle) const noexcept override;
 };
 
 }// namespace luisa::compute::metal
