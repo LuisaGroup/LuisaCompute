@@ -128,7 +128,6 @@ public:
         : _impl{std::move(handle)} {}
 
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
-    [[nodiscard]] auto impl() noexcept { return _impl.get(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
     [[nodiscard]] Stream create_stream() noexcept;                // see definition in runtime/stream.cpp
