@@ -389,4 +389,10 @@ void FunctionBuilder::call(Function custom, std::span<const Expression *const> a
     _void_expr(call(nullptr, custom, args));
 }
 
+const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {
+    Variable v{type, Variable::Tag::REFERENCE, _next_variable_uid()};
+    _arguments.emplace_back(v);
+    return _ref(v);
+}
+
 }// namespace luisa::compute::detail

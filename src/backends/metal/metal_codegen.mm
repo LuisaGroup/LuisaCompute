@@ -316,9 +316,16 @@ void MetalCodegen::visit(const CallExpr *expr) {
         }
         _scratch << "memory_order_relaxed";
     } else if (!expr->arguments().empty()) {
+        auto arg_index = 0u;
         for (auto arg : expr->arguments()) {
+            auto by_ref = !expr->is_builtin()
+                          && expr->custom().arguments()[arg_index].tag()
+                                 == Variable::Tag::REFERENCE;
+            if (by_ref) { _scratch << "&("; }
             arg->accept(*this);
+            if (by_ref) { _scratch << ")"; }
             _scratch << ", ";
+            arg_index++;
         }
         _scratch.pop_back();
         _scratch.pop_back();
@@ -519,7 +526,27 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         }
         _scratch.pop_back();
     } else if (f.tag() == Function::Tag::CALLABLE) {
+        // emit templated access specifier for textures
+        if (std::any_of(f.arguments().begin(), f.arguments().end(), [](auto v) noexcept {
+                return v.tag() == Variable::Tag::TEXTURE
+                       || v.tag() == Variable::Tag::REFERENCE;
+            })) {
+            _scratch << "template<";
+            for (auto arg : f.arguments()) {
+                if (arg.tag() == Variable::Tag::TEXTURE) {
+                    _scratch << "access a";
+                    _emit_variable_name(arg);
+                    _scratch << ", ";
+                } else if (arg.tag() == Variable::Tag::REFERENCE) {
+                    _scratch << "typename T" << arg.uid() << ", ";
+                }
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
+            _scratch << ">\n";
+        }
         if (f.return_type() != nullptr) {
+            _scratch << "[[nodiscard]] ";
             _emit_type_name(f.return_type());
         } else {
             _scratch << "void";
@@ -573,6 +600,7 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
+        case Variable::Tag::REFERENCE: _scratch << "(*p" << v.uid() << ")"; break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
@@ -671,9 +699,17 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             _scratch << " ";
             _emit_variable_name(v);
             break;
+        case Variable::Tag::REFERENCE:
+            if (_function.tag() == Function::Tag::KERNEL) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Invalid reference argument in kernel.");
+            }
+            _scratch << "T" << v.uid() << " p" << v.uid();
+            break;
         case Variable::Tag::BUFFER:
             _scratch << "device ";
-            if (_function.variable_usage(v.uid()) == Usage::READ) {
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Usage::NONE || usage == Usage::READ) {
                 _scratch << "const ";
             }
             _emit_type_name(v.type()->element());
@@ -683,13 +719,19 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
         case Variable::Tag::TEXTURE:
             _scratch << "texture" << v.type()->dimension() << "d<";
             _emit_type_name(v.type()->element());
-            if (auto usage = _function.variable_usage(v.uid());
-                usage == Usage::READ_WRITE) {
-                _scratch << ", access::read_write> ";
-            } else if (usage == Usage::WRITE) {
-                _scratch << ", access::write> ";
-            } else if (usage == Usage::READ) {
-                _scratch << ", access::read> ";
+            if (_function.tag() == Function::Tag::KERNEL) {
+                if (auto usage = _function.variable_usage(v.uid());
+                    usage == Usage::READ_WRITE) {
+                    _scratch << ", access::read_write> ";
+                } else if (usage == Usage::WRITE) {
+                    _scratch << ", access::write> ";
+                } else {
+                    _scratch << ", access::read> ";
+                }
+            } else {
+                _scratch << ", a";
+                _emit_variable_name(v);
+                _scratch << "> ";
             }
             _emit_variable_name(v);
             break;

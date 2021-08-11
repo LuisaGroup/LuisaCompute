@@ -169,6 +169,7 @@ public:
 
     // explicit arguments
     [[nodiscard]] const RefExpr *argument(const Type *type) noexcept;
+    [[nodiscard]] const RefExpr *reference(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *buffer(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *heap() noexcept;

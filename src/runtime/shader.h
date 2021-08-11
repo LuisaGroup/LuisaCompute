@@ -118,6 +118,7 @@ public:
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {
         auto variable_uid = _kernel.arguments()[_argument_index++].uid();
+        // TODO: check type
         _dispatch_command()->encode_uniform(variable_uid, &data, sizeof(T), alignof(T));
         return *this;
     }

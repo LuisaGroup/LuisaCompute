@@ -22,6 +22,9 @@ public:
         LOCAL,
         SHARED,
 
+        // reference
+        REFERENCE,
+
         // resources
         BUFFER,
         TEXTURE,

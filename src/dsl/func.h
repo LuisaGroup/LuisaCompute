@@ -25,13 +25,28 @@ struct definition_to_prototype<Var<T>> {
 };
 
 template<typename T>
+struct definition_to_prototype<Ref<T>> {
+    using type = T &;
+};
+
+template<typename T>
 struct prototype_to_creation {
     using type = Var<T>;
 };
 
 template<typename T>
+struct prototype_to_creation<T &> {
+    using type = Ref<T>;
+};
+
+template<typename T>
 struct prototype_to_callable_invocation {
     using type = Expr<T>;
+};
+
+template<typename T>
+struct prototype_to_callable_invocation<T &> {
+    using type = Ref<T>;
 };
 
 template<typename T>
@@ -91,9 +106,10 @@ struct is_kernel<Kernel3D<Args...>> : std::true_type {};
 template<size_t N, typename... Args>
 class Kernel {
 
-    static_assert(
-        N == 1u || N == 2u || N == 3u
-        || std::negation_v<std::disjunction<is_atomic<Args>...>>);
+    static_assert(N == 1u || N == 2u || N == 3u);
+    static_assert(std::negation_v<std::disjunction<is_atomic<Args>...>>);
+    static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
+    static_assert(std::negation_v<std::disjunction<std::is_reference<Args>...>>);
 
     template<typename...>
     friend struct Kernel1D;
@@ -202,6 +218,53 @@ template<typename T>
     return var_to_tuple_impl(Expr{std::forward<T>(v)});
 }
 
+class CallableInvoke {
+
+public:
+    static constexpr auto max_argument_count = 64u;
+
+private:
+    std::array<const Expression *, max_argument_count> _args{};
+    size_t _arg_count{0u};
+
+public:
+    CallableInvoke() noexcept = default;
+    template<typename T>
+    requires std::negation_v<std::disjunction<is_image_or_view<T>, is_volume_or_view<T>>>
+        CallableInvoke &operator<<(Expr<T> arg) noexcept {
+        if (_arg_count == max_argument_count) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+        }
+        _args[_arg_count++] = arg.expression();
+        return *this;
+    }
+    template<typename T>
+    decltype(auto) operator<<(Ref<T> arg) noexcept {
+        return (*this << Expr{arg});
+    }
+    template<typename T>
+    requires is_image_or_view_v<T>
+        CallableInvoke &operator<<(Expr<T> arg) noexcept {
+        if (_arg_count == max_argument_count - 1u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+        }
+        _args[_arg_count++] = arg.expression();
+        _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint2(0u)) : arg.offset();
+        return *this;
+    }
+    template<typename T>
+    requires is_volume_or_view_v<T>
+        CallableInvoke &operator<<(Expr<T> arg) noexcept {
+        if (_arg_count == max_argument_count - 1u) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+        }
+        _args[_arg_count++] = arg.expression();
+        _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint3(0u)) : arg.offset();
+        return *this;
+    }
+    [[nodiscard]] auto args() const noexcept { return std::span{_args.data(), _arg_count}; }
+};
+
 }// namespace detail
 
 template<typename T>
@@ -223,52 +286,8 @@ class Callable<Ret(Args...)> {
         "Callables may not return buffers, "
         "images or volumes (or their views).");
 
-    static_assert(
-        std::negation_v<std::disjunction<is_atomic<Args>...>>,
-        "Callables are not allowed to have atomic arguments.");
-
-    class Invoke {
-
-    public:
-        static constexpr auto max_argument_count = 64u;
-
-    private:
-        std::array<const Expression *, max_argument_count> _args{};
-        size_t _arg_count{0u};
-
-    public:
-        Invoke() noexcept = default;
-        template<typename T>
-        requires std::negation_v<std::disjunction<is_image_or_view<T>, is_volume_or_view<T>>>
-            Invoke &operator<<(Expr<T> arg) noexcept {
-            if (_arg_count == max_argument_count) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
-            }
-            _args[_arg_count++] = arg.expression();
-            return *this;
-        }
-        template<typename T>
-        requires is_image_or_view_v<T>
-            Invoke &operator<<(Expr<T> arg) noexcept {
-            if (_arg_count == max_argument_count - 1u) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
-            }
-            _args[_arg_count++] = arg.expression();
-            _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint2(0u)) : arg.offset();
-            return *this;
-        }
-        template<typename T>
-        requires is_volume_or_view_v<T>
-            Invoke &operator<<(Expr<T> arg) noexcept {
-            if (_arg_count == max_argument_count - 1u) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
-            }
-            _args[_arg_count++] = arg.expression();
-            _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint3(0u)) : arg.offset();
-            return *this;
-        }
-        [[nodiscard]] auto args() const noexcept { return std::span{_args.data(), _arg_count}; }
-    };
+    static_assert(std::negation_v<std::disjunction<is_atomic<Args>...>>);
+    static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
 private:
     const detail::FunctionBuilder *_builder;
@@ -302,7 +321,7 @@ public:
           })} {}
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
-        Invoke invoke;
+        detail::CallableInvoke invoke;
         (invoke << ... << args);
         if constexpr (std::is_same_v<Ret, void>) {
             detail::FunctionBuilder::current()->call(

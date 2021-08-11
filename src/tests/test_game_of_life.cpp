@@ -44,11 +44,15 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    Kernel2D kernel = [](Var<ImagePair> pair) noexcept {
+    Callable read_state = [](Var<ImagePair> pair, UInt2 uv) noexcept {
+        return pair.prev.read(uv).x == 1.0f;
+    };
+
+    Kernel2D kernel = [&](Var<ImagePair> pair) noexcept {
         Var count = 0u;
         Var uv = dispatch_id().xy();
         Var size = dispatch_size().xy();
-        Var state = pair.prev.read(uv).x == 1.0f;
+        Var state = read_state(pair, uv);
         Var p = make_int2(uv);
         for (auto dy = -1; dy <= 1; dy++) {
             for (auto dx = -1; dx <= 1; dx++) {

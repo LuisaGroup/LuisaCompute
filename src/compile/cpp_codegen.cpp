@@ -501,6 +501,7 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
+        case Variable::Tag::REFERENCE: _scratch << "r" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
@@ -562,6 +563,15 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
 
 void CppCodegen::_emit_variable_decl(Variable v) noexcept {
     switch (v.tag()) {
+        case Variable::Tag::SHARED:
+            _scratch << "__shared__ ";
+            _emit_type_name(v.type());
+            _scratch << " ";
+            break;
+        case Variable::Tag::REFERENCE:
+            _emit_type_name(v.type());
+            _scratch << " &";
+            break;
         case Variable::Tag::BUFFER:
             _scratch << "__device__ ";
             _emit_type_name(v.type()->element());
@@ -594,11 +604,6 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
         case Variable::Tag::DISPATCH_ID:
         case Variable::Tag::DISPATCH_SIZE:
         case Variable::Tag::LOCAL:
-            _emit_type_name(v.type());
-            _scratch << " ";
-            break;
-        case Variable::Tag::SHARED:
-            _scratch << "__shared__ ";
             _emit_type_name(v.type());
             _scratch << " ";
             break;
