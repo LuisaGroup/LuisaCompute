@@ -69,6 +69,10 @@ struct LightSample {
     float pdf;
 };
 
+struct MaterialEvaluation {
+
+};
+
 LUISA_STRUCT(Material, color, emissive)
 LUISA_STRUCT(Light, position, u, v, emission)
 LUISA_STRUCT(Camera, center, front, up, fov)
@@ -341,19 +345,21 @@ int main(int argc, char *argv[]) {
         Var index = dispatch_x();
         $if(index < ray_count[0]) {
 
-            // generate random number
-            Var ray_index = ray_indices[index];
-            Var state = states[ray_index].random_state;
-            Var ux_light = lcg(state);
-            Var uy_light = lcg(state);
-            states[ray_index].random_state = state;
-
             Var<LightSample> sample;
+            sample.emission[0] = 0.0f;
+            sample.emission[1] = 0.0f;
+            sample.emission[2] = 0.0f;
             sample.pdf = 0.0f;
 
             // compute sample
             Var isect = isects[index];
             $if(isect.distance > 0.0f) {
+                // generate random numbers
+                Var ray_index = ray_indices[index];
+                Var state = states[ray_index].random_state;
+                Var ux_light = lcg(state);
+                Var uy_light = lcg(state);
+                states[ray_index].random_state = state;
                 // sample light
                 Var p = float3_from_array(isect.position);
                 Var n = float3_from_array(isect.normal);
@@ -366,7 +372,7 @@ int main(int argc, char *argv[]) {
                     Var shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
                     Var occluded = accel.trace_any(shadow_ray);
                     Var light_area = length(cross(light.u, light.v));
-                    $if(!occluded && cos_light > 1e-4f) {
+                    $if(!occluded) {
                         sample.wi = wi_light;
                         sample.emission = array_from_float3(light.emission);
                         sample.pdf = (d_light * d_light) / (light_area * cos_light);
@@ -378,6 +384,7 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel1D evaluate_material_kernel = [&](BufferVar<Intersection> isects,
+                                            BufferVar<LightSample> light_sampels,
                                             BufferVar<RayState> states,
                                             BufferUInt ray_indices,
                                             BufferUInt ray_count,
@@ -386,8 +393,40 @@ int main(int argc, char *argv[]) {
                                             BufferUInt next_ray_count,
                                             BufferVar<Material> materials) noexcept {
         Var index = dispatch_x();
-        $if(index < ray_count[0]){
+        $if(index < ray_count[0]) {
+            Var ray_index = ray_indices[index];
+            Var ray_state = states[ray_index];
+            Var radiance = float3_from_array(ray_state.radiance);
+            Var isect = isects[index];
+            $if(isect.distance > 0.0f) {
+                Var throughput = float3_from_array(ray_state.throughput);
+                Var material = materials[isect.inst_id];
+                Var color = float3_from_array(material.color);
+                $if(material.emissive) {// hits light
+                    radiance += throughput * color;
+                    throughput = make_float3(0.0f);
+                }
+                $else {// hits material
+                    Var random_state = ray_state.random_state;
+                    Var n = float3_from_array(isect.normal);
+                    Var wo = float3_from_array(isect.wo);
+                    Var cos_wo = dot(n, wo);
+                    $if(cos_wo < 1e-4f) {// hits back face
+                        throughput = make_float3(0.0f);
+                    }
+                    $else {// hits front face
+                        Var light_sample = light_sampels[index];
+                        // compute light contribution
 
+                        // sample material
+                        Var f = make_float3();
+                        Var pdf = 0.0f;
+                    };
+                };
+            }
+            $else {
+
+            };
         };
     };
 
@@ -531,5 +570,5 @@ int main(int argc, char *argv[]) {
            << synchronize();
     auto time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_path_tracing.png", width, height, 4, pixels.data(), 0);
+    stbi_write_png("test_wavefront_path_tracing.png", width, height, 4, pixels.data(), 0);
 }

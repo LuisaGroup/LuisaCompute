@@ -19,6 +19,17 @@
 using namespace luisa;
 using namespace luisa::compute;
 
+struct ImagePair {
+    Image<float> prev;
+    Image<float> curr;
+    ImagePair(Device &device, PixelStorage storage, uint width, uint height) noexcept
+        : prev{device.create_image<float>(storage, width, height)},
+          curr{device.create_image<float>(storage, width, height)} {}
+    void swap() noexcept { std::swap(prev, curr); }
+};
+
+LUISA_BINDING_GROUP(ImagePair, prev, curr)
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
@@ -33,24 +44,24 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    Kernel2D kernel = [](ImageVar<float> prev, ImageVar<float> curr) noexcept {
+    Kernel2D kernel = [](Var<ImagePair> pair) noexcept {
         Var count = 0u;
         Var uv = dispatch_id().xy();
         Var size = dispatch_size().xy();
-        Var state = prev.read(uv).x == 1.0f;
+        Var state = pair.prev.read(uv).x == 1.0f;
         Var p = make_int2(uv);
         for (auto dy = -1; dy <= 1; dy++) {
             for (auto dx = -1; dx <= 1; dx++) {
                 if (dx != 0 || dy != 0) {
                     Var q = p + make_int2(dx, dy) + make_int2(size);
-                    Var neighbor = prev.read(make_uint2(q) % size).x;
+                    Var neighbor = pair.prev.read(make_uint2(q) % size).x;
                     count += neighbor;
                 }
             }
         }
         Var c0 = count == 2u;
         Var c1 = count == 3u;
-        curr.write(uv, make_float4(ite((state && c0) || c1, 1.0f, 0.0f)));
+        pair.curr.write(uv, make_float4(ite((state && c0) || c1, 1.0f, 0.0f)));
     };
     auto shader = device.compile(kernel);
 
@@ -78,15 +89,14 @@ int main(int argc, char *argv[]) {
     cv::imshow("Display", host_image);
     cv::waitKey();
 
-    auto prev = device.create_image<float>(PixelStorage::BYTE1, width, height);
-    auto curr = device.create_image<float>(PixelStorage::BYTE1, width, height);
+    ImagePair image_pair{device, PixelStorage::BYTE1, width, height};
     auto stream = device.create_stream();
-    stream << prev.copy_from(host_image.data);
+    stream << image_pair.prev.copy_from(host_image.data);
     while (cv::waitKey(1) != 'q') {
-        stream << shader(prev, curr).dispatch(width, height)
-               << curr.copy_to(host_image.data)
+        stream << shader(image_pair).dispatch(width, height)
+               << image_pair.curr.copy_to(host_image.data)
                << synchronize();
-        std::swap(curr, prev);
+        image_pair.swap();
         cv::imshow("Display", host_image);
     }
 }

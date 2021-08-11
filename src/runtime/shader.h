@@ -18,17 +18,7 @@ namespace detail {
 
 template<typename T>
 struct prototype_to_shader_invocation {
-    using type = T;
-};
-
-template<>
-struct prototype_to_shader_invocation<Heap> {
-    using type = const Heap &;
-};
-
-template<>
-struct prototype_to_shader_invocation<Accel> {
-    using type = const Accel &;
+    using type = const T &;
 };
 
 template<typename T>
@@ -108,6 +98,21 @@ public:
         auto usage = _kernel.variable_usage(variable_uid);
         _dispatch_command()->encode_texture(variable_uid, volume.handle(), usage);
         return *this << volume.offset();
+    }
+
+    template<typename T>
+    ShaderInvokeBase &operator<<(const Buffer<T> &buffer) noexcept {
+        return *this << buffer.view();
+    }
+
+    template<typename T>
+    ShaderInvokeBase &operator<<(const Image<T> &image) noexcept {
+        return *this << image.view();
+    }
+
+    template<typename T>
+    ShaderInvokeBase &operator<<(const Volume<T> &volume) noexcept {
+        return *this << volume.view();
     }
 
     template<typename T>

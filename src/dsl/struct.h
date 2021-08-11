@@ -5,6 +5,7 @@
 #pragma once
 
 #include <dsl/var.h>
+#include <runtime/shader.h>
 
 namespace luisa::compute::detail {
 
@@ -95,4 +96,40 @@ public:                                                         \
         void assign(Rhs &&v) const noexcept { (*this) = std::forward<Rhs>(v); }                                  \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_REF, __VA_ARGS__)                                                     \
     };                                                                                                           \
+    }
+
+#define LUISA_BINDING_GROUP_MAKE_MEMBER_DECL(m)      \
+private:                                             \
+    using Type_##m = detail::c_array_to_std_array_t< \
+        std::remove_cvref_t<                         \
+            decltype(std::declval<This>().m)>>;      \
+                                                     \
+public:                                              \
+    Var<std::remove_cvref_t<Type_##m>> m;
+
+#define LUISA_BINDING_GROUP_MAKE_MEMBER_INIT(m) \
+    m(detail::ArgumentCreation{})
+
+#define LUISA_BINDING_GROUP_MAKE_INVOKE(m) \
+    invoke << s.m;
+
+#define LUISA_BINDING_GROUP(S, ...)                                                \
+    namespace luisa::compute {                                                     \
+    template<>                                                                     \
+    struct Var<S> {                                                                \
+        using This = S;                                                            \
+        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_MEMBER_DECL, __VA_ARGS__)               \
+        explicit Var(detail::ArgumentCreation) noexcept                            \
+            : LUISA_MAP_LIST(LUISA_BINDING_GROUP_MAKE_MEMBER_INIT, __VA_ARGS__) {} \
+        Var(Var &&) noexcept = default;                                            \
+        Var(const Var &) noexcept = delete;                                        \
+        Var &operator=(Var &&) noexcept = delete;                                  \
+        Var &operator=(const Var &) noexcept = delete;                             \
+    };                                                                             \
+    namespace detail {                                                             \
+    ShaderInvokeBase &operator<<(ShaderInvokeBase &invoke, const S &s) noexcept {  \
+        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_INVOKE, __VA_ARGS__)                    \
+        return invoke;                                                             \
+    }                                                                              \
+    }                                                                              \
     }
