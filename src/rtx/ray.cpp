@@ -28,10 +28,12 @@ void set_origin(Ref<Ray> ray, Expr<float3> origin) noexcept {
 }
 
 void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept {
-    Var d = direction;
-    ray.direction[0] = d.x;
-    ray.direction[1] = d.y;
-    ray.direction[2] = d.z;
+    static Callable _set_direction = [](Ref<Ray> ray, Float3 d) noexcept {
+        ray.direction[0] = d.x;
+        ray.direction[1] = d.y;
+        ray.direction[2] = d.z;
+    };
+    _set_direction(ray, direction);
 }
 
 Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {

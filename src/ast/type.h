@@ -13,6 +13,95 @@
 
 namespace luisa::compute {
 
+template<typename T>
+struct is_struct : std::false_type {};
+
+template<typename... T>
+struct is_struct<std::tuple<T...>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_struct_v = is_struct<T>::value;
+
+template<typename T>
+struct struct_member_tuple {
+    using type = std::tuple<>;
+};
+
+template<typename... T>
+struct struct_member_tuple<std::tuple<T...>> {
+    using type = std::tuple<T...>;
+};
+
+template<typename T>
+using struct_member_tuple_t = typename struct_member_tuple<T>::type;
+
+namespace detail {
+
+template<typename T, size_t>
+using array_to_tuple_element_t = T;
+
+template<typename T, size_t... i>
+[[nodiscard]] constexpr auto array_to_tuple_impl(std::index_sequence<i...>) noexcept {
+    return static_cast<std::tuple<array_to_tuple_element_t<T, i>...> *>(nullptr);
+}
+
+}// namespace detail
+
+template<typename T>
+struct to_tuple {
+    using type = typename to_tuple<struct_member_tuple_t<T>>::type;
+};
+
+template<>
+struct to_tuple<float> {
+    using type = float;
+};
+
+template<>
+struct to_tuple<bool> {
+    using type = bool;
+};
+
+template<>
+struct to_tuple<int> {
+    using type = int;
+};
+
+template<>
+struct to_tuple<uint> {
+    using type = uint;
+};
+
+template<typename... T>
+struct to_tuple<std::tuple<T...>> {
+    using type = std::tuple<typename to_tuple<T>::type...>;
+};
+
+template<typename T, size_t N>
+struct to_tuple<std::array<T, N>> {
+    using type = std::remove_pointer_t<
+        decltype(detail::array_to_tuple_impl<
+                 typename to_tuple<T>::type>(std::make_index_sequence<N>{}))>;
+};
+
+template<typename T, size_t N>
+struct to_tuple<T[N]> {
+    using type = typename to_tuple<std::array<T, N>>::type;
+};
+
+template<typename T, size_t N>
+struct to_tuple<Vector<T, N>> {
+    using type = typename to_tuple<std::array<T, N>>::type;
+};
+
+template<size_t N>
+struct to_tuple<Matrix<N>> {
+    using type = typename to_tuple<std::array<Vector<float, N>, N>>::type;
+};
+
+template<typename T>
+using to_tuple_t = typename to_tuple<T>::type;
+
 class Type;
 class TypeRegistry;
 
@@ -40,7 +129,7 @@ public:
 
         ARRAY,
         STRUCTURE,
-        
+
         BUFFER,
         TEXTURE,
         HEAP,

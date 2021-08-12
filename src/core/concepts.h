@@ -200,4 +200,105 @@ concept same = is_same_v<T...>;
 template<typename... T>
 concept vector_same_dimension = is_vector_same_dimension_v<T...>;
 
+template<typename T>
+struct array_dimension {
+    static constexpr size_t value = 0u;
+};
+
+template<typename T, size_t N>
+struct array_dimension<T[N]> {
+    static constexpr auto value = N;
+};
+
+template<typename T, size_t N>
+struct array_dimension<std::array<T, N>> {
+    static constexpr auto value = N;
+};
+
+template<typename T>
+constexpr auto array_dimension_v = array_dimension<T>::value;
+
+template<typename T>
+struct array_element {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct array_element<T[N]> {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct array_element<std::array<T, N>> {
+    using type = T;
+};
+
+template<typename T>
+using array_element_t = typename array_element<T>::type;
+
+template<typename T>
+struct is_array : std::false_type {};
+
+template<typename T, size_t N>
+struct is_array<T[N]> : std::true_type {};
+
+template<typename T, size_t N>
+struct is_array<std::array<T, N>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_array_v = is_array<T>::value;
+
+template<typename T>
+concept array = is_array_v<T>;
+
+template<typename T>
+concept basic_or_array = basic<T> || array<T>;
+
+template<typename T>
+concept not_basic_or_array = !basic_or_array<T>;
+
+template<typename T>
+struct is_tuple : std::false_type {};
+
+template<typename... T>
+struct is_tuple<std::tuple<T...>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_tuple_v = is_tuple<T>::value;
+
+namespace detail {
+
+template<typename T>
+struct dimension_impl {
+    static constexpr size_t value = 1u;
+};
+
+template<typename T, size_t N>
+struct dimension_impl<T[N]> {
+    static constexpr auto value = N;
+};
+
+template<typename T, size_t N>
+struct dimension_impl<std::array<T, N>> {
+    static constexpr auto value = N;
+};
+
+template<typename T, size_t N>
+struct dimension_impl<Vector<T, N>> {
+    static constexpr auto value = N;
+};
+
+template<size_t N>
+struct dimension_impl<Matrix<N>> {
+    static constexpr auto value = N;
+};
+
+}// namespace detail
+
+template<typename T>
+using dimension = detail::dimension_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+constexpr auto dimension_v = dimension<T>::value;
+
 }// namespace luisa::concepts

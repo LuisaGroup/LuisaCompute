@@ -25,22 +25,22 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 
 };// namespace luisa::compute::detail
 
-#define LUISA_STRUCT_MAKE_MEMBER_TYPE(m)             \
-    using Type_##m = detail::c_array_to_std_array_t< \
-        std::remove_cvref_t<                         \
-            decltype(std::declval<This>().m)>>;
+#define LUISA_STRUCT_MAKE_MEMBER_TYPE(m)                    \
+    using member_type_##m = detail::c_array_to_std_array_t< \
+        std::remove_cvref_t<                                \
+            decltype(std::declval<this_type>().m)>>;
 
 #define LUISA_STRUCT_MAKE_MEMBER_INIT(m)          \
     m(detail::FunctionBuilder::current()->member( \
-        Type::of<Type_##m>(),                     \
+        Type::of<member_type_##m>(),              \
         this->_expression,                        \
         _member_index(#m)))
 
 #define LUISA_STRUCT_MAKE_MEMBER_REF_DECL(m) \
-    Ref<Type_##m> m;
+    Ref<member_type_##m> m;
 
 #define LUISA_STRUCT_MAKE_MEMBER_EXPR_DECL(m) \
-    Ref<Type_##m> m;
+    Ref<member_type_##m> m;
 
 #define LUISA_STRUCT(S, ...)                                                                    \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                        \
@@ -48,8 +48,8 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     template<>                                                                                  \
     struct Expr<S> {                                                                            \
     private:                                                                                    \
+        using this_type = S;                                                                    \
         const Expression *_expression;                                                          \
-        using This = S;                                                                         \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                   \
         [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {   \
             constexpr const std::string_view member_names[]{                                    \
@@ -67,12 +67,18 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         Expr(Expr &&another) noexcept = default;                                                \
         Expr(const Expr &another) noexcept = default;                                           \
         Expr &operator=(Expr) noexcept = delete;                                                \
+        template<size_t i>                                                                      \
+        [[nodiscard]] auto get() const noexcept {                                            \
+            using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                        \
+            return Expr<M>{detail::FunctionBuilder::current()->member(                          \
+                Type::of<M>(), this->expression(), i)};                                         \
+        };                                                                                      \
     };                                                                                          \
     template<>                                                                                  \
     struct Ref<S> {                                                                             \
     private:                                                                                    \
+        using this_type = S;                                                                    \
         const Expression *_expression;                                                          \
-        using This = S;                                                                         \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                   \
         [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {   \
             constexpr const std::string_view member_names[]{                                    \
@@ -102,14 +108,20 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         void operator=(Ref rhs) const noexcept { (*this) = Expr{rhs}; }                         \
         template<typename Rhs>                                                                  \
         void assign(Rhs &&v) const noexcept { (*this) = std::forward<Rhs>(v); }                 \
+        template<size_t i>                                                                      \
+        [[nodiscard]] auto get() const noexcept {                                            \
+            using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                        \
+            return Ref<M>{detail::FunctionBuilder::current()->member(                           \
+                Type::of<M>(), this->expression(), i)};                                         \
+        };                                                                                      \
     };                                                                                          \
     }
 
 #define LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_DECL(m) \
-    Var<Type_##m> m;
+    Var<member_type_##m> m;
 
 #define LUISA_BINDING_GROUP_MAKE_MEMBER_EXPR_DECL(m) \
-    Expr<Type_##m> m;
+    Expr<member_type_##m> m;
 
 #define LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_INIT(m) \
     m(detail::ArgumentCreation{})
@@ -124,7 +136,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     namespace luisa::compute {                                                          \
     template<>                                                                          \
     struct Var<S> {                                                                     \
-        using This = S;                                                                 \
+        using this_type = S;                                                            \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                           \
         LUISA_MAP(LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_DECL, __VA_ARGS__)                \
         explicit Var(detail::ArgumentCreation) noexcept                                 \
@@ -136,7 +148,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     };                                                                                  \
     template<>                                                                          \
     struct Expr<S> {                                                                    \
-        using This = S;                                                                 \
+        using this_type = S;                                                            \
         LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                           \
         LUISA_MAP(LUISA_BINDING_GROUP_MAKE_MEMBER_EXPR_DECL, __VA_ARGS__)               \
         Expr(const Var<S> &s) noexcept                                                  \

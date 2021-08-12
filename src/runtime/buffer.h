@@ -179,4 +179,29 @@ constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
 template<typename T>
 constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::view;
 
+namespace detail {
+
+template<typename T>
+struct buffer_element_impl {
+    using type = T;
+};
+
+template<typename T>
+struct buffer_element_impl<Buffer<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct buffer_element_impl<BufferView<T>> {
+    using type = T;
+};
+
+}
+
+template<typename T>
+using buffer_element = detail::buffer_element_impl<T>;
+
+template<typename T>
+using buffer_element_t = typename buffer_element<T>::type;
+
 }// namespace luisa::compute

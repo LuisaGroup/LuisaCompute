@@ -5,6 +5,7 @@
 #pragma once
 
 #include <dsl/expr.h>
+#include <dsl/expr_traits.h>
 #include <dsl/arg.h>
 
 namespace luisa::compute {
@@ -14,7 +15,7 @@ struct Var : public Ref<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
-    // for local variables
+    // for local variables of basic or array types
     template<typename... Args>
     requires concepts::constructible<T, expr_value_t<Args>...>
     Var(Args &&...args)
@@ -22,6 +23,15 @@ struct Var : public Ref<T> {
         : Ref<T>{detail::FunctionBuilder::current()->local(
             Type::of<T>(),
             {detail::extract_expression(std::forward<Args>(args))...})} {}
+
+    // from tuple
+    template<typename Args, size_t... i>
+    Var(Args &&args, std::index_sequence<i...>) noexcept
+        : Var{std::get<i>(std::forward<Args>(args))...} {}
+
+    template<typename... Args>
+    Var(std::tuple<Args...> args) noexcept
+        : Var{args, std::index_sequence_for<Args...>{}} {}
 
     // for internal use only...
     explicit Var(detail::ArgumentCreation) noexcept
@@ -109,6 +119,9 @@ Var(Ref<T>) -> Var<T>;
 
 template<typename T>
 Var(T &&) -> Var<T>;
+
+template<typename... T>
+Var(std::tuple<T...>) -> Var<std::tuple<expr_value_t<T>...>>;
 
 template<typename T, size_t N>
 using ArrayVar = Var<std::array<T, N>>;

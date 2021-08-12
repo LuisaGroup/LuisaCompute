@@ -179,33 +179,9 @@ struct Kernel3D<void(Args...)> : LUISA_KERNE_BASE(3);
 
 namespace detail {
 
-template<typename T>
-struct is_tuple : std::false_type {};
-
-template<typename... T>
-struct is_tuple<std::tuple<T...>> : std::true_type {};
-
-template<typename T>
-constexpr auto is_tuple_v = is_tuple<T>::value;
-
-template<size_t i, size_t n, typename Tuple, typename Var>
-void tuple_to_var_assign(const Tuple &tuple, Var &var) noexcept {
-    if constexpr (i < n) {
-        var.template member<i>() = std::get<i>(tuple);
-        tuple_to_var_assign<i + 1u, n>(tuple, var);
-    }
-}
-
-template<typename... T>
-[[nodiscard]] inline auto tuple_to_var(std::tuple<T...> tuple) noexcept {
-    Var<std::tuple<expr_value_t<T>...>> v;
-    tuple_to_var_assign<0u, sizeof...(T)>(tuple, v);
-    return v;
-}
-
 template<typename... T, size_t... i>
 [[nodiscard]] inline auto var_to_tuple_impl(Expr<std::tuple<T...>> v, std::index_sequence<i...>) noexcept {
-    return std::tuple<Expr<T>...>{v.template member<i>()...};
+    return std::tuple<Expr<T>...>{v.template get<i>()...};
 }
 
 template<typename... T>
@@ -215,7 +191,12 @@ template<typename... T>
 
 template<typename T>
 [[nodiscard]] inline auto var_to_tuple(T &&v) noexcept {
-    return var_to_tuple_impl(Expr{std::forward<T>(v)});
+    if constexpr (concepts::is_tuple_v<expr_value_t<T>>) {
+        Var ret{std::forward<T>(v)};// TODO: remove this
+        return var_to_tuple_impl(Expr{ret});
+    } else {
+        return Expr{std::forward<T>(v)};;
+    }
 }
 
 class CallableInvoke {
@@ -306,14 +287,8 @@ public:
                   std::apply(
                       std::forward<Def>(def),
                       std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
-              } else if constexpr (detail::is_tuple_v<Ret>) {
-                  auto ret = detail::tuple_to_var(
-                      std::apply(
-                          std::forward<Def>(def),
-                          std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...}));
-                  detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
               } else {
-                  auto ret = std::apply(
+                  Var ret = std::apply(
                       std::forward<Def>(def),
                       std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
                   detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
@@ -322,17 +297,14 @@ public:
 
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         detail::CallableInvoke invoke;
-        (invoke << ... << args);
+        static_cast<void>((invoke << ... << args));
         if constexpr (std::is_same_v<Ret, void>) {
             detail::FunctionBuilder::current()->call(
                 _builder->function(), invoke.args());
-        } else if constexpr (detail::is_tuple_v<Ret>) {
-            Var ret = Expr<Ret>{detail::FunctionBuilder::current()->call(
+        } else {
+            auto ret = Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(), _builder->function(), invoke.args())};
             return detail::var_to_tuple(ret);
-        } else {
-            return Expr<Ret>{detail::FunctionBuilder::current()->call(
-                Type::of<Ret>(), _builder->function(), invoke.args())};
         }
     }
 };

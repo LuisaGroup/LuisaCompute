@@ -101,6 +101,9 @@ struct ExprEnableSubscriptAccess;
 template<typename T>
 struct ExprEnableArithmeticAssign;
 
+template<typename T>
+struct ExprEnableGetMemberByIndex;
+
 }// namespace detail
 
 template<typename T>
@@ -114,13 +117,15 @@ struct Expr
 
 template<typename T, size_t N>
 struct Expr<std::array<T, N>>
-    : detail::ExprEnableSubscriptAccess<Expr<std::array<T, N>>> {
+    : detail::ExprEnableSubscriptAccess<Expr<std::array<T, N>>>,
+      detail::ExprEnableGetMemberByIndex<Expr<std::array<T, N>>> {
     LUISA_EXPR_COMMON(std::array<T, N>)
 };
 
 template<size_t N>
 struct Expr<Matrix<N>>
-    : detail::ExprEnableSubscriptAccess<Expr<Matrix<N>>> {
+    : detail::ExprEnableSubscriptAccess<Expr<Matrix<N>>>,
+      detail::ExprEnableGetMemberByIndex<Expr<Matrix<N>>> {
     LUISA_EXPR_COMMON(Matrix<N>)
     LUISA_EXPR_FROM_LITERAL(Matrix<N>)
 };
@@ -129,7 +134,7 @@ template<typename... T>
 struct Expr<std::tuple<T...>> {
     LUISA_EXPR_COMMON(std::tuple<T...>)
     template<size_t i>
-    [[nodiscard]] auto member() const noexcept {
+    [[nodiscard]] auto get() const noexcept {
         using M = std::tuple_element_t<i, std::tuple<T...>>;
         return Expr<M>{detail::FunctionBuilder::current()->member(
             Type::of<M>(), this->expression(), i)};
@@ -140,7 +145,8 @@ template<typename T>
 struct Expr<Vector<T, 2>>
     : detail::ExprEnableStaticCast<Expr<Vector<T, 2>>>,
       detail::ExprEnableBitwiseCast<Expr<Vector<T, 2>>>,
-      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 2>>> {
+      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 2>>>,
+      detail::ExprEnableGetMemberByIndex<Expr<Vector<T, 2>>> {
     LUISA_EXPR_COMMON(Vector<T, 2>)
     LUISA_EXPR_FROM_LITERAL(Vector<T, 2>)
     Expr<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
@@ -152,7 +158,8 @@ template<typename T>
 struct Expr<Vector<T, 3>>
     : detail::ExprEnableStaticCast<Expr<Vector<T, 3>>>,
       detail::ExprEnableBitwiseCast<Expr<Vector<T, 3>>>,
-      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 3>>> {
+      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 3>>>,
+      detail::ExprEnableGetMemberByIndex<Expr<Vector<T, 3>>> {
     LUISA_EXPR_COMMON(Vector<T, 3>)
     LUISA_EXPR_FROM_LITERAL(Vector<T, 3>)
     Expr<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
@@ -165,7 +172,8 @@ template<typename T>
 struct Expr<Vector<T, 4>>
     : detail::ExprEnableStaticCast<Expr<Vector<T, 4>>>,
       detail::ExprEnableBitwiseCast<Expr<Vector<T, 4>>>,
-      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 4>>> {
+      detail::ExprEnableSubscriptAccess<Expr<Vector<T, 4>>>,
+      detail::ExprEnableGetMemberByIndex<Expr<Vector<T, 4>>> {
     LUISA_EXPR_COMMON(Vector<T, 4>)
     LUISA_EXPR_FROM_LITERAL(Vector<T, 4>)
     Expr<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
@@ -187,14 +195,16 @@ struct Ref
 template<typename T, size_t N>
 struct Ref<std::array<T, N>>
     : detail::ExprEnableSubscriptAccess<Ref<std::array<T, N>>>,
-      detail::ExprEnableArithmeticAssign<Ref<std::array<T, N>>> {
+    detail::ExprEnableArithmeticAssign<Ref<std::array<T, N>>>,
+    detail::ExprEnableGetMemberByIndex<Ref<std::array<T, N>>>  {
     LUISA_REF_COMMON(std::array<T, N>)
 };
 
 template<size_t N>
 struct Ref<Matrix<N>>
     : detail::ExprEnableSubscriptAccess<Ref<Matrix<N>>>,
-      detail::ExprEnableArithmeticAssign<Ref<Matrix<N>>> {
+    detail::ExprEnableArithmeticAssign<Ref<Matrix<N>>>,
+    detail::ExprEnableGetMemberByIndex<Ref<Matrix<N>>>  {
     LUISA_REF_COMMON(Matrix<N>)
 };
 
@@ -202,7 +212,7 @@ template<typename... T>
 struct Ref<std::tuple<T...>> {
     LUISA_REF_COMMON(std::tuple<T...>)
     template<size_t i>
-    [[nodiscard]] auto member() const noexcept {
+    [[nodiscard]] auto get() const noexcept {
         using M = std::tuple_element_t<i, std::tuple<T...>>;
         return Ref<M>{detail::FunctionBuilder::current()->member(
             Type::of<M>(), this->expression(), i)};
@@ -214,7 +224,8 @@ struct Ref<Vector<T, 2>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 2>>>,
       detail::ExprEnableBitwiseCast<Ref<Vector<T, 2>>>,
       detail::ExprEnableSubscriptAccess<Ref<Vector<T, 2>>>,
-      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 2>>> {
+      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 2>>>,
+      detail::ExprEnableGetMemberByIndex<Ref<Vector<T, 2>>>  {
     LUISA_REF_COMMON(Vector<T, 2>)
     Ref<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Ref<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -226,7 +237,8 @@ struct Ref<Vector<T, 3>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 3>>>,
       detail::ExprEnableBitwiseCast<Ref<Vector<T, 3>>>,
       detail::ExprEnableSubscriptAccess<Ref<Vector<T, 3>>>,
-      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 3>>> {
+      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 3>>>,
+      detail::ExprEnableGetMemberByIndex<Ref<Vector<T, 3>>>  {
     LUISA_REF_COMMON(Vector<T, 3>)
     Ref<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Ref<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -239,7 +251,8 @@ struct Ref<Vector<T, 4>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 4>>>,
       detail::ExprEnableBitwiseCast<Ref<Vector<T, 4>>>,
       detail::ExprEnableSubscriptAccess<Ref<Vector<T, 4>>>,
-      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 4>>> {
+      detail::ExprEnableArithmeticAssign<Ref<Vector<T, 4>>>,
+      detail::ExprEnableGetMemberByIndex<Ref<Vector<T, 4>>>  {
     LUISA_REF_COMMON(Vector<T, 4>)
     Ref<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Ref<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -292,6 +305,15 @@ struct ExprEnableSubscriptAccess {
             Type::of<Elem>(),
             static_cast<const T *>(this)->expression(),
             extract_expression(std::forward<I>(index)))};
+    }
+};
+
+template<typename T>
+struct ExprEnableGetMemberByIndex {
+    template<size_t i>
+    [[nodiscard]] auto get() const noexcept {
+        static_assert(i < concepts::dimension_v<expr_value_t<T>>);
+        return static_cast<const T *>(this)->operator[](static_cast<uint>(i));
     }
 };
 

@@ -229,4 +229,22 @@ using is_uint_or_vector_expr = std::disjunction<
 template<typename T>
 constexpr auto is_uint_or_vector_expr_v = is_uint_or_vector_expr<T>::value;
 
+template<typename T>
+using is_struct_expr = is_struct<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto is_struct_expr_v = is_struct_expr<T>::value;
+
+template<typename T>
+using is_buffer_expr = is_buffer_or_view<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto is_buffer_expr_v = is_buffer_expr<T>::value;
+
+template<typename T>
+using buffer_expr_element = buffer_element<expr_value_t<T>>;
+
+template<typename T>
+using buffer_expr_element_t = typename buffer_expr_element<T>::type;
+
 }// namespace luisa::compute

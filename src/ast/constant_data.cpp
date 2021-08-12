@@ -35,9 +35,7 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
                                          detail::constant_registry().cend(),
                                          [hash](auto &&item) noexcept { return item._hash == hash; });
                 iter != detail::constant_registry().cend()) { return *iter; }
-            auto &&arena = detail::FunctionBuilder::current() == nullptr
-                           ? Arena::global()
-                           : detail::FunctionBuilder::current()->arena();
+            auto &&arena = Arena::global();
             auto ptr = arena.allocate<T>(view.size());
             std::memmove(ptr, view.data(), view.size_bytes());
             std::span<const T> new_view{ptr, view.size()};

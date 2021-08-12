@@ -139,9 +139,7 @@ public:
 
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
-        auto arena = _function_stack().empty()              // callables use
-                         ? &Arena::global()                 // the global arena when defined in global scope, or
-                         : _function_stack().back()->_arena;// the inherited one from parent scope if defined locally
+        auto arena = &Arena::global();
         auto f = arena->create<FunctionBuilder>(arena, Function::Tag::CALLABLE);
         _define(f, std::forward<Def>(def));
         return std::as_const(f);
