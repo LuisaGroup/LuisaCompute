@@ -616,11 +616,14 @@ void MetalCodegen::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
+static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+
 void MetalCodegen::visit(const Type *type) noexcept {
     if (type->is_structure()) {
         // skip ray or hit
-        if (type->description() == "struct<16,array<float,3>,float,array<float,3>,float>"
-            || type->description() == "struct<16,uint,uint,vector<float,2>>") {
+        if (type->description() == ray_type_desc
+            || type->description() == hit_type_desc) {
             return;
         }
         _scratch << "struct alignas(" << type->alignment() << ") ";
@@ -659,9 +662,9 @@ void MetalCodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::STRUCTURE:
-            if (type->description() == "struct<16,array<float,3>,float,array<float,3>,float>") {
+            if (type->description() == ray_type_desc) {
                 _scratch << "Ray";
-            } else if (type->description() == "struct<16,uint,uint,vector<float,2>>") {
+            } else if (type->description() == hit_type_desc) {
                 _scratch << "Hit";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());

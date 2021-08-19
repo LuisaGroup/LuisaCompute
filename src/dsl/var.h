@@ -33,13 +33,13 @@ struct Var : public Ref<T> {
     Var(std::tuple<Args...> args) noexcept
         : Var{args, std::index_sequence_for<Args...>{}} {}
 
-    // for internal use only...
+    // create as function arguments, for internal use only
     explicit Var(detail::ArgumentCreation) noexcept
         : Ref<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{Expr{another}} {}
-    void operator=(Var &&rhs) noexcept { Ref<T>::operator=(rhs); }
+    void operator=(Var &&rhs) noexcept { Ref<T>::operator=(std::move(rhs)); }
     void operator=(const Var &rhs) noexcept { Ref<T>::operator=(rhs); }
 };
 

@@ -191,7 +191,7 @@ template<typename... T>
 
 template<typename T>
 [[nodiscard]] inline auto var_to_tuple(T &&v) noexcept {
-    if constexpr (concepts::is_tuple_v<expr_value_t<T>>) {
+    if constexpr (is_tuple_v<expr_value_t<T>>) {
         Var ret{std::forward<T>(v)};// TODO: remove this
         return var_to_tuple_impl(Expr{ret});
     } else {

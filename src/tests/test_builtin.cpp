@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2021/4/6.
 //
 
+#include <iostream>
+
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
@@ -83,15 +85,78 @@ LUISA_STRUCT(Some, a, b)
 
 struct Complicated {
     float a;
-    std::tuple<int, bool> b;
-    Some c;
+    std::tuple<int, bool, Some> b;
+    std::tuple<Some> c;
 };
 
 LUISA_STRUCT(Complicated, a, b, c)
 
-using CompilcatedSOA = soa_t<Complicated>;
+using complicated_tuple = canonical_layout_t<Complicated>;
+
+template<typename T, size_t level = 0u>
+struct tuple_printer {
+    auto operator()() const noexcept {
+        for (auto i = 0u; i < level; i++) {
+            std::cout << "  ";
+        }
+        std::cout << Type::of<T>()->description() << "\n";
+        return 0u;
+    }
+};
+
+template<typename... T, size_t level>
+struct tuple_printer<std::tuple<T...>, level> {
+    auto operator()() const noexcept {
+        for (auto i = 0u; i < level; i++) {
+            std::cout << "  ";
+        }
+        std::cout << "tuple\n";
+        static_cast<void>(std::array{tuple_printer<T, level + 1u>{}()...});
+        return 0u;
+    }
+};
+
+template<typename S, typename T = S>
+struct BufferSOA : BufferSOA<S, struct_member_tuple_t<S>> {
+};
+
+template<typename T>
+struct BasicBufferSOA {
+    Buffer<T> buffer;
+    template<typename I>
+    [[nodiscard]] auto read(I &&i) const noexcept {
+        return buffer[std::forward<I>(i)];
+    }
+};
+
+template<>
+struct BufferSOA<float> : BasicBufferSOA<float> {};
+
+template<>
+struct BufferSOA<bool> : BasicBufferSOA<bool> {};
+
+template<>
+struct BufferSOA<int> : BasicBufferSOA<int> {};
+
+template<>
+struct BufferSOA<uint> : BasicBufferSOA<uint> {};
+
+template<typename S, typename... T>
+struct BufferSOA<S, std::tuple<T...>> {
+    std::tuple<BufferSOA<T>...> soa;
+    template<typename I, size_t... m>
+    [[nodiscard]] auto read_impl(I &&i, std::index_sequence<m...>) const noexcept {
+        return multiple(std::get<m>(soa).template read(std::forward<I>(i))...);
+    }
+    template<typename I>
+    [[nodiscard]] auto read(I &&i) const noexcept {
+        Var<S> s{read_impl(std::forward<I>(i), std::index_sequence_for<T...>{})};
+    }
+};
 
 int main(int argc, char *argv[]) {
+
+    tuple_printer<complicated_tuple>{}();
 
     log_level_verbose();
 

@@ -140,7 +140,7 @@ template<typename S, typename Index, typename... Buffers>
 requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
     static Callable _soa_read = [](Var<expr_value_t<Index>> i, Var<expr_value_t<Buffers>>... bs) noexcept {
-        if constexpr (concepts::is_tuple_v<S>) {
+        if constexpr (is_tuple_v<S>) {
             return multiple(bs[i]...);
         } else {
             Var<expr_value_t<S>> s;

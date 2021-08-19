@@ -190,8 +190,7 @@ public:
             auto f = FunctionBuilder::current();
             auto scope = f->scope();
             auto var = f->with(scope, [this] {
-                Var v{_begin};
-                return v;
+                return Var{_begin};
             });
             _init = scope->statements().back();
 
@@ -205,7 +204,7 @@ public:
             auto body = f->scope();
             f->push_scope(body);
             _body = body;
-            return var;
+            return Var{std::move(var)}; // to guarantee rvo
         }
 
         auto &operator++() noexcept {

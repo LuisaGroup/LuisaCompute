@@ -308,7 +308,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 65536u;
+    static constexpr auto spp = 1024u;
     static constexpr auto spp_per_dispatch = 4u;
     static constexpr auto dispatch_count = spp / spp_per_dispatch;
     stream << clear_shader(hdr_image).dispatch(width, height)

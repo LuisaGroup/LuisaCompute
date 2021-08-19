@@ -14,6 +14,63 @@
 namespace luisa::compute {
 
 template<typename T>
+struct array_dimension {
+    static constexpr size_t value = 0u;
+};
+
+template<typename T, size_t N>
+struct array_dimension<T[N]> {
+    static constexpr auto value = N;
+};
+
+template<typename T, size_t N>
+struct array_dimension<std::array<T, N>> {
+    static constexpr auto value = N;
+};
+
+template<typename T>
+constexpr auto array_dimension_v = array_dimension<T>::value;
+
+template<typename T>
+struct array_element {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct array_element<T[N]> {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct array_element<std::array<T, N>> {
+    using type = T;
+};
+
+template<typename T>
+using array_element_t = typename array_element<T>::type;
+
+template<typename T>
+struct is_array : std::false_type {};
+
+template<typename T, size_t N>
+struct is_array<T[N]> : std::true_type {};
+
+template<typename T, size_t N>
+struct is_array<std::array<T, N>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_array_v = is_array<T>::value;
+
+template<typename T>
+struct is_tuple : std::false_type {};
+
+template<typename... T>
+struct is_tuple<std::tuple<T...>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_tuple_v = is_tuple<T>::value;
+
+template<typename T>
 struct is_struct : std::false_type {};
 
 template<typename... T>
@@ -48,59 +105,104 @@ template<typename T, size_t... i>
 }// namespace detail
 
 template<typename T>
-struct to_tuple {
-    using type = typename to_tuple<struct_member_tuple_t<T>>::type;
+struct canonical_layout {
+    using type = typename canonical_layout<struct_member_tuple_t<T>>::type;
 };
 
 template<>
-struct to_tuple<float> {
-    using type = float;
+struct canonical_layout<float> {
+    using type = std::tuple<float>;
 };
 
 template<>
-struct to_tuple<bool> {
-    using type = bool;
+struct canonical_layout<bool> {
+    using type = std::tuple<bool>;
 };
 
 template<>
-struct to_tuple<int> {
-    using type = int;
+struct canonical_layout<int> {
+    using type = std::tuple<int>;
 };
 
 template<>
-struct to_tuple<uint> {
-    using type = uint;
-};
-
-template<typename... T>
-struct to_tuple<std::tuple<T...>> {
-    using type = std::tuple<typename to_tuple<T>::type...>;
-};
-
-template<typename T, size_t N>
-struct to_tuple<std::array<T, N>> {
-    using type = std::remove_pointer_t<
-        decltype(detail::array_to_tuple_impl<
-                 typename to_tuple<T>::type>(std::make_index_sequence<N>{}))>;
-};
-
-template<typename T, size_t N>
-struct to_tuple<T[N]> {
-    using type = typename to_tuple<std::array<T, N>>::type;
-};
-
-template<typename T, size_t N>
-struct to_tuple<Vector<T, N>> {
-    using type = typename to_tuple<std::array<T, N>>::type;
-};
-
-template<size_t N>
-struct to_tuple<Matrix<N>> {
-    using type = typename to_tuple<std::array<Vector<float, N>, N>>::type;
+struct canonical_layout<uint> {
+    using type = std::tuple<uint>;
 };
 
 template<typename T>
-using to_tuple_t = typename to_tuple<T>::type;
+struct canonical_layout<std::tuple<T>> {
+    using type = typename canonical_layout<T>::type;
+};
+
+template<typename... T>
+struct canonical_layout<std::tuple<T...>> {
+    using type = std::tuple<typename canonical_layout<T>::type...>;
+};
+
+template<typename T, size_t N>
+struct canonical_layout<std::array<T, N>> {
+    using type = std::remove_pointer_t<
+        decltype(detail::array_to_tuple_impl<
+                 typename canonical_layout<T>::type>(std::make_index_sequence<N>{}))>;
+};
+
+template<typename T, size_t N>
+struct canonical_layout<T[N]> {
+    using type = typename canonical_layout<std::array<T, N>>::type;
+};
+
+template<typename T, size_t N>
+struct canonical_layout<Vector<T, N>> {
+    using type = typename canonical_layout<std::array<T, N>>::type;
+};
+
+template<size_t N>
+struct canonical_layout<Matrix<N>> {
+    using type = typename canonical_layout<std::array<Vector<float, N>, N>>::type;
+};
+
+template<typename T>
+using canonical_layout_t = typename canonical_layout<T>::type;
+
+namespace detail {
+
+template<typename T>
+struct dimension_impl {
+    static constexpr auto value = dimension_impl<canonical_layout_t<T>>::value;
+};
+
+template<typename T, size_t N>
+struct dimension_impl<T[N]> {
+    static constexpr auto value = N;
+};
+
+template<typename T, size_t N>
+struct dimension_impl<std::array<T, N>> {
+    static constexpr auto value = N;
+};
+
+template<typename T, size_t N>
+struct dimension_impl<Vector<T, N>> {
+    static constexpr auto value = N;
+};
+
+template<size_t N>
+struct dimension_impl<Matrix<N>> {
+    static constexpr auto value = N;
+};
+
+template<typename... T>
+struct dimension_impl<std::tuple<T...>> {
+    static constexpr auto value = sizeof...(T);
+};
+
+}// namespace detail
+
+template<typename T>
+using dimension = detail::dimension_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+constexpr auto dimension_v = dimension<T>::value;
 
 class Type;
 class TypeRegistry;
