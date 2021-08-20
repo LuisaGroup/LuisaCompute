@@ -217,9 +217,9 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "transpose"; break;
         case CallOp::INVERSE: _scratch << "inverse"; break;
-        case CallOp::GROUP_MEMORY_BARRIER: _scratch << "group_memory_barrier"; break;
-        case CallOp::DEVICE_MEMORY_BARRIER: _scratch << "device_memory_barrier"; break;
-        case CallOp::ALL_MEMORY_BARRIER: _scratch << "all_memory_barrier"; break;
+        case CallOp::BLOCK_BARRIER: _scratch << "block_barrier"; break;
+        case CallOp::DEVICE_BARRIER: _scratch << "device_barrier"; break;
+        case CallOp::ALL_BARRIER: _scratch << "all_barrier"; break;
         case CallOp::ATOMIC_LOAD:
             _scratch << "atomic_load_explicit";
             is_atomic_op = true;
@@ -953,17 +953,17 @@ template<typename T>
                   inv_3 * one_over_determinant);
 }
 
-[[gnu::always_inline]] inline void group_memory_barrier() {
+[[gnu::always_inline]] inline void block_barrier() {
   threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
-[[gnu::always_inline]] inline void device_memory_barrier() {
+[[gnu::always_inline]] inline void device_barrier() {
   threadgroup_barrier(mem_flags::mem_device);
 }
 
-[[gnu::always_inline]] inline void all_memory_barrier() {
-  group_memory_barrier();
-  device_memory_barrier();
+[[gnu::always_inline]] inline void all_barrier() {
+  block_barrier();
+  device_barrier();
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(device int &a) {

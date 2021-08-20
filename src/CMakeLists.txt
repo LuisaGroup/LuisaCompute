@@ -25,6 +25,7 @@ add_subdirectory(core)
 add_subdirectory(util)
 add_subdirectory(ast)
 add_subdirectory(runtime)
+add_subdirectory(serialization)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
@@ -36,6 +37,7 @@ target_link_libraries(luisa-compute INTERFACE
                       luisa-compute-core
                       luisa-compute-util
                       luisa-compute-ast
+                      luisa-compute-serialization
                       luisa-compute-compile
                       luisa-compute-runtime
                       luisa-compute-dsl

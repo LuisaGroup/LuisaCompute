@@ -217,9 +217,9 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "transpose"; break;
         case CallOp::INVERSE: _scratch << "inverse"; break;
-        case CallOp::GROUP_MEMORY_BARRIER: _scratch << "group_memory_barrier"; break;
-        case CallOp::DEVICE_MEMORY_BARRIER: _scratch << "device_memory_barrier"; break;
-        case CallOp::ALL_MEMORY_BARRIER: _scratch << "all_memory_barrier"; break;
+        case CallOp::BLOCK_BARRIER: _scratch << "block_barrier"; break;
+        case CallOp::DEVICE_BARRIER: _scratch << "device_barrier"; break;
+        case CallOp::ALL_BARRIER: _scratch << "all_barrier"; break;
         case CallOp::ATOMIC_LOAD: _scratch << "atomic_load"; break;
         case CallOp::ATOMIC_STORE: _scratch << "atomic_store"; break;
         case CallOp::ATOMIC_EXCHANGE: _scratch << "atomic_exchange"; break;

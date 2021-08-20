@@ -1188,20 +1188,20 @@ requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
             Type::of<T>(), CallOp::INVERSE, {LUISA_EXPR(m)})};
 }
 
-// memory barriers
-inline void group_memory_barrier() noexcept {
+// barriers
+inline void block_barrier() noexcept {
     detail::FunctionBuilder::current()->call(
-        CallOp::GROUP_MEMORY_BARRIER, {});
+        CallOp::BLOCK_BARRIER, {});
 }
 
-inline void all_memory_barrier() noexcept {
+inline void device_barrier() noexcept {
     detail::FunctionBuilder::current()->call(
-        CallOp::ALL_MEMORY_BARRIER, {});
+        CallOp::DEVICE_BARRIER, {});
 }
 
-inline void device_memory_barrier() noexcept {
+inline void all_barrier() noexcept {
     detail::FunctionBuilder::current()->call(
-        CallOp::DEVICE_MEMORY_BARRIER, {});
+        CallOp::ALL_BARRIER, {});
 }
 
 #undef LUISA_EXPR

@@ -910,13 +910,13 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vstd::string& result,
 		case CallOp::INVERSE:
 			result << "_inverse"_sv;
 			break;
-		case CallOp::GROUP_MEMORY_BARRIER:
+		case CallOp::BLOCK_BARRIER:
 			result << "GroupMemoryBarrierWithGroupSync"_sv;
 			break;
-		case CallOp::DEVICE_MEMORY_BARRIER:
+		case CallOp::DEVICE_BARRIER:
 			result << "DeviceMemoryBarrierWithGroupSync"_sv;
 			break;
-		case CallOp::ALL_MEMORY_BARRIER:
+		case CallOp::ALL_BARRIER:
 			result << "AllMemoryBarrierWithGroupSync"_sv;
 			break;
 			///TODO: atomic operation
