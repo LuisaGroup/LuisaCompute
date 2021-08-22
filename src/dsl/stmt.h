@@ -15,8 +15,6 @@ class IfStmtBuilder {
 private:
     ScopeStmt *_true{nullptr};
     ScopeStmt *_false{nullptr};
-    bool _true_set{false};
-    bool _false_set{false};
 
 public:
     explicit IfStmtBuilder(Expr<bool> condition) noexcept
@@ -26,57 +24,52 @@ public:
     }
 
     template<typename False>
-    void else_(False &&f) noexcept {
-        if (!_true_set || _false_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
-        _false_set = true;
+    void else_(False &&f) &&noexcept {
         FunctionBuilder::current()->with(_false, std::forward<False>(f));
     }
 
     template<typename True>
-    auto operator%(True &&t) noexcept {
-        if (_true_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
-        _true_set = true;
+    auto operator%(True &&t) &&noexcept {
         FunctionBuilder::current()->with(_true, std::forward<True>(t));
         return *this;
     }
 
     template<typename Body>
-    [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) noexcept {
-        if (!_true_set || _false_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
-        _false_set = true;
+    [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
         return FunctionBuilder::current()->with(_false, [condition] { return IfStmtBuilder{condition}; })
                % std::forward<Body>(body);
     }
 
     template<typename False>
-    void operator/(False &&f) noexcept { else_(std::forward<False>(f)); }
+    void operator/(False &&f) &&noexcept { IfStmtBuilder{*this}.else_(std::forward<False>(f)); }
 
-    [[nodiscard]] auto operator/(Expr<bool> elif_cond) noexcept {
-        if (!_true_set || _false_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid IfStmtBuilder state."); }
-        _false_set = true;
+    [[nodiscard]] auto operator/(Expr<bool> elif_cond) &&noexcept {
         return FunctionBuilder::current()->with(_false, [elif_cond] {
             return IfStmtBuilder{elif_cond};
         });
     }
 };
 
-class WhileStmtBuilder {
+class LoopStmtBuilder {
 
 private:
     ScopeStmt *_body;
-    bool _body_set{false};
 
 public:
-    explicit WhileStmtBuilder(Expr<bool> cond) noexcept
+    explicit LoopStmtBuilder() noexcept
         : _body{FunctionBuilder::current()->scope()} {
-        FunctionBuilder::current()->while_(cond.expression(), _body);
+        FunctionBuilder::current()->loop_(_body);
     }
 
     template<typename Body>
-    void operator%(Body &&body) noexcept {
-        if (_body_set) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid WhileStmtBuilder state."); }
-        _body_set = true;
+    auto operator/(Body &&body) &&noexcept {
         FunctionBuilder::current()->with(_body, std::forward<Body>(body));
+        return *this;
+    }
+
+    template<typename Body>
+    void operator%(Body &&body) &&noexcept {
+        LoopStmtBuilder{*this} / std::forward<Body>(body);
     }
 };
 
@@ -92,7 +85,7 @@ public:
     }
 
     template<typename Body>
-    void operator%(Body &&body) noexcept {
+    void operator%(Body &&body) &&noexcept {
         FunctionBuilder::current()->with(_body, [&body] {
             body();
             FunctionBuilder::current()->break_();
@@ -111,7 +104,7 @@ public:
     }
 
     template<typename Body>
-    void operator%(Body &&body) noexcept {
+    void operator%(Body &&body) &&noexcept {
         FunctionBuilder::current()->with(_body, [&body] {
             body();
             FunctionBuilder::current()->break_();
@@ -134,7 +127,7 @@ public:
     }
 
     template<typename T, typename Body>
-    auto case_(T &&case_cond, Body &&case_body) noexcept {
+    auto case_(T &&case_cond, Body &&case_body) &&noexcept {
         FunctionBuilder::current()->with(_body, [&case_cond, &case_body] {
             SwitchCaseStmtBuilder{case_cond} % std::forward<Body>(case_body);
         });
@@ -142,21 +135,21 @@ public:
     }
 
     template<typename Default>
-    auto default_(Default &&d) noexcept {
+    auto default_(Default &&d) &&noexcept {
         FunctionBuilder::current()->with(_body, [&d] {
             SwitchDefaultStmtBuilder{} % std::forward<Default>(d);
         });
     }
 
     template<typename Body>
-    void operator%(Body &&body) noexcept {
+    void operator%(Body &&body) &&noexcept {
         FunctionBuilder::current()->with(_body, std::forward<Body>(body));
     }
 };
 
 struct ForStmtBodyInvoke {
     template<typename F>
-    void operator%(F &&body) const noexcept {
+    void operator%(F &&body) &&noexcept {
         std::invoke(std::forward<F>(body));
     }
 };
@@ -174,9 +167,8 @@ public:
         Expr<T> _begin;
         Expr<T> _end;
         Expr<T> _step;
-        const Statement *_init{nullptr};
+        const Expression *_var{nullptr};
         const Expression *_cond{nullptr};
-        const Statement *_upd{nullptr};
         const ScopeStmt *_body{nullptr};
         uint _time{0u};
 
@@ -188,30 +180,24 @@ public:
             if (_time != 0u) [[unlikely]] { LUISA_ERROR_WITH_LOCATION(
                 "Invalid RangeForIter state (with _time = {}).", _time); }
             auto f = FunctionBuilder::current();
-            auto scope = f->scope();
-            auto var = f->with(scope, [this] {
-                return Var{_begin};
-            });
-            _init = scope->statements().back();
-
+            Var var{_begin};
+            _var = var.expression();
             if constexpr (has_begin) {
                 _cond = ((_step >= 0 && var < _end) || (_step < 0 && var > _end)).expression();
             } else {
                 _cond = (var < _end).expression();
             }
-            f->with(scope, [this, &var] { var += _step; });
-            _upd = scope->statements().back();
             auto body = f->scope();
-            f->push_scope(body);
             _body = body;
-            return Var{std::move(var)}; // to guarantee rvo
+            f->push_scope(body);
+            return Var{std::move(var)};// to guarantee rvo
         }
 
         auto &operator++() noexcept {
             if (++_time == 1u) {
                 auto f = FunctionBuilder::current();
                 f->pop_scope(_body);
-                f->for_(_init, _cond, _upd, _body);
+                f->for_(_var, _cond, _step.expression(), _body);
             }
             return *this;
         }
@@ -247,8 +233,8 @@ inline auto if_(Expr<bool> condition, True &&t) noexcept {
 }
 
 template<typename Body>
-inline void while_(Expr<bool> condition, Body &&body) noexcept {
-    detail::WhileStmtBuilder{condition} % std::forward<Body>(body);
+inline void loop(Body &&body) noexcept {
+    detail::LoopStmtBuilder{} % std::forward<Body>(body);
 }
 
 template<typename T>
@@ -281,16 +267,37 @@ requires is_same_expr_v<Tb, Te, Ts> && is_integral_expr_v<Tb>
     return detail::ForRange<T, true>{std::forward<Tb>(begin), e, s};
 }
 
+template<typename N, typename Body>
+inline void loop(N &&n, Body &&body) noexcept {
+    for (auto i : range(std::forward<N>(n))) {
+        std::invoke(std::forward<Body>(body), std::move(i));
+    }
+}
+
+template<typename Begin, typename End, typename Body>
+inline void loop(Begin &&begin, End &&end, Body &&body) noexcept {
+    for (auto i : range(std::forward<Begin>(begin), std::forward<End>(end))) {
+        std::invoke(std::forward<Body>(body), std::move(i));
+    }
+}
+
+template<typename Begin, typename End, typename Step, typename Body>
+inline void loop(Begin &&begin, End &&end, Step &&step, Body &&body) noexcept {
+    for (auto i : range(std::forward<Begin>(begin), std::forward<End>(end), std::forward<Step>(step))) {
+        std::invoke(std::forward<Body>(body), std::move(i));
+    }
+}
+
 template<concepts::iterable AllTags, typename Tag, typename IndexedCase, typename Otherwise>
 requires concepts::invocable<IndexedCase, int> && concepts::invocable<Otherwise>
 inline void match(AllTags &&tags, Tag &&tag, IndexedCase &&indexed_case, Otherwise &&otherwise) noexcept {
     auto s = switch_(std::forward<Tag>(tag));
     auto index = 0;
     for (auto &&t : std::forward<AllTags>(tags)) {
-        s.case_(t, [&c = indexed_case, i = index] { c(i); });
+        s = std::move(s).case_(t, [&c = indexed_case, i = index] { c(i); });
         index++;
     }
-    s.default_(std::forward<Otherwise>(otherwise));
+    std::move(s).default_(std::forward<Otherwise>(otherwise));
 }
 
 template<typename T, typename Tag, typename IndexedCase, typename Otherwise>
@@ -299,10 +306,10 @@ inline void match(std::initializer_list<T> all_tags, Tag &&tag, IndexedCase &&in
     auto s = switch_(std::forward<Tag>(tag));
     auto index = 0;
     for (auto &&t : all_tags) {
-        s.case_(t, [&c = indexed_case, i = index] { c(i); });
+        s = std::move(s).case_(t, [&c = indexed_case, i = index] { c(i); });
         index++;
     }
-    s.default_(std::forward<Otherwise>(otherwise));
+    std::move(s).default_(std::forward<Otherwise>(otherwise));
 }
 
 template<typename AllTags, typename Tag, typename IndexedCase>

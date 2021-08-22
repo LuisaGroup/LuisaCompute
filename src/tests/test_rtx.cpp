@@ -9,6 +9,7 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/syntax.h>
+#include <dsl/sugar.h>
 #include <rtx/accel.h>
 #include <tests/fake_device.h>
 
@@ -62,11 +63,12 @@ int main(int argc, char *argv[]) {
         Var f = 1.0f;
         Var invB = 1.0f / b;
         Var r = 0.0f;
-        while_(i > 0u, [&] {
+        $while(i > 0u){
+            if_(i <= 0u, break_);
             f = f * invB;
             r = r + f * (i % b);
             i = i / b;
-        });
+        };
         return r;
     };
 

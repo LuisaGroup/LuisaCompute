@@ -195,11 +195,11 @@ public:
     void continue_() noexcept;
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
     void if_(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept;
-    void while_(const Expression *cond, const ScopeStmt *body) noexcept;
+    void loop_(const ScopeStmt *body) noexcept;
     void switch_(const Expression *expr, const ScopeStmt *body) noexcept;
     void case_(const Expression *expr, const ScopeStmt *body) noexcept;
     void default_(const ScopeStmt *body) noexcept;
-    void for_(const Statement *init, const Expression *condition, const Statement *update, const ScopeStmt *body) noexcept;
+    void for_(const Expression *var, const Expression *condition, const Expression *update, const ScopeStmt *body) noexcept;
 
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] ScopeStmt *scope() noexcept;

@@ -11,6 +11,8 @@
 #include <span>
 #include <memory>
 
+#include <core/hash.h>
+
 namespace luisa::compute {
 
 template<typename T>

@@ -30,7 +30,7 @@ class ReturnStmt;
 class ScopeStmt;
 class DeclareStmt;
 class IfStmt;
-class WhileStmt;
+class LoopStmt;
 class ExprStmt;
 class SwitchStmt;
 class SwitchCaseStmt;
@@ -45,7 +45,7 @@ struct StmtVisitor {
     virtual void visit(const ScopeStmt *) = 0;
     virtual void visit(const DeclareStmt *) = 0;
     virtual void visit(const IfStmt *) = 0;
-    virtual void visit(const WhileStmt *) = 0;
+    virtual void visit(const LoopStmt *) = 0;
     virtual void visit(const ExprStmt *) = 0;
     virtual void visit(const SwitchStmt *) = 0;
     virtual void visit(const SwitchCaseStmt *) = 0;
@@ -158,17 +158,13 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
-class WhileStmt : public Statement {
+class LoopStmt : public Statement {
 
 private:
-    const Expression *_condition;
     const ScopeStmt *_body;
 
 public:
-    WhileStmt(const Expression *cond, const ScopeStmt *body) : _condition{cond}, _body{body} {
-        _condition->mark(Usage::READ);
-    }
-    [[nodiscard]] auto condition() const noexcept { return _condition; }
+    LoopStmt(const ScopeStmt *body) : _body{body} {}
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
@@ -228,25 +224,24 @@ public:
 class ForStmt : public Statement {
 
 private:
-    const Statement *_initialization;
-    const Expression *_condition;
-    const Statement *_update;
+    const Expression *_var;
+    const Expression *_cond;
+    const Expression *_step;
     const ScopeStmt *_body;
 
 public:
-    ForStmt(const Statement *initialization,
-            const Expression *condition,
-            const Statement *update,
+    ForStmt(const Expression *var,
+            const Expression *cond,
+            const Expression *step,
             const ScopeStmt *body) noexcept
-        : _initialization{initialization},
-          _condition{condition},
-          _update{update},
-          _body{body} {
-        if (_condition != nullptr) { _condition->mark(Usage::READ); }
+        : _var{var}, _cond{cond}, _step{step}, _body{body} {
+        _var->mark(Usage::READ_WRITE);
+        _cond->mark(Usage::READ);
+        _step->mark(Usage::READ);
     }
-    [[nodiscard]] auto initialization() const noexcept { return _initialization; }
-    [[nodiscard]] auto condition() const noexcept { return _condition; }
-    [[nodiscard]] auto update() const noexcept { return _update; }
+    [[nodiscard]] auto variable() const noexcept { return _var; }
+    [[nodiscard]] auto condition() const noexcept { return _cond; }
+    [[nodiscard]] auto step() const noexcept { return _step; }
     [[nodiscard]] auto body() const noexcept { return _body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
@@ -260,7 +255,7 @@ static_assert(std::is_trivially_destructible_v<ReturnStmt>);
 static_assert(std::is_trivially_destructible_v<ScopeStmt>);
 static_assert(std::is_trivially_destructible_v<DeclareStmt>);
 static_assert(std::is_trivially_destructible_v<IfStmt>);
-static_assert(std::is_trivially_destructible_v<WhileStmt>);
+static_assert(std::is_trivially_destructible_v<LoopStmt>);
 static_assert(std::is_trivially_destructible_v<ExprStmt>);
 static_assert(std::is_trivially_destructible_v<SwitchStmt>);
 static_assert(std::is_trivially_destructible_v<SwitchCaseStmt>);

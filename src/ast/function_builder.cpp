@@ -69,8 +69,8 @@ void FunctionBuilder::if_(const Expression *cond, const ScopeStmt *true_branch, 
     _append(_arena->create<IfStmt>(cond, true_branch, false_branch));
 }
 
-void FunctionBuilder::while_(const Expression *cond, const ScopeStmt *body) noexcept {
-    _append(_arena->create<WhileStmt>(cond, body));
+void FunctionBuilder::loop_(const ScopeStmt *body) noexcept {
+    _append(_arena->create<LoopStmt>(body));
 }
 
 void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
@@ -227,8 +227,8 @@ void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
     _scope_stack.pop_back();
 }
 
-void FunctionBuilder::for_(const Statement *init, const Expression *condition, const Statement *update, const ScopeStmt *body) noexcept {
-    _append(_arena->create<ForStmt>(init, condition, update, body));
+void FunctionBuilder::for_(const Expression *var, const Expression *condition, const Expression *update, const ScopeStmt *body) noexcept {
+    _append(_arena->create<ForStmt>(var, condition, update, body));
 }
 
 void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {

@@ -73,8 +73,8 @@ int main(int argc, char *argv[]) {
 
         };
 
-        $while(true){
-
+        $loop {
+            $break;
         };
 
         $switch(123) {

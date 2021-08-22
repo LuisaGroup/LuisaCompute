@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
                         Var c = 2.0f;
                     });
 
-                    while_(true, [&] {
+                    loop([&] {
                         z += 1;
                     });
 

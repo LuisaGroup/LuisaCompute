@@ -11,6 +11,7 @@
 #include <core/concepts.h>
 #include <core/basic_types.h>
 #include <core/logging.h>
+#include <core/hash.h>
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <ast/op.h>
@@ -41,11 +42,13 @@ public:
 
 private:
     const Type *_type;
+    mutable std::atomic<uint64_t> _hash{0u};
     Tag _tag;
 
 protected:
     mutable Usage _usage{Usage::NONE};
     virtual void _mark(Usage usage) const noexcept = 0;
+    [[nodiscard]] virtual uint64_t _compute_hash() const noexcept = 0;
 
 protected:
     ~Expression() noexcept = default;
@@ -57,6 +60,7 @@ public:
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     virtual void accept(ExprVisitor &) const = 0;
     void mark(Usage usage) const noexcept;
+    [[nodiscard]] uint64_t hash() const noexcept;
 };
 
 class UnaryExpr;
@@ -92,12 +96,17 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_op, _operand->hash());
+    }
 
 public:
     UnaryExpr(const Type *type, UnaryOp op, const Expression *operand) noexcept
         : Expression{Tag::UNARY, type}, _operand{operand}, _op{op} { _operand->mark(Usage::READ); }
     [[nodiscard]] auto operand() const noexcept { return _operand; }
     [[nodiscard]] auto op() const noexcept { return _op; }
+
+public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
@@ -110,6 +119,9 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_op, hash64(_rhs->hash(), _lhs->hash()));
+    }
 
 public:
     BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
@@ -132,6 +144,9 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override { _range->mark(usage); }
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_index->hash(), _range->hash());
+    }
 
 public:
     AccessExpr(const Type *type, const Expression *range, const Expression *index) noexcept
@@ -157,6 +172,9 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override { _self->mark(usage); }
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_member, _self->hash());
+    }
 
 public:
     MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
@@ -206,18 +224,24 @@ struct make_literal_value<std::tuple<T...>> {
     using type = std::variant<T...>;
 };
 
+template<typename T>
+using make_literal_value_t = typename make_literal_value<T>::type;
+
 }// namespace detail
 
 class LiteralExpr final : public Expression {
 
 public:
-    using Value = typename detail::make_literal_value<basic_types>::type;
+    using Value = detail::make_literal_value_t<basic_types>;
 
 private:
     Value _value;
 
 protected:
     void _mark(Usage) const noexcept override {}
+    uint64_t _compute_hash() const noexcept override {
+        return std::visit([](auto v) noexcept { return hash64(v); }, _value);
+    }
 
 public:
     LiteralExpr(const Type *type, Value v) noexcept
@@ -233,6 +257,9 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_variable.hash());
+    }
 
 public:
     explicit RefExpr(Variable v) noexcept
@@ -248,6 +275,9 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_data.hash());
+    }
 
 public:
     explicit ConstantExpr(const Type *type, ConstantData data) noexcept
@@ -269,6 +299,11 @@ private:
 protected:
     void _mark(Usage) const noexcept override {}
     void _mark() const noexcept;
+    uint64_t _compute_hash() const noexcept override {
+        auto h = hash64(_op, hash64(_arguments));
+        if (_custom) { h = hash64(_custom.hash(), h); }
+        return h;
+    }
 
 public:
     CallExpr(const Type *type, Function callable, ArgumentList args) noexcept
@@ -295,6 +330,9 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_op, _source->hash());
+    }
 
 public:
     CastExpr(const Type *type, CastOp op, const Expression *src) noexcept

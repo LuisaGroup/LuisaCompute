@@ -41,9 +41,9 @@ public:
     template<typename T>
     [[nodiscard]] auto operator()(T &&s) const noexcept {
         if constexpr (requires { std::forward<T>(s).hash(); }) {
-            return std::forward<T>(s).hash();
+            return (*this)(std::forward<T>(s).hash());
         } else if constexpr (requires { std::forward<T>(s).hash_code(); }) {
-            return std::forward<T>(s).hash_code();
+            return (*this)(std::forward<T>(s).hash_code());
         } else if constexpr (concepts::string_viewable<T>) {
             std::string_view sv{std::forward<T>(s)};
             return detail::xxh3_hash64(sv.data(), sv.size(), _seed);

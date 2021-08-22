@@ -92,6 +92,7 @@ public:
     [[nodiscard]] bool raytracing() const noexcept;
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
+    [[nodiscard]] explicit operator bool() const noexcept { return _builder != nullptr; }
 };
 
 }// namespace luisa::compute

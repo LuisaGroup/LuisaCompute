@@ -411,10 +411,8 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     }
 }
 
-void MetalCodegen::visit(const WhileStmt *stmt) {
-    _scratch << "while (";
-    stmt->condition()->accept(*this);
-    _scratch << ") ";
+void MetalCodegen::visit(const LoopStmt *stmt) {
+    _scratch << "for (;;) ";
     stmt->body()->accept(*this);
 }
 
@@ -821,27 +819,12 @@ void MetalCodegen::visit(const ConstantExpr *expr) {
 }
 
 void MetalCodegen::visit(const ForStmt *stmt) {
-
-    _scratch << "for (";
-
-    if (auto init = stmt->initialization(); init != nullptr) {
-        init->accept(*this);
-    } else {
-        _scratch << ";";
-    }
-
-    if (auto cond = stmt->condition(); cond != nullptr) {
-        _scratch << " ";
-        cond->accept(*this);
-    }
-    _scratch << ";";
-
-    if (auto update = stmt->update(); update != nullptr) {
-        _scratch << " ";
-        update->accept(*this);
-        if (_scratch.back() == ';') { _scratch.pop_back(); }
-    }
-
+    _scratch << "for (; ";
+    stmt->condition()->accept(*this);
+    _scratch << "; ";
+    stmt->variable()->accept(*this);
+    _scratch << " += ";
+    stmt->step()->accept(*this);
     _scratch << ") ";
     stmt->body()->accept(*this);
 }

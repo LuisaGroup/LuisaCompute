@@ -52,6 +52,11 @@ public:
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
+    [[nodiscard]] auto hash() const noexcept {
+        auto u0 = static_cast<uint64_t>(_uid);
+        auto u1 = static_cast<uint64_t>(_tag);
+        return hash64(u0 | (u1 << 32u), _type->hash());
+    }
 };
 
 }// namespace luisa::compute

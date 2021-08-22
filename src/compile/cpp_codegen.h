@@ -35,7 +35,7 @@ private:
     void visit(const ScopeStmt *stmt) override;
     void visit(const DeclareStmt *stmt) override;
     void visit(const IfStmt *stmt) override;
-    void visit(const WhileStmt *stmt) override;
+    void visit(const LoopStmt *stmt) override;
     void visit(const ExprStmt *stmt) override;
     void visit(const SwitchStmt *stmt) override;
     void visit(const SwitchCaseStmt *stmt) override;

@@ -66,7 +66,14 @@
 #define $else / [&]() noexcept
 #define $elif(...) / ::luisa::compute::Expr{__VA_ARGS__} % [&]() noexcept
 
-#define $while(...) ::luisa::compute::detail::WhileStmtBuilder{__VA_ARGS__} % [&]() noexcept
+#define $loop ::luisa::compute::detail::LoopStmtBuilder{} % [&]() noexcept
+#define $while(...) ::luisa::compute::detail::LoopStmtBuilder{} \
+                        / [&]() noexcept {                      \
+                              $if(!(__VA_ARGS__)) {             \
+                                  $break;                       \
+                              };                                \
+                          }                                     \
+                        % [&]() noexcept
 
 #define $switch(...) ::luisa::compute::detail::SwitchStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $case(...) ::luisa::compute::detail::SwitchCaseStmtBuilder{__VA_ARGS__} % [&]() noexcept

@@ -57,4 +57,11 @@ void Expression::mark(Usage usage) const noexcept {
     }
 }
 
+uint64_t Expression::hash() const noexcept {
+    if (auto h = _hash.load(std::memory_order::consume); h != 0u) { return h; }
+    auto h = hash64(_tag, hash64(_type->hash(), _compute_hash()));
+    _hash.store(h, std::memory_order::release);
+    return h;
+}
+
 }// namespace luisa::compute
