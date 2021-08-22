@@ -14,6 +14,7 @@ namespace luisa {
 
 using uuids::operator<<;
 
+// clang-format off
 class alignas(16) UUID : public uuids::uuid {
 
 private:
@@ -28,7 +29,7 @@ public:
     UUID &operator=(const UUID &) noexcept = default;
     [[nodiscard]] explicit operator bool() const noexcept { return !is_nil(); }
     [[nodiscard]] auto view() const noexcept { return as_bytes(); }
-    [[nodiscard]] auto hash() const noexcept { return xxh3_hash64(view().data(), view().size_bytes()); }
+    [[nodiscard]] auto hash() const noexcept { return hash64(view()); }
     [[nodiscard]] auto string(bool capitalized = false) const noexcept {
         auto s = uuids::to_string(*this);
         if (capitalized) {
@@ -53,15 +54,24 @@ public:
         }
         return UUID{*uuid};
     }
-    template<concepts::string_viewable S>
-    [[nodiscard]] static auto from(S &&s) noexcept {
-        return from_string(std::forward<S>(s));
+    [[nodiscard]] static auto from_hash64(uint64_t h) noexcept {
+        std::array<uint64_t, 2u> src{h, hash64(h)};
+        UUID uuid;
+        std::memcpy(&uuid, &src, sizeof(src));
+        return uuid;
     }
     template<typename T>
     [[nodiscard]] static auto from(T &&data) noexcept {
-        return UUID{std::forward<T>(data)};
+        if constexpr (concepts::string_viewable<T>) {
+            return from_string(std::forward<T>(data));
+        } else if constexpr (std::is_same_v<std::remove_cvref_t<T>, uint64_t>) {
+            return from_hash64(data);
+        } else {
+            return UUID{std::forward<T>(data)};
+        }
     }
 };
+// clang-format on
 
 static_assert(sizeof(UUID) == 16u);
 

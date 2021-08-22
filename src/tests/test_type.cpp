@@ -108,7 +108,6 @@ void print(const Type *info, int level = 0) {
     }
 
     std::cout << indent_string << tag_name(info->tag()) << ": {\n"
-              << indent_string << "  index:       " << info->index() << "\n"
               << indent_string << "  size:        " << info->size() << "\n"
               << indent_string << "  alignment:   " << info->alignment() << "\n"
               << indent_string << "  hash:        " << info->hash() << "\n"
@@ -148,7 +147,7 @@ int main() {
     LUISA_INFO("{}", s);
 
     int a[5]{1, 2, 3, 4, 5};
-    auto hh = Hash{}(a);
+    auto hh = Hash64{}(a);
 
     auto &&type_aa = typeid(AA);
     auto &&type_bb = typeid(BB);
@@ -158,8 +157,8 @@ int main() {
 
     print(Type::from("array<array<vector<float,3>,5>,9>"));
 
-    auto hash_aa = luisa::xxh3_hash64(type_aa.name(), std::strlen(type_aa.name()), 0);
-    auto hash_bb = luisa::xxh3_hash64(type_bb.name(), std::strlen(type_bb.name()), 0);
+    auto hash_aa = luisa::hash64(type_aa);
+    auto hash_bb = luisa::hash64(type_bb);
     LUISA_INFO("{} {}", hash_aa, hash_bb);
 
     LUISA_INFO("{}", Type::of<std::array<float, 5>>()->description());

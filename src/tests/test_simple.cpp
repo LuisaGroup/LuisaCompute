@@ -91,6 +91,10 @@ int main(int argc, char *argv[]) {
     uuid_string.erase(std::remove(uuid_string.begin(),  uuid_string.end(), '-'), uuid_string.end());
     auto uuid2 = UUID::from(uuid_string);
     LUISA_INFO("UUID: {}", uuid2.string());
-    LUISA_INFO("Hash: {:x}", Hash{}(UUID{}));
-    LUISA_INFO("Hash: {:x}", Hash{}(""));
+    LUISA_INFO("Hash: {:x}", Hash64{}(UUID{}));
+    LUISA_INFO("Hash: {:x}", Hash64{}(std::string_view{}));
+    LUISA_INFO("Hash: {:x}", Hash64{}(std::vector<uint>{}));
+    LUISA_INFO("Hash: {:x}", Hash64{}(0u));
+    LUISA_INFO("Hash: {:x}", Hash64{}(0ull));
+    LUISA_INFO("UUID: {}", UUID::from_hash64(hash64("hello")).string_without_dash(true));
 }

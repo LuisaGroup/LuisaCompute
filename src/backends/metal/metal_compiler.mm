@@ -22,7 +22,7 @@ MetalShader MetalCompiler::compile(Function kernel) noexcept {
     codegen.emit(kernel);
 
     auto s = scratch.view();
-    auto hash = xxh3_hash64(s.data(), s.size());
+    auto hash = hash64(s);
     LUISA_VERBOSE(
         "Generated source (hash = 0x{:016x}) for kernel #{} in {} ms:\n\n{}",
         hash, hash_string, clock.toc(), s);

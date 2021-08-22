@@ -28,12 +28,15 @@ struct constant_data_view<std::tuple<T...>> {
     using type = std::variant<std::span<const T>...>;
 };
 
+template<typename T>
+using constant_data_view_t = typename constant_data_view<T>::type;
+
 }
 
 class ConstantData {
 
 public:
-    using View = typename detail::constant_data_view<basic_types>::type;
+    using View = detail::constant_data_view_t<basic_types>;
 
 private:
     View _view;

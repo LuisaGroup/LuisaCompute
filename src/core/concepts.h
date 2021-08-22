@@ -36,7 +36,7 @@ concept string_viewable = requires(T v) {
 
 template<typename T>
 concept span_convertible = requires(T v) {
-    std::span{std::forward<T>(v)};
+    std::span{v};
 };
 
 template<typename T, typename... Args>
