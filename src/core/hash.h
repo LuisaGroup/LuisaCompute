@@ -12,6 +12,7 @@
 
 #include <xxhash.h>
 #include <core/logging.h>
+#include <core/concepts.h>
 
 namespace luisa {
 
@@ -23,31 +24,30 @@ namespace luisa {
 
 struct Hash {
 
-    [[nodiscard]] uint64_t operator()(std::string_view s) const noexcept {
-        if (s.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::string_view."); }
-        return xxh3_hash64(s.data(), s.size());
+    template<typename T>
+    requires requires { std::declval<T>().hash(); }
+    [[nodiscard]] auto operator()(T &&s) const noexcept {
+        return std::forward<T>(s).hash();
     }
 
-    [[nodiscard]] uint64_t operator()(const std::string &s) const noexcept {
-        if (s.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::string."); }
-        return xxh3_hash64(s.data(), s.size());
+    template<concepts::string_viewable T>
+    [[nodiscard]] auto operator()(T &&s) const noexcept {
+        std::string_view sv{std::forward<T>(s)};
+        if (sv.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::string."); }
+        return xxh3_hash64(sv.data(), sv.size());
+    }
+
+    template<concepts::span_convertible T>
+    requires(!concepts::string_viewable<T>) [[nodiscard]] auto
+    operator()(T &&s) const noexcept {
+        std::span v{std::forward<T>(s)};
+        if (v.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::span."); }
+        return xxh3_hash64(v.data(), v.size_bytes());
     }
 
     template<typename T, std::enable_if_t<std::is_standard_layout_v<std::remove_cvref_t<T>>, int> = 0>
     [[nodiscard]] uint64_t operator()(T &&v) const noexcept {
-        return xxh3_hash64(std::addressof(v), sizeof(std::decay_t<T>));
-    }
-
-    template<typename T, std::enable_if_t<std::is_standard_layout_v<T>, int> = 0>
-    [[nodiscard]] uint64_t operator()(const std::vector<T> &v) const noexcept {
-        if (v.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::vector."); }
-        return xxh3_hash64(v.data(), v.size() * sizeof(T));
-    }
-
-    template<typename T, size_t extent, std::enable_if_t<std::is_standard_layout_v<T>, int> = 0>
-    [[nodiscard]] uint64_t operator()(const std::span<T, extent> &v) const noexcept {
-        if (v.empty()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Computing hash for empty std::span."); }
-        return xxh3_hash64(v.data(), v.size_bytes());
+        return xxh3_hash64(std::addressof(v), sizeof(std::remove_cvref_t<T>));
     }
 };
 

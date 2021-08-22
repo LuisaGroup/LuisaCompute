@@ -30,6 +30,11 @@ concept iterable = requires(T v) {
 };
 
 template<typename T>
+concept string_viewable = requires(T v) {
+    std::string_view{v};
+};
+
+template<typename T>
 concept span_convertible = requires(T v) {
     std::span{std::forward<T>(v)};
 };

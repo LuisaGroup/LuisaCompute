@@ -3,8 +3,10 @@
 //
 
 #include <numeric>
+#include <iostream>
 
 #include <core/clock.h>
+#include <core/uuid.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <runtime/image.h>
@@ -83,4 +85,12 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[n - 2u], results[n - 1u]);
+
+    auto uuid = UUID::generate();
+    auto uuid_string = uuid.string();
+    uuid_string.erase(std::remove(uuid_string.begin(),  uuid_string.end(), '-'), uuid_string.end());
+    auto uuid2 = UUID::from(uuid_string);
+    LUISA_INFO("UUID: {}", uuid2.string());
+    LUISA_INFO("Hash: {:x}", Hash{}(UUID{}));
+    LUISA_INFO("Hash: {:x}", Hash{}(""));
 }
