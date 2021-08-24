@@ -202,6 +202,9 @@ constexpr auto is_same_v = is_same<T...>::value;
 template<typename... T>
 concept same = is_same_v<T...>;
 
+template<typename A, typename B>
+concept different = !same<A, B>;
+
 template<typename... T>
 concept vector_same_dimension = is_vector_same_dimension_v<T...>;
 

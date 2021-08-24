@@ -322,16 +322,7 @@ void CppCodegen::visit(const ScopeStmt *stmt) {
 
 void CppCodegen::visit(const DeclareStmt *stmt) {
     _emit_variable_decl(stmt->variable());
-    _scratch << "{";
-    if (!stmt->initializer().empty()) {
-        for (auto init : stmt->initializer()) {
-            init->accept(*this);
-            _scratch << ", ";
-        }
-        _scratch.pop_back();
-        _scratch.pop_back();
-    }
-    _scratch << "};";
+    _scratch << "{};";
 }
 
 void CppCodegen::visit(const IfStmt *stmt) {

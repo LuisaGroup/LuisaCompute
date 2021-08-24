@@ -383,16 +383,7 @@ void MetalCodegen::visit(const DeclareStmt *stmt) {
     _emit_variable_name(v);
     _scratch << " = ";
     _emit_type_name(v.type());
-    _scratch << (v.type()->is_structure() ? "{" : "(");
-    if (!stmt->initializer().empty()) {
-        for (auto init : stmt->initializer()) {
-            init->accept(*this);
-            _scratch << ", ";
-        }
-        _scratch.pop_back();
-        _scratch.pop_back();
-    }
-    _scratch << (v.type()->is_structure() ? "};" : ");");
+    _scratch << "{};";
 }
 
 void MetalCodegen::visit(const IfStmt *stmt) {

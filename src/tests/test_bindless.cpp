@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
-    auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
+    auto image_pixels = stbi_load("cornell-box-reference.png", &image_width, &image_height, &image_channels, 4);
     auto texture = heap.create_texture(0u, PixelStorage::BYTE4, uint2(image_width, image_height), TextureSampler::trilinear_edge(), 0u);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);

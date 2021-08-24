@@ -282,9 +282,8 @@ public:
             detail::FunctionBuilder::current()->call(
                 _builder->function(), invoke.args());
         } else {
-            Expr<Ret> ret{detail::FunctionBuilder::current()->call(
+            return Expr<Ret>{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(), _builder->function(), invoke.args())};
-            return Var{ret};// to avoid redundant evaluation
         }
     }
 };
@@ -365,4 +364,43 @@ Kernel3D(T &&) -> Kernel3D<detail::function_t<std::remove_cvref_t<T>>>;
 template<typename T>
 Callable(T &&) -> Callable<detail::function_t<std::remove_cvref_t<T>>>;
 
+namespace detail {
+
+template<typename Lhs, typename Rhs, size_t... i>
+inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs, std::index_sequence<i...>) noexcept {
+    static Callable _assign_impl = [](Ref<Lhs> v, Var<Rhs> x) noexcept {
+        (dsl::assign(v.template get<i>(), x.template get<i>()), ...);
+    };
+    _assign_impl(lhs, rhs);
+}
+
+template<typename Lhs, typename Rhs>
+inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs) noexcept {
+    using member_tuple = struct_member_tuple_t<expr_value_t<Lhs>>;
+    assign_impl(lhs, rhs, std::make_index_sequence<std::tuple_size_v<member_tuple>>{});
+}
+
+}// namespace detail
+
+inline namespace dsl {
+
+template<typename Lhs, typename Rhs>
+inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept {
+    if constexpr (concepts::assignable<expr_value_t<Lhs>, expr_value_t<Rhs>>) {
+        detail::FunctionBuilder::current()->assign(
+            AssignOp::ASSIGN,
+            detail::extract_expression(std::forward<Lhs>(lhs)),
+            detail::extract_expression(std::forward<Rhs>(rhs)));
+    } else if (is_tuple_v<std::remove_cvref_t<Rhs>>) {
+        assign(
+            Ref{std::forward<Lhs>(lhs)},
+            compose(std::forward<Rhs>(rhs)));
+    } else {
+        detail::assign_impl(
+            Ref{std::forward<Lhs>(lhs)},
+            Expr{std::forward<Rhs>(rhs)});
+    }
+}
+
+}// namespace dsl
 }// namespace luisa::compute

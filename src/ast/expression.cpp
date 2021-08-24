@@ -51,8 +51,8 @@ void CallExpr::_mark() const noexcept {
 }
 
 void Expression::mark(Usage usage) const noexcept {
-    if (auto a = to_underlying(_usage), b = to_underlying(usage); (a & b) == 0u) {
-        _usage = static_cast<Usage>(a | b);
+    if (auto a = to_underlying(_usage), u = a | to_underlying(usage); a != u) {
+        _usage = static_cast<Usage>(u);
         _mark(usage);
     }
 }

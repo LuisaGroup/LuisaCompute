@@ -12,6 +12,7 @@
 #include <memory>
 
 #include <core/hash.h>
+#include <core/concepts.h>
 
 namespace luisa::compute {
 
@@ -81,19 +82,6 @@ struct is_struct<std::tuple<T...>> : std::true_type {};
 template<typename T>
 constexpr auto is_struct_v = is_struct<T>::value;
 
-template<typename T>
-struct struct_member_tuple {
-    using type = std::tuple<>;
-};
-
-template<typename... T>
-struct struct_member_tuple<std::tuple<T...>> {
-    using type = std::tuple<T...>;
-};
-
-template<typename T>
-using struct_member_tuple_t = typename struct_member_tuple<T>::type;
-
 namespace detail {
 
 template<typename T, size_t>
@@ -105,6 +93,40 @@ template<typename T, size_t... i>
 }
 
 }// namespace detail
+
+template<typename T>
+struct struct_member_tuple {
+    using type = std::tuple<T>;
+};
+
+template<typename... T>
+struct struct_member_tuple<std::tuple<T...>> {
+    using type = std::tuple<T...>;
+};
+
+template<typename T, size_t N>
+struct struct_member_tuple<std::array<T, N>> {
+    using type = std::remove_pointer_t<
+        decltype(detail::array_to_tuple_impl<T>(std::make_index_sequence<N>{}))>;
+};
+
+template<typename T, size_t N>
+struct struct_member_tuple<T[N]> {
+    using type = typename struct_member_tuple<std::array<T, N>>::type;
+};
+
+template<typename T, size_t N>
+struct struct_member_tuple<Vector<T, N>> {
+    using type = typename struct_member_tuple<std::array<T, N>>::type;
+};
+
+template<size_t N>
+struct struct_member_tuple<Matrix<N>> {
+    using type = typename struct_member_tuple<std::array<Vector<float, N>, N>>::type;
+};
+
+template<typename T>
+using struct_member_tuple_t = typename struct_member_tuple<T>::type;
 
 template<typename T>
 struct canonical_layout {
@@ -141,30 +163,46 @@ struct canonical_layout<std::tuple<T...>> {
     using type = std::tuple<typename canonical_layout<T>::type...>;
 };
 
-template<typename T, size_t N>
-struct canonical_layout<std::array<T, N>> {
-    using type = std::remove_pointer_t<
-        decltype(detail::array_to_tuple_impl<
-                 typename canonical_layout<T>::type>(std::make_index_sequence<N>{}))>;
-};
-
-template<typename T, size_t N>
-struct canonical_layout<T[N]> {
-    using type = typename canonical_layout<std::array<T, N>>::type;
-};
-
-template<typename T, size_t N>
-struct canonical_layout<Vector<T, N>> {
-    using type = typename canonical_layout<std::array<T, N>>::type;
-};
-
-template<size_t N>
-struct canonical_layout<Matrix<N>> {
-    using type = typename canonical_layout<std::array<Vector<float, N>, N>>::type;
-};
-
 template<typename T>
 using canonical_layout_t = typename canonical_layout<T>::type;
+
+template<typename... T>
+struct tuple_join {
+    static_assert(always_false_v<T...>);
+};
+
+template<typename... A, typename... B, typename... C>
+struct tuple_join<std::tuple<A...>, std::tuple<B...>, C...> {
+    using type = typename tuple_join<std::tuple<A..., B...>, C...>::type;
+};
+
+template<typename... A>
+struct tuple_join<std::tuple<A...>> {
+    using type = std::tuple<A...>;
+};
+
+template<typename... T>
+using tuple_join_t = typename tuple_join<T...>::type;
+
+namespace detail {
+
+template<typename L, typename T>
+struct linear_layout_impl {
+    using type = std::tuple<T>;
+};
+
+template<typename... L, typename... T>
+struct linear_layout_impl<std::tuple<L...>, std::tuple<T...>> {
+    using type = tuple_join_t<std::tuple<L...>, typename linear_layout_impl<std::tuple<>, T>::type...>;
+};
+
+}// namespace detail
+
+template<typename T>
+using linear_layout = detail::linear_layout_impl<std::tuple<>, canonical_layout_t<T>>;
+
+template<typename T>
+using linear_layout_t = typename linear_layout<T>::type;
 
 namespace detail {
 

@@ -97,17 +97,9 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
     return _arena->create<LiteralExpr>(type, value);
 }
 
-const RefExpr *FunctionBuilder::local(const Type *type, std::span<const Expression *> init) noexcept {
+const RefExpr *FunctionBuilder::local(const Type *type) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    ArenaVector initializer{*_arena, init};
-    _append(_arena->create<DeclareStmt>(v, initializer));
-    return _ref(v);
-}
-
-const RefExpr *FunctionBuilder::local(const Type *type, std::initializer_list<const Expression *> init) noexcept {
-    Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    ArenaVector initializer{*_arena, init};
-    _append(_arena->create<DeclareStmt>(v, initializer));
+    _append(_arena->create<DeclareStmt>(v));
     return _ref(v);
 }
 

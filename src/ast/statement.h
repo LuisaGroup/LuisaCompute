@@ -94,15 +94,10 @@ class DeclareStmt : public Statement {
 
 private:
     Variable _var;
-    std::span<const Expression *> _initializer;
 
 public:
-    DeclareStmt(Variable var, std::span<const Expression *> init) noexcept
-        : _var{var}, _initializer{init} {
-        for (auto i : _initializer) { i->mark(Usage::READ); }
-    }
+    DeclareStmt(Variable var) noexcept : _var{var} {}
     [[nodiscard]] auto variable() const noexcept { return _var; }
-    [[nodiscard]] const auto &initializer() const noexcept { return _initializer; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 

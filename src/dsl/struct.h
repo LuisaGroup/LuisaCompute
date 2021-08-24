@@ -68,7 +68,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         Expr(const Expr &another) noexcept = default;                                           \
         Expr &operator=(Expr) noexcept = delete;                                                \
         template<size_t i>                                                                      \
-        [[nodiscard]] auto get() const noexcept {                                            \
+        [[nodiscard]] auto get() const noexcept {                                               \
             using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                        \
             return Expr<M>{detail::FunctionBuilder::current()->member(                          \
                 Type::of<M>(), this->expression(), i)};                                         \
@@ -99,17 +99,15 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         Ref(Ref &&another) noexcept = default;                                                  \
         Ref(const Ref &another) noexcept = default;                                             \
         [[nodiscard]] operator Expr<S>() const noexcept { return Expr<S>{this->expression()}; } \
-        void operator=(Expr<S> rhs) const noexcept {                                            \
-            detail::FunctionBuilder::current()->assign(                                         \
-                AssignOp::ASSIGN,                                                               \
-                this->expression(),                                                             \
-                rhs.expression());                                                              \
+        template<typename Rhs>                                                                  \
+        void operator=(Rhs &&rhs) const noexcept {                                              \
+            dsl::assign(*this, std::forward<Rhs>(rhs));                                         \
         }                                                                                       \
         void operator=(Ref rhs) const noexcept { (*this) = Expr{rhs}; }                         \
         template<typename Rhs>                                                                  \
         void assign(Rhs &&v) const noexcept { (*this) = std::forward<Rhs>(v); }                 \
         template<size_t i>                                                                      \
-        [[nodiscard]] auto get() const noexcept {                                            \
+        [[nodiscard]] auto get() const noexcept {                                               \
             using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                        \
             return Ref<M>{detail::FunctionBuilder::current()->member(                           \
                 Type::of<M>(), this->expression(), i)};                                         \

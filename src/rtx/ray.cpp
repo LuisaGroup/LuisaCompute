@@ -7,33 +7,21 @@
 namespace luisa::compute {
 
 Expr<float3> origin(Expr<Ray> ray) noexcept {
-    static Callable _origin = [](Var<Ray> ray) noexcept {
-        return make_float3(ray.origin[0], ray.origin[1], ray.origin[2]);
-    };
-    return _origin(ray);
+    Var<float3> o = ray.origin;
+    return o;
 }
 
 Expr<float3> direction(Expr<Ray> ray) noexcept {
-    static Callable _direction = [](Var<Ray> ray) noexcept {
-        return make_float3(ray.direction[0], ray.direction[1], ray.direction[2]);
-    };
-    return _direction(ray);
+    Var<float3> d = ray.direction;
+    return d;
 }
 
 void set_origin(Ref<Ray> ray, Expr<float3> origin) noexcept {
-    Var o = origin;
-    ray.origin[0] = o.x;
-    ray.origin[1] = o.y;
-    ray.origin[2] = o.z;
+    ray.origin = origin;
 }
 
 void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept {
-    static Callable _set_direction = [](Ref<Ray> ray, Float3 d) noexcept {
-        ray.direction[0] = d.x;
-        ray.direction[1] = d.y;
-        ray.direction[2] = d.z;
-    };
-    _set_direction(ray, direction);
+    ray.direction = direction;
 }
 
 Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {

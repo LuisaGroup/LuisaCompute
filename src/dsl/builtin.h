@@ -6,7 +6,6 @@
 
 #include <core/basic_types.h>
 #include <dsl/expr.h>
-#include <dsl/func.h>
 
 namespace luisa::compute {
 
@@ -131,43 +130,27 @@ inline void soa_write_impl(I index, S s, B buffers) noexcept {
 
 inline namespace dsl {
 
-template<typename... T>
-[[nodiscard]] inline auto make_tuple(T &&...v) noexcept {
-    return Var<std::tuple<expr_value_t<T>...>>{std::forward<T>(v)...};
-}
-
 template<typename S, typename Index, typename... Buffers>
 requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
-    static Callable _soa_read = [](Var<expr_value_t<Index>> i, Var<expr_value_t<Buffers>>... bs) noexcept {
-        if constexpr (is_tuple_v<S>) {
-            return make_tuple(bs[i]...);
-        } else {
-            Var<expr_value_t<S>> s;
-            detail::soa_read_impl<0u, sizeof...(bs)>(
-                Expr{i}, Ref{s}, std::make_tuple(Expr{bs}...));
-            return s;
-        }
-    };
-    return _soa_read(std::forward<Index>(index), std::forward<Buffers>(buffers)...);
+    Var i = std::forward<Index>(index);
+    return Expr{Var<S>{std::forward<Buffers>(buffers)[i]...}};
 }
 
 template<typename Index, typename... Buffers>
 requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
-    static Callable _soa_read = [](Var<expr_value_t<Index>> i, Var<expr_value_t<Buffers>>... bs) noexcept {
-        return make_tuple(bs[i]...);
-    };
-    return _soa_read(std::forward<Index>(index), std::forward<Buffers>(buffers)...);
+    Var i = std::forward<Index>(index);
+    return Expr{compose(std::forward<Buffers>(buffers)[i]...)};
 }
 
 template<typename S, typename Index, typename... Buffers>
 requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
-[[nodiscard]] inline auto soa_write(Index &&i, S &&s, Buffers &&...bs) noexcept {
+inline void soa_write(Index &&index, S &&s, Buffers &&...bs) noexcept {
+    Var i = std::forward<Index>(index);
+    Var v = std::forward<S>(s);
     detail::soa_write_impl<0u, sizeof...(bs)>(
-        Expr{std::forward<Index>(i)},
-        Expr{std::forward<S>(s)},
-        std::make_tuple(Expr{std::forward<Buffers>(bs)}...));
+        i, v, std::make_tuple(Expr{std::forward<Buffers>(bs)}...));
 }
 
 }// namespace dsl

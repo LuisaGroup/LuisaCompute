@@ -16,22 +16,31 @@ struct Var : public Ref<T> {
     static_assert(std::is_trivially_destructible_v<T>);
 
     // for local variables of basic or array types
-    template<typename... Args>
-    requires concepts::constructible<T, expr_value_t<Args>...>
-    Var(Args &&...args)
-    noexcept
-        : Ref<T>{detail::FunctionBuilder::current()->local(
-            Type::of<T>(),
-            {detail::extract_expression(std::forward<Args>(args))...})} {}
+    Var() noexcept
+        : Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {}
 
-    // from tuple
-    template<typename Args, size_t... i>
-    Var(Args &&args, std::index_sequence<i...>) noexcept
-        : Var{std::get<i>(std::forward<Args>(args))...} {}
+    template<typename Arg>
+    requires concepts::different<std::remove_cvref_t<Arg>, Var<T>>
+    Var(Arg &&arg)
+    noexcept : Var{} {
+        dsl::assign(*this, std::forward<Arg>(arg));
+    }
+
+    template<typename... Args, size_t... i>
+    Var(std::tuple<Args...> args, std::index_sequence<i...>) noexcept : Var{} {
+        (dsl::assign(this->template get<i>(), std::get<i>(args)), ...);
+    }
 
     template<typename... Args>
     Var(std::tuple<Args...> args) noexcept
         : Var{args, std::index_sequence_for<Args...>{}} {}
+
+    template<typename First, typename Second, typename... Other>
+    Var(First &&first, Second &&second, Other &&...other) noexcept
+        : Var{std::make_tuple(
+            Expr{std::forward<First>(first)},
+            Expr{std::forward<Second>(second)},
+            Expr{std::forward<Other>(other)}...)} {}
 
     // create as function arguments, for internal use only
     explicit Var(detail::ArgumentCreation) noexcept

@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
     Callable add_mul = [](Var<int> a, Var<int> b) noexcept {
-        return make_tuple(a + b, a * b);
+        return compose(a + b, a * b);
     };
 
     Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {

@@ -155,8 +155,7 @@ public:
     [[nodiscard]] const RefExpr *dispatch_size() noexcept;
 
     // variables
-    [[nodiscard]] const RefExpr *local(const Type *type, std::span<const Expression *> init) noexcept;
-    [[nodiscard]] const RefExpr *local(const Type *type, std::initializer_list<const Expression *> init) noexcept;
+    [[nodiscard]] const RefExpr *local(const Type *type) noexcept;
     [[nodiscard]] const RefExpr *shared(const Type *type) noexcept;
 
     [[nodiscard]] const ConstantExpr *constant(const Type *type, ConstantData data) noexcept;

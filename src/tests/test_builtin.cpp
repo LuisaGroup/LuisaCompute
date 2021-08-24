@@ -3,6 +3,7 @@
 //
 
 #include <iostream>
+#include <fstream>
 #include <unordered_set>
 
 #include <runtime/context.h>
@@ -19,12 +20,12 @@ using namespace luisa;
 using namespace luisa::compute;
 
 struct SomeSOA {
-    Buffer<float> a;
+    Buffer<std::array<float, 4>> a;
     Buffer<float2> b;
 };
 
 struct Some {
-    float a;
+    std::array<float, 4> a;
     float2 b;
 };
 
@@ -93,6 +94,7 @@ struct Complicated {
 LUISA_STRUCT(Complicated, a, b, c)
 
 using complicated_tuple = canonical_layout_t<Complicated>;
+using linear_tuple = linear_layout_t<Complicated>;
 
 template<typename T, size_t level = 0u>
 struct tuple_printer {
@@ -147,7 +149,7 @@ struct BufferSOA<S, std::tuple<T...>> {
     std::tuple<BufferSOA<T>...> soa;
     template<typename I, size_t... m>
     [[nodiscard]] auto read_impl(I &&i, std::index_sequence<m...>) const noexcept {
-        return make_tuple(std::get<m>(soa).template read(std::forward<I>(i))...);
+        return compose(std::get<m>(soa).template read(std::forward<I>(i))...);
     }
     template<typename I>
     [[nodiscard]] auto read(I &&i) const noexcept {
@@ -157,9 +159,15 @@ struct BufferSOA<S, std::tuple<T...>> {
 
 int main(int argc, char *argv[]) {
 
+    std::ofstream f1{"test.txt"};
+    std::ofstream f2{"test.txt"};
+    f1 << "hello" << std::endl;
+    f2 << "world" << std::endl;
+
     tuple_printer<complicated_tuple>{}();
 
     log_level_verbose();
+    LUISA_INFO("{}", typeid(linear_tuple).name());
 
     Context context{argv[0]};
 
@@ -172,7 +180,7 @@ int main(int argc, char *argv[]) {
 #endif
 
     Callable multi_ret = [] {
-        return make_tuple(0u, 1u);
+        return compose(0u, 1u);
     };
 
     Kernel1D useless = [&](BufferVar<float4> buffer, Var<SomeSOA> soa) noexcept {
@@ -184,12 +192,11 @@ int main(int argc, char *argv[]) {
 
         Var s = soa_read<Some>(0u, soa.a, soa.b);
         soa_write(0u, s, soa.a, soa.b);
-
-        Var v = soa_read<float2>(0u, soa.a, soa.a);
         Var t = soa_read(0u, soa.a, soa.a);
         soa_write(0u, t, soa.a, soa.a);
 
         Var u = multi_ret();
+        auto [a, b] = decompose(s);
     };
     [[maybe_unused]] auto shader = device.compile(useless);
 

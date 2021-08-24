@@ -18,8 +18,15 @@
 namespace luisa::compute {
 
 namespace detail {
+
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept;
+
+}// namespace detail
+
+inline namespace dsl {
+template<typename Lhs, typename Rhs>
+inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept;// defined in dsl/func.h
 }
 
 #define LUISA_EXPR_COMMON(...)                                                   \
@@ -45,11 +52,9 @@ public:                                                                    \
     [[nodiscard]] auto expression() const noexcept { return _expression; } \
     Ref(Ref &&) noexcept = default;                                        \
     Ref(const Ref &) noexcept = default;                                   \
-    void operator=(Expr<__VA_ARGS__> rhs) const noexcept {                 \
-        detail::FunctionBuilder::current()->assign(                        \
-            AssignOp::ASSIGN,                                              \
-            this->expression(),                                            \
-            rhs.expression());                                             \
+    template<typename Rhs>                                                 \
+    void operator=(Rhs &&rhs) const noexcept {                             \
+        dsl::assign(*this, std::forward<Rhs>(rhs));                        \
     }                                                                      \
     [[nodiscard]] operator Expr<__VA_ARGS__>() const noexcept {            \
         return Expr<__VA_ARGS__>{this->expression()};                      \
@@ -104,7 +109,45 @@ struct ExprEnableArithmeticAssign;
 template<typename T>
 struct ExprEnableGetMemberByIndex;
 
+template<typename... T, size_t... i>
+[[nodiscard]] inline auto compose_impl(std::tuple<T...> t, std::index_sequence<i...>) noexcept {
+    Var<std::tuple<expr_value_t<T>...>> v{Expr{std::get<i>(t)}...};
+    return Expr{v};
+}
+
+template<typename T, size_t... i>
+[[nodiscard]] inline auto decompose_impl(Expr<T> x, std::index_sequence<i...>) noexcept {
+    return std::make_tuple(x.template get<i>()...);
+}
+
 }// namespace detail
+
+inline namespace dsl {
+
+template<typename... T>
+[[nodiscard]] inline auto compose(std::tuple<T...> t) noexcept {
+    return detail::compose_impl(t, std::index_sequence_for<T...>{});
+}
+
+template<typename... T>
+[[nodiscard]] inline auto compose(T &&...v) noexcept {
+    return compose(std::make_tuple(Expr{std::forward<T>(v)}...));
+}
+
+template<typename T>
+[[nodiscard]] inline auto compose(T &&v) noexcept {
+    return Expr{std::forward<T>(v)};
+}
+
+template<typename T>
+[[nodiscard]] inline auto decompose(T &&t) noexcept {
+    using member_tuple = struct_member_tuple_t<expr_value_t<T>>;
+    using index_sequence = std::make_index_sequence<std::tuple_size_v<member_tuple>>;
+    Var x{std::forward<T>(t)};// to avoid redundant evaluation
+    return detail::decompose_impl(Expr{x}, index_sequence{});
+}
+
+}// namespace dsl
 
 template<typename T>
 struct Expr
@@ -409,80 +452,75 @@ public:
         detail::FunctionBuilder::current()->call(CallOp::ATOMIC_STORE, {this->_expression, value.expression()});
     }
 
-#define LUISA_ATOMIC_NODISCARD                                           \
-    [[nodiscard(                                                         \
-        "Return values from atomic operations with side effects should " \
-        "not be discarded. Enclose this expression with void_().")]]
-
-    LUISA_ATOMIC_NODISCARD auto load() const noexcept {
+    [[nodiscard]] auto load() const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_LOAD,
             {this->_expression});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
-    LUISA_ATOMIC_NODISCARD auto exchange(Expr<T> desired) const noexcept {
+    auto exchange(Expr<T> desired) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_EXCHANGE,
             {this->_expression, desired.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     }
 
     // stores old == compare ? val : old, returns old
-    LUISA_ATOMIC_NODISCARD auto compare_exchange(Expr<T> expected, Expr<T> desired) const noexcept {
+    auto compare_exchange(Expr<T> expected, Expr<T> desired) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_COMPARE_EXCHANGE,
             {this->_expression, expected.expression(), desired.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     }
 
-    LUISA_ATOMIC_NODISCARD auto fetch_add(Expr<T> val) const noexcept {
+    auto fetch_add(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_ADD,
             {this->_expression, val.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
-    LUISA_ATOMIC_NODISCARD auto fetch_sub(Expr<T> val) const noexcept {
+    auto fetch_sub(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_SUB,
             {this->_expression, val.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
-    LUISA_ATOMIC_NODISCARD auto fetch_and(Expr<T> val) const noexcept {
+    auto fetch_and(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_AND,
             {this->_expression, val.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
-    LUISA_ATOMIC_NODISCARD auto fetch_or(Expr<T> val) const noexcept {
+    auto fetch_or(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_OR,
             {this->_expression, val.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
-    LUISA_ATOMIC_NODISCARD auto fetch_xor(Expr<T> val) const noexcept {
+    auto fetch_xor(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_XOR,
             {this->_expression, val.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
-    LUISA_ATOMIC_NODISCARD auto fetch_min(Expr<T> val) const noexcept {
+    auto fetch_min(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_MIN,
             {this->_expression, val.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
-    LUISA_ATOMIC_NODISCARD auto fetch_max(Expr<T> val) const noexcept {
+    auto fetch_max(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_MAX,
             {this->_expression, val.expression()});
-        return Expr<T>{expr};
+        return Expr{Var{Expr<T>{expr}}};
     };
 
 #undef LUISA_ATOMIC_NODISCARD
