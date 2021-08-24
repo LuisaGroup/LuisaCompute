@@ -3,6 +3,7 @@
 //
 
 #include <iostream>
+#include <unordered_set>
 
 #include <runtime/context.h>
 #include <runtime/device.h>
@@ -146,7 +147,7 @@ struct BufferSOA<S, std::tuple<T...>> {
     std::tuple<BufferSOA<T>...> soa;
     template<typename I, size_t... m>
     [[nodiscard]] auto read_impl(I &&i, std::index_sequence<m...>) const noexcept {
-        return multiple(std::get<m>(soa).template read(std::forward<I>(i))...);
+        return make_tuple(std::get<m>(soa).template read(std::forward<I>(i))...);
     }
     template<typename I>
     [[nodiscard]] auto read(I &&i) const noexcept {
@@ -171,7 +172,7 @@ int main(int argc, char *argv[]) {
 #endif
 
     Callable multi_ret = [] {
-        return multiple(0u, 1u);
+        return make_tuple(0u, 1u);
     };
 
     Kernel1D useless = [&](BufferVar<float4> buffer, Var<SomeSOA> soa) noexcept {
@@ -188,8 +189,13 @@ int main(int argc, char *argv[]) {
         Var t = soa_read(0u, soa.a, soa.a);
         soa_write(0u, t, soa.a, soa.a);
 
-        auto [u1, u2] = multi_ret();
+        Var u = multi_ret();
     };
-
     [[maybe_unused]] auto shader = device.compile(useless);
+
+    using namespace std::string_literals;
+    using namespace std::string_view_literals;
+    std::unordered_set<std::string, Hash64, std::equal_to<>> s{"hello"s, "world"s};
+    LUISA_INFO("Present: {}", s.contains("hello"));
+    LUISA_INFO("Present: {}", s.contains("world"sv));
 }

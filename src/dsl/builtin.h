@@ -132,8 +132,8 @@ inline void soa_write_impl(I index, S s, B buffers) noexcept {
 inline namespace dsl {
 
 template<typename... T>
-[[nodiscard]] inline auto multiple(T &&...v) noexcept {
-    return std::make_tuple(Expr{v}...);
+[[nodiscard]] inline auto make_tuple(T &&...v) noexcept {
+    return Var<std::tuple<expr_value_t<T>...>>{std::forward<T>(v)...};
 }
 
 template<typename S, typename Index, typename... Buffers>
@@ -141,7 +141,7 @@ requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
     static Callable _soa_read = [](Var<expr_value_t<Index>> i, Var<expr_value_t<Buffers>>... bs) noexcept {
         if constexpr (is_tuple_v<S>) {
-            return multiple(bs[i]...);
+            return make_tuple(bs[i]...);
         } else {
             Var<expr_value_t<S>> s;
             detail::soa_read_impl<0u, sizeof...(bs)>(
@@ -156,7 +156,7 @@ template<typename Index, typename... Buffers>
 requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
     static Callable _soa_read = [](Var<expr_value_t<Index>> i, Var<expr_value_t<Buffers>>... bs) noexcept {
-        return multiple(bs[i]...);
+        return make_tuple(bs[i]...);
     };
     return _soa_read(std::forward<Index>(index), std::forward<Buffers>(buffers)...);
 }

@@ -30,6 +30,7 @@ class Hash64 {
 
 public:
     static constexpr auto default_seed = 19980810ull;
+    using is_transparent = void;// to enable heterogeneous lookup
 
 private:
     uint64_t _seed;

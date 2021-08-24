@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
     Callable add_mul = [](Var<int> a, Var<int> b) noexcept {
-        return std::make_tuple(a + b, a * b);
+        return make_tuple(a + b, a * b);
     };
 
     Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
@@ -86,9 +86,9 @@ int main(int argc, char *argv[]) {
         Shared<float4> shared_floats{16};
         Var color = heap.tex2d(v_int).sample(float2(0.0f));
 
-        auto [a, m] = add_mul(v_int, v_int);
-        Var a_copy = a;
-        Var m_copy = m;
+        auto am = add_mul(v_int, v_int);
+        Var a_copy = am.get<0>();
+        Var m_copy = am.get<1>();
 
         for (auto v : range(v_int)) {
             v_int += v;

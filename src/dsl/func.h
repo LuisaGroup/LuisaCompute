@@ -179,26 +179,6 @@ struct Kernel3D<void(Args...)> : LUISA_KERNE_BASE(3);
 
 namespace detail {
 
-template<typename... T, size_t... i>
-[[nodiscard]] inline auto var_to_tuple_impl(Expr<std::tuple<T...>> v, std::index_sequence<i...>) noexcept {
-    return std::tuple<Expr<T>...>{v.template get<i>()...};
-}
-
-template<typename... T>
-[[nodiscard]] inline auto var_to_tuple_impl(Expr<std::tuple<T...>> v) noexcept {
-    return var_to_tuple_impl(v, std::index_sequence_for<T...>{});
-}
-
-template<typename T>
-[[nodiscard]] inline auto var_to_tuple(T &&v) noexcept {
-    if constexpr (is_tuple_v<expr_value_t<T>>) {
-        Var ret{std::forward<T>(v)};// TODO: remove this
-        return var_to_tuple_impl(Expr{ret});
-    } else {
-        return Expr{std::forward<T>(v)};;
-    }
-}
-
 class CallableInvoke {
 
 public:
@@ -288,7 +268,7 @@ public:
                       std::forward<Def>(def),
                       std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
               } else {
-                  Var ret = std::apply(
+                  auto ret = std::apply(
                       std::forward<Def>(def),
                       std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
                   detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
@@ -302,9 +282,9 @@ public:
             detail::FunctionBuilder::current()->call(
                 _builder->function(), invoke.args());
         } else {
-            auto ret = Expr<Ret>{detail::FunctionBuilder::current()->call(
+            Expr<Ret> ret{detail::FunctionBuilder::current()->call(
                 Type::of<Ret>(), _builder->function(), invoke.args())};
-            return detail::var_to_tuple(ret);
+            return Var{ret};// to avoid redundant evaluation
         }
     }
 };
