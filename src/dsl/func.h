@@ -369,10 +369,7 @@ namespace detail {
 
 template<typename Lhs, typename Rhs, size_t... i>
 inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs, std::index_sequence<i...>) noexcept {
-    static Callable _assign_impl = [](Ref<Lhs> v, Var<Rhs> x) noexcept {
-        (dsl::assign(v.template get<i>(), x.template get<i>()), ...);
-    };
-    _assign_impl(lhs, rhs);
+    (dsl::assign(lhs.template get<i>(), rhs.template get<i>()), ...);
 }
 
 template<typename Lhs, typename Rhs>

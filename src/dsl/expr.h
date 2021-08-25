@@ -146,8 +146,7 @@ template<typename T>
 [[nodiscard]] inline auto decompose(T &&t) noexcept {
     using member_tuple = struct_member_tuple_t<expr_value_t<T>>;
     using index_sequence = std::make_index_sequence<std::tuple_size_v<member_tuple>>;
-    Var x{std::forward<T>(t)};// to avoid redundant evaluation
-    return detail::decompose_impl(Expr{x}, index_sequence{});
+    return detail::decompose_impl(Expr{std::forward<T>(t)}, index_sequence{});
 }
 
 }// namespace dsl

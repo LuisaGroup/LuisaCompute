@@ -375,14 +375,9 @@ void MetalCodegen::visit(const ScopeStmt *stmt) {
 
 void MetalCodegen::visit(const DeclareStmt *stmt) {
     auto v = stmt->variable();
-    if (auto usage = _function.variable_usage(v.uid());
-        usage == Usage::NONE || usage == Usage::READ) {
-        _scratch << "const ";
-    }
-    _scratch << "auto ";
-    _emit_variable_name(v);
-    _scratch << " = ";
     _emit_type_name(v.type());
+    _scratch << " ";
+    _emit_variable_name(v);
     _scratch << "{};";
 }
 

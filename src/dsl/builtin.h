@@ -130,6 +130,16 @@ inline void soa_write_impl(I index, S s, B buffers) noexcept {
 
 inline namespace dsl {
 
+template<typename T, typename... Args>
+[[nodiscard]] inline auto def(Args &&...args) noexcept {
+    return Var<expr_value_t<T>>{std::forward<Args>(args)...};
+}
+
+template<typename T>
+[[nodiscard]] inline auto def(T &&x) noexcept {
+    return Var{Expr{std::forward<T>(x)}};
+}
+
 template<typename S, typename Index, typename... Buffers>
 requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {

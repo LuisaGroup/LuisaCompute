@@ -60,11 +60,10 @@ int main(int argc, char *argv[]) {
     };
 
     Callable halton = [](UInt i, UInt b) noexcept {
-        Var f = 1.0f;
-        Var invB = 1.0f / b;
-        Var r = 0.0f;
+        auto f = def(1.0f);
+        auto invB = 1.0f / b;
+        auto r = def(0.0f);
         $while(i > 0u){
-            if_(i <= 0u, break_);
             f = f * invB;
             r = r + f * (i % b);
             i = i / b;
@@ -73,7 +72,7 @@ int main(int argc, char *argv[]) {
     };
 
     Callable tea = [](UInt v0, UInt v1) noexcept {
-        Var s0 = 0u;
+        auto s0 = def(0u);
         for (auto n = 0u; n < 4u; n++) {
             s0 += 0x9e3779b9u;
             v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
@@ -83,33 +82,33 @@ int main(int argc, char *argv[]) {
     };
 
     Callable rand = [&](UInt f, UInt2 p) noexcept {
-        Var i = tea(p.x, p.y) + f;
-        Var rx = halton(i, 2u);
-        Var ry = halton(i, 3u);
+        auto i = tea(p.x, p.y) + f;
+        auto rx = halton(i, 2u);
+        auto ry = halton(i, 3u);
         return make_float2(rx, ry);
     };
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, AccelVar accel, UInt frame_index) noexcept {
-        Var coord = dispatch_id().xy();
-        Var p = (make_float2(coord) + rand(frame_index, coord)) / make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
-        $debug(Var ray = make_ray(make_float3(p * make_float2(1.0f, -1.0f), 1.0f), make_float3(0.0f, 0.0f, -1.0f)));
-        Var hit = accel.trace_closest(ray);
-        Var color = make_float3(0.3f, 0.5f, 0.7f);
-        if_(!miss(hit), [&] {
+        auto coord = dispatch_id().xy();
+        auto p = (make_float2(coord) + rand(frame_index, coord)) / make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
+        auto ray = make_ray(make_float3(p * make_float2(1.0f, -1.0f), 1.0f), make_float3(0.0f, 0.0f, -1.0f));
+        auto hit = accel.trace_closest(ray);
+        auto color = def<float3>(0.3f, 0.5f, 0.7f);
+        $if(!miss(hit)) {
             constexpr auto red = float3(1.0f, 0.0f, 0.0f);
             constexpr auto green = float3(0.0f, 1.0f, 0.0f);
             constexpr auto blue = float3(0.0f, 0.0f, 1.0f);
             color = interpolate(hit, red, green, blue);
-        });
-        Var old = image.read(coord).xyz();
-        Var t = 1.0f / (frame_index + 1.0f);
+        };
+        auto old = image.read(coord).xyz();
+        auto t = 1.0f / (frame_index + 1.0f);
         image.write(coord, make_float4(lerp(old, color, t), 1.0f));
     };
 
     Kernel2D colorspace_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image) noexcept {
-        Var coord = dispatch_id().xy();
-        Var hdr = hdr_image.read(coord).xyz();
-        Var ldr = linear_to_srgb(hdr);
+        auto coord = dispatch_id().xy();
+        auto hdr = hdr_image.read(coord).xyz();
+        auto ldr = linear_to_srgb(hdr);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -124,7 +123,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 1u;
+    static constexpr auto spp = 1024u;
     for (auto i = 0u; i < spp; i++) {
         auto t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;
