@@ -282,8 +282,9 @@ public:
             detail::FunctionBuilder::current()->call(
                 _builder->function(), invoke.args());
         } else {
-            return Expr<Ret>{detail::FunctionBuilder::current()->call(
-                Type::of<Ret>(), _builder->function(), invoke.args())};
+            return detail::make_var_expr<Ret>(
+                detail::FunctionBuilder::current()->call(
+                    Type::of<Ret>(), _builder->function(), invoke.args()));
         }
     }
 };

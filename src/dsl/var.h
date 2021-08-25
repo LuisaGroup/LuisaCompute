@@ -224,4 +224,12 @@ using VolumeInt = VolumeVar<int>;
 using VolumeUInt = VolumeVar<uint>;
 using VolumeFloat = VolumeVar<float>;
 
+namespace detail {
+
+template<typename T>
+[[nodiscard]] inline Expr<T> make_var_expr(const Expression *expr) noexcept {
+    return Expr{Var{Expr<T>{expr}}};
+}
+
+}// namespace detail
 }// namespace luisa::compute

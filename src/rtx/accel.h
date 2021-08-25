@@ -52,14 +52,16 @@ public:
         : _expression{detail::FunctionBuilder::current()->accel_binding(accel.handle())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto trace_closest(Expr<Ray> ray) const noexcept {
-        return Expr<Hit>{detail::FunctionBuilder::current()->call(
-            Type::of<Hit>(), CallOp::TRACE_CLOSEST,
-            {_expression, ray.expression()})};
+        return detail::make_var_expr<Hit>(
+            detail::FunctionBuilder::current()->call(
+                Type::of<Hit>(), CallOp::TRACE_CLOSEST,
+                {_expression, ray.expression()}));
     }
     [[nodiscard]] auto trace_any(Expr<Ray> ray) const noexcept {
-        return Expr<bool>{detail::FunctionBuilder::current()->call(
-            Type::of<bool>(), CallOp::TRACE_ANY,
-            {_expression, ray.expression()})};
+        return detail::make_var_expr<bool>(
+            detail::FunctionBuilder::current()->call(
+                Type::of<bool>(), CallOp::TRACE_ANY,
+                {_expression, ray.expression()}));
     }
 };
 

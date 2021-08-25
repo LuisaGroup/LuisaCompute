@@ -197,6 +197,11 @@ int main(int argc, char *argv[]) {
 
         Var u = multi_ret();
         auto [a, b] = decompose(s);
+
+        Var f3 = float3(0.0f);
+        Var<std::array<float, 3>> f4 = f3;
+        Var<int3> f5 = f3;
+        Var<std::tuple<int, float, bool>> f6 = f3;
     };
     [[maybe_unused]] auto shader = device.compile(useless);
 

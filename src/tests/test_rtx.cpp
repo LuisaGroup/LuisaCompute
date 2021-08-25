@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
     Kernel2D raytracing_kernel = [&](ImageFloat image, AccelVar accel, UInt frame_index) noexcept {
         Var coord = dispatch_id().xy();
         Var p = (make_float2(coord) + rand(frame_index, coord)) / make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
-        Var ray = make_ray(make_float3(p * make_float2(1.0f, -1.0f), 1.0f), make_float3(0.0f, 0.0f, -1.0f));
+        $debug(Var ray = make_ray(make_float3(p * make_float2(1.0f, -1.0f), 1.0f), make_float3(0.0f, 0.0f, -1.0f)));
         Var hit = accel.trace_closest(ray);
         Var color = make_float3(0.3f, 0.5f, 0.7f);
         if_(!miss(hit), [&] {
@@ -124,7 +124,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 1024u;
+    static constexpr auto spp = 1u;
     for (auto i = 0u; i < spp; i++) {
         auto t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;

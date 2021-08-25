@@ -37,6 +37,7 @@ class SwitchCaseStmt;
 class SwitchDefaultStmt;
 class AssignStmt;
 class ForStmt;
+class CommentStmt;
 
 struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -52,6 +53,7 @@ struct StmtVisitor {
     virtual void visit(const SwitchDefaultStmt *) = 0;
     virtual void visit(const AssignStmt *) = 0;
     virtual void visit(const ForStmt *) = 0;
+    virtual void visit(const CommentStmt *) = 0;
 };
 
 #define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \
@@ -241,6 +243,18 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+class CommentStmt : public Statement {
+
+private:
+    std::string_view _comment;
+
+public:
+    explicit CommentStmt(std::string_view comment) noexcept
+        : _comment{comment} {}
+    [[nodiscard]] auto comment() const noexcept { return _comment; }
+    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+};
+
 #undef LUISA_MAKE_STATEMENT_ACCEPT_VISITOR
 
 // checks for working with Arena
@@ -257,5 +271,6 @@ static_assert(std::is_trivially_destructible_v<SwitchCaseStmt>);
 static_assert(std::is_trivially_destructible_v<SwitchDefaultStmt>);
 static_assert(std::is_trivially_destructible_v<AssignStmt>);
 static_assert(std::is_trivially_destructible_v<ForStmt>);
+static_assert(std::is_trivially_destructible_v<CommentStmt>);
 
 }// namespace luisa::compute

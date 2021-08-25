@@ -1166,4 +1166,8 @@ template<typename T>
     }
 }
 
+void MetalCodegen::visit(const CommentStmt *stmt) {
+    _scratch << "/* " << stmt->comment() << " */";
+}
+
 }

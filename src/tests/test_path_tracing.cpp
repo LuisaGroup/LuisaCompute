@@ -310,7 +310,7 @@ int main(int argc, char *argv[]) {
     clock.tic();
     static constexpr auto spp = 1024u;
     static constexpr auto spp_per_dispatch = 4u;
-    static constexpr auto dispatch_count = spp / spp_per_dispatch;
+    static constexpr auto dispatch_count = (spp + spp_per_dispatch - 1u) / spp_per_dispatch;
     stream << clear_shader(hdr_image).dispatch(width, height)
            << make_sampler_shader(state_image).dispatch(width, height);
     for (auto d = 0u; d < dispatch_count; d++) {

@@ -82,3 +82,11 @@
 #define $for(...)          \
     for (auto __VA_ARGS__) \
     ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
+
+#define $comment(...) \
+    ::luisa::compute::comment(__VA_ARGS__)
+#define $comment_with_location(...) \
+    $comment(fmt::format(FMT_STRING("{} (in function {} [{}:{}])"), std::string_view{__VA_ARGS__}, __FUNCTION__, __FILE__, __LINE__))
+#define $debug(...)                                       \
+    $comment_with_location(LUISA_STRINGIFY(__VA_ARGS__)); \
+    __VA_ARGS__

@@ -25,19 +25,8 @@ void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept {
 }
 
 Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {
-    static Callable _make_ray = [](Float3 origin, Float3 direction, Float t_min, Float t_max) noexcept {
-        Var<Ray> ray;
-        ray.origin[0] = origin.x;
-        ray.origin[1] = origin.y;
-        ray.origin[2] = origin.z;
-        ray.t_min = t_min;
-        ray.direction[0] = direction.x;
-        ray.direction[1] = direction.y;
-        ray.direction[2] = direction.z;
-        ray.t_max = t_max;
-        return ray;
-    };
-    return _make_ray(origin, direction, t_min, t_max);
+    Var<Ray> ray{origin, t_min, direction, t_max};
+    return ray;
 }
 
 Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction) noexcept {

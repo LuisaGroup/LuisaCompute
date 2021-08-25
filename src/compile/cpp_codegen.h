@@ -43,6 +43,7 @@ private:
     void visit(const AssignStmt *stmt) override;
     void visit(const ForStmt *stmt) override;
     void visit(const ConstantExpr *expr) override;
+    void visit(const CommentStmt *stmt) override;
 
 private:
     virtual void _emit_type_decl() noexcept;

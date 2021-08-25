@@ -325,6 +325,9 @@ inline void match(std::initializer_list<T> tags, Tag &&tag, IndexedCase &&indexe
     match(tags, std::forward<Tag>(tag), std::forward<IndexedCase>(indexed_case), [] {});
 }
 
-}// namespace dsl
+inline void comment(std::string_view s) noexcept {
+    detail::FunctionBuilder::current()->comment_(s);
+}
 
+}// namespace dsl
 }// namespace luisa::compute

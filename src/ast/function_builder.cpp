@@ -387,4 +387,9 @@ const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {
     return _ref(v);
 }
 
+void FunctionBuilder::comment_(std::string_view comment) noexcept {
+    ArenaString s{*_arena, comment};
+    _append(_arena->create<CommentStmt>(s));
+}
+
 }// namespace luisa::compute::detail

@@ -673,4 +673,8 @@ void CppCodegen::_emit_access_attribute(Variable v) noexcept {
     }
 }
 
+void CppCodegen::visit(const CommentStmt *stmt) {
+    _scratch << "/* " << stmt->comment() << " */";
+}
+
 }// namespace luisa::compute

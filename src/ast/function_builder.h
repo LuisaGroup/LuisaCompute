@@ -199,6 +199,7 @@ public:
     void case_(const Expression *expr, const ScopeStmt *body) noexcept;
     void default_(const ScopeStmt *body) noexcept;
     void for_(const Expression *var, const Expression *condition, const Expression *update, const ScopeStmt *body) noexcept;
+    void comment_(std::string_view comment) noexcept;
 
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] ScopeStmt *scope() noexcept;
