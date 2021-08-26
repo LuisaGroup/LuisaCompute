@@ -219,9 +219,38 @@ public:
     [[nodiscard]] auto end() const noexcept { return ForRangeEnd{}; }
 };
 
+template<typename Lhs, typename Rhs, size_t... i>
+inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs, std::index_sequence<i...>) noexcept {
+    (dsl::assign(lhs.template get<i>(), rhs.template get<i>()), ...);
+}
+
+template<typename Lhs, typename Rhs>
+inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs) noexcept {
+    using member_tuple = struct_member_tuple_t<expr_value_t<Lhs>>;
+    assign_impl(lhs, rhs, std::make_index_sequence<std::tuple_size_v<member_tuple>>{});
+}
+
 }// namespace detail
 
-inline namespace dsl {// to avoid conflicts
+inline namespace dsl {
+
+template<typename Lhs, typename Rhs>
+inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept {
+    if constexpr (concepts::assignable<expr_value_t<Lhs>, expr_value_t<Rhs>>) {
+        detail::FunctionBuilder::current()->assign(
+            AssignOp::ASSIGN,
+            detail::extract_expression(std::forward<Lhs>(lhs)),
+            detail::extract_expression(std::forward<Rhs>(rhs)));
+    } else if (is_tuple_v<std::remove_cvref_t<Rhs>>) {
+        assign(
+            Ref{std::forward<Lhs>(lhs)},
+            compose(std::forward<Rhs>(rhs)));
+    } else {
+        detail::assign_impl(
+            Ref{std::forward<Lhs>(lhs)},
+            Expr{std::forward<Rhs>(rhs)});
+    }
+}
 
 // statements
 inline void break_() noexcept { detail::FunctionBuilder::current()->break_(); }

@@ -6,7 +6,7 @@ if (LLVM_FOUND)
     message(STATUS "Build with LLVM: ${LLVM_VERSION}")
     
     set(LUISA_COMPUTE_BACKEND_LLVM_SOURCES
-        dummy.cpp dummy.h)
+        dummy.cpp expr.h)
     luisa_compute_add_backend(llvm SOURCES ${LUISA_COMPUTE_BACKEND_LLVM_SOURCES})
     
     llvm_map_components_to_libnames(

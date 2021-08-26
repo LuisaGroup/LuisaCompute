@@ -56,17 +56,17 @@ public:                                                                    \
     Ref(Ref &&) noexcept = default;                                        \
     Ref(const Ref &) noexcept = default;                                   \
     template<typename Rhs>                                                 \
-    void operator=(Rhs &&rhs) const noexcept {                             \
+    void operator=(Rhs &&rhs) noexcept {                                   \
         dsl::assign(*this, std::forward<Rhs>(rhs));                        \
     }                                                                      \
     [[nodiscard]] operator Expr<__VA_ARGS__>() const noexcept {            \
         return Expr<__VA_ARGS__>{this->expression()};                      \
     }                                                                      \
-    void operator=(Ref rhs) const noexcept {                               \
+    void operator=(Ref rhs) noexcept {                                     \
         (*this) = Expr<__VA_ARGS__>{rhs};                                  \
     }                                                                      \
     template<typename Value>                                               \
-    void assign(Value &&v) const noexcept {                                \
+    void assign(Value &&v) noexcept {                                      \
         (*this) = std::forward<Value>(v);                                  \
     }
 
@@ -132,14 +132,14 @@ template<typename... T>
     return detail::compose_impl(t, std::index_sequence_for<T...>{});
 }
 
-template<typename... T>
-[[nodiscard]] inline auto compose(T &&...v) noexcept {
-    return compose(std::make_tuple(Expr{std::forward<T>(v)}...));
-}
-
 template<typename T>
 [[nodiscard]] inline auto compose(T &&v) noexcept {
     return Expr{std::forward<T>(v)};
+}
+
+template<typename... T>
+[[nodiscard]] inline auto compose(T &&...v) noexcept {
+    return compose(std::make_tuple(Expr{std::forward<T>(v)}...));
 }
 
 template<typename T>
@@ -682,55 +682,13 @@ public:
     HeapTexture2D(const RefExpr *heap, const Expression *index) noexcept
         : _heap{heap},
           _index{index} {}
-
-    [[nodiscard]] auto sample(Expr<float2> uv) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D,
-            {_heap, _index, uv.expression()}));
-    }
-
-    [[nodiscard]] auto sample(Expr<float2> uv, Expr<float> mip) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D_LEVEL,
-            {_heap, _index, uv.expression(), mip.expression()}));
-    }
-
-    [[nodiscard]] auto sample(Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE2D_GRAD,
-            {_heap, _index, uv.expression(), dpdx.expression(), dpdy.expression()}));
-    }
-
-    [[nodiscard]] auto size() const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<uint2>(f->call(
-            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D,
-            {_heap, _index}));
-    }
-
-    [[nodiscard]] auto size(Expr<int> level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<uint2>(f->call(
-            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D_LEVEL,
-            {_heap, _index, level.expression()}));
-    }
-
-    [[nodiscard]] auto size(Expr<uint> level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<uint2>(f->call(
-            Type::of<uint2>(), CallOp::TEXTURE_HEAP_SIZE2D_LEVEL,
-            {_heap, _index, level.expression()}));
-    }
-
-    [[nodiscard]] auto read(Expr<uint2> coord) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D,
-            {_heap, _index, coord.expression()}));
-    }
+    [[nodiscard]] Expr<float4> sample(Expr<float2> uv) const noexcept;
+    [[nodiscard]] Expr<float4> sample(Expr<float2> uv, Expr<float> mip) const noexcept;
+    [[nodiscard]] Expr<float4> sample(Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept;
+    [[nodiscard]] Expr<uint2> size() const noexcept;
+    [[nodiscard]] Expr<uint2> size(Expr<int> level) const noexcept;
+    [[nodiscard]] Expr<uint2> size(Expr<uint> level) const noexcept;
+    [[nodiscard]] Expr<float4> read(Expr<uint2> coord) const noexcept;
 
     template<typename I>
     requires is_integral_expr_v<I>
@@ -753,55 +711,13 @@ public:
     HeapTexture3D(const RefExpr *heap, const Expression *index) noexcept
         : _heap{heap},
           _index{index} {}
-
-    [[nodiscard]] auto sample(Expr<float3> uvw) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D,
-            {_heap, _index, uvw.expression()}));
-    }
-
-    [[nodiscard]] auto sample(Expr<float3> uvw, Expr<float> mip) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D_LEVEL,
-            {_heap, _index, uvw.expression(), mip.expression()}));
-    }
-
-    [[nodiscard]] auto sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_SAMPLE3D_GRAD,
-            {_heap, _index, uvw.expression(), dpdx.expression(), dpdy.expression()}));
-    }
-
-    [[nodiscard]] auto size() const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<uint3>(f->call(
-            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D,
-            {_heap, _index}));
-    }
-
-    [[nodiscard]] auto size(Expr<int> level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<uint3>(f->call(
-            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D_LEVEL,
-            {_heap, _index, level.expression()}));
-    }
-
-    [[nodiscard]] auto size(Expr<uint> level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<uint3>(f->call(
-            Type::of<uint3>(), CallOp::TEXTURE_HEAP_SIZE3D_LEVEL,
-            {_heap, _index, level.expression()}));
-    }
-
-    [[nodiscard]] auto read(Expr<uint3> coord) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D,
-            {_heap, _index, coord.expression()}));
-    }
+    [[nodiscard]] Expr<float4> sample(Expr<float3> uvw) const noexcept;
+    [[nodiscard]] Expr<float4> sample(Expr<float3> uvw, Expr<float> mip) const noexcept;
+    [[nodiscard]] Expr<float4> sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept;
+    [[nodiscard]] Expr<uint3> size() const noexcept;
+    [[nodiscard]] Expr<uint3> size(Expr<int> level) const noexcept;
+    [[nodiscard]] Expr<uint3> size(Expr<uint> level) const noexcept;
+    [[nodiscard]] Expr<float4> read(Expr<uint3> coord) const noexcept;
 
     template<typename I>
     requires is_integral_expr_v<I>

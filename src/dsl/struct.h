@@ -94,18 +94,15 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
               LUISA_MAP_LIST(LUISA_STRUCT_MAKE_MEMBER_INIT, __VA_ARGS__) {}                     \
         explicit Ref(detail::ArgumentCreation) noexcept                                         \
             : Ref{detail::FunctionBuilder::current()->reference(Type::of<S>())} {}              \
-        [[nodiscard]] auto                                                                      \
-        expression() const noexcept { return this->_expression; }                               \
+        [[nodiscard]] auto expression() const noexcept { return this->_expression; }            \
         Ref(Ref &&another) noexcept = default;                                                  \
         Ref(const Ref &another) noexcept = default;                                             \
         [[nodiscard]] operator Expr<S>() const noexcept { return Expr<S>{this->expression()}; } \
         template<typename Rhs>                                                                  \
-        void operator=(Rhs &&rhs) const noexcept {                                              \
-            dsl::assign(*this, std::forward<Rhs>(rhs));                                         \
-        }                                                                                       \
-        void operator=(Ref rhs) const noexcept { (*this) = Expr{rhs}; }                         \
+        void operator=(Rhs &&rhs) noexcept { dsl::assign(*this, std::forward<Rhs>(rhs)); }      \
+        void operator=(Ref rhs) noexcept { (*this) = Expr{rhs}; }                               \
         template<typename Rhs>                                                                  \
-        void assign(Rhs &&v) const noexcept { (*this) = std::forward<Rhs>(v); }                 \
+        void assign(Rhs &&v) noexcept { (*this) = std::forward<Rhs>(v); }                       \
         template<size_t i>                                                                      \
         [[nodiscard]] auto get() const noexcept {                                               \
             using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                        \
