@@ -183,9 +183,17 @@ int main(int argc, char *argv[]) {
         return compose(0u, 1u);
     };
 
+    auto get_float4 = [] {
+        return def<float4>(float4(1.0f));
+    };
+
     Kernel1D useless = [&](BufferVar<float4> buffer, Var<SomeSOA> soa) noexcept {
         Var i = dispatch_id().x;
         Var x = buffer[i];
+        buffer[i].x = 5.0f;
+
+        // TODO: this should not be allowed...
+        get_float4().x = 0.0f;
 
         Var v0 = all(x == 0.0f);
         Var v1 = saturate(x);

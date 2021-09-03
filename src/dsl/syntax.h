@@ -10,5 +10,6 @@
 #include <dsl/struct.h>
 #include <dsl/stmt.h>
 #include <dsl/expr.h>
+#include <dsl/ref.h>
 #include <dsl/var.h>
 #include <dsl/builtin.h>

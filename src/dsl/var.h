@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include <dsl/expr.h>
-#include <dsl/expr_traits.h>
+#include <dsl/ref.h>
 #include <dsl/arg.h>
 
 namespace luisa::compute {

@@ -8,7 +8,7 @@
 #include <runtime/device.h>
 #include <runtime/shader.h>
 #include <dsl/arg.h>
-#include <dsl/expr.h>
+#include <dsl/var.h>
 
 namespace luisa::compute {
 
@@ -126,13 +126,8 @@ private:
     explicit Kernel(SharedFunctionBuilder builder) noexcept : _builder{std::move(builder)} {}
 
 public:
-    template<typename Def,
-             std::enable_if_t<
-                 std::conjunction_v<
-                     std::negation<is_callable<std::remove_cvref_t<Def>>>,
-                     std::negation<is_kernel<std::remove_cvref_t<Def>>>>,
-                 int> = 0>
-    requires concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
+    template<typename Def>
+    requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> && std::negation_v<is_kernel<std::remove_cvref_t<Def>>> && concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
     Kernel(Def &&def)
     noexcept {
         _builder = detail::FunctionBuilder::define_kernel([&def] {

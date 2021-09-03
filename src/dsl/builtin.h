@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include <core/basic_types.h>
-#include <dsl/expr.h>
+#include <dsl/var.h>
 
 namespace luisa::compute {
 
