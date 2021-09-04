@@ -132,9 +132,8 @@ public:
     noexcept {
         _builder = detail::FunctionBuilder::define_kernel([&def] {
             detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
-            std::apply(
-                std::forward<Def>(def),
-                std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+            auto args = std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...};
+            std::apply(std::forward<Def>(def), std::move(args));
         });
     }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }

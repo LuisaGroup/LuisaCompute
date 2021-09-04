@@ -37,6 +37,9 @@ target_link_libraries(test_path_tracing PRIVATE luisa::compute)
 add_executable(test_wavefront_pt test_wavefront_pt.cpp)
 target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
 
+add_executable(test_playground test_playground.cpp)
+target_link_libraries(test_playground PRIVATE luisa::compute)
+
 find_package(OpenCV CONFIG)
 if (OpenCV_FOUND)
     add_executable(test_shader_toy test_shader_toy.cpp)
