@@ -16,9 +16,9 @@
 namespace luisa::concepts {
 
 struct Noncopyable {
-    Noncopyable() = default;
-    Noncopyable(const Noncopyable &) = delete;
-    Noncopyable &operator=(const Noncopyable &) = delete;
+    Noncopyable() noexcept = default;
+    Noncopyable(const Noncopyable &) noexcept = delete;
+    Noncopyable &operator=(const Noncopyable &) noexcept = delete;
     Noncopyable(Noncopyable &&) noexcept = default;
     Noncopyable &operator=(Noncopyable &&) noexcept = default;
 };

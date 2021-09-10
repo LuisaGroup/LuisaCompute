@@ -2,20 +2,24 @@
 BasedOnStyle: LLVM
 AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
-AlignConsecutiveAssignments: false
-AlignOperands: true
-AllowAllArgumentsOnNextLine: false
-AllowAllConstructorInitializersOnNextLine: false
-AllowAllParametersOfDeclarationOnNextLine: false
+AlignConsecutiveAssignments: None
+AlignOperands: Align
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+AllowAllArgumentsOnNextLine: true
+AllowAllConstructorInitializersOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
 AllowShortBlocksOnASingleLine: Always
 AllowShortCaseLabelsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: All
-AllowShortIfStatementsOnASingleLine: Always
-AllowShortLambdasOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLambdasOnASingleLine: None
 AllowShortLoopsOnASingleLine: true
+AllowShortEnumsOnASingleLine: true
 AlwaysBreakAfterReturnType: None
-AlwaysBreakTemplateDeclarations: Yes
-BreakBeforeBraces: Custom
+AlwaysBreakTemplateDeclarations: MultiLine
+BreakBeforeBraces: Attach
+Cpp11BracedListStyle: true
+IndentWrappedFunctionNames: false
 BraceWrapping:
   AfterCaseLabel: false
   AfterClass: false
@@ -30,16 +34,28 @@ BraceWrapping:
   IndentBraces: false
   SplitEmptyFunction: false
   SplitEmptyRecord: true
-BreakBeforeBinaryOperators: NonAssignment
-BreakBeforeTernaryOperators: true
+  SplitEmptyNamespace: false
+  AfterObjCDeclaration: false
+  AfterExternBlock: false
+  AfterStruct: false
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: false
 BreakConstructorInitializers: BeforeColon
 BreakInheritanceList: BeforeColon
+BreakBeforeConceptDeclarations: true
+BreakBeforeInheritanceComma: false
+BreakAfterJavaFieldAnnotations: true
+BreakStringLiterals: true
+BreakConstructorInitializersBeforeComma: false
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
 ColumnLimit: 0
-SortIncludes:	false
+SortIncludes: Never
 CompactNamespaces: true
 ContinuationIndentWidth: 4
 IndentCaseLabels: true
 IndentPPDirectives: None
+IndentExternBlock: NoIndent
 IndentWidth: 4
 KeepEmptyLinesAtTheStartOfBlocks: true
 MaxEmptyLinesToKeep: 1
@@ -66,3 +82,7 @@ SpacesInParentheses: false
 SpacesInSquareBrackets: false
 TabWidth: 4
 UseTab: Never
+IndentRequires: true
+SpacesInConditionalStatement: false
+SortUsingDeclarations: true
+AlignEscapedNewlines: Left

@@ -21,7 +21,7 @@ template<typename Dest, typename Src>
 }
 
 [[nodiscard]] inline auto thread_id() noexcept {
-    return Expr<uint3>{detail::FunctionBuilder::current()->thread_id()};
+    return def<uint3>(detail::FunctionBuilder::current()->thread_id());
 }
 
 [[nodiscard]] inline auto thread_x() noexcept {
@@ -37,7 +37,7 @@ template<typename Dest, typename Src>
 }
 
 [[nodiscard]] inline auto block_id() noexcept {
-    return Expr<uint3>{detail::FunctionBuilder::current()->block_id()};
+    return def<uint3>(detail::FunctionBuilder::current()->block_id());
 }
 
 [[nodiscard]] inline auto block_x() noexcept {
@@ -53,7 +53,7 @@ template<typename Dest, typename Src>
 }
 
 [[nodiscard]] inline auto dispatch_id() noexcept {
-    return Expr<uint3>{detail::FunctionBuilder::current()->dispatch_id()};
+    return def<uint3>(detail::FunctionBuilder::current()->dispatch_id());
 }
 
 [[nodiscard]] inline auto dispatch_x() noexcept {
@@ -69,7 +69,7 @@ template<typename Dest, typename Src>
 }
 
 [[nodiscard]] inline auto dispatch_size() noexcept {
-    return Expr<uint3>{detail::FunctionBuilder::current()->dispatch_size()};
+    return def<uint3>(detail::FunctionBuilder::current()->dispatch_size());
 }
 
 [[nodiscard]] inline auto dispatch_size_x() noexcept {

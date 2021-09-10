@@ -35,10 +35,12 @@ public:
 
     template<typename U>
     requires is_integral_expr_v<U>
-    [[nodiscard]] auto operator[](U &&index) const noexcept {
-        return Ref<T>{detail::FunctionBuilder::current()->access(
+    [[nodiscard]] auto &operator[](U &&index) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto expr = f->access(
             Type::of<T>(), _expression,
-            detail::extract_expression(std::forward<U>(index)))};
+            detail::extract_expression(std::forward<U>(index)));
+        return *f->arena().create<Var<T>>(expr);
     }
 };
 
