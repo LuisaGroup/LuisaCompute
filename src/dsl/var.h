@@ -14,6 +14,8 @@ struct Var : public Ref<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
+//    explicit Var(const Expression *expr) noexcept : Ref<T>{expr} {}
+
     // for local variables of basic or array types
     Var() noexcept
         : Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {}
@@ -243,12 +245,4 @@ using VolumeInt = VolumeVar<int>;
 using VolumeUInt = VolumeVar<uint>;
 using VolumeFloat = VolumeVar<float>;
 
-namespace detail {
-
-template<typename T>
-[[nodiscard]] inline Expr<T> make_var_expr(const Expression *expr) noexcept {
-    return Expr{Var{Expr<T>{expr}}};
-}
-
-}// namespace detail
 }// namespace luisa::compute

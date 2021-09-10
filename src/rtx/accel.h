@@ -35,8 +35,8 @@ public:
         std::span<const float4x4> transforms) noexcept;
 
     // shader functions
-    [[nodiscard]] Expr<Hit> trace_closest(Expr<Ray> ray) const noexcept;
-    [[nodiscard]] Expr<bool> trace_any(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
 };
 
 template<>
@@ -52,13 +52,13 @@ public:
         : _expression{detail::FunctionBuilder::current()->accel_binding(accel.handle())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto trace_closest(Expr<Ray> ray) const noexcept {
-        return detail::make_var_expr<Hit>(
+        return def<Hit>(
             detail::FunctionBuilder::current()->call(
                 Type::of<Hit>(), CallOp::TRACE_CLOSEST,
                 {_expression, ray.expression()}));
     }
     [[nodiscard]] auto trace_any(Expr<Ray> ray) const noexcept {
-        return detail::make_var_expr<bool>(
+        return def<bool>(
             detail::FunctionBuilder::current()->call(
                 Type::of<bool>(), CallOp::TRACE_ANY,
                 {_expression, ray.expression()}));

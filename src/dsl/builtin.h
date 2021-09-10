@@ -130,6 +130,7 @@ inline void soa_write_impl(I index, S s, B buffers) noexcept {
 inline namespace dsl {
 
 template<typename T, typename... Args>
+requires std::negation_v<std::disjunction<std::is_pointer<std::remove_cvref_t<Args>>...>>
 [[nodiscard]] inline auto def(Args &&...args) noexcept {
     return Var<expr_value_t<T>>{std::forward<Args>(args)...};
 }
@@ -139,11 +140,16 @@ template<typename T>
     return Var{Expr{std::forward<T>(x)}};
 }
 
+template<typename T>
+[[nodiscard]] inline Var<T> def(const Expression *expr) noexcept {
+    return Var{Expr<T>{expr}};
+}
+
 template<typename S, typename Index, typename... Buffers>
 requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
     Var i = std::forward<Index>(index);
-    return Expr{Var<S>{std::forward<Buffers>(buffers)[i]...}};
+    return Var<S>{std::forward<Buffers>(buffers)[i]...};
 }
 
 template<typename Index, typename... Buffers>
@@ -204,7 +210,7 @@ template<typename Ts>
 requires is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector2(Ts &&s) noexcept {
     using V = Vector<expr_value_t<Ts>, 2>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(s)}));
 }
@@ -213,7 +219,7 @@ template<typename Tx, typename Ty>
 requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_same_expr_v<Tx, Ty>
 [[nodiscard]] inline auto make_vector2(Tx &&x, Ty &&y) noexcept {
     using V = Vector<expr_value_t<Tx>, 2>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
@@ -223,7 +229,7 @@ template<typename T, typename Tv>
 requires is_vector_expr_v<Tv>
 [[nodiscard]] inline auto make_vector2(Tv &&v) noexcept {
     using V = Vector<T, 2>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(v)}));
@@ -233,7 +239,7 @@ template<typename Ts>
 requires is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector3(Ts &&s) noexcept {
     using V = Vector<expr_value_t<Ts>, 3>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(s)}));
@@ -243,7 +249,7 @@ template<typename Tx, typename Ty, typename Tz>
 requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_scalar_expr_v<Tz> && is_same_expr_v<Tx, Ty, Tz>
 [[nodiscard]] inline auto make_vector3(Tx &&x, Ty &&y, Tz &&z) noexcept {
     using V = Vector<expr_value_t<Tx>, 3>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(z)}));
@@ -253,7 +259,7 @@ template<typename T, typename Tv>
 requires is_vector3_expr_v<Tv> || is_vector4_expr_v<Tv>
 [[nodiscard]] inline auto make_vector3(Tv &&v) noexcept {
     using V = Vector<T, 3>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(v)}));
 }
@@ -262,7 +268,7 @@ template<typename Txy, typename Tz>
 requires is_vector2_expr_v<Txy> && is_scalar_expr_v<Tz> && std::same_as<vector_expr_element_t<Txy>, expr_value_t<Tz>>
 [[nodiscard]] inline auto make_vector3(Txy &&xy, Tz &&z) noexcept {
     using V = Vector<expr_value_t<Tz>, 3>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(xy), LUISA_EXPR(z)}));
@@ -272,7 +278,7 @@ template<typename Tx, typename Tyz>
 requires is_scalar_expr_v<Tx> && is_vector2_expr_v<Tyz> && std::same_as<expr_value_t<Tx>, vector_expr_element_t<Tyz>>
 [[nodiscard]] inline auto make_vector3(Tx &&x, Tyz &&yz) noexcept {
     using V = Vector<expr_value_t<Tx>, 3>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(x), LUISA_EXPR(yz)}));
@@ -282,7 +288,7 @@ template<typename Ts>
 requires is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector4(Ts &&s) noexcept {
     using V = Vector<expr_value_t<Ts>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(s)}));
 }
@@ -291,7 +297,7 @@ template<typename Tx, typename Ty, typename Tz, typename Tw>
 requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_scalar_expr_v<Tz> && is_scalar_expr_v<Tw> && is_same_expr_v<Tx, Ty, Tz, Tw>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Ty &&y, Tz &&z, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(z), LUISA_EXPR(w)}));
@@ -301,7 +307,7 @@ template<typename T, typename Tv>
 requires is_vector4_expr_v<Tv>
 [[nodiscard]] inline auto make_vector4(Tv &&v) noexcept {
     using V = Vector<T, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(v)}));
 }
@@ -310,7 +316,7 @@ template<typename Txy, typename Tz, typename Tw>
 requires is_vector2_expr_v<Txy> && is_scalar_expr_v<Tz> && is_scalar_expr_v<Tw> && concepts::same<vector_expr_element_t<Txy>, expr_value_t<Tz>, expr_value_t<Tw>>
 [[nodiscard]] inline auto make_vector4(Txy &&xy, Tz &&z, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tz>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(xy), LUISA_EXPR(z), LUISA_EXPR(w)}));
@@ -320,7 +326,7 @@ template<typename Tx, typename Tyz, typename Tw>
 requires is_scalar_expr_v<Tx> && is_vector2_expr_v<Tyz> && is_scalar_expr_v<Tw> && concepts::same<expr_value_t<Tx>, vector_expr_element_t<Tyz>, expr_value_t<Tw>>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Tyz &&yz, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(x), LUISA_EXPR(yz), LUISA_EXPR(w)}));
@@ -330,7 +336,7 @@ template<typename Tx, typename Ty, typename Tzw>
 requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_vector2_expr_v<Tzw> && concepts::same<expr_value_t<Tx>, expr_value_t<Ty>, vector_expr_element_t<Tzw>>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Ty &&y, Tzw &&zw) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(zw)}));
@@ -340,7 +346,7 @@ template<typename Txy, typename Tzw>
 requires is_vector2_expr_v<Txy> && is_vector2_expr_v<Tzw> && std::same_as<vector_expr_element_t<Txy>, vector_expr_element_t<Tzw>>
 [[nodiscard]] inline auto make_vector4(Txy &&xy, Tzw &&zw) noexcept {
     using V = Vector<vector_expr_element_t<Txy>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(xy), LUISA_EXPR(zw)}));
@@ -350,7 +356,7 @@ template<typename Txyz, typename Tw>
 requires is_vector3_expr_v<Txyz> && is_scalar_expr_v<Tw> && std::same_as<vector_expr_element_t<Txyz>, expr_value_t<Tw>>
 [[nodiscard]] inline auto make_vector4(Txyz &&xyz, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tw>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(xyz), LUISA_EXPR(w)}));
@@ -360,7 +366,7 @@ template<typename Tx, typename Tyzw>
 requires is_scalar_expr_v<Tx> && is_vector3_expr_v<Tyzw> && std::same_as<expr_value_t<Tx>, vector_expr_element_t<Tyzw>>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Tyzw &&yzw) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         FunctionBuilder::current()->call(
             Type::of<V>(), make_vector_tag<V>(),
             {LUISA_EXPR(x), LUISA_EXPR(yzw)}));
@@ -438,7 +444,7 @@ requires vector_expr_compatible<T...>
 [[nodiscard]] inline auto make_vector_call(CallOp op, T &&...x) noexcept {
     constexpr auto N = vectorized_dimension_v<T...>;
     using V = vectorized_t<Scalar, N>;
-    return detail::make_var_expr<V>(
+    return def<V>(
         detail::FunctionBuilder::current()->call(
             Type::of<V>(), op,
             {vectorize<N>(std::forward<T>(x)).expression()...}));
@@ -533,7 +539,7 @@ LUISA_MAKE_VECTOR(float)
 
 // make float2x2
 [[nodiscard]] inline auto make_float2x2(Expr<float> s) noexcept {
-    return detail::make_var_expr<float2x2>(
+    return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {s.expression()}));
 }
@@ -541,7 +547,7 @@ LUISA_MAKE_VECTOR(float)
 [[nodiscard]] inline auto make_float2x2(
     Expr<float> m00, Expr<float> m01,
     Expr<float> m10, Expr<float> m11) noexcept {
-    return detail::make_var_expr<float2x2>(
+    return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
             {m00.expression(), m01.expression(),
@@ -549,39 +555,39 @@ LUISA_MAKE_VECTOR(float)
 }
 
 [[nodiscard]] inline auto make_float2x2(Expr<float2> c0, Expr<float2> c1) noexcept {
-    return detail::make_var_expr<float2x2>(
+    return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
             {c0.expression(), c1.expression()}));
 }
 
 [[nodiscard]] inline auto make_float2x2(Expr<float2x2> m) noexcept {
-    return detail::make_var_expr<float2x2>(
+    return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()}));
 }
 
 [[nodiscard]] inline auto make_float2x2(Expr<float3x3> m) noexcept {
-    return detail::make_var_expr<float2x2>(
+    return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()}));
 }
 
 [[nodiscard]] inline auto make_float2x2(Expr<float4x4> m) noexcept {
-    return detail::make_var_expr<float2x2>(
+    return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()}));
 }
 
 // make float3x3
 [[nodiscard]] inline auto make_float3x3(Expr<float> s) noexcept {
-    return detail::make_var_expr<float3x3>(
+    return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3, {s.expression()}));
 }
 
 [[nodiscard]] inline auto make_float3x3(Expr<float3> c0, Expr<float3> c1, Expr<float3> c2) noexcept {
-    return detail::make_var_expr<float3x3>(
+    return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
             {c0.expression(), c1.expression(), c2.expression()}));
@@ -591,7 +597,7 @@ LUISA_MAKE_VECTOR(float)
     Expr<float> m00, Expr<float> m01, Expr<float> m02,
     Expr<float> m10, Expr<float> m11, Expr<float> m12,
     Expr<float> m20, Expr<float> m21, Expr<float> m22) noexcept {
-    return detail::make_var_expr<float3x3>(
+    return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
             {m00.expression(), m01.expression(), m02.expression(),
@@ -600,21 +606,21 @@ LUISA_MAKE_VECTOR(float)
 }
 
 [[nodiscard]] inline auto make_float3x3(Expr<float2x2> m) noexcept {
-    return detail::make_var_expr<float3x3>(
+    return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
             {m.expression()}));
 }
 
 [[nodiscard]] inline auto make_float3x3(Expr<float3x3> m) noexcept {
-    return detail::make_var_expr<float3x3>(
+    return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
             {m.expression()}));
 }
 
 [[nodiscard]] inline auto make_float3x3(Expr<float4x4> m) noexcept {
-    return detail::make_var_expr<float3x3>(
+    return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
             {m.expression()}));
@@ -622,7 +628,7 @@ LUISA_MAKE_VECTOR(float)
 
 // make float4x4
 [[nodiscard]] inline auto make_float4x4(Expr<float> s) noexcept {
-    return detail::make_var_expr<float4x4>(
+    return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
             {s.expression()}));
@@ -633,7 +639,7 @@ LUISA_MAKE_VECTOR(float)
     Expr<float4> c1,
     Expr<float4> c2,
     Expr<float4> c3) noexcept {
-    return detail::make_var_expr<float4x4>(
+    return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
             {c0.expression(), c1.expression(), c2.expression(), c3.expression()}));
@@ -644,7 +650,7 @@ LUISA_MAKE_VECTOR(float)
     Expr<float> m10, Expr<float> m11, Expr<float> m12, Expr<float> m13,
     Expr<float> m20, Expr<float> m21, Expr<float> m22, Expr<float> m23,
     Expr<float> m30, Expr<float> m31, Expr<float> m32, Expr<float> m33) noexcept {
-    return detail::make_var_expr<float4x4>(
+    return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
             {m00.expression(), m01.expression(), m02.expression(), m03.expression(),
@@ -654,21 +660,21 @@ LUISA_MAKE_VECTOR(float)
 }
 
 [[nodiscard]] inline auto make_float4x4(Expr<float2x2> m) noexcept {
-    return detail::make_var_expr<float4x4>(
+    return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
             {m.expression()}));
 }
 
 [[nodiscard]] inline auto make_float4x4(Expr<float3x3> m) noexcept {
-    return detail::make_var_expr<float4x4>(
+    return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
             {m.expression()}));
 }
 
 [[nodiscard]] inline auto make_float4x4(Expr<float4x4> m) noexcept {
-    return detail::make_var_expr<float4x4>(
+    return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
             {m.expression()}));
@@ -677,7 +683,7 @@ LUISA_MAKE_VECTOR(float)
 template<typename Tx>
 requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 [[nodiscard]] inline auto all(Tx &&x) noexcept {
-    return detail::make_var_expr<bool>(
+    return def<bool>(
         detail::FunctionBuilder::current()->call(
             Type::of<bool>(), CallOp::ALL,
             {LUISA_EXPR(x)}));
@@ -686,7 +692,7 @@ requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 template<typename Tx>
 requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 [[nodiscard]] inline auto any(Tx &&x) noexcept {
-    return detail::make_var_expr<bool>(
+    return def<bool>(
         detail::FunctionBuilder::current()->call(
             Type::of<bool>(), CallOp::ANY,
             {LUISA_EXPR(x)}));
@@ -695,7 +701,7 @@ requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 template<typename Tx>
 requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 [[nodiscard]] inline auto none(Tx &&x) noexcept {
-    return detail::make_var_expr<bool>(
+    return def<bool>(
         detail::FunctionBuilder::current()->call(
             Type::of<bool>(), CallOp::NONE,
             {LUISA_EXPR(x)}));
@@ -715,7 +721,7 @@ template<typename Tf, typename Tt>
 requires is_same_expr_v<Tf, Tt>
 [[nodiscard]] inline auto select(Tf &&f, Tt &&t, Expr<bool> p) noexcept {
     using T = expr_value_t<Tf>;
-    return detail::make_var_expr<T>(
+    return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::SELECT,
             {LUISA_EXPR(f), LUISA_EXPR(t), p.expression()}));
@@ -1101,7 +1107,7 @@ requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_e
 }
 
 [[nodiscard]] inline auto cross(Expr<float3> x, Expr<float3> y) noexcept {
-    return detail::make_var_expr<float3>(
+    return def<float3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3>(), CallOp::CROSS,
             {x.expression(), y.expression()}));
@@ -1110,7 +1116,7 @@ requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_e
 template<typename X, typename Y>
 requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
 [[nodiscard]] inline auto dot(X &&x, Y &&y) noexcept {
-    return detail::make_var_expr<float>(
+    return def<float>(
         detail::FunctionBuilder::current()->call(
             Type::of<float>(), CallOp::DOT,
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
@@ -1119,7 +1125,7 @@ requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<
 template<typename X, typename Y>
 requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
 [[nodiscard]] inline auto distance(X &&x, Y &&y) noexcept {
-    return detail::make_var_expr<float>(
+    return def<float>(
         detail::FunctionBuilder::current()->call(
             Type::of<float>(), CallOp::DISTANCE,
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
@@ -1128,7 +1134,7 @@ requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<
 template<typename X, typename Y>
 requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
 [[nodiscard]] inline auto distance_squared(X &&x, Y &&y) noexcept {
-    return detail::make_var_expr<float>(
+    return def<float>(
         detail::FunctionBuilder::current()->call(
             Type::of<float>(), CallOp::DISTANCE_SQUARED,
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
@@ -1137,7 +1143,7 @@ requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<
 template<typename Tx>
 requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
 [[nodiscard]] inline auto length(Tx &&x) noexcept {
-    return detail::make_var_expr<float>(
+    return def<float>(
         detail::FunctionBuilder::current()->call(
             Type::of<float>(), CallOp::LENGTH,
             {LUISA_EXPR(x)}));
@@ -1146,7 +1152,7 @@ requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
 template<typename Tx>
 requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
 [[nodiscard]] inline auto length_squared(Tx &&x) noexcept {
-    return detail::make_var_expr<float>(
+    return def<float>(
         detail::FunctionBuilder::current()->call(
             Type::of<float>(), CallOp::LENGTH_SQUARED,
             {LUISA_EXPR(x)}));
@@ -1159,7 +1165,7 @@ requires is_dsl_v<T> && is_float_vector_expr_v<T>
 }
 
 [[nodiscard]] inline auto faceforward(Expr<float3> n, Expr<float3> i, Expr<float3> n_ref) noexcept {
-    return detail::make_var_expr<float3>(
+    return def<float3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3>(), CallOp::FACEFORWARD,
             {n.expression(), i.expression(), n_ref.expression()}));
@@ -1168,7 +1174,7 @@ requires is_dsl_v<T> && is_float_vector_expr_v<T>
 template<typename Tm>
 requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
 [[nodiscard]] inline auto determinant(Tm &&m) noexcept {
-    return detail::make_var_expr<float>(
+    return def<float>(
         detail::FunctionBuilder::current()->call(
             Type::of<float>(), CallOp::DETERMINANT,
             {LUISA_EXPR(m)}));
@@ -1178,7 +1184,7 @@ template<typename Tm>
 requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
 [[nodiscard]] inline auto transpose(Tm &&m) noexcept {
     using T = expr_value_t<Tm>;
-    return detail::make_var_expr<T>(
+    return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::TRANSPOSE,
             {LUISA_EXPR(m)}));
@@ -1188,7 +1194,7 @@ template<typename Tm>
 requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
 [[nodiscard]] inline auto inverse(Tm &&m) noexcept {
     using T = expr_value_t<Tm>;
-    return detail::make_var_expr<T>(
+    return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::INVERSE,
             {LUISA_EXPR(m)}));

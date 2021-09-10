@@ -32,11 +32,11 @@ Command *Accel::refit() noexcept {
     return AccelUpdateCommand::create(handle());
 }
 
-Expr<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
+Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
     return Expr<Accel>{*this}.trace_closest(ray);
 }
 
-Expr<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
+Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
     return Expr<Accel>{*this}.trace_any(ray);
 }
 

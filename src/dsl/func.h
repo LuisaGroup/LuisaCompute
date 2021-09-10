@@ -276,7 +276,7 @@ public:
             detail::FunctionBuilder::current()->call(
                 _builder->function(), invoke.args());
         } else {
-            return detail::make_var_expr<Ret>(
+            return def<Ret>(
                 detail::FunctionBuilder::current()->call(
                     Type::of<Ret>(), _builder->function(), invoke.args()));
         }

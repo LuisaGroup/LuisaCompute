@@ -39,7 +39,7 @@ public:
     template<typename U>
     requires is_integral_expr_v<U>
     [[nodiscard]] auto operator[](U &&index) const noexcept {
-        return detail::make_var_expr<T>(detail::FunctionBuilder::current()->access(
+        return def<T>(detail::FunctionBuilder::current()->access(
             Type::of<T>(),
             detail::FunctionBuilder::current()->constant(_type, _data),
             detail::extract_expression(std::forward<U>(index))));

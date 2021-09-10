@@ -17,13 +17,15 @@
 
 namespace luisa::compute {
 
+inline namespace dsl {
+template<typename T>
+[[nodiscard]] inline Var<T> def(const Expression *expr) noexcept;
+}
+
 namespace detail {
 
 template<typename T>
 [[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept;
-
-template<typename T>
-[[nodiscard]] inline Expr<T> make_var_expr(const Expression *expr) noexcept;// defined in dsl/var.h
 
 }// namespace detail
 
@@ -82,8 +84,7 @@ struct ExprEnableGetMemberByIndex;
 
 template<typename... T, size_t... i>
 [[nodiscard]] inline auto compose_impl(std::tuple<T...> t, std::index_sequence<i...>) noexcept {
-    Var<std::tuple<expr_value_t<T>...>> v{Expr{std::get<i>(t)}...};
-    return Expr{v};
+    return Var<std::tuple<expr_value_t<T>...>>{Expr{std::get<i>(t)}...};
 }
 
 template<typename T, size_t... i>
@@ -102,7 +103,7 @@ template<typename... T>
 
 template<typename T>
 [[nodiscard]] inline auto compose(T &&v) noexcept {
-    return Expr{std::forward<T>(v)};
+    return std::forward<T>(v);
 }
 
 template<typename... T>
@@ -212,7 +213,7 @@ struct ExprEnableStaticCast {
     requires concepts::static_convertible<expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto cast() const noexcept {
         using TrueDest = expr_value_t<Dest>;
-        return make_var_expr<TrueDest>(
+        return def<TrueDest>(
             FunctionBuilder::current()->cast(
                 Type::of<TrueDest>(),
                 CastOp::STATIC,
@@ -226,7 +227,7 @@ struct ExprEnableBitwiseCast {
     requires concepts::bitwise_convertible<expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto as() const noexcept {
         using TrueDest = expr_value_t<Dest>;
-        return make_var_expr<TrueDest>(
+        return def<TrueDest>(
             FunctionBuilder::current()->cast(
                 Type::of<TrueDest>(),
                 CastOp::BITWISE,
@@ -344,14 +345,14 @@ public:
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_LOAD,
             {this->_expression});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
 
     auto exchange(Expr<T> desired) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_EXCHANGE,
             {this->_expression, desired.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     }
 
     // stores old == compare ? val : old, returns old
@@ -359,59 +360,57 @@ public:
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_COMPARE_EXCHANGE,
             {this->_expression, expected.expression(), desired.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     }
 
     auto fetch_add(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_ADD,
             {this->_expression, val.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
 
     auto fetch_sub(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_SUB,
             {this->_expression, val.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
 
     auto fetch_and(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_AND,
             {this->_expression, val.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
 
     auto fetch_or(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_OR,
             {this->_expression, val.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
 
     auto fetch_xor(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_XOR,
             {this->_expression, val.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
 
     auto fetch_min(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_MIN,
             {this->_expression, val.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
 
     auto fetch_max(Expr<T> val) const noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_MAX,
             {this->_expression, val.expression()});
-        return detail::make_var_expr<T>(expr);
+        return def<T>(expr);
     };
-
-#undef LUISA_ATOMIC_NODISCARD
 };
 
 namespace detail {
@@ -470,7 +469,7 @@ public:
 
     [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
         auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<Vector<T, 4>>(
+        return def<Vector<T, 4>>(
             f->call(
                 Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
                 {_expression, _offset_uv(uv.expression())}));
@@ -515,7 +514,7 @@ public:
     [[nodiscard]] auto offset() const noexcept { return _offset; }
 
     [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept {
-        return detail::make_var_expr<Vector<T, 4>>(
+        return def<Vector<T, 4>>(
             detail::FunctionBuilder::current()->call(
                 Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
                 {_expression, _offset_uvw(uvw.expression())}));
@@ -549,7 +548,7 @@ public:
     requires is_integral_expr_v<I>
     [[nodiscard]] auto read(I &&i) const noexcept {
         auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<T>(
+        return def<T>(
             f->call(
                 Type::of<T>(), CallOp::BUFFER_HEAP_READ,
                 {_heap, _index, detail::extract_expression(std::forward<I>(i))}));
@@ -566,19 +565,19 @@ public:
     HeapTexture2D(const RefExpr *heap, const Expression *index) noexcept
         : _heap{heap},
           _index{index} {}
-    [[nodiscard]] Expr<float4> sample(Expr<float2> uv) const noexcept;
-    [[nodiscard]] Expr<float4> sample(Expr<float2> uv, Expr<float> mip) const noexcept;
-    [[nodiscard]] Expr<float4> sample(Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept;
-    [[nodiscard]] Expr<uint2> size() const noexcept;
-    [[nodiscard]] Expr<uint2> size(Expr<int> level) const noexcept;
-    [[nodiscard]] Expr<uint2> size(Expr<uint> level) const noexcept;
-    [[nodiscard]] Expr<float4> read(Expr<uint2> coord) const noexcept;
+    [[nodiscard]] Var<float4> sample(Expr<float2> uv) const noexcept;
+    [[nodiscard]] Var<float4> sample(Expr<float2> uv, Expr<float> mip) const noexcept;
+    [[nodiscard]] Var<float4> sample(Expr<float2> uv, Expr<float2> dpdx, Expr<float2> dpdy) const noexcept;
+    [[nodiscard]] Var<uint2> size() const noexcept;
+    [[nodiscard]] Var<uint2> size(Expr<int> level) const noexcept;
+    [[nodiscard]] Var<uint2> size(Expr<uint> level) const noexcept;
+    [[nodiscard]] Var<float4> read(Expr<uint2> coord) const noexcept;
 
     template<typename I>
     requires is_integral_expr_v<I>
     [[nodiscard]] auto read(Expr<uint2> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
+        return def<float4>(f->call(
             Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D_LEVEL,
             {_heap, _index, coord.expression(),
              detail::extract_expression(std::forward<I>(level))}));
@@ -595,19 +594,19 @@ public:
     HeapTexture3D(const RefExpr *heap, const Expression *index) noexcept
         : _heap{heap},
           _index{index} {}
-    [[nodiscard]] Expr<float4> sample(Expr<float3> uvw) const noexcept;
-    [[nodiscard]] Expr<float4> sample(Expr<float3> uvw, Expr<float> mip) const noexcept;
-    [[nodiscard]] Expr<float4> sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept;
-    [[nodiscard]] Expr<uint3> size() const noexcept;
-    [[nodiscard]] Expr<uint3> size(Expr<int> level) const noexcept;
-    [[nodiscard]] Expr<uint3> size(Expr<uint> level) const noexcept;
-    [[nodiscard]] Expr<float4> read(Expr<uint3> coord) const noexcept;
+    [[nodiscard]] Var<float4> sample(Expr<float3> uvw) const noexcept;
+    [[nodiscard]] Var<float4> sample(Expr<float3> uvw, Expr<float> mip) const noexcept;
+    [[nodiscard]] Var<float4> sample(Expr<float3> uvw, Expr<float3> dpdx, Expr<float3> dpdy) const noexcept;
+    [[nodiscard]] Var<uint3> size() const noexcept;
+    [[nodiscard]] Var<uint3> size(Expr<int> level) const noexcept;
+    [[nodiscard]] Var<uint3> size(Expr<uint> level) const noexcept;
+    [[nodiscard]] Var<float4> read(Expr<uint3> coord) const noexcept;
 
     template<typename I>
     requires is_integral_expr_v<I>
     [[nodiscard]] auto read(Expr<uint3> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
-        return detail::make_var_expr<float4>(f->call(
+        return def<float4>(f->call(
             Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D_LEVEL,
             {_heap, _index, coord.expression(),
              detail::extract_expression(std::forward<I>(level))}));
@@ -713,7 +712,7 @@ HeapBuffer<T> Heap::buffer(I &&index) const noexcept {
     [[nodiscard]] inline auto operator op(T &&expr) noexcept {                       \
         using R = std::remove_cvref_t<                                               \
             decltype(op std::declval<luisa::compute::expr_value_t<T>>())>;           \
-        return luisa::compute::detail::make_var_expr<R>(                             \
+        return luisa::compute::dsl::def<R>(                                          \
             luisa::compute::detail::FunctionBuilder::current()->unary(               \
                 luisa::compute::Type::of<R>(),                                       \
                 luisa::compute::UnaryOp::op_tag,                                     \
@@ -734,7 +733,7 @@ LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(~, operator_bit_not, BIT_NOT)
         using R = std::remove_cvref_t<                                                \
             decltype(std::declval<luisa::compute::expr_value_t<Lhs>>()                \
                          op std::declval<luisa::compute::expr_value_t<Rhs>>())>;      \
-        return luisa::compute::detail::make_var_expr<R>(                              \
+        return luisa::compute::dsl::def<R>(                                           \
             luisa::compute::detail::FunctionBuilder::current()->binary(               \
                 luisa::compute::Type::of<R>(),                                        \
                 luisa::compute::BinaryOp::op_tag_name,                                \

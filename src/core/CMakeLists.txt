@@ -10,7 +10,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         basic_types.cpp basic_types.h
         intrin.h
         clock.h
-        uuid.h)
+        uuid.h basic_traits.h)
 
 find_package(Threads REQUIRED)
 
