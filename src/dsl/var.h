@@ -14,14 +14,14 @@ struct Var : public Ref<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
-//    explicit Var(const Expression *expr) noexcept : Ref<T>{expr} {}
+    explicit Var(const Expression *expr) noexcept : Ref<T>{expr} {}
 
     // for local variables of basic or array types
     Var() noexcept
         : Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {}
 
     template<typename Arg>
-    requires concepts::different<std::remove_cvref_t<Arg>, Var<T>>
+    requires concepts::different<std::remove_cvref_t<Arg>, Var<T>> && std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>>
     Var(Arg &&arg)
     noexcept : Var{} {
         dsl::assign(*this, std::forward<Arg>(arg));
