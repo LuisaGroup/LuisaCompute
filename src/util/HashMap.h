@@ -1,12 +1,12 @@
 #pragma once
-#include <util/vstl_config.h>
-#include <type_traits>
-#include <stdint.h>
 #include <memory>
-#include <util/Pool.h>
+#include <stdint.h>
+#include <type_traits>
 #include <util/Hash.h>
 #include <util/MetaLib.h>
+#include <util/Pool.h>
 #include <util/VAllocator.h>
+#include <util/vstl_config.h>
 namespace vstd {
 struct HashEqual {
     template<typename A, typename B>
@@ -65,10 +65,10 @@ public:
 public:
     struct Iterator {
     private:
-        LinkNode **ii;
+        std::vector<LinkNode *>::const_iterator ii;
 
     public:
-        Iterator(LinkNode **ii) : ii(ii) {}
+        Iterator(std::vector<LinkNode *>::const_iterator ii) : ii(ii) {}
         bool operator==(const Iterator &ite) const noexcept {
             return ii == ite.ii;
         }
@@ -107,6 +107,7 @@ public:
             return *operator->();
         }
     };
+
     struct Index {
         friend class HashMap;
 
@@ -172,7 +173,8 @@ private:
             operator=(arr);
         }
         ~HashArray() noexcept {
-            if (nodesPtr) allocHandle.Free(nodesPtr);
+            if (nodesPtr)
+                allocHandle.Free(nodesPtr);
         }
         LinkNode *const &operator[](size_t i) const noexcept {
             return nodesPtr[i];
@@ -212,7 +214,8 @@ private:
     }
     void Resize(size_t newCapacity) noexcept {
         size_t capacity = nodeVec.size();
-        if (capacity >= newCapacity) return;
+        if (capacity >= newCapacity)
+            return;
         allocatedNodes.reserve(newCapacity);
         HashArray newNode(newCapacity);
         for (auto node : allocatedNodes) {
@@ -252,14 +255,15 @@ public:
         return allocatedNodes.size();
     }
     decltype(auto) begin() const {
-        return Iterator(&*allocatedNodes.begin());
+        return Iterator(allocatedNodes.begin());
     }
     decltype(auto) end() const {
-        return Iterator(&*allocatedNodes.end());
+        return Iterator(allocatedNodes.end());
     }
     //////////////////Construct & Destruct
     HashMap(size_t capacity) noexcept : pool(capacity) {
-        if (capacity < 2) capacity = 2;
+        if (capacity < 2)
+            capacity = 2;
         capacity = GetPow2Size(capacity);
         nodeVec = HashArray(capacity);
         allocatedNodes.reserve(capacity);
@@ -294,7 +298,8 @@ public:
         }
 
         size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16) targetCapacity = 16;
+        if (targetCapacity < 16)
+            targetCapacity = 16;
         if (targetCapacity >= nodeVec.size()) {
             Resize(GetPow2Size(targetCapacity));
             hashValue = GetHash(hashOriginValue, nodeVec.size());
@@ -317,7 +322,8 @@ public:
         }
 
         size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16) targetCapacity = 16;
+        if (targetCapacity < 16)
+            targetCapacity = 16;
         if (targetCapacity >= nodeVec.size()) {
             Resize(GetPow2Size(targetCapacity));
             hashValue = GetHash(hashOriginValue, nodeVec.size());
@@ -340,7 +346,8 @@ public:
         }
 
         size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16) targetCapacity = 16;
+        if (targetCapacity < 16)
+            targetCapacity = 16;
         if (targetCapacity >= nodeVec.size()) {
             Resize(GetPow2Size(targetCapacity));
             hashValue = GetHash(hashOriginValue, nodeVec.size());
@@ -443,7 +450,8 @@ public:
         return *(V const *)nullptr;
     }
     void Clear() noexcept {
-        if (allocatedNodes.empty()) return;
+        if (allocatedNodes.empty())
+            return;
         nodeVec.ClearAll();
         for (auto &ite : allocatedNodes) {
             pool.Delete(ite);
@@ -468,7 +476,8 @@ public:
         }
 
         size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16) targetCapacity = 16;
+        if (targetCapacity < 16)
+            targetCapacity = 16;
         if (targetCapacity >= nodeVec.size()) {
             Resize(GetPow2Size(targetCapacity));
             hashValue = GetHash(hashOriginValue, nodeVec.size());
@@ -525,7 +534,8 @@ public:
         }
 
         size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16) targetCapacity = 16;
+        if (targetCapacity < 16)
+            targetCapacity = 16;
         if (targetCapacity >= nodeVec.size()) {
             Resize(GetPow2Size(targetCapacity));
             hashValue = GetHash(hashOriginValue, nodeVec.size());
@@ -547,7 +557,8 @@ public:
         }
 
         size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16) targetCapacity = 16;
+        if (targetCapacity < 16)
+            targetCapacity = 16;
         if (targetCapacity >= nodeVec.size()) {
             Resize(GetPow2Size(targetCapacity));
             hashValue = GetHash(hashOriginValue, nodeVec.size());

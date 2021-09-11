@@ -36,3 +36,4 @@
 
 VENGINE_DLL_COMMON void* operator new(size_t n) noexcept;
 VENGINE_DLL_COMMON void operator delete(void* p) noexcept;
+#define VENGINE_EXTERN extern "C" _declspec(dllexport)

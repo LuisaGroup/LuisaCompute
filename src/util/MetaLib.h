@@ -382,6 +382,9 @@ public:
         return *stackObj;
     }
 };
+template<typename T>
+using optional = StackObject<T, true>;
+
 using lockGuard = std::lock_guard<std::mutex>;
 
 struct Type {
@@ -568,7 +571,6 @@ public:
     virtual T GetValue() = 0;
     virtual bool End() = 0;
     virtual void GetNext() = 0;
-    virtual ~IEnumerable() {}
 };
 struct IteEndTag {};
 template<typename T>
@@ -651,4 +653,394 @@ disposer<T> create_disposer(T &&t) {
     return disposer<T>(std::forward<T>(t));
 }
 
+template<typename T>
+decltype(auto) get_lvalue(T &&data) {
+    return static_cast<std::remove_reference_t<T> &>(data);
+}
+template<typename T>
+decltype(auto) get_const_lvalue(T &&data) {
+    return static_cast<std::remove_reference_t<T> const &>(data);
+}
+template<class Func>
+class LazyEval {
+private:
+    Func func;
+
+public:
+    LazyEval(Func &&func)
+        : func(std::move(func)) {}
+    LazyEval(Func const &func)
+        : func(func) {
+    }
+    operator std::invoke_result_t<Func>() const {
+        return func();
+    }
+};
+
+template<class Func>
+LazyEval<std::remove_cvref_t<Func>> MakeLazyEval(Func &&func) {
+    return std::forward<Func>(func);
+}
+
+template<typename... AA>
+class variant {
+public:
+    static constexpr size_t argSize = sizeof...(AA);
+
+private:
+    template<size_t maxSize, size_t... szs>
+    struct MaxSize;
+    template<size_t maxSize, size_t v, size_t... szs>
+    struct MaxSize<maxSize, v, szs...> {
+        static constexpr size_t MAX_SIZE = MaxSize<(maxSize > v ? maxSize : v), szs...>::MAX_SIZE;
+    };
+    template<size_t maxSize>
+    struct MaxSize<maxSize> {
+        static constexpr size_t MAX_SIZE = maxSize;
+    };
+
+    template<size_t idx, size_t c, typename... Args>
+    struct Iterator {
+        template<typename Ret, typename... Funcs>
+        static void Set(funcPtr_t<Ret(void *, void *)> *funcPtr, void **funcP, Funcs &&...fs) {}
+
+        template<typename Ret, typename... Funcs>
+        static void Set_Const(funcPtr_t<Ret(void *, void const *)> *funcPtr, void **funcP, Funcs &&...fs) {}
+        using Type = void;
+    };
+
+    template<size_t idx, size_t c, typename T, typename... Args>
+    struct Iterator<idx, c, T, Args...> {
+        template<typename Ret, typename F, typename... Funcs>
+        static void Set(funcPtr_t<Ret(void *, void *)> *funcPtr, void **funcP, F &&f, Funcs &&...fs) {
+            if constexpr (idx == c)
+                return;
+            *funcPtr = [](void *ptr, void *arg) -> Ret {
+                return (*reinterpret_cast<std::remove_reference_t<F> *>(ptr))(*reinterpret_cast<std::remove_reference_t<T> *>(arg));
+            };
+            *funcP = &f;
+            Iterator<idx + 1, c, Args...>::template Set<Ret, Funcs...>(funcPtr + 1, funcP + 1, std::forward<Funcs>(fs)...);
+        }
+        template<typename Ret, typename F, typename... Funcs>
+        static void Set_Const(funcPtr_t<Ret(void *, void const *)> *funcPtr, void **funcP, F &&f, Funcs &&...fs) {
+            if constexpr (idx == c)
+                return;
+            *funcPtr = [](void *ptr, void const *arg) -> Ret {
+                return (*reinterpret_cast<std::remove_reference_t<F> *>(ptr))(*reinterpret_cast<std::remove_reference_t<T> const *>(arg));
+            };
+            *funcP = &f;
+            Iterator<idx + 1, c, Args...>::template Set_Const<Ret, Funcs...>(funcPtr + 1, funcP + 1, std::forward<Funcs>(fs)...);
+        }
+        template<bool isTrue>
+        struct Typer {
+            using Type = T;
+        };
+        template<>
+        struct Typer<false> {
+            using Type = typename Iterator<idx + 1, c, Args...>::Type;
+        };
+        using Type = typename Typer<(idx == c)>::Type;
+    };
+
+    template<typename... Args>
+    struct Constructor {
+        template<typename A>
+        static size_t CopyOrMoveConst(void *, size_t idx, A &&) {
+            return idx;
+        }
+        template<typename... A>
+        static size_t AnyConst(void *, size_t idx, A &&...) {
+            static_assert(std::_Always_false<int>, "Illegal Constructor!");
+            return idx;
+        }
+        static void Dispose(size_t, void *) {}
+        static void Copy(size_t, void *, void const *) {}
+        static void Move(size_t, void *, void *) {}
+    };
+    template<typename B, typename... Args>
+    struct Constructor<B, Args...> {
+        template<typename A>
+        static size_t CopyOrMoveConst(void *ptr, size_t idx, A &&a) {
+            if constexpr (std::is_same_v<std::remove_cvref_t<B>, std::remove_cvref_t<A>>) {
+                new (ptr) B(std::forward<A>(a));
+                return idx;
+            } else {
+                return Constructor<Args...>::template CopyOrMoveConst<A>(ptr, idx + 1, std::forward<A>(a));
+            }
+        }
+        template<typename... A>
+        static size_t AnyConst(void *ptr, size_t idx, A &&...a) {
+            if constexpr (std::is_constructible_v<B, A &&...>) {
+                new (ptr) B(std::forward<A>(a)...);
+                return idx;
+            } else {
+                return Constructor<Args...>::template AnyConst<A...>(ptr, idx + 1, std::forward<A>(a)...);
+            }
+        }
+        static void Dispose(size_t v, void *ptr) {
+            if (v == 0) {
+                reinterpret_cast<B *>(ptr)->~B();
+            } else {
+                Constructor<Args...>::Dispose(v - 1, ptr);
+            }
+        }
+        static void Copy(size_t v, void *ptr, void const *dstPtr) {
+            if constexpr (!std::is_copy_constructible_v<B>) {
+                VEngine_Log(typeid(B));
+                VENGINE_EXIT;
+            } else {
+
+                if (v == 0) {
+                    new (ptr) B(*reinterpret_cast<B const *>(dstPtr));
+                } else {
+                    Constructor<Args...>::Copy(v - 1, ptr, dstPtr);
+                }
+            }
+        }
+        static void Move(size_t v, void *ptr, void *dstPtr) {
+            if constexpr (!std::is_move_constructible_v<B>) {
+                VEngine_Log(typeid(B));
+                VENGINE_EXIT;
+            } else {
+
+                if (v == 0) {
+                    new (ptr) B(std::move(*reinterpret_cast<B *>(dstPtr)));
+                } else {
+                    Constructor<Args...>::Move(v - 1, ptr, dstPtr);
+                }
+            }
+        }
+        template<size_t v>
+        static decltype(auto) Get(void *ptr) {
+            if constexpr (v == 0) {
+                return vstd::get_lvalue(*reinterpret_cast<B *>(ptr));
+            } else {
+                return Constructor<Args...>::template Get<v - 1>(ptr);
+            }
+        }
+        template<size_t v>
+        static decltype(auto) Get(void const *ptr) {
+            if constexpr (v == 0) {
+                return vstd::get_lvalue(*reinterpret_cast<B const *>(ptr));
+            } else {
+                return vstd::get_lvalue(Constructor<Args...>::template Get<v - 1>(ptr));
+            }
+        }
+    };
+
+    template<typename Func, typename... Funcs>
+    struct VisitFuncType {
+        template<typename Arg, bool value>
+        struct Typer {
+            using Type = Arg &&;
+        };
+
+        template<typename Arg>
+        struct Typer<Arg, false> {
+            using Type = Arg &;
+        };
+
+        template<typename Arg, typename... Args>
+        using Type = std::invoke_result_t<Func, typename Typer<Arg, std::is_invocable_v<Arg &&>>::Type>;
+    };
+    std::aligned_storage_t<(MaxSize<0, sizeof(AA)...>::MAX_SIZE), (MaxSize<0, alignof(AA)...>::MAX_SIZE)> placeHolder;
+    size_t switcher = 0;
+
+    template<size_t i, typename Dest, typename... Args>
+    struct IndexOfStruct {
+        static constexpr size_t Index = i;
+    };
+
+    template<size_t i, typename Dest, typename T, typename... Args>
+    struct IndexOfStruct<i, Dest, T, Args...> {
+        static constexpr size_t Index = std::is_same_v<Dest, T> ? i : IndexOfStruct<i + 1, Dest, Args...>::Index;
+    };
+
+public:
+    template<size_t i>
+    using TypeOf = typename Iterator<0, i, AA...>::Type;
+    template<typename TarT>
+    static constexpr size_t IndexOf = IndexOfStruct<0, std::remove_cvref_t<TarT>, AA...>::Index;
+    variant() {
+        switcher = argSize;
+    }
+    template<typename T, typename... Arg>
+    variant(T &&t, Arg &&...arg) {
+        if constexpr (sizeof...(Arg) == 0) {
+            switcher = Constructor<AA...>::template CopyOrMoveConst<T>(&placeHolder, 0, std::forward<T>(t));
+            if (switcher < sizeof...(AA))
+                return;
+        }
+        switcher = Constructor<AA...>::template AnyConst<T, Arg...>(&placeHolder, 0, std::forward<T>(t), std::forward<Arg>(arg)...);
+    }
+
+    variant(variant const &v)
+        : switcher(v.switcher) {
+        Constructor<AA...>::Copy(switcher, &placeHolder, &v.placeHolder);
+    }
+    variant(variant &&v)
+        : switcher(v.switcher) {
+        Constructor<AA...>::Move(switcher, &placeHolder, &v.placeHolder);
+    }
+    variant(variant &v)
+        : variant(static_cast<variant const &>(v)) {
+    }
+    variant(variant const &&v)
+        : variant(v) {
+    }
+    template<typename... Args>
+    void reset(Args &&...args) {
+        this->~variant();
+        new (this) variant(std::forward<Args>(args)...);
+    }
+
+    bool valid() const { return switcher < argSize; }
+
+    template<typename Func>
+    void update(size_t typeIndex, Func &&setFunc) {
+        this->~variant();
+        if (typeIndex >= argSize) {
+            switcher = argSize;
+            return;
+        }
+        switcher = typeIndex;
+        setFunc(reinterpret_cast<void *>(&placeHolder));
+    }
+
+    ~variant() {
+        if (switcher >= argSize)
+            return;
+        Constructor<AA...>::Dispose(switcher, &placeHolder);
+    }
+    void dispose() {
+        if (switcher >= argSize)
+            return;
+        Constructor<AA...>::Dispose(switcher, &placeHolder);
+        switcher = argSize;
+    }
+    void *GetPlaceHolder() { return &placeHolder; }
+    void const *GetPlaceHolder() const { return &placeHolder; }
+    size_t GetType() const { return switcher; }
+    size_t index() const { return switcher; }
+    template<typename T>
+    bool IsTypeOf() const {
+        return switcher == IndexOf<T>;
+    }
+
+    template<size_t i>
+    decltype(auto) get() {
+#ifdef DEBUG
+        if (i != switcher) {
+            VEngine_Log("Try get wrong variant type!\n");
+            VENGINE_EXIT;
+        }
+#endif
+        return Constructor<AA...>::template Get<i>(&placeHolder);
+    }
+    template<size_t i>
+    decltype(auto) get() const {
+#ifdef DEBUG
+        if (i != switcher) {
+            VEngine_Log("Try get wrong variant type!\n");
+            VENGINE_EXIT;
+        }
+#endif
+        return Constructor<AA...>::template Get<i>(&placeHolder);
+    }
+
+    template<typename T>
+    T const *try_get() const {
+        static constexpr auto tarIdx = IndexOf<T>;
+        static_assert(tarIdx < argSize, "Illegal target type!");
+        if (tarIdx != switcher) {
+            return nullptr;
+        }
+        return &Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+    }
+
+    template<typename T>
+    T *try_get() {
+        static constexpr auto tarIdx = IndexOf<T>;
+        static_assert(tarIdx < argSize, "Illegal target type!");
+        if (tarIdx != switcher) {
+            return nullptr;
+        }
+        return &Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+    }
+    template<typename T>
+    T const &force_get() const {
+        static constexpr auto tarIdx = IndexOf<T>;
+        static_assert(tarIdx < argSize, "Illegal target type!");
+#ifdef DEBUG
+        if (tarIdx != switcher) {
+            VEngine_Log("Try get wrong variant type!\n");
+            VENGINE_EXIT;
+        }
+#endif
+        return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+    }
+
+    template<typename T>
+    T &force_get() {
+        static constexpr auto tarIdx = IndexOf<T>;
+        static_assert(tarIdx < argSize, "Illegal target type!");
+#ifdef DEBUG
+        if (tarIdx != switcher) {
+            VEngine_Log("Try get wrong variant type!\n");
+            VENGINE_EXIT;
+        }
+#endif
+        return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+    }
+    template<typename Arg>
+    variant &operator=(Arg &&arg) {
+        this->~variant();
+        new (this) variant(std::forward<Arg>(arg));
+        return *this;
+    }
+
+    template<typename... Funcs>
+    decltype(auto) visit(Funcs &&...funcs) {
+        static_assert(argSize == sizeof...(Funcs), "functor size not equal!");
+        using RetType = typename VisitFuncType<std::remove_cvref_t<Funcs>...>::template Type<AA...>;
+        if (switcher >= argSize)
+            return RetType();
+        funcPtr_t<RetType(void *, void *)> ftype[argSize];
+        void *funcPs[argSize];
+        Iterator<0, argSize, AA...>::template Set<RetType, Funcs...>(ftype, funcPs, std::forward<Funcs>(funcs)...);
+        return ftype[switcher](funcPs[switcher], &placeHolder);
+    }
+
+    template<typename... Funcs>
+    decltype(auto) visit(Funcs &&...funcs) const {
+        static_assert(argSize == sizeof...(Funcs), "functor size not equal!");
+        using RetType = typename VisitFuncType<std::remove_cvref_t<Funcs>...>::template Type<AA...>;
+        if (switcher >= argSize)
+            return RetType();
+        funcPtr_t<RetType(void *, void const *)> ftype[argSize];
+        void *funcPs[argSize];
+        Iterator<0, argSize, AA const...>::template Set_Const<RetType, Funcs...>(ftype, funcPs, std::forward<Funcs>(funcs)...);
+        return ftype[switcher](funcPs[switcher], &placeHolder);
+    }
+    template<typename T, typename... Funcs>
+    T visit_with_default(T const &defaultValue, Funcs &&...funcs) const {
+        static_assert(argSize == sizeof...(Funcs), "functor size not equal!");
+        if (switcher >= argSize)
+            return defaultValue;
+        funcPtr_t<T(void *, void const *)> ftype[argSize];
+        void *funcPs[argSize];
+        Iterator<0, argSize, AA const...>::template Set_Const<T, Funcs...>(ftype, funcPs, std::forward<Funcs>(funcs)...);
+        return ftype[switcher](funcPs[switcher], &placeHolder);
+    }
+    template<typename T, typename... Funcs>
+    T visit_with_default(T const &defaultValue, Funcs &&...funcs) {
+        static_assert(argSize == sizeof...(Funcs), "functor size not equal!");
+        if (switcher >= argSize)
+            return defaultValue;
+        funcPtr_t<T(void *, void *)> ftype[argSize];
+        void *funcPs[argSize];
+        Iterator<0, argSize, AA...>::template Set<T, Funcs...>(ftype, funcPs, std::forward<Funcs>(funcs)...);
+        return ftype[switcher](funcPs[switcher], &placeHolder);
+    }
+};
 }// namespace vstd

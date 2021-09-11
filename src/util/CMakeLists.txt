@@ -7,8 +7,15 @@ if (WIN32)
     list(APPEND LUISA_COMPUTE_UTIL_SOURCES
 	vstl.cpp 
 	Log.cpp
+    MD5.cpp
+    VGuid.cpp
 	ObjectPtr.cpp
-    StackAllocator.cpp)
+    StackAllocator.cpp
+    serde/SimpleBinaryJson.cpp
+    serde/SimpleJsonLoader.cpp
+    serde/SimpleJsonValue.cpp
+    serde/SimpleParser.cpp
+    )
 endif ()
 
 add_library(luisa-compute-util SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
