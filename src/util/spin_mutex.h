@@ -29,7 +29,9 @@ public:
 #endif
         }
     }
-
+    bool try_lock() noexcept {
+        return !_flag.test_and_set(std::memory_order::acquire);
+    }
     void unlock() noexcept {
         _flag.clear(std::memory_order::release);// release lock
     }

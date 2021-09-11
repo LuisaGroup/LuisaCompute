@@ -5,15 +5,15 @@ set(LUISA_COMPUTE_UTIL_SOURCES
 
 if (WIN32)
     list(APPEND LUISA_COMPUTE_UTIL_SOURCES
-         vstl.cpp
-         vengine_library.cpp
-         StackAllocator.cpp
-         VObject.cpp)
+	vstl.cpp 
+	Log.cpp
+	ObjectPtr.cpp
+    StackAllocator.cpp)
 endif ()
 
 add_library(luisa-compute-util SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
 target_compile_definitions(luisa-compute-util PRIVATE LUISA_COMPUTE_UTIL_INTERNAL PUBLIC LUISA_COMPUTE_UTIL_EXTERNAL)
-target_link_libraries(luisa-compute-util PUBLIC luisa-compute-core)
+target_link_libraries(luisa-compute-util PUBLIC luisa-compute-core PRIVATE mimalloc-static)
 set_target_properties(luisa-compute-util PROPERTIES
                       WINDOWS_EXPORT_ALL_SYMBOLS ON
                       UNITY_BUILD ON)
