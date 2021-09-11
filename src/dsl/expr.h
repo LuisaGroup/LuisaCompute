@@ -18,14 +18,26 @@
 namespace luisa::compute {
 
 inline namespace dsl {
+
 template<typename T>
-[[nodiscard]] inline Var<T> def(const Expression *expr) noexcept;
-}
+[[nodiscard]] inline auto def(const Expression *expr) noexcept -> Var<expr_value_t<T>>;
+
+template<typename T>
+[[nodiscard]] inline auto def(T &&x) noexcept -> Var<expr_value_t<T>>;
+
+}// namespace dsl
 
 namespace detail {
 
 template<typename T>
-[[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept;
+[[nodiscard]] inline auto extract_expression(T &&v) noexcept {
+    if constexpr (is_dsl_v<T>) {
+        return std::forward<T>(v).expression();
+    } else {
+        static_assert(concepts::basic<T>);
+        return FunctionBuilder::current()->literal(Type::of<T>(), std::forward<T>(v));
+    }
+}
 
 }// namespace detail
 
@@ -48,24 +60,6 @@ public:                                                                         
                    Type::of<U>(), literal)} {}
 
 namespace detail {
-
-template<typename T, typename E>
-struct expr_as {
-    static_assert(always_false_v<T>);
-};
-
-template<typename T, typename E>
-struct expr_as<Expr<T>, E> {
-    using type = Expr<E>;
-};
-
-template<typename T, typename E>
-struct expr_as<Ref<T>, E> {
-    using type = Ref<E>;
-};
-
-template<typename T, typename E>
-using expr_as_t = typename expr_as<T, E>::type;
 
 template<typename T>
 struct ExprEnableStaticCast;
@@ -242,11 +236,10 @@ struct ExprEnableSubscriptAccess {
     [[nodiscard]] auto operator[](I &&index) const noexcept {
         using Elem = std::remove_cvref_t<
             decltype(std::declval<expr_value_t<T>>()[0])>;
-        using R = expr_as_t<T, Elem>;
-        return R{FunctionBuilder::current()->access(
+        return def<Elem>(FunctionBuilder::current()->access(
             Type::of<Elem>(),
             static_cast<const T *>(this)->expression(),
-            extract_expression(std::forward<I>(index)))};
+            extract_expression(std::forward<I>(index))));
     }
 };
 
@@ -257,36 +250,6 @@ struct ExprEnableGetMemberByIndex {
         static_assert(i < dimension_v<expr_value_t<T>>);
         return static_cast<const T *>(this)->operator[](static_cast<uint>(i));
     }
-};
-
-template<typename T>
-struct ExprEnableArithmeticAssign {
-#define LUISA_EXPR_ASSIGN_OP(op, op_name, op_tag_name)  \
-    template<typename U>                                \
-    requires concepts::op_name##able<                   \
-        expr_value_t<T>,                                \
-        expr_value_t<U>> void                           \
-    operator op(U &&rhs) noexcept {                     \
-        FunctionBuilder::current()->assign(             \
-            AssignOp::op_tag_name,                      \
-            static_cast<const T *>(this)->expression(), \
-            extract_expression(std::forward<U>(rhs)));  \
-    }                                                   \
-    template<typename U>                                \
-    void op_name(U &&rhs) noexcept {                    \
-        (*this) op std::forward<U>(rhs);                \
-    }
-    LUISA_EXPR_ASSIGN_OP(+=, add_assign, ADD_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(-=, sub_assign, SUB_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(*=, mul_assign, MUL_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(/=, div_assign, DIV_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(%=, mod_assign, MOD_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(&=, bit_and_assign, BIT_AND_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(|=, bit_or_assign, BIT_OR_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(^=, bit_xor_assign, BIT_XOR_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(<<=, shift_left_assign, SHL_ASSIGN)
-    LUISA_EXPR_ASSIGN_OP(>>=, shift_right_assign, SHR_ASSIGN)
-#undef LUISA_EXPR_ASSIGN_OP
 };
 
 }// namespace detail
@@ -316,10 +279,11 @@ public:
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto &operator[](I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
         auto f = detail::FunctionBuilder::current();
         auto expr = f->access(
             Type::of<T>(), _expression,
-            detail::extract_expression(std::forward<I>(i)));
+            index.expression());
         return *f->arena().create<Var<T>>(expr);
     };
 };
@@ -344,7 +308,9 @@ public:
     AtomicRef &operator=(const AtomicRef &) noexcept = delete;
 
     void store(Expr<T> value) &&noexcept {
-        detail::FunctionBuilder::current()->call(CallOp::ATOMIC_STORE, {this->_expression, value.expression()});
+        detail::FunctionBuilder::current()->call(
+            CallOp::ATOMIC_STORE,
+            {this->_expression, value.expression()});
     }
 
     [[nodiscard]] auto load() &&noexcept {
@@ -426,10 +392,11 @@ struct BufferExprAsAtomic<int> {
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
         return AtomicRef<int>{FunctionBuilder::current()->access(
             Type::of<int>(),
             static_cast<const Expr<Buffer<int>> *>(this)->expression(),
-            extract_expression(std::forward<I>(i)))};
+            index.expression())};
     }
 };
 
@@ -438,10 +405,11 @@ struct BufferExprAsAtomic<uint> {
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
         return AtomicRef<uint>{FunctionBuilder::current()->access(
             Type::of<uint>(),
             static_cast<const Expr<Buffer<uint>> *>(this)->expression(),
-            extract_expression(std::forward<I>(i)))};
+            index.expression())};
     }
 };
 
@@ -631,20 +599,23 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto tex2d(I index) const noexcept {
-        return HeapTexture2D{_expression, detail::extract_expression(std::forward<I>(index))};
+    [[nodiscard]] auto tex2d(I &&index) const noexcept {
+        auto i = def(std::forward<I>(index));
+        return HeapTexture2D{_expression, i.expression()};
     }
 
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto tex3d(I &&index) const noexcept {
-        return HeapTexture3D{_expression, detail::extract_expression(std::forward<I>(index))};
+        auto i = def(std::forward<I>(index));
+        return HeapTexture3D{_expression, i.expression()};
     }
 
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto buffer(I &&index) const noexcept {
-        return HeapBuffer<T>{_expression, detail::extract_expression(std::forward<I>(index))};
+        auto i = def(std::forward<I>(index));
+        return HeapBuffer<T>{_expression, i.expression()};
     }
 };
 
@@ -681,83 +652,22 @@ Expr(VolumeView<T>) -> Expr<Volume<T>>;
 
 Expr(const Heap &) -> Expr<Heap>;
 
-namespace detail {
-
-template<typename T>
-[[nodiscard]] inline const Expression *extract_expression(T &&v) noexcept {
-    Expr expr{std::forward<T>(v)};
-    return expr.expression();
-}
-
-}// namespace detail
-
 template<typename I>
 HeapTexture2D Heap::tex2d(I &&index) const noexcept {
-    return Expr<Heap>{*this}.tex2d(std::forward<I>(index));
+    auto i = def(std::forward<I>(index));
+    return Expr<Heap>{*this}.tex2d(i);
 }
 
 template<typename I>
 HeapTexture2D Heap::tex3d(I &&index) const noexcept {
-    return Expr<Heap>{*this}.tex3d(std::forward<I>(index));
+    auto i = def(std::forward<I>(index));
+    return Expr<Heap>{*this}.tex3d(i);
 }
 
 template<typename T, typename I>
 HeapBuffer<T> Heap::buffer(I &&index) const noexcept {
-    return Expr<Heap>{*this}.buffer<T>(std::forward<I>(index));
+    auto i = def(std::forward<I>(index));
+    return Expr<Heap>{*this}.buffer<T>(i);
 }
 
 }// namespace luisa::compute
-
-#define LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(op, op_concept, op_tag)                      \
-    template<typename T>                                                             \
-        requires luisa::compute::is_dsl_v<T>                                         \
-    [[nodiscard]] inline auto operator op(T &&expr) noexcept {                       \
-        using R = std::remove_cvref_t<                                               \
-            decltype(op std::declval<luisa::compute::expr_value_t<T>>())>;           \
-        return luisa::compute::dsl::def<R>(                                          \
-            luisa::compute::detail::FunctionBuilder::current()->unary(               \
-                luisa::compute::Type::of<R>(),                                       \
-                luisa::compute::UnaryOp::op_tag,                                     \
-                luisa::compute::detail::extract_expression(std::forward<T>(expr)))); \
-    }
-LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(+, operator_plus, PLUS)
-LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(-, operator_minus, MINUS)
-LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(!, operator_not, NOT)
-LUISA_MAKE_GLOBAL_EXPR_UNARY_OP(~, operator_bit_not, BIT_NOT)
-#undef LUISA_MAKE_GLOBAL_EXPR_UNARY_OP
-
-#define LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(op, op_concept_name, op_tag_name)                \
-    template<typename Lhs, typename Rhs>                                                  \
-        requires luisa::compute::any_dsl_v<Lhs, Rhs> && luisa::concepts::op_concept_name< \
-            luisa::compute::expr_value_t<Lhs>,                                            \
-            luisa::compute::expr_value_t<Rhs>>                                            \
-    [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {                \
-        using R = std::remove_cvref_t<                                                    \
-            decltype(std::declval<luisa::compute::expr_value_t<Lhs>>()                    \
-                         op std::declval<luisa::compute::expr_value_t<Rhs>>())>;          \
-        return luisa::compute::dsl::def<R>(                                               \
-            luisa::compute::detail::FunctionBuilder::current()->binary(                   \
-                luisa::compute::Type::of<R>(),                                            \
-                luisa::compute::BinaryOp::op_tag_name,                                    \
-                luisa::compute::detail::extract_expression(std::forward<Lhs>(lhs)),       \
-                luisa::compute::detail::extract_expression(std::forward<Rhs>(rhs))));     \
-    }
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(+, operator_add, ADD)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(-, operator_sub, SUB)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(*, operator_mul, MUL)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(/, operator_div, DIV)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(%, operator_mod, MOD)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(&, operator_bit_and, BIT_AND)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(|, operator_bit_or, BIT_OR)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(^, operator_bit_Xor, BIT_XOR)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<<, operator_shift_left, SHL)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>>, operator_shift_right, SHR)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(&&, operator_and, AND)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(||, operator_or, OR)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(==, operator_equal, EQUAL)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(!=, operator_not_equal, NOT_EQUAL)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<, operator_less, LESS)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(<=, operator_less_equal, LESS_EQUAL)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>, operator_greater, GREATER)
-LUISA_MAKE_GLOBAL_EXPR_BINARY_OP(>=, operator_greater_equal, GREATER_EQUAL)
-#undef LUISA_MAKE_GLOBAL_EXPR_BINARY_OP

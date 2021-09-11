@@ -6,19 +6,19 @@
 
 namespace luisa::compute {
 
-Expr<bool> miss(Expr<Hit> hit) noexcept {
+Var<bool> miss(Expr<Hit> hit) noexcept {
     return hit.inst == std::numeric_limits<uint>::max();
 }
 
-Expr<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
+Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
     return (1.0f - hit.uv.x - hit.uv.y) * a + hit.uv.x * b + hit.uv.y * c;
 }
 
-Expr<float2> interpolate(Expr<Hit> hit, Expr<float2> a, Expr<float2> b, Expr<float2> c) noexcept {
+Var<float2> interpolate(Expr<Hit> hit, Expr<float2> a, Expr<float2> b, Expr<float2> c) noexcept {
     return (1.0f - hit.uv.x - hit.uv.y) * a + hit.uv.x * b + hit.uv.y * c;
 }
 
-Expr<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept {
+Var<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept {
     return (1.0f - hit.uv.x - hit.uv.y) * a + hit.uv.x * b + hit.uv.y * c;
 }
 

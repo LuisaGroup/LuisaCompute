@@ -52,10 +52,14 @@ void MetalCodegen::visit(const BinaryExpr *expr) {
 void MetalCodegen::visit(const MemberExpr *expr) {
     expr->self()->accept(*this);
     if (expr->is_swizzle()) {
-        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
-        _scratch << ".";
-        for (auto i = 0u; i < expr->swizzle_size(); i++) {
-            _scratch << xyzw[expr->swizzle_index(i)];
+        if (expr->swizzle_size() == 1u) {
+            _scratch << "[" << expr->swizzle_index(0u) << "]";
+        } else {
+            static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+            _scratch << ".";
+            for (auto i = 0u; i < expr->swizzle_size(); i++) {
+                _scratch << xyzw[expr->swizzle_index(i)];
+            }
         }
     } else {
         _scratch << ".m" << expr->member_index();
@@ -318,10 +322,9 @@ void MetalCodegen::visit(const CallExpr *expr) {
     } else if (!expr->arguments().empty()) {
         auto arg_index = 0u;
         for (auto arg : expr->arguments()) {
-            auto by_ref = !expr->is_builtin()
-                          && expr->custom().arguments()[arg_index].tag()
-                                 == Variable::Tag::REFERENCE;
-            if (by_ref) { _scratch << "&("; }
+            auto by_ref = !expr->is_builtin() &&
+                          expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE;
+            if (by_ref) { _scratch << "address_of("; }
             arg->accept(*this);
             if (by_ref) { _scratch << ")"; }
             _scratch << ", ";
@@ -453,8 +456,7 @@ void MetalCodegen::emit(Function f) {
 
 void MetalCodegen::_emit_function(Function f) noexcept {
 
-    if (std::find(_generated_functions.cbegin(), _generated_functions.cend(), f)
-        != _generated_functions.cend()) { return; }
+    if (std::find(_generated_functions.cbegin(), _generated_functions.cend(), f) != _generated_functions.cend()) { return; }
 
     _generated_functions.emplace_back(f);
     for (auto callable : f.custom_callables()) { _emit_function(callable); }
@@ -512,8 +514,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
     } else if (f.tag() == Function::Tag::CALLABLE) {
         // emit templated access specifier for textures
         if (std::any_of(f.arguments().begin(), f.arguments().end(), [](auto v) noexcept {
-                return v.tag() == Variable::Tag::TEXTURE
-                       || v.tag() == Variable::Tag::REFERENCE;
+                return v.tag() == Variable::Tag::TEXTURE || v.tag() == Variable::Tag::REFERENCE;
             })) {
             _scratch << "template<";
             for (auto arg : f.arguments()) {
@@ -606,8 +607,7 @@ static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<fl
 void MetalCodegen::visit(const Type *type) noexcept {
     if (type->is_structure()) {
         // skip ray or hit
-        if (type->description() == ray_type_desc
-            || type->description() == hit_type_desc) {
+        if (type->description() == ray_type_desc || type->description() == hit_type_desc) {
             return;
         }
         _scratch << "struct alignas(" << type->alignment() << ") ";
@@ -773,8 +773,7 @@ void MetalCodegen::_emit_statements(std::span<const Statement *const> stmts) noe
 void MetalCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
 
     if (std::find(_generated_constants.cbegin(),
-                  _generated_constants.cend(), c.data.hash())
-        != _generated_constants.cend()) { return; }
+                  _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }
     _generated_constants.emplace_back(c.data.hash());
 
     _scratch << "constant ";
@@ -820,6 +819,21 @@ void MetalCodegen::_emit_preamble(Function f) noexcept {
     _scratch << R"(#include <metal_stdlib>
 
 using namespace metal;
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto address_of(thread T &x) {
+  return &x;
+}
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto address_of(threadgroup T &x) {
+  return &x;
+}
+
+template<typename T>
+[[nodiscard, gnu::always_inline]] inline auto address_of(device T &x) {
+  return &x;
+}
 
 template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto none(T v) { return !any(v); }

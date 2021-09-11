@@ -6,34 +6,32 @@
 
 namespace luisa::compute {
 
-Expr<float3> origin(Expr<Ray> ray) noexcept {
-    Var<float3> o = ray.origin;
-    return o;
+Var<float3> origin(Expr<Ray> ray) noexcept {
+    return ray.origin;
 }
 
-Expr<float3> direction(Expr<Ray> ray) noexcept {
-    Var<float3> d = ray.direction;
-    return d;
+Var<float3> direction(Expr<Ray> ray) noexcept {
+    return ray.direction;
 }
 
-void set_origin(Ref<Ray> ray, Expr<float3> origin) noexcept {
+void set_origin(Var<Ray> &ray, Expr<float3> origin) noexcept {
     ray.origin = origin;
 }
 
-void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept {
+void set_direction(Var<Ray> &ray, Expr<float3> direction) noexcept {
     ray.direction = direction;
 }
 
-Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {
+Var<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {
     Var<Ray> ray{origin, t_min, direction, t_max};
     return ray;
 }
 
-Expr<Ray> make_ray(Expr<float3> origin, Expr<float3> direction) noexcept {
+Var<Ray> make_ray(Expr<float3> origin, Expr<float3> direction) noexcept {
     return make_ray(origin, direction, 0.0f, std::numeric_limits<float>::max());
 }
 
-Expr<Ray> make_ray_robust(
+Var<Ray> make_ray_robust(
     Expr<float3> p, Expr<float3> ng,
     Expr<float3> direction, Expr<float> t_max) noexcept {
 
@@ -50,7 +48,7 @@ Expr<Ray> make_ray_robust(
     return _make_ray_robust(p, direction, ng, t_max);
 }
 
-Expr<Ray> make_ray_robust(Expr<float3> p, Expr<float3> ng, Expr<float3> direction) noexcept {
+Var<Ray> make_ray_robust(Expr<float3> p, Expr<float3> ng, Expr<float3> direction) noexcept {
     return make_ray_robust(p, ng, direction, std::numeric_limits<float>::max());
 }
 

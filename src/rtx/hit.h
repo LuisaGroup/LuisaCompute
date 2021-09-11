@@ -14,10 +14,10 @@ struct alignas(16) Hit {
     float2 uv;
 };
 
-[[nodiscard]] Expr<bool> miss(Expr<Hit> hit) noexcept;
-[[nodiscard]] Expr<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept;
-[[nodiscard]] Expr<float2> interpolate(Expr<Hit> hit, Expr<float2> a, Expr<float2> b, Expr<float2> c) noexcept;
-[[nodiscard]] Expr<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept;
+[[nodiscard]] Var<bool> miss(Expr<Hit> hit) noexcept;
+[[nodiscard]] Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept;
+[[nodiscard]] Var<float2> interpolate(Expr<Hit> hit, Expr<float2> a, Expr<float2> b, Expr<float2> c) noexcept;
+[[nodiscard]] Var<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept;
 
 }
 

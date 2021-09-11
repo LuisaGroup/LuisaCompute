@@ -5,6 +5,7 @@
 #pragma once
 
 #include <dsl/var.h>
+#include <dsl/operators.h>
 
 namespace luisa::compute {
 

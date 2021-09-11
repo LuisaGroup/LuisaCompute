@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <dsl/ref.h>
+#include <dsl/expr.h>
 
 namespace luisa::compute {
 
@@ -24,7 +24,7 @@ private:
 public:
     explicit Shared(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->shared(
-            Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
+              Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
 
     Shared(Shared &&) noexcept = default;
     Shared(const Shared &) noexcept = delete;
@@ -34,12 +34,12 @@ public:
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
     template<typename U>
-    requires is_integral_expr_v<U>
+        requires is_integral_expr_v<U>
     [[nodiscard]] auto &operator[](U &&index) const noexcept {
+        auto i = def(std::forward<U>(index));
         auto f = detail::FunctionBuilder::current();
         auto expr = f->access(
-            Type::of<T>(), _expression,
-            detail::extract_expression(std::forward<U>(index)));
+            Type::of<T>(), _expression, i.expression());
         return *f->arena().create<Var<T>>(expr);
     }
 };
@@ -48,33 +48,27 @@ namespace detail {
 
 template<>
 struct SharedAsAtomic<int> {
-    [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto atomic(I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
         return AtomicRef<int>{FunctionBuilder::current()->access(
             Type::of<int>(),
             static_cast<const Shared<int> *>(this)->expression(),
-            i.expression())};
-    }
-    [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
-        return AtomicRef<int>{FunctionBuilder::current()->access(
-            Type::of<int>(),
-            static_cast<const Shared<int> *>(this)->expression(),
-            i.expression())};
+            index.expression())};
     }
 };
 
 template<>
 struct SharedAsAtomic<uint> {
-    [[nodiscard]] auto atomic(Expr<int> i) const noexcept {
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto atomic(I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
         return AtomicRef<uint>{FunctionBuilder::current()->access(
             Type::of<uint>(),
             static_cast<const Shared<uint> *>(this)->expression(),
-            i.expression())};
-    }
-    [[nodiscard]] auto atomic(Expr<uint> i) const noexcept {
-        return AtomicRef<uint>{FunctionBuilder::current()->access(
-            Type::of<uint>(),
-            static_cast<const Shared<uint> *>(this)->expression(),
-            i.expression())};
+            index.expression())};
     }
 };
 

@@ -192,9 +192,6 @@ int main(int argc, char *argv[]) {
         Var x = buffer[i];
         buffer[i].x = 5.0f;
 
-        // TODO: this should not be allowed...
-        get_float4().x = 0.0f;
-
         Var v0 = all(x == 0.0f);
         Var v1 = saturate(x);
 

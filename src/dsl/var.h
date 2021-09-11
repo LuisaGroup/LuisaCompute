@@ -52,26 +52,6 @@ struct Var : public Ref<T> {
     Var(const Var &another) noexcept : Var{Expr{another}} {}
     void operator=(Var &&rhs) &noexcept { Ref<T>::operator=(std::move(rhs)); }
     void operator=(const Var &rhs) &noexcept { Ref<T>::operator=(rhs); }
-
-#define LUISA_VAR_KILL_RVALUE_ASSIGN(op)                              \
-    template<typename U>                                              \
-    Var &operator op(U &&) &&noexcept = delete;                       \
-    template<typename U>                                              \
-    decltype(auto) operator op(U &&rhs) &noexcept requires(requires { \
-        Ref<T>::operator op(std::forward<U>(rhs));                    \
-    }) { return Ref<T>::operator op(std::forward<U>(rhs)); }
-    LUISA_VAR_KILL_RVALUE_ASSIGN(=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(+=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(-=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(*=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(/=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(%=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(&=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(|=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(^=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(<<=)
-    LUISA_VAR_KILL_RVALUE_ASSIGN(>>=)
-#undef LUISA_VAR_KILL_RVALUE_ASSIGN
 };
 
 template<typename T>

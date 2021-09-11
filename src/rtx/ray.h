@@ -22,30 +22,30 @@ LUISA_STRUCT(luisa::compute::Ray, origin, t_min, direction, t_max)
 
 namespace luisa::compute {
 
-[[nodiscard]] Expr<float3> origin(Expr<Ray> ray) noexcept;
-[[nodiscard]] Expr<float3> direction(Expr<Ray> ray) noexcept;
+[[nodiscard]] Var<float3> origin(Expr<Ray> ray) noexcept;
+[[nodiscard]] Var<float3> direction(Expr<Ray> ray) noexcept;
 
-void set_origin(Ref<Ray> ray, Expr<float3> origin) noexcept;
-void set_direction(Ref<Ray> ray, Expr<float3> direction) noexcept;
+void set_origin(Var<Ray> &ray, Expr<float3> origin) noexcept;
+void set_direction(Var<Ray> &ray, Expr<float3> direction) noexcept;
 
-[[nodiscard]] Expr<Ray> make_ray(
+[[nodiscard]] Var<Ray> make_ray(
     Expr<float3> origin,
     Expr<float3> direction,
     Expr<float> t_min,
     Expr<float> t_max) noexcept;
 
-[[nodiscard]] Expr<Ray> make_ray(
+[[nodiscard]] Var<Ray> make_ray(
     Expr<float3> origin,
     Expr<float3> direction) noexcept;
 
 // ray from p with surface normal ng, with self intersections avoidance
-[[nodiscard]] Expr<Ray> make_ray_robust(
+[[nodiscard]] Var<Ray> make_ray_robust(
     Expr<float3> p,
     Expr<float3> ng,
     Expr<float3> direction,
     Expr<float> t_max) noexcept;
 
-[[nodiscard]] Expr<Ray> make_ray_robust(
+[[nodiscard]] Var<Ray> make_ray_robust(
     Expr<float3> p,
     Expr<float3> ng,
     Expr<float3> direction) noexcept;

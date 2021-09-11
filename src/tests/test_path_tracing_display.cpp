@@ -8,7 +8,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <dsl/syntax.h>
+#include <dsl/sugar.h>
 #include <rtx/accel.h>
 #include <tests/fake_device.h>
 #include <tests/cornell_box.h>
@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
     };
 
     Callable tea = [](UInt v0, UInt v1) noexcept {
-        Var s0 = 0u;
+        auto s0 = def(0u);
         for (auto n = 0u; n < 4u; n++) {
             s0 += 0x9e3779b9u;
             v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
@@ -138,8 +138,8 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D make_sampler_kernel = [&](ImageUInt state_image) noexcept {
-        Var p = dispatch_id().xy();
-        Var state = tea(p.x, p.y);
+        auto p = dispatch_id().xy();
+        auto state = tea(p.x, p.y);
         state_image.write(p, make_uint4(state));
     };
 
@@ -151,13 +151,12 @@ int main(int argc, char *argv[]) {
     };
 
     Callable make_onb = [](Float3 normal) noexcept {
-        Var binormal = normalize(ite(
+        auto binormal = normalize(ite(
             abs(normal.x) > abs(normal.z),
             make_float3(-normal.y, normal.x, 0.0f),
             make_float3(0.0f, -normal.z, normal.y)));
-        Var tangent = normalize(cross(binormal, normal));
-        Var<Onb> onb{tangent, binormal, normal};
-        return onb;
+        auto tangent = normalize(cross(binormal, normal));
+        return def<Onb>(tangent, binormal, normal);
     };
 
     Callable transform_to_world = [](Var<Onb> onb, Float3 v) noexcept {
@@ -167,14 +166,14 @@ int main(int argc, char *argv[]) {
     Callable generate_ray = [](Float2 p) noexcept {
         static constexpr auto fov = radians(27.8f);
         static constexpr auto origin = make_float3(-0.01f, 0.995f, 5.0f);
-        Var pixel = origin + make_float3(p * tan(0.5f * fov), -1.0f);
-        Var direction = normalize(pixel - origin);
+        auto pixel = origin + make_float3(p * tan(0.5f * fov), -1.0f);
+        auto direction = normalize(pixel - origin);
         return make_ray(origin, direction);
     };
 
     Callable cosine_sample_hemisphere = [](Float2 u) noexcept {
-        Var r = sqrt(u.x);
-        Var phi = 2.0f * constants::pi * u.y;
+        auto r = sqrt(u.x);
+        auto phi = 2.0f * constants::pi * u.y;
         return make_float3(r * cos(phi), r * sin(phi), sqrt(1.0f - u.x));
     };
 
@@ -184,16 +183,16 @@ int main(int argc, char *argv[]) {
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel) noexcept {
         set_block_size(8u, 8u, 1u);
-        Var coord = dispatch_id().xy();
-        Var frame_size = min(dispatch_size().x, dispatch_size().y).cast<float>();
-        Var state = state_image.read(coord).x;
-        Var rx = lcg(state);
-        Var ry = lcg(state);
-        Var pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
-        Var ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
-        Var radiance = make_float3(0.0f);
-        Var beta = make_float3(1.0f);
-        Var pdf_bsdf = 0.0f;
+        auto coord = dispatch_id().xy();
+        auto frame_size = min(dispatch_size().x, dispatch_size().y).cast<float>();
+        auto state = def(state_image.read(coord).x);// todo...
+        auto rx = lcg(state);
+        auto ry = lcg(state);
+        auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
+        auto ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
+        auto radiance = def(make_float3(0.0f));
+        auto beta = def(make_float3(1.0f));
+        auto pdf_bsdf = def(0.0f);
         constexpr auto light_position = make_float3(-0.24f, 1.98f, 0.16f);
         constexpr auto light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
         constexpr auto light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
@@ -204,75 +203,78 @@ int main(int argc, char *argv[]) {
         for (auto depth : range(5u)) {
 
             // trace
-            Var hit = accel.trace_closest(ray);
+            auto hit = accel.trace_closest(ray);
             if_(miss(hit), break_);
-            Var triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
-            Var p0 = vertex_buffer[triangle.i0];
-            Var p1 = vertex_buffer[triangle.i1];
-            Var p2 = vertex_buffer[triangle.i2];
-            Var p = interpolate(hit, p0, p1, p2);
-            Var n = normalize(cross(p1 - p0, p2 - p0));
-            Var cos_wi = dot(-direction(ray), n);
-            if_(cos_wi < 1e-4f, break_);
-            Var material = material_buffer[hit.inst];
+            auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
+            auto p0 = vertex_buffer[triangle.i0];
+            auto p1 = vertex_buffer[triangle.i1];
+            auto p2 = vertex_buffer[triangle.i2];
+            auto p = interpolate(hit, p0, p1, p2);
+            auto n = normalize(cross(p1 - p0, p2 - p0));
+            auto cos_wi = dot(-direction(ray), n);
+            $if(cos_wi < 1e-4f) { $break; };
+            auto material = material_buffer[hit.inst];
 
             // hit light
-            if_(hit.inst == static_cast<uint>(meshes.size() - 1u), [&] {
-                if_(depth == 0u, [&] {
+            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                $if(depth == 0u) {
                     radiance += light_emission;
-                }).else_([&] {
-                    Var pdf_light = length_squared(p - origin(ray)) / (light_area * cos_wi);
-                    Var mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                }
+                $else {
+                    auto pdf_light = length_squared(p - origin(ray)) / (light_area * cos_wi);
+                    auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                     radiance += mis_weight * beta * light_emission;
-                });
-                break_();
-            });
+                };
+                $break;
+            };
 
             // sample light
-            Var ux_light = lcg(state);
-            Var uy_light = lcg(state);
-            Var p_light = light_position + ux_light * light_u + uy_light * light_v;
-            Var d_light = distance(p, p_light);
-            Var wi_light = normalize(p_light - p);
-            Var shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
-            Var occluded = accel.trace_any(shadow_ray);
-            Var cos_wi_light = dot(wi_light, n);
-            Var cos_light = -dot(light_normal, wi_light);
-            if_(!occluded && cos_wi_light > 1e-4f && cos_light > 1e-4f, [&] {
-                Var pdf_light = (d_light * d_light) / (light_area * cos_light);
-                Var pdf_bsdf = cos_wi_light * inv_pi;
-                Var mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                Var bsdf = material.albedo * inv_pi * cos_wi_light;
+            auto ux_light = lcg(state);
+            auto uy_light = lcg(state);
+            auto p_light = light_position + ux_light * light_u + uy_light * light_v;
+            auto d_light = distance(p, p_light);
+            auto wi_light = normalize(p_light - p);
+            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+            auto occluded = accel.trace_any(shadow_ray);
+            auto cos_wi_light = dot(wi_light, n);
+            auto cos_light = -dot(light_normal, wi_light);
+            $if(!occluded && cos_wi_light > 1e-4f && cos_light > 1e-4f) {
+                auto pdf_light = (d_light * d_light) / (light_area * cos_light);
+                auto pdf_bsdf = cos_wi_light * inv_pi;
+                auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+                auto bsdf = material.albedo * inv_pi * cos_wi_light;
                 radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-            });
+            };
 
             // sample BSDF
-            Var onb = make_onb(n);
-            Var ux = lcg(state);
-            Var uy = lcg(state);
-            Var new_direction = transform_to_world(onb, cosine_sample_hemisphere(make_float2(ux, uy)));
+            auto onb = make_onb(n);
+            auto ux = lcg(state);
+            auto uy = lcg(state);
+            auto new_direction = transform_to_world(onb, cosine_sample_hemisphere(make_float2(ux, uy)));
             ray = make_ray_robust(p, n, new_direction);
             beta *= material.albedo;
             pdf_bsdf = cos_wi * inv_pi;
 
             // rr
-            Var l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-            if_(l == 0.0f, break_);
-            Var q = max(l, 0.05f);
-            Var r = lcg(state);
-            if_(r >= q, break_);
+            auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
+            $if(l == 0.0f) { $break; };
+            auto q = max(l, 0.05f);
+            auto r = lcg(state);
+            $if(r >= q) { $break; };
             beta *= 1.0f / q;
         }
         state_image.write(coord, make_uint4(state));
-        if_(any(isnan(radiance)), [&] { radiance = make_float3(0.0f); });
+        $if(any(isnan(radiance))) {
+            radiance = make_float3(0.0f);
+        };
         image.write(coord, make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
-        Var p = dispatch_id().xy();
-        Var accum = accum_image.read(p);
-        Var curr = curr_image.read(p).xyz();
-        Var t = 1.0f / (accum.w + 1.0f);
+        auto p = dispatch_id().xy();
+        auto accum = accum_image.read(p);
+        auto curr = curr_image.read(p).xyz();
+        auto t = 1.0f / (accum.w + 1.0f);
         accum_image.write(p, make_float4(lerp(accum.xyz(), curr, t), accum.w + 1.0f));
     };
 
@@ -290,9 +292,9 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
-        Var coord = dispatch_id().xy();
-        Var hdr = hdr_image.read(coord);
-        Var ldr = linear_to_srgb(aces_tonemapping(hdr.zyx() * scale));
+        auto coord = dispatch_id().xy();
+        auto hdr = hdr_image.read(coord);
+        auto ldr = linear_to_srgb(aces_tonemapping(hdr.zyx() * scale));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
