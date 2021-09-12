@@ -2,7 +2,7 @@
 
 #include <serialize/Common.h>
 #include <serialize/SimpleJsonLoader.h>
-#include <util/VGuid.h>
+#include <vstl/VGuid.h>
 
 namespace toolhub::db {
 

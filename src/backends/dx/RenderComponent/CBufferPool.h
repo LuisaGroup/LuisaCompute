@@ -1,8 +1,8 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <util/VObject.h>
-#include <util/MetaLib.h>
-#include <util/vector.h>
+#include <vstl/VObject.h>
+#include <vstl/MetaLib.h>
+#include <vstl/vector.h>
 #include <RenderComponent/UploadBuffer.h>
 struct ConstBufferElement
 {

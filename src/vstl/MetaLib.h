@@ -1,8 +1,10 @@
 #pragma once
 
-#include <util/vstl_config.h>
 #include <type_traits>
 #include <cstdint>
+#include <span>
+
+#include <vstl/config.h>
 #include <core/basic_types.h>
 
 using uint = uint32_t;
@@ -12,11 +14,11 @@ using int32 = int32_t;
 
 #include <typeinfo>
 #include <new>
-#include <util/Hash.h>
+#include <vstl/Hash.h>
 #include <mutex>
 #include <atomic>
 #include <thread>
-#include <util/AllocateType.h>
+#include <vstl/AllocateType.h>
 
 namespace vstd {
 

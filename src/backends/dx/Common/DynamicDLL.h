@@ -1,7 +1,7 @@
 #pragma once
-#include <util/vstlconfig.h>
-#include <util/vstring.h>
-#include <util/Memory.h>
+#include <vstl/vstlconfig.h>
+#include <vstl/vstring.h>
+#include <vstl/Memory.h>
 #include <Common/Log.h>
 class LUISA_DLL DynamicDLL final : public vstd::IOperatorNewBase {
 	size_t inst;

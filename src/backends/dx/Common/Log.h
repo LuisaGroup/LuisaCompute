@@ -1,6 +1,6 @@
 #pragma once
-#include <util/vstlconfig.h>
-#include <util/vstring.h>
+#include <vstl/vstlconfig.h>
+#include <vstl/vstring.h>
 #include <initializer_list>
 LUISA_DLL void vstl_log(vstd::string_view const& chunk);
 LUISA_DLL void vstl_log(vstd::string_view const* chunk, size_t chunkCount);

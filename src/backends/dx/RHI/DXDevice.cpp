@@ -1,6 +1,6 @@
 #include <codecvt>
 #include <Common/GFXUtil.h>
-#include <util/LockFreeArrayQueue.h>
+#include <vstl/LockFreeArrayQueue.h>
 #include <runtime/device.h>
 #include <RenderComponent/RenderComponentInclude.h>
 #include <RHI/DXStream.hpp>

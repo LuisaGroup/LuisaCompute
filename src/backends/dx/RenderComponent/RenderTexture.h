@@ -1,5 +1,5 @@
 #pragma once
-#include <util/VObject.h>
+#include <vstl/VObject.h>
 #include <Common/GFXUtil.h>
 #include <RenderComponent/TextureBase.h>
 #include <RenderComponent/DescriptorHeap.h>

@@ -11,7 +11,7 @@
 
 #ifndef __D3DX12_H__
 #define __D3DX12_H__
-#include <util/vstlconfig.h>
+#include <vstl/vstlconfig.h>
 #include <d3d12.h>
 #include <Common/Common.h>
 #if defined(__cplusplus)

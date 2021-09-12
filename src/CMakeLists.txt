@@ -24,7 +24,7 @@ endif ()
 
 add_subdirectory(ext)
 add_subdirectory(core)
-add_subdirectory(util)
+add_subdirectory(vstl)
 add_subdirectory(ast)
 add_subdirectory(runtime)
 add_subdirectory(serialize)
@@ -37,7 +37,7 @@ add_subdirectory(python)
 add_library(luisa-compute INTERFACE)
 target_link_libraries(luisa-compute INTERFACE
         luisa-compute-core
-        luisa-compute-util
+        luisa-compute-vstl
         luisa-compute-ast
         luisa-compute-serialize
         luisa-compute-compile

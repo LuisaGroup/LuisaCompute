@@ -1,9 +1,9 @@
 #pragma once
 #include <thread>
-#include <util/MetaLib.h>
-#include <util/Memory.h>
-#include <util/VAllocator.h>
-#include <util/spin_mutex.h>
+#include <vstl/MetaLib.h>
+#include <vstl/Memory.h>
+#include <vstl/VAllocator.h>
+#include <core/spin_mutex.h>
 #include <optional>
 namespace vstd {
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>

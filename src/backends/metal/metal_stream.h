@@ -10,7 +10,7 @@
 #import <MetalKit/MetalKit.h>
 
 #import <core/logging.h>
-#import <util/spin_mutex.h>
+#import <core/spin_mutex.h>
 #import <backends/metal/metal_ring_buffer.h>
 
 namespace luisa::compute::metal {

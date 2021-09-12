@@ -1,11 +1,11 @@
 #pragma once
-#include <util/vstlconfig.h>
+#include <vstl/vstlconfig.h>
 #include <initializer_list>
 #include <JobSystem/JobHandle.h>
-#include <util/Pool.h>
+#include <vstl/Pool.h>
 #include <Common/TypeWiper.h>
-#include <util/Runnable.h>
-#include <util/MetaLib.h>
+#include <vstl/Runnable.h>
+#include <vstl/MetaLib.h>
 #include <JobSystem/JobSystem.h>
 class JobSystem;
 class JobThreadRunnable;

@@ -1,5 +1,5 @@
 #pragma once
-#include <util/vstl_config.h>
+#include <vstl/config.h>
 #include <stdint.h>
 #include <type_traits>
 namespace vstd {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <util/vstl_config.h>
+#include <vstl/config.h>
 #include <initializer_list>
-#include <util/MetaLib.h>
+#include <vstl/MetaLib.h>
 
 namespace vstd {
 

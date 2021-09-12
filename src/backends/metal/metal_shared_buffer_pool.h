@@ -6,7 +6,7 @@
 
 #import <vector>
 
-#import <util/spin_mutex.h>
+#import <core/spin_mutex.h>
 #import <backends/metal/metal_buffer_view.h>
 
 namespace luisa::compute::metal {

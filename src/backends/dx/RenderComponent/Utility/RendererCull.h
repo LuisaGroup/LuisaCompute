@@ -1,6 +1,6 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <util/VObject.h>
+#include <vstl/VObject.h>
 class MeshRenderer;
 class RendererCull
 {

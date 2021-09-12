@@ -7,7 +7,7 @@
 #include <RenderComponent/StructuredBuffer.h>
 #include <RenderComponent/RenderTexture.h>
 #include <RenderComponent/Texture.h>
-#include <util/Memory.h>
+#include <vstl/Memory.h>
 #include <Utility/QuickSort.h>
 #include <PipelineComponent/ThreadCommand.h>
 #include <RenderComponent/UploadBuffer.h>

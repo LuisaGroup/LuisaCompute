@@ -1,6 +1,6 @@
 #pragma once
-#include <util/MetaLib.h>
-#include <util/vector.h>
+#include <vstl/MetaLib.h>
+#include <vstl/vector.h>
 class LUISA_DLL CBVarBase {
 protected:
 	size_t offset;

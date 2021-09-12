@@ -1,12 +1,12 @@
 #pragma once
-#include <util/vstlconfig.h>
+#include <vstl/vstlconfig.h>
 #include <type_traits>
 #include <stdint.h>
 #include <memory>
-#include <util/Pool.h>
-#include <util/vector.h>
-#include <util/Hash.h>
-#include <util/VAllocator.h>
+#include <vstl/Pool.h>
+#include <vstl/vector.h>
+#include <vstl/Hash.h>
+#include <vstl/VAllocator.h>
 
 template<typename K, typename Hash = vstd::hash<K>, typename Equal = std::equal_to<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashPicker {

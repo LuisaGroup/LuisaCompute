@@ -1,6 +1,6 @@
 #pragma vengine_package vengine_dll
 
-#include <util/VGuid.h>
+#include <vstl/VGuid.h>
 
 #ifdef _WIN32
 #include <objbase.h>

@@ -4,9 +4,9 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <util/HashMap.h>
-#include <util/MetaLib.h>
-#include <util/VGuid.h>
+#include <vstl/HashMap.h>
+#include <vstl/MetaLib.h>
+#include <vstl/VGuid.h>
 #include <vector>
 
 namespace vstd {

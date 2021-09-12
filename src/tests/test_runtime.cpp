@@ -5,7 +5,7 @@
 #include <numeric>
 
 #include <core/clock.h>
-#include <util/dynamic_module.h>
+#include <core/dynamic_module.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <runtime/stream.h>

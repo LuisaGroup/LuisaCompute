@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include <util/vstlconfig.h>
+#include <vstl/vstlconfig.h>
 #include <memory>
 //#include <algorithm>
 #include <array>
@@ -11,7 +11,7 @@
 #include <sstream>
 #include <cassert>
 #include <Common/MCollection.h>
-#include <util/vector.h>
+#include <vstl/vector.h>
 #include <Common/DXMath/DXMath.h>
 #include <Common/MathHelper.h>
-#include <util/spin_mutex.h>
+#include <core/spin_mutex.h>

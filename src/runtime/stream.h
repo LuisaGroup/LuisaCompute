@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include <util/spin_mutex.h>
+#include <core/spin_mutex.h>
 #include <runtime/resource.h>
 #include <runtime/event.h>
 #include <runtime/command_list.h>

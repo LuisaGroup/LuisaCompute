@@ -1,7 +1,7 @@
 #pragma once
-#include <util/AllocateType.h>
-#include <util/Memory.h>
-#include <util/StackAllocator.h>
+#include <vstl/AllocateType.h>
+#include <vstl/Memory.h>
+#include <vstl/StackAllocator.h>
 namespace vstd {
 
 template<VEngine_AllocType tt>

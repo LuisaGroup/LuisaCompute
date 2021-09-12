@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <type_traits>
-#include <util/vstl_config.h>
-#include <util/MetaLib.h>
+#include <vstl/config.h>
+#include <vstl/MetaLib.h>
 
 void *vstl_default_malloc(size_t sz);
 void vstl_default_free(void *ptr);

@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
 #include <RenderComponent/IMesh.h>
-#include <util/VObject.h>
+#include <vstl/VObject.h>
 class StructuredBuffer;
 namespace luisa::compute {
 class LCMesh final : public VObject, public IMesh {

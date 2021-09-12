@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/Common.h>
-#include <util/Runnable.h>
-#include <util/VObject.h>
+#include <vstl/Runnable.h>
+#include <vstl/VObject.h>
 #include <span>
 class ThreadPool;
 class LUISA_DLL ThreadTaskHandle {

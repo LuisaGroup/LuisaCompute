@@ -1,8 +1,8 @@
 #pragma once
-#include <util/VObject.h>
-#include <util/vector.h>
+#include <vstl/VObject.h>
+#include <vstl/vector.h>
 #include <RenderComponent/TextureBase.h>
-#include <util/Memory.h>
+#include <vstl/Memory.h>
 class DescriptorHeap;
 class UploadBuffer;
 class TextureHeap;

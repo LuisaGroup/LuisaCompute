@@ -1,5 +1,5 @@
-#include <util/vstl_config.h>
-#include <util/Memory.h>
+#include <vstl/config.h>
+#include <vstl/Memory.h>
 
 // TODO: add mimalloc back after fixing it on macOS
 //#define MIMALLOC_ENABLED

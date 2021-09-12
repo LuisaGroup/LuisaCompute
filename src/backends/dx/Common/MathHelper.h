@@ -5,7 +5,7 @@
 //***************************************************************************************
 
 #pragma once
-#include <util/vstlconfig.h>
+#include <vstl/vstlconfig.h>
 #include <Windows.h>
 #include <DirectXMath.h>
 #include <cstdint>

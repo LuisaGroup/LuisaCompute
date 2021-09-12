@@ -1,5 +1,5 @@
 #pragma once
-#include <util/vstlconfig.h>
+#include <vstl/vstlconfig.h>
 #include <RenderComponent/Utility/IBufferAllocator.h>
 #include <mutex>
 namespace D3D12MA {

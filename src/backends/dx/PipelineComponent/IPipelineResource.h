@@ -1,5 +1,5 @@
 #pragma once
-#include <util/Memory.h>
+#include <vstl/Memory.h>
 #include <mutex>
 class IPipelineResource
 {

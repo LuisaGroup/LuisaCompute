@@ -5,7 +5,7 @@
 #pragma once
 
 #import <Metal/Metal.h>
-#import <util/spin_mutex.h>
+#import <core/spin_mutex.h>
 
 namespace luisa::compute::metal {
 

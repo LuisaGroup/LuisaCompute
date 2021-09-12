@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <util/VObject.h>
-#include <util/MetaLib.h>
+#include <vstl/VObject.h>
+#include <vstl/MetaLib.h>
 #include <RenderComponent/DescriptorHeap.h>
 struct DescHeapElement
 {

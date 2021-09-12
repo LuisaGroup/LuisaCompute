@@ -1,7 +1,7 @@
 #pragma once
 
-#include <util/vstl_config.h>
-#include <util/MD5.h>
+#include <vstl/config.h>
+#include <vstl/MD5.h>
 
 namespace vstd {
 

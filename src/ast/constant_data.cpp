@@ -3,7 +3,7 @@
 //
 
 #include <core/hash.h>
-#include <util/spin_mutex.h>
+#include <core/spin_mutex.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 

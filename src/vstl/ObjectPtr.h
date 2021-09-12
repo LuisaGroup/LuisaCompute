@@ -1,6 +1,6 @@
 #pragma once
-#include <util/Memory.h>
-#include <util/Pool.h>
+#include <vstl/Memory.h>
+#include <vstl/Pool.h>
 namespace vstd {
 
 class PtrLink;

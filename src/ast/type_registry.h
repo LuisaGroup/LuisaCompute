@@ -10,9 +10,9 @@
 #include <tuple>
 #include <sstream>
 
-#include <util/arena.h>
+#include <core/arena.h>
 #include <core/macro.h>
-#include <util/spin_mutex.h>
+#include <core/spin_mutex.h>
 #include <ast/type.h>
 
 namespace luisa::compute {

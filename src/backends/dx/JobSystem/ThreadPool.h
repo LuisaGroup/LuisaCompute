@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/Common.h>
-#include <util/VObject.h>
-#include <util/LockFreeArrayQueue.h>
+#include <vstl/VObject.h>
+#include <vstl/LockFreeArrayQueue.h>
 #include <JobSystem/ThreadTaskHandle.h>
 class LUISA_DLL ThreadPool final {
 	friend class ThreadTaskHandle;

@@ -1,11 +1,11 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <util/VObject.h>
-#include <util/MetaLib.h>
-#include <util/HashMap.h>
+#include <vstl/VObject.h>
+#include <vstl/MetaLib.h>
+#include <vstl/HashMap.h>
 #include <Common/BitArray.h>
-#include <util/vector.h>
-#include <util/RandomVector.h>
+#include <vstl/vector.h>
+#include <vstl/RandomVector.h>
 #include <Struct/RenderTarget.h>
 #include <Utility/ElementAllocator.h>
 #include <RenderComponent/DescriptorHeap.h>

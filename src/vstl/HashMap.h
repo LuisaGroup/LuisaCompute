@@ -2,11 +2,11 @@
 #include <memory>
 #include <stdint.h>
 #include <type_traits>
-#include <util/Hash.h>
-#include <util/MetaLib.h>
-#include <util/Pool.h>
-#include <util/VAllocator.h>
-#include <util/vstl_config.h>
+#include <vstl/Hash.h>
+#include <vstl/MetaLib.h>
+#include <vstl/Pool.h>
+#include <vstl/VAllocator.h>
+#include <vstl/config.h>
 namespace vstd {
 struct HashEqual {
     template<typename A, typename B>

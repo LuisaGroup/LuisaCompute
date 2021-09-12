@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-#include <util/vstl_config.h>
+#include <vstl/config.h>
 namespace vstd {
 
 class Hash {

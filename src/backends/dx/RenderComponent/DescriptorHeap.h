@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <util/VObject.h>
-#include <util/vector.h>
+#include <vstl/VObject.h>
+#include <vstl/vector.h>
 class GPUResourceBase;
 class ThreadCommand;
 enum class BindType : uint {

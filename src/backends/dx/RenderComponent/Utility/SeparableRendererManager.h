@@ -1,7 +1,7 @@
 #pragma once
 #include <Common/GFXUtil.h>
-#include <util/LockFreeArrayQueue.h>
-#include <util/Runnable.h>
+#include <vstl/LockFreeArrayQueue.h>
+#include <vstl/Runnable.h>
 class SeparableRenderer;
 class VENGINE_DLL_RENDERER SeparableRendererManager {
 public:

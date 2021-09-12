@@ -1,5 +1,5 @@
 #pragma once
-#include <util/vstlconfig.h>
+#include <vstl/vstlconfig.h>
 #include <stdint.h>
 #include <memory>
 class BitArray {

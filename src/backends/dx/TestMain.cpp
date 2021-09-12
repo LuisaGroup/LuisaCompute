@@ -5,8 +5,8 @@
 #include <render_graph/rg_system.h>
 #include <render_graph/rg_node.h>
 #include <render_graph/rg_executor.h>
-#include <util/vstring.h>
-#include <util/Runnable.h>
+#include <vstl/vstring.h>
+#include <vstl/Runnable.h>
 
 /*
 void CreateDevice_Test();

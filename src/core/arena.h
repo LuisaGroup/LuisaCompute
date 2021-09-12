@@ -16,7 +16,7 @@
 #include <core/concepts.h>
 #include <core/logging.h>
 #include <core/mathematics.h>
-#include <util/spin_mutex.h>
+#include <core/spin_mutex.h>
 
 namespace luisa {
 

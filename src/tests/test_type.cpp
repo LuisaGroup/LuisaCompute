@@ -12,7 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include <core/logging.h>
-#include <util/arena.h>
+#include <core/arena.h>
 #include <core/hash.h>
 #include <ast/type.h>
 #include <ast/type_registry.h>

@@ -1,7 +1,7 @@
 #pragma vengine_package vengine_dll
-#include <util/ObjectPtr.h>
+#include <vstl/ObjectPtr.h>
 #include <mutex>
-#include <util/spin_mutex.h>
+#include <core/spin_mutex.h>
 namespace vstd {
 
 namespace detail {

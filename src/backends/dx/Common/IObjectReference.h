@@ -1,5 +1,5 @@
 #pragma once
-#include <util/MetaLib.h>
+#include <vstl/MetaLib.h>
 class VObject;
 class IObjectReference {
 public:

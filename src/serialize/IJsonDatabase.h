@@ -1,6 +1,6 @@
 #pragma once
 
-#include <util/VGuid.h>
+#include <vstl/VGuid.h>
 #include <serialize/Common.h>
 #include <serialize/SimpleParser.h>
 

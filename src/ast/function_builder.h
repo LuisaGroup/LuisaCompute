@@ -6,9 +6,9 @@
 
 #include <vector>
 
-#include <util/arena.h>
+#include <core/arena.h>
 #include <core/hash.h>
-#include <util/spin_mutex.h>
+#include <core/spin_mutex.h>
 
 #include <ast/statement.h>
 #include <ast/function.h>

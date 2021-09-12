@@ -8,7 +8,7 @@
 #include <filesystem>
 #include <unordered_map>
 
-#include <util/dynamic_module.h>
+#include <core/dynamic_module.h>
 #include <runtime/device.h>
 
 namespace luisa::compute {
