@@ -12,11 +12,11 @@ int main(int argc, char *argv[]) {
     auto bin_dir = std::filesystem::canonical(argv[0]).parent_path();
     DynamicModule module{bin_dir, "luisa-compute-serialize-json"};
     auto factory = std::invoke(module.function<DatabaseFactory>(database_factory_symbol));
-    auto database = factory->CreateDatabase();
+    auto database = factory->CreateConcurrentDatabase();
     auto dict = database->CreateDict();
     auto array = database->CreateArray();
     array->Add("Hello");
     array->Add(0);
-    dict->Set("Hello", array.get());
+    dict->Set("Hello", std::move(array));
     LUISA_INFO("{}", database->Print());
 }

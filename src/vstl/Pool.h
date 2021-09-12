@@ -117,7 +117,7 @@ public:
         allPtrs.push_back(ptr);
     }
 
-    ~Pool() {
+    ~Pool() override {
         for (auto &&i : allocatedPtrs) {
             PoolFree(i);
         }
