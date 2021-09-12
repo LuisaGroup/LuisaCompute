@@ -14,5 +14,5 @@ VENGINE_DLL_COMMON void VEngine_Log_PureVirtual(Type tarType);
 
 #define NOT_IMPLEMENT_EXCEPTION(T)                    \
     VEngine_Log({#T##_sv, " not implemented!\n"_sv}); \
-    VENGINE_EXIT;
+    VSTL_ABORT();
 }// namespace vstd

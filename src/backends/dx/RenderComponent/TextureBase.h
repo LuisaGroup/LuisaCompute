@@ -67,6 +67,6 @@ public:
 	virtual void BindSRVToHeap(DescriptorHeap* targetHeap, uint index, GFXDevice* device) const = 0;
 	virtual uint GetGlobalUAVDescIndex(uint mipLevel) const {
 		VEngine_Log("GetGlobalUAVDescIndex Not Implemented!"_sv);
-		VENGINE_EXIT;
+		VSTL_ABORT();
 	}
 };

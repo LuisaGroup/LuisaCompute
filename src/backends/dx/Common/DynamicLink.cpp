@@ -47,7 +47,7 @@ void AddFunc(
 		VEngine_Log(
 			{"Functor Name Conflict: ",
 			 name});
-		VENGINE_EXIT;
+		VSTL_ABORT();
 	}
 }
 
@@ -70,7 +70,7 @@ void const* GetFuncPair(
 				 checkType.GetType().name(),
 				 "\ntarget type: ",
 				 v.funcType.GetType().name()});
-			VENGINE_EXIT;
+			VSTL_ABORT();
 			return nullptr;
 		}
 #endif

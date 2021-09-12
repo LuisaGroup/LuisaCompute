@@ -24,7 +24,7 @@ public:
 				{"Failed Allocate Type ",
 				 typeid(T).name(),
 				 "\n"});
-			VENGINE_EXIT;
+			VSTL_ABORT();
 		}
 		if (!poolInited) {
 			std::lock_guard lck(transPoolLock);
@@ -40,7 +40,7 @@ public:
 				{"Failed Deallocate Type ",
 				 typeid(T).name(),
 				 "\n"});
-			VENGINE_EXIT;
+			VSTL_ABORT();
 		}
 		std::lock_guard lck(transAllocLock);
 		globalTransformPool->Delete(ptr);

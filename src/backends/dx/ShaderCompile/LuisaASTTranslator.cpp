@@ -1049,7 +1049,7 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vstd::string& result,
 			break;
 		default:
 			VEngine_Log("Function Not Implemented"_sv);
-			VENGINE_EXIT;
+			VSTL_ABORT();
 	}
 	func();
 }

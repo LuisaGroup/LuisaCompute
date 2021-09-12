@@ -7,11 +7,14 @@
 #include <serialize/SimpleParser.h>
 
 namespace toolhub::db {
+
 namespace parser {
 
 template<typename T>
 struct StateRecorder {
+
     T states[std::numeric_limits<char>::max() + 1];
+
     template<typename Mutex, typename Func>
     StateRecorder(
         Mutex &globalMutex,
@@ -21,20 +24,18 @@ struct StateRecorder {
             memset(states, 0, sizeof(states));
         initFunc(states);
     }
+
     template<typename Func>
-    StateRecorder(
-        Func &&initFunc) {
+    explicit StateRecorder(Func &&initFunc) {
         if constexpr (std::is_trivially_constructible_v<T>)
             memset(states, 0, sizeof(states));
         initFunc(states);
     }
-    T const &Get(char p) const {
-        return states[p];
-    }
-    T const &operator[](char p) const {
-        return states[p];
-    }
+
+    [[nodiscard]] T const &Get(char p) const { return states[p]; }
+    T const &operator[](char p) const { return states[p]; }
 };
+
 enum class OutsideState : uint8_t {
     None,
     BeginDict,
@@ -50,12 +51,15 @@ enum class OutsideState : uint8_t {
     Guid,
     Keyword
 };
+
 struct StateRecorders {
+
     StateRecorder<OutsideState> outsideStates;
     StateRecorder<bool> keywordStates;
     StateRecorder<bool> guidCheck;
     StateRecorder<bool> numCheck;
     StateRecorder<bool> spaces;
+
     static void InitOutSideState(OutsideState *ptr) {
         ptr['{'] = OutsideState::BeginDict;
         ptr['}'] = OutsideState::EndDict;
@@ -79,6 +83,7 @@ struct StateRecorders {
             i = OutsideState::Keyword;
         }
     }
+
     static void InitKeywordState(bool *ptr) {
         for (auto &&i : vstd::ptr_range(ptr + 48, ptr + 58)) {
             i = true;
@@ -91,6 +96,7 @@ struct StateRecorders {
         }
         ptr['_'] = true;
     }
+
     StateRecorders()
         : outsideStates(InitOutSideState),
           keywordStates(InitKeywordState),
@@ -114,14 +120,14 @@ struct StateRecorders {
                   ptr['\t'] = true;
                   ptr['\r'] = true;
                   ptr['\n'] = true;
-              })
-
-    {
-    }
+              }) {}
 };
+
 static luisa::spin_mutex recorderIsInited;
 static vstd::optional<StateRecorders> recorders;
+
 class SimpleJsonParser : public vstd::IOperatorNewBase {
+
     static char const *GetNextChar(char const *ptr, char const *end) {
         auto &&s = recorders->spaces;
         while (ptr != end) {
@@ -147,6 +153,7 @@ public:
             double,
             vstd::Guid>
             data;
+
         template<typename... Args>
         Field(Args &&...a)
             : data(std::forward<Args>(a)...) {
@@ -160,6 +167,7 @@ private:
     vstd::HashMap<std::string_view, Field *> keywords;
     std::string_view keywordName;
     std::vector<Field *> fieldStack;
+
     enum class StreamState : uint8_t {
         None,
         SearchKey,
@@ -168,6 +176,7 @@ private:
         SearchContinue,
         SearchKeyword
     };
+
     StreamState streamer = StreamState::None;
     Field *lastField = nullptr;
     Field *rootField = nullptr;
@@ -196,6 +205,7 @@ private:
         ++ptr;
         return true;
     }
+
     bool SetLastFieldState(std::string &errorStr) {
         if (fieldStack.empty()) {
             streamer = StreamState::None;
@@ -228,6 +238,7 @@ private:
         }
         return true;
     }
+
     bool EndDict(char const *&ptr, char const *const end, std::string &errorStr) {
         if (fieldStack.empty() || (*(fieldStack.end() - 1))->data.GetType() == 0) {
             errorStr = ("Illegal character '}'");
@@ -239,7 +250,9 @@ private:
         ++ptr;
         return SetLastFieldState(errorStr);
     }
+
     bool BeginComment(char const *&ptr, char const *end, std::string &errorStr) {
+        static_cast<void>(this);
         ++ptr;
         switch (*ptr) {
             default:
@@ -261,6 +274,7 @@ private:
         }
         return true;
     }
+
     bool BeginArray(char const *&ptr, char const *const end, std::string &errorStr) {
         switch (streamer) {
             case StreamState::SearchElement:
@@ -284,6 +298,7 @@ private:
         ++ptr;
         return true;
     }
+
     bool EndArray(char const *&ptr, char const *const end, std::string &errorStr) {
         if (fieldStack.empty() || (*(fieldStack.end() - 1))->data.GetType() == 1) {
             errorStr = ("Illegal character ']'");
@@ -295,6 +310,7 @@ private:
         ++ptr;
         return SetLastFieldState(errorStr);
     }
+
     bool Continue(char const *&ptr, char const *const end, std::string &errorStr) {
         if (streamer != StreamState::SearchContinue) {
             errorStr = ("Illegal character ','");
@@ -314,6 +330,7 @@ private:
         }
         return true;
     }
+
     template<typename T>
     bool SetStringField(T &&str, std::string &errorStr) {
         switch (streamer) {
@@ -358,16 +375,20 @@ private:
         }
         return true;
     }
+
     template<typename A, typename B, bool value>
     struct TypeSelector;
+
     template<typename A, typename B>
     struct TypeSelector<A, B, false> {
         using Type = A;
     };
+
     template<typename A, typename B>
     struct TypeSelector<A, B, true> {
         using Type = B;
     };
+
     bool Number(char const *&ptr, char const *const end, std::string &errorStr) {
         char const *start = ptr;
         do {
@@ -450,12 +471,13 @@ private:
                 GetRate))
             return false;
         if (ratePart || floatPart) {
-            double value = (integerPart + (floatPart ? *floatPart : 0)) * (ratePart ? pow(10, *ratePart) : 1);
+            double value = (static_cast<double>(integerPart) + (floatPart ? *floatPart : 0)) * (ratePart ? pow(10, *ratePart) : 1);
             return SetStringField(value, errorStr);
         } else {
             return SetStringField(integerPart, errorStr);
         }
     }
+
     bool Guid(char const *&ptr, char const *const end, std::string &errorStr) {
         ptr++;
         char const *start = ptr;
@@ -473,6 +495,7 @@ private:
         }
         return SetStringField(vstd::Guid(guidStr), errorStr);
     }
+
     template<char beginEnd>
     bool String(char const *&ptr, char const *const end, std::string &errorStr) {
         ptr++;
@@ -530,6 +553,7 @@ private:
         ++ptr;
         return SetStringField(std::move(chars), errorStr);
     }
+
     bool Cut(char const *&ptr, char const *const end, std::string &errorStr) {
         if (streamer != StreamState::SearchKeyValueCut) {
             errorStr = ("Illegal character ':'");
@@ -604,6 +628,7 @@ private:
         }
         return true;
     }
+
     WriteJsonVariant PrintField(Field *field) {
         return field->data.visit_with_default(
             WriteJsonVariant(),
@@ -626,7 +651,9 @@ private:
                 return WriteJsonVariant(v);
             });
     }
-    IJsonDatabase *db;
+
+    IJsonDatabase *db{};
+
     void SetDict(
         IJsonDict *dict,
         std::vector<std::pair<
@@ -649,9 +676,10 @@ private:
                     return Key(v);
                 });
             auto value = PrintField(i.second);
-            dict->Set(std::move(key), std::move(value));
+            dict->Set(key, std::move(value));
         }
     }
+
     UniquePtr<IJsonDict> PrintDict(
         std::vector<std::pair<
             vstd::variant<
@@ -663,6 +691,7 @@ private:
         SetDict(dict.get(), v);
         return dict;
     }
+
     void SetArray(
         IJsonArray *arr,
         std::vector<Field *> const &v) {
@@ -671,11 +700,13 @@ private:
             arr->Add(PrintField(i));
         }
     }
+
     UniquePtr<IJsonArray> PrintArray(std::vector<Field *> const &v) {
         auto arr = db->CreateArray();
         SetArray(arr.get(), v);
         return arr;
     }
+
     template<bool escapeFirst>
     std::string_view GetKeyword(char const *&ptr, char const *const end) {
         char const *start = ptr;
@@ -687,12 +718,13 @@ private:
         ptr++;
         while (ptr != end) {
             if (!recorders->keywordStates[*ptr]) {
-                return std::string_view(start, ptr - start);
+                return {start, static_cast<size_t>(ptr - start)};
             }
             ptr++;
         }
-        return std::string_view(start, end - start);
+        return {start, static_cast<size_t>(end - start)};
     }
+
     bool BeginKeyword(char const *&ptr, char const *const end, std::string &errorStr) {
         auto var = GetKeyword<true>(ptr, end);
         switch (streamer) {
@@ -704,7 +736,7 @@ private:
                 }
                 ptr = GetNextChar(ptr, end);
                 keywordName = GetKeyword<false>(ptr, end);
-                if (keywordName.size() == 0) {
+                if (keywordName.empty()) {
                     errorStr += "Need variable name!";
                     return false;
                 }
@@ -715,7 +747,8 @@ private:
                 }
                 ptr++;
                 streamer = StreamState::SearchKeyword;
-            } break;
+                break;
+            }
             case StreamState::SearchKey:
             case StreamState::SearchElement: {
                 auto ite = keywords.Find(var);
@@ -762,8 +795,8 @@ private:
                             return false;
                         break;
                 }
-                //SetStringField<
-            } break;
+                break;
+            }
             default:
                 errorStr += "unexpected word: ";
                 errorStr += var;
@@ -775,14 +808,14 @@ private:
 public:
     bool Parse(
         std::string_view str,
-        IJsonDatabase *db,
+        IJsonDatabase *database,
         IJsonDict *dict, std::string &errorStr) {
         if (!M_Parse(str, errorStr))
             return false;
         if (rootField == nullptr) {
             return true;
         }
-        this->db = db;
+        this->db = database;
         if (rootField->data.GetType() != 1) {
             errorStr = ("Try parsing a non-dict text to dict");
             return false;
@@ -792,16 +825,17 @@ public:
             rootField->data.get<1>());
         return true;
     }
+
     bool Parse(
         std::string_view str,
-        IJsonDatabase *db,
+        IJsonDatabase *database,
         IJsonArray *arr, std::string &errorStr) {
         if (!M_Parse(str, errorStr))
             return false;
         if (rootField == nullptr) {
             return true;
         }
-        this->db = db;
+        this->db = database;
         if (rootField->data.GetType() != 2) {
             errorStr = ("Try parsing a non-array text to array");
             return false;
@@ -811,6 +845,7 @@ public:
             rootField->data.get<2>());
         return true;
     }
+
     SimpleJsonParser(
         decltype(fieldPool) poolPtr,
         std::vector<SimpleJsonParser> *subParserPtr) {
@@ -821,13 +856,13 @@ public:
         fieldPool = poolPtr;
         subParsers = subParserPtr;
     }
-    ~SimpleJsonParser() {
-    }
+    ~SimpleJsonParser() override = default;
     SimpleJsonParser(SimpleJsonParser const &) = delete;
     SimpleJsonParser(SimpleJsonParser &&) = default;
 };
 
 }// namespace parser
+
 template<typename T>
 vstd::optional<ParsingException> RunParse(
     T *ptr,
@@ -844,19 +879,22 @@ vstd::optional<ParsingException> RunParse(
     if (!parser.Parse(str, db, ptr, msg)) {
         return ParsingException(std::move(msg));
     }
-    return vstd::optional<ParsingException>();
+    return {};
 }
+
 vstd::optional<ParsingException> SimpleBinaryJson::Parse(
     std::string_view str, bool clearLast) {
     return RunParse<SimpleJsonValueDict>(
         static_cast<SimpleJsonValueDict *>(GetRootNode()), this, str, clearLast);
 }
+
 vstd::optional<ParsingException> SimpleJsonValueDict::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<IJsonDict>(
         this, db, str, clearLast);
 }
+
 vstd::optional<ParsingException> SimpleJsonValueArray::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
@@ -870,16 +908,19 @@ vstd::optional<ParsingException> ConcurrentBinaryJson::Parse(
     return RunParse<ConcurrentJsonValueDict>(
         static_cast<ConcurrentJsonValueDict *>(GetRootNode()), this, str, clearLast);
 }
+
 vstd::optional<ParsingException> ConcurrentJsonValueDict::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<IJsonDict>(
         this, db, str, clearLast);
 }
+
 vstd::optional<ParsingException> ConcurrentJsonValueArray::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<IJsonArray>(
         this, db, str, clearLast);
 }
+
 }// namespace toolhub::db

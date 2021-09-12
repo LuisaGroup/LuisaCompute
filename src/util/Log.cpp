@@ -62,6 +62,6 @@ void VEngine_Log_PureVirtual(Type tarType) {
     d += tarType.GetType().name();
     d += '\n';
     VEngine_Log(d.c_str());
-    VENGINE_EXIT;
+    VSTL_ABORT();
 }
 }// namespace vstd

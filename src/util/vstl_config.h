@@ -9,7 +9,7 @@
 #define m128_f32 vector4_f32
 #define m128_u32 vector4_u32
 #include <cstdlib>
-#define VENGINE_EXIT std::abort()
+#define VSTL_ABORT() std::abort()
 #endif
 #ifndef UNICODE
 #define UNICODE//Disable this in non-unicode system

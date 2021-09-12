@@ -33,7 +33,7 @@ public:
 			VEngine_Log(
 				{"Can not find function ",
 				 name});
-			VENGINE_EXIT;
+			VSTL_ABORT();
 		}
 		funcPtr = reinterpret_cast<T>(ptr);
 	}
@@ -45,7 +45,7 @@ public:
 			VEngine_Log(
 				{"Can not find function ",
 				 name});
-			VENGINE_EXIT;
+			VSTL_ABORT();
 		}
 		return reinterpret_cast<funcPtr_t<T>>(ptr);
 	}

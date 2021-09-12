@@ -113,7 +113,7 @@ public:
             new (storage) T(*value);
         } else {
             VEngine_Log(typeid(T));
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
     }
     StackObject(SelfType &&value) {
@@ -121,7 +121,7 @@ public:
             new (storage) T(std::move(*value));
         } else {
             VEngine_Log(typeid(T));
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
     }
     template<typename... Args>
@@ -136,7 +136,7 @@ public:
             New(*value);
         } else {
             VEngine_Log(typeid(T));
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
         return **this;
     }
@@ -148,7 +148,7 @@ public:
             New(std::move(*value));
         } else {
             VEngine_Log(typeid(T));
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
         return **this;
     }
@@ -160,7 +160,7 @@ public:
             New(value);
         } else {
             VEngine_Log(typeid(T));
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
         return **this;
     }
@@ -175,7 +175,7 @@ public:
             New(std::move(value));
         } else {
             VEngine_Log(typeid(T));
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
         return **this;
     }
@@ -298,7 +298,7 @@ public:
                 stackObj.New(*value);
             } else {
                 VEngine_Log(typeid(T));
-                VENGINE_EXIT;
+                VSTL_ABORT();
             }
         }
     }
@@ -309,7 +309,7 @@ public:
                 stackObj.New(std::move(*value));
             } else {
                 VEngine_Log(typeid(T));
-                VENGINE_EXIT;
+                VSTL_ABORT();
             }
         }
     }
@@ -324,7 +324,7 @@ public:
                     stackObj.New(*value);
                 } else {
                     VEngine_Log(typeid(T));
-                    VENGINE_EXIT;
+                    VSTL_ABORT();
                 }
                 initialized = true;
             }
@@ -345,7 +345,7 @@ public:
                     stackObj.New(std::move(*value));
                 } else {
                     VEngine_Log(typeid(T));
-                    VENGINE_EXIT;
+                    VSTL_ABORT();
                 }
                 initialized = true;
             }
@@ -365,7 +365,7 @@ public:
                 stackObj.New(value);
             } else {
                 VEngine_Log(typeid(T));
-                VENGINE_EXIT;
+                VSTL_ABORT();
             }
             initialized = true;
 
@@ -380,7 +380,7 @@ public:
                 stackObj.New(std::move(value));
             } else {
                 VEngine_Log(typeid(T));
-                VENGINE_EXIT;
+                VSTL_ABORT();
             }
             initialized = true;
         } else {
@@ -795,7 +795,7 @@ private:
         static void Copy(size_t v, void *ptr, void const *dstPtr) {
             if constexpr (!std::is_copy_constructible_v<B>) {
                 VEngine_Log(typeid(B));
-                VENGINE_EXIT;
+                VSTL_ABORT();
             } else {
 
                 if (v == 0) {
@@ -808,7 +808,7 @@ private:
         static void Move(size_t v, void *ptr, void *dstPtr) {
             if constexpr (!std::is_move_constructible_v<B>) {
                 VEngine_Log(typeid(B));
-                VENGINE_EXIT;
+                VSTL_ABORT();
             } else {
 
                 if (v == 0) {
@@ -940,7 +940,7 @@ public:
 #ifdef DEBUG
         if (i != switcher) {
             VEngine_Log("Try get wrong variant type!\n");
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
 #endif
         return Constructor<AA...>::template Get<i>(&placeHolder);
@@ -950,7 +950,7 @@ public:
 #ifdef DEBUG
         if (i != switcher) {
             VEngine_Log("Try get wrong variant type!\n");
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
 #endif
         return Constructor<AA...>::template Get<i>(&placeHolder);
@@ -982,7 +982,7 @@ public:
 #ifdef DEBUG
         if (tarIdx != switcher) {
             VEngine_Log("Try get wrong variant type!\n");
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
 #endif
         return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
@@ -995,7 +995,7 @@ public:
 #ifdef DEBUG
         if (tarIdx != switcher) {
             VEngine_Log("Try get wrong variant type!\n");
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
 #endif
         return Constructor<AA...>::template Get<tarIdx>(&placeHolder);

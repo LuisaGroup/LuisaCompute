@@ -25,7 +25,7 @@ Guid::Guid(GuidData const &d) {
 Guid::Guid(std::string_view strv) {
     if (strv.size() != sizeof(GuidData) * 2) {
         VEngine_Log("Wrong guid string length!\n");
-        VENGINE_EXIT;
+        VSTL_ABORT();
     }
     char const *ptr = &*strv.begin();
     auto toHex = [&]() {
@@ -54,7 +54,7 @@ Guid::Guid(std::string_view strv) {
                 case 'D': return 13;
                 case 'E': return 14;
                 case 'F': return 15;
-                default: VENGINE_EXIT;
+                default: VSTL_ABORT();
             }
         };
         auto endPtr = ptr + sizeof(uint64) * 2;
@@ -74,7 +74,7 @@ Guid::Guid(std::string_view strv) {
 Guid::Guid(std::span<uint8_t> data) {
     if (data.size() != sizeof(GuidData) * 2) {
         VEngine_Log("Wrong guid string length!\n");
-        VENGINE_EXIT;
+        VSTL_ABORT();
     }
     memcpy(&this->data, data.data(), sizeof(GuidData));
 }
@@ -113,7 +113,7 @@ void Guid::ReGenerate() {
 #ifdef DEBUG
     if (h != S_OK) {
         VEngine_Log("GUID Generate Failed!\n");
-        VENGINE_EXIT;
+        VSTL_ABORT();
     }
 #endif
 #elif defined(__linux__) || defined(__unix__)

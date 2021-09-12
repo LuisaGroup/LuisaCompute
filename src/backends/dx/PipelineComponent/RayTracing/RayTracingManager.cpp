@@ -206,7 +206,7 @@ RayTracingManager::RayTracingManager(
 		auto ite = allBottomLevel.Find(ptr->mesh->GetVObjectPtr()->GetInstanceID());
 		if (!ite) {
 			VEngine_Log("Ray Renderer Contains No Mesh!\n"_sv);
-			VENGINE_EXIT;
+			VSTL_ABORT();
 		}
 
 		ptr->instanceDesc.AccelerationStructure = ite.Value().bottomBufferChunk->GetAddress(0, 0).address;

@@ -35,7 +35,7 @@ struct StackData {
 #ifdef DEBUG
         if (reinterpret_cast<size_t>(offset) - reinterpret_cast<size_t>(data) > VENGINE_STACK_LENGTH) {
             VEngine_Log("Stack-Overflow!\n");
-            VENGINE_EXIT;
+            VSTL_ABORT();
         }
 #endif
         return ptr;

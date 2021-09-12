@@ -6,7 +6,7 @@ DynamicDLL::DynamicDLL(char const* name) {
 	if (inst == 0) {
 		LUISA_ERROR_WITH_LOCATION(
 			"Can not find DLL ");
-		VENGINE_EXIT;
+		VSTL_ABORT();
 	}
 }
 DynamicDLL::~DynamicDLL() {

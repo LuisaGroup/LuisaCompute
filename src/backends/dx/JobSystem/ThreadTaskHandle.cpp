@@ -165,7 +165,7 @@ void ThreadTaskHandle::AddDepend(std::span<ThreadTaskHandle const> handles) cons
 		TaskState state = static_cast<TaskState>(p->state.load(std::memory_order_acquire));
 		if (state != TaskState::Waiting) {
 			VEngine_Log("Try To depend on a executed job!\n");
-			VENGINE_EXIT;
+			VSTL_ABORT();
 		}
 		TaskData* self = selfPtr;
 		self->dependingJob.push_back(dep);

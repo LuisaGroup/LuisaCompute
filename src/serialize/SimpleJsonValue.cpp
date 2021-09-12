@@ -3,6 +3,7 @@
 #include <serialize/Common.h>
 #include <serialize/SimpleBinaryJson.h>
 #include <serialize/SimpleJsonValue.h>
+
 namespace toolhub::db {
 
 class DictIEnumerator final : public vstd::IEnumerable<JsonKeyPair>, public vstd::IOperatorNewBase {
@@ -27,6 +28,7 @@ public:
         ++ite;
     };
 };
+
 class ArrayIEnumerator final : public vstd::IEnumerable<ReadJsonVariant>, public vstd::IOperatorNewBase {
 public:
     using BegType = decltype(std::declval<const std::vector<SimpleJsonVariant>>().begin());
@@ -51,14 +53,17 @@ public:
         delete this;
     }
 };
+
 struct BinaryHeader {
     uint64 preDefine;
     uint64 size;
     uint64 postDefine;
 };
+
 static void SerPreProcess(std::vector<uint8_t> &data) {
     data.resize(sizeof(uint64));
 }
+
 template<bool isDict>
 static void SerPostProcess(std::vector<uint8_t> &data) {
     uint64 hashValue;
@@ -70,6 +75,7 @@ static void SerPostProcess(std::vector<uint8_t> &data) {
     }
     *reinterpret_cast<uint64 *>(data.data()) = hashValue;
 }
+
 template<bool isDict>
 static bool DeserCheck(std::span<uint8_t const> &sp) {
     uint64 hashValue;
@@ -83,6 +89,7 @@ static bool DeserCheck(std::span<uint8_t const> &sp) {
     sp = sp.subspan(sizeof(uint64));
     return v;
 }
+
 static void PrintString(std::string const &str, std::string &result) {
     result += '\"';
     char const *last = str.c_str();
@@ -117,6 +124,7 @@ static void PrintString(std::string const &str, std::string &result) {
     Flush(str.data() + str.size());
     result += '\"';
 }
+
 template<typename Dict, typename Array>
 static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, std::string &str, size_t layer, size_t valueLayer, bool emptySpaceBeforeOb) {
     auto func = [&](auto &&v) {
@@ -161,6 +169,7 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, std::string &str,
             break;
     }
 }
+
 static void PrintKeyVariant(SimpleJsonKey const &v, std::string &str) {
     auto func = [&](auto &&v) {
         str += std::to_string(v);
@@ -182,6 +191,7 @@ static void PrintKeyVariant(SimpleJsonKey const &v, std::string &str) {
             break;
     }
 }
+
 template<typename Dict, typename Array>
 static void PrintDict(KVMap &vars, std::string &str, size_t space) {
     str.insert(str.size(), ' ', space);
@@ -207,6 +217,7 @@ static void PrintDict(KVMap &vars, std::string &str, size_t space) {
         index++;
     }
 }
+
 template<typename Dict, typename Array>
 static void PrintArray(std::vector<SimpleJsonVariant> &arr, std::string &str, size_t space) {
     str.insert(str.size(), ' ', space);
@@ -229,23 +240,26 @@ static void PrintArray(std::vector<SimpleJsonVariant> &arr, std::string &str, si
         index++;
     }
 }
+
 //////////////////////////  Single Thread
-SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db) {
+SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db) : SimpleJsonValue{} {
     this->db = db;
 }
-SimpleJsonValueDict::~SimpleJsonValueDict() {
-}
+
+SimpleJsonValueDict::~SimpleJsonValueDict() = default;
+
 ReadJsonVariant SimpleJsonValueDict::Get(Key const &key) {
     if (!key.valid())
-        return ReadJsonVariant();
+        return {};
     auto ite = vars.Find(key);
     if (ite)
         return ite.Value().GetVariant();
-    return ReadJsonVariant();
+    return {};
 }
+
 WriteJsonVariant SimpleJsonValueDict::GetAndSet(Key const &key, WriteJsonVariant &&newValue) {
     if (!key.valid())
-        return WriteJsonVariant();
+        return {};
     auto ite = vars.Find(key);
     if (ite) {
         auto result = std::move(ite.Value().value);
@@ -259,26 +273,28 @@ WriteJsonVariant SimpleJsonValueDict::GetAndSet(Key const &key, WriteJsonVariant
         if (newValue.valid()) {
             vars.ForceEmplace(key, std::move(newValue));
         }
-        return WriteJsonVariant();
+        return {};
     }
 }
+
 WriteJsonVariant SimpleJsonValueDict::GetAndRemove(Key const &key) {
     if (!key.valid())
-        return WriteJsonVariant();
+        return {};
     auto ite = vars.Find(key);
     if (ite) {
         auto result = std::move(ite.Value().value);
         vars.Remove(ite);
         return result;
     } else
-        return WriteJsonVariant();
+        return {};
 }
-void SimpleJsonValueDict::Set(Key const &key, WriteJsonVariant &&value) {
 
+void SimpleJsonValueDict::Set(Key const &key, WriteJsonVariant &&value) {
     if (key.valid() && value.valid()) {
         vars.ForceEmplace(key, std::move(value));
     }
 }
+
 bool SimpleJsonValueDict::TrySet(Key const &key, WriteJsonVariant &&value) {
     if (key.valid() && value.valid()) {
         return vars.TryEmplace(key, std::move(value)).second;
@@ -295,6 +311,7 @@ void SimpleJsonValueDict::Remove(Key const &key) {
 size_t SimpleJsonValueDict::Length() {
     return vars.size();
 }
+
 std::vector<uint8_t> SimpleJsonValueDict::Serialize() {
     std::vector<uint8_t> result;
     SerPreProcess(result);
@@ -302,6 +319,7 @@ std::vector<uint8_t> SimpleJsonValueDict::Serialize() {
     SerPostProcess<true>(result);
     return result;
 }
+
 void SimpleJsonValueDict::M_GetSerData(std::vector<uint8_t> &data) {
     PushDataToVector<uint64>(vars.size(), data);
     for (auto &&kv : vars) {
@@ -313,7 +331,7 @@ void SimpleJsonValueDict::M_GetSerData(std::vector<uint8_t> &data) {
 void SimpleJsonValueDict::LoadFromSer(std::span<uint8_t const> &sp) {
     auto sz = PopValue<uint64>(sp);
     vars.reserve(sz);
-    for (auto i : vstd::range(sz)) {
+    for (auto i : vstd::range(static_cast<int64_t>(sz))) {
         auto key = PopValue<SimpleJsonKey::ValueType>(sp);
         vars.Emplace(std::move(key), SimpleJsonLoader::DeSerialize(sp, db));
     }
@@ -326,16 +344,17 @@ void SimpleJsonValueDict::Reset() {
 void SimpleJsonValueDict::Dispose() {
     db->dictValuePool.Delete(this);
 }
+
 void SimpleJsonValueArray::Dispose() {
     db->arrValuePool.Delete(this);
 }
 
 SimpleJsonValueArray::SimpleJsonValueArray(
-    SimpleBinaryJson *db) {
+    SimpleBinaryJson *db) : SimpleJsonValue{} {
     this->db = db;
 }
-SimpleJsonValueArray::~SimpleJsonValueArray() {
-}
+
+SimpleJsonValueArray::~SimpleJsonValueArray() = default;
 
 size_t SimpleJsonValueArray::Length() {
     return arr.size();
@@ -348,6 +367,7 @@ std::vector<uint8_t> SimpleJsonValueArray::Serialize() {
     SerPostProcess<false>(result);
     return result;
 }
+
 void SimpleJsonValueArray::M_GetSerData(std::vector<uint8_t> &data) {
     PushDataToVector<uint64>(arr.size(), data);
     for (auto &&v : arr) {
@@ -358,7 +378,7 @@ void SimpleJsonValueArray::M_GetSerData(std::vector<uint8_t> &data) {
 void SimpleJsonValueArray::LoadFromSer(std::span<uint8_t const> &sp) {
     auto sz = PopValue<uint64>(sp);
     arr.reserve(sz);
-    for (auto i : vstd::range(sz)) {
+    for (auto i : vstd::range(static_cast<int64_t>(sz))) {
         arr.emplace_back(SimpleJsonLoader::DeSerialize(sp, db));
     }
 }
@@ -369,7 +389,7 @@ void SimpleJsonValueArray::Reset() {
 
 ReadJsonVariant SimpleJsonValueArray::Get(size_t index) {
     if (index >= arr.size())
-        return ReadJsonVariant();
+        return {};
     return arr[index].GetVariant();
 }
 
@@ -395,7 +415,7 @@ void SimpleJsonValueArray::Add(WriteJsonVariant &&value) {
 
 WriteJsonVariant SimpleJsonValueArray::GetAndSet(size_t index, WriteJsonVariant &&newValue) {
     if (index >= arr.size())
-        return WriteJsonVariant();
+        return {};
     WriteJsonVariant result = std::move(arr[index].value);
     if (newValue.valid())
         arr[index] = std::move(newValue);
@@ -405,7 +425,7 @@ WriteJsonVariant SimpleJsonValueArray::GetAndSet(size_t index, WriteJsonVariant 
 }
 WriteJsonVariant SimpleJsonValueArray::GetAndRemove(size_t index) {
     if (index >= arr.size())
-        return WriteJsonVariant();
+        return {};
     WriteJsonVariant result = std::move(arr[index].value);
     arr.erase(arr.begin() + index);
     return result;
@@ -414,26 +434,30 @@ WriteJsonVariant SimpleJsonValueArray::GetAndRemove(size_t index) {
 void SimpleJsonValueDict::M_Print(std::string &str, size_t space) {
     PrintDict<SimpleJsonValueDict, SimpleJsonValueArray>(vars, str, space);
 }
+
 void SimpleJsonValueArray::M_Print(std::string &str, size_t space) {
     PrintArray<SimpleJsonValueDict, SimpleJsonValueArray>(arr, str, space);
 }
+
 //////////////////////////  Multi-Thread
 ConcurrentJsonValueDict::ConcurrentJsonValueDict(ConcurrentBinaryJson *db) {
     this->db = db;
 }
-ConcurrentJsonValueDict::~ConcurrentJsonValueDict() {
-}
+
+ConcurrentJsonValueDict::~ConcurrentJsonValueDict() = default;
+
 ReadJsonVariant ConcurrentJsonValueDict::Get(Key const &key) {
     if (!key.valid())
-        return ReadJsonVariant();
+        return {};
     auto ite = vars.Find(key);
     if (ite)
         return ite.Value().GetVariant_Concurrent();
-    return ReadJsonVariant();
+    return {};
 }
+
 WriteJsonVariant ConcurrentJsonValueDict::GetAndSet(Key const &key, WriteJsonVariant &&newValue) {
     if (!key.valid())
-        return WriteJsonVariant();
+        return {};
     std::lock_guard lck(mtx);
     auto ite = vars.Find(key);
     if (ite) {
@@ -448,9 +472,10 @@ WriteJsonVariant ConcurrentJsonValueDict::GetAndSet(Key const &key, WriteJsonVar
         if (newValue.valid()) {
             vars.ForceEmplace(key, std::move(newValue));
         }
-        return WriteJsonVariant();
+        return {};
     }
 }
+
 WriteJsonVariant ConcurrentJsonValueDict::GetAndRemove(Key const &key) {
     if (!key.valid())
         return {};
@@ -464,11 +489,11 @@ WriteJsonVariant ConcurrentJsonValueDict::GetAndRemove(Key const &key) {
         return {};
 }
 void ConcurrentJsonValueDict::Set(Key const &key, WriteJsonVariant &&value) {
-
     if (key.valid() && value.valid()) {
         vars.ForceEmplace_Lock(mtx, key, std::move(value));
     }
 }
+
 bool ConcurrentJsonValueDict::TrySet(Key const &key, WriteJsonVariant &&value) {
     if (key.valid() && value.valid()) {
         return vars.TryEmplace_Lock(mtx, key, std::move(value)).second;
@@ -481,9 +506,11 @@ void ConcurrentJsonValueDict::Remove(Key const &key) {
         vars.TRemove_Lock(mtx, key);
     }
 }
+
 size_t ConcurrentJsonValueDict::Length() {
     return vars.size();
 }
+
 std::vector<uint8_t> ConcurrentJsonValueDict::Serialize() {
     std::vector<uint8_t> result;
     SerPreProcess(result);
@@ -491,6 +518,7 @@ std::vector<uint8_t> ConcurrentJsonValueDict::Serialize() {
     SerPostProcess<true>(result);
     return result;
 }
+
 void ConcurrentJsonValueDict::M_GetSerData(std::vector<uint8_t> &data) {
     std::lock_guard lck(mtx);
     PushDataToVector<uint64>(vars.size(), data);
@@ -504,7 +532,7 @@ void ConcurrentJsonValueDict::LoadFromSer(std::span<uint8_t const> &sp) {
     auto sz = PopValue<uint64>(sp);
     std::lock_guard lck(mtx);
     vars.reserve(sz);
-    for (auto i : vstd::range(sz)) {
+    for (auto i : vstd::range(static_cast<int64_t>(sz))) {
         auto key = PopValue<SimpleJsonKey::ValueType>(sp);
         vars.Emplace(std::move(key), SimpleJsonLoader::DeSerialize_Concurrent(sp, db));
     }
@@ -518,6 +546,7 @@ void ConcurrentJsonValueDict::Reset() {
 void ConcurrentJsonValueDict::Dispose() {
     db->dictValuePool.Delete_Lock(db->dictPoolMtx, this);
 }
+
 void ConcurrentJsonValueArray::Dispose() {
     db->arrValuePool.Delete_Lock(db->arrPoolMtx, this);
 }
@@ -526,8 +555,8 @@ ConcurrentJsonValueArray::ConcurrentJsonValueArray(
     ConcurrentBinaryJson *db) {
     this->db = db;
 }
-ConcurrentJsonValueArray::~ConcurrentJsonValueArray() {
-}
+
+ConcurrentJsonValueArray::~ConcurrentJsonValueArray() = default;
 
 size_t ConcurrentJsonValueArray::Length() {
     return arr.size();
@@ -552,7 +581,7 @@ void ConcurrentJsonValueArray::LoadFromSer(std::span<uint8_t const> &sp) {
     auto sz = PopValue<uint64>(sp);
     std::lock_guard lck(mtx);
     arr.reserve(sz);
-    for (auto i : vstd::range(sz)) {
+    for (auto i : vstd::range(static_cast<int64_t>(sz))) {
         arr.emplace_back(SimpleJsonLoader::DeSerialize_Concurrent(sp, db));
     }
 }
@@ -564,7 +593,7 @@ void ConcurrentJsonValueArray::Reset() {
 
 ReadJsonVariant ConcurrentJsonValueArray::Get(size_t index) {
     if (index >= arr.size())
-        return ReadJsonVariant();
+        return {};
     std::lock_guard lck(mtx);
     return arr[index].GetVariant_Concurrent();
 }
@@ -596,7 +625,7 @@ void ConcurrentJsonValueArray::Add(WriteJsonVariant &&value) {
 WriteJsonVariant ConcurrentJsonValueArray::GetAndSet(size_t index, WriteJsonVariant &&newValue) {
     std::lock_guard lck(mtx);
     if (index >= arr.size())
-        return WriteJsonVariant();
+        return {};
     WriteJsonVariant result = std::move(arr[index].value);
     if (newValue.valid())
         arr[index] = std::move(newValue);
@@ -604,10 +633,11 @@ WriteJsonVariant ConcurrentJsonValueArray::GetAndSet(size_t index, WriteJsonVari
         arr[index].value.dispose();
     return result;
 }
+
 WriteJsonVariant ConcurrentJsonValueArray::GetAndRemove(size_t index) {
     std::lock_guard lck(mtx);
     if (index >= arr.size())
-        return WriteJsonVariant();
+        return {};
     WriteJsonVariant result = std::move(arr[index].value);
     arr.erase(arr.begin() + index);
     return result;
@@ -617,30 +647,36 @@ void ConcurrentJsonValueDict::M_Print(std::string &str, size_t space) {
     std::lock_guard lck(mtx);
     PrintDict<ConcurrentJsonValueDict, ConcurrentJsonValueArray>(vars, str, space);
 }
+
 void ConcurrentJsonValueArray::M_Print(std::string &str, size_t space) {
     std::lock_guard lck(mtx);
     PrintArray<ConcurrentJsonValueDict, ConcurrentJsonValueArray>(arr, str, space);
 }
+
 vstd::MD5 SimpleJsonValueDict::GetMD5() {
     std::vector<uint8_t> vec;
     M_GetSerData(vec);
-    return vstd::MD5(vec);
+    return {vec};
 }
+
 vstd::MD5 SimpleJsonValueArray::GetMD5() {
     std::vector<uint8_t> vec;
     M_GetSerData(vec);
-    return vstd::MD5(vec);
+    return {vec};
 }
+
 vstd::MD5 ConcurrentJsonValueDict::GetMD5() {
     std::vector<uint8_t> vec;
     M_GetSerData(vec);
-    return vstd::MD5(vec);
+    return {vec};
 }
+
 vstd::MD5 ConcurrentJsonValueArray::GetMD5() {
     std::vector<uint8_t> vec;
     M_GetSerData(vec);
-    return vstd::MD5(vec);
+    return {vec};
 }
+
 bool SimpleJsonValueDict::Read(std::span<uint8_t const> sp, bool clearLast) {
     if (!DeserCheck<true>(sp))
         return false;
@@ -650,6 +686,7 @@ bool SimpleJsonValueDict::Read(std::span<uint8_t const> sp, bool clearLast) {
     LoadFromSer(sp);
     return true;
 }
+
 bool SimpleJsonValueArray::Read(std::span<uint8_t const> sp, bool clearLast) {
     if (!DeserCheck<false>(sp))
         return false;
@@ -659,6 +696,7 @@ bool SimpleJsonValueArray::Read(std::span<uint8_t const> sp, bool clearLast) {
     LoadFromSer(sp);
     return true;
 }
+
 bool ConcurrentJsonValueDict::Read(std::span<uint8_t const> sp, bool clearLast) {
     if (!DeserCheck<true>(sp))
         return false;
@@ -668,6 +706,7 @@ bool ConcurrentJsonValueDict::Read(std::span<uint8_t const> sp, bool clearLast) 
     LoadFromSer(sp);
     return true;
 }
+
 bool ConcurrentJsonValueArray::Read(std::span<uint8_t const> sp, bool clearLast) {
     if (!DeserCheck<false>(sp))
         return false;
@@ -677,16 +716,21 @@ bool ConcurrentJsonValueArray::Read(std::span<uint8_t const> sp, bool clearLast)
     LoadFromSer(sp);
     return true;
 }
+
 vstd::Iterator<JsonKeyPair> SimpleJsonValueDict::begin() const {
     return new DictIEnumerator(vars.begin(), vars.end());
 }
+
 vstd::Iterator<JsonKeyPair> ConcurrentJsonValueDict::begin() const {
     return new DictIEnumerator(vars.begin(), vars.end());
 }
+
 vstd::Iterator<ReadJsonVariant> ConcurrentJsonValueArray::begin() const {
     return new ArrayIEnumerator(arr.begin(), arr.end());
 }
+
 vstd::Iterator<ReadJsonVariant> SimpleJsonValueArray::begin() const {
     return new ArrayIEnumerator(arr.begin(), arr.end());
 }
+
 }// namespace toolhub::db

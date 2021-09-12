@@ -132,7 +132,7 @@ void HLSLCompiler::InitRegisterData() {
 	std::unique_ptr<CJsonObject> obj(ReadJson(folderPath + "/register.json"_sv));
 	if (!obj) {
 		VEngine_Log("Register.json not found in HLSLCompiler folder!"_sv);
-		VENGINE_EXIT;
+		VSTL_ABORT();
 	}
 	vstd::string value;
 	CJsonObject sonObj;

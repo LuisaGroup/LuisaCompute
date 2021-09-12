@@ -36,7 +36,7 @@ Runnable<functor_t<T>, VEngine_AllocType::Default> const& TryGetFunction(
 			{"Try Get Function "_sv,
 			 name,
 			 " Failed!\n"});
-		VENGINE_EXIT;
+		VSTL_ABORT();
 	}
 #endif
 	return *reinterpret_cast<Runnable<functor_t<T>, VEngine_AllocType::Default> const*>(pair);
