@@ -18,11 +18,6 @@ struct Disposer {
 template <typename T>
 using UniquePtr = std::unique_ptr<T, Disposer>;
 
-template<typename T>
-[[nodiscard]] inline auto MakeUnique(T* ptr) {
-    return UniquePtr<T>(ptr, Disposer());
-}
-
 class IJsonDatabase : public vstd::IDisposable {
 protected:
 	~IJsonDatabase() = default;

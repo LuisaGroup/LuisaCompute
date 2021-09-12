@@ -36,11 +36,11 @@ IJsonDict *SimpleBinaryJson::GetRootNode() {
 }
 
 UniquePtr<IJsonDict> SimpleBinaryJson::CreateDict() {
-    return MakeUnique<IJsonDict>(dictValuePool.New(this));
+    return UniquePtr<IJsonDict>(dictValuePool.New(this));
 }
 
 UniquePtr<IJsonArray> SimpleBinaryJson::CreateArray() {
-    return MakeUnique<IJsonArray>(arrValuePool.New(this));
+    return UniquePtr<IJsonArray>(arrValuePool.New(this));
 }
 
 SimpleJsonValueDict *SimpleBinaryJson::CreateDict_Nake() {
@@ -76,11 +76,11 @@ IJsonDict *ConcurrentBinaryJson::GetRootNode() {
 }
 
 UniquePtr<IJsonDict> ConcurrentBinaryJson::CreateDict() {
-    return MakeUnique<IJsonDict>(dictValuePool.New_Lock(dictPoolMtx, this));
+    return UniquePtr<IJsonDict>(dictValuePool.New_Lock(dictPoolMtx, this));
 }
 
 UniquePtr<IJsonArray> ConcurrentBinaryJson::CreateArray() {
-    return MakeUnique<IJsonArray>(arrValuePool.New_Lock(arrPoolMtx, this));
+    return UniquePtr<IJsonArray>(arrValuePool.New_Lock(arrPoolMtx, this));
 }
 
 ConcurrentJsonValueDict *ConcurrentBinaryJson::CreateDict_Nake() {
