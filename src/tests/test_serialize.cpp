@@ -15,5 +15,5 @@ int main(int argc, char *argv[]) {
     auto database = factory->CreateDatabase();
     auto dict = database->CreateDict();
     dict->Set("Hello", "World");
-    LUISA_INFO("{}", dict->Get("Hello").force_get<std::string_view>());
+    LUISA_INFO("{}", database->Print());
 }

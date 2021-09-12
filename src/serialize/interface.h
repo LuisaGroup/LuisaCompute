@@ -6,9 +6,6 @@
 
 namespace toolhub::db {
 
-// Entry:
-// toolhub::db::Database const* Database_GetFactory()
-
 class IJsonDatabase;
 
 class Database {
@@ -20,8 +17,6 @@ public:
 }// namespace toolhub::db
 
 namespace luisa::serialize {
-using toolhub::db::Database;
-using toolhub::db::IJsonDatabase;
-using DatabaseFactory = auto() -> const Database *;
+using DatabaseFactory = auto() -> const toolhub::db::Database *;
 constexpr std::string_view database_factory_symbol = "Database_GetFactory";
 }
