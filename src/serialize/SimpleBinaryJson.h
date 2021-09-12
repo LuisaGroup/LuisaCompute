@@ -1,7 +1,8 @@
 #pragma once
-#pragma once
+
 #include <util/VGuid.h>
 #include <serialize/SimpleJsonValue.h>
+
 namespace toolhub::db {
 
 class SimpleBinaryJson final : public IJsonDatabase, public vstd::IOperatorNewBase {
@@ -10,7 +11,7 @@ public:
     vstd::StackObject<SimpleJsonValueDict> root;
     //SimpleJsonValueDict root: error
     SimpleBinaryJson();
-    ~SimpleBinaryJson();
+    ~SimpleBinaryJson() override;
     vstd::Pool<SimpleJsonValueArray, VEngine_AllocType::VEngine, true> arrValuePool;
     vstd::Pool<SimpleJsonValueDict, VEngine_AllocType::VEngine, true> dictValuePool;
     std::vector<uint8_t> Serialize() override;
@@ -30,16 +31,17 @@ public:
         delete this;
     }
     vstd::MD5 GetMD5() override;
-    KILL_COPY_CONSTRUCT(SimpleBinaryJson)
-    KILL_MOVE_CONSTRUCT(SimpleBinaryJson)
+    VSTL_DELETE_COPY_CONSTRUCT(SimpleBinaryJson)
+    VSTL_DELETE_MOVE_CONSTRUCT(SimpleBinaryJson)
 };
+
 class ConcurrentBinaryJson final : public IJsonDatabase, public vstd::IOperatorNewBase {
 protected:
 public:
     vstd::StackObject<ConcurrentJsonValueDict> root;
     //ConcurrentJsonValueDict root: error
     ConcurrentBinaryJson();
-    ~ConcurrentBinaryJson();
+    ~ConcurrentBinaryJson() override;
     vstd::Pool<ConcurrentJsonValueArray, VEngine_AllocType::VEngine, true> arrValuePool;
     vstd::Pool<ConcurrentJsonValueDict, VEngine_AllocType::VEngine, true> dictValuePool;
     luisa::spin_mutex arrPoolMtx;
@@ -61,7 +63,8 @@ public:
     void Dispose() override {
         delete this;
     }
-    KILL_COPY_CONSTRUCT(ConcurrentBinaryJson)
-    KILL_MOVE_CONSTRUCT(ConcurrentBinaryJson)
+    VSTL_DELETE_COPY_CONSTRUCT(ConcurrentBinaryJson)
+    VSTL_DELETE_MOVE_CONSTRUCT(ConcurrentBinaryJson)
 };
+
 }// namespace toolhub::db

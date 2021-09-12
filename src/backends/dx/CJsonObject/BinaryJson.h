@@ -97,8 +97,8 @@ public:
 	inline ~BinaryJson() {
 		DisposeSelf();
 	}
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-	KILL_COPY_CONSTRUCT(BinaryJson)
+	VSTL_OVERRIDE_OPERATOR_NEW
+	VSTL_DELETE_COPY_CONSTRUCT(BinaryJson)
 };
 namespace SerializeStruct {
 class VENGINE_DLL_COMMON SerializedData {
@@ -121,8 +121,8 @@ public:
 	SerializedData(char const*& ptr, bool isArray);
 	~SerializedData();
 	void Dispose();
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-	KILL_COPY_CONSTRUCT(SerializedData)
+	VSTL_OVERRIDE_OPERATOR_NEW
+	VSTL_DELETE_COPY_CONSTRUCT(SerializedData)
 };
 }// namespace SerializeStruct
 

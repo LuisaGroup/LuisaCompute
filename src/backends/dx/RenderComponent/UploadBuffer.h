@@ -20,7 +20,7 @@ public:
 	uint64 GetElementCount() const {
 		return mElementCount;
 	}
-	KILL_COPY_CONSTRUCT(UploadBuffer)
+	VSTL_DELETE_COPY_CONSTRUCT(UploadBuffer)
 	virtual GPUResourceState GetInitState() const {
 		return GPUResourceState_GenericRead;
 	}

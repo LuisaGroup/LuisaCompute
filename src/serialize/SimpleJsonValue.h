@@ -137,9 +137,9 @@ class SimpleJsonValueDict final : public IJsonDict, public SimpleJsonValue {
 
 public:
 	void Dispose() override;
-	SimpleBinaryJson* GetDB() const { return db; }
+	[[nodiscard]] SimpleBinaryJson* GetDB() const { return db; }
 	KVMap vars;
-	SimpleJsonValueDict(SimpleBinaryJson* db);
+	explicit SimpleJsonValueDict(SimpleBinaryJson* db);
 	~SimpleJsonValueDict();
 	/* SimpleJsonValueDict(
 		SimpleBinaryJson* db,
@@ -148,7 +148,7 @@ public:
 	void Set(Key const& key, WriteJsonVariant&& value) override;
 	bool TrySet(Key const& key, WriteJsonVariant&& value) override;
 	void Remove(Key const& key) override;
-	vstd::Iterator<JsonKeyPair> begin() const override;
+	[[nodiscard]] vstd::Iterator<JsonKeyPair> begin() const override;
 	size_t Length() override;
 	std::vector<uint8_t> Serialize() override;
 	void M_GetSerData(std::vector<uint8_t>& arr);
@@ -177,9 +177,9 @@ class SimpleJsonValueArray final : public IJsonArray, public SimpleJsonValue {
 
 public:
 	void Dispose() override;
-	SimpleBinaryJson* GetDB() const { return db; }
+	[[nodiscard]] SimpleBinaryJson* GetDB() const { return db; }
 	std::vector<SimpleJsonVariant> arr;
-	SimpleJsonValueArray(SimpleBinaryJson* db);
+	explicit SimpleJsonValueArray(SimpleBinaryJson* db);
 	~SimpleJsonValueArray();
 	/* SimpleJsonValueArray(
 		SimpleBinaryJson* db,
@@ -201,8 +201,8 @@ public:
 	void Set(size_t index, WriteJsonVariant&& value) override;
 	void Remove(size_t index) override;
 	void Add(WriteJsonVariant&& value) override;
-	vstd::Iterator<ReadJsonVariant> begin() const override;
-	bool IsEmpty() override { return arr.size() == 0; }
+	[[nodiscard]] vstd::Iterator<ReadJsonVariant> begin() const override;
+	bool IsEmpty() override { return arr.empty(); }
 	WriteJsonVariant GetAndSet(size_t index, WriteJsonVariant&& newValue) override;
 	WriteJsonVariant GetAndRemove(size_t) override;
 	void M_Print(std::string& str, size_t space);
@@ -222,15 +222,15 @@ class ConcurrentJsonValueDict final : public IJsonDict, public ConcurrentJsonVal
 
 public:
 	void Dispose() override;
-	ConcurrentBinaryJson* GetDB() const { return db; }
+	[[nodiscard]] ConcurrentBinaryJson* GetDB() const { return db; }
 	KVMap vars;
-	ConcurrentJsonValueDict(ConcurrentBinaryJson* db);
+	explicit ConcurrentJsonValueDict(ConcurrentBinaryJson* db);
 	~ConcurrentJsonValueDict();
 	ReadJsonVariant Get(Key const& key) override;
 	void Set(Key const& key, WriteJsonVariant&& value) override;
 	bool TrySet(Key const& key, WriteJsonVariant&& value) override;
 	void Remove(Key const& key) override;
-	vstd::Iterator<JsonKeyPair> begin() const override;
+	[[nodiscard]] vstd::Iterator<JsonKeyPair> begin() const override;
 	size_t Length() override;
 	std::vector<uint8_t> Serialize() override;
 	void M_GetSerData(std::vector<uint8_t>& arr);
@@ -259,9 +259,9 @@ class ConcurrentJsonValueArray final : public IJsonArray, public ConcurrentJsonV
 
 public:
 	void Dispose() override;
-	ConcurrentBinaryJson* GetDB() const { return db; }
+	[[nodiscard]] ConcurrentBinaryJson* GetDB() const { return db; }
 	std::vector<SimpleJsonVariant> arr;
-	ConcurrentJsonValueArray(ConcurrentBinaryJson* db);
+	explicit ConcurrentJsonValueArray(ConcurrentBinaryJson* db);
 	~ConcurrentJsonValueArray();
 	size_t Length() override;
 	void Reserve(size_t capacity) override {
@@ -280,8 +280,8 @@ public:
 	void Set(size_t index, WriteJsonVariant&& value) override;
 	void Remove(size_t index) override;
 	void Add(WriteJsonVariant&& value) override;
-	vstd::Iterator<ReadJsonVariant> begin() const override;
-	bool IsEmpty() override { return arr.size() == 0; }
+	[[nodiscard]] vstd::Iterator<ReadJsonVariant> begin() const override;
+	bool IsEmpty() override { return arr.empty(); }
 	WriteJsonVariant GetAndSet(size_t index, WriteJsonVariant&& newValue) override;
 	WriteJsonVariant GetAndRemove(size_t) override;
 	void M_Print(std::string& str, size_t space);

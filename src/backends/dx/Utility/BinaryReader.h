@@ -32,6 +32,6 @@ public:
 		return length;
 	}
 	~BinaryReader();
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-	KILL_COPY_CONSTRUCT(BinaryReader)
+	VSTL_OVERRIDE_OPERATOR_NEW
+	VSTL_DELETE_COPY_CONSTRUCT(BinaryReader)
 };

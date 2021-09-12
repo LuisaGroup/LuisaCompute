@@ -32,7 +32,7 @@ namespace neb
 	class  CJsonObject
 	{
 	public:     // method of ordinary json object or json array
-		DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+		VSTL_OVERRIDE_OPERATOR_NEW
 		CJsonObject();
 		CJsonObject(const vstd::string& strJson);
 		CJsonObject(const CJsonObject* pJsonObject);

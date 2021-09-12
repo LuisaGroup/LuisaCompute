@@ -19,7 +19,7 @@ public:
 		Runnable<bool(GFXDevice*, SeparableRenderer*, uint)> const& updateFunction,
 		Runnable<void(SeparableRenderer*)> const& rendDisposer);
 	uint64 GetElementCount() const { return elements.size(); }
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 private:
 	struct CallCommand {
 		SeparableRenderer* renderer;
@@ -35,6 +35,6 @@ private:
 	ArrayList<CallCommand> callCmdsCache;
 	ArrayList<CallCommand> lastUpdateQueue;
 	CallCommandList callCmds;
-	KILL_COPY_CONSTRUCT(SeparableRendererManager)
-	KILL_MOVE_CONSTRUCT(SeparableRendererManager)
+	VSTL_DELETE_COPY_CONSTRUCT(SeparableRendererManager)
+	VSTL_DELETE_MOVE_CONSTRUCT(SeparableRendererManager)
 };

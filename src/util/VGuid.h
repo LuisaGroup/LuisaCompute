@@ -1,7 +1,10 @@
 #pragma once
+
 #include <util/vstl_config.h>
 #include <util/MD5.h>
+
 namespace vstd {
+
 class VENGINE_DLL_COMMON Guid {
 public:
 	struct GuidData {
@@ -35,11 +38,11 @@ public:
 		data.data0 = 0;
 		data.data1 = 0;
 	}
-	GuidData const& ToBinary() const { return data; }
-	std::array<uint8_t, sizeof(GuidData)> ToArray() const;
-	std::string ToString(bool upper = true) const;
+	[[nodiscard]] GuidData const& ToBinary() const { return data; }
+	[[nodiscard]] std::array<uint8_t, sizeof(GuidData)> ToArray() const;
+	[[nodiscard]] std::string ToString(bool upper = true) const;
 	void ToString(char* result, bool upper = true) const;
-	std::string ToCompressedString() const;
+	[[nodiscard]] std::string ToCompressedString() const;
 	void ToCompressedString(char* result) const;
 	inline bool operator==(Guid const& d) const {
 		return data.data0 == d.data.data0 && data.data1 == d.data.data1;
@@ -64,6 +67,7 @@ public:
 		return !(operator bool());
 	}
 };
+
 template<>
 struct hash<Guid> {
 	size_t operator()(Guid const& guid) const {
@@ -73,4 +77,5 @@ struct hash<Guid> {
 			ptr + sizeof(Guid::GuidData) / sizeof(uint));
 	}
 };
+
 }// namespace vstd

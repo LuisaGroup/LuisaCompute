@@ -16,5 +16,5 @@ public:
 		vstd::vector<std::pair<uint64, uint64>> const& outputOffsets
 	);
 	FilePacker() = delete;
-	KILL_COPY_CONSTRUCT(FilePacker)
+	VSTL_DELETE_COPY_CONSTRUCT(FilePacker)
 };

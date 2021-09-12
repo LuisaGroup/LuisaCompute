@@ -1,4 +1,5 @@
 #pragma once
+
 #include <functional>
 #include <util/HashMap.h>
 #include <util/Log.h>

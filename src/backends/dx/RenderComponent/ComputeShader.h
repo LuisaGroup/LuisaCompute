@@ -49,6 +49,6 @@ public:
 			f(mVariablesVector[i]);
 		}
 	}
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-	KILL_COPY_CONSTRUCT(ComputeShader)
+	VSTL_OVERRIDE_OPERATOR_NEW
+	VSTL_DELETE_COPY_CONSTRUCT(ComputeShader)
 };

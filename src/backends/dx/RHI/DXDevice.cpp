@@ -262,7 +262,7 @@ public:
 	}
 	//////////// Variables
 	StackObject<GFXDevice, true> dxDevice;
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 private:
 	///////////// D3D
 	ComPtr<IDXGIFactory4> mdxgiFactory;

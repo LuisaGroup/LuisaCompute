@@ -35,7 +35,7 @@ public:
 		Runnable<void(size_t)> func) {
 		return _GetParallelTask(parallelCount, threadCount, std::move(func));
 	}
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 	JobBucket(JobSystem* sys) noexcept;
 	~JobBucket() noexcept {}
 	

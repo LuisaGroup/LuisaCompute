@@ -12,6 +12,6 @@ public:
 	UploadBuffer* descHeap;
 	uint descIndex;
 
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 };
 }// namespace luisa::compute

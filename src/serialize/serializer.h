@@ -10,6 +10,7 @@
 #include <vector>
 
 namespace vstd {
+
 template<typename T>
 struct SerDe {
     static_assert(std::is_trivial_v<T>, "only trivial type can be serialized!");
@@ -42,9 +43,7 @@ struct SerDe<std::string> {
         auto strLen = SerDe<uint>::Get(sp);
         auto ptr = sp.data();
         sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
-        return std::string(std::string_view(
-            reinterpret_cast<char const *>(ptr),
-            strLen));
+        return {reinterpret_cast<char const *>(ptr), strLen};
     }
     static void Set(std::string const &data, std::vector<uint8_t> &arr) {
         SerDe<uint>::Set(data.size(), arr);
@@ -58,9 +57,7 @@ struct SerDe<std::string_view> {
         auto strLen = SerDe<uint>::Get(sp);
         auto ptr = sp.data();
         sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
-        return std::string_view(
-            reinterpret_cast<char const *>(ptr),
-            strLen);
+        return {reinterpret_cast<char const *>(ptr), strLen};
     }
     static void Set(std::string_view const &data, std::vector<uint8_t> &arr) {
         SerDe<uint>::Set(data.size(), arr);
@@ -191,6 +188,7 @@ struct SerDeAll_Impl;
 
 template<typename Ret, typename... Args>
 struct SerDeAll_Impl<Ret(Args...)> {
+
     template<typename Class, typename Func>
     static Ret CallMemberFunc(Class *ptr, Func func, std::span<uint8_t const> data) {
         auto closureFunc = [&](Args &&...args) {
@@ -202,21 +200,22 @@ struct SerDeAll_Impl<Ret(Args...)> {
     static std::vector<uint8_t> Ser(
         Args const &...args) {
         std::vector<uint8_t> vec;
-        auto lst = {(SerDe<std::remove_cvref_t<Args>>::Set(args, vec), ' ')...};
+        (SerDe<std::remove_cvref_t<Args>>::Set(args, vec), ...);
         return vec;
     }
 
     template<typename Func>
-    static decltype(auto) Call(
-        Func &&func) {
-        return [f = std::forward<Func>(func)](std::span<uint8_t const> data) {
-            return std::apply(f, std::tuple<Args...>{SerDe<std::remove_cvref_t<Args>>::Get(data)...});
+    static decltype(auto) Call(Func &&func) {
+        return [&func](std::span<uint8_t const> data) {
+            return std::apply(func, std::tuple<Args...>{SerDe<std::remove_cvref_t<Args>>::Get(data)...});
         };
     }
 };
 
 template<typename Func>
 using SerDeAll = SerDeAll_Impl<FuncType<std::remove_cvref_t<Func>>>;
+
 template<typename Func>
 using SerDeAll_Member = SerDeAll_Impl<typename FunctionTemplateGlobal::memFuncPtr<std::remove_cvref_t<Func>>::Type::FuncType>;
+
 }// namespace vstd

@@ -47,5 +47,5 @@ public:
 	void Reset();
 	void Dispose();
 	~JobNode();
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 };

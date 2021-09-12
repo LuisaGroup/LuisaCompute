@@ -4,6 +4,6 @@
 class IPipelineResource
 {
 public:
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 	virtual ~IPipelineResource() {}
 };

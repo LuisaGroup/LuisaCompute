@@ -15,7 +15,7 @@ public:
 
 	void Sync(
 		Runnable<void(uint64)>&& syncFunc);
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 private:
 	vstd::vector<std::pair<size_t, uint64>> signals;
 };

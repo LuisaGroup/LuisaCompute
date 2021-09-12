@@ -84,7 +84,7 @@ public:
 		cpuSignalIndex++;
 		res.Push(tempRes);*/
 	}
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 	uint64 GetSignal() const {
 		return lastSignal;
 	}

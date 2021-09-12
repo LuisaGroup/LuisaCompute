@@ -110,7 +110,7 @@ public:
 		return this;
 	};
 
-	KILL_COPY_CONSTRUCT(RenderTexture)
+	VSTL_DELETE_COPY_CONSTRUCT(RenderTexture)
 	uint GetGlobalUAVDescIndex(uint mipLevel) const override;
 	static uint64_t GetSizeFromProperty(
 		GFXDevice* device,

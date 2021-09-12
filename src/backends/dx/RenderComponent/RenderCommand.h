@@ -13,7 +13,7 @@ private:
 	static LockFreeArrayQueue<RenderCommandExecutable, VEngine_AllocType::Default> queue;
 
 public:
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 	virtual ~RenderCommand() {}
 
 	virtual void Execute(

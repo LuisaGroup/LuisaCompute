@@ -77,7 +77,7 @@ private:
 	);
 
 public:
-	KILL_COPY_CONSTRUCT(Texture)
+	VSTL_DELETE_COPY_CONSTRUCT(Texture)
 	//Async Load
 	Texture(
 		GFXDevice* device,

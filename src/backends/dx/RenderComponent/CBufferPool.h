@@ -35,5 +35,5 @@ public:
 	~CBufferPool();
 	ConstBufferElement Get(GFXDevice* device);
 	void Return(const ConstBufferElement& target);
-	KILL_COPY_CONSTRUCT(CBufferPool)
+	VSTL_DELETE_COPY_CONSTRUCT(CBufferPool)
 };

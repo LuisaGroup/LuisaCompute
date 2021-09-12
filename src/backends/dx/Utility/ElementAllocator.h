@@ -61,5 +61,5 @@ public:
 	void Release(AllocateHandle handle);
 	~ElementAllocator();
 
-	KILL_COPY_CONSTRUCT(ElementAllocator)
+	VSTL_DELETE_COPY_CONSTRUCT(ElementAllocator)
 };

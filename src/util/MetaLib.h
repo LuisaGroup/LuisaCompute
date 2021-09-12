@@ -1,12 +1,15 @@
 #pragma once
+
 #include <util/vstl_config.h>
 #include <type_traits>
 #include <cstdint>
 #include <core/basic_types.h>
+
 using uint = uint32_t;
 using uint64 = uint64_t;
 using int64 = int64_t;
 using int32 = int32_t;
+
 #include <typeinfo>
 #include <new>
 #include <util/Hash.h>
@@ -14,9 +17,12 @@ using int32 = int32_t;
 #include <atomic>
 #include <thread>
 #include <util/AllocateType.h>
+
 namespace vstd {
+
 VENGINE_DLL_COMMON void VEngine_Log(std::type_info const &t);
 VENGINE_DLL_COMMON void VEngine_Log(char const *chunk);
+
 template<typename T>
 struct funcPtr;
 

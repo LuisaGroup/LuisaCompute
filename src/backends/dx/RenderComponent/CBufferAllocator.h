@@ -51,5 +51,5 @@ public:
 	void Release(CBufferChunk const& chunk) noexcept;
 	CBufferAllocator(GFXDevice* device, bool singleThread = false) noexcept;
 	~CBufferAllocator() noexcept;
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 };

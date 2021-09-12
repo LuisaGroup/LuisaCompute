@@ -175,5 +175,5 @@ struct StringUtil
 	);
 	static int64_t StringToInt(const vstd::string& str);
 	static int64_t StringToInt(const char* start, const char* end);
-	KILL_COPY_CONSTRUCT(StringUtil)
+	VSTL_DELETE_COPY_CONSTRUCT(StringUtil)
 };

@@ -42,6 +42,6 @@ public:
 		uint height,
 		uint depth) const;
 	~RayShader();
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-	KILL_COPY_CONSTRUCT(RayShader)
+	VSTL_OVERRIDE_OPERATOR_NEW
+	VSTL_DELETE_COPY_CONSTRUCT(RayShader)
 };

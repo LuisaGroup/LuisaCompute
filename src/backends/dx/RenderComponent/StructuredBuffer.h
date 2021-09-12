@@ -62,7 +62,7 @@ public:
 		GPUResourceState targetState,
 		IBufferAllocator* allocator = nullptr,
 		bool usedAsMesh = false);
-	KILL_COPY_CONSTRUCT(StructuredBuffer)
+	VSTL_DELETE_COPY_CONSTRUCT(StructuredBuffer)
 	uint GetSRVDescIndex(GFXDevice* device) const;
 	uint GetUAVDescIndex(GFXDevice* device) const;
 	~StructuredBuffer();

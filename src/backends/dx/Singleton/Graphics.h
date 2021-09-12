@@ -133,5 +133,5 @@ public:
 		return current->unusedDescs.size();
 	}
 	~Graphics();
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 };

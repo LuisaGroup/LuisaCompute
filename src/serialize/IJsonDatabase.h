@@ -1,17 +1,23 @@
 #pragma once
-#include <serialize/Common.h>
+
 #include <util/VGuid.h>
+#include <serialize/Common.h>
 #include <serialize/SimpleParser.h>
+
 namespace toolhub::db {
+
 class IJsonDict;
 class IJsonArray;
+
 struct Disposer {
 	void operator()(vstd::IDisposable* d) {
         d->Dispose();
 	}
 };
+
 template <typename T>
 using UniquePtr = std::unique_ptr<T, Disposer>;
+
 template<typename T>
 UniquePtr<T> MakeUnique(T* ptr) {
     return UniquePtr<T>(ptr, Disposer());

@@ -69,7 +69,7 @@ public:
 		uint64 newObjSize);
 	//A per camera per frame data, to keep upload buffer chunks non-changed before flush
 	
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 private:
 	GFXDevice* device;
 	AllocatedCBufferChunks* allocatedElements;

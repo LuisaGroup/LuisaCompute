@@ -24,6 +24,6 @@ public:
 	~RayRendererData() {}
 	RayRendererData(IMesh* mesh)
 		: mesh(mesh) {}
-	KILL_COPY_CONSTRUCT(RayRendererData)
+	VSTL_DELETE_COPY_CONSTRUCT(RayRendererData)
 };
 }// namespace luisa::compute

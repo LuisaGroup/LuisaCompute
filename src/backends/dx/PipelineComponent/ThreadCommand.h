@@ -85,8 +85,8 @@ public:
 	void AliasBarrier(GPUResourceBase const* before, GPUResourceBase const* after);
 	void AliasBarriers(std::initializer_list<std::pair<GPUResourceBase const*, GPUResourceBase const*>> const&);
 	
-	KILL_COPY_CONSTRUCT(ThreadCommand)
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_DELETE_COPY_CONSTRUCT(ThreadCommand)
+	VSTL_OVERRIDE_OPERATOR_NEW
 };
 
 class ThreadCommandFollower {

@@ -5,7 +5,7 @@
 class  JsonCompiler
 {
 	JsonCompiler() = delete;
-	KILL_COPY_CONSTRUCT(JsonCompiler)
+	VSTL_DELETE_COPY_CONSTRUCT(JsonCompiler)
 	template <typename T>
 	static void PushBackData(vstd::vector<char>& vec, T const& data)
 	{

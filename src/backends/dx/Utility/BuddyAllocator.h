@@ -80,5 +80,5 @@ public:
 	void Free(BuddyNode* node);
 	BuddyNode* Allocate(uint targetLayer);
 	~BuddyAllocator();
-	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+	VSTL_OVERRIDE_OPERATOR_NEW
 };

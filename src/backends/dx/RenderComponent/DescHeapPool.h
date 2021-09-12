@@ -29,5 +29,5 @@ public:
 	DescHeapPool(uint size, uint initCapacity, D3D12_DESCRIPTOR_HEAP_TYPE type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	DescHeapElement Get(GFXDevice* device);
 	void Return(const DescHeapElement& target);
-	KILL_COPY_CONSTRUCT(DescHeapPool)
+	VSTL_DELETE_COPY_CONSTRUCT(DescHeapPool)
 };
