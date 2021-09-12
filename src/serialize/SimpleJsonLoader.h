@@ -57,7 +57,7 @@ struct SimpleJsonVariant {
 template<typename T>
 void PushDataToVector(T &&v, std::vector<uint8_t> &serData) {
     using TT = std::remove_cvref_t<T>;
-    vstd::SerDe<TT>::Set(v, serData);
+    vstd::Serializer<TT>::Set(v, serData);
 }
 
 class SimpleJsonLoader {
@@ -72,7 +72,7 @@ public:
 template<typename T>
 T PopValue(std::span<uint8_t const> &arr) {
     using TT = std::remove_cvref_t<T>;
-    return vstd::SerDe<TT>::Get(arr);
+    return vstd::Serializer<TT>::Get(arr);
 }
 
 }// namespace toolhub::db

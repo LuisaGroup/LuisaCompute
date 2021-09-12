@@ -173,7 +173,7 @@ public:
     void Reserve(size_t capacity) override {
         vars.reserve(capacity);
     }
-    vstd::optional<ParsingException> Parse(
+    std::optional<ParsingException> Parse(
         std::string_view str, bool clearLast) override;
     bool IsEmpty() override { return vars.size() == 0; }
     WriteJsonVariant GetAndSet(Key const &key, WriteJsonVariant &&newValue) override;
@@ -202,7 +202,7 @@ public:
     void Reserve(size_t capacity) override {
         arr.reserve(capacity);
     }
-    vstd::optional<ParsingException> Parse(
+    std::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) override;
     std::vector<uint8_t> Serialize() override;
@@ -257,7 +257,7 @@ public:
         std::lock_guard lck(mtx);
         vars.reserve(capacity);
     }
-    vstd::optional<ParsingException> Parse(
+    std::optional<ParsingException> Parse(
         std::string_view str, bool clearLast) override;
     bool IsEmpty() override { return vars.size() == 0; }
     WriteJsonVariant GetAndSet(Key const &key, WriteJsonVariant &&newValue) override;
@@ -284,7 +284,7 @@ public:
         std::lock_guard lck(mtx);
         arr.reserve(capacity);
     }
-    vstd::optional<ParsingException> Parse(
+    std::optional<ParsingException> Parse(
         std::string_view str, bool clearLast) override;
     std::vector<uint8_t> Serialize() override;
     void M_GetSerData(std::vector<uint8_t> &result);

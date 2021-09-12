@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include <serialize/DatabaseInclude.h>
+#include <serialize/interface.h>
 #include <serialize/SimpleBinaryJson.h>
 #include <serialize/SimpleParser.h>
 
@@ -124,7 +124,7 @@ struct StateRecorders {
 };
 
 static luisa::spin_mutex recorderIsInited;
-static vstd::optional<StateRecorders> recorders;
+static std::optional<StateRecorders> recorders;
 
 class SimpleJsonParser : public vstd::IOperatorNewBase {
 
@@ -402,8 +402,8 @@ private:
         char const *pin = start;
 
         int64 integerPart = 0;
-        vstd::optional<double> floatPart;
-        vstd::optional<int64> ratePart;
+        std::optional<double> floatPart;
+        std::optional<int64> ratePart;
         auto GetInt =
             [&](int64 &v,
                 auto &&processFloat,
@@ -458,11 +458,11 @@ private:
             return false;
         };
         auto GetRate = [&]() -> bool {
-            ratePart.New();
+            ratePart = 0;
             return GetInt(*ratePart, error, error);
         };
         auto GetNumFloatPart = [&]() -> bool {
-            floatPart.New();
+            floatPart = 0.0;
             return GetFloat(*floatPart, GetRate);
         };
         if (!GetInt.operator()(
@@ -851,7 +851,7 @@ public:
         std::vector<SimpleJsonParser> *subParserPtr) {
         {
             std::lock_guard lck(recorderIsInited);
-            recorders.New();
+            recorders = StateRecorders{};
         }
         fieldPool = poolPtr;
         subParsers = subParserPtr;
@@ -864,7 +864,7 @@ public:
 }// namespace parser
 
 template<typename T>
-vstd::optional<ParsingException> RunParse(
+std::optional<ParsingException> RunParse(
     T *ptr,
     IJsonDatabase *db,
     std::string_view str, bool clearLast) {
@@ -882,41 +882,41 @@ vstd::optional<ParsingException> RunParse(
     return {};
 }
 
-vstd::optional<ParsingException> SimpleBinaryJson::Parse(
+std::optional<ParsingException> SimpleBinaryJson::Parse(
     std::string_view str, bool clearLast) {
     return RunParse<SimpleJsonValueDict>(
         static_cast<SimpleJsonValueDict *>(GetRootNode()), this, str, clearLast);
 }
 
-vstd::optional<ParsingException> SimpleJsonValueDict::Parse(
+std::optional<ParsingException> SimpleJsonValueDict::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<IJsonDict>(
         this, db, str, clearLast);
 }
 
-vstd::optional<ParsingException> SimpleJsonValueArray::Parse(
+std::optional<ParsingException> SimpleJsonValueArray::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<IJsonArray>(
         this, db, str, clearLast);
 }
 
-vstd::optional<ParsingException> ConcurrentBinaryJson::Parse(
+std::optional<ParsingException> ConcurrentBinaryJson::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<ConcurrentJsonValueDict>(
         static_cast<ConcurrentJsonValueDict *>(GetRootNode()), this, str, clearLast);
 }
 
-vstd::optional<ParsingException> ConcurrentJsonValueDict::Parse(
+std::optional<ParsingException> ConcurrentJsonValueDict::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<IJsonDict>(
         this, db, str, clearLast);
 }
 
-vstd::optional<ParsingException> ConcurrentJsonValueArray::Parse(
+std::optional<ParsingException> ConcurrentJsonValueArray::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<IJsonArray>(

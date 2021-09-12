@@ -6,19 +6,19 @@
 namespace toolhub::db {
 
 class SimpleBinaryJson final : public IJsonDatabase, public vstd::IOperatorNewBase {
-protected:
+
+private:
+    SimpleJsonValueDict root;
+
 public:
-    vstd::StackObject<SimpleJsonValueDict> root;
-    //SimpleJsonValueDict root: error
     SimpleBinaryJson();
-    ~SimpleBinaryJson() override;
     vstd::Pool<SimpleJsonValueArray, VEngine_AllocType::VEngine, true> arrValuePool;
     vstd::Pool<SimpleJsonValueDict, VEngine_AllocType::VEngine, true> dictValuePool;
     std::vector<uint8_t> Serialize() override;
     bool Read(
         std::span<uint8_t const> data,
         bool clearLast) override;
-    vstd::optional<ParsingException> Parse(
+    std::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) override;
     std::string Print() override;
@@ -36,12 +36,12 @@ public:
 };
 
 class ConcurrentBinaryJson final : public IJsonDatabase, public vstd::IOperatorNewBase {
-protected:
+
+private:
+    ConcurrentJsonValueDict root;
+
 public:
-    vstd::StackObject<ConcurrentJsonValueDict> root;
-    //ConcurrentJsonValueDict root: error
     ConcurrentBinaryJson();
-    ~ConcurrentBinaryJson() override;
     vstd::Pool<ConcurrentJsonValueArray, VEngine_AllocType::VEngine, true> arrValuePool;
     vstd::Pool<ConcurrentJsonValueDict, VEngine_AllocType::VEngine, true> dictValuePool;
     luisa::spin_mutex arrPoolMtx;
@@ -50,7 +50,7 @@ public:
     bool Read(
         std::span<uint8_t const> data,
         bool clearLast) override;
-    vstd::optional<ParsingException> Parse(
+    std::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) override;
     std::string Print() override;

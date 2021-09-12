@@ -36,7 +36,7 @@ public:
 	virtual IJsonDict* GetRootNode() = 0;
 	virtual UniquePtr<IJsonDict> CreateDict() = 0;
 	virtual UniquePtr<IJsonArray> CreateArray() = 0;
-	virtual vstd::optional<ParsingException> Parse(
+	virtual std::optional<ParsingException> Parse(
 		std::string_view str,
 		bool clearLast) = 0;
 	virtual vstd::MD5 GetMD5() = 0;

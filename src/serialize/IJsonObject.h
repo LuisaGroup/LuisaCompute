@@ -37,7 +37,7 @@ struct JsonKeyPair {
         ReadJsonVariant &&value) : key(std::move(key)), value(std::move(value)) {}
 };
 
-class IJsonObject : protected vstd::IDisposable {
+class IJsonObject : public vstd::IDisposable {// EDIT: do not inherit by protected
 
 protected:
     ~IJsonObject() = default;
@@ -51,7 +51,7 @@ public:
     virtual bool Read(std::span<uint8_t const> sp,
                       bool clearLast) = 0;
     virtual void Reserve(size_t capacity) = 0;
-    virtual vstd::optional<ParsingException> Parse(
+    virtual std::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) = 0;
     virtual vstd::MD5 GetMD5() = 0;
@@ -75,6 +75,7 @@ public:
 };
 
 class IJsonArray : public IJsonObject {
+
     friend class std::unique_ptr<IJsonArray, Disposer>;
 
 protected:

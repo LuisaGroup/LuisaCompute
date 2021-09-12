@@ -54,7 +54,7 @@ class CommandList;
 namespace detail {
 
 #define LUISA_MAKE_COMMAND_POOL_DECL(Cmd) \
-    [[nodiscard]] Pool<Cmd> &pool_##Cmd() noexcept;
+    [[nodiscard]] ArenaPool<Cmd> &pool_##Cmd() noexcept;
 LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_DECL
 

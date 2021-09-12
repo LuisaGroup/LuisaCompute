@@ -390,11 +390,6 @@ public:
     }
 };
 
-template<typename T>
-using optional = StackObject<T, true>;
-
-using lockGuard = std::lock_guard<std::mutex>;
-
 struct Type {
 private:
     const std::type_info *typeEle;

@@ -176,7 +176,7 @@ struct ArenaString : public std::string_view {
 };
 
 template<typename T>
-class Pool : concepts::Noncopyable {
+class ArenaPool : concepts::Noncopyable {
 
     struct Node {
         T object;
@@ -195,9 +195,9 @@ private:
     size_t _total{0u};
 
 public:
-    explicit Pool(Arena &arena) noexcept : _arena{arena} {}
-    Pool(Pool &&) noexcept = delete;
-    Pool &operator=(Pool &&) noexcept = delete;
+    explicit ArenaPool(Arena &arena) noexcept : _arena{arena} {}
+    ArenaPool(ArenaPool &&) noexcept = delete;
+    ArenaPool &operator=(ArenaPool &&) noexcept = delete;
 
     template<typename... Args>
     [[nodiscard]] auto create(Args &&...args) {
