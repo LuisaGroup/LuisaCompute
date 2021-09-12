@@ -5,7 +5,7 @@
 
 namespace vstd {
 
-class VENGINE_DLL_COMMON Guid {
+class LUISA_DLL Guid {
 public:
 	struct GuidData {
 		uint64 data0;
@@ -16,7 +16,7 @@ private:
 	GuidData data;
 
 public:
-	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const Guid& obj) noexcept;
+	friend LUISA_DLL std::ostream& operator<<(std::ostream& out, const Guid& obj) noexcept;
 
 	explicit Guid(bool generate);
 	Guid(std::string_view strv);

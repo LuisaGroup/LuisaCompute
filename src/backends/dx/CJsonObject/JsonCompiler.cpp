@@ -31,7 +31,7 @@ void JsonCompiler::Serialize(neb::CJsonObject& jsonObj, vstd::vector<char>& data
 			case cJSON_Object: {
 				char* pJsonString = cJSON_Print(ptr);
 				vstd::string strJsonData = pJsonString;
-				vengine_free(pJsonString);
+				vstl_free(pJsonString);
 				neb::CJsonObject obj;
 				if (obj.Parse(strJsonData)) {
 					Serialize(obj, data);

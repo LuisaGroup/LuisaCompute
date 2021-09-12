@@ -19,7 +19,7 @@ template <typename T>
 using UniquePtr = std::unique_ptr<T, Disposer>;
 
 template<typename T>
-UniquePtr<T> MakeUnique(T* ptr) {
+[[nodiscard]] inline auto MakeUnique(T* ptr) {
     return UniquePtr<T>(ptr, Disposer());
 }
 

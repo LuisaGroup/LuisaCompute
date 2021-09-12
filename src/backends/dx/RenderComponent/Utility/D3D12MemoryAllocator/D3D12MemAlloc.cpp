@@ -46,7 +46,7 @@
 // Assert that will be called very often, like inside data structures e.g. operator[].
 // Making it non-empty can make program slow.
 #ifndef D3D12MA_HEAVY_ASSERT
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
 #define D3D12MA_HEAVY_ASSERT(expr)//D3D12MA_ASSERT(expr)
 #else
 #define D3D12MA_HEAVY_ASSERT(expr)

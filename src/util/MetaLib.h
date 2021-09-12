@@ -20,8 +20,8 @@ using int32 = int32_t;
 
 namespace vstd {
 
-VENGINE_DLL_COMMON void VEngine_Log(std::type_info const &t);
-VENGINE_DLL_COMMON void VEngine_Log(char const *chunk);
+LUISA_DLL void vstl_log(std::type_info const &t);
+LUISA_DLL void vstl_log(char const *chunk);
 
 template<typename T>
 struct funcPtr;
@@ -112,7 +112,7 @@ public:
         if constexpr (std::is_copy_constructible_v<T>) {
             new (storage) T(*value);
         } else {
-            VEngine_Log(typeid(T));
+            vstl_log(typeid(T));
             VSTL_ABORT();
         }
     }
@@ -120,7 +120,7 @@ public:
         if constexpr (std::is_move_constructible_v<T>) {
             new (storage) T(std::move(*value));
         } else {
-            VEngine_Log(typeid(T));
+            vstl_log(typeid(T));
             VSTL_ABORT();
         }
     }
@@ -135,7 +135,7 @@ public:
             Delete();
             New(*value);
         } else {
-            VEngine_Log(typeid(T));
+            vstl_log(typeid(T));
             VSTL_ABORT();
         }
         return **this;
@@ -147,7 +147,7 @@ public:
             Delete();
             New(std::move(*value));
         } else {
-            VEngine_Log(typeid(T));
+            vstl_log(typeid(T));
             VSTL_ABORT();
         }
         return **this;
@@ -159,7 +159,7 @@ public:
             Delete();
             New(value);
         } else {
-            VEngine_Log(typeid(T));
+            vstl_log(typeid(T));
             VSTL_ABORT();
         }
         return **this;
@@ -174,7 +174,7 @@ public:
             Delete();
             New(std::move(value));
         } else {
-            VEngine_Log(typeid(T));
+            vstl_log(typeid(T));
             VSTL_ABORT();
         }
         return **this;
@@ -297,7 +297,7 @@ public:
             if constexpr (std::is_copy_constructible_v<T>) {
                 stackObj.New(*value);
             } else {
-                VEngine_Log(typeid(T));
+                vstl_log(typeid(T));
                 VSTL_ABORT();
             }
         }
@@ -308,7 +308,7 @@ public:
             if constexpr (std::is_move_constructible_v<T>) {
                 stackObj.New(std::move(*value));
             } else {
-                VEngine_Log(typeid(T));
+                vstl_log(typeid(T));
                 VSTL_ABORT();
             }
         }
@@ -323,7 +323,7 @@ public:
                 if constexpr (std::is_copy_constructible_v<T>) {
                     stackObj.New(*value);
                 } else {
-                    VEngine_Log(typeid(T));
+                    vstl_log(typeid(T));
                     VSTL_ABORT();
                 }
                 initialized = true;
@@ -344,7 +344,7 @@ public:
                 if constexpr (std::is_move_constructible_v<T>) {
                     stackObj.New(std::move(*value));
                 } else {
-                    VEngine_Log(typeid(T));
+                    vstl_log(typeid(T));
                     VSTL_ABORT();
                 }
                 initialized = true;
@@ -364,7 +364,7 @@ public:
             if constexpr (std::is_copy_constructible_v<T>) {
                 stackObj.New(value);
             } else {
-                VEngine_Log(typeid(T));
+                vstl_log(typeid(T));
                 VSTL_ABORT();
             }
             initialized = true;
@@ -379,7 +379,7 @@ public:
             if constexpr (std::is_move_constructible_v<T>) {
                 stackObj.New(std::move(value));
             } else {
-                VEngine_Log(typeid(T));
+                vstl_log(typeid(T));
                 VSTL_ABORT();
             }
             initialized = true;
@@ -389,6 +389,7 @@ public:
         return *stackObj;
     }
 };
+
 template<typename T>
 using optional = StackObject<T, true>;
 
@@ -696,15 +697,17 @@ public:
     static constexpr size_t argSize = sizeof...(AA);
 
 private:
-    template<size_t maxSize, size_t... szs>
+    template<size_t... szs>
     struct MaxSize;
-    template<size_t maxSize, size_t v, size_t... szs>
-    struct MaxSize<maxSize, v, szs...> {
-        static constexpr size_t MAX_SIZE = MaxSize<(maxSize > v ? maxSize : v), szs...>::MAX_SIZE;
+
+    template<size_t v, size_t... szs>
+    struct MaxSize<v, szs...> {
+        static constexpr size_t MAX_SIZE = std::max(v, MaxSize<szs...>::MAX_SIZE);
     };
-    template<size_t maxSize>
-    struct MaxSize<maxSize> {
-        static constexpr size_t MAX_SIZE = maxSize;
+
+    template<>
+    struct MaxSize<> {
+        static constexpr size_t MAX_SIZE = 0u;
     };
 
     template<size_t idx, size_t c, typename... Args>
@@ -794,7 +797,7 @@ private:
         }
         static void Copy(size_t v, void *ptr, void const *dstPtr) {
             if constexpr (!std::is_copy_constructible_v<B>) {
-                VEngine_Log(typeid(B));
+                vstl_log(typeid(B));
                 VSTL_ABORT();
             } else {
 
@@ -807,7 +810,7 @@ private:
         }
         static void Move(size_t v, void *ptr, void *dstPtr) {
             if constexpr (!std::is_move_constructible_v<B>) {
-                VEngine_Log(typeid(B));
+                vstl_log(typeid(B));
                 VSTL_ABORT();
             } else {
 
@@ -851,7 +854,7 @@ private:
         template<typename Arg, typename... Args>
         using Type = std::invoke_result_t<Func, typename Typer<Arg, std::is_invocable_v<Arg &&>>::Type>;
     };
-    std::aligned_storage_t<(MaxSize<0, sizeof(AA)...>::MAX_SIZE), (MaxSize<0, alignof(AA)...>::MAX_SIZE)> placeHolder;
+    std::aligned_storage_t<(MaxSize<sizeof(AA)...>::MAX_SIZE), (MaxSize<alignof(AA)...>::MAX_SIZE)> placeHolder;
     size_t switcher = 0;
 
     template<size_t i, typename Dest, typename... Args>
@@ -937,9 +940,9 @@ public:
 
     template<size_t i>
     decltype(auto) get() {
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
         if (i != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vstl_log("Try get wrong variant type!\n");
             VSTL_ABORT();
         }
 #endif
@@ -947,9 +950,9 @@ public:
     }
     template<size_t i>
     decltype(auto) get() const {
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
         if (i != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vstl_log("Try get wrong variant type!\n");
             VSTL_ABORT();
         }
 #endif
@@ -979,9 +982,9 @@ public:
     T const &force_get() const {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
         if (tarIdx != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vstl_log("Try get wrong variant type!\n");
             VSTL_ABORT();
         }
 #endif
@@ -992,9 +995,9 @@ public:
     T &force_get() {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
         if (tarIdx != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vstl_log("Try get wrong variant type!\n");
             VSTL_ABORT();
         }
 #endif

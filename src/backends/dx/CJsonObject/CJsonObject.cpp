@@ -335,7 +335,7 @@ vstd::string CJsonObject::ToString() const {
 	}
 	if (pJsonString != NULL) {
 		strJsonData = pJsonString;
-		vengine_free(pJsonString);
+		vstl_free(pJsonString);
 	}
 	return (strJsonData);
 }
@@ -349,7 +349,7 @@ vstd::string CJsonObject::ToFormattedString() const {
 	}
 	if (pJsonString != NULL) {
 		strJsonData = pJsonString;
-		vengine_free(pJsonString);
+		vstl_free(pJsonString);
 	}
 	return (strJsonData);
 }
@@ -369,7 +369,7 @@ bool CJsonObject::Get(const vstd::string& strKey, CJsonObject& oJsonObject) cons
 	}
 	char* pJsonString = cJSON_Print(pJsonStruct);
 	vstd::string strJsonData = pJsonString;
-	vengine_free(pJsonString);
+	vstl_free(pJsonString);
 	if (oJsonObject.Parse(strJsonData)) {
 		return (true);
 	} else {
@@ -1315,7 +1315,7 @@ bool CJsonObject::Get(int32_t iWhich, CJsonObject& oJsonObject) const {
 	}
 	char* pJsonString = cJSON_Print(pJsonStruct);
 	vstd::string strJsonData = pJsonString;
-	vengine_free(pJsonString);
+	vstl_free(pJsonString);
 	if (oJsonObject.Parse(strJsonData)) {
 		return (true);
 	} else {

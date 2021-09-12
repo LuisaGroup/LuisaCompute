@@ -284,7 +284,7 @@ private:
 	StackObject<CBufferAllocator, true> cbAlloc;
 	HashMap<uint, IShader*> loadShaders;
 	void InitD3D(uint32_t index) {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
 		// Enable the D3D12 debug layer.
 		{
 			ComPtr<ID3D12Debug> debugController;
@@ -385,11 +385,11 @@ private:
 };
 }// namespace luisa::compute
 
-LUISA_EXPORT luisa::compute::Device::Interface* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
+LUISA_EXPORT_API luisa::compute::Device::Interface* create(const luisa::compute::Context& ctx, uint32_t id) noexcept {
 	return new luisa::compute::DXDevice(ctx, id);
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device::Interface* device) noexcept {
+LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface* device) noexcept {
 	delete device;
 }
 /*

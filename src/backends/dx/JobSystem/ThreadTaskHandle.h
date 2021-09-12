@@ -4,7 +4,7 @@
 #include <util/VObject.h>
 #include <span>
 class ThreadPool;
-class VENGINE_DLL_COMMON ThreadTaskHandle {
+class LUISA_DLL ThreadTaskHandle {
 	friend class ThreadPool;
 
 public:
@@ -17,7 +17,7 @@ public:
 
 private:
 	struct PoolType;
-	struct VENGINE_DLL_COMMON TaskData {
+	struct LUISA_DLL TaskData {
 		std::atomic_uint8_t state;
 		ObjectPtr<PoolType> poolPtr;
 		Runnable<void()> func;
@@ -32,7 +32,7 @@ private:
 			Runnable<void()>&& func);
 		~TaskData();
 	};
-	struct VENGINE_DLL_COMMON PoolType {
+	struct LUISA_DLL PoolType {
 		Pool<TaskData, VEngine_AllocType::VEngine, true> pool;
 		std::mutex mtx;
 		PoolType();

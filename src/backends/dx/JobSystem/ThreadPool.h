@@ -3,7 +3,7 @@
 #include <util/VObject.h>
 #include <util/LockFreeArrayQueue.h>
 #include <JobSystem/ThreadTaskHandle.h>
-class VENGINE_DLL_COMMON ThreadPool final {
+class LUISA_DLL ThreadPool final {
 	friend class ThreadTaskHandle;
 	class ThreadPoolMethod {
 

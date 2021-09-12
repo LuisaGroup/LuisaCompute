@@ -4,7 +4,7 @@
 #include <type_traits>
 namespace vstd {
 
-class VENGINE_DLL_COMMON StackBuffer {
+class LUISA_DLL StackBuffer {
 public:
     void *data() const { return ptr; }
     size_t length() const {

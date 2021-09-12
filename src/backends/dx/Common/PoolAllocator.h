@@ -20,7 +20,7 @@ public:
 	}
 	void* Allocate(size_t checkSize) {
 		if (checkSize != sizeof(T)) {
-			VEngine_Log(
+			vstl_log(
 				{"Failed Allocate Type ",
 				 typeid(T).name(),
 				 "\n"});
@@ -36,7 +36,7 @@ public:
 	}
 	void Free(void* ptr, size_t checkSize) {
 		if (checkSize != sizeof(T)) {
-			VEngine_Log(
+			vstl_log(
 				{"Failed Deallocate Type ",
 				 typeid(T).name(),
 				 "\n"});

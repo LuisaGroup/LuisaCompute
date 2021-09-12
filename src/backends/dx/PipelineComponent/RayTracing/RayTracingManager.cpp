@@ -205,7 +205,7 @@ RayTracingManager::RayTracingManager(
 		//////// Set Mesh
 		auto ite = allBottomLevel.Find(ptr->mesh->GetVObjectPtr()->GetInstanceID());
 		if (!ite) {
-			VEngine_Log("Ray Renderer Contains No Mesh!\n"_sv);
+			vstl_log("Ray Renderer Contains No Mesh!\n"_sv);
 			VSTL_ABORT();
 		}
 

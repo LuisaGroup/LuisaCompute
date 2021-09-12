@@ -44,7 +44,7 @@ void AddFunc(
 			std::move(funcPtr));
 	}
 	if (!isNew) {
-		VEngine_Log(
+		vstl_log(
 			{"Functor Name Conflict: ",
 			 name});
 		VSTL_ABORT();
@@ -60,9 +60,9 @@ void const* GetFuncPair(
 	if (ite) {
 		auto&& v = ite.Value();
 		//Not Same Type!
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
 		if (strcmp(v.funcType.GetType().name(), checkType.GetType().name()) != 0) {
-			VEngine_Log(
+			vstl_log(
 				{"Try to access function: ",
 				 name,
 				 " with wrong type!\n",

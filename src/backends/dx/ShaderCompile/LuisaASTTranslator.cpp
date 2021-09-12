@@ -1048,7 +1048,7 @@ void CodegenUtility::GetFunctionName(CallExpr const* expr, vstd::string& result,
 
 			break;
 		default:
-			VEngine_Log("Function Not Implemented"_sv);
+			vstl_log("Function Not Implemented"_sv);
 			VSTL_ABORT();
 	}
 	func();
@@ -1153,15 +1153,15 @@ size_t CodegenUtility::PrintGlobalVariables(
 		switch (type.tag()) {
 			///////////// Invalid types
 			case Type::Tag::ARRAY:
-				VEngine_Log("Uniform Variable Cannot be array!\n"_sv);
+				vstl_log("Uniform Variable Cannot be array!\n"_sv);
 				throw 0;
 			case Type::Tag::BOOL:
-				VEngine_Log("Uniform Variable Cannot be bool!\n"_sv);
+				vstl_log("Uniform Variable Cannot be bool!\n"_sv);
 				throw 0;
 			///////////// Valid Types
 			case Type::Tag::MATRIX:
 				if (type.dimension() != 4) {
-					VEngine_Log("Uniform Matrix Only Allow 4x4 Matrix!\n"_sv);
+					vstl_log("Uniform Matrix Only Allow 4x4 Matrix!\n"_sv);
 					throw 0;
 				}
 				CodegenUtility::GetTypeName(type, result, _IsVarWritable(func, var));

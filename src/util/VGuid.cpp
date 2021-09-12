@@ -24,7 +24,7 @@ Guid::Guid(GuidData const &d) {
 }
 Guid::Guid(std::string_view strv) {
     if (strv.size() != sizeof(GuidData) * 2) {
-        VEngine_Log("Wrong guid string length!\n");
+        vstl_log("Wrong guid string length!\n");
         VSTL_ABORT();
     }
     char const *ptr = &*strv.begin();
@@ -73,7 +73,7 @@ Guid::Guid(std::string_view strv) {
 
 Guid::Guid(std::span<uint8_t> data) {
     if (data.size() != sizeof(GuidData) * 2) {
-        VEngine_Log("Wrong guid string length!\n");
+        vstl_log("Wrong guid string length!\n");
         VSTL_ABORT();
     }
     memcpy(&this->data, data.data(), sizeof(GuidData));
@@ -110,9 +110,9 @@ void Guid::ReGenerate() {
 #ifdef _WIN32
     static_assert(sizeof(data) == sizeof(_GUID), "Size mismatch");
     HRESULT h = ::CoCreateGuid(reinterpret_cast<_GUID *>(&data));
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
     if (h != S_OK) {
-        VEngine_Log("GUID Generate Failed!\n");
+        vstl_log("GUID Generate Failed!\n");
         VSTL_ABORT();
     }
 #endif

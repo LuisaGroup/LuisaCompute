@@ -6,7 +6,7 @@ namespace LogGlobal {
 static bool isInitialized = false;
 static std::mutex mtx;
 }// namespace LogGlobal
-void VEngine_Log(vstd::string_view const& chunk) {
+void vstl_log(vstd::string_view const& chunk) {
 	using namespace LogGlobal;
 	std::lock_guard<decltype(mtx)> lck(mtx);
 	FILE* file = nullptr;
@@ -25,7 +25,7 @@ void VEngine_Log(vstd::string_view const& chunk) {
 		fclose(file);
 	}
 }
-void VEngine_Log(vstd::string_view const* chunk, size_t chunkCount) {
+void vstl_log(vstd::string_view const* chunk, size_t chunkCount) {
 	using namespace LogGlobal;
 	std::lock_guard<decltype(mtx)> lck(mtx);
 	FILE* file = nullptr;
@@ -45,14 +45,14 @@ void VEngine_Log(vstd::string_view const* chunk, size_t chunkCount) {
 		fclose(file);
 	}
 }
-void VEngine_Log(std::initializer_list<vstd::string_view> const& initList) {
-	VEngine_Log(initList.begin(), initList.size());
+void vstl_log(std::initializer_list<vstd::string_view> const& initList) {
+	vstl_log(initList.begin(), initList.size());
 }
-void VEngine_Log(std::type_info const& t) {
-	VEngine_Log(
+void vstl_log(std::type_info const& t) {
+	vstl_log(
 		{t.name(),
 		 " runtime error! Usually did mistake operation, like vstd::optional\n"_sv});
 }
-void VEngine_Log(char const* chunk) {
-	VEngine_Log(vstd::string_view(chunk));
+void vstl_log(char const* chunk) {
+	vstl_log(vstd::string_view(chunk));
 }

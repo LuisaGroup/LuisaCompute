@@ -8,13 +8,13 @@ bool ThreadPool::IsWorkerThread() {
 ThreadPool::ThreadPool(size_t workerThreadCount)
 	: pool(MakeObjectPtr(
 		[&]() {
-			void* ptr = vengine_malloc(sizeof(PoolType));
+			void* ptr = vstl_malloc(sizeof(PoolType));
 			new (ptr) PoolType();
 			return reinterpret_cast<PoolType*>(ptr);
 		}(),
 		[](void* ptr) {
 			reinterpret_cast<PoolType*>(ptr)->~PoolType();
-			vengine_free(ptr);
+			vstl_free(ptr);
 		})) {
 	workerThreadCount = Max<size_t>(workerThreadCount, 1);
 	this->workerThreadCount = workerThreadCount;

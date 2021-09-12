@@ -1,7 +1,7 @@
 #pragma once
 #include <util/MetaLib.h>
 #include <util/vector.h>
-class VENGINE_DLL_COMMON CBVarBase {
+class LUISA_DLL CBVarBase {
 protected:
 	size_t offset;
 	size_t size;
@@ -24,7 +24,7 @@ public:
 };
 template<typename T>
 class CBVar;
-class VENGINE_DLL_COMMON ConstBuffer {
+class LUISA_DLL ConstBuffer {
 private:
 	static ConstBuffer*& GetBaseBufferRef();
 	static void SetSubMode(bool b);

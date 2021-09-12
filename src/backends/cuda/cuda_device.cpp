@@ -342,10 +342,10 @@ std::string_view CUDADevice::Handle::name() const noexcept {
 
 }// namespace luisa::compute::cuda
 
-LUISA_EXPORT luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
+LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
     return new luisa::compute::cuda::CUDADevice{ctx, id};
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device::Interface *device) noexcept {
+LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {
     delete device;
 }

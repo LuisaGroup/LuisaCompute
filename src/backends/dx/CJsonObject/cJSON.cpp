@@ -27,8 +27,8 @@ static int32_t cJSON_strcasecmp(const char* s1, const char* s2) {
 	return tolower(*(const unsigned char*)s1)
 		   - tolower(*(const unsigned char*)s2);
 }
-static void* (*cJSON_malloc)(uint64_t sz) = vengine_malloc;
-static void (*cJSON_free)(void* ptr) = vengine_free;
+static void* (*cJSON_malloc)(uint64_t sz) = vstl_malloc;
+static void (*cJSON_free)(void* ptr) = vstl_free;
 static char* cJSON_strdup(const char* str) {
 	uint64_t len;
 	char* copy;
@@ -40,12 +40,12 @@ static char* cJSON_strdup(const char* str) {
 }
 void cJSON_InitHooks(cJSON_Hooks* hooks) {
 	if (!hooks) { /* Reset hooks */
-		cJSON_malloc = vengine_malloc;
-		cJSON_free = vengine_free;
+		cJSON_malloc = vstl_malloc;
+		cJSON_free = vstl_free;
 		return;
 	}
-	cJSON_malloc = (hooks->malloc_fn) ? hooks->malloc_fn : vengine_malloc;
-	cJSON_free = (hooks->free_fn) ? hooks->free_fn : vengine_free;
+	cJSON_malloc = (hooks->malloc_fn) ? hooks->malloc_fn : vstl_malloc;
+	cJSON_free = (hooks->free_fn) ? hooks->free_fn : vstl_free;
 }
 /* Internal constructor. */
 static cJSON* cJSON_New_Item() {
@@ -458,7 +458,7 @@ static char* print_array(cJSON* item, int32_t depth, int32_t fmt) {
 			fail = 1;
 		child = child->next;
 	}
-	/* If we didn't fail, try to vengine_malloc the output string */
+	/* If we didn't fail, try to vstl_malloc the output string */
 	if (!fail)
 		out = (char*)cJSON_malloc(len);
 	/* If that fails, we fail. */

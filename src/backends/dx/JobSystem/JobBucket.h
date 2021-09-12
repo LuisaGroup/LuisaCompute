@@ -10,7 +10,7 @@
 class JobSystem;
 class JobThreadRunnable;
 class JobNode;
-class VENGINE_DLL_COMMON JobBucket {
+class LUISA_DLL JobBucket {
 	friend class JobSystem;
 	friend class JobNode;
 	friend class JobHandle;

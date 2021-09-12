@@ -3,7 +3,7 @@
 #include <util/vstring.h>
 #include <util/Memory.h>
 #include <Common/Log.h>
-class VENGINE_DLL_COMMON DynamicDLL final : public vstd::IOperatorNewBase {
+class LUISA_DLL DynamicDLL final : public vstd::IOperatorNewBase {
 	size_t inst;
 	template<typename T>
 	struct IsFuncPtr {
@@ -30,7 +30,7 @@ public:
 		static_assert(IsFuncPtr<std::remove_cvref_t<T>>::value, "DLL Only Support Function Pointer!"_sv);
 		auto ptr = GetFuncPtr(name);
 		if (ptr == 0) {
-			VEngine_Log(
+			vstl_log(
 				{"Can not find function ",
 				 name});
 			VSTL_ABORT();
@@ -42,7 +42,7 @@ public:
 		static_assert(IsFuncPtr<std::remove_cvref_t<T>>::value, "DLL Only Support Function Pointer!"_sv);
 		auto ptr = GetFuncPtr(name);
 		if (ptr == 0) {
-			VEngine_Log(
+			vstl_log(
 				{"Can not find function ",
 				 name});
 			VSTL_ABORT();

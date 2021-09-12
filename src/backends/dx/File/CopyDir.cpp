@@ -166,7 +166,7 @@ void CopyDir::do_copy(const vstd::vector<vstd::string>& fileNameList, HashMap<vs
 				nowDesFilePath = this->desDirPath + "/" + fileNameList.at(i);
 
 #endif
-#ifdef UNICODE
+#ifdef VSTL_UNICODE
 			if (!CopyFile(vstd::wstring(nowSrcFilePath).c_str(), vstd::wstring(nowDesFilePath).c_str(), false))
 #else
 			if (!CopyFile(nowSrcFilePath.c_str(), nowDesFilePath.c_str(), false))

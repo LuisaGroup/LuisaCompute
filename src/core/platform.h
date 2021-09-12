@@ -7,11 +7,13 @@
 #ifdef _MSC_VER
 #define LUISA_FORCE_INLINE __forceinline
 #define LUISA_NEVER_INLINE __declspec(noinline)
-#define LUISA_EXPORT extern "C" __declspec(dllexport)
+#define LUISA_DLL
+#define LUISA_EXPORT_API extern "C" __declspec(dllexport)
 #else
 #define LUISA_FORCE_INLINE [[gnu::always_inline, gnu::hot]] inline
 #define LUISA_NEVER_INLINE [[gnu::noinline]]
-#define LUISA_EXPORT extern "C" [[gnu::visibility("default")]]
+#define LUISA_DLL
+#define LUISA_EXPORT_API extern "C" [[gnu::visibility("default")]]
 #endif
 
 #if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
@@ -20,6 +22,8 @@
 #define LUISA_PLATFORM_UNIX
 #endif
 
+#include <cstdint>
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <string_view>

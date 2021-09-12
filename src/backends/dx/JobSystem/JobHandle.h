@@ -4,7 +4,7 @@
 #include <span>
 class JobNode;
 class JobBucket;
-class VENGINE_DLL_COMMON JobHandle {
+class LUISA_DLL JobHandle {
 	friend class JobBucket;
 	friend class JobNode;
 

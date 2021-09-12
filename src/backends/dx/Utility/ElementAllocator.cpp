@@ -50,7 +50,7 @@ ElementAllocator::AllocateHandle ElementAllocator::Allocate(size_t size) {
 	GetBinaryLayer(
 		size, size, currentLayer);
 	if (size == 0 || size > maxSize) {
-		VEngine_Log("Allocator Out of Range!\n");
+		vstl_log("Allocator Out of Range!\n");
 		VSTL_ABORT();
 	}
 	currentLayer = linkLists.size() - currentLayer;
@@ -124,7 +124,7 @@ void ElementAllocator::Release(ElementAllocator::AllocateHandle handle) {
 	auto brother = element->obj.brother;
 	//Shouldn't be here;
 	if (handle.node->obj.avaliable) {
-		VEngine_Log("Try to dispose a disposed resource!\n");
+		vstl_log("Try to dispose a disposed resource!\n");
 		throw 0;
 	}
 	if (brother) {

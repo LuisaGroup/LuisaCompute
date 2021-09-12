@@ -4,7 +4,7 @@
 void BinaryJson::DisposeSelf() {
 	if (isArray) {
 		if (!arrayDatas->datas.empty())
-			vengine_free(arrayDatas->allocatedPtr);
+			vstl_free(arrayDatas->allocatedPtr);
 		arrayDatas.Delete();
 	} else {
 		keyValueDatas.Delete();
@@ -50,7 +50,7 @@ void BinaryJson::Parse(char const*& ptr, bool isArray) {
 		initialized = true;
 		if (isArray) {
 			arrayDatas.New();
-			arrayDatas->allocatedPtr = vengine_malloc(sizeof(SerializedData) * elementCount);
+			arrayDatas->allocatedPtr = vstl_malloc(sizeof(SerializedData) * elementCount);
 			arrayDatas->datas.resize(elementCount);
 		} else {
 			keyValueDatas.New(elementCount);

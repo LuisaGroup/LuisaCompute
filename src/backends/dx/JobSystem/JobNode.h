@@ -14,7 +14,7 @@ class JobThreadRunnable;
 class JobBucket;
 class VectorPool;
 class JobSystem;
-class VENGINE_DLL_COMMON JobNode
+class LUISA_DLL JobNode
 {
 	friend class JobBucket;
 	friend class JobSystem;

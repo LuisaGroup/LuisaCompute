@@ -356,7 +356,7 @@ inline float XM_CALLCONV distance(const Math::Vector4& vec1, const Math::Vector4
 #undef min
 #endif
 
-VENGINE_DLL_COMMON Math::Matrix4 XM_CALLCONV mul(
+LUISA_DLL Math::Matrix4 XM_CALLCONV mul(
 	const Math::Matrix4& m1,
 	const Math::Matrix4& m2) noexcept;
 
@@ -608,7 +608,7 @@ inline Math::Vector3 XM_CALLCONV ceil(
 #endif
 }
 
-VENGINE_DLL_COMMON Math::Matrix4 XM_CALLCONV transpose(const Math::Matrix4& m) noexcept;
+LUISA_DLL Math::Matrix4 XM_CALLCONV transpose(const Math::Matrix4& m) noexcept;
 
 inline Math::Vector3 XM_CALLCONV pow(const Math::Vector3& v1, const Math::Vector3& v2) noexcept {
 	XMVECTOR const& V1 = (XMVECTOR const&)v1;
@@ -734,19 +734,19 @@ inline Math::Vector4 XM_CALLCONV pow(const Math::Vector4& v1, float v2) {
 	return vResult;
 #endif
 }
-VENGINE_DLL_COMMON Math::Matrix3 XM_CALLCONV transpose(const Math::Matrix3& m) noexcept;
+LUISA_DLL Math::Matrix3 XM_CALLCONV transpose(const Math::Matrix3& m) noexcept;
 
-VENGINE_DLL_COMMON Math::Matrix4 XM_CALLCONV inverse(const Math::Matrix4& m) noexcept;
+LUISA_DLL Math::Matrix4 XM_CALLCONV inverse(const Math::Matrix4& m) noexcept;
 
-VENGINE_DLL_COMMON Math::Matrix4 XM_CALLCONV QuaternionToMatrix(const Math::Vector4& q) noexcept;
+LUISA_DLL Math::Matrix4 XM_CALLCONV QuaternionToMatrix(const Math::Vector4& q) noexcept;
 
-VENGINE_DLL_COMMON Math::Matrix4 XM_CALLCONV GetTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
-VENGINE_DLL_COMMON Math::Matrix4 XM_CALLCONV GetTransposedTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
-VENGINE_DLL_COMMON Math::Vector4 XM_CALLCONV cross(const Math::Vector4& v1, const Math::Vector4& v2, const Math::Vector4& v3) noexcept;
-VENGINE_DLL_COMMON Math::Vector3 XM_CALLCONV cross(const Math::Vector3& v1, const Math::Vector3& v2) noexcept;
-VENGINE_DLL_COMMON Math::Vector4 XM_CALLCONV normalize(const Math::Vector4& v) noexcept;
-VENGINE_DLL_COMMON Math::Vector3 XM_CALLCONV normalize(const Math::Vector3& v) noexcept;
-VENGINE_DLL_COMMON Math::Matrix4 XM_CALLCONV GetInverseTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
+LUISA_DLL Math::Matrix4 XM_CALLCONV GetTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
+LUISA_DLL Math::Matrix4 XM_CALLCONV GetTransposedTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
+LUISA_DLL Math::Vector4 XM_CALLCONV cross(const Math::Vector4& v1, const Math::Vector4& v2, const Math::Vector4& v3) noexcept;
+LUISA_DLL Math::Vector3 XM_CALLCONV cross(const Math::Vector3& v1, const Math::Vector3& v2) noexcept;
+LUISA_DLL Math::Vector4 XM_CALLCONV normalize(const Math::Vector4& v) noexcept;
+LUISA_DLL Math::Vector3 XM_CALLCONV normalize(const Math::Vector3& v) noexcept;
+LUISA_DLL Math::Matrix4 XM_CALLCONV GetInverseTransformMatrix(const Math::Vector3& right, const Math::Vector3& up, const Math::Vector3& forward, const Math::Vector3& position) noexcept;
 struct double2 {
 	double x;
 	double y;

@@ -5,7 +5,7 @@ namespace vstd {
 
 class PtrLink;
 class PtrWeakLink;
-struct VENGINE_DLL_COMMON LinkHeap {
+struct LUISA_DLL LinkHeap {
     friend class PtrLink;
     friend class PtrWeakLink;
 
@@ -31,7 +31,7 @@ public:
     LinkHeap *heapPtr;
     size_t offset = 0;
 };
-class VENGINE_DLL_COMMON PtrLink : public PtrLinkBase {
+class LUISA_DLL PtrLink : public PtrLinkBase {
     friend class VEngine;
     friend class PtrWeakLink;
 
@@ -65,7 +65,7 @@ public:
         Dispose();
     }
 };
-class VENGINE_DLL_COMMON PtrWeakLink : public PtrLinkBase {
+class LUISA_DLL PtrWeakLink : public PtrLinkBase {
 public:
     PtrWeakLink() noexcept {
         heapPtr = nullptr;
@@ -231,9 +231,9 @@ public:
     }
     template<typename... Args>
     static ObjectPtr<T> NewObject(Args &&...args) {
-        T *ptr = vengine_new<T>(std::forward<Args>(args)...);
+        T *ptr = vstl_new<T>(std::forward<Args>(args)...);
         return ObjectPtr<T>(ptr, [](void *ptr) -> void {
-            vengine_delete<T>(reinterpret_cast<T *>(ptr));
+            vstl_delete<T>(reinterpret_cast<T *>(ptr));
         });
     }
     static ObjectPtr<T> MakePtrNoMemoryFree(T *ptr) noexcept {
@@ -252,7 +252,7 @@ public:
     }
 
     inline operator T *() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -294,7 +294,7 @@ public:
     }
 
     inline T *operator->() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -302,7 +302,7 @@ public:
     }
 
     inline T &operator*() noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -310,7 +310,7 @@ public:
     }
 
     inline T const &operator*() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -374,7 +374,7 @@ public:
     }
 
     inline operator T *() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -408,7 +408,7 @@ public:
     }
 
     inline T *operator->() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -416,7 +416,7 @@ public:
     }
 
     inline T &operator*() noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -424,7 +424,7 @@ public:
     }
 
     inline T const &operator*() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -482,7 +482,7 @@ public:
     }
 
     inline operator T *() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -531,7 +531,7 @@ public:
     }
 
     inline T *operator->() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -539,7 +539,7 @@ public:
     }
 
     inline T &operator*() noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -547,7 +547,7 @@ public:
     }
 
     inline T const &operator*() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -598,7 +598,7 @@ public:
     }
 
     inline operator T *() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -633,7 +633,7 @@ public:
     }
 
     inline T *operator->() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
@@ -641,14 +641,14 @@ public:
     }
 
     inline T &operator*() noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif
         return *GetPtr();
     }
     inline T const &operator*() const noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
         //Null Check!
         assert(link.heapPtr != nullptr);
 #endif

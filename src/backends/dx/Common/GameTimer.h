@@ -1,7 +1,7 @@
 #pragma once
 #include <util/vstlconfig.h>
 #include <stdint.h>
-class VENGINE_DLL_COMMON GameTimer
+class LUISA_DLL GameTimer
 {
 private:
 	static uint64_t frameCount;

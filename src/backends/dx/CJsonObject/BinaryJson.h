@@ -6,7 +6,7 @@ class BinaryReader;
 namespace SerializeStruct {
 class SerializedData;
 }
-class VENGINE_DLL_COMMON BinaryJson final : public VObject {
+class LUISA_DLL BinaryJson final : public VObject {
 private:
 	bool initialized = false;
 	bool isArray;
@@ -101,7 +101,7 @@ public:
 	VSTL_DELETE_COPY_CONSTRUCT(BinaryJson)
 };
 namespace SerializeStruct {
-class VENGINE_DLL_COMMON SerializedData {
+class LUISA_DLL SerializedData {
 public:
 	SerializeStruct::ObjectType type;
 	union {

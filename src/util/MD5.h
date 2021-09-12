@@ -1,14 +1,17 @@
 #pragma once
+
 #include <util/MetaLib.h>
 #include <string>
 #include <array>
+
 namespace vstd {
 static constexpr size_t MD5_SIZE = 16;
 
-VENGINE_DLL_COMMON std::array<uint8_t, MD5_SIZE> GetMD5FromString(std::string const& str);
-VENGINE_DLL_COMMON std::array<uint8_t, MD5_SIZE> GetMD5FromArray(std::span<uint8_t const> data);
+LUISA_DLL std::array<uint8_t, MD5_SIZE> GetMD5FromString(std::string const& str);
+LUISA_DLL std::array<uint8_t, MD5_SIZE> GetMD5FromArray(std::span<uint8_t const> data);
+
 //Used for unity
-class VENGINE_DLL_COMMON MD5 {
+class LUISA_DLL MD5 {
 public:
 	struct MD5Data {
 		uint64 data0;

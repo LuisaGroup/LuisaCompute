@@ -143,7 +143,7 @@ void ReadData(const vstd::string& str, ArrayList<char>& datas,
 			  uint64& targetSize, bool startLoading, bool alreadyHaveHeader) {
 	BinaryReader ifs(str);
 	if (!ifs) {
-		VEngine_Log("Texture Error! File Not Exists!\n");
+		vstl_log("Texture Error! File Not Exists!\n");
 		VSTL_ABORT();
 	}
 	if (alreadyHaveHeader)
@@ -158,14 +158,14 @@ void ReadData(const vstd::string& str, ArrayList<char>& datas,
 	headerResult.mipCount = maximumMipLevel;
 	uint formt = (uint)headerResult.format;
 	if (formt >= (uint)(TextureData::LoadFormat_Num) || (uint)headerResult.textureType >= (uint)TextureDimension::Num) {
-		VEngine_Log("Texture Error! Invalide Format!\n");
+		vstl_log("Texture Error! Invalide Format!\n");
 		VSTL_ABORT();
 	}
 	uint stride = 0;
 	TextureGlobal::TextureFormat_LoadData loadData = TextureGlobal::Texture_GetFormat(headerResult.format);
 	stride = loadData.pixelSize;
 	if (headerResult.depth != 1 && startMipLevel != 0) {
-		VEngine_Log("Texture Error! Non-2D map can not use mip streaming!\n");
+		vstl_log("Texture Error! Non-2D map can not use mip streaming!\n");
 		VSTL_ABORT();
 	}
 	uint64_t size = 0;
@@ -441,19 +441,19 @@ D3D12_RESOURCE_DESC Texture::CreateWithoutResource(
 	targetFilePath = filePath;
 	TextureGlobal::ReadData(filePath, *datasPtr, data, startMipMap, maximumLoadMipmap, fileReadOffset, fileReadSize, startLoadNow, alreadyHaveTextureData);
 	if ((size_t)data.format >= (size_t)TextureData::LoadFormat_Num || data.textureType != type) {
-		VEngine_Log("Texture Type Not Match Exception\n");
+		vstl_log("Texture Type Not Match Exception\n");
 		VSTL_ABORT();
 	}
 	if (type == TextureDimension::Cubemap && data.depth != 6) {
-		VEngine_Log("Cubemap's tex size must be 6\n");
+		vstl_log("Cubemap's tex size must be 6\n");
 		VSTL_ABORT();
 	}
 	if (data.mipCount > 14) {
-		VEngine_Log("Too Many Mipmap!");
+		vstl_log("Too Many Mipmap!");
 		VSTL_ABORT();
 	}
 	if (data.width > 8192 || data.height > 8192) {
-		VEngine_Log("Texture Too Large!");
+		vstl_log("Texture Too Large!");
 		VSTL_ABORT();
 	}
 	auto loadData = TextureGlobal::Texture_GetFormat(data.format);

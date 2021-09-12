@@ -116,7 +116,7 @@ IJsonDatabase *Database_Impl::CreateConcurrentDatabase() const {
 }
 
 static vstd::optional<Database_Impl> database_Impl;
-LUISA_EXPORT toolhub::db::Database const *Database_GetFactory() {
+LUISA_EXPORT_API toolhub::db::Database const *Database_GetFactory() {
     database_Impl.New();
     return database_Impl;
 }

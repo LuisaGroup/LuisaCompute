@@ -25,7 +25,7 @@ void CBufferChunk::CopyData(void const* ptr, size_t sz) const noexcept {
 }
 
 void CBufferAllocator::Release(CBufferChunk const& chunk) noexcept {
-#if defined(DEBUG)
+#if defined(VSTL_DEBUG)
 	if (!chunk.GetBuffer() || !chunk.node)
 		throw "Null Chunk!";
 #endif

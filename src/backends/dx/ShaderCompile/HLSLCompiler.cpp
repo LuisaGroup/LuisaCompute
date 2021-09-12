@@ -47,7 +47,7 @@ void CreateChildProcess(vstd::string const& cmd, ProcessorData* data) {
 	siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
 
 // Create the child process.
-#ifdef UNICODE
+#ifdef VSTL_UNICODE
 	bSuccess = CreateProcess(NULL,
 							 vstd::wstring(cmd).data(),// command line
 							 NULL,						  // process security attributes
@@ -131,7 +131,7 @@ void HLSLCompiler::InitRegisterData() {
 	using namespace neb;
 	std::unique_ptr<CJsonObject> obj(ReadJson(folderPath + "/register.json"_sv));
 	if (!obj) {
-		VEngine_Log("Register.json not found in HLSLCompiler folder!"_sv);
+		vstl_log("Register.json not found in HLSLCompiler folder!"_sv);
 		VSTL_ABORT();
 	}
 	vstd::string value;

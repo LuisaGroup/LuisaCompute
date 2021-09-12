@@ -571,10 +571,10 @@ void *MetalDevice::stream_native_handle(uint64_t handle) const noexcept {
 
 }
 
-LUISA_EXPORT luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
+LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
     return new luisa::compute::metal::MetalDevice{ctx, id};
 }
 
-LUISA_EXPORT void destroy(luisa::compute::Device::Interface *device) noexcept {
+LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {
     delete device;
 }

@@ -1,15 +1,15 @@
 #pragma once
 #include <Common/Common.h>
 #include <util/Runnable.h>
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
 #include <string.h>
 #endif
 namespace vstd {
-VENGINE_DLL_COMMON void AddFunc(
+LUISA_DLL void AddFunc(
 	string_view const& name,
 	Type funcType,
 	Runnable<void(), VEngine_AllocType::Default>&& funcPtr);
-VENGINE_DLL_COMMON void const* GetFuncPair(
+LUISA_DLL void const* GetFuncPair(
 	Type checkType,
 	string_view const& name);
 template<typename T>
@@ -30,9 +30,9 @@ template<typename T>
 Runnable<functor_t<T>, VEngine_AllocType::Default> const& TryGetFunction(
 	string_view const& name) {
 	auto pair = GetFuncPair(typeid(functor_t<T>), name);
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
 	if (pair == 0) {
-		VEngine_Log(
+		vstl_log(
 			{"Try Get Function "_sv,
 			 name,
 			 " Failed!\n"});

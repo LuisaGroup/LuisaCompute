@@ -32,9 +32,9 @@ struct StackData {
         offset = reinterpret_cast<uint8_t *>(CalcAlign<align>(reinterpret_cast<size_t>(offset)));
         void *ptr = offset;
         offset += sz;
-#ifdef DEBUG
+#ifdef VSTL_DEBUG
         if (reinterpret_cast<size_t>(offset) - reinterpret_cast<size_t>(data) > VENGINE_STACK_LENGTH) {
-            VEngine_Log("Stack-Overflow!\n");
+            vstl_log("Stack-Overflow!\n");
             VSTL_ABORT();
         }
 #endif

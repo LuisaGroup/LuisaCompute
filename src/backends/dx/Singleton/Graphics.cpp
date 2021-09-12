@@ -47,7 +47,7 @@ Graphics::Graphics(GFXDevice* device)
 uint Graphics::GetDescHeapIndexFromPool() {
 	std::lock_guard lck(current->mtx);
 	if (current->unusedDescs.empty()) {
-		VEngine_Log("No Global Descriptor Index Lefted!\n");
+		vstl_log("No Global Descriptor Index Lefted!\n");
 		throw 0;
 	}
 	uint value = current->unusedDescs.erase_last();

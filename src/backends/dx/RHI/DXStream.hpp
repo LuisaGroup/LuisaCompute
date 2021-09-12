@@ -29,7 +29,7 @@ public:
 		ID3D12Fence* fence,
 		uint64 signalIndex) {
 		if (signalIndex > 0 && (fence->GetCompletedValue() < signalIndex)) {
-#ifdef UNICODE
+#ifdef VSTL_UNICODE
 			LPCWSTR falseValue = (LPCWSTR) false;
 #else
 			LPCSTR falseValue = (LPCSTR) false;

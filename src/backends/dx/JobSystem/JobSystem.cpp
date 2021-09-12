@@ -136,7 +136,7 @@ JobSystem::~JobSystem() noexcept {
 /*
 void* JobSystem::AllocFuncMemory(uint64_t size)
 {
-	void* ptr = vengine_malloc(size);
+	void* ptr = vstl_malloc(size);
 	allocatedMemory[allocatorSwitcher].push_back(ptr);
 	return ptr;
 }
@@ -144,7 +144,7 @@ void JobSystem::FreeAllMemory()
 {
 	for (size_t i = 0; i < allocatedMemory[allocatorSwitcher].size(); ++i)
 	{
-		vengine_free(allocatedMemory[allocatorSwitcher][i]);
+		vstl_free(allocatedMemory[allocatorSwitcher][i]);
 	}
 	allocatedMemory[allocatorSwitcher].clear();
 }
