@@ -32,7 +32,8 @@ void vstl_log(char const *chunk) {
     }
 }
 
-void vstl_log(char const *const *chunks, size_t chunkCount) {
+template<typename Begin, typename End>
+inline void vstl_log_multiple(Begin iter, End end) noexcept {
     using namespace LogGlobal;
     std::lock_guard<decltype(mtx)> lck(mtx);
     FILE *file = nullptr;
@@ -47,14 +48,19 @@ void vstl_log(char const *const *chunks, size_t chunkCount) {
         file = fopen("LoggerFile.log", "a+");
     }
     if (file) {
-        for (size_t i = 0; i < chunkCount; ++i)
-            fwrite(chunks[i], strlen(chunks[i]), 1, file);
+        for (; iter != end; iter++) {
+            fwrite(*iter, strlen(*iter), 1, file);
+        }
         fclose(file);
     }
 }
 
+void vstl_log(char const *const *chunks, size_t chunkCount) {
+    vstl_log_multiple(chunks, chunks + chunkCount);
+}
+
 void vstl_log(std::initializer_list<char const *> initList) {
-    vstl_log(initList.begin(), initList.size());
+    vstl_log_multiple(initList.begin(), initList.end());
 }
 
 void vstl_log(std::type_info const &t) {

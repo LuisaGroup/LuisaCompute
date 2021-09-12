@@ -1,7 +1,10 @@
 #pragma once
-#include <vstl/config.h>
-#include <stdint.h>
+
+#include <cstdint>
 #include <type_traits>
+
+#include <vstl/config.h>
+
 namespace vstd {
 
 class LUISA_DLL StackBuffer {
@@ -27,4 +30,5 @@ private:
     void *ptr;
     size_t mLength;
 };
+
 }// namespace vstd
