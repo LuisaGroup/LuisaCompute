@@ -2,9 +2,9 @@
 
 #include <cmath>
 
-#include <serialization/DatabaseInclude.h>
-#include <serialization/SimpleBinaryJson.h>
-#include <serialization/SimpleParser.h>
+#include <serialize/DatabaseInclude.h>
+#include <serialize/SimpleBinaryJson.h>
+#include <serialize/SimpleParser.h>
 
 namespace toolhub::db {
 namespace parser {

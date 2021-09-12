@@ -1,5 +1,5 @@
 #pragma once
-#include <serialization/Common.h>
+#include <serialize/Common.h>
 // Entry:
 // toolhub::db::Database const* Database_GetFactory()
 namespace toolhub::db {

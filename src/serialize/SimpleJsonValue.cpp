@@ -1,8 +1,8 @@
 #pragma vengine_package vengine_database
 
-#include <serialization/Common.h>
-#include <serialization/SimpleBinaryJson.h>
-#include <serialization/SimpleJsonValue.h>
+#include <serialize/Common.h>
+#include <serialize/SimpleBinaryJson.h>
+#include <serialize/SimpleJsonValue.h>
 namespace toolhub::db {
 
 class DictIEnumerator final : public vstd::IEnumerable<JsonKeyPair>, public vstd::IOperatorNewBase {

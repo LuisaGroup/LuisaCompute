@@ -458,9 +458,8 @@ public:
         }
         allocatedNodes.clear();
     }
-    size_t size() const noexcept { return allocatedNodes.size(); }
-
-    size_t GetCapacity() const noexcept { return nodeVec.size(); }
+    [[nodiscard]] size_t size() const noexcept { return allocatedNodes.size(); }
+    [[nodiscard]] size_t GetCapacity() const noexcept { return nodeVec.size(); }
     ////////////////////// Thread-Safe support
     template<typename Mutex, typename Key, typename... ARGS>
     Index Emplace_Lock(Mutex &mtx, Key &&key, ARGS &&...args) {
@@ -475,7 +474,7 @@ public:
             }
         }
 
-        size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
+        auto targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
         if (targetCapacity < 16)
             targetCapacity = 16;
         if (targetCapacity >= nodeVec.size()) {

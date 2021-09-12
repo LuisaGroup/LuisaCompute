@@ -1,6 +1,6 @@
 #pragma once
+#include <cstdint>
 #include <util/vstl_config.h>
-#include <stdint.h>
 namespace vstd {
 
 class Hash {
@@ -30,7 +30,7 @@ public:
         size_t Val = FNV_offset_basis;
         const uint32_t *IntPtrEnd;
         {
-            const uint32_t *IntPtr = (const uint32_t *)First;
+            auto IntPtr = (const uint32_t *)First;
             IntPtrEnd = IntPtr + (Count / sizeof(uint32_t));
             for (; IntPtr != IntPtrEnd; ++IntPtr) {
                 Val = GetNextHash(*IntPtr, Val);

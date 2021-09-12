@@ -1,8 +1,8 @@
 #pragma once
-#include <serialization/Common.h>
-#include <serialization/IJsonDatabase.h>
-#include <serialization/IJsonObject.h>
-#include <serialization/serializer.h>
+#include <serialize/Common.h>
+#include <serialize/IJsonDatabase.h>
+#include <serialize/IJsonObject.h>
+#include <serialize/serializer.h>
 namespace toolhub::db {
 class SimpleBinaryJson;
 class ConcurrentBinaryJson;

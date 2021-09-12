@@ -1,6 +1,6 @@
 #pragma vengine_package vengine_database
-#include <serialization/DatabaseInclude.h>
-#include <serialization/SimpleBinaryJson.h>
+#include <serialize/DatabaseInclude.h>
+#include <serialize/SimpleBinaryJson.h>
 namespace toolhub::db {
 class Database_Impl final : public Database {
 public:

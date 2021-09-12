@@ -1,6 +1,6 @@
 #pragma once
 #include <util/VGuid.h>
-#include <serialization/IJsonDatabase.h>
+#include <serialize/IJsonDatabase.h>
 namespace toolhub::db {
 class IJsonDict;
 class IJsonArray;
