@@ -143,8 +143,13 @@ struct SimpleJsonKeyEqual {
 using KVMap = vstd::HashMap<SimpleJsonKey, SimpleJsonVariant, SimpleJsonKeyHash, SimpleJsonKeyEqual>;
 
 class SimpleJsonValue {
+
 protected:
     SimpleBinaryJson *db;
+
+public:
+    explicit SimpleJsonValue(SimpleBinaryJson *db) noexcept
+        : db{db} {}
 };
 
 class SimpleJsonValueDict final : public IJsonDict, public SimpleJsonValue {

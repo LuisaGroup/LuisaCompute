@@ -242,9 +242,8 @@ static void PrintArray(std::vector<SimpleJsonVariant> &arr, std::string &str, si
 }
 
 //////////////////////////  Single Thread
-SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db) : SimpleJsonValue{} {
-    this->db = db;
-}
+SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db)
+    : SimpleJsonValue{db} {}
 
 SimpleJsonValueDict::~SimpleJsonValueDict() = default;
 
@@ -350,9 +349,7 @@ void SimpleJsonValueArray::Dispose() {
 }
 
 SimpleJsonValueArray::SimpleJsonValueArray(
-    SimpleBinaryJson *db) : SimpleJsonValue{} {
-    this->db = db;
-}
+    SimpleBinaryJson *db) : SimpleJsonValue{db} {}
 
 SimpleJsonValueArray::~SimpleJsonValueArray() = default;
 

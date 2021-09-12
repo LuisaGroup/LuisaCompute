@@ -15,4 +15,4 @@ target_link_libraries(luisa-compute-serialize-json PRIVATE luisa-compute-vstl)
 set_target_properties(luisa-compute-serialize-json PROPERTIES UNITY_BUILD ON)
 
 add_library(luisa-compute-serialize INTERFACE)
-target_link_libraries(luisa-compute-serialize INTERFACE luisa-compute-vstl)
+add_dependencies(luisa-compute-serialize luisa-compute-serialize-json)

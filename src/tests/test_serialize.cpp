@@ -14,6 +14,9 @@ int main(int argc, char *argv[]) {
     auto factory = std::invoke(module.function<DatabaseFactory>(database_factory_symbol));
     auto database = factory->CreateDatabase();
     auto dict = database->CreateDict();
-    dict->Set("Hello", "World");
+    auto array = database->CreateArray();
+    array->Add("Hello");
+    array->Add(0);
+    dict->Set("Hello", array.get());
     LUISA_INFO("{}", database->Print());
 }
