@@ -22,14 +22,14 @@ private:
 	MD5Data data;
 
 public:
-	MD5Data const& ToBinary() const { return data; }
+	[[nodiscard]] MD5Data const& ToBinary() const { return data; }
 	MD5(std::string const& str);
 	MD5(std::string_view str);
 	MD5(std::span<uint8_t const> bin);
 	MD5(MD5 const&) = default;
 	MD5(MD5&&) = default;
 	MD5(MD5Data const& data);
-	std::string ToString(bool upper = true) const;
+	[[nodiscard]] std::string ToString(bool upper = true) const;
 	template<typename T>
 	MD5& operator=(T&& t) {
 		this->~MD5();

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <type_traits>
+
 #include <vstl/config.h>
 #include <vstl/MetaLib.h>
 
@@ -18,16 +19,15 @@ namespace vstd {
 
 template<typename T, typename... Args>
 inline T *vstl_new(Args &&...args) noexcept {
-    T *tPtr = (T *)vstl_malloc(sizeof(T));// TODO: consider alignment?
-    return new (tPtr) T(std::forward<Args>(args)...);
+    static_assert(alignof(T) <= 16u);
+    auto p = static_cast<T *>(vstl_malloc(sizeof(T)));
+    return std::construct_at(p, std::forward<Args>(args)...);
 }
 
 template<typename T>
 inline void vstl_delete(T *ptr) noexcept {
     if (ptr != nullptr) {
-        if constexpr (!std::is_trivially_destructible_v<T>) {
-            ((T *)ptr)->~T();
-        }
+        std::destroy_at(ptr);
         vstl_free(ptr);
     }
 }

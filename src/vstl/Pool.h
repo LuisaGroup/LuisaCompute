@@ -1,16 +1,18 @@
 #pragma once
-#include <vstl/config.h>
-#include <type_traits>
-#include <stdint.h>
 
+#include <type_traits>
+#include <cstdint>
 #include <atomic>
 #include <type_traits>
 #include <mutex>
-#include <vstl/MetaLib.h>
 #include <vector>
+
+#include <core/spin_mutex.h>
+#include <vstl/config.h>
+#include <vstl/MetaLib.h>
 #include <vstl/Memory.h>
 #include <vstl/VAllocator.h>
-#include <core/spin_mutex.h>
+
 namespace vstd {
 
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool noCheckBeforeDispose = std::is_trivially_destructible<T>::value>

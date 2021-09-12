@@ -3,22 +3,20 @@
 #include <type_traits>
 #include <cstdint>
 #include <span>
+#include <typeinfo>
+#include <new>
+#include <mutex>
+#include <atomic>
+#include <thread>
 
 #include <vstl/config.h>
+#include <vstl/Hash.h>
 #include <core/basic_types.h>
 
 using uint = uint32_t;
 using uint64 = uint64_t;
 using int64 = int64_t;
 using int32 = int32_t;
-
-#include <typeinfo>
-#include <new>
-#include <vstl/Hash.h>
-#include <mutex>
-#include <atomic>
-#include <thread>
-#include <vstl/AllocateType.h>
 
 namespace vstd {
 

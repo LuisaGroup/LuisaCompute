@@ -25,7 +25,6 @@ struct HashValue {
 template<typename K, typename V, typename Hash = vstd::HashValue, typename Equal = vstd::HashEqual, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap : public vstd::IOperatorNewBase {
 public:
-    static_assert(allocType != VEngine_AllocType::Stack, "Hashmap do not support stack!");
     using KeyType = K;
     using ValueType = V;
     using HashType = Hash;
