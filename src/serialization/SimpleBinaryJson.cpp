@@ -1,6 +1,6 @@
 #pragma vengine_package vengine_database
-#include <util/serde/DatabaseInclude.h>
-#include <util/serde/SimpleBinaryJson.h>
+#include <serialization/DatabaseInclude.h>
+#include <serialization/SimpleBinaryJson.h>
 namespace toolhub::db {
 class Database_Impl final : public Database {
 public:
@@ -89,7 +89,7 @@ IJsonDatabase *Database_Impl::CreateConcurrentDatabase() const {
 }
 
 static vstd::optional<Database_Impl> database_Impl;
-VENGINE_EXTERN toolhub::db::Database const *Database_GetFactory() {
+LUISA_EXPORT toolhub::db::Database const *Database_GetFactory() {
     database_Impl.New();
     return database_Impl;
 }

@@ -1,11 +1,11 @@
 #pragma vengine_package vengine_database
 
-#include <util/serde/Common.h>
-#include <util/serde/SimpleBinaryJson.h>
-#include <util/serde/SimpleJsonValue.h>
+#include <serialization/Common.h>
+#include <serialization/SimpleBinaryJson.h>
+#include <serialization/SimpleJsonValue.h>
 namespace toolhub::db {
 
-class DictIEnumerator : public vstd::IEnumerable<JsonKeyPair>, public vstd::IOperatorNewBase {
+class DictIEnumerator final : public vstd::IEnumerable<JsonKeyPair>, public vstd::IOperatorNewBase {
 public:
     KVMap::Iterator ite;
     KVMap::Iterator end;
@@ -27,7 +27,7 @@ public:
         ++ite;
     };
 };
-class ArrayIEnumerator : public vstd::IEnumerable<ReadJsonVariant>, public vstd::IOperatorNewBase {
+class ArrayIEnumerator final : public vstd::IEnumerable<ReadJsonVariant>, public vstd::IOperatorNewBase {
 public:
     using BegType = decltype(std::declval<const std::vector<SimpleJsonVariant>>().begin());
     using EndType = decltype(std::declval<const std::vector<SimpleJsonVariant>>().end());
@@ -80,7 +80,7 @@ static bool DeserCheck(std::span<uint8_t const> &sp) {
         hashValue = hasher(BinaryHeader{917074095154020627ull, sp.size(), 12719994496415311585ull});
     }
     bool v = (hashValue == *reinterpret_cast<uint64 const *>(sp.data()));
-    sp = std::span<uint8_t const>(sp.begin() + sizeof(uint64), sp.end());
+    sp = sp.subspan(sizeof(uint64));
     return v;
 }
 static void PrintString(std::string const &str, std::string &result) {
@@ -139,21 +139,21 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, std::string &str,
         case 3:
             [&](UniquePtr<IJsonDict> const &ptr) {
                 if (emptySpaceBeforeOb)
-                    str  +=  '\n';
+                    str += '\n';
                 static_cast<Dict *>(ptr.get())->M_Print(str, layer);
             }(v.value.get<3>());
             break;
         case 4:
             [&](UniquePtr<IJsonArray> const &ptr) {
                 if (emptySpaceBeforeOb)
-                    str  +=  '\n';
+                    str += '\n';
                 static_cast<Array *>(ptr.get())->M_Print(str, layer);
             }(v.value.get<4>());
             break;
         case 5:
             [&](vstd::Guid const &guid) {
                 str.insert(str.size(), ' ', valueLayer);
-                str  +=  '$';
+                str += '$';
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, false);
@@ -174,7 +174,7 @@ static void PrintKeyVariant(SimpleJsonKey const &v, std::string &str) {
             break;
         case 2:
             [&](vstd::Guid const &guid) {
-                str  +=  '$';
+                str += '$';
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, false);
@@ -185,24 +185,24 @@ static void PrintKeyVariant(SimpleJsonKey const &v, std::string &str) {
 template<typename Dict, typename Array>
 static void PrintDict(KVMap &vars, std::string &str, size_t space) {
     str.insert(str.size(), ' ', space);
-    str  +=  "{\n";
+    str += "{\n";
     space += 2;
     auto disp = vstd::create_disposer([&]() {
         space -= 2;
         str.insert(str.size(), ' ', space);
-        str  +=  '}';
+        str += '}';
     });
     size_t varsSize = vars.size() - 1;
     size_t index = 0;
     for (auto &&i : vars) {
         str.insert(str.size(), ' ', space);
         PrintKeyVariant(i.first, str);
-        str  +=  " : ";
+        str += " : ";
         PrintSimpleJsonVariant<Dict, Array>(i.second, str, space, 0, true);
         if (index == varsSize) {
-            str  +=  '\n';
+            str += '\n';
         } else {
-            str  +=  ",\n";
+            str += ",\n";
         }
         index++;
     }
@@ -210,21 +210,21 @@ static void PrintDict(KVMap &vars, std::string &str, size_t space) {
 template<typename Dict, typename Array>
 static void PrintArray(std::vector<SimpleJsonVariant> &arr, std::string &str, size_t space) {
     str.insert(str.size(), ' ', space);
-    str  +=  "[\n";
+    str += "[\n";
     space += 2;
     auto disp = vstd::create_disposer([&]() {
         space -= 2;
         str.insert(str.size(), ' ', space);
-        str  +=  ']';
+        str += ']';
     });
     size_t arrSize = arr.size() - 1;
     size_t index = 0;
     for (auto &&i : arr) {
         PrintSimpleJsonVariant<Dict, Array>(i, str, space, space, false);
         if (index == arrSize) {
-            str  +=  '\n';
+            str += '\n';
         } else {
-            str  +=  ",\n";
+            str += ",\n";
         }
         index++;
     }
@@ -283,6 +283,7 @@ bool SimpleJsonValueDict::TrySet(Key const &key, WriteJsonVariant &&value) {
     if (key.valid() && value.valid()) {
         return vars.TryEmplace(key, std::move(value)).second;
     }
+    return false;
 }
 
 void SimpleJsonValueDict::Remove(Key const &key) {
@@ -452,7 +453,7 @@ WriteJsonVariant ConcurrentJsonValueDict::GetAndSet(Key const &key, WriteJsonVar
 }
 WriteJsonVariant ConcurrentJsonValueDict::GetAndRemove(Key const &key) {
     if (!key.valid())
-        return WriteJsonVariant();
+        return {};
     std::lock_guard lck(mtx);
     auto ite = vars.Find(key);
     if (ite) {
@@ -460,7 +461,7 @@ WriteJsonVariant ConcurrentJsonValueDict::GetAndRemove(Key const &key) {
         vars.Remove(ite);
         return result;
     } else
-        return WriteJsonVariant();
+        return {};
 }
 void ConcurrentJsonValueDict::Set(Key const &key, WriteJsonVariant &&value) {
 
@@ -472,6 +473,7 @@ bool ConcurrentJsonValueDict::TrySet(Key const &key, WriteJsonVariant &&value) {
     if (key.valid() && value.valid()) {
         return vars.TryEmplace_Lock(mtx, key, std::move(value)).second;
     }
+    return false;
 }
 
 void ConcurrentJsonValueDict::Remove(Key const &key) {

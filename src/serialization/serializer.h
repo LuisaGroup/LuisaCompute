@@ -1,11 +1,14 @@
 #pragma once
+
 #include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <util/HashMap.h>
 #include <util/MetaLib.h>
+#include <util/VGuid.h>
 #include <vector>
+
 namespace vstd {
 template<typename T>
 struct SerDe {
@@ -21,6 +24,18 @@ struct SerDe {
         vec.insert(vec.end(), ptr, ptr + sizeof(T));
     }
 };
+
+template<>
+struct SerDe<Guid> {
+    using Value = Guid;
+    static Value Get(std::span<uint8_t const> &sp) {
+        return vstd::SerDe<Guid::GuidData>::Get(sp);
+    }
+    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+        vstd::SerDe<Guid::GuidData>::Set(data.ToBinary(), arr);
+    }
+};
+
 template<>
 struct SerDe<std::string> {
     static std::string Get(std::span<uint8_t const> &sp) {
@@ -36,6 +51,7 @@ struct SerDe<std::string> {
         arr.insert(arr.end(), data.begin(), data.end());
     }
 };
+
 template<>
 struct SerDe<std::string_view> {
     static std::string_view Get(std::span<uint8_t const> &sp) {
@@ -152,6 +168,7 @@ struct SerDe<std::span<uint8_t const>> {
         arr.insert(arr.end(), data.begin(), data.end());
     }
 };
+
 template<typename T, size_t sz>
 struct SerDe<std::array<T, sz>> {
     using Value = std::array<T, sz>;

@@ -65,10 +65,10 @@ public:
 public:
     struct Iterator {
     private:
-        std::vector<LinkNode *>::const_iterator ii;
+        typename std::vector<LinkNode *>::const_iterator ii;
 
     public:
-        Iterator(std::vector<LinkNode *>::const_iterator ii) : ii(ii) {}
+        Iterator(typename std::vector<LinkNode *>::const_iterator ii) : ii(ii) {}
         bool operator==(const Iterator &ite) const noexcept {
             return ii == ite.ii;
         }

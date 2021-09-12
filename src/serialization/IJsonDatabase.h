@@ -1,7 +1,7 @@
 #pragma once
-#include <util/serde/Common.h>
+#include <serialization/Common.h>
 #include <util/VGuid.h>
-#include <util/serde/SimpleParser.h>
+#include <serialization/SimpleParser.h>
 namespace toolhub::db {
 class IJsonDict;
 class IJsonArray;

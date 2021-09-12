@@ -1,8 +1,8 @@
 #pragma vengine_package vengine_database
 
-#include <util/serde/SimpleJsonLoader.h>
-#include <util/serde/SimpleBinaryJson.h>
-#include <util/serde/SimpleJsonValue.h>
+#include <serialization/SimpleJsonLoader.h>
+#include <serialization/SimpleBinaryJson.h>
+#include <serialization/SimpleJsonValue.h>
 namespace toolhub::db {
 bool SimpleJsonLoader::Check(IJsonDatabase* parent, SimpleJsonVariant const& var) {
 	bool res = false;

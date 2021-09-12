@@ -1,5 +1,5 @@
 #pragma once
-#include <util/serde/Common.h>
+#include <serialization/Common.h>
 namespace toolhub::db {
 struct ParsingException {
 	std::string message;

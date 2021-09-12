@@ -48,6 +48,7 @@ inline void vengine_delete(T *ptr) noexcept {
 
 class IOperatorNewBase {
 public:
+    virtual ~IOperatorNewBase() noexcept = default;
     DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };
 

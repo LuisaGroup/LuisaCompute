@@ -9,10 +9,7 @@
 #define m128_f32 vector4_f32
 #define m128_u32 vector4_u32
 #include <cstdlib>
-#define VENGINE_EXIT exit(1)
-#else
-#include <cstdlib>
-#define VENGINE_EXIT throw 0
+#define VENGINE_EXIT std::abort()
 #endif
 #ifndef UNICODE
 #define UNICODE//Disable this in non-unicode system
@@ -32,8 +29,8 @@
 #define VENGINE_DLL_COMMON
 
 /////////////////////// THREAD PAUSE
-#include <stdint.h>
+#include <cstdint>
+#include <core/platform.h>
 
-VENGINE_DLL_COMMON void* operator new(size_t n) noexcept;
+VENGINE_DLL_COMMON void* operator new(size_t n);
 VENGINE_DLL_COMMON void operator delete(void* p) noexcept;
-#define VENGINE_EXTERN extern "C" _declspec(dllexport)

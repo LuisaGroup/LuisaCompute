@@ -1,6 +1,6 @@
 #pragma once
-#include <util/serde/Common.h>
-#include <util/serde/SimpleJsonLoader.h>
+#include <serialization/Common.h>
+#include <serialization/SimpleJsonLoader.h>
 #include <util/VGuid.h>
 namespace toolhub::db {
 

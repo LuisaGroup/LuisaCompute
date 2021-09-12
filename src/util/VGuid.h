@@ -1,6 +1,5 @@
 #pragma once
 #include <util/vstl_config.h>
-#include <util/serializer.h>
 #include <util/MD5.h>
 namespace vstd {
 class VENGINE_DLL_COMMON Guid {
@@ -72,16 +71,6 @@ struct hash<Guid> {
 		return Hash::Int32ArrayHash(
 			ptr,
 			ptr + sizeof(Guid::GuidData) / sizeof(uint));
-	}
-};
-template<>
-struct SerDe<Guid> {
-	using Value = Guid;
-	static Value Get(std::span<uint8_t const>& sp) {
-		return vstd::SerDe<Guid::GuidData>::Get(sp);
-	}
-	static void Set(Value const& data, std::vector<uint8_t>& arr) {
-		vstd::SerDe<Guid::GuidData>::Set(data.ToBinary(), arr);
 	}
 };
 }// namespace vstd

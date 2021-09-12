@@ -1,7 +1,8 @@
 #pragma once
 #include <util/vstl_config.h>
 #include <type_traits>
-#include <stdint.h>
+#include <cstdint>
+#include <core/basic_types.h>
 using uint = uint32_t;
 using uint64 = uint64_t;
 using int64 = int64_t;
@@ -571,6 +572,7 @@ public:
     virtual T GetValue() = 0;
     virtual bool End() = 0;
     virtual void GetNext() = 0;
+    virtual ~IEnumerable() noexcept = default;
 };
 struct IteEndTag {};
 template<typename T>
@@ -602,8 +604,8 @@ template<typename T>
 struct ptr_range {
 public:
     struct rangeIte {
-        T *v;
-        int64 inc;
+        T *v{nullptr};
+        int64 inc{0u};
         T *operator++() {
             v += inc;
             return v;
@@ -750,7 +752,7 @@ private:
         }
         template<typename... A>
         static size_t AnyConst(void *, size_t idx, A &&...) {
-            static_assert(std::_Always_false<int>, "Illegal Constructor!");
+            static_assert(luisa::always_false_v<A...>, "Illegal Constructor!");
             return idx;
         }
         static void Dispose(size_t, void *) {}

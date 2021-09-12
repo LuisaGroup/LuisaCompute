@@ -1,7 +1,7 @@
 #pragma once
 #pragma once
 #include <util/VGuid.h>
-#include <util/serde/SimpleJsonValue.h>
+#include <serialization/SimpleJsonValue.h>
 namespace toolhub::db {
 
 class SimpleBinaryJson final : public IJsonDatabase, public vstd::IOperatorNewBase {

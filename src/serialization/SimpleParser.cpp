@@ -1,8 +1,11 @@
 #pragma vengine_package vengine_database
 
-#include <util/serde/DatabaseInclude.h>
-#include <util/serde/SimpleBinaryJson.h>
-#include <util/serde/SimpleParser.h>
+#include <cmath>
+
+#include <serialization/DatabaseInclude.h>
+#include <serialization/SimpleBinaryJson.h>
+#include <serialization/SimpleParser.h>
+
 namespace toolhub::db {
 namespace parser {
 
@@ -374,7 +377,7 @@ private:
                 return false;
             }
         } while (recorders->numCheck[*ptr]);
-        auto numStr = std::string_view(start, ptr);
+        auto numStr = std::string_view(start, ptr - start);
         char const *pin = start;
 
         int64 integerPart = 0;
@@ -463,7 +466,7 @@ private:
                 return false;
             }
         }
-        auto guidStr = std::string_view(start, ptr);
+        auto guidStr = std::string_view(start, ptr - start);
         if (guidStr.size() != 32) {
             errorStr = ("Incorrect guid format!");
             return false;
@@ -605,7 +608,7 @@ private:
         return field->data.visit_with_default(
             WriteJsonVariant(),
             [&](std::vector<char> const &v) {
-                return WriteJsonVariant(std::string_view(v.begin(), v.end()));
+                return WriteJsonVariant(std::string_view(v.data(), v.size()));
             },
             [&](auto &&v) {
                 return WriteJsonVariant(PrintDict(v));
@@ -637,7 +640,7 @@ private:
             auto key = i.first.visit_with_default(
                 Key(),
                 [&](std::vector<char> const &v) {
-                    return Key(std::string_view(v.begin(), v.end()));
+                    return Key(std::string_view(v.data(), v.size()));
                 },
                 [&](int64 const &v) {
                     return Key(v);
@@ -678,17 +681,17 @@ private:
         char const *start = ptr;
         if constexpr (!escapeFirst) {
             if (recorders->outsideStates[*ptr] != OutsideState::Keyword) {
-                return std::string_view(start, start);
+                return {};
             }
         }
         ptr++;
         while (ptr != end) {
             if (!recorders->keywordStates[*ptr]) {
-                return std::string_view(start, ptr);
+                return std::string_view(start, ptr - start);
             }
             ptr++;
         }
-        return std::string_view(start, end);
+        return std::string_view(start, end - start);
     }
     bool BeginKeyword(char const *&ptr, char const *const end, std::string &errorStr) {
         auto var = GetKeyword<true>(ptr, end);

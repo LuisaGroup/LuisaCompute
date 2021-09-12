@@ -1,7 +1,7 @@
 #pragma once
-#include <util/serde/Common.h>
-#include <util/serde/IJsonObject.h>
-#include <util/serde/SimpleJsonLoader.h>
+#include <serialization/Common.h>
+#include <serialization/IJsonObject.h>
+#include <serialization/SimpleJsonLoader.h>
 namespace toolhub::db {
 class ConcurrentBinaryJson;
 class SimpleBinaryJson;
@@ -86,6 +86,7 @@ struct SimpleJsonKey {
 			case ValueType::IndexOf<std::string>:
 				return getHash(*reinterpret_cast<std::string const*>(value.GetPlaceHolder()));
 		}
+        return 0u;
 	}
 
 	bool operator!=(SimpleJsonKey const& key) const {
@@ -112,6 +113,7 @@ struct SimpleJsonKeyHash {
 				case Key::IndexOf<std::string_view>:
 					return getHash(*reinterpret_cast<std::string const*>(key.GetPlaceHolder()));
 			}
+            return 0u;
 		}
 	}
 };
