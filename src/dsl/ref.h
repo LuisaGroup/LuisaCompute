@@ -52,8 +52,6 @@ struct RefEnableGetMemberByIndex {
     }
 };
 
-}// namespace detail
-
 #define LUISA_REF_COMMON(...)                                              \
 private:                                                                   \
     const Expression *_expression;                                         \
@@ -151,4 +149,5 @@ struct Ref<Vector<T, 4>>
 
 #undef LUISA_REF_COMMON
 
+}// namespace detail
 }// namespace luisa::compute

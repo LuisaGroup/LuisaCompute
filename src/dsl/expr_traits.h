@@ -15,12 +15,12 @@ template<typename T>
 struct Expr;
 
 template<typename T>
-struct Ref;
-
-template<typename T>
 struct Var;
 
 namespace detail {
+
+template<typename T>
+struct Ref;
 
 template<typename T>
 struct expr_value_impl {

@@ -10,15 +10,16 @@
 namespace luisa::compute {
 
 template<typename T>
-struct Var : public Ref<T> {
+struct Var : public detail::Ref<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
-    explicit Var(const Expression *expr) noexcept : Ref<T>{expr} {}
+    explicit Var(const Expression *expr) noexcept
+        : detail::Ref<T>{expr} {}
 
     // for local variables of basic or array types
     Var() noexcept
-        : Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {}
+        : detail::Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {}
 
     template<typename Arg>
         requires concepts::different<std::remove_cvref_t<Arg>, Var<T>> &&
@@ -46,14 +47,14 @@ struct Var : public Ref<T> {
 
     // create as function arguments, for internal use only
     explicit Var(detail::ArgumentCreation) noexcept
-        : Ref<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
+        : detail::Ref<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
     explicit Var(detail::ReferenceArgumentCreation) noexcept
-        : Ref<T>{detail::FunctionBuilder::current()->reference(Type::of<T>())} {}
+        : detail::Ref<T>{detail::FunctionBuilder::current()->reference(Type::of<T>())} {}
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{Expr{another}} {}
-    void operator=(Var &&rhs) &noexcept { Ref<T>::operator=(std::move(rhs)); }
-    void operator=(const Var &rhs) &noexcept { Ref<T>::operator=(rhs); }
+    void operator=(Var &&rhs) &noexcept { detail::Ref<T>::operator=(std::move(rhs)); }
+    void operator=(const Var &rhs) &noexcept { detail::Ref<T>::operator=(rhs); }
 };
 
 template<typename T>
@@ -128,7 +129,7 @@ template<typename T>
 Var(Expr<T>) -> Var<T>;
 
 template<typename T>
-Var(Ref<T>) -> Var<T>;
+Var(detail::Ref<T>) -> Var<T>;
 
 template<typename T>
 Var(T &&) -> Var<T>;

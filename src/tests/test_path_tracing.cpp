@@ -151,7 +151,7 @@ int main(int argc, char *argv[]) {
         return cast<float>(state & 0x00ffffffu) * (1.0f / static_cast<float>(0x01000000u));
     };
 
-    Callable make_onb = [](Float3 normal) noexcept {
+    Callable make_onb = [](const Float3 &normal) noexcept {
         Var binormal = normalize(ite(
             abs(normal.x) > abs(normal.z),
             make_float3(-normal.y, normal.x, 0.0f),
