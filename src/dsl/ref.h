@@ -60,9 +60,6 @@ private:                                                                   \
                                                                            \
 public:                                                                    \
     explicit Ref(const Expression *e) noexcept : _expression{e} {}         \
-    explicit Ref(detail::ArgumentCreation) noexcept                        \
-        : Ref{detail::FunctionBuilder::current()                           \
-                  ->reference(Type::of<__VA_ARGS__>())} {}                 \
     [[nodiscard]] auto expression() const noexcept { return _expression; } \
     Ref(Ref &&) noexcept = default;                                        \
     Ref(const Ref &) noexcept = default;                                   \

@@ -138,14 +138,11 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, luisa::string &st
             func(v.value.get<1>());
             break;
         case 2:
-            [&](luisa::string const &s) {
-                PrintString(s, str.append(valueLayer, ' '));
-            }(v.value.get<2>());
+            PrintString(v.value.get<2>(), str.append(valueLayer, ' '));
             break;
         case 3:
             [&](UniquePtr<IJsonDict> const &ptr) {
-                if (emptySpaceBeforeOb)
-                    str += '\n';
+                if (emptySpaceBeforeOb) { str += '\n'; }
                 static_cast<Dict *>(ptr.get())->M_Print(str, layer);
             }(v.value.get<3>());
             break;

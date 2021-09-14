@@ -47,6 +47,8 @@ struct Var : public Ref<T> {
     // create as function arguments, for internal use only
     explicit Var(detail::ArgumentCreation) noexcept
         : Ref<T>{detail::FunctionBuilder::current()->argument(Type::of<T>())} {}
+    explicit Var(detail::ReferenceArgumentCreation) noexcept
+        : Ref<T>{detail::FunctionBuilder::current()->reference(Type::of<T>())} {}
 
     Var(Var &&) noexcept = default;
     Var(const Var &another) noexcept : Var{Expr{another}} {}
