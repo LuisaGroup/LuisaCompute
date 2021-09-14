@@ -12,6 +12,3 @@
 #if (defined(DEBUG) || defined(_DEBUG) || !defined(NDEBUG)) && !defined(VSTL_DEBUG)
 #define VSTL_DEBUG
 #endif
-
-LUISA_DLL void *operator new(size_t n);
-LUISA_DLL void operator delete(void *p) noexcept;

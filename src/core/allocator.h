@@ -82,7 +82,7 @@ template<typename T, typename... Args>
 
 template<typename T, typename... Args>
 [[nodiscard]] auto make_shared(Args &&...args) noexcept {
-    return std::shared_ptr<T>{
+    return shared_ptr<T>{
         new_with_allocator<T>(std::forward<Args>(args)...),
         deleter{}, allocator{}};
 }
