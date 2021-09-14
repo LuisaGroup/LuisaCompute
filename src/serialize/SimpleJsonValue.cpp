@@ -194,18 +194,18 @@ static void PrintKeyVariant(SimpleJsonKey const &v, luisa::string &str) {
 
 template<typename Dict, typename Array>
 static void PrintDict(KVMap &vars, luisa::string &str, size_t space) {
-    str.insert(str.size(), ' ', space);
+    str.append(space, ' ');
     str += "{\n";
     space += 2;
     auto disp = vstd::create_disposer([&]() {
         space -= 2;
-        str.insert(str.size(), ' ', space);
+        str.append(space, ' ');
         str += '}';
     });
     size_t varsSize = vars.size() - 1;
     size_t index = 0;
     for (auto &&i : vars) {
-        str.insert(str.size(), ' ', space);
+        str.append(space, ' ');
         PrintKeyVariant(i.first, str);
         str += " : ";
         PrintSimpleJsonVariant<Dict, Array>(i.second, str, space, 0, true);
@@ -220,12 +220,12 @@ static void PrintDict(KVMap &vars, luisa::string &str, size_t space) {
 
 template<typename Dict, typename Array>
 static void PrintArray(luisa::vector<SimpleJsonVariant> &arr, luisa::string &str, size_t space) {
-    str.insert(str.size(), ' ', space);
+    str.append(space, ' ');
     str += "[\n";
     space += 2;
     auto disp = vstd::create_disposer([&]() {
         space -= 2;
-        str.insert(str.size(), ' ', space);
+        str.append(space, ' ');
         str += ']';
     });
     size_t arrSize = arr.size() - 1;
@@ -406,8 +406,9 @@ void SimpleJsonValueArray::Remove(size_t index) {
 }
 
 void SimpleJsonValueArray::Add(WriteJsonVariant &&value) {
-    if (value.valid())
+    if (value.valid()) {
         arr.emplace_back(std::move(value));
+    }
 }
 
 WriteJsonVariant SimpleJsonValueArray::GetAndSet(size_t index, WriteJsonVariant &&newValue) {

@@ -6,7 +6,8 @@
 
 #include <cmath>
 #include <algorithm>
-#include "basic_types.h"
+
+#include <core/basic_types.h>
 
 namespace luisa {
 
