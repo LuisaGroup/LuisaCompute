@@ -42,26 +42,35 @@ struct allocator<void> {};
 template<typename T>
 constexpr allocator<T>::allocator(allocator<>) noexcept {}
 
+template<typename T>
+[[nodiscard]] inline auto allocate(size_t n = 1u) noexcept {
+    return allocator<T>{}.allocate(n);
+}
+
+template<typename T>
+inline void deallocate(T *p) noexcept {
+    allocator<T>{}.deallocate(p, 0u);
+}
+
 template<typename T, typename... Args>
-[[nodiscard]] inline decltype(auto) new_with_allocator(Args &&...args) noexcept {
-    return construct_at(allocator<T>{}.allocate(1u), std::forward<Args>(args)...);
+[[nodiscard]] inline auto new_with_allocator(Args &&...args) noexcept {
+    return construct_at(allocate<T>(), std::forward<Args>(args)...);
 }
 
 template<typename T>
 inline void delete_with_allocator(T *p) noexcept {
     destroy_at(p);
-    allocator<T>{}.deallocate(p, 1u);
+    deallocate(p);
 }
 
-namespace detail {
-template<typename T>
-struct UniquePtrDeleterWithAllocator {
-    void operator()(T *p) const noexcept { allocator<T>{}.deallocate(p, 1u); }
+struct deleter {
+    void operator()(auto p) const noexcept {
+        delete_with_allocator(p);
+    }
 };
-}// namespace detail
 
 template<typename T>
-using unique_ptr = std::unique_ptr<T, detail::UniquePtrDeleterWithAllocator<T>>;
+using unique_ptr = std::unique_ptr<T, deleter>;
 
 using std::shared_ptr;
 using std::weak_ptr;
@@ -75,8 +84,7 @@ template<typename T, typename... Args>
 [[nodiscard]] auto make_shared(Args &&...args) noexcept {
     return std::shared_ptr<T>{
         new_with_allocator<T>(std::forward<Args>(args)...),
-        detail::UniquePtrDeleterWithAllocator<T>{},
-        allocator{}};
+        deleter{}, allocator{}};
 }
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;

@@ -135,7 +135,7 @@ public:
             def();
         });
         return luisa::shared_ptr<const FunctionBuilder>{
-            f, [](const FunctionBuilder *f) noexcept { delete_with_allocator(f->_arena); },
+            f, [](auto f) noexcept { delete_with_allocator(f->_arena); },
             allocator{}};
     }
 
