@@ -47,7 +47,7 @@ struct Serializer<luisa::string> {
     }
     static void Set(luisa::string const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint>::Set(data.size(), arr);
-        arr.insert(arr.end(), data.begin(), data.end());
+        arr.insert(arr.end(), data.cbegin(), data.cend());
     }
 };
 
@@ -61,7 +61,7 @@ struct Serializer<std::string_view> {
     }
     static void Set(std::string_view const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint>::Set(data.size(), arr);
-        arr.insert(arr.end(), data.begin(), data.end());
+        arr.insert(arr.end(), data.cbegin(), data.cend());
     }
 };
 

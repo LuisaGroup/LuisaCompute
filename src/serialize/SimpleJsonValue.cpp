@@ -94,8 +94,8 @@ static void PrintString(luisa::string const &str, luisa::string &result) {
     result += '\"';
     char const *last = str.c_str();
     auto Flush = [&](char const *ptr) {
-        result.insert(result.size(), last, ptr - last);
-        last = ptr + 1;
+        result.append(std::string_view{last, static_cast<size_t>(ptr - last)});
+        last = ptr + 1u;
     };
     for (auto &&i : str) {
         switch (i) {
@@ -119,6 +119,8 @@ static void PrintString(luisa::string const &str, luisa::string &result) {
                 Flush(&i);
                 result += "\\\"";
                 break;
+            default:
+                break;
         }
     }
     Flush(str.data() + str.size());
@@ -127,10 +129,7 @@ static void PrintString(luisa::string const &str, luisa::string &result) {
 
 template<typename Dict, typename Array>
 static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, luisa::string &str, size_t layer, size_t valueLayer, bool emptySpaceBeforeOb) {
-    auto func = [&](auto &&v) {
-        str.insert(str.size(), ' ', valueLayer);
-        str += std::to_string(v);
-    };
+    auto func = [&](auto &&v) { str.append(valueLayer, ' ').append(std::to_string(v)); };
     switch (v.value.GetType()) {
         case 0:
             func(v.value.get<0>());
@@ -140,8 +139,7 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, luisa::string &st
             break;
         case 2:
             [&](luisa::string const &s) {
-                str.insert(str.size(), ' ', valueLayer);
-                PrintString(s, str);
+                PrintString(s, str.append(valueLayer, ' '));
             }(v.value.get<2>());
             break;
         case 3:
@@ -160,8 +158,7 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, luisa::string &st
             break;
         case 5:
             [&](vstd::Guid const &guid) {
-                str.insert(str.size(), ' ', valueLayer);
-                str += '$';
+                str.append(valueLayer, ' ').append("$");
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, false);
