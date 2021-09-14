@@ -14,14 +14,14 @@ public:
     SimpleBinaryJson();
     vstd::Pool<SimpleJsonValueArray, VEngine_AllocType::VEngine, true> arrValuePool;
     vstd::Pool<SimpleJsonValueDict, VEngine_AllocType::VEngine, true> dictValuePool;
-    std::vector<uint8_t> Serialize() override;
+    luisa::vector<uint8_t> Serialize() override;
     bool Read(
         std::span<uint8_t const> data,
         bool clearLast) override;
     std::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) override;
-    std::string Print() override;
+    luisa::string Print() override;
     IJsonDict *GetRootNode() override;
     UniquePtr<IJsonDict> CreateDict() override;
     UniquePtr<IJsonArray> CreateArray() override;
@@ -46,14 +46,14 @@ public:
     vstd::Pool<ConcurrentJsonValueDict, VEngine_AllocType::VEngine, true> dictValuePool;
     luisa::spin_mutex arrPoolMtx;
     luisa::spin_mutex dictPoolMtx;
-    std::vector<uint8_t> Serialize() override;
+    luisa::vector<uint8_t> Serialize() override;
     bool Read(
         std::span<uint8_t const> data,
         bool clearLast) override;
     std::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) override;
-    std::string Print() override;
+    luisa::string Print() override;
     IJsonDict *GetRootNode() override;
     UniquePtr<IJsonDict> CreateDict() override;
     UniquePtr<IJsonArray> CreateArray() override;

@@ -36,7 +36,7 @@ SimpleJsonVariant SimpleJsonLoader::DeSerialize(std::span<uint8_t const>& arr, S
 		}
 
 		case ValueType::String: {
-			return SimpleJsonVariant(PopValue<std::string>(arr));
+			return SimpleJsonVariant(PopValue<luisa::string>(arr));
 		}
 		case ValueType::ValueDict: {
 			auto ptr = db->dictValuePool.New(db);
@@ -68,7 +68,7 @@ SimpleJsonVariant SimpleJsonLoader::DeSerialize_Concurrent(std::span<uint8_t con
 		}
 
 		case ValueType::String: {
-			return SimpleJsonVariant(PopValue<std::string>(arr));
+			return SimpleJsonVariant(PopValue<luisa::string>(arr));
 		}
 		case ValueType::ValueDict: {
 			auto ptr = db->dictValuePool.New_Lock(db->dictPoolMtx, db);
@@ -87,7 +87,7 @@ SimpleJsonVariant SimpleJsonLoader::DeSerialize_Concurrent(std::span<uint8_t con
 			return SimpleJsonVariant();
 	}
 }
-void SimpleJsonLoader::Serialize(SimpleJsonVariant const& v, std::vector<uint8_t>& data) {
+void SimpleJsonLoader::Serialize(SimpleJsonVariant const& v, luisa::vector<uint8_t>& data) {
 	size_t dataOffset = data.size();
 	data.push_back(v.value.index());
 
@@ -112,7 +112,7 @@ void SimpleJsonLoader::Serialize(SimpleJsonVariant const& v, std::vector<uint8_t
 			break;
 	}
 }
-void SimpleJsonLoader::Serialize_Concurrent(SimpleJsonVariant const& v, std::vector<uint8_t>& data) {
+void SimpleJsonLoader::Serialize_Concurrent(SimpleJsonVariant const& v, luisa::vector<uint8_t>& data) {
 	size_t dataOffset = data.size();
 	data.push_back(v.value.index());
 

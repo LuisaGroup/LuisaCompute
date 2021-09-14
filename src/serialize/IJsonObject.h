@@ -19,7 +19,7 @@ using ReadJsonVariant = vstd::variant<
 using WriteJsonVariant = vstd::variant<
     int64,
     double,
-    std::string,
+    luisa::string,
     UniquePtr<IJsonDict>,
     UniquePtr<IJsonArray>,
     vstd::Guid>;
@@ -44,10 +44,10 @@ protected:
 
 public:
     virtual size_t Length() = 0;
-    virtual std::vector<uint8_t> Serialize() = 0;
+    virtual luisa::vector<uint8_t> Serialize() = 0;
     virtual void Reset() = 0;
     virtual bool IsEmpty() = 0;
-    virtual std::string Print() = 0;
+    virtual luisa::string Print() = 0;
     virtual bool Read(std::span<uint8_t const> sp,
                       bool clearLast) = 0;
     virtual void Reserve(size_t capacity) = 0;

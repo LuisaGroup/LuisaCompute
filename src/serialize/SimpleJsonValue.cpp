@@ -31,8 +31,8 @@ public:
 
 class ArrayIEnumerator final : public vstd::IEnumerable<ReadJsonVariant>, public vstd::IOperatorNewBase {
 public:
-    using BegType = decltype(std::declval<const std::vector<SimpleJsonVariant>>().begin());
-    using EndType = decltype(std::declval<const std::vector<SimpleJsonVariant>>().end());
+    using BegType = decltype(std::declval<const luisa::vector<SimpleJsonVariant>>().begin());
+    using EndType = decltype(std::declval<const luisa::vector<SimpleJsonVariant>>().end());
     BegType ite;
     EndType end;
     ArrayIEnumerator(
@@ -60,12 +60,12 @@ struct BinaryHeader {
     uint64 postDefine;
 };
 
-static void SerPreProcess(std::vector<uint8_t> &data) {
+static void SerPreProcess(luisa::vector<uint8_t> &data) {
     data.resize(sizeof(uint64));
 }
 
 template<bool isDict>
-static void SerPostProcess(std::vector<uint8_t> &data) {
+static void SerPostProcess(luisa::vector<uint8_t> &data) {
     uint64 hashValue;
     vstd::hash<BinaryHeader> hasher;
     if constexpr (isDict) {
@@ -90,7 +90,7 @@ static bool DeserCheck(std::span<uint8_t const> &sp) {
     return v;
 }
 
-static void PrintString(std::string const &str, std::string &result) {
+static void PrintString(luisa::string const &str, luisa::string &result) {
     result += '\"';
     char const *last = str.c_str();
     auto Flush = [&](char const *ptr) {
@@ -126,7 +126,7 @@ static void PrintString(std::string const &str, std::string &result) {
 }
 
 template<typename Dict, typename Array>
-static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, std::string &str, size_t layer, size_t valueLayer, bool emptySpaceBeforeOb) {
+static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, luisa::string &str, size_t layer, size_t valueLayer, bool emptySpaceBeforeOb) {
     auto func = [&](auto &&v) {
         str.insert(str.size(), ' ', valueLayer);
         str += std::to_string(v);
@@ -139,7 +139,7 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, std::string &str,
             func(v.value.get<1>());
             break;
         case 2:
-            [&](std::string const &s) {
+            [&](luisa::string const &s) {
                 str.insert(str.size(), ' ', valueLayer);
                 PrintString(s, str);
             }(v.value.get<2>());
@@ -170,7 +170,7 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, std::string &str,
     }
 }
 
-static void PrintKeyVariant(SimpleJsonKey const &v, std::string &str) {
+static void PrintKeyVariant(SimpleJsonKey const &v, luisa::string &str) {
     auto func = [&](auto &&v) {
         str += std::to_string(v);
     };
@@ -193,7 +193,7 @@ static void PrintKeyVariant(SimpleJsonKey const &v, std::string &str) {
 }
 
 template<typename Dict, typename Array>
-static void PrintDict(KVMap &vars, std::string &str, size_t space) {
+static void PrintDict(KVMap &vars, luisa::string &str, size_t space) {
     str.insert(str.size(), ' ', space);
     str += "{\n";
     space += 2;
@@ -219,7 +219,7 @@ static void PrintDict(KVMap &vars, std::string &str, size_t space) {
 }
 
 template<typename Dict, typename Array>
-static void PrintArray(std::vector<SimpleJsonVariant> &arr, std::string &str, size_t space) {
+static void PrintArray(luisa::vector<SimpleJsonVariant> &arr, luisa::string &str, size_t space) {
     str.insert(str.size(), ' ', space);
     str += "[\n";
     space += 2;
@@ -311,15 +311,15 @@ size_t SimpleJsonValueDict::Length() {
     return vars.size();
 }
 
-std::vector<uint8_t> SimpleJsonValueDict::Serialize() {
-    std::vector<uint8_t> result;
+luisa::vector<uint8_t> SimpleJsonValueDict::Serialize() {
+    luisa::vector<uint8_t> result;
     SerPreProcess(result);
     M_GetSerData(result);
     SerPostProcess<true>(result);
     return result;
 }
 
-void SimpleJsonValueDict::M_GetSerData(std::vector<uint8_t> &data) {
+void SimpleJsonValueDict::M_GetSerData(luisa::vector<uint8_t> &data) {
     PushDataToVector<uint64>(vars.size(), data);
     for (auto &&kv : vars) {
         PushDataToVector(kv.first.value, data);
@@ -357,15 +357,15 @@ size_t SimpleJsonValueArray::Length() {
     return arr.size();
 }
 
-std::vector<uint8_t> SimpleJsonValueArray::Serialize() {
-    std::vector<uint8_t> result;
+luisa::vector<uint8_t> SimpleJsonValueArray::Serialize() {
+    luisa::vector<uint8_t> result;
     SerPreProcess(result);
     M_GetSerData(result);
     SerPostProcess<false>(result);
     return result;
 }
 
-void SimpleJsonValueArray::M_GetSerData(std::vector<uint8_t> &data) {
+void SimpleJsonValueArray::M_GetSerData(luisa::vector<uint8_t> &data) {
     PushDataToVector<uint64>(arr.size(), data);
     for (auto &&v : arr) {
         SimpleJsonLoader::Serialize(v, data);
@@ -428,11 +428,11 @@ WriteJsonVariant SimpleJsonValueArray::GetAndRemove(size_t index) {
     return result;
 }
 
-void SimpleJsonValueDict::M_Print(std::string &str, size_t space) {
+void SimpleJsonValueDict::M_Print(luisa::string &str, size_t space) {
     PrintDict<SimpleJsonValueDict, SimpleJsonValueArray>(vars, str, space);
 }
 
-void SimpleJsonValueArray::M_Print(std::string &str, size_t space) {
+void SimpleJsonValueArray::M_Print(luisa::string &str, size_t space) {
     PrintArray<SimpleJsonValueDict, SimpleJsonValueArray>(arr, str, space);
 }
 
@@ -508,15 +508,15 @@ size_t ConcurrentJsonValueDict::Length() {
     return vars.size();
 }
 
-std::vector<uint8_t> ConcurrentJsonValueDict::Serialize() {
-    std::vector<uint8_t> result;
+luisa::vector<uint8_t> ConcurrentJsonValueDict::Serialize() {
+    luisa::vector<uint8_t> result;
     SerPreProcess(result);
     M_GetSerData(result);
     SerPostProcess<true>(result);
     return result;
 }
 
-void ConcurrentJsonValueDict::M_GetSerData(std::vector<uint8_t> &data) {
+void ConcurrentJsonValueDict::M_GetSerData(luisa::vector<uint8_t> &data) {
     std::lock_guard lck(mtx);
     PushDataToVector<uint64>(vars.size(), data);
     for (auto &&kv : vars) {
@@ -559,14 +559,14 @@ size_t ConcurrentJsonValueArray::Length() {
     return arr.size();
 }
 
-std::vector<uint8_t> ConcurrentJsonValueArray::Serialize() {
-    std::vector<uint8_t> result;
+luisa::vector<uint8_t> ConcurrentJsonValueArray::Serialize() {
+    luisa::vector<uint8_t> result;
     SerPreProcess(result);
     M_GetSerData(result);
     SerPostProcess<false>(result);
     return result;
 }
-void ConcurrentJsonValueArray::M_GetSerData(std::vector<uint8_t> &data) {
+void ConcurrentJsonValueArray::M_GetSerData(luisa::vector<uint8_t> &data) {
     std::lock_guard lck(mtx);
     PushDataToVector<uint64>(arr.size(), data);
     for (auto &&v : arr) {
@@ -640,36 +640,36 @@ WriteJsonVariant ConcurrentJsonValueArray::GetAndRemove(size_t index) {
     return result;
 }
 
-void ConcurrentJsonValueDict::M_Print(std::string &str, size_t space) {
+void ConcurrentJsonValueDict::M_Print(luisa::string &str, size_t space) {
     std::lock_guard lck(mtx);
     PrintDict<ConcurrentJsonValueDict, ConcurrentJsonValueArray>(vars, str, space);
 }
 
-void ConcurrentJsonValueArray::M_Print(std::string &str, size_t space) {
+void ConcurrentJsonValueArray::M_Print(luisa::string &str, size_t space) {
     std::lock_guard lck(mtx);
     PrintArray<ConcurrentJsonValueDict, ConcurrentJsonValueArray>(arr, str, space);
 }
 
 vstd::MD5 SimpleJsonValueDict::GetMD5() {
-    std::vector<uint8_t> vec;
+    luisa::vector<uint8_t> vec;
     M_GetSerData(vec);
     return {vec};
 }
 
 vstd::MD5 SimpleJsonValueArray::GetMD5() {
-    std::vector<uint8_t> vec;
+    luisa::vector<uint8_t> vec;
     M_GetSerData(vec);
     return {vec};
 }
 
 vstd::MD5 ConcurrentJsonValueDict::GetMD5() {
-    std::vector<uint8_t> vec;
+    luisa::vector<uint8_t> vec;
     M_GetSerData(vec);
     return {vec};
 }
 
 vstd::MD5 ConcurrentJsonValueArray::GetMD5() {
-    std::vector<uint8_t> vec;
+    luisa::vector<uint8_t> vec;
     M_GetSerData(vec);
     return {vec};
 }

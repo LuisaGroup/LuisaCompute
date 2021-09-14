@@ -15,7 +15,7 @@ struct SimpleJsonKey {
 
     using ValueType = vstd::variant<
         int64,
-        std::string,
+        luisa::string,
         vstd::Guid>;
 
     ValueType value;
@@ -30,8 +30,8 @@ struct SimpleJsonKey {
                     case ValueType::IndexOf<int64>:
                         new (ptr) int64(v.force_get<int64>());
                         break;
-                    case ValueType::IndexOf<std::string>:
-                        new (ptr) std::string(v.force_get<std::string_view>());
+                    case ValueType::IndexOf<luisa::string>:
+                        new (ptr) luisa::string(v.force_get<std::string_view>());
                         break;
                     case ValueType::IndexOf<vstd::Guid>:
                         new (ptr) vstd::Guid(v.force_get<vstd::Guid>());
@@ -47,8 +47,8 @@ struct SimpleJsonKey {
                 return {value.force_get<int64>()};
             case ValueType::IndexOf<vstd::Guid>:
                 return {value.force_get<vstd::Guid>()};
-            case ValueType::IndexOf<std::string>:
-                return {value.force_get<std::string>()};
+            case ValueType::IndexOf<luisa::string>:
+                return {value.force_get<luisa::string>()};
             default:
                 VSTL_ABORT();
         }
@@ -61,8 +61,8 @@ struct SimpleJsonKey {
                 return value.force_get<int64>() == key.value.force_get<int64>();
             case ValueType::IndexOf<vstd::Guid>:
                 return value.force_get<vstd::Guid>() == key.value.force_get<vstd::Guid>();
-            case ValueType::IndexOf<std::string>:
-                return value.force_get<std::string>() == key.value.force_get<std::string>();
+            case ValueType::IndexOf<luisa::string>:
+                return value.force_get<luisa::string>() == key.value.force_get<luisa::string>();
         }
         return true;
     }
@@ -74,8 +74,8 @@ struct SimpleJsonKey {
                 return value.force_get<int64>() == key.force_get<int64>();
             case ValueType::IndexOf<vstd::Guid>:
                 return value.force_get<vstd::Guid>() == key.force_get<vstd::Guid>();
-            case ValueType::IndexOf<std::string>:
-                return value.force_get<std::string>() == key.force_get<std::string_view>();
+            case ValueType::IndexOf<luisa::string>:
+                return value.force_get<luisa::string>() == key.force_get<std::string_view>();
         }
         return true;
     }
@@ -92,8 +92,8 @@ struct SimpleJsonKey {
             case ValueType::IndexOf<vstd::Guid>:
                 return getHash(*reinterpret_cast<vstd::Guid const *>(value.GetPlaceHolder()));
 
-            case ValueType::IndexOf<std::string>:
-                return getHash(*reinterpret_cast<std::string const *>(value.GetPlaceHolder()));
+            case ValueType::IndexOf<luisa::string>:
+                return getHash(*reinterpret_cast<luisa::string const *>(value.GetPlaceHolder()));
         }
         return 0u;
     }
@@ -122,7 +122,7 @@ struct SimpleJsonKeyHash {
                     return getHash(*reinterpret_cast<vstd::Guid const *>(key.GetPlaceHolder()));
 
                 case Key::IndexOf<std::string_view>:
-                    return getHash(*reinterpret_cast<std::string const *>(key.GetPlaceHolder()));
+                    return getHash(*reinterpret_cast<luisa::string const *>(key.GetPlaceHolder()));
             }
             return 0u;
         }
@@ -169,8 +169,8 @@ public:
     void Remove(Key const &key) override;
     [[nodiscard]] vstd::Iterator<JsonKeyPair> begin() const override;
     size_t Length() override;
-    std::vector<uint8_t> Serialize() override;
-    void M_GetSerData(std::vector<uint8_t> &arr);
+    luisa::vector<uint8_t> Serialize() override;
+    void M_GetSerData(luisa::vector<uint8_t> &arr);
     void LoadFromSer(std::span<uint8_t const> &arr);
     bool Read(std::span<uint8_t const> sp,
               bool clearLast) override;
@@ -183,9 +183,9 @@ public:
     bool IsEmpty() override { return vars.size() == 0; }
     WriteJsonVariant GetAndSet(Key const &key, WriteJsonVariant &&newValue) override;
     WriteJsonVariant GetAndRemove(Key const &key) override;
-    void M_Print(std::string &str, size_t space);
-    std::string Print() override {
-        std::string str;
+    void M_Print(luisa::string &str, size_t space);
+    luisa::string Print() override {
+        luisa::string str;
         M_Print(str, 0);
         return str;
     }
@@ -197,7 +197,7 @@ class SimpleJsonValueArray final : public IJsonArray, public SimpleJsonValue {
 public:
     void Dispose() override;
     [[nodiscard]] SimpleBinaryJson *GetDB() const { return db; }
-    std::vector<SimpleJsonVariant> arr;
+    luisa::vector<SimpleJsonVariant> arr;
     explicit SimpleJsonValueArray(SimpleBinaryJson *db);
     ~SimpleJsonValueArray();
     /* SimpleJsonValueArray(
@@ -210,8 +210,8 @@ public:
     std::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) override;
-    std::vector<uint8_t> Serialize() override;
-    void M_GetSerData(std::vector<uint8_t> &result);
+    luisa::vector<uint8_t> Serialize() override;
+    void M_GetSerData(luisa::vector<uint8_t> &result);
     void LoadFromSer(std::span<uint8_t const> &arr);
     bool Read(std::span<uint8_t const> sp, bool clearLast) override;
     void Reset() override;
@@ -224,9 +224,9 @@ public:
     bool IsEmpty() override { return arr.empty(); }
     WriteJsonVariant GetAndSet(size_t index, WriteJsonVariant &&newValue) override;
     WriteJsonVariant GetAndRemove(size_t) override;
-    void M_Print(std::string &str, size_t space);
-    std::string Print() override {
-        std::string str;
+    void M_Print(luisa::string &str, size_t space);
+    luisa::string Print() override {
+        luisa::string str;
         M_Print(str, 0);
         return str;
     }
@@ -253,8 +253,8 @@ public:
     void Remove(Key const &key) override;
     [[nodiscard]] vstd::Iterator<JsonKeyPair> begin() const override;
     size_t Length() override;
-    std::vector<uint8_t> Serialize() override;
-    void M_GetSerData(std::vector<uint8_t> &arr);
+    luisa::vector<uint8_t> Serialize() override;
+    void M_GetSerData(luisa::vector<uint8_t> &arr);
     void LoadFromSer(std::span<uint8_t const> &arr);
     bool Read(std::span<uint8_t const> sp, bool clearLast) override;
     void Reset() override;
@@ -267,9 +267,9 @@ public:
     bool IsEmpty() override { return vars.size() == 0; }
     WriteJsonVariant GetAndSet(Key const &key, WriteJsonVariant &&newValue) override;
     WriteJsonVariant GetAndRemove(Key const &key) override;
-    void M_Print(std::string &str, size_t space);
-    std::string Print() override {
-        std::string str;
+    void M_Print(luisa::string &str, size_t space);
+    luisa::string Print() override {
+        luisa::string str;
         M_Print(str, 0);
         return str;
     }
@@ -281,7 +281,7 @@ class ConcurrentJsonValueArray final : public IJsonArray, public ConcurrentJsonV
 public:
     void Dispose() override;
     [[nodiscard]] ConcurrentBinaryJson *GetDB() const { return db; }
-    std::vector<SimpleJsonVariant> arr;
+    luisa::vector<SimpleJsonVariant> arr;
     explicit ConcurrentJsonValueArray(ConcurrentBinaryJson *db);
     ~ConcurrentJsonValueArray();
     size_t Length() override;
@@ -291,8 +291,8 @@ public:
     }
     std::optional<ParsingException> Parse(
         std::string_view str, bool clearLast) override;
-    std::vector<uint8_t> Serialize() override;
-    void M_GetSerData(std::vector<uint8_t> &result);
+    luisa::vector<uint8_t> Serialize() override;
+    void M_GetSerData(luisa::vector<uint8_t> &result);
     void LoadFromSer(std::span<uint8_t const> &arr);
     bool Read(std::span<uint8_t const> sp, bool clearLast) override;
     void Reset() override;
@@ -305,9 +305,9 @@ public:
     bool IsEmpty() override { return arr.empty(); }
     WriteJsonVariant GetAndSet(size_t index, WriteJsonVariant &&newValue) override;
     WriteJsonVariant GetAndRemove(size_t) override;
-    void M_Print(std::string &str, size_t space);
-    std::string Print() override {
-        std::string str;
+    void M_Print(luisa::string &str, size_t space);
+    luisa::string Print() override {
+        luisa::string str;
         M_Print(str, 0);
         return str;
     }

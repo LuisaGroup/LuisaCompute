@@ -141,14 +141,14 @@ class SimpleJsonParser : public vstd::IOperatorNewBase {
 public:
     struct Field {
         vstd::variant<
-            std::vector<char>,
-            std::vector<std::pair<
+            luisa::vector<char>,
+            luisa::vector<std::pair<
                 vstd::variant<
-                    std::vector<char>,
+                    luisa::vector<char>,
                     int64,
                     vstd::Guid>,
                 Field *>>,
-            std::vector<Field *>,
+            luisa::vector<Field *>,
             int64,
             double,
             vstd::Guid>
@@ -161,12 +161,12 @@ public:
     };
 
 private:
-    std::vector<SimpleJsonParser> *subParsers;
+    luisa::vector<SimpleJsonParser> *subParsers;
     vstd::Pool<Field, VEngine_AllocType::VEngine, false> *fieldPool;
 
     vstd::HashMap<std::string_view, Field *> keywords;
     std::string_view keywordName;
-    std::vector<Field *> fieldStack;
+    luisa::vector<Field *> fieldStack;
 
     enum class StreamState : uint8_t {
         None,
@@ -181,7 +181,7 @@ private:
     Field *lastField = nullptr;
     Field *rootField = nullptr;
 
-    bool BeginDict(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool BeginDict(char const *&ptr, char const *const end, luisa::string &errorStr) {
         switch (streamer) {
             case StreamState::SearchElement:
             case StreamState::SearchKeyword:
@@ -199,14 +199,14 @@ private:
 
         lastField = fieldStack.emplace_back(fieldPool->New());
         lastField->data.update(1, [&](void *ptr) {
-            new (ptr) std::vector<std::pair<std::string_view, Field *>>();
+            new (ptr) luisa::vector<std::pair<std::string_view, Field *>>();
         });
         streamer = StreamState::SearchKey;
         ++ptr;
         return true;
     }
 
-    bool SetLastFieldState(std::string &errorStr) {
+    bool SetLastFieldState(luisa::string &errorStr) {
         if (fieldStack.empty()) {
             streamer = StreamState::None;
             //set keyword
@@ -239,7 +239,7 @@ private:
         return true;
     }
 
-    bool EndDict(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool EndDict(char const *&ptr, char const *const end, luisa::string &errorStr) {
         if (fieldStack.empty() || (*(fieldStack.end() - 1))->data.GetType() == 0) {
             errorStr = ("Illegal character '}'");
             return false;
@@ -251,7 +251,7 @@ private:
         return SetLastFieldState(errorStr);
     }
 
-    bool BeginComment(char const *&ptr, char const *end, std::string &errorStr) {
+    bool BeginComment(char const *&ptr, char const *end, luisa::string &errorStr) {
         static_cast<void>(this);
         ++ptr;
         switch (*ptr) {
@@ -275,7 +275,7 @@ private:
         return true;
     }
 
-    bool BeginArray(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool BeginArray(char const *&ptr, char const *const end, luisa::string &errorStr) {
         switch (streamer) {
             case StreamState::SearchElement:
             case StreamState::SearchKeyword:
@@ -292,14 +292,14 @@ private:
         }
         lastField = fieldStack.emplace_back(fieldPool->New());
         lastField->data.update(2, [&](void *ptr) {
-            new (ptr) std::vector<Field *>();
+            new (ptr) luisa::vector<Field *>();
         });
         streamer = StreamState::SearchElement;
         ++ptr;
         return true;
     }
 
-    bool EndArray(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool EndArray(char const *&ptr, char const *const end, luisa::string &errorStr) {
         if (fieldStack.empty() || (*(fieldStack.end() - 1))->data.GetType() == 1) {
             errorStr = ("Illegal character ']'");
             return false;
@@ -311,7 +311,7 @@ private:
         return SetLastFieldState(errorStr);
     }
 
-    bool Continue(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool Continue(char const *&ptr, char const *const end, luisa::string &errorStr) {
         if (streamer != StreamState::SearchContinue) {
             errorStr = ("Illegal character ','");
             return false;
@@ -332,7 +332,7 @@ private:
     }
 
     template<typename T>
-    bool SetStringField(T &&str, std::string &errorStr) {
+    bool SetStringField(T &&str, luisa::string &errorStr) {
         switch (streamer) {
             case StreamState::SearchKeyword: {
 
@@ -389,7 +389,7 @@ private:
         using Type = B;
     };
 
-    bool Number(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool Number(char const *&ptr, char const *const end, luisa::string &errorStr) {
         char const *start = ptr;
         do {
             ++ptr;
@@ -478,7 +478,7 @@ private:
         }
     }
 
-    bool Guid(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool Guid(char const *&ptr, char const *const end, luisa::string &errorStr) {
         ptr++;
         char const *start = ptr;
         while (recorders->guidCheck[*ptr]) {
@@ -497,11 +497,11 @@ private:
     }
 
     template<char beginEnd>
-    bool String(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool String(char const *&ptr, char const *const end, luisa::string &errorStr) {
         ptr++;
         char const *start = ptr;
         bool isSlash = false;
-        std::vector<char> chars;
+        luisa::vector<char> chars;
         chars.reserve(32);
         auto func = [&]() {
             while (true) {
@@ -554,7 +554,7 @@ private:
         return SetStringField(std::move(chars), errorStr);
     }
 
-    bool Cut(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool Cut(char const *&ptr, char const *const end, luisa::string &errorStr) {
         if (streamer != StreamState::SearchKeyValueCut) {
             errorStr = ("Illegal character ':'");
             return false;
@@ -564,7 +564,7 @@ private:
         return true;
     }
 
-    bool M_Parse(std::string_view str, std::string &errorStr) {
+    bool M_Parse(std::string_view str, luisa::string &errorStr) {
         auto endPtr = str.data() + str.size();
         char const *ptr = GetNextChar(str.data(), endPtr);
         while (true) {
@@ -621,7 +621,7 @@ private:
                         return false;
                     break;
                 default: {
-                    errorStr = (std::string("Illegal character '") + *ptr + "'");
+                    errorStr = fmt::format("Illegal character '{}'", *ptr);
                     return false;
                 }
             }
@@ -632,7 +632,7 @@ private:
     WriteJsonVariant PrintField(Field *field) {
         return field->data.visit_with_default(
             WriteJsonVariant(),
-            [&](std::vector<char> const &v) {
+            [&](luisa::vector<char> const &v) {
                 return WriteJsonVariant(std::string_view(v.data(), v.size()));
             },
             [&](auto &&v) {
@@ -656,9 +656,9 @@ private:
 
     void SetDict(
         IJsonDict *dict,
-        std::vector<std::pair<
+        luisa::vector<std::pair<
             vstd::variant<
-                std::vector<char>,
+                luisa::vector<char>,
                 int64,
                 vstd::Guid>,
             Field *>> const &v) {
@@ -666,7 +666,7 @@ private:
         for (auto &&i : v) {
             auto key = i.first.visit_with_default(
                 Key(),
-                [&](std::vector<char> const &v) {
+                [&](luisa::vector<char> const &v) {
                     return Key(std::string_view(v.data(), v.size()));
                 },
                 [&](int64 const &v) {
@@ -681,9 +681,9 @@ private:
     }
 
     UniquePtr<IJsonDict> PrintDict(
-        std::vector<std::pair<
+        luisa::vector<std::pair<
             vstd::variant<
-                std::vector<char>,
+                luisa::vector<char>,
                 int64,
                 vstd::Guid>,
             Field *>> const &v) {
@@ -694,14 +694,14 @@ private:
 
     void SetArray(
         IJsonArray *arr,
-        std::vector<Field *> const &v) {
+        luisa::vector<Field *> const &v) {
         arr->Reserve(v.size());
         for (auto &&i : v) {
             arr->Add(PrintField(i));
         }
     }
 
-    UniquePtr<IJsonArray> PrintArray(std::vector<Field *> const &v) {
+    UniquePtr<IJsonArray> PrintArray(luisa::vector<Field *> const &v) {
         auto arr = db->CreateArray();
         SetArray(arr.get(), v);
         return arr;
@@ -725,7 +725,7 @@ private:
         return {start, static_cast<size_t>(end - start)};
     }
 
-    bool BeginKeyword(char const *&ptr, char const *const end, std::string &errorStr) {
+    bool BeginKeyword(char const *&ptr, char const *const end, luisa::string &errorStr) {
         auto var = GetKeyword<true>(ptr, end);
         switch (streamer) {
             case StreamState::None: {
@@ -809,7 +809,7 @@ public:
     bool Parse(
         std::string_view str,
         IJsonDatabase *database,
-        IJsonDict *dict, std::string &errorStr) {
+        IJsonDict *dict, luisa::string &errorStr) {
         if (!M_Parse(str, errorStr))
             return false;
         if (rootField == nullptr) {
@@ -829,7 +829,7 @@ public:
     bool Parse(
         std::string_view str,
         IJsonDatabase *database,
-        IJsonArray *arr, std::string &errorStr) {
+        IJsonArray *arr, luisa::string &errorStr) {
         if (!M_Parse(str, errorStr))
             return false;
         if (rootField == nullptr) {
@@ -848,7 +848,7 @@ public:
 
     SimpleJsonParser(
         decltype(fieldPool) poolPtr,
-        std::vector<SimpleJsonParser> *subParserPtr) {
+        luisa::vector<SimpleJsonParser> *subParserPtr) {
         {
             std::lock_guard lck(recorderIsInited);
             recorders = StateRecorders{};
@@ -872,10 +872,10 @@ std::optional<ParsingException> RunParse(
         ptr->Reset();
     }
     using namespace parser;
-    std::vector<SimpleJsonParser> subParsers;
+    luisa::vector<SimpleJsonParser> subParsers;
     vstd::Pool<SimpleJsonParser::Field, VEngine_AllocType::VEngine, false> fieldPool(32, false);
     SimpleJsonParser parser(&fieldPool, &subParsers);
-    std::string msg;
+    luisa::string msg;
     if (!parser.Parse(str, db, ptr, msg)) {
         return ParsingException(std::move(msg));
     }

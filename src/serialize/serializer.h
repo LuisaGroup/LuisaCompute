@@ -20,7 +20,7 @@ struct Serializer {
         data = std::span<uint8_t const>(data.data() + sizeof(T), data.size() - sizeof(T));
         return *ptr;
     }
-    static void Set(T const &data, std::vector<uint8_t> &vec) {
+    static void Set(T const &data, luisa::vector<uint8_t> &vec) {
         auto ptr = reinterpret_cast<uint8_t const *>(&data);
         vec.insert(vec.end(), ptr, ptr + sizeof(T));
     }
@@ -32,20 +32,20 @@ struct Serializer<Guid> {
     static Value Get(std::span<uint8_t const> &sp) {
         return vstd::Serializer<Guid::GuidData>::Get(sp);
     }
-    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+    static void Set(Value const &data, luisa::vector<uint8_t> &arr) {
         vstd::Serializer<Guid::GuidData>::Set(data.ToBinary(), arr);
     }
 };
 
 template<>
-struct Serializer<std::string> {
-    static std::string Get(std::span<uint8_t const> &sp) {
+struct Serializer<luisa::string> {
+    static luisa::string Get(std::span<uint8_t const> &sp) {
         auto strLen = Serializer<uint>::Get(sp);
         auto ptr = sp.data();
         sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
         return {reinterpret_cast<char const *>(ptr), strLen};
     }
-    static void Set(std::string const &data, std::vector<uint8_t> &arr) {
+    static void Set(luisa::string const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint>::Set(data.size(), arr);
         arr.insert(arr.end(), data.begin(), data.end());
     }
@@ -59,15 +59,15 @@ struct Serializer<std::string_view> {
         sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
         return {reinterpret_cast<char const *>(ptr), strLen};
     }
-    static void Set(std::string_view const &data, std::vector<uint8_t> &arr) {
+    static void Set(std::string_view const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint>::Set(data.size(), arr);
         arr.insert(arr.end(), data.begin(), data.end());
     }
 };
 
 template<typename T>
-struct Serializer<std::vector<T>> {
-    using Value = std::vector<T>;
+struct Serializer<luisa::vector<T>> {
+    using Value = luisa::vector<T>;
     static Value Get(std::span<uint8_t const> &sp) {
         Value sz;
         auto s = Serializer<uint>::Get(sp);
@@ -77,7 +77,7 @@ struct Serializer<std::vector<T>> {
 
         return sz;
     }
-    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+    static void Set(Value const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint>::Set(data.size(), arr);
         for (auto &&i : data) {
             Serializer<T>::Set(i, arr);
@@ -101,7 +101,7 @@ struct Serializer<HashMap<K, V, Hash, Equal, alloc>> {
         }
         return sz;
     }
-    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+    static void Set(Value const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint>::Set(data.size(), arr);
         for (auto &&i : data) {
             Serializer<K>::Set(i.first, arr);
@@ -118,7 +118,7 @@ struct Serializer<vstd::variant<Args...>> {
         new (placePtr) Value(Serializer<T>::Get(sp));
     }
     template<typename T>
-    static void ExecuteSet(void const *placePtr, std::vector<uint8_t> &sp) {
+    static void ExecuteSet(void const *placePtr, luisa::vector<uint8_t> &sp) {
         Serializer<T>::Set(*reinterpret_cast<T const *>(placePtr), sp);
     }
     static Value Get(std::span<uint8_t const> &sp) {
@@ -131,9 +131,9 @@ struct Serializer<vstd::variant<Args...>> {
         });
         return v;
     }
-    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+    static void Set(Value const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint8_t>::Set(data.GetType(), arr);
-        funcPtr_t<void(void const *, std::vector<uint8_t> &)> ptrs[sizeof...(Args)] = {
+        funcPtr_t<void(void const *, luisa::vector<uint8_t> &)> ptrs[sizeof...(Args)] = {
             ExecuteSet<Args>...};
         ptrs[data.GetType()](&data, arr);
     }
@@ -145,7 +145,7 @@ struct Serializer<std::pair<A, B>> {
     static Value Get(std::span<uint8_t const> &sp) {
         return Value{Serializer<A>::Get(sp), Serializer<B>::Get(sp)};
     }
-    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+    static void Set(Value const &data, luisa::vector<uint8_t> &arr) {
         Serializer<A>::Set(data.first, arr);
         Serializer<B>::Set(data.second, arr);
     }
@@ -160,7 +160,7 @@ struct Serializer<std::span<uint8_t const>> {
         sp = Value(sp.data() + sz, sp.size() - sz);
         return v;
     }
-    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+    static void Set(Value const &data, luisa::vector<uint8_t> &arr) {
         Serializer<uint>::Set(data.size(), arr);
         arr.insert(arr.end(), data.begin(), data.end());
     }
@@ -176,7 +176,7 @@ struct Serializer<std::array<T, sz>> {
         }
         return v;
     }
-    static void Set(Value const &data, std::vector<uint8_t> &arr) {
+    static void Set(Value const &data, luisa::vector<uint8_t> &arr) {
         for (auto &&i : data) {
             vstd::Serializer<T>::Set(i);
         }
@@ -197,9 +197,9 @@ struct SerializerAll_Impl<Ret(Args...)> {
         return std::apply(closureFunc, std::tuple<Args...>{Serializer<std::remove_cvref_t<Args>>::Get(data)...});
     }
 
-    static std::vector<uint8_t> Ser(
+    static luisa::vector<uint8_t> Ser(
         Args const &...args) {
-        std::vector<uint8_t> vec;
+        luisa::vector<uint8_t> vec;
         (Serializer<std::remove_cvref_t<Args>>::Set(args, vec), ...);
         return vec;
     }

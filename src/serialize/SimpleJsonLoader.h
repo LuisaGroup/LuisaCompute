@@ -55,7 +55,7 @@ struct SimpleJsonVariant {
 };
 
 template<typename T>
-void PushDataToVector(T &&v, std::vector<uint8_t> &serData) {
+void PushDataToVector(T &&v, luisa::vector<uint8_t> &serData) {
     using TT = std::remove_cvref_t<T>;
     vstd::Serializer<TT>::Set(v, serData);
 }
@@ -65,8 +65,8 @@ public:
     static bool Check(IJsonDatabase *db, SimpleJsonVariant const &var);
     static SimpleJsonVariant DeSerialize(std::span<uint8_t const> &arr, SimpleBinaryJson *db);
     static SimpleJsonVariant DeSerialize_Concurrent(std::span<uint8_t const> &arr, ConcurrentBinaryJson *db);
-    static void Serialize(SimpleJsonVariant const &v, std::vector<uint8_t> &data);
-    static void Serialize_Concurrent(SimpleJsonVariant const &v, std::vector<uint8_t> &data);
+    static void Serialize(SimpleJsonVariant const &v, luisa::vector<uint8_t> &data);
+    static void Serialize_Concurrent(SimpleJsonVariant const &v, luisa::vector<uint8_t> &data);
 };
 
 template<typename T>

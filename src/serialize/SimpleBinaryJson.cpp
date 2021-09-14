@@ -17,7 +17,7 @@ SimpleBinaryJson::SimpleBinaryJson()
       arrValuePool(32, false),
       dictValuePool(32, false) {}
 
-std::vector<uint8_t> SimpleBinaryJson::Serialize() {
+luisa::vector<uint8_t> SimpleBinaryJson::Serialize() {
     return root.Serialize();
 }
 
@@ -27,7 +27,7 @@ bool SimpleBinaryJson::Read(
     return root.Read(data, clearLast);
 }
 
-std::string SimpleBinaryJson::Print() {
+luisa::string SimpleBinaryJson::Print() {
     return root.Print();
 }
 
@@ -57,7 +57,7 @@ ConcurrentBinaryJson::ConcurrentBinaryJson()
       arrValuePool(32, false),
       dictValuePool(32, false) {}
 
-std::vector<uint8_t> ConcurrentBinaryJson::Serialize() {
+luisa::vector<uint8_t> ConcurrentBinaryJson::Serialize() {
     return root.Serialize();
 }
 
@@ -67,7 +67,7 @@ bool ConcurrentBinaryJson::Read(
     return root.Read(data, clearLast);
 }
 
-std::string ConcurrentBinaryJson::Print() {
+luisa::string ConcurrentBinaryJson::Print() {
     return root.Print();
 }
 

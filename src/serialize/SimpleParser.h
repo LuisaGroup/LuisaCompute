@@ -5,9 +5,9 @@
 namespace toolhub::db {
 
 struct ParsingException {
-    std::string message;
+    luisa::string message;
     ParsingException() noexcept = default;
-    explicit ParsingException(std::string &&msg)
+    explicit ParsingException(luisa::string msg)
         : message(std::move(msg)) {}
 };
 

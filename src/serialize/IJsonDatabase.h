@@ -23,11 +23,11 @@ protected:
 	~IJsonDatabase() = default;
 
 public:
-	virtual std::vector<uint8_t> Serialize() = 0;
+	virtual luisa::vector<uint8_t> Serialize() = 0;
 	virtual bool Read(
 		std::span<uint8_t const> data,
 		bool clearLast) = 0;
-	virtual std::string Print() = 0;
+	virtual luisa::string Print() = 0;
 	virtual IJsonDict* GetRootNode() = 0;
 	virtual UniquePtr<IJsonDict> CreateDict() = 0;
 	virtual UniquePtr<IJsonArray> CreateArray() = 0;
