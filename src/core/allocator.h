@@ -59,8 +59,10 @@ template<typename T, typename... Args>
 
 template<typename T>
 inline void delete_with_allocator(T *p) noexcept {
-    destroy_at(p);
-    deallocate(p);
+    if (p != nullptr) {
+        destroy_at(p);
+        deallocate(p);
+    }
 }
 
 struct deleter {

@@ -30,27 +30,27 @@ inline void vstl_delete(T *ptr) noexcept {
     }
 }
 
-#define VSTL_OVERRIDE_OPERATOR_NEW                                \
-    static void *operator new(size_t size) noexcept {             \
-        return vstl_malloc(size);                                 \
-    }                                                             \
-    static void operator delete(void *p) noexcept {               \
-        vstl_free(p);                                             \
-    }                                                             \
-    static void *operator new(size_t, void *place) noexcept {     \
-        return place;                                             \
-    }                                                             \
-    static void operator delete(void *pdead, size_t) noexcept {   \
-        vstl_free(pdead);                                         \
-    }                                                             \
-    static void *operator new[](size_t size) noexcept {           \
-        return vstl_malloc(size);                                 \
-    }                                                             \
-    static void operator delete[](void *p) noexcept {             \
-        vstl_free(p);                                             \
-    }                                                             \
-    static void operator delete[](void *pdead, size_t) noexcept { \
-        vstl_free(pdead);                                         \
+#define VSTL_OVERRIDE_OPERATOR_NEW                                          \
+    [[nodiscard]] static void *operator new(size_t size) noexcept {         \
+        return vstl_malloc(size);                                           \
+    }                                                                       \
+    static void operator delete(void *p) noexcept {                         \
+        vstl_free(p);                                                       \
+    }                                                                       \
+    [[nodiscard]] static void *operator new(size_t, void *place) noexcept { \
+        return place;                                                       \
+    }                                                                       \
+    static void operator delete(void *pdead, size_t) noexcept {             \
+        vstl_free(pdead);                                                   \
+    }                                                                       \
+    [[nodiscard]] static void *operator new[](size_t size) noexcept {       \
+        return vstl_malloc(size);                                           \
+    }                                                                       \
+    static void operator delete[](void *p) noexcept {                       \
+        vstl_free(p);                                                       \
+    }                                                                       \
+    static void operator delete[](void *pdead, size_t) noexcept {           \
+        vstl_free(pdead);                                                   \
     }
 
 class IOperatorNewBase {
