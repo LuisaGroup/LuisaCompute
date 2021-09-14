@@ -20,9 +20,6 @@
 
 namespace luisa {
 
-using std::construct_at;
-using std::destroy_at;
-
 class Arena : public concepts::Noncopyable {
 
 public:
@@ -107,64 +104,64 @@ public:
           _capacity{capacity} {}
 
     template<typename U>
-    requires concepts::container<U> && concepts::constructible<T, typename std::remove_cvref_t<U>::value_type>
-    ArenaVector(Arena &arena, U &&span, size_t capacity = 0u)
-        : ArenaVector{arena, std::max(span.size(), capacity)} {
-        std::uninitialized_copy_n(span.begin(), span.size(), _data);
-        _size = span.size();
-    }
-
-    template<typename U>
-    requires concepts::constructible<T, U>
-    explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
-        : ArenaVector{arena, std::max(init.size(), capacity)} {
-        std::uninitialized_copy_n(init.begin(), init.size(), _data);
-        _size = init.size();
-    }
-
-    ArenaVector(ArenaVector &&) noexcept = default;
-    ArenaVector &operator=(ArenaVector &&) noexcept = default;
-
-    [[nodiscard]] auto empty() const noexcept { return _size == 0u; }
-    [[nodiscard]] auto capacity() const noexcept { return _capacity; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-
-    [[nodiscard]] T *data() noexcept { return _data; }
-    [[nodiscard]] const T *data() const noexcept { return _data; }
-
-    [[nodiscard]] T &operator[](size_t i) noexcept { return _data[i]; }
-    [[nodiscard]] const T &operator[](size_t i) const noexcept { return _data[i]; }
-
-    template<typename... Args>
-    T &emplace_back(Args &&...args) {
-        if (_size == _capacity) {
-            _capacity = next_pow2(_capacity * 2u);
-            LUISA_VERBOSE_WITH_LOCATION(
-                "Capacity of ArenaVector exceeded, reallocating for {} ({} bytes).",
-                _capacity, _capacity * sizeof(T));
-            auto new_data = _arena.allocate<T>(_capacity);
-            std::uninitialized_move_n(_data, _size, new_data);
-            _data = new_data;
+        requires concepts::container<U> && concepts::constructible<T, typename std::remove_cvref_t<U>::value_type>
+        ArenaVector(Arena &arena, U &&span, size_t capacity = 0u)
+            : ArenaVector{arena, std::max(span.size(), capacity)} {
+            std::uninitialized_copy_n(span.begin(), span.size(), _data);
+            _size = span.size();
         }
-        return *luisa::construct_at(_data + _size++, std::forward<Args>(args)...);
-    }
 
-    void pop_back() noexcept { _size--; /* trivially destructible */ }
+        template<typename U>
+            requires concepts::constructible<T, U>
+        explicit ArenaVector(Arena &arena, std::initializer_list<U> init, size_t capacity = 0u)
+            : ArenaVector{arena, std::max(init.size(), capacity)} {
+            std::uninitialized_copy_n(init.begin(), init.size(), _data);
+            _size = init.size();
+        }
 
-    [[nodiscard]] T &front() noexcept { return _data[0]; }
-    [[nodiscard]] const T &front() const noexcept { return _data[0]; }
-    [[nodiscard]] T &back() noexcept { return _data[_size - 1u]; }
-    [[nodiscard]] const T &back() const noexcept { return _data[_size - 1u]; }
+        ArenaVector(ArenaVector &&) noexcept = default;
+        ArenaVector &operator=(ArenaVector &&) noexcept = default;
 
-    [[nodiscard]] T *begin() noexcept { return _data; }
-    [[nodiscard]] T *end() noexcept { return _data + _size; }
-    [[nodiscard]] const T *cbegin() const noexcept { return _data; }
-    [[nodiscard]] const T *cend() const noexcept { return _data + _size; }
+        [[nodiscard]] auto empty() const noexcept { return _size == 0u; }
+        [[nodiscard]] auto capacity() const noexcept { return _capacity; }
+        [[nodiscard]] auto size() const noexcept { return _size; }
+
+        [[nodiscard]] T *data() noexcept { return _data; }
+        [[nodiscard]] const T *data() const noexcept { return _data; }
+
+        [[nodiscard]] T &operator[](size_t i) noexcept { return _data[i]; }
+        [[nodiscard]] const T &operator[](size_t i) const noexcept { return _data[i]; }
+
+        template<typename... Args>
+        T &emplace_back(Args &&...args) {
+            if (_size == _capacity) {
+                _capacity = next_pow2(_capacity * 2u);
+                LUISA_VERBOSE_WITH_LOCATION(
+                    "Capacity of ArenaVector exceeded, reallocating for {} ({} bytes).",
+                    _capacity, _capacity * sizeof(T));
+                auto new_data = _arena.allocate<T>(_capacity);
+                std::uninitialized_move_n(_data, _size, new_data);
+                _data = new_data;
+            }
+            return *luisa::construct_at(_data + _size++, std::forward<Args>(args)...);
+        }
+
+        void pop_back() noexcept { _size--; /* trivially destructible */ }
+
+        [[nodiscard]] T &front() noexcept { return _data[0]; }
+        [[nodiscard]] const T &front() const noexcept { return _data[0]; }
+        [[nodiscard]] T &back() noexcept { return _data[_size - 1u]; }
+        [[nodiscard]] const T &back() const noexcept { return _data[_size - 1u]; }
+
+        [[nodiscard]] T *begin() noexcept { return _data; }
+        [[nodiscard]] T *end() noexcept { return _data + _size; }
+        [[nodiscard]] const T *cbegin() const noexcept { return _data; }
+        [[nodiscard]] const T *cend() const noexcept { return _data + _size; }
 };
 
 template<typename T>
-requires concepts::span_convertible<T>
-ArenaVector(Arena &, T &&)
+    requires concepts::span_convertible<T>
+    ArenaVector(Arena &, T &&)
 ->ArenaVector<typename std::remove_cvref_t<T>::value_type>;
 
 template<typename T>

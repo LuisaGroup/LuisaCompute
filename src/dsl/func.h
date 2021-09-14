@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/allocator.h>
 #include <runtime/command.h>
 #include <runtime/device.h>
 #include <runtime/shader.h>
@@ -121,7 +122,7 @@ class Kernel {
     friend struct Kernel3D;
 
 private:
-    using SharedFunctionBuilder = std::shared_ptr<const detail::FunctionBuilder>;
+    using SharedFunctionBuilder = luisa::shared_ptr<const detail::FunctionBuilder>;
     SharedFunctionBuilder _builder{nullptr};
     explicit Kernel(SharedFunctionBuilder builder) noexcept : _builder{std::move(builder)} {}
 

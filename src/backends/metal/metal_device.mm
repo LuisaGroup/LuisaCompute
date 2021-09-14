@@ -74,7 +74,7 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
 uint64_t MetalDevice::create_stream() noexcept {
     Clock clock;
     auto max_command_buffer_count = _handle.isLowPower ? 4u : 16u;
-    auto stream = std::make_unique<MetalStream>(_handle, max_command_buffer_count);
+    auto stream = luisa::make_unique<MetalStream>(_handle, max_command_buffer_count);
     LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
     std::scoped_lock lock{_stream_mutex};
     if (_available_stream_slots.empty()) {
@@ -123,10 +123,10 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
 
-    _compiler = std::make_unique<MetalCompiler>(this);
+    _compiler = luisa::make_unique<MetalCompiler>(this);
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
-    _compacted_size_buffer_pool = std::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
+    _compacted_size_buffer_pool = luisa::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
 #endif
 
     static constexpr auto initial_buffer_count = 64u;
@@ -315,7 +315,7 @@ id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
 
 uint64_t MetalDevice::create_event() noexcept {
     Clock clock;
-    auto event = std::make_unique<MetalEvent>([_handle newEvent]);
+    auto event = luisa::make_unique<MetalEvent>([_handle newEvent]);
     LUISA_VERBOSE_WITH_LOCATION("Created event in {} ms.", clock.toc());
     std::scoped_lock lock{_event_mutex};
     if (_available_event_slots.empty()) {
@@ -381,7 +381,7 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
 uint64_t MetalDevice::create_mesh() noexcept {
     check_raytracing_supported();
     Clock clock;
-    auto mesh = std::make_unique<MetalMesh>();
+    auto mesh = luisa::make_unique<MetalMesh>();
     LUISA_VERBOSE_WITH_LOCATION("Created mesh in {} ms.", clock.toc());
     std::scoped_lock lock{_mesh_mutex};
     if (_available_mesh_slots.empty()) {
@@ -407,7 +407,7 @@ void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
 uint64_t MetalDevice::create_accel() noexcept {
     check_raytracing_supported();
     Clock clock;
-    auto accel = std::make_unique<MetalAccel>(this);
+    auto accel = luisa::make_unique<MetalAccel>(this);
     LUISA_VERBOSE_WITH_LOCATION("Created accel in {} ms.", clock.toc());
     std::scoped_lock lock{_accel_mutex};
     if (_available_accel_slots.empty()) {
@@ -452,7 +452,7 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::create_heap(size_t size) noexcept {
     Clock clock;
-    auto heap = std::make_unique<MetalHeap>(this, size);
+    auto heap = luisa::make_unique<MetalHeap>(this, size);
     LUISA_VERBOSE_WITH_LOCATION("Created texture heap in {} ms.", clock.toc());
     std::scoped_lock lock{_heap_mutex};
     if (_available_heap_slots.empty()) {

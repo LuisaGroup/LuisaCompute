@@ -9,6 +9,7 @@
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
 #include <core/platform.h>
+#include <core/allocator.h>
 
 namespace luisa {
 
@@ -23,7 +24,7 @@ inline void log_warning(Args &&...args) noexcept { spdlog::warn(std::forward<Arg
 
 template<typename... Args>
 [[noreturn]] LUISA_FORCE_INLINE void log_error(Args &&...args) noexcept {
-    std::string error_message = fmt::format(std::forward<Args>(args)...);
+    auto error_message = fmt::format(std::forward<Args>(args)...);
     auto trace = luisa::backtrace();
     for (auto i = 0u; i < trace.size(); i++) {
         auto &&t = trace[i];

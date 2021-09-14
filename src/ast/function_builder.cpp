@@ -6,8 +6,8 @@
 
 namespace luisa::compute::detail {
 
-std::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
-    static thread_local std::vector<FunctionBuilder *> stack;
+luisa::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
+    static thread_local luisa::vector<FunctionBuilder *> stack;
     return stack;
 }
 

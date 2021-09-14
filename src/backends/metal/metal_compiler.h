@@ -22,7 +22,7 @@ class MetalCompiler {
 
 private:
     MetalDevice *_device;
-    std::unordered_map<uint64_t, MetalShader> _cache;
+    luisa::unordered_map<uint64_t, MetalShader> _cache;
     spin_mutex _cache_mutex;
 
 public:

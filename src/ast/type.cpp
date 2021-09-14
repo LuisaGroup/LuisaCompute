@@ -176,8 +176,8 @@ const Type *Type::from(std::string_view description) noexcept {
                 info._hash = hash;
                 info._index = types.size();
                 data.description = description;
-                info._data = std::make_unique<TypeData>(std::move(data));
-                return types.emplace_back(std::make_unique<Type>(std::move(info))).get();
+                info._data = luisa::make_unique<TypeData>(std::move(data));
+                return types.emplace_back(luisa::make_unique<Type>(std::move(info))).get();
             });
     };
 

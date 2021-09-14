@@ -8,6 +8,7 @@
 #import <Metal/Metal.h>
 
 #import <core/spin_mutex.h>
+#import <core/allocator.h>
 #import <runtime/heap.h>
 
 namespace luisa::compute::metal {
@@ -25,8 +26,8 @@ private:
     id<MTLArgumentEncoder> _encoder{nullptr};
     std::array<id<MTLSamplerState>, 16u> _samplers{};
     id<MTLEvent> _event{nullptr};
-    std::unordered_set<uint64_t> _active_buffers;
-    std::unordered_set<uint64_t> _active_textures;
+    luisa::unordered_set<uint64_t> _active_buffers;
+    luisa::unordered_set<uint64_t> _active_textures;
     mutable uint64_t _event_value{0u};
     mutable __weak id<MTLCommandBuffer> _last_update{nullptr};
     mutable spin_mutex _mutex;

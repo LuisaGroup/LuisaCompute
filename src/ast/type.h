@@ -13,6 +13,7 @@
 
 #include <core/hash.h>
 #include <core/concepts.h>
+#include <core/allocator.h>
 
 namespace luisa::compute {
 
@@ -252,8 +253,8 @@ struct TypeVisitor {
 };
 
 struct TypeData {
-    std::string description;
-    std::vector<const Type *> members;
+    luisa::string description;
+    luisa::vector<const Type *> members;
 };
 
 class Type {
@@ -285,7 +286,7 @@ private:
     size_t _alignment;
     uint32_t _dimension;
     Tag _tag;
-    std::unique_ptr<TypeData> _data;
+    luisa::unique_ptr<TypeData> _data;
 
     [[nodiscard]] static TypeRegistry &_registry() noexcept;
 

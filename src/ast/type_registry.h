@@ -41,7 +41,7 @@ class Accel;
 class TypeRegistry {
 
 private:
-    std::vector<std::unique_ptr<Type>> _types;
+    luisa::vector<luisa::unique_ptr<Type>> _types;
     spin_mutex _types_mutex;
 
 public:
@@ -196,12 +196,10 @@ template<typename... T>
 struct TypeDesc<std::tuple<T...>> {
     static std::string_view description() noexcept {
         static thread_local auto s = [] {
-            std::ostringstream os;
-            os << "struct<" << alignof(std::tuple<T...>);
-            auto appender = [](std::string_view ts) { return fmt::format(",{}", ts); };
-            (os << ... << appender(TypeDesc<T>::description()));
-            os << ">";
-            return os.str();
+            auto s = fmt::format("struct<{}", alignof(std::tuple<T...>));
+            (s.append(",").append(TypeDesc<T>::description()), ...);
+            s.append(">");
+            return s;
         }();
         return s;
     }

@@ -13,6 +13,7 @@
 #import <MetalKit/MetalKit.h>
 
 #import <core/spin_mutex.h>
+#import <core/allocator.h>
 #import <runtime/device.h>
 #import <ast/function.h>
 #import <backends/metal/metal_event.h>
@@ -32,43 +33,43 @@ class MetalDevice : public Device::Interface {
 
 private:
     id<MTLDevice> _handle{nullptr};
-    std::unique_ptr<MetalCompiler> _compiler{nullptr};
+    luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
     // for buffers
-    std::vector<id<MTLBuffer>> _buffer_slots;
-    std::vector<size_t> _available_buffer_slots;
+    luisa::vector<id<MTLBuffer>> _buffer_slots;
+    luisa::vector<size_t> _available_buffer_slots;
 
     // for streams
-    std::vector<std::unique_ptr<MetalStream>> _stream_slots;
-    std::vector<size_t> _available_stream_slots;
+    luisa::vector<luisa::unique_ptr<MetalStream>> _stream_slots;
+    luisa::vector<size_t> _available_stream_slots;
 
     // for textures
-    std::vector<id<MTLTexture>> _texture_slots;
-    std::vector<size_t> _available_texture_slots;
+    luisa::vector<id<MTLTexture>> _texture_slots;
+    luisa::vector<size_t> _available_texture_slots;
 
     // for shaders
-    std::vector<MetalShader> _shader_slots;
-    std::vector<size_t> _available_shader_slots;
+    luisa::vector<MetalShader> _shader_slots;
+    luisa::vector<size_t> _available_shader_slots;
 
     // for heaps
-    std::vector<std::unique_ptr<MetalHeap>> _heap_slots;
-    std::vector<size_t> _available_heap_slots;
+    luisa::vector<luisa::unique_ptr<MetalHeap>> _heap_slots;
+    luisa::vector<size_t> _available_heap_slots;
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
     // for meshes
-    std::vector<std::unique_ptr<MetalMesh>> _mesh_slots;
-    std::vector<size_t> _available_mesh_slots;
+    luisa::vector<luisa::unique_ptr<MetalMesh>> _mesh_slots;
+    luisa::vector<size_t> _available_mesh_slots;
 
     // for acceleration structures
-    std::vector<std::unique_ptr<MetalAccel>> _accel_slots;
-    std::vector<size_t> _available_accel_slots;
+    luisa::vector<luisa::unique_ptr<MetalAccel>> _accel_slots;
+    luisa::vector<size_t> _available_accel_slots;
 
-    std::unique_ptr<MetalSharedBufferPool> _compacted_size_buffer_pool{nullptr};
+    luisa::unique_ptr<MetalSharedBufferPool> _compacted_size_buffer_pool{nullptr};
 #endif
 
     // for events
-    std::vector<std::unique_ptr<MetalEvent>> _event_slots;
-    std::vector<size_t> _available_event_slots;
+    luisa::vector<luisa::unique_ptr<MetalEvent>> _event_slots;
+    luisa::vector<size_t> _available_event_slots;
 
     // mutexes
     mutable spin_mutex _buffer_mutex;

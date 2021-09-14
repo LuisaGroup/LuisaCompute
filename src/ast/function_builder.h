@@ -71,7 +71,7 @@ private:
     bool _raytracing{false};
 
 protected:
-    [[nodiscard]] static std::vector<FunctionBuilder *> &_function_stack() noexcept;
+    [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
     void _append(const Statement *statement) noexcept;
@@ -121,7 +121,7 @@ public:
     // build primitives
     template<typename Def>
     static auto define_kernel(Def &&def) noexcept {
-        auto arena = new Arena;
+        auto arena = new_with_allocator<Arena>();
         auto f = arena->create<FunctionBuilder>(arena, Function::Tag::KERNEL);
         _define(f, [f, &def] {
             auto gid = f->dispatch_id();
@@ -134,7 +134,9 @@ public:
             f->if_(ret_cond, if_body, nullptr);
             def();
         });
-        return std::shared_ptr<const FunctionBuilder>{f, [](FunctionBuilder *f) noexcept { delete f->_arena; }};
+        return luisa::shared_ptr<const FunctionBuilder>{
+            f, [](const FunctionBuilder *f) noexcept { delete_with_allocator(f->_arena); },
+            allocator{}};
     }
 
     template<typename Def>

@@ -5,6 +5,8 @@
 #pragma once
 
 #include <string>
+
+#include <core/allocator.h>
 #include <ast/function.h>
 
 namespace luisa::compute {
@@ -15,7 +17,7 @@ public:
     class Scratch {
 
     private:
-        std::string _buffer;
+        luisa::string _buffer;
 
     public:
         Scratch() noexcept;

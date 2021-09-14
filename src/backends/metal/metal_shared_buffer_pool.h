@@ -7,6 +7,7 @@
 #import <vector>
 
 #import <core/spin_mutex.h>
+#import <core/allocator.h>
 #import <backends/metal/metal_buffer_view.h>
 
 namespace luisa::compute::metal {
@@ -15,7 +16,7 @@ class MetalSharedBufferPool {
 
 private:
     __weak id<MTLDevice> _device;
-    std::vector<MetalBufferView> _available_buffers;
+    luisa::vector<MetalBufferView> _available_buffers;
     size_t _block_size;
     size_t _trunk_size;
     bool _optimize_for_write;

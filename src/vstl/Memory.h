@@ -9,11 +9,9 @@
 
 void *vstl_default_malloc(size_t sz);
 void vstl_default_free(void *ptr);
-void *vstl_default_realloc(void *ptr, size_t size);
 
 void *vstl_malloc(size_t size);
 void vstl_free(void *ptr);
-void *vstl_realloc(void *ptr, size_t size);
 
 namespace vstd {
 

@@ -26,10 +26,14 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <memory>
 #include <string_view>
 #include <filesystem>
 
 namespace luisa {
+
+using std::construct_at;
+using std::destroy_at;
 
 [[nodiscard]] void *aligned_alloc(size_t alignment, size_t size) noexcept;
 void aligned_free(void *p) noexcept;

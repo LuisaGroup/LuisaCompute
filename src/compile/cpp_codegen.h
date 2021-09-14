@@ -15,8 +15,8 @@ class CppCodegen : public Codegen, private TypeVisitor, private ExprVisitor, pri
 
 private:
     Function _function;
-    std::vector<Function> _generated_functions;
-    std::vector<uint64_t> _generated_constants;
+    luisa::vector<Function> _generated_functions;
+    luisa::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
 
 private:

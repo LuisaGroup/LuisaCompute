@@ -5,8 +5,9 @@
 #pragma once
 
 #import <vector>
-
 #import <Metal/Metal.h>
+
+#import <core/allocator.h>
 #import <rtx/accel.h>
 
 namespace luisa::compute::metal {
@@ -26,8 +27,8 @@ private:
     MTLInstanceAccelerationStructureDescriptor *_descriptor{nullptr};
     size_t _update_scratch_size{};
     __weak id<MTLCommandBuffer> _last_update{nullptr};
-    std::vector<id<MTLResource>> _resources;
-    std::vector<id<MTLHeap>> _heaps;
+    luisa::vector<id<MTLResource>> _resources;
+    luisa::vector<id<MTLHeap>> _heaps;
 
 public:
     explicit MetalAccel(MetalDevice *device) noexcept : _device{device} {}
