@@ -22,6 +22,16 @@ namespace detail {
     return XXH3_64bits_withSeed(data, size, seed);
 }
 
+template<typename T>
+concept hashable_with_hash_method = requires(T x) {
+    x.hash();
+};
+
+template<typename T>
+concept hashable_with_hash_code_method = requires(T x) {
+    x.hash_code();
+};
+
 }// namespace detail
 
 [[nodiscard]] std::string_view hash_to_string(uint64_t hash) noexcept;
@@ -41,9 +51,9 @@ public:
 
     template<typename T>
     [[nodiscard]] auto operator()(T &&s) const noexcept {
-        if constexpr (requires { std::forward<T>(s).hash(); }) {
+        if constexpr (detail::hashable_with_hash_method<T>) {
             return (*this)(std::forward<T>(s).hash());
-        } else if constexpr (requires { std::forward<T>(s).hash_code(); }) {
+        } else if constexpr (detail::hashable_with_hash_code_method<T>) {
             return (*this)(std::forward<T>(s).hash_code());
         } else if constexpr (concepts::string_viewable<T>) {
             std::string_view sv{std::forward<T>(s)};

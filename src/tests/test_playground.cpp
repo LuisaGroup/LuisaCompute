@@ -3,6 +3,7 @@
 //
 
 #include <iostream>
+#include <functional>
 
 struct A {
     A()

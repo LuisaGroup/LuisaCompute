@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <core/allocator.h>
 #include <runtime/command.h>
 #include <runtime/device.h>

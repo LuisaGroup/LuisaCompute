@@ -13,12 +13,14 @@ inline namespace dsl {
 
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto cast(Src &&s) noexcept {
-    return Expr{std::forward<Src>(s)}.template cast<Dest>();
+    Expr expr{std::forward<Src>(s)};
+    return expr.template cast<Dest>();
 }
 
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto as(Src &&s) noexcept {
-    return Expr{std::forward<Src>(s)}.template as<Dest>();
+    Expr expr{std::forward<Src>(s)};
+    return expr.template as<Dest>();
 }
 
 [[nodiscard]] inline auto thread_id() noexcept {

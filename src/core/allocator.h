@@ -41,7 +41,7 @@ struct allocator {
 };
 
 template<>
-struct allocator<void> {};
+struct allocator<void> : allocator<std::byte> {};
 
 template<typename T>
 constexpr allocator<T>::allocator(allocator<>) noexcept {}

@@ -83,6 +83,19 @@ public:
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
 
+    // TODO...
+    void *native_handle() const noexcept override {
+        return nullptr;
+    }
+    void *buffer_native_handle(uint64_t handle) const noexcept override {
+        return nullptr;
+    }
+    void *texture_native_handle(uint64_t handle) const noexcept override {
+        return nullptr;
+    }
+    void *stream_native_handle(uint64_t handle) const noexcept override {
+        return nullptr;
+    }
     template<typename F>
     decltype(auto) with_locked(F &&f) noexcept {
         std::scoped_lock lock{_mutex};

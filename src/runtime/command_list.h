@@ -19,11 +19,11 @@ public:
 
     public:
         explicit Iterator(Command *cmd) noexcept : _command{cmd} {}
-        [[nodiscard]] decltype(auto) operator++() noexcept {
+        decltype(auto) operator++() noexcept {
             _command = _command->_next();
             return (*this);
         }
-        [[nodiscard]] auto operator++(int) noexcept {
+        auto operator++(int) noexcept {
             auto self = *this;
             _command = _command->_next();
             return self;
