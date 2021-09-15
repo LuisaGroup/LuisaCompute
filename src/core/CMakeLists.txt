@@ -25,8 +25,12 @@ target_link_libraries(luisa-compute-core PUBLIC
         luisa-compute-ext
         Threads::Threads
         ${CMAKE_DL_LIBS}
-        $<$<PLATFORM_ID:Windows>:dbghelp>
-        PRIVATE mimalloc-static)
+        $<$<PLATFORM_ID:Windows>:dbghelp>)
 set_target_properties(luisa-compute-core PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ON)
+
+if (WIN32 OR APPLE)
+    message(STATUS "Build with mimalloc")
+    target_link_libraries(luisa-compute-core PRIVATE mimalloc)
+endif ()
