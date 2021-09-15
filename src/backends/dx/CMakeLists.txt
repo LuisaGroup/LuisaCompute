@@ -87,7 +87,6 @@ if (WIN32)
         target_compile_options(luisa-compute-backend-dx PRIVATE
                 /JMC
                 /permissive-
-                /MP
                 /GS /TP /Qpar /GL /W0 /Gy
                 /Zi /Gm-
                 /sdl- /GT

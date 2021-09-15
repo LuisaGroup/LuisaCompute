@@ -1,28 +1,26 @@
+add_subdirectory(ext)
+
 add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 if (MSVC)
-    target_compile_options(luisa-compute-include INTERFACE
-            /we4834 # discarding [[nodiscard]] results
-            /Zc:preprocessor)
     target_compile_definitions(luisa-compute-include INTERFACE
             NOMINMAX
             _ENABLE_EXTENDED_ALIGNED_STORAGE
             _CRT_SECURE_NO_WARNINGS
             _UNICODE)
+endif ()
+
+if (MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(luisa-compute-include INTERFACE
+            /we4834 # discarding [[nodiscard]] results
+            /Zc:preprocessor)
 else ()
     target_compile_options(luisa-compute-include INTERFACE
-            -Wall -Wextra -Wpedantic -Wabi
-            -Wno-unused-parameter
-            -Wno-unused-variable
-            -Wno-gnu-zero-variadic-macro-arguments
-            -Wno-dollar-in-identifier-extension
-            -Wno-unknown-pragmas
-            -Wno-char-subscripts
+            -Wno-unknown-attributes
             -Werror=unused-result)
 endif ()
 
-add_subdirectory(ext)
 add_subdirectory(core)
 add_subdirectory(vstl)
 add_subdirectory(ast)
