@@ -86,12 +86,12 @@ int main(int argc, char *argv[]) {
                results[0], results[1], results[2], results[3],
                results[n - 2u], results[n - 1u]);
 
-    auto uuid = uuid::generate();
-    auto uuid_string = uuid.string();
+    auto u = uuid::generate();
+    auto uuid_string = u.string();
     uuid_string.erase(std::remove(uuid_string.begin(),  uuid_string.end(), '-'), uuid_string.end());
     auto uuid2 = uuid::from(uuid_string);
     LUISA_INFO("uuid: {}", uuid2.string());
-    LUISA_INFO("Hash: {:x}", Hash64{}(UUID{}));
+    LUISA_INFO("Hash: {:x}", Hash64{}(uuid{}));
     LUISA_INFO("Hash: {:x}", Hash64{}(std::string_view{}));
     auto v = std::vector<uint>{};
     LUISA_INFO("Hash: {:x}", Hash64{}(v));
