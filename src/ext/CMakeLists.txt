@@ -12,11 +12,12 @@ if (WIN32 OR APPLE)
     add_subdirectory(mimalloc)
 endif ()
 
+set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
-set(SPDLOG_ENABLE_PCH ON CACHE BOOL "" FORCE)
+set(SPDLOG_NO_EXCEPTIONS ON CACHE BOOL "" FORCE)
 add_subdirectory(spdlog)
+target_compile_definitions(spdlog INTERFACE FMT_CONSTEVAL=inline)
 set_target_properties(spdlog PROPERTIES UNITY_BUILD ON)
-target_compile_definitions(spdlog INTERFACE FMT_CONSTEVAL=inline) # clang has problem with this consteval
 target_link_libraries(luisa-compute-ext INTERFACE spdlog)
 
 add_library(xxhash INTERFACE)
