@@ -51,6 +51,8 @@ void SetCSharpKey(void *ptr, CSharpKeyType keyType, Key const &key) {
                     CSharpStringView{key.force_get<std::string_view>()} :
                     CSharpStringView{};
         } break;
+        default:
+            VSTL_ABORT();
     }
 }
 CSharpKeyType SetCSharpKey(void *ptr, Key const &key) {
@@ -127,6 +129,8 @@ void SetCSharpReadValue(void *ptr, CSharpValueType valueType, ReadJsonVariant co
                     CSharpStringView{readValue.force_get<std::string_view>()} :
                     CSharpStringView{};
             break;
+        default:
+            VSTL_ABORT();
     }
 }
 

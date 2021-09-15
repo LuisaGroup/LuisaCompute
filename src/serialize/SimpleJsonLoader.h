@@ -8,39 +8,17 @@
 namespace toolhub::db {
 
 struct CSharpStringView {
-    char const *ptr;
-    uint64 count;
-    CSharpStringView(luisa::string const &str) {
-        ptr = str.data();
-        count = str.size();
-    }
-    CSharpStringView(std::string_view view) {
-        ptr = view.data();
-        count = view.size();
-    }
-    CSharpStringView(char const *beg, char const *ed) {
-        ptr = beg;
-        count = ed - beg;
-    }
-    CSharpStringView(char const *beg, uint64 sz) {
-        ptr = beg;
-        count = sz;
-    }
-    CSharpStringView() noexcept
-        : ptr{nullptr}, count{0u} {}
-
-    operator std::string_view() const {
-        return std::string_view(ptr, count);
-    }
-    [[nodiscard]] char const *begin() const {
-        return ptr;
-    }
-    [[nodiscard]] char const *end() const {
-        return ptr + count;
-    }
-    [[nodiscard]] uint64 size() const {
-        return count;
-    }
+    char const *ptr{nullptr};
+    uint64 count{0u};
+    constexpr CSharpStringView() noexcept = default;
+    constexpr CSharpStringView(char const *beg, char const *ed) noexcept : ptr{beg}, count{static_cast<uint64>(ed - beg)} {}
+    constexpr CSharpStringView(char const *beg, uint64 sz) noexcept : ptr{beg}, count{sz} {}
+    constexpr CSharpStringView(std::string_view view) noexcept : ptr{view.data()}, count{view.size()} {}
+    constexpr CSharpStringView(luisa::string const &str) noexcept : ptr{str.data()}, count{str.size()} {}
+    [[nodiscard]] constexpr operator std::string_view() const noexcept { return {ptr, count}; }
+    [[nodiscard]] constexpr auto begin() const noexcept { return ptr; }
+    [[nodiscard]] constexpr auto end() const noexcept { return ptr + count; }
+    [[nodiscard]] constexpr auto size() const noexcept { return count; }
 };
 
 class SimpleBinaryJson;
