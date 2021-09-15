@@ -35,6 +35,11 @@ public:
 		std::string_view str,
 		bool clearLast) = 0;
 	virtual vstd::MD5 GetMD5() = 0;
+    ////////// Extension
+    virtual bool CompileFromPython(char const *code) {
+        //Not Implemented
+        return false;
+    }
 };
 
 }// namespace toolhub::db

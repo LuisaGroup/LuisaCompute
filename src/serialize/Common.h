@@ -11,3 +11,6 @@
 
 #include <vstl/HashMap.h>
 #include <vstl/Log.h>
+#include <iostream>
+#include <cstdlib>
+#include <stdio.h>

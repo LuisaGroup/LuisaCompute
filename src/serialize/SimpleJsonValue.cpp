@@ -1,4 +1,5 @@
 #pragma vengine_package vengine_database
+#include <serialize/Config.h>
 
 #include <serialize/Common.h>
 #include <serialize/SimpleBinaryJson.h>

@@ -1,10 +1,30 @@
 #pragma vengine_package vengine_database
+#include <serialize/Config.h>
 
 #include <serialize/interface.h>
 #include <serialize/SimpleBinaryJson.h>
+#include <serialize/PythonLib.h>
 
 namespace toolhub::db {
+#ifdef VENGINE_PYTHON_SUPPORT
+static std::mutex pyMtx;
+static SimpleBinaryJson *cur_Obj = nullptr;
 
+LUISA_EXTERN_C_FUNC SimpleBinaryJson *db_get_curobj() {
+    return cur_Obj;
+}
+bool SimpleBinaryJson::CompileFromPython(char const *code) {
+    std::lock_guard lck(pyMtx);
+    auto pyLibData = py::PythonLibImpl::Current();
+    cur_Obj = this;
+    pyLibData->Initialize();
+    auto disp = vstd::create_disposer([&]() {
+        cur_Obj = nullptr;
+        pyLibData->Finalize();
+    });
+    return pyLibData->ExecutePythonString(code);
+}
+#endif
 class Database_Impl final : public Database {
 public:
     [[nodiscard]] IJsonDatabase *CreateDatabase() const override;

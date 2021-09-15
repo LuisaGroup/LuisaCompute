@@ -1,4 +1,5 @@
 #pragma vengine_package vengine_database
+#include <serialize/Config.h>
 
 #include <cmath>
 
@@ -252,7 +253,6 @@ private:
     }
 
     bool BeginComment(char const *&ptr, char const *end, luisa::string &errorStr) {
-        static_cast<void>(this);
         ++ptr;
         switch (*ptr) {
             default:
@@ -628,33 +628,40 @@ private:
         }
         return true;
     }
-
     WriteJsonVariant PrintField(Field *field) {
-        return field->data.visit_with_default(
-            WriteJsonVariant(),
-            [&](luisa::vector<char> const &v) {
-                return WriteJsonVariant(std::string_view(v.data(), v.size()));
-            },
-            [&](auto &&v) {
+        switch (field->data.GetType()) {
+            case 0: {
+                auto &&v = field->data.get<0>();
+                return WriteJsonVariant(StringView(v.data(), v.size()));
+            }
+            case 1: {
+                auto &&v = field->data.get<1>();
                 return WriteJsonVariant(PrintDict(v));
-            },
-            [&](auto &&v) {
+            }
+            case 2: {
+                auto &&v = field->data.get<2>();
                 return WriteJsonVariant(PrintArray(v));
-            },
-            [&](int64 const &v) {
+            }
+            case 3: {
+                auto &&v = field->data.get<3>();
                 return WriteJsonVariant(v);
-            },
-            [&](double const &v) {
+            }
+            case 4: {
+                auto &&v = field->data.get<4>();
                 return WriteJsonVariant(v);
-            },
-            [&](vstd::Guid const &v) {
+            }
+            case 5: {
+                auto &&v = field->data.get<5>();
                 return WriteJsonVariant(v);
-            });
+            }
+            default:
+                return WriteJsonVariant();
+        }
     }
 
     IJsonDatabase *db{};
 
-    void SetDict(
+   void SetDict(
         IJsonDict *dict,
         luisa::vector<std::pair<
             vstd::variant<
@@ -664,22 +671,28 @@ private:
             Field *>> const &v) {
         dict->Reserve(v.size());
         for (auto &&i : v) {
-            auto key = i.first.visit_with_default(
-                Key(),
-                [&](luisa::vector<char> const &v) {
-                    return Key(std::string_view(v.data(), v.size()));
-                },
-                [&](int64 const &v) {
-                    return Key(v);
-                },
-                [&](vstd::Guid const &v) {
-                    return Key(v);
-                });
+            auto key = [&]() {
+                switch (i.first.GetType()) {
+                    case 0: {
+                        auto &&v = i.first.get<0>();
+                        return Key(StringView(v.data(), v.size()));
+                    }
+                    case 1: {
+                        auto &&v = i.first.get<1>();
+                        return Key(v);
+                    }
+                    case 2: {
+                        auto &&v = i.first.get<2>();
+                        return Key(v);
+                    }
+                    default:
+                        return Key();
+                }
+            }();
             auto value = PrintField(i.second);
-            dict->Set(key, std::move(value));
+            dict->Set(std::move(key), std::move(value));
         }
     }
-
     UniquePtr<IJsonDict> PrintDict(
         luisa::vector<std::pair<
             vstd::variant<

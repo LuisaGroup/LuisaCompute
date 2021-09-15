@@ -33,6 +33,9 @@ public:
     vstd::MD5 GetMD5() override;
     VSTL_DELETE_COPY_CONSTRUCT(SimpleBinaryJson)
     VSTL_DELETE_MOVE_CONSTRUCT(SimpleBinaryJson)
+#ifdef VENGINE_PYTHON_SUPPORT
+    bool CompileFromPython(char const *code) override;
+#endif
 };
 
 class ConcurrentBinaryJson final : public IJsonDatabase, public vstd::IOperatorNewBase {
