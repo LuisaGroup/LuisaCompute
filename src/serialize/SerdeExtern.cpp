@@ -26,13 +26,13 @@ enum class CSharpValueType : uint {
 Key GetCSharpKey(void *ptr, CSharpKeyType keyType) {
     switch (keyType) {
         case CSharpKeyType::Int64:
-            return Key(*reinterpret_cast<int64 *>(ptr));
+            return {*reinterpret_cast<int64 *>(ptr)};
         case CSharpKeyType::Guid:
-            return Key(*reinterpret_cast<vstd::Guid *>(ptr));
+            return {*reinterpret_cast<vstd::Guid *>(ptr)};
         case CSharpKeyType::String:
-            return Key(*reinterpret_cast<CSharpStringView *>(ptr));
+            return {*reinterpret_cast<CSharpStringView *>(ptr)};
         default:
-            return Key();
+            return {};
     }
 }
 void SetCSharpKey(void *ptr, CSharpKeyType keyType, Key const &key) {
@@ -78,19 +78,19 @@ CSharpKeyType SetCSharpKey(void *ptr, Key const &key) {
 WriteJsonVariant GetCSharpWriteValue(void *ptr, CSharpValueType valueType) {
     switch (valueType) {
         case CSharpValueType::Array:
-            return WriteJsonVariant(UniquePtr<IJsonArray>(*reinterpret_cast<SimpleJsonValueArray **>(ptr)));
+            return {UniquePtr<IJsonArray>(*reinterpret_cast<SimpleJsonValueArray **>(ptr))};
         case CSharpValueType::Dict:
-            return WriteJsonVariant(UniquePtr<IJsonDict>(*reinterpret_cast<SimpleJsonValueDict **>(ptr)));
+            return {UniquePtr<IJsonDict>(*reinterpret_cast<SimpleJsonValueDict **>(ptr))};
         case CSharpValueType::Double:
-            return WriteJsonVariant(*reinterpret_cast<double *>(ptr));
+            return {*reinterpret_cast<double *>(ptr)};
         case CSharpValueType::Guid:
-            return WriteJsonVariant(*reinterpret_cast<vstd::Guid *>(ptr));
+            return {*reinterpret_cast<vstd::Guid *>(ptr)};
         case CSharpValueType::Int64:
-            return WriteJsonVariant(*reinterpret_cast<int64 *>(ptr));
+            return {*reinterpret_cast<int64 *>(ptr)};
         case CSharpValueType::String:
-            return WriteJsonVariant(*reinterpret_cast<CSharpStringView *>(ptr));
+            return {*reinterpret_cast<CSharpStringView *>(ptr)};
         default:
-            return WriteJsonVariant();
+            return {};
     }
 }
 void SetCSharpReadValue(void *ptr, CSharpValueType valueType, ReadJsonVariant const &readValue) {
