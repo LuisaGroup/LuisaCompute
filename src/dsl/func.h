@@ -26,8 +26,28 @@ struct definition_to_prototype<Var<T>> {
 };
 
 template<typename T>
-struct definition_to_prototype<Ref<T>> {
+struct definition_to_prototype<const Var<T> &> {
+    using type = T;
+};
+
+template<typename T>
+struct definition_to_prototype<Var<T> &> {
     using type = T &;
+};
+
+template<typename T>
+struct prototype_to_creation_tag {
+    using type = ArgumentCreation;
+};
+
+template<typename T>
+struct prototype_to_creation_tag<const T &> {
+    using type = ArgumentCreation;
+};
+
+template<typename T>
+struct prototype_to_creation_tag<T &> {
+    using type = ReferenceArgumentCreation;
 };
 
 template<typename T>
@@ -37,11 +57,21 @@ struct prototype_to_creation {
 
 template<typename T>
 struct prototype_to_creation<T &> {
-    using type = Ref<T>;
+    using type = Var<T> &;
+};
+
+template<typename T>
+struct prototype_to_creation<const T &> {
+    using type = const Var<T> &;
 };
 
 template<typename T>
 struct prototype_to_callable_invocation {
+    using type = Expr<T>;
+};
+
+template<typename T>
+struct prototype_to_callable_invocation<const T &> {
     using type = Expr<T>;
 };
 
@@ -52,6 +82,9 @@ struct prototype_to_callable_invocation<T &> {
 
 template<typename T>
 using definition_to_prototype_t = typename definition_to_prototype<T>::type;
+
+template<typename T>
+using prototype_to_creation_tag_t = typename prototype_to_creation_tag<T>::type;
 
 template<typename T>
 using prototype_to_creation_t = typename prototype_to_creation<T>::type;
@@ -128,13 +161,22 @@ private:
 
 public:
     template<typename Def>
-    requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> && std::negation_v<is_kernel<std::remove_cvref_t<Def>>> && concepts::invocable_with_return<void, Def, detail::prototype_to_creation_t<Args>...>
-    Kernel(Def &&def)
+        requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
+            std::negation_v<is_kernel<std::remove_cvref_t<Def>>> &&
+            std::is_invocable_r_v<void, Def, detail::prototype_to_creation_t<Args>...>
+            Kernel(Def &&def)
     noexcept {
         _builder = detail::FunctionBuilder::define_kernel([&def] {
             detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
-            auto args = std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...};
-            std::apply(std::forward<Def>(def), std::move(args));
+            []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
+                using arg_tuple = std::tuple<Args...>;
+                auto args = std::tuple{Var<std::remove_cvref_t<Args>>{
+                    detail::prototype_to_creation_tag_t<Args>{}}...};
+                return std::invoke(std::forward<decltype(def)>(def),
+                                   static_cast<detail::prototype_to_creation_t<
+                                       std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
+            }
+            (std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
     }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
@@ -258,14 +300,18 @@ public:
                  int> = 0>
     Callable(Def &&def) noexcept
         : _builder{detail::FunctionBuilder::define_callable([&def] {
+              auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
+                  using arg_tuple = std::tuple<Args...>;
+                  auto args = std::tuple{Var<std::remove_cvref_t<Args>>{
+                      detail::prototype_to_creation_tag_t<Args>{}}...};
+                  return std::invoke(std::forward<decltype(def)>(def),
+                                     static_cast<detail::prototype_to_creation_t<
+                                         std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
+              };
               if constexpr (std::is_same_v<Ret, void>) {
-                  std::apply(
-                      std::forward<Def>(def),
-                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+                  create(std::forward<Def>(def), std::index_sequence_for<Args...>{});
               } else {
-                  auto ret = std::apply(
-                      std::forward<Def>(def),
-                      std::tuple{detail::prototype_to_creation_t<Args>{detail::ArgumentCreation{}}...});
+                  auto ret = create(std::forward<Def>(def), std::index_sequence_for<Args...>{});
                   detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
               }
           })} {}

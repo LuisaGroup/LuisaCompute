@@ -241,7 +241,7 @@ int main(int argc, char *argv[]) {
 //        state_image.write(p, make_uint4(state));
 //    };
 //
-//    auto lcg = [](Ref<uint> state) noexcept {
+//    auto lcg = [](UInt &state) noexcept {
 //        constexpr auto lcg_a = 1664525u;
 //        constexpr auto lcg_c = 1013904223u;
 //        state = lcg_a * state + lcg_c;

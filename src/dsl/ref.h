@@ -52,17 +52,12 @@ struct RefEnableGetMemberByIndex {
     }
 };
 
-}// namespace detail
-
 #define LUISA_REF_COMMON(...)                                              \
 private:                                                                   \
     const Expression *_expression;                                         \
                                                                            \
 public:                                                                    \
     explicit Ref(const Expression *e) noexcept : _expression{e} {}         \
-    explicit Ref(detail::ArgumentCreation) noexcept                        \
-        : Ref{detail::FunctionBuilder::current()                           \
-                  ->reference(Type::of<__VA_ARGS__>())} {}                 \
     [[nodiscard]] auto expression() const noexcept { return _expression; } \
     Ref(Ref &&) noexcept = default;                                        \
     Ref(const Ref &) noexcept = default;                                   \
@@ -154,4 +149,5 @@ struct Ref<Vector<T, 4>>
 
 #undef LUISA_REF_COMMON
 
+}// namespace detail
 }// namespace luisa::compute

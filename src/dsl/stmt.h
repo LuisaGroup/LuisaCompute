@@ -244,11 +244,11 @@ inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept {
             detail::extract_expression(std::forward<Rhs>(rhs)));
     } else if (is_tuple_v<std::remove_cvref_t<Rhs>>) {
         assign(
-            Ref{std::forward<Lhs>(lhs)},
+            detail::Ref{std::forward<Lhs>(lhs)},
             compose(std::forward<Rhs>(rhs)));
     } else {
         detail::assign_impl(
-            Ref{std::forward<Lhs>(lhs)},
+            detail::Ref{std::forward<Lhs>(lhs)},
             Expr{std::forward<Rhs>(rhs)});
     }
 }
