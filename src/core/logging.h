@@ -56,11 +56,11 @@ void log_level_error() noexcept;
 #endif
 
 #define LUISA_INFO(fmt, ...) \
-    ::luisa::log_info(FMT_STRING(std::string_view{fmt}) __VA_OPT__(, ) __VA_ARGS__)
+    ::luisa::log_info(FMT_STRING(fmt) __VA_OPT__(, ) __VA_ARGS__)
 #define LUISA_WARNING(fmt, ...) \
-    ::luisa::log_warning(FMT_STRING(std::string_view{fmt}), ##__VA_ARGS__)
+    ::luisa::log_warning(FMT_STRING(fmt), ##__VA_ARGS__)
 #define LUISA_ERROR(fmt, ...) \
-    ::luisa::log_error(FMT_STRING(std::string_view{fmt}), ##__VA_ARGS__)
+    ::luisa::log_error(FMT_STRING(fmt), ##__VA_ARGS__)
 
 #define LUISA_VERBOSE_WITH_LOCATION(fmt, ...) \
     LUISA_VERBOSE(fmt " [{}:{}]", ##__VA_ARGS__, __FILE__, __LINE__)
