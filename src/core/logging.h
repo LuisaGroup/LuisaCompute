@@ -11,6 +11,10 @@
 #include <core/platform.h>
 #include <core/allocator.h>
 
+#ifndef FMT_STRING
+#define FMT_STRING(...) __VA_ARGS__
+#endif
+
 namespace luisa {
 
 template<typename... Args>
