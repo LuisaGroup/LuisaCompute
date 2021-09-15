@@ -10,7 +10,7 @@ namespace toolhub::db {
 static std::mutex pyMtx;
 static SimpleBinaryJson *cur_Obj = nullptr;
 
-LUISA_EXTERN_C_FUNC SimpleBinaryJson *db_get_curobj() {
+LUISA_EXPORT_API SimpleBinaryJson *db_get_curobj() {
     return cur_Obj;
 }
 bool SimpleBinaryJson::CompileFromPython(char const *code) {

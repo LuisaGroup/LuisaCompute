@@ -632,7 +632,7 @@ private:
         switch (field->data.GetType()) {
             case 0: {
                 auto &&v = field->data.get<0>();
-                return WriteJsonVariant(StringView(v.data(), v.size()));
+                return WriteJsonVariant(CSharpStringView(v.data(), v.size()));
             }
             case 1: {
                 auto &&v = field->data.get<1>();
@@ -675,7 +675,7 @@ private:
                 switch (i.first.GetType()) {
                     case 0: {
                         auto &&v = i.first.get<0>();
-                        return Key(StringView(v.data(), v.size()));
+                        return Key(CSharpStringView(v.data(), v.size()));
                     }
                     case 1: {
                         auto &&v = i.first.get<1>();

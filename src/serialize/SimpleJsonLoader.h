@@ -7,38 +7,42 @@
 
 namespace toolhub::db {
 
-struct StringView {
+struct CSharpStringView {
     char const *ptr;
     uint64 count;
-    StringView(luisa::string const &str) {
+    CSharpStringView(luisa::string const &str) {
         ptr = str.data();
         count = str.size();
     }
-    StringView(std::string_view view) {
+    CSharpStringView(std::string_view view) {
         ptr = view.data();
         count = view.size();
     }
-    StringView(char const *beg, char const *ed) {
+    CSharpStringView(char const *beg, char const *ed) {
         ptr = beg;
         count = ed - beg;
     }
-    StringView(char const *beg, uint64 sz) {
+    CSharpStringView(char const *beg, uint64 sz) {
         ptr = beg;
         count = sz;
     }
+    CSharpStringView() noexcept
+        : ptr{nullptr}, count{0u} {}
+
     operator std::string_view() const {
         return std::string_view(ptr, count);
     }
-    char const *begin() const {
+    [[nodiscard]] char const *begin() const {
         return ptr;
     }
-    char const *end() const {
+    [[nodiscard]] char const *end() const {
         return ptr + count;
     }
-    uint64 size() const {
+    [[nodiscard]] uint64 size() const {
         return count;
     }
 };
+
 class SimpleBinaryJson;
 class ConcurrentBinaryJson;
 class SimpleJsonValueArray;

@@ -34,6 +34,10 @@ struct allocator {
     void deallocate(T *p, size_t) const noexcept {
         detail::allocator_deallocate(p, alignof(T));
     }
+    template<typename R>
+    [[nodiscard]] constexpr auto operator==(allocator<R>) const noexcept -> bool {
+        return std::is_same_v<T, R>;
+    }
 };
 
 template<>

@@ -4,7 +4,7 @@
 #ifdef VENGINE_PYTHON_SUPPORT
 #include <core/dynamic_module.h>
 #include <serialize/PythonLib.h>
-//#include <serialize/PythonInclude/Python.h>
+
 namespace toolhub::py {
 
 bool pyInitialized = false;
@@ -33,7 +33,7 @@ struct PyFuncs {
 };
 static PyFuncs pyFuncs;
 PythonLibImpl::PythonLibImpl() {
-    pyDll.New("Python39.dll");
+    pyDll.New("", "Python39.dll");// TODO: bin dir
     pyFuncs.Init(pyDll);
 }
 PythonLibImpl::~PythonLibImpl() {

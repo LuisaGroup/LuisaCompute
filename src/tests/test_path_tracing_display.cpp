@@ -200,7 +200,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        for (auto depth : range(5u)) {
+        $for(depth : range(5u)) {
 
             // trace
             auto hit = accel.trace_closest(ray);
@@ -219,8 +219,7 @@ int main(int argc, char *argv[]) {
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 $if(depth == 0u) {
                     radiance += light_emission;
-                }
-                $else {
+                } $else {
                     auto pdf_light = length_squared(p - origin(ray)) / (light_area * cos_wi);
                     auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                     radiance += mis_weight * beta * light_emission;
@@ -262,7 +261,7 @@ int main(int argc, char *argv[]) {
             auto r = lcg(state);
             $if(r >= q) { $break; };
             beta *= 1.0f / q;
-        }
+        };
         state_image.write(coord, make_uint4(state));
         $if(any(isnan(radiance))) {
             radiance = make_float3(0.0f);

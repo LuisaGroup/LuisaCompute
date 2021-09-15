@@ -30,7 +30,7 @@ Key GetCSharpKey(void *ptr, CSharpKeyType keyType) {
         case CSharpKeyType::Guid:
             return Key(*reinterpret_cast<vstd::Guid *>(ptr));
         case CSharpKeyType::String:
-            return Key(*reinterpret_cast<StringView *>(ptr));
+            return Key(*reinterpret_cast<CSharpStringView *>(ptr));
         default:
             return Key();
     }
@@ -46,8 +46,10 @@ void SetCSharpKey(void *ptr, CSharpKeyType keyType, Key const &key) {
                 (key.IsTypeOf<vstd::Guid>()) ? key.force_get<vstd::Guid>() : vstd::Guid(false);
         } break;
         case CSharpKeyType::String: {
-            *reinterpret_cast<StringView *>(ptr) =
-                (key.IsTypeOf<StringView>()) ? key.force_get<StringView>() : StringView(nullptr, (size_t)0);
+            *reinterpret_cast<CSharpStringView *>(ptr) =
+                (key.IsTypeOf<CSharpStringView>()) ?
+                    CSharpStringView{key.force_get<std::string_view>()} :
+                    CSharpStringView{};
         } break;
     }
 }
@@ -58,8 +60,8 @@ CSharpKeyType SetCSharpKey(void *ptr, Key const &key) {
             *reinterpret_cast<int64 *>(ptr) = key.force_get<int64>();
             keyType = CSharpKeyType::Int64;
             break;
-        case Key::IndexOf<StringView>:
-            *reinterpret_cast<StringView *>(ptr) = key.force_get<StringView>();
+        case Key::IndexOf<CSharpStringView>:
+            *reinterpret_cast<CSharpStringView *>(ptr) = key.force_get<std::string_view>();
             keyType = CSharpKeyType::String;
             break;
         case Key::IndexOf<vstd::Guid>:
@@ -84,7 +86,7 @@ WriteJsonVariant GetCSharpWriteValue(void *ptr, CSharpValueType valueType) {
         case CSharpValueType::Int64:
             return WriteJsonVariant(*reinterpret_cast<int64 *>(ptr));
         case CSharpValueType::String:
-            return WriteJsonVariant(*reinterpret_cast<StringView *>(ptr));
+            return WriteJsonVariant(*reinterpret_cast<CSharpStringView *>(ptr));
         default:
             return WriteJsonVariant();
     }
@@ -120,8 +122,10 @@ void SetCSharpReadValue(void *ptr, CSharpValueType valueType, ReadJsonVariant co
             }
             break;
         case CSharpValueType::String:
-            *reinterpret_cast<StringView *>(ptr) =
-                (readValue.IsTypeOf<StringView>()) ? readValue.force_get<StringView>() : StringView(nullptr, (size_t)0);
+            *reinterpret_cast<CSharpStringView *>(ptr) =
+                (readValue.IsTypeOf<CSharpStringView>()) ?
+                    CSharpStringView{readValue.force_get<std::string_view>()} :
+                    CSharpStringView{};
             break;
     }
 }
@@ -137,8 +141,8 @@ CSharpValueType SetCSharpReadValue(void *ptr, ReadJsonVariant const &readValue) 
             *reinterpret_cast<double *>(ptr) = readValue.force_get<double>();
             resultType = CSharpValueType::Double;
             break;
-        case ReadJsonVariant::IndexOf<StringView>:
-            *reinterpret_cast<StringView *>(ptr) = readValue.force_get<StringView>();
+        case ReadJsonVariant::IndexOf<CSharpStringView>:
+            *reinterpret_cast<CSharpStringView *>(ptr) = readValue.force_get<std::string_view>();
             resultType = CSharpValueType::String;
             break;
         case ReadJsonVariant::IndexOf<vstd::Guid>:

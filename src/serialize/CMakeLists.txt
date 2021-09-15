@@ -1,8 +1,11 @@
 set(LUISA_COMPUTE_SERIALIZE_SOURCES
         Common.h
-        interface.h
+        Config.h
         IJsonDatabase.h
         IJsonObject.h
+        interface.h
+        PythonLib.cpp PythonLib.h
+        SerdeExtern.cpp
         serializer.h
         SimpleBinaryJson.cpp SimpleBinaryJson.h
         SimpleJsonLoader.cpp SimpleJsonLoader.h
