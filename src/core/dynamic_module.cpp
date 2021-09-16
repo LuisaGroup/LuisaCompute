@@ -15,8 +15,18 @@ DynamicModule::DynamicModule(DynamicModule &&another) noexcept
 
 DynamicModule::~DynamicModule() noexcept { dynamic_module_destroy(_handle); }
 
-DynamicModule::DynamicModule(const std::filesystem::path &folder, std::string_view name) noexcept
-    : _handle{dynamic_module_load(dynamic_module_path(name, folder))} {}
+DynamicModule::DynamicModule(const std::filesystem::path &folder, std::string_view name) noexcept {
+    Clock clock;
+    auto p = folder / dynamic_module_name(name);
+    if ((_handle = dynamic_module_load(p)) == nullptr) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to load dynamic module: {}.",
+            p.string());
+    }
+    LUISA_INFO(
+        "Loaded dynamic module '{}' in {} ms.",
+        p.string(), clock.toc());
+}
 
 std::mutex &DynamicModule::_search_path_mutex() noexcept {
     static std::mutex mutex;
@@ -30,15 +40,26 @@ luisa::vector<std::pair<std::filesystem::path, size_t>> &DynamicModule::_search_
 
 DynamicModule::DynamicModule(std::string_view name) noexcept {
     std::scoped_lock lock{_search_path_mutex()};
+    Clock clock;
     auto &&paths = _search_paths();
     // TODO: use ranges...
     for (auto iter = paths.crbegin(); iter != paths.crend(); iter++) {
-        if (auto p = dynamic_module_path(name, iter->first); std::filesystem::exists(p)) {
-            _handle = dynamic_module_load(p);
+        auto p = iter->first / dynamic_module_name(name);
+        if ((_handle = dynamic_module_load(p)) != nullptr) {
+            LUISA_INFO(
+                "Loaded dynamic module '{}' in {} ms.",
+                p.string(), clock.toc());
             return;
         }
     }
-    _handle = dynamic_module_load(dynamic_module_path(name, {}));
+    if ((_handle = dynamic_module_load(dynamic_module_name(name))) == nullptr) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to load dynamic module '{}' from all search paths.",
+            name);
+    }
+    LUISA_INFO(
+        "Loaded dynamic module '{}' in {} ms.",
+        name, clock.toc());
 }
 
 void DynamicModule::add_search_path(const std::filesystem::path &path) noexcept {

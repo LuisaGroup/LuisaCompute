@@ -60,10 +60,9 @@ size_t pagesize() noexcept {
 
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
     auto path_string = path.string();
-    LUISA_INFO("Loading dynamic module: '{}'.", path_string);
     auto module = LoadLibraryA(path_string.c_str());
     if (module == nullptr) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
+        LUISA_WARNING_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
             path_string, detail::win32_last_error_message());
     }
@@ -86,11 +85,10 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     return reinterpret_cast<void *>(symbol);
 }
 
-std::filesystem::path dynamic_module_path(
-    std::string_view name,
-    const std::filesystem::path &search_path) noexcept {
-    auto decorated_name = fmt::format("{}.dll", name);
-    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
+luisa::string dynamic_module_name(std::string_view name) noexcept {
+    luisa::string s{name};
+    s.append(".dll");
+    return s;
 }
 
 luisa::string demangle(const char *name) noexcept {
@@ -158,17 +156,17 @@ size_t pagesize() noexcept {
 }
 
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
-    Clock clock;
-    auto module = dlopen(path.c_str(), RTLD_LAZY);
-    if (module == nullptr) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
+    auto p = path;
+    for (auto ext : {".so", ".dylib"}) {
+        p.replace_extension(ext);
+        if (auto module = dlopen(p.c_str(), RTLD_LAZY); module != nullptr) {
+            return module;
+        }
+        LUISA_WARNING_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
-            path.string(), dlerror());
+            p.string(), dlerror());
     }
-    LUISA_INFO(
-        "Loaded dynamic module '{}' in {} ms.",
-        path.string(), clock.toc());
-    return module;
+    return nullptr;
 }
 
 void dynamic_module_destroy(void *handle) noexcept {
@@ -190,11 +188,10 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     return symbol;
 }
 
-std::filesystem::path dynamic_module_path(
-    std::string_view name,
-    const std::filesystem::path &search_path) noexcept {
-    auto decorated_name = fmt::format("lib{}.so", name);
-    return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
+luisa::string dynamic_module_name(std::string_view name) noexcept {
+    luisa::string s{"lib"};
+    s.append(name).append(".so");
+    return s;
 }
 
 luisa::string demangle(const char *name) noexcept {
