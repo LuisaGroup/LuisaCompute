@@ -14,7 +14,8 @@ endif ()
 if (MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(luisa-compute-include INTERFACE
             /we4834 # discarding [[nodiscard]] results
-            /wd5105 # Maxwell loves custom pragma
+            /wd4068 # Maxwell loves custom pragma
+            /wd5105 # winbase.h: macro expansion producing 'defined' has undefined behavior
             /Zc:preprocessor)
 else ()
     target_compile_options(luisa-compute-include INTERFACE
