@@ -38,7 +38,7 @@ DynamicModule::DynamicModule(std::string_view name) noexcept {
             return;
         }
     }
-    _handle = dynamic_module_load(name);
+    _handle = dynamic_module_load(dynamic_module_path(name, {}));
 }
 
 void DynamicModule::add_search_path(const std::filesystem::path &path) noexcept {
