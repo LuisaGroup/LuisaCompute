@@ -14,9 +14,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <core/platform.h>
-
 namespace luisa {
+
+using std::construct_at;
+using std::destroy_at;
 
 namespace detail {
 void *allocator_allocate(size_t size, size_t alignment) noexcept;

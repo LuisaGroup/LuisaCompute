@@ -33,7 +33,7 @@ struct PyFuncs {
 };
 static PyFuncs pyFuncs;
 PythonLibImpl::PythonLibImpl() {
-    pyDll.New("", "Python39.dll");// TODO: bin dir
+    pyDll.New("Python39");// TODO: bin dir
     pyFuncs.Init(pyDll);
 }
 PythonLibImpl::~PythonLibImpl() {

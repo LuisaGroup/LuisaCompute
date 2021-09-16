@@ -1,6 +1,9 @@
 #pragma once
 
+#include <mutex>
+
 #include <core/platform.h>
+#include <core/allocator.h>
 #include <core/concepts.h>
 
 namespace luisa {
@@ -8,9 +11,14 @@ namespace luisa {
 class DynamicModule : concepts::Noncopyable {
 
 private:
-    void *_handle;
+    void *_handle{nullptr};
+
+private:
+    [[nodiscard]] static std::mutex &_search_path_mutex() noexcept;
+    [[nodiscard]] static luisa::vector<std::pair<std::filesystem::path, size_t>> &_search_paths() noexcept;
 
 public:
+    explicit DynamicModule(std::string_view name) noexcept;
     DynamicModule(const std::filesystem::path &folder, std::string_view name) noexcept;
     DynamicModule(DynamicModule &&another) noexcept;
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;
@@ -31,6 +39,9 @@ public:
     decltype(auto) apply(std::string_view name, Tuple &&t) const noexcept {
         return std::apply(function<F>(name), std::forward<Tuple>(t));
     }
+
+    static void add_search_path(const std::filesystem::path &path) noexcept;
+    static void remove_search_path(const std::filesystem::path &path) noexcept;
 };
 
 }// namespace luisa

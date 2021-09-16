@@ -17,6 +17,7 @@ Context::Context(const std::filesystem::path &program) noexcept
         LUISA_INFO("Created cache directory.");
         std::filesystem::create_directories(_cache_directory);
     }
+    DynamicModule::add_search_path(_runtime_directory);
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {
@@ -34,21 +35,25 @@ Device Context::create_device(std::string_view backend_name, uint32_t index) noe
                                   backend_name);
             iter != _device_identifiers.cend()) {
             auto i = iter - _device_identifiers.cbegin();
-            auto create = _device_creators[i];
-            auto destroy = _device_deleters[i];
-            return std::make_pair(create, destroy);
+            auto c = _device_creators[i];
+            auto d = _device_deleters[i];
+            return std::make_pair(c, d);
         }
         auto &&m = _loaded_modules.emplace_back(
             _runtime_directory / "backends",
             fmt::format("luisa-compute-backend-{}", backend_name));
-        auto create = m.function<Device::Creator>("create");
-        auto destroy = m.function<Device::Deleter>("destroy");
+        auto c = m.function<Device::Creator>("create");
+        auto d = m.function<Device::Deleter>("destroy");
         _device_identifiers.emplace_back(backend_name);
-        _device_creators.emplace_back(create);
-        _device_deleters.emplace_back(destroy);
-        return std::make_pair(create, destroy);
+        _device_creators.emplace_back(c);
+        _device_deleters.emplace_back(d);
+        return std::make_pair(c, d);
     }();
     return Device{Device::Handle{create(*this, index), destroy}};
+}
+
+Context::~Context() noexcept {
+    DynamicModule::remove_search_path(_runtime_directory);
 }
 
 }// namespace luisa::compute

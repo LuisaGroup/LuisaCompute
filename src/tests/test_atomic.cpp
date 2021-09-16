@@ -3,6 +3,7 @@
 //
 
 #include <iostream>
+#include <variant>
 
 #include <runtime/context.h>
 #include <runtime/device.h>
@@ -18,6 +19,9 @@ using namespace luisa;
 using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
+
+    std::variant<std::monostate> a;
+    a.index();
 
     log_level_verbose();
 

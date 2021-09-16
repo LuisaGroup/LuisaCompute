@@ -12,7 +12,7 @@ if (WIN32 OR APPLE)
     add_subdirectory(mimalloc)
 endif ()
 
-set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
+set(SPDLOG_ENABLE_PCH ON CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
 set(SPDLOG_NO_EXCEPTIONS ON CACHE BOOL "" FORCE)
 add_subdirectory(spdlog)

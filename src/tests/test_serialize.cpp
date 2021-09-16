@@ -10,7 +10,8 @@ using namespace luisa::serialize;
 
 int main(int argc, char *argv[]) {
     auto bin_dir = std::filesystem::canonical(argv[0]).parent_path();
-    DynamicModule module{bin_dir, "luisa-compute-serialize-json"};
+    DynamicModule::add_search_path(bin_dir);
+    DynamicModule module{"luisa-compute-serialize-json"};
     auto factory = module.invoke<DatabaseFactory>(database_factory_symbol);
     auto database = factory->CreateDatabase();
     auto root = database->GetRootNode();

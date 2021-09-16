@@ -59,17 +59,12 @@ size_t pagesize() noexcept {
 }
 
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
-    if (!std::filesystem::exists(path)) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}.", path.string());
-    } else [[likely]] {
-        LUISA_INFO("Loading dynamic module: '{}'.", path.string());
-    }
-    auto canonical_path = std::filesystem::canonical(path).string();
-    auto module = LoadLibraryA(canonical_path.c_str());
+    LUISA_INFO("Loading dynamic module: '{}'.", path.string());
+    auto module = LoadLibraryA(path.c_str());
     if (module == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
-            canonical_path, detail::win32_last_error_message());
+            path.string(), detail::win32_last_error_message());
     }
     return module;
 }
@@ -97,13 +92,13 @@ std::filesystem::path dynamic_module_path(
     return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
 }
 
-std::string demangle(const char *name) noexcept {
+luisa::string demangle(const char *name) noexcept {
     char buffer[256u];
     auto length = UnDecorateSymbolName(name, buffer, 256, 0);
-    return std::string{buffer, length};
+    return {buffer, length};
 }
 
-std::vector<TraceItem> backtrace() noexcept {
+luisa::vector<TraceItem> backtrace() noexcept {
 
     void *stack[100];
     auto process = GetCurrentProcess();
@@ -117,7 +112,7 @@ std::vector<TraceItem> backtrace() noexcept {
     symbol.SizeOfStruct = sizeof(SYMBOL_INFO);
     IMAGEHLP_MODULE64 module{};
     module.SizeOfStruct = sizeof(IMAGEHLP_MODULE64);
-    std::vector<TraceItem> trace;
+    luisa::vector<TraceItem> trace;
     trace.reserve(frame_count - 1u);
     for (auto i = 1u; i < frame_count; i++) {
         auto address = reinterpret_cast<uint64_t>(stack[i]);
@@ -162,16 +157,12 @@ size_t pagesize() noexcept {
 }
 
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
-    if (!std::filesystem::exists(path)) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Dynamic module not found: {}.", path.string());
-    }
-    auto canonical_path = std::filesystem::canonical(path).string();
     Clock clock;
-    auto module = dlopen(canonical_path.c_str(), RTLD_LAZY);
+    auto module = dlopen(path.c_str(), RTLD_LAZY);
     if (module == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
-            canonical_path, dlerror());
+            path.string(), dlerror());
     }
     LUISA_INFO(
         "Loaded dynamic module '{}' in {} ms.",
@@ -205,19 +196,19 @@ std::filesystem::path dynamic_module_path(
     return search_path.empty() ? std::filesystem::path{decorated_name} : search_path / decorated_name;
 }
 
-std::string demangle(const char *name) noexcept {
+luisa::string demangle(const char *name) noexcept {
     auto status = 0;
     auto buffer = abi::__cxa_demangle(name, nullptr, nullptr, &status);
-    std::string demangled{buffer == nullptr ? name : buffer};
+    luisa::string demangled{buffer == nullptr ? name : buffer};
     free(buffer);
     return demangled;
 }
 
-std::vector<TraceItem> backtrace() noexcept {
+luisa::vector<TraceItem> backtrace() noexcept {
     void *trace[100u];
     auto count = ::backtrace(trace, 100);
     auto info = ::backtrace_symbols(trace, count);
-    std::vector<TraceItem> trace_info;
+    luisa::vector<TraceItem> trace_info;
     trace_info.reserve(count - 1u);
     for (auto i = 1 /* skip current frame */; i < count; i++) {
         std::istringstream iss{info[i]};

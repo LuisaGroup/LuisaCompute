@@ -30,10 +30,9 @@
 #include <string_view>
 #include <filesystem>
 
-namespace luisa {
+#include <core/allocator.h>
 
-using std::construct_at;
-using std::destroy_at;
+namespace luisa {
 
 [[nodiscard]] void *aligned_alloc(size_t alignment, size_t size) noexcept;
 void aligned_free(void *p) noexcept;
@@ -45,15 +44,15 @@ void aligned_free(void *p) noexcept;
 void dynamic_module_destroy(void *handle) noexcept;
 [[nodiscard]] void *dynamic_module_find_symbol(void *handle, std::string_view name) noexcept;
 [[nodiscard]] std::filesystem::path dynamic_module_path(std::string_view name, const std::filesystem::path &search_path) noexcept;
-[[nodiscard]] std::string demangle(const char *name) noexcept;
+[[nodiscard]] luisa::string demangle(const char *name) noexcept;
 
 struct TraceItem {
-    std::string module;
+    luisa::string module;
     uint64_t address;
-    std::string symbol;
+    luisa::string symbol;
     size_t offset;
 };
 
-[[nodiscard]] LUISA_NEVER_INLINE std::vector<TraceItem> backtrace() noexcept;
+[[nodiscard]] LUISA_NEVER_INLINE luisa::vector<TraceItem> backtrace() noexcept;
 
 }// namespace luisa

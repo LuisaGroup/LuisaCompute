@@ -6,6 +6,7 @@
 #include <mimalloc.h>
 #endif
 
+#include <core/platform.h>
 #include <core/allocator.h>
 
 namespace luisa::detail {
