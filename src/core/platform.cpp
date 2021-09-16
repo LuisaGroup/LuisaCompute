@@ -59,12 +59,13 @@ size_t pagesize() noexcept {
 }
 
 void *dynamic_module_load(const std::filesystem::path &path) noexcept {
-    LUISA_INFO("Loading dynamic module: '{}'.", path.string());
-    auto module = LoadLibraryA(path.c_str());
+    auto path_string = path.string();
+    LUISA_INFO("Loading dynamic module: '{}'.", path_string);
+    auto module = LoadLibraryA(path_string.c_str());
     if (module == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
-            path.string(), detail::win32_last_error_message());
+            path_string, detail::win32_last_error_message());
     }
     return module;
 }

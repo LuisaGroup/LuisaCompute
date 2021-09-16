@@ -21,7 +21,6 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
 
     std::variant<std::monostate> a;
-    a.index();
 
     log_level_verbose();
 
