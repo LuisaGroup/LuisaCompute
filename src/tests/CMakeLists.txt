@@ -40,6 +40,15 @@ target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
 add_executable(test_playground test_playground.cpp)
 target_link_libraries(test_playground PRIVATE luisa::compute)
 
+add_executable(test_network_master test_network_master.cpp)
+target_link_libraries(test_network_master PRIVATE luisa::compute)
+
+add_executable(test_network_client test_network_client.cpp)
+target_link_libraries(test_network_client PRIVATE luisa::compute)
+
+add_executable(test_network_worker test_network_worker.cpp)
+target_link_libraries(test_network_worker PRIVATE luisa::compute)
+
 add_executable(test_serialize test_serialize.cpp)
 target_link_libraries(test_serialize PRIVATE luisa-compute-vstl luisa-compute-serialize)
 

@@ -38,3 +38,8 @@ else ()
     target_link_libraries(stduuid INTERFACE "${LibUUID_LIBRARY}")
 endif ()
 target_link_libraries(luisa-compute-ext INTERFACE stduuid)
+
+add_library(asio SHARED asio/asio/src/asio.cpp)
+target_include_directories(asio PUBLIC asio/asio/include)
+target_compile_definitions(asio PUBLIC ASIO_STANDALONE=1 ASIO_DYN_LINK=1)
+target_link_libraries(luisa-compute-ext INTERFACE asio)

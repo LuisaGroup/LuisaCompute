@@ -13,3 +13,6 @@
 [submodule "src/ext/stduuid"]
 	path = src/ext/stduuid
 	url = https://github.com/mariusbancila/stduuid.git
+[submodule "src/ext/asio"]
+	path = src/ext/asio
+	url = https://github.com/chriskohlhoff/asio.git
