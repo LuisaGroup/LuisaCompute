@@ -4,22 +4,22 @@
 
 #include <iostream>
 #include <asio.hpp>
+#include <opencv2/opencv.hpp>
 #include <core/logging.h>
+#include <core/basic_types.h>
 
 int main() {
     asio::io_context io_context;
     asio::ip::tcp::endpoint endpoint{asio::ip::address_v4::from_string("127.0.0.1"), 13};
     asio::ip::tcp::socket socket(io_context);
     socket.connect(endpoint);
-    for (;;) {
-        std::array<char, 128> buffer{};
-        asio::error_code error;
-        auto len = socket.read_some(asio::buffer(buffer), error);
-        if (error == asio::error::eof) {
-            break;// Connection closed cleanly by peer.
-        } else if (error) {
-            LUISA_ERROR_WITH_LOCATION("Error {}.", error.message());
+    asio::error_code error;
+    cv::Mat image{512, 512, CV_8UC4, cv::Scalar::all(0)};
+    asio::write(socket, asio::buffer("client"), error);
+    while (!error) {
+        if (asio::read(socket, asio::buffer(image.data, 512u * 512u * 4u), error); !error) {
+            cv::imshow("Display", image);
+            cv::waitKey(1);
         }
-        LUISA_INFO("Receive: {}", std::string_view{buffer.data(), len});
     }
 }
