@@ -48,7 +48,32 @@ decltype(auto) my_apply(F &&f, std::tuple<Args...> &t) {
     (std::index_sequence_for<Args...>{});
 }
 
+struct First;
+struct Second;
+struct Third;
+
+struct First {
+    void print() { std::cout << "First" << std::endl; }
+    [[nodiscard]] auto operator->() noexcept {
+        return reinterpret_cast<Second *>(this);
+    }
+};
+
+struct Second {
+    void print() { std::cout << "Second" << std::endl; }
+    [[nodiscard]] auto operator->() noexcept {
+        return reinterpret_cast<Third *>(this);
+    }
+};
+
+struct Third {
+    void print() { std::cout << "Third" << std::endl; }
+};
+
 int main() {
+
+    First first;
+    first->print();
 
     std::cout << "making tuple..." << std::endl;
     std::tuple t{A{}, A{}, A{}};

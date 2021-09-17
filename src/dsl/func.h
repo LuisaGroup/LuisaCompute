@@ -285,7 +285,6 @@ class Callable<Ret(Args...)> {
             is_volume_or_view<Ret>>>,
         "Callables may not return buffers, "
         "images or volumes (or their views).");
-
     static_assert(std::negation_v<std::disjunction<is_atomic<Args>...>>);
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
@@ -300,8 +299,8 @@ public:
                      std::negation<is_kernel<std::remove_cvref_t<Def>>>,
                      std::is_invocable<Def, detail::prototype_to_creation_t<Args>...>>,
                  int> = 0>
-    Callable(Def &&def) noexcept
-        : _builder{detail::FunctionBuilder::define_callable([&def] {
+    Callable(Def &&f) noexcept
+        : _builder{detail::FunctionBuilder::define_callable([&f] {
               auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                   using arg_tuple = std::tuple<Args...>;
                   auto args = std::tuple{Var<std::remove_cvref_t<Args>>{
@@ -311,10 +310,10 @@ public:
                                          std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
               };
               if constexpr (std::is_same_v<Ret, void>) {
-                  create(std::forward<Def>(def), std::index_sequence_for<Args...>{});
+                  create(std::forward<Def>(f), std::index_sequence_for<Args...>{});
               } else {
-                  auto ret = create(std::forward<Def>(def), std::index_sequence_for<Args...>{});
-                  detail::FunctionBuilder::current()->return_(detail::extract_expression(ret));
+                  auto ret = def<Ret>(create(std::forward<Def>(f), std::index_sequence_for<Args...>{}));
+                  detail::FunctionBuilder::current()->return_(ret.expression());
               }
           })} {}
 

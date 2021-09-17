@@ -32,8 +32,12 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Material, albedo, emission)
-LUISA_STRUCT(Onb, tangent, binormal, normal);
+LUISA_STRUCT(Material, albedo, emission) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
+    [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
+        return v.x * tangent + v.y * binormal + v.z * normal;
+    }
+};
 
 int main(int argc, char *argv[]) {
 
@@ -159,10 +163,6 @@ int main(int argc, char *argv[]) {
         return def<Onb>(tangent, binormal, normal);
     };
 
-    Callable transform_to_world = [](Var<Onb> onb, Float3 v) noexcept {
-        return v.x * onb.tangent + v.y * onb.binormal + v.z * onb.normal;
-    };
-
     Callable generate_ray = [](Float2 p) noexcept {
         static constexpr auto fov = radians(27.8f);
         static constexpr auto origin = make_float3(-0.01f, 0.995f, 5.0f);
@@ -204,7 +204,7 @@ int main(int argc, char *argv[]) {
 
             // trace
             auto hit = accel.trace_closest(ray);
-            if_(miss(hit), break_);
+            $if(hit->miss()) { $break; };
             auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
             auto p0 = vertex_buffer[triangle.i0];
             auto p1 = vertex_buffer[triangle.i1];
@@ -249,7 +249,7 @@ int main(int argc, char *argv[]) {
             auto onb = make_onb(n);
             auto ux = lcg(state);
             auto uy = lcg(state);
-            auto new_direction = transform_to_world(onb, cosine_sample_hemisphere(make_float2(ux, uy)));
+            auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
             ray = make_ray_robust(p, n, new_direction);
             beta *= material.albedo;
             pdf_bsdf = cos_wi * inv_pi;

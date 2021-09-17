@@ -16,7 +16,7 @@ struct Test {
     float a;
 };
 
-LUISA_STRUCT(Test, something, a)
+LUISA_STRUCT(Test, something, a) {};
 using $Test = Var<Test>;
 
 int main(int argc, char *argv[]) {

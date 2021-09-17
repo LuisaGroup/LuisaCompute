@@ -48,4 +48,4 @@ public:
 
 }
 
-LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2)
+LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2) {};

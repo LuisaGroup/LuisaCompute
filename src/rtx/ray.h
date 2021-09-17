@@ -18,7 +18,7 @@ struct alignas(16) Ray {
 
 }
 
-LUISA_STRUCT(luisa::compute::Ray, origin, t_min, direction, t_max)
+LUISA_STRUCT(luisa::compute::Ray, origin, t_min, direction, t_max) {};
 
 namespace luisa::compute {
 

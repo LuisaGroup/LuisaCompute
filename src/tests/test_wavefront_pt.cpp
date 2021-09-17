@@ -87,8 +87,8 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Camera, center, front, up, fov)
-LUISA_STRUCT(Onb, tangent, binormal, normal)
+LUISA_STRUCT(Camera, center, front, up, fov) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {};
 
 int main(int argc, char *argv[]) {
 //

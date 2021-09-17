@@ -8,6 +8,11 @@
 #include <dsl/func.h>
 #include <runtime/shader.h>
 
+template<typename T>
+struct luisa_compute_extension {
+    static_assert(luisa::always_false_v<T>);
+};
+
 namespace luisa::compute::detail {
 
 template<typename T>
@@ -44,6 +49,8 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 
 #define LUISA_STRUCT(S, ...)                                                                  \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                      \
+    template<>                                                                                \
+    struct luisa_compute_extension<S>;                                                        \
     namespace luisa::compute {                                                                \
     template<>                                                                                \
     struct Expr<S> {                                                                          \
@@ -95,8 +102,6 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         explicit Ref(const Expression *e) noexcept                                            \
             : _expression{e},                                                                 \
               LUISA_MAP_LIST(LUISA_STRUCT_MAKE_MEMBER_INIT, __VA_ARGS__) {}                   \
-        explicit Ref(detail::ArgumentCreation) noexcept                                       \
-            : Ref{detail::FunctionBuilder::current()->reference(Type::of<S>())} {}            \
         [[nodiscard]] auto expression() const noexcept { return this->_expression; }          \
         Ref(Ref &&another) noexcept = default;                                                \
         Ref(const Ref &another) noexcept = default;                                           \
@@ -112,9 +117,17 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
             return Ref<M>{detail::FunctionBuilder::current()->member(                         \
                 Type::of<M>(), this->expression(), i)};                                       \
         };                                                                                    \
+        [[nodiscard]] auto operator->() noexcept {                                            \
+            return reinterpret_cast<luisa_compute_extension<S> *>(this);                      \
+        }                                                                                     \
+        [[nodiscard]] auto operator->() const noexcept {                                      \
+            return reinterpret_cast<const luisa_compute_extension<S> *>(this);                \
+        }                                                                                     \
     };                                                                                        \
     }                                                                                         \
-    }
+    }                                                                                         \
+    template<>                                                                                \
+    struct luisa_compute_extension<S> final : luisa::compute::detail::Ref<S>
 
 #define LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_DECL(m) \
     Var<member_type_##m> m;

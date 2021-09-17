@@ -126,13 +126,7 @@ struct Var<Heap> : public Expr<Heap> {
 };
 
 template<typename T>
-Var(Expr<T>) -> Var<T>;
-
-template<typename T>
-Var(detail::Ref<T>) -> Var<T>;
-
-template<typename T>
-Var(T &&) -> Var<T>;
+Var(T &&) -> Var<expr_value_t<T>>;
 
 template<typename... T>
 Var(std::tuple<T...>) -> Var<std::tuple<expr_value_t<T>...>>;

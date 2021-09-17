@@ -33,8 +33,8 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Material, albedo, emission)
-LUISA_STRUCT(Onb, tangent, binormal, normal)
+LUISA_STRUCT(Material, albedo, emission) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {};
 
 int main(int argc, char *argv[]) {
 
