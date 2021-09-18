@@ -23,6 +23,6 @@ struct alignas(16) Hit {
 
 LUISA_STRUCT(luisa::compute::Hit, inst, prim, uv){
     [[nodiscard]] auto miss() const noexcept {
-        return inst == std::numeric_limits<uint>::max();
+        return inst == std::numeric_limits<uint32_t>::max();
     }
 };
