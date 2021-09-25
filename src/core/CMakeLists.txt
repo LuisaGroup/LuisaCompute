@@ -29,7 +29,7 @@ set_target_properties(luisa-compute-core PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ON)
 
-if (WIN32 OR APPLE)
+if (LUISA_COMPUTE_ENABLE_MIMALLOC)
     message(STATUS "Build with mimalloc")
     target_link_libraries(luisa-compute-core PRIVATE mimalloc-static)
     target_compile_definitions(luisa-compute-core PUBLIC LUISA_ENABLE_MIMALLOC=1)

@@ -4,85 +4,53 @@
 
 #include <iostream>
 #include <functional>
+#include <memory>
+#include <map>
 
-struct A {
-    A()
-    noexcept { std::cout << "default constructor" << std::endl; }
-    A(A &&)
-    noexcept { std::cout << "move constructor" << std::endl; }
-    A(const A &)
-    noexcept { std::cout << "copy constructor" << std::endl; }
-    A &operator=(A &&) noexcept {
-        std::cout << "move operator=" << std::endl;
-        return *this;
-    }
-    A &operator=(const A &) noexcept {
-        std::cout << "copy operator=" << std::endl;
-        return *this;
-    }
-    ~A() noexcept { std::cout << "destructor" << std::endl; }
+template<typename T>
+struct Pool {
+
 };
 
-void foo(const A &a, A b, A &c) noexcept {}
-
-template<typename T, size_t index>
-struct function_arg {
-    using type = typename function_arg<
-        std::remove_cvref_t<decltype(std::function{std::declval<T>()})>,
-        index>::type;
-};
-
-template<typename R, typename... Args, size_t index>
-struct function_arg<std::function<R(Args...)>, index> {
-    using type = std::tuple_element_t<index, std::tuple<Args...>>;
-};
-
-template<typename T, size_t index>
-using function_arg_t = typename function_arg<T, index>::type;
-
-template<typename F, typename... Args>
-decltype(auto) my_apply(F &&f, std::tuple<Args...> &t) {
-    return [&]<size_t... i>(std::index_sequence<i...>) noexcept {
-        return f(static_cast<function_arg_t<F, i> &&>(std::get<i>(t))...);
+template<typename T>
+struct Allocator {
+    Pool<T> pool;
+    using value_type = T;
+    Allocator() noexcept {
+        std::cout << "Allocator()" << std::endl;
     }
-    (std::index_sequence_for<Args...>{});
-}
-
-struct First;
-struct Second;
-struct Third;
-
-struct First {
-    void print() { std::cout << "First" << std::endl; }
-    [[nodiscard]] auto operator->() noexcept {
-        return reinterpret_cast<Second *>(this);
+    Allocator(Allocator &&another) noexcept : pool{std::move(another.pool)} {
+        std::cout << "Allocator(Allocator &&)" << std::endl;
     }
-};
-
-struct Second {
-    void print() { std::cout << "Second" << std::endl; }
-    [[nodiscard]] auto operator->() noexcept {
-        return reinterpret_cast<Third *>(this);
+    Allocator(const Allocator &another) noexcept : pool{another.pool} {
+        std::cout << "Allocator(const Allocator &)" << std::endl;
     }
-};
-
-struct Third {
-    void print() { std::cout << "Third" << std::endl; }
+    Allocator &operator=(Allocator &&rhs) noexcept {
+        pool = std::move(rhs.pool);
+        std::cout << "operator=(Allocator &&)" << std::endl;
+    }
+    Allocator &operator=(const Allocator &rhs) noexcept {
+        pool = rhs.pool;
+        std::cout << "operator=(const Allocator &)" << std::endl;
+    }
+    [[nodiscard]] auto allocate(std::size_t n) const noexcept {
+        auto p = malloc(n * sizeof(T));
+        std::cout << "allocate(" << n << ") -> " << p << std::endl;
+        return p;
+    }
+    void deallocate(T *p, size_t n) const noexcept {
+        std::cout << "deallocate(" << static_cast<void *>(p) << ", " << n << ")" << std::endl;
+        free(p);
+    }
+    template<typename R>
+    [[nodiscard]] constexpr auto operator==(const Allocator<R> &rhs) const noexcept -> bool {
+        auto same = this == &rhs;
+        std::cout << "operator==() -> " << same << std::endl;
+        return same;
+    }
 };
 
 int main() {
-
-    First first;
-    first->print();
-
-    std::cout << "making tuple..." << std::endl;
-    std::tuple t{A{}, A{}, A{}};
-
-    std::cout << "\napplying by copy..." << std::endl;
-    std::apply(foo, t);
-
-    std::cout << "\napplying by my_apply..." << std::endl;
-    my_apply(foo, t);
-
-    std::cout << "\ndone" << std::endl;
+    std::map<int, int, std::equal_to<>, Allocator<std::pair<const int, int>>> map;
+    std::cout << "after constructor..." << std::endl;
 }
