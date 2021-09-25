@@ -24,11 +24,12 @@ void *allocator_allocate(size_t size, size_t alignment) noexcept;
 void allocator_deallocate(void *p, size_t alignment) noexcept;
 }// namespace detail
 
-template<typename T = void>
+template<typename T = std::byte>
 struct allocator {
     using value_type = T;
     constexpr allocator() noexcept = default;
-    constexpr explicit allocator(allocator<>) noexcept;
+    template<typename U>
+    constexpr explicit allocator(allocator<U>) noexcept {}
     [[nodiscard]] auto allocate(std::size_t n) const noexcept {
         return static_cast<T *>(detail::allocator_allocate(sizeof(T) * n, alignof(T)));
     }
@@ -40,12 +41,6 @@ struct allocator {
         return std::is_same_v<T, R>;
     }
 };
-
-template<>
-struct allocator<void> : allocator<std::byte> {};
-
-template<typename T>
-constexpr allocator<T>::allocator(allocator<>) noexcept {}
 
 template<typename T>
 [[nodiscard]] inline auto allocate(size_t n = 1u) noexcept {

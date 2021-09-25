@@ -1,3 +1,11 @@
+if (WIN32)
+    set(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT ON)
+else ()
+    set(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT OFF)
+endif ()
+mark_as_advanced(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT)
+option(LUISA_COMPUTE_ENABLE_MIMALLOC "Enable mimalloc" ${LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT})
+
 add_subdirectory(ext)
 
 add_library(luisa-compute-include INTERFACE)
