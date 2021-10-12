@@ -114,6 +114,12 @@ template<typename T>
 constexpr auto is_integral_expr_v = is_integral_expr<T>::value;
 
 template<typename T>
+using is_boolean_expr = is_boolean<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto is_boolean_expr_v = is_boolean_expr<T>::value;
+
+template<typename T>
 using is_floating_point_expr = is_floating_point<expr_value_t<T>>;
 
 template<typename T>

@@ -711,7 +711,7 @@ template<typename Tx>
 }
 
 template<typename Tf, typename Tt, typename Tp>
-    requires any_dsl_v<Tf, Tt, Tp> && is_vector_expr_same_element_v<Tf, Tt> && is_bool_or_vector_expr_v<Tp>
+    requires any_dsl_v<Tf, Tt, Tp> && is_vector_expr_same_element_v<Tf, Tt> && is_bool_vector_expr_v<Tp>
 [[nodiscard]] inline auto select(Tf &&f, Tt &&t, Tp &&p) noexcept {
     return detail::make_vector_call<vector_expr_element_t<Tf>>(
         CallOp::SELECT,
@@ -720,14 +720,14 @@ template<typename Tf, typename Tt, typename Tp>
         std::forward<Tp>(p));
 }
 
-template<typename Tf, typename Tt>
-    requires is_same_expr_v<Tf, Tt>
-[[nodiscard]] inline auto select(Tf &&f, Tt &&t, Expr<bool> p) noexcept {
+template<typename Tf, typename Tt, typename Tp>
+    requires any_dsl_v<Tf, Tt, Tp> && is_same_expr_v<Tf, Tt> && is_boolean_expr_v<Tp>
+[[nodiscard]] inline auto select(Tf &&f, Tt &&t, Tp &&p) noexcept {
     using T = expr_value_t<Tf>;
     return def<T>(
         detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::SELECT,
-            {LUISA_EXPR(f), LUISA_EXPR(t), p.expression()}));
+            {LUISA_EXPR(f), LUISA_EXPR(t), LUISA_EXPR(p)}));
 }
 
 template<typename Tp, typename Tt, typename Tf>
