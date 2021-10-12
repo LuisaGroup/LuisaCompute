@@ -720,7 +720,7 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
                 _scratch << "const ";
             }
             _emit_type_name(v.type()->element());
-            _scratch << " *";
+            _scratch << " *__restrict__ ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
@@ -743,7 +743,7 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::HEAP:
-            _scratch << "device const HeapItem *";
+            _scratch << "device const HeapItem *__restrict__ ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
