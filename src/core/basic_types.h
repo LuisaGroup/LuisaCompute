@@ -368,6 +368,8 @@ LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(&, std::negation<luisa::is_floating_poi
 LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(^, std::negation<luisa::is_floating_point<T>>)
 LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(||, luisa::is_boolean<T>)
 LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(&&, luisa::is_boolean<T>)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(==, std::true_type)
+LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(!=, std::true_type)
 LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(<, std::negation<luisa::is_boolean<T>>)
 LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(>, std::negation<luisa::is_boolean<T>>)
 LUISA_MAKE_SCALAR_VECTOR_BINARY_OPERATOR(<=, std::negation<luisa::is_boolean<T>>)
