@@ -67,21 +67,22 @@
 #define $elif(...) / ::luisa::compute::Expr{__VA_ARGS__} % [&]() noexcept
 
 #define $loop ::luisa::compute::detail::LoopStmtBuilder{} % [&]() noexcept
-#define $while(...) ::luisa::compute::detail::LoopStmtBuilder{} \
-                        / [&]() noexcept {                      \
-                              $if(!(__VA_ARGS__)) {             \
-                                  $break;                       \
-                              };                                \
-                          }                                     \
-                        % [&]() noexcept
+#define $while(...) ::luisa::compute::detail::LoopStmtBuilder{} / [&]() noexcept { \
+    $if(!(__VA_ARGS__)) {                                                          \
+        $break;                                                                    \
+    };                                                                             \
+} % [&]() noexcept
 
 #define $switch(...) ::luisa::compute::detail::SwitchStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $case(...) ::luisa::compute::detail::SwitchCaseStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $default ::luisa::compute::detail::SwitchDefaultStmtBuilder{} % [&]() noexcept
 
-#define $for(...)          \
-    for (auto __VA_ARGS__) \
-    ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
+#define $for(...) \
+    for (auto __VA_ARGS__
+
+#define $range(...)                           \
+   ::luisa::compute::dsl::range(__VA_ARGS__)) \
+::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
 
 #define $comment(...) \
     ::luisa::compute::comment(__VA_ARGS__)

@@ -327,9 +327,26 @@ void MetalCodegen::visit(const CallExpr *expr) {
         for (auto arg : expr->arguments()) {
             auto by_ref = !expr->is_builtin() &&
                           expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE;
-            if (by_ref) { _scratch << "address_of("; }
-            arg->accept(*this);
-            if (by_ref) { _scratch << ")"; }
+            if (by_ref) {
+                if (arg->tag() == Expression::Tag::MEMBER &&
+                    static_cast<const MemberExpr *>(arg)->is_swizzle()) {
+                    // vector elements need special handling, since taking
+                    // the address is not directly supported in Metal
+                    auto vec_arg = static_cast<const MemberExpr *>(arg);
+                    if (vec_arg->swizzle_size() != 1u) [[unlikely]] {
+                        LUISA_ERROR_WITH_LOCATION("Invalid reference to vector swizzling.");
+                    }
+                    _scratch << "vector_element_ptr<" << vec_arg->swizzle_index(0u) << ">(";
+                    vec_arg->self()->accept(*this);
+                    _scratch << ")";
+                } else {
+                    _scratch << "address_of(";
+                    arg->accept(*this);
+                    _scratch << ")";
+                }
+            } else {
+                arg->accept(*this);
+            }
             _scratch << ", ";
             arg_index++;
         }
@@ -836,6 +853,34 @@ template<typename T>
 template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto address_of(device T &x) {
   return &x;
+}
+
+namespace detail {
+  template<typename T>
+  inline auto vector_element_impl(T v) { return v.x; }
+}
+
+template<typename T>
+struct vector_element {
+  using type = decltype(detail::vector_element_impl(T{}));
+};
+
+template<typename T>
+using vector_element_t = typename vector_element<T>::type;
+
+template<uint index, typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(thread T &v) {
+  return reinterpret_cast<thread vector_element_t<T> *>(&v) + index;
+}
+
+template<uint index, typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(threadgroup T &v) {
+  return reinterpret_cast<threadgroup vector_element_t<T> *>(&v) + index;
+}
+
+template<uint index, typename T>
+[[nodiscard, gnu::always_inline]] inline auto vector_element_ptr(device T &v) {
+  return reinterpret_cast<device vector_element_t<T> *>(&v) + index;
 }
 
 template<typename T>

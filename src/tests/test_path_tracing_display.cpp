@@ -32,12 +32,13 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Material, albedo, emission) {};
-LUISA_STRUCT(Onb, tangent, binormal, normal) {
+LUISA_STRUCT(Material, albedo, emission){};
+LUISA_STRUCT(Onb, tangent, binormal, normal){
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
-    }
-};
+}
+}
+;
 
 int main(int argc, char *argv[]) {
 
@@ -141,10 +142,10 @@ int main(int argc, char *argv[]) {
         return v0;
     };
 
-    Kernel2D make_sampler_kernel = [&](ImageUInt state_image) noexcept {
-        auto p = dispatch_id().xy();
+    Kernel2D make_sampler_kernel = [&](ImageUInt state_image, UInt2 offset) noexcept {
+        auto p = dispatch_id().xy() + offset;
         auto state = tea(p.x, p.y);
-        state_image.write(p, make_uint4(state));
+        state_image.write(dispatch_id().xy(), make_uint4(state));
     };
 
     Callable lcg = [](UInt &state) noexcept {
@@ -181,11 +182,11 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel, UInt2 tile_offset, UInt2 resolution) noexcept {
         set_block_size(8u, 8u, 1u);
-        auto coord = dispatch_id().xy();
-        auto frame_size = min(dispatch_size().x, dispatch_size().y).cast<float>();
-        auto state = def(state_image.read(coord).x);// todo...
+        auto coord = dispatch_id().xy() + tile_offset;
+        auto frame_size = min(resolution.x, resolution.y).cast<float>();
+        auto state = state_image.read(dispatch_id().xy()).x;
         auto rx = lcg(state);
         auto ry = lcg(state);
         auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
@@ -200,7 +201,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        $for(depth : range(5u)) {
+        $for(depth) : $range(5u) {
 
             // trace
             auto hit = accel.trace_closest(ray);
@@ -219,7 +220,8 @@ int main(int argc, char *argv[]) {
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 $if(depth == 0u) {
                     radiance += light_emission;
-                } $else {
+                }
+                $else {
                     auto pdf_light = length_squared(p - origin(ray)) / (light_area * cos_wi);
                     auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                     radiance += mis_weight * beta * light_emission;
@@ -262,11 +264,9 @@ int main(int argc, char *argv[]) {
             $if(r >= q) { $break; };
             beta *= 1.0f / q;
         };
-        state_image.write(coord, make_uint4(state));
-        $if(any(isnan(radiance))) {
-            radiance = make_float3(0.0f);
-        };
-        image.write(coord, make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        state_image.write(dispatch_id().xy(), make_uint4(state));
+        $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
@@ -303,35 +303,56 @@ int main(int argc, char *argv[]) {
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
-    static constexpr auto width = 1024u;
-    static constexpr auto height = 1024u;
-    auto state_image = device.create_image<uint>(PixelStorage::INT1, width, height);
-    auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, width, height);
-    auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    cv::Mat cv_accum{width, height, CV_8UC4, cv::Scalar::all(0.0)};
-    cv::Mat cv_curr{width, height, CV_8UC4, cv::Scalar::all(0.0)};
+    static constexpr auto resolution = make_uint2(1024u);
+    static constexpr auto tile_size = make_uint2(128u);
+    auto state_image = device.create_image<uint>(PixelStorage::INT1, tile_size);
+    auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
+    auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
+    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, tile_size);
+    cv::Mat cv_accum{tile_size.y, tile_size.x, CV_8UC4, cv::Scalar::all(0.0)};
+    cv::Mat cv_curr{tile_size.y, tile_size.x, CV_8UC4, cv::Scalar::all(0.0)};
+    cv::Mat cv_display{resolution.y, resolution.x, CV_8UC4, cv::Scalar::all(0.0)};
 
     Clock clock;
     clock.tic();
-    stream << clear_shader(accum_image).dispatch(width, height)
-           << make_sampler_shader(state_image).dispatch(width, height);
+    auto tile_offset = make_uint2(0u);
+    auto reset = [&] {
+        stream << clear_shader(accum_image).dispatch(tile_size)
+               << make_sampler_shader(state_image, tile_offset).dispatch(tile_size);
+    };
+
+    reset();
     for (auto d = 0u;; d++) {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 1u;
+        static constexpr auto spp_per_dispatch = 64u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(framebuffer, state_image, accel).dispatch(width, height)
-                           << accumulate_shader(accum_image, framebuffer).dispatch(width, height);
+            command_buffer << raytracing_shader(framebuffer, state_image, accel, tile_offset, resolution).dispatch(tile_size)
+                           << accumulate_shader(accum_image, framebuffer).dispatch(tile_size);
         }
-        command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(width, height)
-                       << ldr_image.copy_to(cv_curr.data)
-                       << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(width, height)
+        command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(tile_size)
+                       //                       << ldr_image.copy_to(cv_curr.data)
+                       << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(tile_size)
                        << ldr_image.copy_to(cv_accum.data)
                        << commit();
         stream << synchronize();
-        cv::imshow("Accumulated", cv_accum);
-        cv::imshow("Current", cv_curr);
-        if (cv::waitKey(1) == 'q') { break; }
+        cv_accum.copyTo(cv_display(cv::Rect{static_cast<int>(tile_offset.x), static_cast<int>(tile_offset.y), tile_size.x, tile_size.y}));
+        //        cv::imshow("Current", cv_curr);
+        cv::imshow("Display", cv_display);
+        if (auto key = cv::waitKey(1); key == 'q') {
+            break;
+        } else if (key == 'w') {
+            tile_offset.y = std::max(tile_offset.y, tile_size.y) - tile_size.y;
+            reset();
+        } else if (key == 'a') {
+            tile_offset.x = std::max(tile_offset.x, tile_size.x) - tile_size.x;
+            reset();
+        } else if (key == 's') {
+            tile_offset.y = std::min(tile_offset.y + tile_size.y + tile_size.y, resolution.y) - tile_size.y;
+            reset();
+        } else if (key == 'd') {
+            tile_offset.x = std::min(tile_offset.x + tile_size.x + tile_size.x, resolution.x) - tile_size.x;
+            reset();
+        }
         LUISA_INFO("Progress: {}spp | {}s", (d + 1u) * spp_per_dispatch, clock.toc() * 1e-3f);
     }
     cv::imwrite("test_path_tracing.png", cv_accum);

@@ -44,8 +44,7 @@ int main(int argc, char *argv[]) {
         $ v_int = 10;
         static_assert(std::is_same_v<decltype(v_int), $int>);
 
-        $for(x
-             : range(v_int / 2)) {
+        $for(x) : $range(v_int / 2) {
             array[x] = v_int.cast<float>();
         };
 

@@ -40,8 +40,6 @@ BraceWrapping:
   AfterStruct: false
 BreakBeforeBinaryOperators: None
 BreakBeforeTernaryOperators: false
-BreakConstructorInitializers: BeforeColon
-BreakInheritanceList: BeforeColon
 BreakBeforeConceptDeclarations: true
 BreakBeforeInheritanceComma: false
 BreakAfterJavaFieldAnnotations: true

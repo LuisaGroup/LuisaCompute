@@ -8,6 +8,8 @@
 #include <vector>
 #include <memory>
 
+#include <asio.hpp>
+
 #include <core/basic_types.h>
 #include <core/mathematics.h>
 #include <core/logging.h>
@@ -66,22 +68,36 @@ public:
     }
 
     // read
-    auto &read(void *p, size_t n) noexcept { return _read(p, n); }
     template<typename T>
+        requires std::is_trivially_copyable_v<T>
     auto &read(T &x) noexcept { return _read(&x, sizeof(T)); }
+    auto &read(void *p, size_t n) noexcept { return _read(p, n); }
 
     // write
-    auto &write(const void *p, size_t n) noexcept { return _write(p, n); }
     template<typename T>
+        requires std::is_trivially_copyable_v<T>
     auto &write(const T &x) noexcept { return _write(&x, sizeof(T)); }
+    auto &write(const void *p, size_t n) noexcept { return _write(p, n); }
 
     // skip some bytes when reading/writing
     auto &read_skip(size_t n) noexcept { return _read(nullptr, n); }
     auto &write_skip(size_t n) noexcept { return _write(nullptr, n); }
 
-    // get the view (std::span)
+    // views (std::span)
     [[nodiscard]] auto view() noexcept { return std::span{_data}; }
     [[nodiscard]] auto view() const noexcept { return std::span{_data}; }
+    [[nodiscard]] auto tail() noexcept { return std::span{_data}.subspan(_cursor); }
+    [[nodiscard]] auto tail() const noexcept { return std::span{_data}.subspan(_cursor); }
+    [[nodiscard]] auto asio_buffer() noexcept { return asio::buffer(_data); }
+    [[nodiscard]] auto asio_buffer() const noexcept { return asio::buffer(_data); }
+    [[nodiscard]] auto asio_buffer_tail() noexcept {
+        auto v = tail();
+        return asio::buffer(v.data(), v.size_bytes());
+    }
+    [[nodiscard]] auto asio_buffer_tail() const noexcept {
+        auto v = tail();
+        return asio::buffer(v.data(), v.size_bytes());
+    }
 
     // write size into the first sizeof(size_field) bytes of the buffer
     void write_size() noexcept {
