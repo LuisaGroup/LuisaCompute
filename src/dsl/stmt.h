@@ -37,8 +37,7 @@ public:
 
     template<typename Body>
     [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
-        return FunctionBuilder::current()->with(_false, [condition] { return IfStmtBuilder{condition}; })
-               % std::forward<Body>(body);
+        return FunctionBuilder::current()->with(_false, [condition] { return IfStmtBuilder{condition}; }) % std::forward<Body>(body);
     }
 
     template<typename False>
@@ -120,7 +119,7 @@ private:
 
 public:
     template<typename T>
-    requires is_integral_expr_v<T>
+        requires is_integral_expr_v<T>
     explicit SwitchStmtBuilder(T &&cond) noexcept
         : _body{FunctionBuilder::current()->scope()} {
         FunctionBuilder::current()->switch_(
@@ -155,7 +154,7 @@ struct ForStmtBodyInvoke {
     }
 };
 
-template<typename T, bool has_begin>
+template<typename T, bool has_step>
 class ForRange {
 
     static_assert(is_integral_v<T>);
@@ -178,15 +177,20 @@ public:
             : _begin{begin}, _end{end}, _step{step} {}
 
         [[nodiscard]] auto operator*() noexcept {
-            if (_time != 0u) [[unlikely]] { LUISA_ERROR_WITH_LOCATION(
-                "Invalid RangeForIter state (with _time = {}).", _time); }
+            if (_time != 0u) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Invalid RangeForIter state (with _time = {}).", _time);
+            }
             auto f = FunctionBuilder::current();
             Var var{_begin};
             _var = var.expression();
-            if constexpr (has_begin) {
-                _cond = ((_step >= 0 && var < _end) || (_step < 0 && var > _end)).expression();
-            } else {
-                _cond = (var < _end).expression();
+            auto bool_type = Type::of<bool>();
+            _cond = f->binary(bool_type, BinaryOp::LESS, _var, _end.expression());
+            if constexpr (has_step) {// TODO: has step?
+                // step < 0
+                auto neg_step = f->binary(bool_type, BinaryOp::LESS, _step.expression(), f->literal(Type::of<T>(), T{0}));
+                // ((step < 0) && !(var < end)) || (!(step < 0) && (var < end))
+                _cond = f->binary(bool_type, BinaryOp::BIT_XOR, _cond, neg_step);
             }
             auto body = f->scope();
             _body = body;
@@ -273,7 +277,7 @@ inline auto switch_(T &&expr) noexcept {
 }
 
 template<typename Te>
-requires is_integral_expr_v<Te>
+    requires is_integral_expr_v<Te>
 [[nodiscard]] inline auto range(Te &&end) noexcept {
     using T = expr_value_t<Te>;
     Var e{std::forward<Te>(end)};
@@ -281,15 +285,15 @@ requires is_integral_expr_v<Te>
 }
 
 template<typename Tb, typename Te>
-requires is_same_expr_v<Tb, Te> && is_integral_expr_v<Tb>
+    requires is_same_expr_v<Tb, Te> && is_integral_expr_v<Tb>
 [[nodiscard]] inline auto range(Tb &&begin, Te &&end) noexcept {
     using T = expr_value_t<Tb>;
     Var e{std::forward<Te>(end)};
-    return detail::ForRange<T, true>{std::forward<Tb>(begin), e, static_cast<T>(1)};
+    return detail::ForRange<T, false>{std::forward<Tb>(begin), e, static_cast<T>(1)};
 }
 
 template<typename Tb, typename Te, typename Ts>
-requires is_same_expr_v<Tb, Te, Ts> && is_integral_expr_v<Tb>
+    requires is_same_expr_v<Tb, Te, Ts> && is_integral_expr_v<Tb>
 [[nodiscard]] inline auto range(Tb &&begin, Te &&end, Ts &&step) noexcept {
     using T = expr_value_t<Tb>;
     Var e{std::forward<Te>(end)};
@@ -319,7 +323,7 @@ inline void loop(Begin &&begin, End &&end, Step &&step, Body &&body) noexcept {
 }
 
 template<concepts::iterable AllTags, typename Tag, typename IndexedCase, typename Otherwise>
-requires concepts::invocable<IndexedCase, int> && concepts::invocable<Otherwise>
+    requires concepts::invocable<IndexedCase, int> && concepts::invocable<Otherwise>
 inline void match(AllTags &&tags, Tag &&tag, IndexedCase &&indexed_case, Otherwise &&otherwise) noexcept {
     auto s = switch_(std::forward<Tag>(tag));
     auto index = 0;
@@ -331,7 +335,7 @@ inline void match(AllTags &&tags, Tag &&tag, IndexedCase &&indexed_case, Otherwi
 }
 
 template<typename T, typename Tag, typename IndexedCase, typename Otherwise>
-requires concepts::invocable<IndexedCase, int> && concepts::invocable<Otherwise>
+    requires concepts::invocable<IndexedCase, int> && concepts::invocable<Otherwise>
 inline void match(std::initializer_list<T> all_tags, Tag &&tag, IndexedCase &&indexed_case, Otherwise &&otherwise) noexcept {
     auto s = switch_(std::forward<Tag>(tag));
     auto index = 0;
