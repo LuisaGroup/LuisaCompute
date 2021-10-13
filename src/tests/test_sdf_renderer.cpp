@@ -185,46 +185,43 @@ int main(int argc, char *argv[]) {
     static constexpr auto height = 720u;
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
-    auto stream = device.create_stream();
     auto render = device.compile(render_kernel);
+    auto stream = device.create_stream();
+    auto swap_event = device.create_event();
+    auto copy_event = device.create_event();
 
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
-    cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(0.0)};
+    cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
 
     Clock clock;
     auto last_t = clock.toc();
 
-    static constexpr auto interval = 10u;
-    static constexpr auto total_spp = 50000u;
+    static constexpr auto interval = 4u;
+    static constexpr auto total_spp = 65536u;
     for (auto spp = 0u; spp < total_spp; spp += interval) {
+
+        // swap buffers
+        copy_event.synchronize();
+        std::swap(cv_image, cv_back_image);
+        stream << swap_event.signal();
 
         // render
         auto command_buffer = stream.command_buffer();
         for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
             command_buffer << render(seed_image, accum_image, frame).dispatch(width, height);
         }
-        command_buffer << accum_image.copy_to(cv_back_image.data)
-                       << commit();
+        command_buffer << swap_event.wait()
+                       << accum_image.copy_to(cv_back_image.data)
+                       << copy_event.signal();
 
         // display
         cv_image *= 1.0 / std::max(spp, 1u);
-        auto mean = cv::mean(cv::mean(cv_image))[0];
-        cv_image *= 0.24f / mean;
-        cv::sqrt(cv_image, cv_image);
+        auto mean = std::max(cv::mean(cv::mean(cv_image))[0], 1e-3);
+        cv::sqrt(cv_image * (0.24 / mean), cv_image);
         cv::imshow("Display", cv_image);
-
-        // wait for keys
-        if (auto key = cv::waitKey(1); key == 'q' || key == 27) {
-            break;
-        }
-
-        // update frame
-        stream << synchronize();
-        std::swap(cv_image, cv_back_image);
-
-        // compute FPS
+        if (auto key = cv::waitKey(1); key == 'q' || key == 27) { break; }
         auto t = clock.toc();
-        LUISA_INFO("{:.2f} fps", interval * 1000.0 / (t - last_t));
+        LUISA_INFO("{:.2f} samples/s", interval * 1000.0 / (t - last_t));
         last_t = t;
     }
 }
