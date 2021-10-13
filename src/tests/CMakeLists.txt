@@ -51,6 +51,8 @@ if (OpenCV_FOUND)
     target_link_libraries(test_game_of_life PRIVATE luisa::compute ${OpenCV_LIBS})
     add_executable(test_path_tracing_display test_path_tracing_display.cpp)
     target_link_libraries(test_path_tracing_display PRIVATE luisa::compute ${OpenCV_LIBS})
+    add_executable(test_sdf_renderer test_sdf_renderer.cpp)
+    target_link_libraries(test_sdf_renderer PRIVATE luisa::compute ${OpenCV_LIBS})
 endif ()
 
 add_subdirectory(network)
