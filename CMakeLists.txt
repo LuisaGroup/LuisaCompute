@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18...3.20)
 cmake_policy(VERSION 3.18)
+cmake_policy(SET CMP0069 NEW)
 
 project(LuisaCompute LANGUAGES C CXX VERSION 0.1)
 
@@ -22,13 +23,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_OSX_DEPLOYMENT_TARGET 11)
 
 # IPO/LTO
-include(CheckIPOSupported)
-check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT CHECK_IPO_SUPPORTED_OUTPUT LANGUAGES C CXX)
-if (IPO_SUPPORTED)
-    message(STATUS "Build with IPO/LTO")
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-else ()
-    message(WARNING "IPO/LTO is not supported: ${CHECK_IPO_SUPPORTED_OUTPUT}")
+if (NOT MSVC)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT CHECK_IPO_SUPPORTED_OUTPUT LANGUAGES C CXX)
+    if (IPO_SUPPORTED)
+        message(STATUS "Build with IPO/LTO")
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    endif ()
 endif ()
 
 set(BUILD_SHARED_LIBS ON)
