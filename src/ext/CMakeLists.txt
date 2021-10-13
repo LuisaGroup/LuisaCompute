@@ -41,5 +41,9 @@ target_link_libraries(luisa-compute-ext INTERFACE stduuid)
 
 add_library(asio SHARED asio/asio/src/asio.cpp)
 target_include_directories(asio PUBLIC asio/asio/include)
-target_compile_definitions(asio PUBLIC _WIN32_WINNT=0x0A00 ASIO_STANDALONE=1 ASIO_DYN_LINK=1 ASIO_HAS_STD_INVOKE_RESULT=1)
+target_compile_definitions(asio PUBLIC
+        ASIO_STANDALONE=1
+        ASIO_DYN_LINK=1
+        ASIO_HAS_STD_INVOKE_RESULT=1
+        $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0x0A00>)
 target_link_libraries(luisa-compute-ext INTERFACE asio)
