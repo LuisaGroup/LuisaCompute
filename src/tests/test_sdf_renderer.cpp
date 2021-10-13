@@ -132,6 +132,8 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D render_kernel = [&](ImageUInt seed_image, ImageFloat accum_image, UInt frame_index) noexcept {
+        set_block_size(8u, 8u, 1u);
+
         auto resolution = dispatch_size().xy().cast<float2>();
         auto coord = dispatch_id().xy();
 
@@ -196,7 +198,7 @@ int main(int argc, char *argv[]) {
     Clock clock;
     auto last_t = clock.toc();
 
-    static constexpr auto interval = 4u;
+    static constexpr auto interval = 8u;
     static constexpr auto total_spp = 65536u;
     for (auto spp = 0u; spp < total_spp; spp += interval) {
 
