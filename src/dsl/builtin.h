@@ -710,8 +710,16 @@ template<typename Tx>
             {LUISA_EXPR(x)}));
 }
 
+// Tf: scalar or vector, Tt: scalar or vector, Tp: bool scalar or vector, vectorize
 template<typename Tf, typename Tt, typename Tp>
-    requires any_dsl_v<Tf, Tt, Tp> && is_vector_expr_same_element_v<Tf, Tt> && is_bool_vector_expr_v<Tp>
+    requires any_dsl_v<Tf, Tt, Tp> &&
+        is_bool_or_vector_expr_v<Tp> &&
+        std::disjunction_v<
+            is_scalar_expr<Tf>,
+            is_scalar_expr<Tt>,
+            is_vector_expr<Tf>,
+            is_vector_expr<Tt>> &&
+        is_vector_expr_same_element_v<Tf, Tt>
 [[nodiscard]] inline auto select(Tf &&f, Tt &&t, Tp &&p) noexcept {
     return detail::make_vector_call<vector_expr_element_t<Tf>>(
         CallOp::SELECT,
@@ -720,8 +728,15 @@ template<typename Tf, typename Tt, typename Tp>
         std::forward<Tp>(p));
 }
 
+// Tf == Tt: non-scalar and non-vector, Tp: bool scalar, no vectorization
 template<typename Tf, typename Tt, typename Tp>
-    requires any_dsl_v<Tf, Tt, Tp> && is_same_expr_v<Tf, Tt> && is_boolean_expr_v<Tp>
+    requires any_dsl_v<Tf, Tt, Tp> &&
+        is_boolean_expr_v<Tp> &&
+        is_same_expr_v<Tf, Tt> &&
+        std::negation_v<
+            std::disjunction<
+                is_scalar_expr<Tf>,
+                is_vector_expr<Tf>>>
 [[nodiscard]] inline auto select(Tf &&f, Tt &&t, Tp &&p) noexcept {
     using T = expr_value_t<Tf>;
     return def<T>(

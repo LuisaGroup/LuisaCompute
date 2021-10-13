@@ -224,6 +224,7 @@ public:
     [[nodiscard]] auto end() const noexcept { return ForRangeEnd{}; }
 };
 
+// FIXME: review this...
 template<typename Lhs, typename Rhs, size_t... i>
 inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs, std::index_sequence<i...>) noexcept {
     (dsl::assign(lhs.template get<i>(), rhs.template get<i>()), ...);
