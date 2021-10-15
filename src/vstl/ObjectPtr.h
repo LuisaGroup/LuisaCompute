@@ -101,14 +101,14 @@ public:
         Dispose();
     }
 };
-namespace vstd {
+
 template<typename T, typename F>
 size_t GetOffset() {
     T *const ptr = reinterpret_cast<T *>(1);
     F *const fPtr = static_cast<F *>(ptr);
     return (size_t)fPtr - (size_t)1;
 }
-}// namespace vstd
+
 template<typename T>
 class ObjWeakPtr;
 template<typename T>

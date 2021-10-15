@@ -698,33 +698,14 @@ public:
     static constexpr size_t argSize = sizeof...(AA);
 
 private:
-    template<size_t maxSize, size_t... szs>
-    struct MaxSize;
-    template<size_t maxSize, size_t v, size_t... szs>
-    struct MaxSize<maxSize, v, szs...> {
-        static constexpr size_t MAX_SIZE = MaxSize<(maxSize > v ? maxSize : v), szs...>::MAX_SIZE;
-    };
-    template<size_t maxSize>
-    struct MaxSize<maxSize> {
-        static constexpr size_t MAX_SIZE = maxSize;
+    template<size_t...size>
+    struct MaxSize {
+        static constexpr size_t MAX_SIZE = 0u;
     };
 
-    template<size_t idx, size_t c, typename... Args>
-    struct Iterator {
-        using Type = void;
-    };
-
-    template<size_t idx, size_t c, typename T, typename... Args>
-    struct Iterator<idx, c, T, Args...> {
-        template<bool isTrue>
-        struct Typer {
-            using Type = T;
-        };
-        template<>
-        struct Typer<false> {
-            using Type = typename Iterator<idx + 1, c, Args...>::Type;
-        };
-        using Type = typename Typer<(idx == c)>::Type;
+    template<size_t curr, size_t...other>
+    struct MaxSize<curr, other...> {
+        static constexpr auto MAX_SIZE = std::max(curr, MaxSize<other...>::MAX_SIZE);
     };
 
     template<size_t idx, typename T, typename... Args>
@@ -929,7 +910,7 @@ private:
 
 public:
     template<size_t i>
-    using TypeOf = typename Iterator<0, i, AA...>::Type;
+    using TypeOf = std::tuple_element_t<i, std::tuple<AA...>>;
     template<typename TarT>
     static constexpr size_t IndexOf = IndexOfStruct<0, std::remove_cvref_t<TarT>, AA...>::Index;
     variant() {

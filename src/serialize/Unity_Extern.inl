@@ -7,7 +7,7 @@ template<typename T>
 void DBParse(T *db, CSharpStringView strv, vstd::funcPtr_t<void(CSharpStringView)> errorCallback, bool clearLast) {
     auto errorMsg = db->Parse(std::string_view(strv.begin(), strv.size()), clearLast);
     if (errorMsg) {
-        errorCallback(errorMsg->message);
+        errorCallback(std::string_view{errorMsg->message});
     } else {
         errorCallback(CSharpStringView(nullptr, nullptr));
     }
@@ -62,7 +62,7 @@ LUISA_EXPORT_API void db_dispose_arr(SimpleJsonValueArray *p) {
     p->Dispose();
 }
 LUISA_EXPORT_API void db_print(SimpleBinaryJson *db, vstd::funcPtr_t<void(CSharpStringView)> ptr) {
-    ptr(db->Print());
+    ptr(static_cast<std::string_view>(db->Print()));
 }
 
 LUISA_EXPORT_API void db_parse(SimpleBinaryJson *db, CSharpStringView strv, vstd::funcPtr_t<void(CSharpStringView)> errorCallback, bool clearLast) {

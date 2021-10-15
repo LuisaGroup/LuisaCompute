@@ -24,21 +24,22 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(!, operator_not, NOT)
 LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, operator_bit_not, BIT_NOT)
 #undef LUISA_MAKE_GLOBAL_DSL_UNARY_OP
 
-#define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_concept_name, op_tag_name)                 \
-    template<typename Lhs, typename Rhs>                                                  \
-        requires luisa::compute::any_dsl_v<Lhs, Rhs> && luisa::concepts::op_concept_name< \
-            luisa::compute::expr_value_t<Lhs>,                                            \
-            luisa::compute::expr_value_t<Rhs>>                                            \
-    [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {                \
-        using R = std::remove_cvref_t<                                                    \
-            decltype(std::declval<luisa::compute::expr_value_t<Lhs>>()                    \
-                         op std::declval<luisa::compute::expr_value_t<Rhs>>())>;          \
-        return luisa::compute::dsl::def<R>(                                               \
-            luisa::compute::detail::FunctionBuilder::current()->binary(                   \
-                luisa::compute::Type::of<R>(),                                            \
-                luisa::compute::BinaryOp::op_tag_name,                                    \
-                luisa::compute::detail::extract_expression(std::forward<Lhs>(lhs)),       \
-                luisa::compute::detail::extract_expression(std::forward<Rhs>(rhs))));     \
+#define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_concept_name, op_tag_name)             \
+    template<typename Lhs, typename Rhs>                                              \
+        requires luisa::compute::any_dsl_v<Lhs, Rhs>                                  \
+    [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept              \
+        ->luisa::compute::Var<std::remove_cvref_t<                                    \
+            decltype(std::declval<luisa::compute::expr_value_t<Lhs>>()                \
+                         op std::declval<luisa::compute::expr_value_t<Rhs>>())>> {    \
+        using R = std::remove_cvref_t<                                                \
+            decltype(std::declval<luisa::compute::expr_value_t<Lhs>>()                \
+                         op std::declval<luisa::compute::expr_value_t<Rhs>>())>;      \
+        return luisa::compute::dsl::def<R>(                                           \
+            luisa::compute::detail::FunctionBuilder::current()->binary(               \
+                luisa::compute::Type::of<R>(),                                        \
+                luisa::compute::BinaryOp::op_tag_name,                                \
+                luisa::compute::detail::extract_expression(std::forward<Lhs>(lhs)),   \
+                luisa::compute::detail::extract_expression(std::forward<Rhs>(rhs)))); \
     }
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(+, operator_add, ADD)
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(-, operator_sub, SUB)

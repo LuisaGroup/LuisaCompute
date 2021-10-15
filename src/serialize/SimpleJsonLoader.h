@@ -14,7 +14,7 @@ struct CSharpStringView {
     constexpr CSharpStringView(char const *beg, char const *ed) noexcept : ptr{beg}, count{static_cast<uint64>(ed - beg)} {}
     constexpr CSharpStringView(char const *beg, uint64 sz) noexcept : ptr{beg}, count{sz} {}
     constexpr CSharpStringView(std::string_view view) noexcept : ptr{view.data()}, count{view.size()} {}
-    constexpr CSharpStringView(luisa::string const &str) noexcept : ptr{str.data()}, count{str.size()} {}
+//    constexpr CSharpStringView(luisa::string const &str) noexcept : ptr{str.data()}, count{str.size()} {}
     [[nodiscard]] constexpr operator std::string_view() const noexcept { return {ptr, count}; }
     [[nodiscard]] constexpr auto begin() const noexcept { return ptr; }
     [[nodiscard]] constexpr auto end() const noexcept { return ptr + count; }

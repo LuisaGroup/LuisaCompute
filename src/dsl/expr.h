@@ -624,7 +624,7 @@ template<typename T>
 Expr(Expr<T>) -> Expr<T>;
 
 template<typename T>
-Expr(Var<T>) -> Expr<T>;
+Expr(const Var<T> &) -> Expr<T>;
 
 template<typename T>
 Expr(detail::Ref<T>) -> Expr<T>;

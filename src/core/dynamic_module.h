@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mutex>
+#include <functional>
 
 #include <core/platform.h>
 #include <core/allocator.h>
