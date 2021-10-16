@@ -1,93 +1,107 @@
 #pragma once
-#include <cstdint>
 #include <vstl/config.h>
-namespace vstd {
-
+#include <stdint.h>
+#include <utility>
+#include <tuple>
+VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash(void const* ptr, size_t sz);
+VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_seed(void const* ptr, size_t sz, size_t seed);
+//Size must less than 32 in x64
+VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small(void const* ptr, size_t sz);
+VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small_seed(void const* ptr, size_t sz, size_t seed);
 class Hash {
 public:
-    static constexpr size_t FNV_offset_basis = 14695981039346656037ULL;
-    static constexpr size_t FNV_prime = 1099511628211ULL;
-    static size_t GetNextHash(
-        size_t curHash,
-        size_t lastHash = FNV_offset_basis) {
-        return (lastHash ^ curHash) * FNV_prime;
-    }
-    static size_t Int32ArrayHash(
-        const uint32_t *const First,
-        const uint32_t *const End) noexcept {// accumulate range [_First, First + Count) into partial FNV-1a hash Val
-        size_t Val = FNV_offset_basis;
-        for (const uint32_t *i = First; i != End; ++i) {
-            Val = GetNextHash(*i, Val);
-        }
-        return Val;
-    }
-    static size_t Int32ArrayHash(const uint32_t *ptr, size_t len) {
-        return Int32ArrayHash(ptr, ptr + len);
-    }
-    static size_t CharArrayHash(
-        const char *First,
-        const size_t Count) noexcept {// accumulate range [_First, First + Count) into partial FNV-1a hash Val
-        size_t Val = FNV_offset_basis;
-        const uint32_t *IntPtrEnd;
-        {
-            auto IntPtr = (const uint32_t *)First;
-            IntPtrEnd = IntPtr + (Count / sizeof(uint32_t));
-            for (; IntPtr != IntPtrEnd; ++IntPtr) {
-                Val = GetNextHash(*IntPtr, Val);
-            }
-        }
-        const char *End = First + Count;
-        for (const char *start = (const char *)IntPtrEnd; start != End; ++start) {
-            Val ^= static_cast<size_t>(*start);
-            Val *= FNV_prime;
-        }
-        return Val;
-    }
+	static constexpr size_t FNV_offset_basis = 14695981039346656037ULL;
+	static constexpr size_t FNV_prime = 1099511628211ULL;
+	static size_t GetNextHash(
+		size_t curHash,
+		size_t lastHash = FNV_offset_basis) {
+		return (lastHash ^ curHash) * FNV_prime;
+	}
+	static size_t CharArrayHash(
+		const void* First,
+		const size_t Count) noexcept {// accumulate range [_First, First + Count) into partial FNV-1a hash Val
+		return vstd_xxhash_gethash(First, Count);
+	}
+	template<typename... T>
+	static size_t MultipleHash(T const&... values) {
+		auto func = [](auto&& value) -> size_t {
+			vstd::hash<std::remove_cvref_t<decltype(value)>> hs;
+			return hs(value);
+		};
+		auto results = {func(values)...};
+		size_t initHash = FNV_offset_basis;
+		for (auto&& i : results) {
+			initHash = GetNextHash(i, initHash);
+		}
+		return initHash;
+	}
 };
-
+namespace vstd {
 template<typename K>
 struct hash {
-    inline size_t operator()(K const &value) const noexcept {
-        if constexpr ((sizeof(K) % sizeof(uint32_t)) != 0) {
-            return Hash::CharArrayHash((char const *)&value, sizeof(K));
-        } else {
-            return Hash::Int32ArrayHash(
-                reinterpret_cast<uint32_t const *>(&value),
-                sizeof(K) / sizeof(uint32_t));
-        }
-    }
+	size_t operator()(K const& value) const noexcept {
+		if constexpr (sizeof(K) < (sizeof(size_t) / 2)) {
+			return vstd_xxhash_gethash_small(&value, sizeof(K));
+		} else {
+			return Hash::CharArrayHash(&value, sizeof(K));
+		}
+	}
 };
-inline static size_t GetIntegerHash(size_t a) {
-    a = (a + 0xfd7046c5) + (a << 3);
-    a = (a + 0xfd7046c5) + (a >> 3);
-    a = (a ^ 0xb55a4f09) ^ (a << 16);
-    a = (a ^ 0xb55a4f09) ^ (a >> 16);
-    return a;
-}
 template<>
-struct hash<uint32_t> {
-    inline size_t operator()(uint32_t value) const noexcept {
-        return GetIntegerHash(value);
-    }
+struct hash<int8_t> {
+	size_t operator()(int8_t const& value) const noexcept {
+		vstd::hash<uint64_t> hs;
+		return hs(value);
+	};
 };
-
+template<>
+struct hash<uint8_t> {
+	size_t operator()(uint8_t const& value) const noexcept {
+		vstd::hash<uint64_t> hs;
+		return hs(value);
+	};
+};
+template<>
+struct hash<int16_t> {
+	size_t operator()(int16_t const& value) const noexcept {
+		vstd::hash<uint64_t> hs;
+		return hs(value);
+	};
+};
+template<>
+struct hash<uint16_t> {
+	size_t operator()(uint16_t const& value) const noexcept {
+		vstd::hash<uint64_t> hs;
+		return hs(value);
+	};
+};
 template<>
 struct hash<int32_t> {
-    inline size_t operator()(int32_t value) const noexcept {
-        return GetIntegerHash(value);
-    }
+	size_t operator()(int32_t const& value) const noexcept {
+		vstd::hash<uint64_t> hs;
+		return hs(value);
+	};
 };
 template<>
-struct hash<size_t> {
-    inline size_t operator()(size_t value) const noexcept {
-        return GetIntegerHash(value);
-    }
+struct hash<uint32_t> {
+	size_t operator()(uint32_t const& value) const noexcept {
+		vstd::hash<uint64_t> hs;
+		return hs(value);
+	};
+};
+template<typename A, typename B>
+struct hash<std::pair<A, B>> {
+	size_t operator()(std::pair<A, B> const& v) const noexcept {
+		vstd::hash<A> hs;
+		vstd::hash<B> hs1;
+		return Hash::GetNextHash(hs(v.first), hs1(v.second));
+	}
+};
+template<typename... T>
+struct hash<std::tuple<T...>> {
+	size_t operator()(std::tuple<T...> const& tp) const noexcept {
+		return std::apply(Hash::MultipleHash<T...>, tp);
+	}
 };
 
-template<>
-struct hash<int64_t> {
-    inline size_t operator()(int64_t value) const noexcept {
-        return GetIntegerHash(value);
-    }
-};
 }// namespace vstd

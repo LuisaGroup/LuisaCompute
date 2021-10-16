@@ -1,598 +1,616 @@
 #pragma once
-#include <memory>
-#include <stdint.h>
+#include <vstl/config.h>
 #include <type_traits>
+#include <stdint.h>
+#include <memory>
+#include <vstl/Pool.h>
+#include <vstl/vector.h>
 #include <vstl/Hash.h>
 #include <vstl/MetaLib.h>
-#include <vstl/Pool.h>
 #include <vstl/VAllocator.h>
-#include <vstl/config.h>
+#include <vstl/TreeMapBase.h>
+
 namespace vstd {
-struct HashEqual {
-    template<typename A, typename B>
-    bool operator()(A const &a, B const &b) const {
-        return a == b;
-    }
+template<typename A, typename B, bool value>
+struct IfType;
+template<typename A, typename B>
+struct IfType<A, B, true> {
+	using Type = A;
 };
-struct HashValue {
-    template<typename T>
-    size_t operator()(T const &t) const {
-        vstd::hash<std::remove_cvref_t<T>> h;
-        return h(t);
-    }
+template<typename A, typename B>
+struct IfType<A, B, false> {
+	using Type = B;
 };
-
-template<typename K, typename V, typename Hash = vstd::HashValue, typename Equal = vstd::HashEqual, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
-class HashMap : public vstd::IOperatorNewBase {
-public:
-    using KeyType = K;
-    using ValueType = V;
-    using HashType = Hash;
-    using EqualType = Equal;
-    struct NodePair {
-    public:
-        K first;
-        mutable V second;
-        NodePair() {}
-        template<typename A, typename... B>
-        NodePair(A &&a, B &&...b) : first(std::forward<A>(a)), second(std::forward<B>(b)...) {}
-    };
-
-    struct LinkNode : public NodePair {
-        LinkNode *last = nullptr;
-        LinkNode *next = nullptr;
-        size_t arrayIndex;
-        size_t hashValue;
-        //LinkNode() noexcept {}
-        template<typename A, typename... B>
-        LinkNode(size_t hashValue, size_t arrayIndex, A &&key, B &&...args) noexcept : NodePair(std::forward<A>(key), std::forward<B>(args)...), arrayIndex(arrayIndex), hashValue(hashValue) {}
-
-        static void Add(LinkNode *&source, LinkNode *dest) noexcept {
-            if (!source) {
-                source = dest;
-            } else {
-                if (source->next) {
-                    source->next->last = dest;
-                }
-                dest->next = source->next;
-                dest->last = source;
-                source->next = dest;
-            }
-        }
-    };
+template<typename K, typename V, typename Compare = compare<K>>
+class SmallTreeMap {
+	inline static const Compare comp;
 
 public:
-    struct Iterator {
-    private:
-        typename std::vector<LinkNode *>::const_iterator ii;
-
-    public:
-        Iterator(typename std::vector<LinkNode *>::const_iterator ii) : ii(ii) {}
-        bool operator==(const Iterator &ite) const noexcept {
-            return ii == ite.ii;
-        }
-        bool operator!=(const Iterator &ite) const noexcept {
-            return ii != ite.ii;
-        }
-        void operator++() noexcept {
-            ++ii;
-        }
-        void operator--() noexcept {
-            --ii;
-        }
-        void operator++(int32_t) noexcept {
-            ii++;
-        }
-        void operator--(int32_t) noexcept {
-            ii--;
-        }
-        void operator+=(size_t i) noexcept {
-            ii += i;
-        }
-        void operator-=(size_t i) noexcept {
-            ii -= i;
-        }
-        Iterator operator+(size_t i) noexcept {
-            return Iterator(ii + i);
-        }
-        Iterator operator-(size_t i) noexcept {
-            return Iterator(ii - i);
-        }
-
-        NodePair const *operator->() const noexcept {
-            return *ii;
-        }
-        NodePair const &operator*() const noexcept {
-            return *operator->();
-        }
-    };
-
-    struct Index {
-        friend class HashMap;
-
-    private:
-        const HashMap *map;
-        HashMap::LinkNode *node;
-        Index(const HashMap *map, HashMap::LinkNode *node) noexcept : map(map), node(node) {}
-
-    public:
-        Index() : map(nullptr), node(nullptr) {}
-        bool operator==(const Index &a) const noexcept {
-            return node == a.node;
-        }
-        operator bool() const noexcept {
-            return node;
-        }
-        bool operator!() const noexcept {
-            return !operator bool();
-        }
-        bool operator!=(const Index &a) const noexcept {
-            return !operator==(a);
-        }
-        inline K const &Key() const noexcept;
-        inline V &Value() const noexcept;
-    };
+	using Element = TreeElement<K, V>;
+	// data structure that represents a node in the tree
+	struct Node {
+		bool color;	 // 1 -> Red, 0 -> Black
+		Node* parent;// pointer to the parent
+		Node* left;	 // pointer to left child
+		Node* right; // pointer to right child
+		size_t arrayIndex;
+		size_t hashValue;
+		Element data;// holds the key
+		template<typename A, typename... B>
+		Node(A&& a, B&&... b)
+			: data(std::forward<A>(a), std::forward<B>(b)...) {
+		}
+	};
+	typedef Node* NodePtr;
 
 private:
-    std::vector<LinkNode *> allocatedNodes;
-    struct HashArray {
-    private:
-        LinkNode **nodesPtr = nullptr;
-        size_t mSize;
-        VAllocHandle<allocType> allocHandle;
+	NodePtr root;
+	template<typename Key>
+	NodePtr searchTreeHelper(NodePtr node, Key const& key) const {
+		if (node == nullptr)
+			return nullptr;
+		auto compResult = comp(node->data.first, key);
+		static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
+		if (compResult == 0) {
+			return node;
+		}
 
-    public:
-        HashArray(HashArray &&map)
-            : nodesPtr(map.nodesPtr),
-              mSize(map.mSize) {
-            map.mSize = 0;
-            map.nodesPtr = nullptr;
-        }
-        size_t size() const noexcept { return mSize; }
-        HashArray() noexcept : mSize(0) {}
-        void ClearAll() {
-            memset(nodesPtr, 0, sizeof(LinkNode *) * mSize);
-        }
+		if (compResult > 0) {
+			return searchTreeHelper(node->left, key);
+		}
+		return searchTreeHelper(node->right, key);
+	}
 
-        HashArray(size_t mSize) noexcept : mSize(mSize) {
-            nodesPtr = (LinkNode **)allocHandle.Malloc(sizeof(LinkNode *) * mSize);
-            memset(nodesPtr, 0, sizeof(LinkNode *) * mSize);
-        }
-        HashArray(HashArray &arr) noexcept : nodesPtr(arr.nodesPtr) {
+	template<typename Key>
+	std::pair<NodePtr, int32> searchClosestTreeHelper(NodePtr node, Key const& key, NodePtr lastNode, int32_t lastFlag) const {
+		if (node == nullptr) {
+			return {lastNode, lastFlag};
+		}
+		auto compResult = comp(node->data.first, key);
+		static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
+		if (compResult == 0) {
+			return {node, 0};
+		}
 
-            mSize = arr.mSize;
-            arr.nodesPtr = nullptr;
-        }
-        void operator=(HashArray &arr) noexcept {
-            nodesPtr = arr.nodesPtr;
-            mSize = arr.mSize;
-            arr.nodesPtr = nullptr;
-        }
-        void operator=(HashArray &&arr) noexcept {
-            operator=(arr);
-        }
-        ~HashArray() noexcept {
-            if (nodesPtr)
-                allocHandle.Free(nodesPtr);
-        }
-        LinkNode *const &operator[](size_t i) const noexcept {
-            return nodesPtr[i];
-        }
-        LinkNode *&operator[](size_t i) noexcept {
-            return nodesPtr[i];
-        }
-    };
+		if (compResult > 0) {
+			return searchClosestTreeHelper(node->left, key, node, 1);
+		}
+		return searchClosestTreeHelper(node->right, key, node, -1);
+	}
+	template<typename POOL>
+	void deleteOneNode(NodePtr z, POOL& pool) {
+		detail::TreeMapUtility::deleteOneNode(z, *reinterpret_cast<void**>(&root));
+		pool.Delete(z);
+	}
 
-    HashArray nodeVec;
-    Pool<LinkNode, allocType, true> pool;
-    inline static const Hash hsFunc;
-    inline static const Equal eqFunc;
-    template<typename A, typename... B>
-    LinkNode *GetNewLinkNode(size_t hashValue, A &&key, B &&...args) {
-        LinkNode *newNode = pool.New(hashValue, allocatedNodes.size(), std::forward<A>(key), std::forward<B>(args)...);
-        allocatedNodes.push_back(newNode);
-        return newNode;
-    }
-    void DeleteLinkNode(LinkNode *oldNode) {
-        auto ite = allocatedNodes.end() - 1;
-        if (*ite != oldNode) {
-            (*ite)->arrayIndex = oldNode->arrayIndex;
-            allocatedNodes[oldNode->arrayIndex] = *ite;
-        }
-        allocatedNodes.erase(ite);
-        pool.Delete(oldNode);
-    }
-    static size_t GetPow2Size(size_t capacity) noexcept {
-        size_t ssize = 1;
-        while (ssize < capacity)
-            ssize <<= 1;
-        return ssize;
-    }
-    static size_t GetHash(size_t hash, size_t size) noexcept {
-        return hash & (size - 1);
-    }
-    void Resize(size_t newCapacity) noexcept {
-        size_t capacity = nodeVec.size();
-        if (capacity >= newCapacity)
-            return;
-        allocatedNodes.reserve(newCapacity);
-        HashArray newNode(newCapacity);
-        for (auto node : allocatedNodes) {
-            auto next = node->next;
-            node->last = nullptr;
-            node->next = nullptr;
-            size_t hashValue = node->hashValue;
-            hashValue = GetHash(hashValue, newCapacity);
-            LinkNode *&targetHeaderLink = newNode[hashValue];
-            if (!targetHeaderLink) {
-                targetHeaderLink = node;
-            } else {
-                node->next = targetHeaderLink;
-                targetHeaderLink->last = node;
-                targetHeaderLink = node;
-            }
-        }
-        nodeVec = newNode;
-    }
-    static Index EmptyIndex() noexcept {
-        return Index(nullptr, nullptr);
-    }
-    void Remove(LinkNode *node) {
-        size_t hashValue = GetHash(node->hashValue, nodeVec.size());
-        if (nodeVec[hashValue] == node) {
-            nodeVec[hashValue] = node->next;
-        }
-        if (node->last)
-            node->last->next = node->next;
-        if (node->next)
-            node->next->last = node->last;
-        DeleteLinkNode(node);
-    }
+	template<typename Key, typename POOL>
+	bool deleteNodeHelper(NodePtr node, Key const& key, POOL& pool, size_t& arrayIndex) {
+		// find the node containing key
+		NodePtr z = nullptr;
+		while (node != nullptr) {
+			auto compResult = comp(node->data.first, key);
+			static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
+			if (compResult == 0) {
+				z = node;
+				break;
+			}
+			if (compResult <= 0) {
+				node = node->right;
+			} else {
+				node = node->left;
+			}
+		}
+
+		if (z == nullptr) {
+			return false;
+		}
+		arrayIndex = z->arrayIndex;
+		deleteOneNode(z, pool);
+		return true;
+	}
+
+	void fixInsert(NodePtr k) {
+		detail::TreeMapUtility::fixInsert(k, *reinterpret_cast<void**>(&root));
+	}
+	NodePtr getRoot() {
+		return this->root;
+	}
 
 public:
-    size_t Size() const {
-        return allocatedNodes.size();
-    }
-    decltype(auto) begin() const {
-        return Iterator(allocatedNodes.begin());
-    }
-    decltype(auto) end() const {
-        return Iterator(allocatedNodes.end());
-    }
-    //////////////////Construct & Destruct
-    HashMap(size_t capacity) noexcept : pool(capacity) {
-        if (capacity < 2)
-            capacity = 2;
-        capacity = GetPow2Size(capacity);
-        nodeVec = HashArray(capacity);
-        allocatedNodes.reserve(capacity);
-    }
-    HashMap(HashMap &&map) = default;
-    HashMap(HashMap const &map) = delete;
+	SmallTreeMap() {
+		root = nullptr;
+	}
 
-    template<typename Arg>
-    void operator=(Arg &&map) {
-        this->~HashMap();
-        new (this) HashMap(std::forward<Arg>(map));
-    }
-    ~HashMap() noexcept {
-        for (auto &ite : allocatedNodes) {
-            pool.Delete(ite);
-        }
-    }
-    HashMap() noexcept : HashMap(16) {}
-    ///////////////////////
-    template<typename Key, typename... ARGS>
-    Index ForceEmplace(Key &&key, ARGS &&...args) {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue;
+	SmallTreeMap(SmallTreeMap const&) = delete;
+	SmallTreeMap(SmallTreeMap&& o)
+		: root(o.root) {
+		o.root = nullptr;
+	};
+	template<typename Key>
+	NodePtr find(Key const& k) const {
+		return searchTreeHelper(this->root, k);
+	}
+	template<typename POOL, typename Key, typename... Value>
+	std::pair<NodePtr, bool> try_insert(POOL& pool, Key&& key, Value&&... value) {
+		// Ordinary Binary Search Insertion
+		NodePtr y = nullptr;
+		NodePtr x = this->root;
+		int compResult;
+		while (x != nullptr) {
+			y = x;
+			auto mCompResult = comp(x->data.first, key);
+			static_assert(std::is_same_v<decltype(mCompResult), int32_t>, "compare result must be int32");
+			compResult = mCompResult;
+			if (compResult > 0) {
+				x = x->left;
+			} else if (compResult == 0) {
+				return {x, false};
 
-        hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                node->second.~V();
-                new (&node->second) V(std::forward<ARGS>(args)...);
-                return Index(this, node);
-            }
-        }
+			} else {
+				x = x->right;
+			}
+		}
+		NodePtr node = pool.New(std::forward<Key>(key), std::forward<Value>(value)...);
+		node->parent = nullptr;
+		node->left = nullptr;
+		node->right = nullptr;
+		node->color = true;// new node must be red
+		// y is parent of x
+		node->parent = y;
+		if (y == nullptr) {
+			root = node;
+		} else if (compResult > 0) {
+			y->left = node;
+		} else {
+			y->right = node;
+		}
 
-        size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16)
-            targetCapacity = 16;
-        if (targetCapacity >= nodeVec.size()) {
-            Resize(GetPow2Size(targetCapacity));
-            hashValue = GetHash(hashOriginValue, nodeVec.size());
-        }
-        LinkNode *newNode = GetNewLinkNode(hashOriginValue, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        LinkNode::Add(nodeVec[hashValue], newNode);
-        return Index(this, newNode);
-    }
+		// if new node is a root node, simply return
+		if (node->parent == nullptr) {
+			node->color = false;
+			return {node, true};
+		}
 
-    template<typename Key, typename... ARGS>
-    Index Emplace(Key &&key, ARGS &&...args) {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue;
+		// if the grandparent is null, simply return
+		if (node->parent->parent == nullptr) {
+			return {node, true};
+		}
+		// Fix the tree
+		fixInsert(node);
+		return {node, true};
+	}
+	template<typename POOL, typename Key, typename... Value>
+	std::pair<NodePtr, bool> insert_or_assign(POOL& pool, Key&& key, Value&&... value) {
+		// Ordinary Binary Search Insertion
+		NodePtr y = nullptr;
+		NodePtr x = this->root;
+		int compResult;
+		while (x != nullptr) {
+			y = x;
+			auto mCompResult = comp(x->data.first, key);
+			static_assert(std::is_same_v<decltype(mCompResult), int32_t>, "compare result must be int32");
+			compResult = mCompResult;
+			if (compResult > 0) {
+				x = x->left;
+			} else if (compResult == 0) {
+				if constexpr (!std::is_same_v<V, void>) {
+					if constexpr (std::is_move_constructible_v<V>) {
+						x->data.second.~V();
+						new (&x->data.second) V(std::forward<Value>(value)...);
+					} else {
+						static_assert(AlwaysFalse<Key>, "map value not move constructible!");
+					}
+				}
+				return {x, false};
 
-        hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return Index(this, node);
-            }
-        }
+			} else {
+				x = x->right;
+			}
+		}
+		NodePtr node = pool.New(std::forward<Key>(key), std::forward<Value>(value)...);
+		node->parent = nullptr;
+		node->left = nullptr;
+		node->right = nullptr;
+		node->color = true;// new node must be red
+		// y is parent of x
+		node->parent = y;
+		if (y == nullptr) {
+			root = node;
+		} else if (compResult > 0) {
+			y->left = node;
+		} else {
+			y->right = node;
+		}
 
-        size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16)
-            targetCapacity = 16;
-        if (targetCapacity >= nodeVec.size()) {
-            Resize(GetPow2Size(targetCapacity));
-            hashValue = GetHash(hashOriginValue, nodeVec.size());
-        }
-        LinkNode *newNode = GetNewLinkNode(hashOriginValue, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        LinkNode::Add(nodeVec[hashValue], newNode);
-        return Index(this, newNode);
-    }
+		// if new node is a root node, simply return
+		if (node->parent == nullptr) {
+			node->color = false;
+			return {node, true};
+		}
 
-    template<typename Key, typename... ARGS>
-    std::pair<Index, bool> TryEmplace(Key &&key, ARGS &&...args) {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue;
+		// if the grandparent is null, simply return
+		if (node->parent->parent == nullptr) {
+			return {node, true};
+		}
+		// Fix the tree
+		fixInsert(node);
+		return {node, true};
+	}
+	template<typename POOL>
+	NodePtr weak_insert(POOL& pool, NodePtr node) {
+		// Ordinary Binary Search Insertion
+		NodePtr y = nullptr;
+		NodePtr x = this->root;
+		int compResult;
+		while (x != nullptr) {
+			y = x;
+			auto mCompResult = comp(x->data.first, node->data.first);
+			static_assert(std::is_same_v<decltype(mCompResult), int32_t>, "compare result must be int32");
+			compResult = mCompResult;
+			if (compResult > 0) {
+				x = x->left;
+			} else if (compResult == 0) {
+				return x;
 
-        hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return std::pair<Index, bool>(Index(this, node), false);
-            }
-        }
+			} else {
+				x = x->right;
+			}
+		}
+		node->parent = nullptr;
+		node->left = nullptr;
+		node->right = nullptr;
+		node->color = true;// new node must be red
+		// y is parent of x
+		node->parent = y;
+		if (y == nullptr) {
+			root = node;
+		} else if (compResult > 0) {
+			y->left = node;
+		} else {
+			y->right = node;
+		}
 
-        size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16)
-            targetCapacity = 16;
-        if (targetCapacity >= nodeVec.size()) {
-            Resize(GetPow2Size(targetCapacity));
-            hashValue = GetHash(hashOriginValue, nodeVec.size());
-        }
-        LinkNode *newNode = GetNewLinkNode(hashOriginValue, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        LinkNode::Add(nodeVec[hashValue], newNode);
-        return std::pair<Index, bool>(Index(this, newNode), true);
-    }
+		// if new node is a root node, simply return
+		if (node->parent == nullptr) {
+			node->color = false;
+			return node;
+		}
 
-    void Reserve(size_t capacity) noexcept {
-        size_t newCapacity = GetPow2Size(capacity);
-        Resize(newCapacity);
-    }
-    void reserve(size_t capacity) noexcept {
-        Reserve(capacity);
-    }
-    template<typename Key>
-    Index Find(Key &&key) const noexcept {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return Index(this, node);
-            }
-        }
+		// if the grandparent is null, simply return
+		if (node->parent->parent == nullptr) {
+			return node;
+		}
+		// Fix the tree
+		fixInsert(node);
+		return node;
+	}
+	template<typename POOL, typename Key>
+	bool remove(POOL& pool, Key const& data, size_t& arrayIndex) {
+		return deleteNodeHelper(this->root, data, pool, arrayIndex);
+	}
+	template<typename POOL>
+	void remove(POOL& pool, NodePtr ite) {
+		deleteOneNode(ite, pool);
+	}
+};
+struct HashEqual {
+	template<typename A, typename B>
+	bool operator()(A const& a, B const& b) const {
+		return a == b;
+	}
+};
+struct HashValue {
+	template<typename T>
+	size_t operator()(T const& t) const {
+		hash<std::remove_cvref_t<T>> h;
+		return h(t);
+	}
+};
 
-        return EmptyIndex();
-    }
+template<typename K, typename V, typename Hash = HashValue, typename Compare = compare<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
+class HashMap : public IOperatorNewBase {
+public:
+	using KeyType = K;
+	using ValueType = V;
+	using HashType = Hash;
+	using Map = SmallTreeMap<K, V, Compare>;
+	using LinkNode = typename Map::Node;
+	using NodePair = typename Map::Element;
 
-    void Remove(K const &key) noexcept {
-        size_t hashOriginValue = hsFunc(key);
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        LinkNode *&startNode = nodeVec[hashValue];
-        for (LinkNode *node = startNode; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, key)) {
-                if (startNode == node) {
-                    startNode = node->next;
-                }
-                if (node->next)
-                    node->next->last = node->last;
-                if (node->last)
-                    node->last->next = node->next;
-                DeleteLinkNode(node);
-                return;
-            }
-        }
-    }
+public:
+	struct Iterator {
+	private:
+		LinkNode** ii;
 
-    template<typename Key>
-    void TRemove(Key &&key) noexcept {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        LinkNode *&startNode = nodeVec[hashValue];
-        for (LinkNode *node = startNode; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                if (startNode == node) {
-                    startNode = node->next;
-                }
-                if (node->next)
-                    node->next->last = node->last;
-                if (node->last)
-                    node->last->next = node->next;
-                DeleteLinkNode(node);
-                return;
-            }
-        }
-    }
+	public:
+		Iterator(LinkNode** ii) : ii(ii) {}
+		bool operator==(const Iterator& ite) const noexcept {
+			return ii == ite.ii;
+		}
+		bool operator!=(const Iterator& ite) const noexcept {
+			return ii != ite.ii;
+		}
+		void operator++() noexcept {
+			++ii;
+		}
+		void operator--() noexcept {
+			--ii;
+		}
+		void operator++(int32_t) noexcept {
+			ii++;
+		}
+		void operator--(int32_t) noexcept {
+			ii--;
+		}
+		void operator+=(size_t i) noexcept {
+			ii += i;
+		}
+		void operator-=(size_t i) noexcept {
+			ii -= i;
+		}
+		Iterator operator+(size_t i) noexcept {
+			return Iterator(ii + i);
+		}
+		Iterator operator-(size_t i) noexcept {
+			return Iterator(ii - i);
+		}
 
-    void Remove(const Index &ite) noexcept {
-        Remove(ite.node);
-    }
-    void Remove(NodePair const &ite) noexcept {
-        Remove(const_cast<LinkNode *>(static_cast<LinkNode const *>(&ite)));
-    }
-    //void Remove(NodePair*)
-    template<typename Key>
-    V &operator[](Key &&key) noexcept {
+		NodePair* operator->() const noexcept {
+			return &(*ii)->data;
+		}
+		NodePair& operator*() const noexcept {
+			return (*ii)->data;
+		}
+	};
+	struct Index {
+		friend class HashMap;
 
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return node->second;
-            }
-        }
+	private:
+		const HashMap* map;
+		LinkNode* node;
+		Index(const HashMap* map, LinkNode* node) noexcept : map(map), node(node) {}
+		using ValueType = typename IfType<void, std::add_lvalue_reference_t<V>, std::is_same_v<V, void>>::Type;
 
-        return *(V *)nullptr;
-    }
-    template<typename Key>
-    V const &operator[](Key &&key) const noexcept {
+	public:
+		Index() : map(nullptr), node(nullptr) {}
+		bool operator==(const Index& a) const noexcept {
+			return node == a.node;
+		}
+		operator bool() const noexcept {
+			return node;
+		}
+		bool operator!() const noexcept {
+			return !operator bool();
+		}
+		bool operator!=(const Index& a) const noexcept {
+			return !operator==(a);
+		}
+		inline K const& Key() const noexcept;
+		inline ValueType Value() const noexcept;
+	};
 
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return node->second;
-            }
-        }
+private:
+	LinkNode** nodeArray;
+	Pool<LinkNode, allocType, true> pool;
+	size_t mSize;
+	size_t mCapacity;
 
-        return *(V const *)nullptr;
-    }
-    void Clear() noexcept {
-        if (allocatedNodes.empty())
-            return;
-        nodeVec.ClearAll();
-        for (auto &ite : allocatedNodes) {
-            pool.Delete(ite);
-        }
-        allocatedNodes.clear();
-    }
-    [[nodiscard]] size_t size() const noexcept { return allocatedNodes.size(); }
-    [[nodiscard]] size_t GetCapacity() const noexcept { return nodeVec.size(); }
-    ////////////////////// Thread-Safe support
-    template<typename Mutex, typename Key, typename... ARGS>
-    Index Emplace_Lock(Mutex &mtx, Key &&key, ARGS &&...args) {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue;
-        std::lock_guard<Mutex> lck(mtx);
+	inline static const Hash hsFunc;
+	LinkNode* GetNewLinkNode(size_t hashValue, LinkNode* newNode) {
+		newNode->hashValue = hashValue;
+		newNode->arrayIndex = mSize;
+		nodeArray[mSize] = newNode;
+		mSize++;
+		return newNode;
+	}
+	void DeleteLinkNode(size_t arrayIndex) {
+		if (arrayIndex != (mSize - 1)) {
+			auto ite = nodeArray + (mSize - 1);
+			(*ite)->arrayIndex = arrayIndex;
+			nodeArray[arrayIndex] = *ite;
+		}
+		mSize--;
+	}
+	static size_t GetPow2Size(size_t capacity) noexcept {
+		size_t ssize = 1;
+		while (ssize < capacity)
+			ssize <<= 1;
+		return ssize;
+	}
+	static size_t GetHash(size_t hash, size_t size) noexcept {
+		return hash & (size - 1);
+	}
+	void Resize(size_t newCapacity) noexcept {
+		if (mCapacity >= newCapacity) return;
+		LinkNode** newNode = reinterpret_cast<LinkNode**>(pool.GetAllocator().Malloc(sizeof(LinkNode*) * newCapacity * 2));
+		memcpy(newNode, nodeArray, sizeof(LinkNode*) * mSize);
+		auto nodeVec = newNode + newCapacity;
+		memset(nodeVec, 0, sizeof(LinkNode*) * newCapacity);
+		for (auto node : ptr_range(nodeArray, nodeArray + mSize)) {
+			size_t hashValue = node->hashValue;
+			hashValue = GetHash(hashValue, newCapacity);
+			Map* targetTree = reinterpret_cast<Map*>(&nodeVec[hashValue]);
+			targetTree->weak_insert(pool, node);
+		}
+		pool.GetAllocator().Free(nodeArray);
+		nodeArray = newNode;
+		mCapacity = newCapacity;
+	}
+	static Index EmptyIndex() noexcept {
+		return Index(nullptr, nullptr);
+	}
+	void Remove(LinkNode* node) {
+		size_t hashValue = GetHash(node->hashValue, mCapacity);
+		Map* targetTree = reinterpret_cast<Map*>(nodeArray + mCapacity + hashValue);
+		auto arrayIndex = node->arrayIndex;
+		targetTree->remove(pool, node);
+		DeleteLinkNode(arrayIndex);
+	}
+	void TryResize() {
+		size_t targetCapacity = (size_t)((mSize + 1));
+		if (targetCapacity < 16) targetCapacity = 16;
+		if (targetCapacity > mCapacity) {
+			Resize(GetPow2Size(targetCapacity));
+		}
+	}
 
-        hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return Index(this, node);
-            }
-        }
+public:
+	size_t Size() const {
+		return mSize;
+	}
+	decltype(auto) begin() const {
+		return Iterator(nodeArray);
+	}
+	decltype(auto) end() const {
+		return Iterator(nodeArray + mSize);
+	}
+	//////////////////Construct & Destruct
+	HashMap(size_t capacity) noexcept : pool(capacity) {
+		if (capacity < 2) capacity = 2;
+		capacity = GetPow2Size(capacity);
+		nodeArray = reinterpret_cast<LinkNode**>(pool.GetAllocator().Malloc(sizeof(LinkNode*) * capacity * 2));
+		memset(nodeArray + capacity, 0, capacity * sizeof(LinkNode*));
+		mCapacity = capacity;
+		mSize = 0;
+	}
+	HashMap(HashMap&& map)
+		: pool(std::move(map.pool)),
+		  mSize(map.mSize),
+		  mCapacity(map.mCapacity),
+		  nodeArray(map.nodeArray) {
+		map.nodeArray = nullptr;
+	}
+	HashMap(HashMap const& map) = delete;
 
-        auto targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16)
-            targetCapacity = 16;
-        if (targetCapacity >= nodeVec.size()) {
-            Resize(GetPow2Size(targetCapacity));
-            hashValue = GetHash(hashOriginValue, nodeVec.size());
-        }
-        LinkNode *newNode = GetNewLinkNode(hashOriginValue, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        LinkNode::Add(nodeVec[hashValue], newNode);
-        return Index(this, newNode);
-    }
-    template<typename Mutex, typename Key>
-    Index Find_Lock(Mutex &mtx, Key &&key) const noexcept {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        std::lock_guard<Mutex> lck(mtx);
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return Index(this, node);
-            }
-        }
+	template<typename Arg>
+	void operator=(Arg&& map) {
+		this->~HashMap();
+		new (this) HashMap(std::forward<Arg>(map));
+	}
+	~HashMap() noexcept {
+		if (!nodeArray) return;
+		for (auto i : ptr_range(nodeArray, nodeArray + mSize)) {
+			i->~LinkNode();
+		}
+		pool.GetAllocator().Free(nodeArray);
+	}
+	HashMap() noexcept : HashMap(16) {}
+	///////////////////////
+	template<typename Key, typename... ARGS>
+	Index ForceEmplace(Key&& key, ARGS&&... args) {
+		TryResize();
 
-        return EmptyIndex();
-    }
-    template<typename Mutex>
-    void Remove_Lock(Mutex &mtx, K const &key) noexcept {
-        size_t hashOriginValue = hsFunc(key);
-        std::lock_guard<Mutex> lck(mtx);
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        LinkNode *&startNode = nodeVec[hashValue];
-        for (LinkNode *node = startNode; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, key)) {
-                if (startNode == node) {
-                    startNode = node->next;
-                }
-                if (node->next)
-                    node->next->last = node->last;
-                if (node->last)
-                    node->last->next = node->next;
-                DeleteLinkNode(node);
-                return;
-            }
-        }
-    }
-    template<typename Mutex, typename Key, typename... ARGS>
-    Index ForceEmplace_Lock(Mutex &mtx, Key &&key, ARGS &&...args) {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue;
-        std::lock_guard<Mutex> lck(mtx);
-        hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                node->second.~V();
-                new (&node->second) V(std::forward<ARGS>(args)...);
-                return Index(this, node);
-            }
-        }
+		size_t hashOriginValue = hsFunc(std::forward<Key>(key));
+		size_t hashValue = GetHash(hashOriginValue, mCapacity);
+		auto nodeVec = nodeArray + mCapacity;
 
-        size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16)
-            targetCapacity = 16;
-        if (targetCapacity >= nodeVec.size()) {
-            Resize(GetPow2Size(targetCapacity));
-            hashValue = GetHash(hashOriginValue, nodeVec.size());
-        }
-        LinkNode *newNode = GetNewLinkNode(hashOriginValue, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        LinkNode::Add(nodeVec[hashValue], newNode);
-        return Index(this, newNode);
-    }
-    template<typename Mutex, typename Key, typename... ARGS>
-    std::pair<Index, bool> TryEmplace_Lock(Mutex &mtx, Key &&key, ARGS &&...args) {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        size_t hashValue;
-        std::lock_guard<Mutex> lck(mtx);
-        hashValue = GetHash(hashOriginValue, nodeVec.size());
-        for (LinkNode *node = nodeVec[hashValue]; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                return std::pair<Index, bool>(Index(this, node), false);
-            }
-        }
+		Map* map = reinterpret_cast<Map*>(&nodeVec[hashValue]);
+		auto insertResult = map->insert_or_assign(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
+		//Add New
+		if (insertResult.second) {
+			GetNewLinkNode(hashOriginValue, insertResult.first);
+		}
+		return Index(this, insertResult.first);
+	}
 
-        size_t targetCapacity = (size_t)((allocatedNodes.size() + 1) / 0.75);
-        if (targetCapacity < 16)
-            targetCapacity = 16;
-        if (targetCapacity >= nodeVec.size()) {
-            Resize(GetPow2Size(targetCapacity));
-            hashValue = GetHash(hashOriginValue, nodeVec.size());
-        }
-        LinkNode *newNode = GetNewLinkNode(hashOriginValue, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        LinkNode::Add(nodeVec[hashValue], newNode);
-        return std::pair<Index, bool>(Index(this, newNode), true);
-    }
-    template<typename Mutex, typename Key>
-    void TRemove_Lock(Mutex &mtx, Key &&key) noexcept {
-        size_t hashOriginValue = hsFunc(std::forward<Key>(key));
-        std::lock_guard<Mutex> lck(mtx);
-        size_t hashValue = GetHash(hashOriginValue, nodeVec.size());
-        LinkNode *&startNode = nodeVec[hashValue];
-        for (LinkNode *node = startNode; node != nullptr; node = node->next) {
-            if (eqFunc(node->first, std::forward<Key>(key))) {
-                if (startNode == node) {
-                    startNode = node->next;
-                }
-                if (node->next)
-                    node->next->last = node->last;
-                if (node->last)
-                    node->last->next = node->next;
-                DeleteLinkNode(node);
-                return;
-            }
-        }
-    }
+	template<typename Key, typename... ARGS>
+	Index Emplace(Key&& key, ARGS&&... args) {
+		TryResize();
+
+		size_t hashOriginValue = hsFunc(std::forward<Key>(key));
+		size_t hashValue = GetHash(hashOriginValue, mCapacity);
+		auto nodeVec = nodeArray + mCapacity;
+
+		Map* map = reinterpret_cast<Map*>(&nodeVec[hashValue]);
+		auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
+		//Add New
+		if (insertResult.second) {
+			GetNewLinkNode(hashOriginValue, insertResult.first);
+		}
+		return Index(this, insertResult.first);
+	}
+
+	template<typename Key, typename... ARGS>
+	std::pair<Index, bool> TryEmplace(Key&& key, ARGS&&... args) {
+		TryResize();
+
+		size_t hashOriginValue = hsFunc(std::forward<Key>(key));
+		size_t hashValue = GetHash(hashOriginValue, mCapacity);
+		auto nodeVec = nodeArray + mCapacity;
+
+		Map* map = reinterpret_cast<Map*>(&nodeVec[hashValue]);
+		auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
+		//Add New
+		if (insertResult.second) {
+			GetNewLinkNode(hashOriginValue, insertResult.first);
+		}
+		return {Index(this, insertResult.first), insertResult.second};
+	}
+
+	void Reserve(size_t capacity) noexcept {
+		size_t newCapacity = GetPow2Size(capacity);
+		Resize(newCapacity);
+	}
+	void reserve(size_t capacity) noexcept {
+		Reserve(capacity);
+	}
+	template<typename Key>
+	Index Find(Key&& key) const noexcept {
+		size_t hashOriginValue = hsFunc(std::forward<Key>(key));
+		size_t hashValue = GetHash(hashOriginValue, mCapacity);
+		Map* map = reinterpret_cast<Map*>(nodeArray + mCapacity + hashValue);
+		auto node = map->find(std::forward<Key>(key));
+		if (node)
+			return {this, node};
+		return EmptyIndex();
+	}
+
+	template<typename Key>
+	void Remove(Key&& key) noexcept {
+		size_t hashOriginValue = hsFunc(key);
+		size_t hashValue = GetHash(hashOriginValue, mCapacity);
+		Map* map = reinterpret_cast<Map*>(nodeArray + mCapacity + hashValue);
+		size_t arrayIndex;
+		if (map->remove(pool, std::forward<Key>(key), arrayIndex)) {
+			DeleteLinkNode(arrayIndex);
+		}
+	}
+
+	void Remove(const Index& ite) noexcept {
+		Remove(ite.node);
+	}
+	void Remove(Index&& ite) noexcept {
+		Remove(ite.node);
+	}
+	void Remove(Index& ite) noexcept {
+		Remove(ite.node);
+	}
+	void Remove(NodePair const& ite) noexcept {
+		Remove(const_cast<LinkNode*>(static_cast<LinkNode const*>(&ite)));
+	}
+
+	void Clear() noexcept {
+		if (mSize == 0) return;
+		auto nodeVec = nodeArray + mCapacity;
+		memset(nodeVec, 0, mCapacity * sizeof(LinkNode*));
+		for (auto ite : ptr_range(nodeArray, nodeArray + mSize)) {
+			pool.Delete(ite);
+		}
+		mSize = 0;
+	}
+	size_t size() const noexcept { return mSize; }
+
+	size_t GetCapacity() const noexcept { returnmCapacity; }
 };
 
 template<typename K, typename V, typename Hash, typename Equal, VEngine_AllocType allocType>
-inline K const &HashMap<K, V, Hash, Equal, allocType>::Index::Key() const noexcept {
-    return node->first;
+inline K const& HashMap<K, V, Hash, Equal, allocType>::Index::Key() const noexcept {
+	return node->data.first;
 }
 template<typename K, typename V, typename Hash, typename Equal, VEngine_AllocType allocType>
-inline V &HashMap<K, V, Hash, Equal, allocType>::Index::Value() const noexcept {
-    return node->second;
+inline typename HashMap<K, V, Hash, Equal, allocType>::Index::ValueType HashMap<K, V, Hash, Equal, allocType>::Index::Value() const noexcept {
+	if constexpr (!std::is_same_v<V, void>) {
+		return node->data.second;
+	}
 }
 }// namespace vstd

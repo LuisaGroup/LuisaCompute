@@ -1,70 +1,72 @@
 #pragma once
-
-#include <cstdint>
-#include <cstdlib>
-#include <type_traits>
-
 #include <vstl/config.h>
+#include <cstdlib>
+#include <stdint.h>
+#include <type_traits>
 #include <vstl/MetaLib.h>
+VENGINE_C_FUNC_COMMON void* vengine_default_malloc(size_t sz);
+VENGINE_C_FUNC_COMMON void vengine_default_free(void* ptr);
+VENGINE_C_FUNC_COMMON void* vengine_default_realloc(void* ptr, size_t size);
 
-void *vstl_default_malloc(size_t sz);
-void vstl_default_free(void *ptr);
-
-void *vstl_malloc(size_t size);
-void vstl_free(void *ptr);
-
-namespace vstd {
+VENGINE_C_FUNC_COMMON void* vengine_malloc(size_t size);
+VENGINE_C_FUNC_COMMON void vengine_free(void* ptr);
+VENGINE_C_FUNC_COMMON void* vengine_realloc(void* ptr, size_t size);
 
 template<typename T, typename... Args>
-inline T *vstl_new(Args &&...args) noexcept {
-    static_assert(alignof(T) <= 16u);
-    auto p = static_cast<T *>(vstl_malloc(sizeof(T)));
-    return std::construct_at(p, std::forward<Args>(args)...);
+inline T* vengine_new(Args&&... args) noexcept {
+	T* tPtr = (T*)vengine_malloc(sizeof(T));
+	new (tPtr) T(std::forward<Args>(args)...);
+	return tPtr;
 }
 
 template<typename T>
-inline void vstl_delete(T *ptr) noexcept {
-    if (ptr != nullptr) {
-        std::destroy_at(ptr);
-        vstl_free(ptr);
-    }
+inline void vengine_delete(T* ptr) noexcept {
+	if constexpr (!std::is_trivially_destructible_v<T>)
+		((T*)ptr)->~T();
+	vengine_free(ptr);
 }
+#define DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW                            \
+	inline static void* operator new(size_t size) noexcept {             \
+		return vengine_malloc(size);                                     \
+	}                                                                    \
+	inline static void* operator new(size_t, void* place) noexcept {     \
+		return place;                                                    \
+	}                                                                    \
+	inline static void operator delete(void* pdead, size_t) noexcept {   \
+		vengine_free(pdead);                                             \
+	}                                                                    \
+	inline static void* operator new[](size_t size) noexcept {           \
+		return vengine_malloc(size);                                     \
+	}                                                                    \
+	inline static void operator delete[](void* pdead, size_t) noexcept { \
+		vengine_free(pdead);                                             \
+	}
 
-#define VSTL_OVERRIDE_OPERATOR_NEW                                          \
-    [[nodiscard]] static void *operator new(size_t size) noexcept {         \
-        return vstl_malloc(size);                                           \
-    }                                                                       \
-    static void operator delete(void *p) noexcept {                         \
-        vstl_free(p);                                                       \
-    }                                                                       \
-    [[nodiscard]] static void *operator new(size_t, void *place) noexcept { \
-        return place;                                                       \
-    }                                                                       \
-    static void operator delete(void *pdead, size_t) noexcept {             \
-        vstl_free(pdead);                                                   \
-    }                                                                       \
-    [[nodiscard]] static void *operator new[](size_t size) noexcept {       \
-        return vstl_malloc(size);                                           \
-    }                                                                       \
-    static void operator delete[](void *p) noexcept {                       \
-        vstl_free(p);                                                       \
-    }                                                                       \
-    static void operator delete[](void *pdead, size_t) noexcept {           \
-        vstl_free(pdead);                                                   \
-    }
-
+namespace vstd {
 class IOperatorNewBase {
 public:
-    virtual ~IOperatorNewBase() noexcept = default;
-    VSTL_OVERRIDE_OPERATOR_NEW
+	DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };
 
-#define VSTL_DELETE_COPY_CONSTRUCT(clsName)     \
-    clsName(clsName const &) noexcept = delete; \
-    clsName &operator=(clsName const &) noexcept = delete;
-
-#define VSTL_DELETE_MOVE_CONSTRUCT(clsName) \
-    clsName(clsName &&) noexcept = delete;  \
-    clsName &operator=(clsName &&) noexcept = delete;
-
+template<typename T>
+struct DynamicObject {
+	template<typename... Args>
+	static constexpr T* CreateObject(
+		funcPtr_t<T*(
+			funcPtr_t<void*(size_t)> operatorNew,
+			Args...)>
+			createFunc,
+		Args... args) {
+		return createFunc(
+			T::operator new,
+			std::forward<Args>(args)...);
+	}
+};
 }// namespace vstd
+#define KILL_COPY_CONSTRUCT(clsName)  \
+	clsName(clsName const&) = delete; \
+	clsName& operator=(clsName const&) = delete;
+
+#define KILL_MOVE_CONSTRUCT(clsName) \
+	clsName(clsName&&) = delete;     \
+	clsName& operator=(clsName&&) = delete;

@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_dll
+
 
 #include <vstl/MD5.h>
 namespace vstd {
@@ -366,10 +366,10 @@ void UInt64ToHex(uint64 data, char*& sPtr, bool upper) {
 }
 
 }// namespace detail
-std::array<uint8_t, MD5_SIZE> GetMD5FromString(std::string const& str) {
+std::array<uint8_t, MD5_SIZE> GetMD5FromString(string const& str) {
 	using namespace detail;
 	std::array<uint8_t, MD5_SIZE> arr;
-	MD5_Impl md5({reinterpret_cast<uint8_t const*>(str.data()), str.size()}, arr.data());
+	MD5_Impl md5({reinterpret_cast<uint8_t*>(str.data()), str.size()}, arr.data());
 	md5.GetDigest();
 	return arr;
 }
@@ -380,13 +380,14 @@ std::array<uint8_t, MD5_SIZE> GetMD5FromArray(std::span<uint8_t> data) {
 	md5.GetDigest();
 	return arr;
 }
-MD5::MD5(std::string const& str)
-	: MD5(std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(str.data()), str.size())) {
+MD5::MD5(string const& str)
+	: MD5(std::span<uint8_t>(reinterpret_cast<uint8_t*>(str.data()), str.size())) {
 }
-MD5::MD5(std::string_view str)
-	: MD5(std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(&*str.begin()), str.size())) {
+MD5::MD5(string_view str)
+	: MD5(std::span<uint8_t>(reinterpret_cast<uint8_t*>(const_cast<char*>(str.begin())), str.size())) {
 }
 MD5::MD5(std::span<uint8_t const> bin) {
+	using namespace detail;
 	using namespace detail;
 	MD5_Impl impl(bin, reinterpret_cast<uint8_t*>(&data));
 	impl.GetDigest();
@@ -403,12 +404,29 @@ bool MD5::operator!=(MD5 const& m) const {
 	return data.data0 != m.data.data0
 		   || data.data1 != m.data.data1;
 }
-std::string MD5::ToString(bool upper) const {
-	std::string str;
+string MD5::ToString(bool upper) const {
+	string str;
 	str.resize(sizeof(uint64) * 2 * 2);
 	char* ptr = str.data();
 	detail::UInt64ToHex(data.data0, ptr, upper);
 	detail::UInt64ToHex(data.data1, ptr, upper);
 	return str;
 }
+#ifdef EXPORT_UNITY_FUNCTION
+VENGINE_UNITY_EXTERN void unity_get_md5(
+	uint8_t* data,
+	uint64 dataLength,
+	uint8_t* destData) {
+	detail::MD5_Impl md5(std::span<uint8_t>(data, dataLength), destData);
+	md5.GetDigest();
+}
+VENGINE_UNITY_EXTERN void md5_to_string(
+	uint64_t const* md5,
+	char* result,
+	bool upper) {
+	using namespace detail;
+	UInt64ToHex(md5[0], result, upper);
+	UInt64ToHex(md5[1], result, upper);
+}
+#endif
 }// namespace vstd
