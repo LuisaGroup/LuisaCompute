@@ -117,18 +117,22 @@ const Type *Type::from(std::string_view description) noexcept {
             }
             match('>');
             info._size = 0u;
+            auto max_member_alignment = static_cast<size_t>(0u);
             for (auto member : data.members) {
                 if (member->is_buffer() || member->is_texture()) [[unlikely]] {
                     LUISA_ERROR_WITH_LOCATION(
                         "Structures are not allowed to have buffers or images as members.");
                 }
                 auto ma = member->alignment();
-                if (info._alignment < ma) [[unlikely]] {
-                    LUISA_ERROR_WITH_LOCATION(
-                        "Struct alignment {} is smaller than member (description = {}, alignment = {}).",
-                        info._alignment, member->description(), member->alignment());
-                }
+                max_member_alignment = std::max(ma, max_member_alignment);
                 info._size = (info._size + ma - 1u) / ma * ma + member->size();
+            }
+            if (auto a = info._alignment; a > 16u || std::bit_floor(a) != a) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION("Invalid structure alignment {}.", a);
+            } else if (a < max_member_alignment && a != 0u) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Struct alignment {} is smaller than the largest member alignment {}.",
+                    info._alignment, max_member_alignment);
             }
             info._size = (info._size + info._alignment - 1u) / info._alignment * info._alignment;
         } else if (type_identifier == "buffer"sv) {
