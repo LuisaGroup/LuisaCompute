@@ -45,9 +45,9 @@ uint64_t luisa_compute_buffer_create(void *device, size_t size, uint64_t heap_ha
     return impl->create_buffer(size, heap_handle, index_in_heap);
 }
 
-void luisa_compute_buffer_destroy(void *device, uint64_t handle, uint64_t heap_handle, uint32_t index_in_heap) LUISA_NOEXCEPT {
+void luisa_compute_buffer_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
     auto impl = static_cast<Device *>(device)->impl();
-    impl->destroy_buffer(handle);// TODO
+    impl->destroy_buffer(handle);
 }
 
 uint64_t luisa_compute_texture_create(void *device, uint32_t format, uint32_t dim, uint32_t w, uint32_t h, uint32_t d, uint32_t mips, uint32_t sampler, uint64_t heap, uint32_t index_in_heap) LUISA_NOEXCEPT {
@@ -59,9 +59,9 @@ uint64_t luisa_compute_texture_create(void *device, uint32_t format, uint32_t di
         heap, index_in_heap);
 }
 
-void luisa_compute_texture_destroy(void *device, uint64_t handle, uint64_t heap_handle, uint32_t index_in_heap) LUISA_NOEXCEPT {
+void luisa_compute_texture_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
     auto impl = static_cast<Device *>(device)->impl();
-    impl->destroy_texture(handle);//TODO
+    impl->destroy_texture(handle);
 }
 
 uint64_t luisa_compute_heap_create(void *device, size_t size) LUISA_NOEXCEPT {
@@ -156,4 +156,138 @@ void *luisa_compute_command_list_create() LUISA_NOEXCEPT {
 
 void luisa_compute_command_list_append(void *list, void *command) LUISA_NOEXCEPT {
     static_cast<CommandList *>(list)->append(static_cast<Command *>(command));
+}
+
+int luisa_compute_command_list_empty(void *list) LUISA_NOEXCEPT {
+    return static_cast<CommandList *>(list)->empty();
+}
+
+void *luisa_compute_command_upload_buffer(uint64_t buffer, size_t offset, size_t size, const void *data) LUISA_NOEXCEPT {
+    return BufferUploadCommand::create(buffer, offset, size, data);
+}
+
+void *luisa_compute_command_download_buffer(uint64_t buffer, size_t offset, size_t size, void *data) LUISA_NOEXCEPT {
+    return BufferDownloadCommand::create(buffer, offset, size, data);
+}
+
+void *luisa_compute_command_copy_buffer_to_buffer(uint64_t src, size_t src_offset, uint64_t dst, size_t dst_offset, size_t size) LUISA_NOEXCEPT {
+    return BufferCopyCommand::create(src, dst, src_offset, dst_offset, size);
+}
+
+void *luisa_compute_command_copy_buffer_to_texture(
+    uint64_t buffer, size_t buffer_offset,
+    uint64_t tex, uint32_t tex_storage, uint32_t level,
+    uint32_t offset_x, uint32_t offset_y, uint32_t offset_z,
+    uint32_t size_x, uint32_t size_y, uint32_t size_z) LUISA_NOEXCEPT {
+    return BufferToTextureCopyCommand::create(
+        buffer, buffer_offset, tex,
+        static_cast<PixelStorage>(tex_storage), level,
+        make_uint3(offset_x, offset_y, offset_z),
+        make_uint3(size_x, size_y, size_z));
+}
+
+void *luisa_compute_command_copy_texture_to_buffer(
+    uint64_t buffer, size_t buffer_offset,
+    uint64_t tex, uint32_t tex_storage, uint32_t level,
+    uint32_t offset_x, uint32_t offset_y, uint32_t offset_z,
+    uint32_t size_x, uint32_t size_y, uint32_t size_z) LUISA_NOEXCEPT {
+    return TextureToBufferCopyCommand::create(
+        buffer, buffer_offset, tex,
+        static_cast<PixelStorage>(tex_storage), level,
+        make_uint3(offset_x, offset_y, offset_z),
+        make_uint3(size_x, size_y, size_z));
+}
+
+void *luisa_compute_command_copy_texture_to_texture(
+    uint64_t src, uint32_t src_level,
+    uint32_t src_offset_x, uint32_t src_offset_y, uint32_t src_offset_z,
+    uint64_t dst, uint32_t dst_level,
+    uint32_t dst_offset_x, uint32_t dst_offset_y, uint32_t dst_offset_z,
+    uint32_t size_x, uint32_t size_y, uint32_t size_z) LUISA_NOEXCEPT {
+    return TextureCopyCommand::create(
+        src, dst, src_level, dst_level,
+        make_uint3(src_offset_x, src_offset_y, src_offset_z),
+        make_uint3(dst_offset_x, dst_offset_y, dst_offset_z),
+        make_uint3(size_x, size_y, size_z));
+}
+
+void *luisa_compute_command_upload_texture(
+    uint64_t handle, uint32_t storage, uint32_t level,
+    uint32_t offset_x, uint32_t offset_y, uint32_t offset_z,
+    uint32_t size_x, uint32_t size_y, uint32_t size_z,
+    const void *data) LUISA_NOEXCEPT {
+    return TextureUploadCommand::create(
+        handle, static_cast<PixelStorage>(storage), level,
+        make_uint3(offset_x, offset_y, offset_z),
+        make_uint3(size_x, size_y, size_z),
+        data);
+}
+
+void *luisa_compute_command_download_texture(
+    uint64_t handle, uint32_t storage, uint32_t level,
+    uint32_t offset_x, uint32_t offset_y, uint32_t offset_z,
+    uint32_t size_x, uint32_t size_y, uint32_t size_z,
+    void *data) LUISA_NOEXCEPT {
+    return TextureDownloadCommand::create(
+        handle, static_cast<PixelStorage>(storage), level,
+        make_uint3(offset_x, offset_y, offset_z),
+        make_uint3(size_x, size_y, size_z),
+        data);
+}
+
+void *luisa_compute_command_dispatch_shader(uint64_t handle, const void *kernel) LUISA_NOEXCEPT {
+    return ShaderDispatchCommand::create(handle, Function{static_cast<const luisa::compute::detail::FunctionBuilder *>(kernel)});
+}
+
+void luisa_compute_command_dispatch_shader_set_size(void *cmd, uint32_t sx, uint32_t sy, uint32_t sz) LUISA_NOEXCEPT {
+    static_cast<ShaderDispatchCommand *>(cmd)->set_dispatch_size(make_uint3(sx, sy, sz));
+}
+
+void luisa_compute_command_dispatch_shader_encode_buffer(void *cmd, uint32_t vid, uint64_t buffer, size_t offset, uint32_t usage) LUISA_NOEXCEPT {
+    static_cast<ShaderDispatchCommand *>(cmd)->encode_buffer(vid, buffer, offset, static_cast<Usage>(usage));
+}
+
+void luisa_compute_command_dispatch_shader_encode_texture(void *cmd, uint32_t vid, uint64_t tex, uint32_t usage) LUISA_NOEXCEPT {
+    static_cast<ShaderDispatchCommand *>(cmd)->encode_texture(vid, tex, static_cast<Usage>(usage));
+}
+
+void luisa_compute_command_dispatch_shader_encode_uniform(void *cmd, uint32_t vid, const void *data, size_t size, size_t alignment) LUISA_NOEXCEPT {
+    static_cast<ShaderDispatchCommand *>(cmd)->encode_uniform(vid, data, size, alignment);
+}
+
+void luisa_compute_command_dispatch_shader_encode_heap(void *cmd, uint32_t vid, uint64_t heap) LUISA_NOEXCEPT {
+    static_cast<ShaderDispatchCommand *>(cmd)->encode_heap(vid, heap);
+}
+
+void luisa_compute_command_dispatch_shader_encode_accel(void *cmd, uint32_t vid, uint64_t accel) LUISA_NOEXCEPT {
+    static_cast<ShaderDispatchCommand *>(cmd)->encode_accel(vid, accel);
+}
+
+void *luisa_compute_command_build_mesh(
+    uint64_t handle, uint32_t hint,
+    uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
+    uint64_t t_buffer, size_t t_offset, size_t t_count) LUISA_NOEXCEPT {
+    return MeshBuildCommand::create(
+        handle, static_cast<AccelBuildHint>(hint),
+        v_buffer, v_offset, v_stride, v_count,
+        t_buffer, t_offset, t_count);
+}
+
+void *luisa_compute_command_update_mesh(uint64_t handle) LUISA_NOEXCEPT {
+    return MeshUpdateCommand::create(handle);
+}
+
+void *luisa_compute_command_build_accel(
+    uint64_t handle, uint32_t hint,
+    const void *instance_mesh_handles,
+    const void *instance_transforms,
+    size_t instance_count) LUISA_NOEXCEPT {
+    return AccelBuildCommand::create(
+        handle, static_cast<AccelBuildHint>(hint),
+        std::span{static_cast<const uint64_t *>(instance_mesh_handles), instance_count},
+        std::span{static_cast<const float4x4 *>(instance_transforms), instance_count});
+}
+
+void *luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
+    return AccelUpdateCommand::create(handle);
 }

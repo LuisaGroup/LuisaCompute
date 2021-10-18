@@ -320,11 +320,6 @@ void CppCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "}";
 }
 
-void CppCodegen::visit(const DeclareStmt *stmt) {
-    _emit_variable_decl(stmt->variable());
-    _scratch << "{};";
-}
-
 void CppCodegen::visit(const IfStmt *stmt) {
     _scratch << "if (";
     stmt->condition()->accept(*this);
@@ -481,6 +476,14 @@ void CppCodegen::_emit_function(Function f) noexcept {
             _scratch << ";";
         }
         _scratch << "\n";
+    }
+    if (auto vs = f.local_variables(); !vs.empty()) {
+        _scratch << "\n\n";
+        for (auto v : vs) {
+            _scratch << "  ";
+            _emit_variable_decl(v);
+            _scratch << "{};\n";
+        }
     }
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";

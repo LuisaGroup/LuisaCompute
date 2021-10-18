@@ -5,19 +5,19 @@
 #include <core/logging.h>
 #include <api/logging.h>
 
-void luisa_compute_log_level_verbose() LUISA_NOEXCEPT {
+void luisa_compute_set_log_level_verbose() LUISA_NOEXCEPT {
     luisa::log_level_verbose();
 }
 
-void luisa_compute_log_level_info() LUISA_NOEXCEPT {
+void luisa_compute_set_log_level_info() LUISA_NOEXCEPT {
     luisa::log_level_info();
 }
 
-void luisa_compute_log_level_warning() LUISA_NOEXCEPT {
+void luisa_compute_set_log_level_warning() LUISA_NOEXCEPT {
     luisa::log_level_warning();
 }
 
-void luisa_compute_log_level_error() LUISA_NOEXCEPT {
+void luisa_compute_set_log_level_error() LUISA_NOEXCEPT {
     luisa::log_level_error();
 }
 

@@ -9,7 +9,7 @@
 
 namespace luisa::compute::metal {
 
-class MetalCodegen : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
+class MetalCodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
     Function _function;
@@ -31,7 +31,6 @@ private:
     void visit(const ContinueStmt *stmt) override;
     void visit(const ReturnStmt *stmt) override;
     void visit(const ScopeStmt *stmt) override;
-    void visit(const DeclareStmt *stmt) override;
     void visit(const IfStmt *stmt) override;
     void visit(const LoopStmt *stmt) override;
     void visit(const ExprStmt *stmt) override;

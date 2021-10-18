@@ -99,7 +99,7 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
 
 const RefExpr *FunctionBuilder::local(const Type *type) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    _append(_arena->create<DeclareStmt>(v));
+    _local_variables.emplace_back(v);
     return _ref(v);
 }
 
@@ -235,6 +235,7 @@ FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcep
       _scope_stack{*arena},
       _builtin_variables{*arena},
       _shared_variables{*arena},
+      _local_variables{*arena},
       _captured_constants{*arena},
       _captured_buffers{*arena},
       _captured_textures{*arena},

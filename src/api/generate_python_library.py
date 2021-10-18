@@ -36,7 +36,7 @@ def parse_function(f):
     ret, decl = f.split("luisa_compute_")
     name, args = decl.split("(")
     args = args.split(")")[0]
-    args = [p.strip() for p in args.split(", ")] if args else []
+    args = [p.strip() for p in args.split(",")] if args else []
     return {
         "name": f"{name}",
         "return": header_to_ctypes[ret.strip().replace("const ", "")],

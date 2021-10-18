@@ -29,7 +29,7 @@
 
 namespace luisa::compute::metal {
 
-class MetalDevice : public Device::Interface {
+class MetalDevice final : public Device::Interface {
 
 private:
     id<MTLDevice> _handle{nullptr};

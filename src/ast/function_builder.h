@@ -56,6 +56,7 @@ private:
     ArenaVector<ScopeStmt *> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
     ArenaVector<Variable> _shared_variables;
+    ArenaVector<Variable> _local_variables;
     ArenaVector<ConstantBinding> _captured_constants;
     ArenaVector<BufferBinding> _captured_buffers;
     ArenaVector<TextureBinding> _captured_textures;
@@ -102,6 +103,7 @@ public:
     // interfaces for class Function
     [[nodiscard]] auto builtin_variables() const noexcept { return std::span{_builtin_variables.data(), _builtin_variables.size()}; }
     [[nodiscard]] auto shared_variables() const noexcept { return std::span{_shared_variables.data(), _shared_variables.size()}; }
+    [[nodiscard]] auto local_variables() const noexcept { return std::span{_local_variables.data(), _local_variables.size()}; }
     [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants.data(), _captured_constants.size()}; }
     [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
     [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }

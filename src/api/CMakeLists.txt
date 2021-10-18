@@ -7,6 +7,4 @@ target_link_libraries(luisa-compute-api PUBLIC
         luisa-compute-runtime
         luisa-compute-serialize
         luisa-compute-compile)
-set_target_properties(luisa-compute-api PROPERTIES
-        WINDOWS_EXPORT_ALL_SYMBOLS ON
-        UNITY_BUILD ON)
+set_target_properties(luisa-compute-api PROPERTIES UNITY_BUILD ON)

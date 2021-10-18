@@ -2,36 +2,36 @@ from ctypes import c_void_p, c_char_p, c_int, c_int32, c_uint32, c_int64, c_uint
 from .config import dll
 
 
-dll.luisa_compute_log_level_verbose.restype = None
-dll.luisa_compute_log_level_verbose.argtypes = []
+dll.luisa_compute_set_log_level_verbose.restype = None
+dll.luisa_compute_set_log_level_verbose.argtypes = []
 
 
-def log_level_verbose():
-    dll.luisa_compute_log_level_verbose()
+def set_log_level_verbose():
+    dll.luisa_compute_set_log_level_verbose()
 
 
-dll.luisa_compute_log_level_info.restype = None
-dll.luisa_compute_log_level_info.argtypes = []
+dll.luisa_compute_set_log_level_info.restype = None
+dll.luisa_compute_set_log_level_info.argtypes = []
 
 
-def log_level_info():
-    dll.luisa_compute_log_level_info()
+def set_log_level_info():
+    dll.luisa_compute_set_log_level_info()
 
 
-dll.luisa_compute_log_level_warning.restype = None
-dll.luisa_compute_log_level_warning.argtypes = []
+dll.luisa_compute_set_log_level_warning.restype = None
+dll.luisa_compute_set_log_level_warning.argtypes = []
 
 
-def log_level_warning():
-    dll.luisa_compute_log_level_warning()
+def set_log_level_warning():
+    dll.luisa_compute_set_log_level_warning()
 
 
-dll.luisa_compute_log_level_error.restype = None
-dll.luisa_compute_log_level_error.argtypes = []
+dll.luisa_compute_set_log_level_error.restype = None
+dll.luisa_compute_set_log_level_error.argtypes = []
 
 
-def log_level_error():
-    dll.luisa_compute_log_level_error()
+def set_log_level_error():
+    dll.luisa_compute_set_log_level_error()
 
 
 dll.luisa_compute_log_verbose.restype = None
