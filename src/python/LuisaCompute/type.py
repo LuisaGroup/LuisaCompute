@@ -6,7 +6,10 @@ from ._internal.logging import *
 
 class Type:
     def __init__(self, desc):
-        self._as_parameter_ = type_from_description(desc.lower())
+        if isinstance(desc, str):
+            self._as_parameter_ = type_from_description(desc.lower())
+        else:
+            self._as_parameter_ = Type.of(desc)._as_parameter_
 
     @property
     def description(self):
