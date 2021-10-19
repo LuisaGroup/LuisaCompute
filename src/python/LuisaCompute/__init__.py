@@ -5,11 +5,8 @@ from ._internal.logging import \
     set_log_level_warning, \
     set_log_level_error, \
     log_verbose, log_info, log_warning, log_error
-from .runtime import Context
+from .runtime import Device
 from .type import Type
-
-synchronize = runtime.Stream.synchronize
-commit = runtime.Stream.commit
 
 type = Type.of
 tuple = Type.tuple

@@ -18,8 +18,12 @@ size_t luisa_compute_type_alignment(const void *t) LUISA_NOEXCEPT {
     return static_cast<const Type *>(t)->alignment();
 }
 
-const char *luisa_compute_type_description(const void *t) LUISA_NOEXCEPT {
-    return static_cast<const Type *>(t)->description().data();
+char *luisa_compute_type_description(const void *t) LUISA_NOEXCEPT {
+    auto desc = static_cast<const Type *>(t)->description();
+    auto s = new char[desc.size() + 1u];
+    std::memcpy(s, desc.data(), desc.size());
+    s[desc.size()] = '\0';
+    return s;
 }
 
 size_t luisa_compute_type_dimension(const void *t) LUISA_NOEXCEPT {

@@ -7,7 +7,7 @@
 #include <core/platform.h>
 
 LUISA_EXPORT_API const void *luisa_compute_type_from_description(const char *desc) LUISA_NOEXCEPT;
-LUISA_EXPORT_API const char *luisa_compute_type_description(const void *t) LUISA_NOEXCEPT;
+LUISA_EXPORT_API char *luisa_compute_type_description(const void *t) LUISA_NOEXCEPT;
 LUISA_EXPORT_API size_t luisa_compute_type_size(const void *t) LUISA_NOEXCEPT;
 LUISA_EXPORT_API size_t luisa_compute_type_alignment(const void *t) LUISA_NOEXCEPT;
 LUISA_EXPORT_API size_t luisa_compute_type_dimension(const void *t) LUISA_NOEXCEPT;

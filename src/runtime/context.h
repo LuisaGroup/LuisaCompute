@@ -25,6 +25,10 @@ private:
 
 public:
     explicit Context(const std::filesystem::path &program) noexcept;
+    Context(Context &&) noexcept = default;
+    Context(const Context &) noexcept = delete;
+    Context &operator=(Context &&) noexcept = default;
+    Context &operator=(const Context &) noexcept = delete;
     ~Context() noexcept;
     [[nodiscard]] const std::filesystem::path &runtime_directory() const noexcept;
     [[nodiscard]] const std::filesystem::path &cache_directory() const noexcept;

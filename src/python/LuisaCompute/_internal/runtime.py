@@ -43,11 +43,11 @@ def device_create(ctx, name, index):
 
 
 dll.luisa_compute_device_destroy.restype = None
-dll.luisa_compute_device_destroy.argtypes = [c_void_p]
+dll.luisa_compute_device_destroy.argtypes = [c_void_p, c_void_p]
 
 
-def device_destroy(device):
-    dll.luisa_compute_device_destroy(device)
+def device_destroy(ctx, device):
+    dll.luisa_compute_device_destroy(ctx, device)
 
 
 dll.luisa_compute_buffer_create.restype = c_uint64
