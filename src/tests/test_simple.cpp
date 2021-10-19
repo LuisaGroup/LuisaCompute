@@ -6,7 +6,6 @@
 #include <iostream>
 
 #include <core/clock.h>
-#include <core/uuid.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <runtime/image.h>
@@ -85,17 +84,4 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[n - 2u], results[n - 1u]);
-
-    auto u = uuid::generate();
-    auto uuid_string = u.string();
-    uuid_string.erase(std::remove(uuid_string.begin(),  uuid_string.end(), '-'), uuid_string.end());
-    auto uuid2 = uuid::from(uuid_string);
-    LUISA_INFO("uuid: {}", uuid2.string());
-    LUISA_INFO("Hash: {:x}", Hash64{}(uuid{}));
-    LUISA_INFO("Hash: {:x}", Hash64{}(std::string_view{}));
-    auto v = std::vector<uint>{};
-    LUISA_INFO("Hash: {:x}", Hash64{}(v));
-    LUISA_INFO("Hash: {:x}", Hash64{}(0u));
-    LUISA_INFO("Hash: {:x}", Hash64{}(0ull));
-    LUISA_INFO("uuid: {}", uuid::from_hash64(hash64("hello")).string_without_dash(true));
 }
