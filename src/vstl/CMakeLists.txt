@@ -1,18 +1,11 @@
 set(LUISA_COMPUTE_UTIL_SOURCES
-        Hash.h
-        HashMap.h
-        LockFreeArrayQueue.h
-        LockFreeStepQueue.h
-        config.h
-        VAllocator.h
-        Memory.h
-        MetaLib.h
-        Pool.h
-        vstl.cpp
-        Log.cpp Log.h
-        MD5.cpp MD5.h
-        VGuid.cpp VGuid.h
-        ObjectPtr.cpp ObjectPtr.h)
+        ObjectPtr.cpp
+        stringUtility.cpp
+        xxhash.cpp
+        Log.cpp
+        MD5.cpp
+        VGuid.cpp
+        vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
 target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core)

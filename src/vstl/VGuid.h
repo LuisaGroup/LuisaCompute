@@ -1,11 +1,11 @@
 #pragma once
-
-#include <vstl/config.h>
+#include <vstl/Common.h>
+#include <vstl/Serializer.h>
 #include <vstl/MD5.h>
-
 namespace vstd {
+class VENGINE_DLL_COMMON Guid {
+	friend class StackObject<Guid, false>;
 
-class LUISA_DLL Guid {
 public:
 	struct GuidData {
 		uint64 data0;
@@ -14,12 +14,14 @@ public:
 
 private:
 	GuidData data;
+	Guid() {}
 
 public:
-	friend LUISA_DLL std::ostream& operator<<(std::ostream& out, const Guid& obj) noexcept;
+	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const Guid& obj) noexcept;
 
 	explicit Guid(bool generate);
-	Guid(std::string_view strv);
+	Guid(string_view strv);
+	static optional<Guid> TryParseGuid(string_view strv);
 	Guid(std::span<uint8_t> data);
 	Guid(MD5 const& md5) {
 		auto&& bin = md5.ToBinary();
@@ -38,12 +40,13 @@ public:
 		data.data0 = 0;
 		data.data1 = 0;
 	}
-	[[nodiscard]] GuidData const& ToBinary() const { return data; }
-	[[nodiscard]] std::array<uint8_t, sizeof(GuidData)> ToArray() const;
-	[[nodiscard]] std::string ToString(bool upper = true) const;
+	GuidData const& ToBinary() const { return data; }
+	std::array<uint8_t, sizeof(GuidData)> ToArray() const;
+	string ToString(bool upper = true) const;
 	void ToString(char* result, bool upper = true) const;
-	[[nodiscard]] std::string ToCompressedString() const;
-	void ToCompressedString(char* result) const;
+	string ToBase64() const;
+	void ToBase64(char* result) const;
+
 	inline bool operator==(Guid const& d) const {
 		return data.data0 == d.data.data0 && data.data1 == d.data.data1;
 	}
@@ -67,15 +70,33 @@ public:
 		return !(operator bool());
 	}
 };
-
 template<>
 struct hash<Guid> {
 	size_t operator()(Guid const& guid) const {
-		uint const* ptr = reinterpret_cast<uint const*>(&guid.ToBinary().data0);
-		return Hash::Int32ArrayHash(
-			ptr,
-			ptr + sizeof(Guid::GuidData) / sizeof(uint));
+		return Hash::CharArrayHash(
+			&guid.ToBinary().data0,
+			sizeof(Guid::GuidData));
+	}
+};
+template<>
+struct compare<Guid> {
+	int32 operator()(Guid const& a, Guid const& b) const{
+		if (a.ToBinary().data0 > b.ToBinary().data0) return 1;
+		if (a.ToBinary().data0 < b.ToBinary().data0) return -1;
+		if (a.ToBinary().data1 > b.ToBinary().data1) return 1;
+		if (a.ToBinary().data1 < b.ToBinary().data1) return -1;
+		return 0;
 	}
 };
 
+template<>
+struct SerDe<Guid> {
+	using Value = Guid;
+	static Value Get(std::span<uint8_t const>& sp) {
+		return SerDe<Guid::GuidData>::Get(sp);
+	}
+	static void Set(Value const& data, vector<uint8_t>& arr) {
+		SerDe<Guid::GuidData>::Set(data.ToBinary(), arr);
+	}
+};
 }// namespace vstd
