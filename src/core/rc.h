@@ -30,7 +30,10 @@ private:
 public:
     template<typename... Args>
     [[nodiscard]] static auto create(Args &&...args) noexcept {
-        return new_with_allocator<RC>(RC{T{std::forward<Args>(args)...}});
+        auto p = new_with_allocator<RC>(RC{T{std::forward<Args>(args)...}});
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Created RC object {}.", fmt::ptr(p));
+        return p;
     }
     RC(RC &&)
     noexcept = default;
@@ -43,12 +46,20 @@ public:
         return &_object;
     }
     [[nodiscard]] auto object() noexcept { return &_object; }
-    void release() noexcept {
+    bool release() noexcept {
         if (_ref_count == 0u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Releasing RC object with zero reference count.");
         }
-        if (--_ref_count == 0u) { delete_with_allocator(this); }
+        auto truly_released = false;
+        if (--_ref_count == 0u) {
+            auto p = this;
+            delete_with_allocator(p);
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Destroyed RC object {}.", fmt::ptr(p));
+            truly_released = true;
+        }
+        return truly_released;
     }
 };
 
