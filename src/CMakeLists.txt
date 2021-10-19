@@ -49,9 +49,9 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-runtime
         luisa-compute-dsl
         luisa-compute-rtx
-        luisa-compute-api
         luisa-compute-backends)
 
+add_dependencies(luisa-compute luisa-compute-api)
 add_library(luisa::compute ALIAS luisa-compute)
 
 if (LUISA_COMPUTE_BUILD_TESTS)

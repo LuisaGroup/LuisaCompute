@@ -18,7 +18,6 @@ pylib_directory = f"{dirname(api_directory)}/python/LuisaCompute/_internal"
 makedirs(pylib_directory, exist_ok=True)
 
 header_files = [f for f in listdir(api_directory) if f.endswith(".h")]
-print(header_files)
 
 
 def parse_argument(p):
