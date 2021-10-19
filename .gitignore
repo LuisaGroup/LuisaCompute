@@ -317,7 +317,7 @@ _deps
 
 CMakeSettings.json
 
-**/__pycache__
+**/__pycache__/**
 
 #white list
 !src/backends/dx/VEngineCompiler/*.*
