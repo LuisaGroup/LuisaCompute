@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        $for(depth) : $range(5u) {
+        for (auto depth : range(5u)) {
 
             // trace
             auto hit = accel.trace_closest(ray);
@@ -263,7 +263,7 @@ int main(int argc, char *argv[]) {
             auto r = lcg(state);
             $if(r >= q) { $break; };
             beta *= 1.0f / q;
-        };
+        }
         state_image.write(dispatch_id().xy(), make_uint4(state));
         $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
