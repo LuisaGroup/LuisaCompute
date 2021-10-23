@@ -76,4 +76,8 @@ std::span<const Function::AccelBinding> Function::captured_accels() const noexce
     return _builder->captured_accels();
 }
 
+std::span<const Variable> Function::local_variables() const noexcept {
+    return _builder->local_variables();
+}
+
 }// namespace luisa::compute

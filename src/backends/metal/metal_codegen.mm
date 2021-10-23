@@ -396,14 +396,6 @@ void MetalCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "}";
 }
 
-void MetalCodegen::visit(const DeclareStmt *stmt) {
-    auto v = stmt->variable();
-    _emit_type_name(v.type());
-    _scratch << " ";
-    _emit_variable_name(v);
-    _scratch << "{};";
-}
-
 void MetalCodegen::visit(const IfStmt *stmt) {
     _scratch << "if (";
     stmt->condition()->accept(*this);
@@ -597,6 +589,18 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         }
         if (has_mutable_args) { _scratch << "\n"; }
     }
+    // emit local variables
+    if (auto vs = f.local_variables(); !vs.empty()) {
+        _scratch << "\n\n";
+        for (auto v : vs) {
+            _scratch << "  ";
+            _emit_type_name(v.type());
+            _scratch << " ";
+            _emit_variable_name(v);
+            _scratch << "{};\n";
+        }
+    }
+    // emit body
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
 }

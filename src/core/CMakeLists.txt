@@ -9,12 +9,13 @@ set(LUISA_COMPUTE_CORE_SOURCES
         platform.cpp platform.h
         mathematics.h
         atomic.h
+        basic_traits.h
         basic_types.cpp basic_types.h
         dynamic_module.cpp dynamic_module.h
         intrin.h
         clock.h
-        uuid.h basic_traits.h
-        allocator.h allocator.cpp)
+        allocator.h allocator.cpp
+        rc.h)
 
 find_package(Threads REQUIRED)
 

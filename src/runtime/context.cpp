@@ -7,8 +7,16 @@
 
 namespace luisa::compute {
 
+namespace detail {
+[[nodiscard]] auto runtime_directory(const std::filesystem::path &p) noexcept {
+    auto cp = std::filesystem::canonical(p);
+    if (std::filesystem::is_directory(cp)) { return cp; }
+    return std::filesystem::canonical(cp.parent_path());
+}
+}// namespace detail
+
 Context::Context(const std::filesystem::path &program) noexcept
-    : _runtime_directory{std::filesystem::canonical(program).parent_path()} {
+    : _runtime_directory{detail::runtime_directory(program)} {
     LUISA_INFO("Created context for program: {}.", program.filename().string<char>());
     LUISA_INFO("Runtime directory: {}.", _runtime_directory.string<char>());
     _cache_directory = _runtime_directory / ".cache";

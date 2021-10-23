@@ -1,9 +1,11 @@
-#set(LUISA_COMPUTE_SERIALIZE_SOURCES
-#)
+set(LUISA_COMPUTE_SERIALIZE_SOURCES
+        IJsonObject.h
+        IJsonDatabase.h
+        INoSqlDatabase.h
+        serialize.cpp)
 
-#add_library(luisa-compute-serialize-json MODULE ${LUISA_COMPUTE_SERIALIZE_SOURCES})
-#target_link_libraries(luisa-compute-serialize-json PRIVATE luisa-compute-vstl)
-#set_target_properties(luisa-compute-serialize-json PROPERTIES UNITY_BUILD ON)
-
-#add_library(luisa-compute-serialize INTERFACE)
-#add_dependencies(luisa-compute-serialize luisa-compute-serialize-json)
+add_library(luisa-compute-serialize SHARED ${LUISA_COMPUTE_SERIALIZE_SOURCES})
+target_link_libraries(luisa-compute-serialize PUBLIC luisa-compute-vstl)
+set_target_properties(luisa-compute-serialize PROPERTIES
+        UNITY_BUILD ON
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)

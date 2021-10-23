@@ -28,7 +28,6 @@ struct ContinueStmt;
 class ReturnStmt;
 
 class ScopeStmt;
-class DeclareStmt;
 class IfStmt;
 class LoopStmt;
 class ExprStmt;
@@ -44,7 +43,6 @@ struct StmtVisitor {
     virtual void visit(const ContinueStmt *) = 0;
     virtual void visit(const ReturnStmt *) = 0;
     virtual void visit(const ScopeStmt *) = 0;
-    virtual void visit(const DeclareStmt *) = 0;
     virtual void visit(const IfStmt *) = 0;
     virtual void visit(const LoopStmt *) = 0;
     virtual void visit(const ExprStmt *) = 0;
@@ -89,17 +87,6 @@ public:
     explicit ScopeStmt(ArenaVector<const Statement *> stmts) noexcept : _statements{std::move(stmts)} {}
     [[nodiscard]] auto statements() const noexcept { return std::span{_statements.data(), _statements.size()}; }
     void append(const Statement *stmt) noexcept { _statements.emplace_back(stmt); }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
-};
-
-class DeclareStmt : public Statement {
-
-private:
-    Variable _var;
-
-public:
-    DeclareStmt(Variable var) noexcept : _var{var} {}
-    [[nodiscard]] auto variable() const noexcept { return _var; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
@@ -262,7 +249,6 @@ static_assert(std::is_trivially_destructible_v<BreakStmt>);
 static_assert(std::is_trivially_destructible_v<ContinueStmt>);
 static_assert(std::is_trivially_destructible_v<ReturnStmt>);
 static_assert(std::is_trivially_destructible_v<ScopeStmt>);
-static_assert(std::is_trivially_destructible_v<DeclareStmt>);
 static_assert(std::is_trivially_destructible_v<IfStmt>);
 static_assert(std::is_trivially_destructible_v<LoopStmt>);
 static_assert(std::is_trivially_destructible_v<ExprStmt>);

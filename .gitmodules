@@ -4,15 +4,9 @@
 [submodule "src/ext/spdlog"]
 	path = src/ext/spdlog
 	url = https://github.com/gabime/spdlog.git
-[submodule "src/ext/pybind11"]
-	path = src/ext/pybind11
-	url = https://github.com/pybind/pybind11.git
 [submodule "src/ext/mimalloc"]
 	path = src/ext/mimalloc
 	url = https://github.com/microsoft/mimalloc.git
-[submodule "src/ext/stduuid"]
-	path = src/ext/stduuid
-	url = https://github.com/mariusbancila/stduuid.git
 [submodule "src/ext/asio"]
 	path = src/ext/asio
 	url = https://github.com/chriskohlhoff/asio.git

@@ -68,7 +68,7 @@ public:
             uint64_t heap_handle,// == uint64(-1) when not from heap
             uint32_t index_in_heap) noexcept = 0;
         virtual void destroy_buffer(uint64_t handle) noexcept = 0;
-        virtual void *buffer_native_handle(uint64_t handle) const noexcept = 0;
+        [[nodiscard]] virtual void *buffer_native_handle(uint64_t handle) const noexcept = 0;
 
         // texture
         [[nodiscard]] virtual uint64_t create_texture(
@@ -79,7 +79,7 @@ public:
             uint64_t heap_handle,// == uint64(-1) when not from heap
             uint32_t index_in_heap) = 0;
         virtual void destroy_texture(uint64_t handle) noexcept = 0;
-        virtual void *texture_native_handle(uint64_t handle) const noexcept = 0;
+        [[nodiscard]] virtual void *texture_native_handle(uint64_t handle) const noexcept = 0;
 
         // texture heap
         [[nodiscard]] virtual uint64_t create_heap(size_t size) noexcept = 0;
@@ -91,10 +91,10 @@ public:
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, CommandList) noexcept = 0;
-        virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
+        [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
 
         // kernel
-        virtual uint64_t create_shader(Function kernel) noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_shader(Function kernel) noexcept = 0;
         virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
         // event
@@ -105,9 +105,9 @@ public:
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
         // accel
-        virtual uint64_t create_mesh() noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_mesh() noexcept = 0;
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
-        virtual uint64_t create_accel() noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_accel() noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
     };
 

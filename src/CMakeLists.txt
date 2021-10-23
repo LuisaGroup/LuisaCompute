@@ -29,29 +29,29 @@ else ()
 endif ()
 
 add_subdirectory(core)
-add_subdirectory(vstl)
+#add_subdirectory(vstl)
 add_subdirectory(ast)
 add_subdirectory(runtime)
-add_subdirectory(serialize)
+#add_subdirectory(serialize)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
+add_subdirectory(api)
 add_subdirectory(backends)
-add_subdirectory(python)
 
 add_library(luisa-compute INTERFACE)
 target_link_libraries(luisa-compute INTERFACE
         luisa-compute-core
-        luisa-compute-vstl
+#        luisa-compute-vstl
         luisa-compute-ast
-        luisa-compute-serialize
+#        luisa-compute-serialize
         luisa-compute-compile
         luisa-compute-runtime
         luisa-compute-dsl
         luisa-compute-rtx
-        luisa-compute-backends
-        luisa-compute-python)
+        luisa-compute-backends)
 
+add_dependencies(luisa-compute luisa-compute-api)
 add_library(luisa::compute ALIAS luisa-compute)
 
 if (LUISA_COMPUTE_BUILD_TESTS)
