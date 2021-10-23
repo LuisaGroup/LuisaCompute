@@ -270,12 +270,12 @@ public:
 	}
 	template<typename F>
 	ObjectPtr<F> InterfaceCast() const& noexcept {
-		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || std::_Always_false<F>, "Only vobject class can use this!");
+		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || AlwaysFalse<F>, "Only vobject class can use this!");
 		return ObjectPtr<F>(link, GetPtr()->GetInterfaceOffset<F>());
 	}
 	template<typename F>
 	ObjectPtr<F> InterfaceCast() && noexcept {
-		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || std::_Always_false<F>, "Only vobject class can use this!");
+		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || AlwaysFalse<F>, "Only vobject class can use this!");
 		return ObjectPtr<F>(std::move(link), GetPtr()->GetInterfaceOffset<F>());
 	}
 	template<typename F>
@@ -502,12 +502,12 @@ public:
 	}
 	template<typename F>
 	ObjectPtr<F> InterfaceCast() const& noexcept {
-		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || std::_Always_false<F>, "Only vobject class can use this!");
+		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || AlwaysFalse<F>, "Only vobject class can use this!");
 		return ObjectPtr<F>(link, GetPtr()->GetInterfaceOffset<F>());
 	}
 	template<typename F>
 	ObjectPtr<F> InterfaceCast() && noexcept {
-		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || std::_Always_false<F>, "Only vobject class can use this!");
+		static_assert(std::is_same_v<T, VObject> || std::is_base_of_v<VObject, T> || AlwaysFalse<F>, "Only vobject class can use this!");
 		return ObjectPtr<F>(std::move(link), GetPtr()->GetInterfaceOffset<F>());
 	}
 	inline void operator=(const ObjWeakPtr<T>& other) noexcept {

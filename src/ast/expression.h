@@ -20,12 +20,13 @@
 namespace luisa::compute {
 
 struct ExprVisitor;
-
+class AstSerializer;
 namespace detail {
 class FunctionBuilder;
 }
 
 class Expression : public concepts::Noncopyable {
+    friend class AstSerializer;
 
 public:
     enum struct Tag : uint32_t {
@@ -89,6 +90,7 @@ struct ExprVisitor {
     void accept(ExprVisitor &visitor) const override { visitor.visit(this); }
 
 class UnaryExpr final : public Expression {
+    friend class AstSerializer;
 
 private:
     const Expression *_operand;
@@ -111,6 +113,7 @@ public:
 };
 
 class BinaryExpr final : public Expression {
+    friend class AstSerializer;
 
 private:
     const Expression *_lhs;
@@ -137,6 +140,7 @@ public:
 };
 
 class AccessExpr final : public Expression {
+    friend class AstSerializer;
 
 private:
     const Expression *_range;
@@ -161,6 +165,7 @@ public:
 };
 
 class MemberExpr final : public Expression {
+    friend class AstSerializer;
 
 public:
     static constexpr auto swizzle_mask = 0xff00000000ull;
@@ -230,6 +235,7 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 }// namespace detail
 
 class LiteralExpr final : public Expression {
+    friend class AstSerializer;
 
 public:
     using Value = detail::make_literal_value_t<basic_types>;
@@ -251,6 +257,7 @@ public:
 };
 
 class RefExpr final : public Expression {
+    friend class AstSerializer;
 
 private:
     Variable _variable;
@@ -269,6 +276,7 @@ public:
 };
 
 class ConstantExpr final : public Expression {
+    friend class AstSerializer;
 
 private:
     ConstantData _data;
@@ -287,6 +295,7 @@ public:
 };
 
 class CallExpr final : public Expression {
+    friend class AstSerializer;
 
 public:
     using ArgumentList = std::span<const Expression *>;
@@ -323,6 +332,7 @@ enum struct CastOp {
 };
 
 class CastExpr final : public Expression {
+    friend class AstSerializer;
 
 private:
     const Expression *_source;

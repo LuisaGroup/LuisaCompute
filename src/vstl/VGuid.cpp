@@ -51,8 +51,8 @@ int32 GetNumber(char c) {
         default: return 15;
     }
 };
-void ParseHex(string_view strv, Guid::GuidData &data) {
-    char const *ptr = strv.begin();
+void ParseHex(std::string_view strv, Guid::GuidData &data) {
+    char const *ptr = strv.data();
     auto toHex = [&]() {
         uint64 v = 0;
         auto endPtr = ptr + sizeof(uint64) * 2;
@@ -69,7 +69,7 @@ void ParseHex(string_view strv, Guid::GuidData &data) {
     data.data1 = toHex();
 }
 }// namespace VGuid_Detail
-optional<Guid> Guid::TryParseGuid(string_view strv) {
+optional<Guid> Guid::TryParseGuid(std::string_view strv) {
     using namespace VGuid_Detail;
     optional<Guid> opt;
     switch (strv.size()) {
@@ -84,7 +84,7 @@ optional<Guid> Guid::TryParseGuid(string_view strv) {
     }
     return opt;
 }
-Guid::Guid(string_view strv) {
+Guid::Guid(std::string_view strv) {
     using namespace VGuid_Detail;
     switch (strv.size()) {
         case 22:
@@ -94,14 +94,14 @@ Guid::Guid(string_view strv) {
             ParseHex(strv, data);
         } break;
         default:
-            VEngine_Log("Wrong guid string length!\n");
+            VEngine_Log("Wrong guid std::string length!\n");
             VENGINE_EXIT;
     }
 }
 
 Guid::Guid(std::span<uint8_t> data) {
     if (data.size() != sizeof(GuidData) * 2) {
-        VEngine_Log("Wrong guid string length!\n");
+        VEngine_Log("Wrong guid std::string length!\n");
         VENGINE_EXIT;
     }
     memcpy(&this->data, data.data(), sizeof(GuidData));
@@ -110,8 +110,8 @@ Guid::Guid(std::array<uint8_t, sizeof(GuidData)> const &data) {
     memcpy(&this->data, data.data(), sizeof(GuidData));
 }
 
-string Guid::ToBase64() const {
-    string result;
+std::string Guid::ToBase64() const {
+    std::string result;
     StringUtil::EncodeToBase64({reinterpret_cast<uint8_t const *>(&data), sizeof(data)}, result);
     result.resize(result.size() - 2);
     return result;
@@ -159,8 +159,8 @@ void toHex(uint64 data, char *&sPtr, bool upper) {
     }
 }
 }// namespace vguid_detail
-string Guid::ToString(bool upper) const {
-    string s;
+std::string Guid::ToString(bool upper) const {
+    std::string s;
     s.resize(sizeof(GuidData) * 2);
     auto sPtr = s.data() + sizeof(GuidData) * 2 - 1;
     vguid_detail::toHex(data.data1, sPtr, upper);
@@ -182,13 +182,13 @@ VENGINE_UNITY_EXTERN void vguid_get_new(
     Guid *guidData) {
     *guidData = Guid(true).ToBinary();
 }
-VENGINE_UNITY_EXTERN void vguid_get_from_string(
+VENGINE_UNITY_EXTERN void vguid_get_from_std::string(
     char const *str,
     int32 strLen,
     Guid *guidData) {
-    *guidData = Guid(string_view(str, strLen)).ToBinary();
+    *guidData = Guid(std::string_view(str, strLen)).ToBinary();
 }
-VENGINE_UNITY_EXTERN void vguid_to_string(
+VENGINE_UNITY_EXTERN void vguid_to_std::string(
     Guid const *guidData,
     char *result,
     bool upper) {

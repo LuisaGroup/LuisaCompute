@@ -12,8 +12,9 @@ namespace luisa::compute {
 namespace detail {
 class FunctionBuilder;
 }
-
+class AstSerializer;
 class Variable {
+    friend class AstSerializer;
 
 public:
     enum struct Tag : uint32_t {

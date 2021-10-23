@@ -256,8 +256,9 @@ struct TypeData {
     luisa::string description;
     luisa::vector<const Type *> members;
 };
-
+class AstSerializer;
 class Type {
+    friend class AstSerializer;
 
 public:
     enum struct Tag : uint32_t {
@@ -298,6 +299,7 @@ public:
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
     [[nodiscard]] static const Type *at(uint32_t uid) noexcept;
     [[nodiscard]] static size_t count() noexcept;
+    [[nodiscard]] static Type const *get_type(uint64_t hash);
     static void traverse(TypeVisitor &visitor) noexcept;
 
     [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }

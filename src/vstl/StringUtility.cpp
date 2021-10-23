@@ -20,14 +20,14 @@ inline char mtoupper_value(char c) {
         return c + ('A' - 'a');
     return c;
 }
-void StringUtil::ToLower(string &str) {
+void StringUtil::ToLower(std::string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
         mtolower(c[i]);
     }
 }
-void StringUtil::ToUpper(string &str) {
+void StringUtil::ToUpper(std::string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
@@ -35,8 +35,8 @@ void StringUtil::ToUpper(string &str) {
     }
 }
 
-string StringUtil::ToLower(string_view str) {
-    string s;
+std::string StringUtil::ToLower(std::string_view str) {
+    std::string s;
     s.resize(str.size());
     for (auto i : range(str.size())) {
         auto &&v = s[i];
@@ -45,8 +45,8 @@ string StringUtil::ToLower(string_view str) {
     }
     return s;
 }
-string StringUtil::ToUpper(string_view str) {
-    string s;
+std::string StringUtil::ToUpper(std::string_view str) {
+    std::string s;
     s.resize(str.size());
     for (auto i : range(str.size())) {
         auto &&v = s[i];
@@ -55,7 +55,7 @@ string StringUtil::ToUpper(string_view str) {
     }
     return s;
 }
-string_view CharSplitIterator::operator*() const {
+std::string_view CharSplitIterator::operator*() const {
     return result;
 }
 void CharSplitIterator::operator++() {
@@ -67,30 +67,30 @@ void CharSplitIterator::operator++() {
                 start = curPtr;
                 continue;
             }
-            result = string_view(start, curPtr);
+            result = std::string_view(start, curPtr);
             ++curPtr;
             return;
         }
         ++curPtr;
     }
     if (endPtr == start) {
-        result = string_view(nullptr, nullptr);
+        result = std::string_view(nullptr, 0);
     } else {
-        result = string_view(start, endPtr);
+        result = std::string_view(start, endPtr);
     }
 }
 bool CharSplitIterator::operator==(IteEndTag) const {
     return result.size() == 0;
 }
 
-string_view StrVSplitIterator::operator*() const {
+std::string_view StrVSplitIterator::operator*() const {
     return result;
 }
 void StrVSplitIterator::operator++() {
     auto IsSame = [&](char const *ptr) {
         auto sz = endPtr - ptr;
         if (sz < sign.size()) return false;
-        string_view value(ptr, sign.size());
+        std::string_view value(ptr, sign.size());
         return value == sign;
     };
     char const *start = curPtr;
@@ -101,16 +101,16 @@ void StrVSplitIterator::operator++() {
                 start = curPtr;
                 continue;
             }
-            result = string_view(start, curPtr);
+            result = std::string_view(start, curPtr);
             curPtr += sign.size();
             return;
         }
         ++curPtr;
     }
     if (endPtr == start) {
-        result = string_view(nullptr, nullptr);
+        result = std::string_view(nullptr, 0);
     } else {
-        result = string_view(start, endPtr);
+        result = std::string_view(start, endPtr);
     }
 }
 bool StrVSplitIterator::operator==(IteEndTag) const {
@@ -225,13 +225,13 @@ size_t constexpr encoded_size(size_t n) {
     return 4 * ((n + 2) / 3);
 }
 
-/// Returns max bytes needed to decode a base64 string
+/// Returns max bytes needed to decode a base64 std::string
 size_t constexpr decoded_size(size_t n) {
     return n / 4 * 3;// requires n&3==0, smaller
 }
 
 }// namespace strutil_detail
-void StringUtil::EncodeToBase64(std::span<uint8_t const> binary, string &str) {
+void StringUtil::EncodeToBase64(std::span<uint8_t const> binary, std::string &str) {
     using namespace strutil_detail;
     size_t oriSize = str.size();
     str.resize(oriSize + encoded_size(binary.size()));
@@ -242,21 +242,21 @@ void StringUtil::EncodeToBase64(std::span<uint8_t const> binary, char *result) {
     encode(result, binary.data(), binary.size());
 }
 
-void StringUtil::DecodeFromBase64(string_view str, vector<uint8_t> &bin) {
+void StringUtil::DecodeFromBase64(std::string_view str, vector<uint8_t> &bin) {
     using namespace strutil_detail;
     size_t oriSize = bin.size();
     bin.reserve(oriSize + decoded_size(str.size()));
-    auto destAndSrcSize = decode(bin.data() + oriSize, str.begin(), str.size());
+    auto destAndSrcSize = decode(bin.data() + oriSize, str.data(), str.size());
     bin.resize(oriSize + destAndSrcSize.first);
 }
 
-void StringUtil::DecodeFromBase64(string_view str, uint8_t *size) {
+void StringUtil::DecodeFromBase64(std::string_view str, uint8_t *size) {
     using namespace strutil_detail;
-    decode(size, str.begin(), str.size());
+    decode(size, str.data(), str.size());
 }
 
-variant<int64, double> StringUtil::StringToNumber(string_view numStr) {
-    char const *pin = numStr.begin();
+variant<int64, double> StringUtil::StringToNumber(std::string_view numStr) {
+    auto pin = numStr.begin();
     auto error = []() {
         return false;
     };

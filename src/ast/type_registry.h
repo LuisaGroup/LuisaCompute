@@ -14,6 +14,7 @@
 #include <core/macro.h>
 #include <core/spin_mutex.h>
 #include <ast/type.h>
+#include <vstl/HashMap.h>
 
 namespace luisa::compute {
 
@@ -42,13 +43,18 @@ class TypeRegistry {
 
 private:
     luisa::vector<luisa::unique_ptr<Type>> _types;
+    vstd::HashMap<uint64_t, Type *> _type_map;
     spin_mutex _types_mutex;
 
 public:
     template<typename F>
     decltype(auto) with_types(F &&f) noexcept {
         std::scoped_lock lock{_types_mutex};
-        return f(_types);
+        if constexpr (std::is_invocable_v<F, decltype(_types), decltype(_type_map)>) {
+            return f(_types, _type_map);
+        } else {
+            return f(_types);
+        }
     }
 };
 

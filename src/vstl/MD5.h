@@ -4,7 +4,7 @@
 namespace vstd {
 static constexpr size_t MD5_SIZE = 16;
 
-VENGINE_DLL_COMMON std::array<uint8_t, MD5_SIZE> GetMD5FromString(string const& str);
+VENGINE_DLL_COMMON std::array<uint8_t, MD5_SIZE> GetMD5FromString(std::string const& str);
 VENGINE_DLL_COMMON std::array<uint8_t, MD5_SIZE> GetMD5FromArray(std::span<uint8_t> data);
 //Used for unity
 class VENGINE_DLL_COMMON MD5 {
@@ -19,13 +19,13 @@ private:
 
 public:
 	MD5Data const& ToBinary() const { return data; }
-	MD5(string const& str);
-	MD5(string_view str);
+	MD5(std::string const& str);
+	MD5(std::string_view str);
 	MD5(std::span<uint8_t const> bin);
 	MD5(MD5 const&) = default;
 	MD5(MD5&&) = default;
 	MD5(MD5Data const& data);
-	string ToString(bool upper = true) const;
+	std::string ToString(bool upper = true) const;
 	template<typename T>
 	MD5& operator=(T&& t) {
 		this->~MD5();

@@ -168,7 +168,7 @@ const Type *Type::from(std::string_view description) noexcept {
         auto hash = hash64(description);
 
         return _registry().with_types(
-            [info = std::move(info), data = std::move(data), hash, description](auto &&types) mutable noexcept {
+            [info = std::move(info), data = std::move(data), hash, description](auto &&types, auto &&type_map) mutable noexcept {
                 if (auto iter = std::find_if(
                         types.cbegin(), types.cend(),
                         [hash](auto &&ptr) noexcept { return ptr->hash() == hash; });
@@ -177,7 +177,13 @@ const Type *Type::from(std::string_view description) noexcept {
                 info._index = types.size();
                 data.description = description;
                 info._data = luisa::make_unique<TypeData>(std::move(data));
-                return types.emplace_back(luisa::make_unique<Type>(std::move(info))).get();
+                auto ptr = types.emplace_back(luisa::make_unique<Type>(std::move(info))).get();
+                while (true) {
+                    auto insert_result = type_map.TryEmplace(info._hash, ptr);
+                    if (insert_result.second) break;
+                    info._hash++;
+                }
+                return ptr;
             });
     };
 
@@ -188,6 +194,16 @@ const Type *Type::from(std::string_view description) noexcept {
             description);
     }
     return info;
+}
+
+Type const *Type::get_type(uint64_t hash) {
+    return _registry().with_types([&](auto &&, auto &&type_map) -> Type const * {
+        auto type_ptr = type_map.Find(hash);
+        if (type_ptr) {
+            return type_ptr.Value();
+        }
+        return nullptr;
+    });
 }
 
 std::string_view Type::description() const noexcept { return _data->description; }
