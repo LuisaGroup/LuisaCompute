@@ -10,157 +10,129 @@
 #include <vstl/string_view.h>
 #include <vstl/vector.h>
 namespace vstd {
-class VENGINE_DLL_COMMON string_core {
-public:
-    char *_ptr;
-    size_t _lenSize;
-    static constexpr size_t PLACEHOLDERSIZE = 16;
-    union {
-        char localStorage[PLACEHOLDERSIZE];
-        size_t _capacity;
-    };
-    string_core() {
-        _lenSize = 0;
-        _ptr = localStorage;
-    }
-    bool IsSmall() const;
-    void operator=(string_core const &v);
-    string_core(string_core &&v);
-    size_t capacity() const;
-    ~string_core();
-    void reserve(size_t tarCapa);
-};
-template<class _Elem, class _UTy>
-_Elem *UIntegral_to_buff(_Elem *_RNext, _UTy _UVal) noexcept {// format _UVal into buffer *ending at* _RNext
-    static_assert(std::is_unsigned_v<_UTy>, "_UTy must be unsigned");
-
-#ifdef _WIN64
-    auto _UVal_trunc = _UVal;
-#else // ^^^ _WIN64 ^^^ // vvv !_WIN64 vvv
-
-    constexpr bool _Big_uty = sizeof(_UTy) > 4;
-    if _CONSTEXPR_IF (_Big_uty) {// For 64-bit numbers, work in chunks to avoid 64-bit divisions.
-        while (_UVal > 0xFFFFFFFFU) {
-            auto _UVal_chunk = static_cast<unsigned long>(_UVal % 1000000000);
-            _UVal /= 1000000000;
-
-            for (int32_t _Idx = 0; _Idx != 9; ++_Idx) {
-                *--_RNext = static_cast<_Elem>('0' + _UVal_chunk % 10);
-                _UVal_chunk /= 10;
-            }
-        }
-    }
-
-    auto _UVal_trunc = static_cast<unsigned long>(_UVal);
-#endif// _WIN64
-
+template<class Elem, class UTy>
+Elem *UIntegral_to_buff(Elem *RNext, UTy UVal) noexcept {// format UVal into buffer *ending at* RNext
+    static_assert(std::is_unsigned_v<UTy>, "UTy must be unsigned");
+    auto UVal_trunc = UVal;
     do {
-        *--_RNext = static_cast<_Elem>('0' + _UVal_trunc % 10);
-        _UVal_trunc /= 10;
-    } while (_UVal_trunc != 0);
-    return _RNext;
+        *--RNext = static_cast<Elem>('0' + UVal_trunc % 10);
+        UVal_trunc /= 10;
+    } while (UVal_trunc != 0);
+    return RNext;
 }
-template<class _Ty>
-inline std::string IntegerToString(const _Ty _Val) noexcept {// convert _Val to std::string
-    static_assert(std::is_integral_v<_Ty>, "_Ty must be integral");
-    using _UTy = std::make_unsigned_t<_Ty>;
-    char _Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
-    char *const _Buff_end = std::end(_Buff);
-    char *_RNext = _Buff_end;
-    const auto _UVal = static_cast<_UTy>(_Val);
-    if (_Val < 0) {
-        _RNext = UIntegral_to_buff(_RNext, static_cast<_UTy>(0 - _UVal));
-        *--_RNext = '-';
+template<class Ty>
+inline std::string IntegerToString(const Ty Val) noexcept {// convert Val to std::string
+    static_assert(std::is_integral_v<Ty>, "_Ty must be integral");
+    using UTy = std::make_unsigned_t<Ty>;
+    char Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
+    char *const Buff_end = std::end(Buff);
+    char *RNext = Buff_end;
+    const auto UVal = static_cast<UTy>(Val);
+    if (Val < 0) {
+        RNext = UIntegral_to_buff(RNext, static_cast<UTy>(0 - UVal));
+        *--RNext = '-';
     } else {
-        _RNext = UIntegral_to_buff(_RNext, _UVal);
+        RNext = UIntegral_to_buff(RNext, UVal);
     }
 
-    return std::string(_RNext, _Buff_end);
+    return std::string(RNext, Buff_end);
 }
-template<class _Ty>
-inline void IntegerToString(const _Ty _Val, std::string &str) noexcept {// convert _Val to std::string
-    static_assert(std::is_integral_v<_Ty>, "_Ty must be integral");
-    using _UTy = std::make_unsigned_t<_Ty>;
-    char _Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
-    char *const _Buff_end = std::end(_Buff);
-    char *_RNext = _Buff_end;
-    const auto _UVal = static_cast<_UTy>(_Val);
-    if (_Val < 0) {
-        _RNext = UIntegral_to_buff(_RNext, static_cast<_UTy>(0 - _UVal));
-        *--_RNext = '-';
+template<class Ty>
+inline void IntegerToString(const Ty Val, std::string &str) noexcept {// convert Val to std::string
+    static_assert(std::is_integral_v<Ty>, "_Ty must be integral");
+    using UTy = std::make_unsigned_t<Ty>;
+    char Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
+    char *const Buff_end = std::end(Buff);
+    char *RNext = Buff_end;
+    const auto UVal = static_cast<UTy>(Val);
+    if (Val < 0) {
+        RNext = UIntegral_to_buff(RNext, static_cast<UTy>(0 - UVal));
+        *--RNext = '-';
     } else {
-        _RNext = UIntegral_to_buff(_RNext, _UVal);
+        RNext = UIntegral_to_buff(RNext, UVal);
     }
-    str.append(_RNext, _Buff_end - _RNext);
+    str.append(RNext, Buff_end - RNext);
 }
-inline std::string to_string(double _Val) noexcept {
-    const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
-    std::string _Str(_Len, '\0');
-    _CSTD sprintf_s(&_Str[0], _Len + 1, "%f", _Val);
-    return _Str;
+inline void to_string(double Val, std::string &str) noexcept {
+    int64 v = (int64)Val;
+    IntegerToString(v, str);
+    Val -= v;
+    char tempArr[12];
+    str.push_back('.');
+    for (auto i : range(12)) {
+        Val *= 10;
+        char x = (char)Val;
+        Val -= x;
+        tempArr[i] = (char)(x + 48);
+    }
+    size_t cullSize = 12;
+    for (auto &&i : ptr_range(tempArr + 11, tempArr - 1, -1)) {
+        if (i != '0') break;
+        cullSize--;
+    }
+    str.append(tempArr, cullSize);
 }
-inline void to_string(double _Val, std::string &str) noexcept {
-    const auto _Len = static_cast<size_t>(_CSTD _scprintf("%f", _Val));
-    size_t oldSize = str.size();
-    str.resize(oldSize + _Len);
-    _CSTD sprintf_s(&str[oldSize], _Len + 1, "%f", _Val);
+inline std::string to_string(double Val) noexcept {
+    std::string str;
+    to_string(Val, str);
+    return str;
 }
-inline std::string to_string(float _Val) noexcept {
-    return to_string((double)_Val);
-}
-
-inline std::string to_string(int32_t _Val) noexcept {
-    return IntegerToString(_Val);
-}
-inline std::string to_string(uint32_t _Val) noexcept {
-    return IntegerToString(_Val);
-}
-inline std::string to_string(int16_t _Val) noexcept {
-    return IntegerToString(_Val);
-}
-inline std::string to_string(uint16_t _Val) noexcept {
-    return IntegerToString(_Val);
-}
-inline std::string to_string(int8_t _Val) noexcept {
-    return IntegerToString(_Val);
-}
-inline std::string to_string(uint8_t _Val) noexcept {
-    return IntegerToString(_Val);
-}
-inline std::string to_string(int64_t _Val) noexcept {
-    return IntegerToString(_Val);
-}
-inline std::string to_string(uint64_t _Val) noexcept {
-    return IntegerToString(_Val);
+inline std::string to_string(float Val) noexcept {
+    return to_string((double)Val);
 }
 
-inline void to_string(float _Val, std::string &str) noexcept {
-    to_string((double)_Val, str);
+inline std::string to_string(int32_t Val) noexcept {
+    return IntegerToString(Val);
+}
+inline std::string to_string(uint32_t Val) noexcept {
+    return IntegerToString(Val);
+}
+inline std::string to_string(int16_t Val) noexcept {
+    return IntegerToString(Val);
+}
+inline std::string to_string(uint16_t Val) noexcept {
+    return IntegerToString(Val);
+}
+inline std::string to_string(int8_t Val) noexcept {
+    return IntegerToString(Val);
+}
+inline std::string to_string(uint8_t Val) noexcept {
+    return IntegerToString(Val);
+}
+inline std::string to_string(int64_t Val) noexcept {
+    return IntegerToString(Val);
+}
+inline std::string to_string(uint64_t Val) noexcept {
+    return IntegerToString(Val);
 }
 
-inline void to_string(int32_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+inline void to_string(float Val, std::string &str) noexcept {
+    to_string((double)Val, str);
 }
-inline void to_string(uint32_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+
+inline void to_string(int32_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
 }
-inline void to_string(int16_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+inline void to_string(uint32_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
 }
-inline void to_string(uint16_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+inline void to_string(int16_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
 }
-inline void to_string(int8_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+inline void to_string(uint16_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
 }
-inline void to_string(uint8_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+inline void to_string(int8_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
 }
-inline void to_string(int64_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+inline void to_string(uint8_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
 }
-inline void to_string(uint64_t _Val, std::string &str) noexcept {
-    IntegerToString(_Val, str);
+inline void to_string(int64_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
+}
+inline void to_string(uint64_t Val, std::string &str) noexcept {
+    IntegerToString(Val, str);
 }
 
 }// namespace vstd
