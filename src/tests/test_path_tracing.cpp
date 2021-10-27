@@ -34,7 +34,9 @@ struct Onb {
 };
 
 LUISA_STRUCT(Material, albedo, emission) {};
-LUISA_STRUCT(Onb, tangent, binormal, normal) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
+
+};
 
 int main(int argc, char *argv[]) {
 

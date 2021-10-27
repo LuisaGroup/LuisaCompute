@@ -13,9 +13,6 @@
 namespace luisa {
 
 template<typename T>
-class RC;
-
-template<typename T>
 class RC {
 
 private:

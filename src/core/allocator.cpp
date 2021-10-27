@@ -19,23 +19,22 @@ void allocator_deallocate(void *p, size_t alignment) noexcept {
     alignment <= 16u ? mi_free(p) : mi_free_aligned(p, alignment);
 }
 void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept {
-    alignment <= 16u ? mi_realloc(p, size) : mi_realloc_aligned(p, size, alignment);
+    return alignment <= 16u ? mi_realloc(p, size) : mi_realloc_aligned(p, size, alignment);
 }
-
 #else
 void *allocator_allocate(size_t size, size_t alignment) noexcept {
-    return alignment <= 16u ? malloc(size) :luisa::aligned_alloc(alignment, size);
+    return alignment <= 16u ? malloc(size) : luisa::aligned_alloc(alignment, size);
 }
 void allocator_deallocate(void *p, size_t alignment) noexcept {
     alignment <= 16u ? free(p) : luisa::aligned_free(p);
 }
 void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept {
-    auto realloc_align = [&]() {
+    auto aligned_realloc = [p, size, alignment] {
         luisa::aligned_free(p);
         return luisa::aligned_alloc(alignment, size);
     };
-    alignment <= 16u ? realloc(p, size) : realloc_align();
+    return alignment <= 16u ? realloc(p, size) : aligned_realloc();
 }
 #endif
 
-}
+}// namespace luisa::detail

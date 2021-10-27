@@ -24,11 +24,11 @@ public:
     Accel() noexcept = default;
     using Resource::operator bool;
 
-    [[nodiscard]] Command *refit(
+    [[nodiscard]] Command *update(
         size_t first,
         size_t count,
         const float4x4 *transforms) noexcept;
-    [[nodiscard]] Command *refit() noexcept;
+    [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] Command *build(
         AccelBuildHint mode,
         std::span<const uint64_t> mesh_handles,

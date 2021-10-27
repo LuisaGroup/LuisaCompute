@@ -5,8 +5,13 @@ from ._internal.logging import \
     set_log_level_warning, \
     set_log_level_error, \
     log_verbose, log_info, log_warning, log_error
-from .runtime import Device
+from .runtime import Device, \
+    ACCEL_BUILD_HINT_FAST_TRACE, \
+    ACCEL_BUILD_HINT_FAST_UPDATE, \
+    ACCEL_BUILD_HINT_FAST_REBUILD, \
+    HEAP_SLOT_COUNT
 from .type import Type
+from .pixel import *
 
 type = Type.of
 tuple = Type.tuple

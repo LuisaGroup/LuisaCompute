@@ -1,6 +1,7 @@
 #pragma vengine_package ispc_vsproject
 
-#include "ispc_codegen.h"
+#include <backends/ispc/runtime/ispc_codegen.h>
+
 namespace lc::ispc {
 void StringExprVisitor::visit(const UnaryExpr *expr) {
 
@@ -105,12 +106,12 @@ void StringExprVisitor::visit(const MemberExpr *expr) {
     if (expr->is_swizzle()) {
         char const *xyzw = "xyzw";
         str << '.';
-        for (auto i : vstd::range(expr->swizzle_size())) {
+        for (auto i : vstd::range(static_cast<uint32_t>(expr->swizzle_size()))) {
             str << xyzw[expr->swizzle_index(i)];
         }
     } else {
         str += ".v"sv;
-        vstd::to_string(expr->member_index(), (str));
+        vstd::to_string(static_cast<uint64_t>(expr->member_index()), (str));
     }
 }
 void StringExprVisitor::visit(const AccessExpr *expr) {
@@ -157,7 +158,7 @@ struct PrintValue<bool> {
 };
 template<typename EleType, size_t N>
 struct PrintValue<Vector<EleType, N>> {
-    using T = typename Vector<EleType, N>;
+    using T = Vector<EleType, N>;
     void operator()(T const &v, std::string &varName) {
         for (size_t i = 0; i < N; ++i) {
             vstd::to_string(v[i], varName);
@@ -217,13 +218,13 @@ void StringExprVisitor::visit(const ConstantExpr *expr) {
     auto &&view = data.view();
     auto typeName = CodegenUtility::GetBasicTypeName(view.index());
     str << typeName << ' ' << 'c';
-    vstd::to_string(constCount, str);
+    vstd::to_string(static_cast<uint64_t>(constCount), str);
     constCount++;
     str << "[]={";
     std::visit(
         [&](auto &&arr) {
             for (auto const &ele : arr) {
-                PrintValue<std::remove_cvref_t<std::remove_cvref_t<decltype(arr)>::element_type>> prt;
+                PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
                 prt(ele, str);
             }
         },
@@ -356,5 +357,5 @@ StringStateVisitor::StringStateVisitor(std::string &str)
     : str(str) {
     CodegenUtility::ClearStructType();
 }
-StringStateVisitor::~StringStateVisitor() {}
+StringStateVisitor::~StringStateVisitor() = default;
 }// namespace lc::ispc

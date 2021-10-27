@@ -5,6 +5,7 @@
 #include <ast/function.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
+
 using namespace luisa;
 using namespace luisa::compute;
 namespace lc::ispc {

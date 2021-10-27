@@ -22,7 +22,7 @@ using std::destroy_at;
 namespace detail {
 void *allocator_allocate(size_t size, size_t alignment) noexcept;
 void allocator_deallocate(void *p, size_t alignment) noexcept;
-void *allocator_reallocate(void* , size_t size, size_t alignment) noexcept;
+void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept;
 }// namespace detail
 
 template<typename T = std::byte>

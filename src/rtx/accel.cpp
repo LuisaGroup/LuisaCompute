@@ -23,7 +23,7 @@ Accel Device::create_accel() noexcept { return _create<Accel>(); }
 Accel::Accel(Device::Interface *device) noexcept
     : Resource{device, Tag::ACCEL, device->create_accel()} {}
 
-Command *Accel::refit() noexcept {
+Command *Accel::update() noexcept {
     if (!_built) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Geometry #{} is not built when updating.",
@@ -40,7 +40,7 @@ Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
     return Expr<Accel>{*this}.trace_any(ray);
 }
 
-Command *Accel::refit(
+Command *Accel::update(
     size_t first,
     size_t count,
     const float4x4 *transforms) noexcept {

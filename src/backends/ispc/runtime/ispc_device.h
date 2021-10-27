@@ -1,9 +1,14 @@
 #pragma once
+
 #include <runtime/device.h>
+
 using namespace luisa;
 using namespace luisa::compute;
+
 namespace lc::ispc {
 class ISPCDevice final : public Device::Interface {
+
+private:
     void *native_handle() const noexcept override;
 
     // buffer
@@ -53,5 +58,11 @@ class ISPCDevice final : public Device::Interface {
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
+
+public:
+    ISPCDevice(const luisa::compute::Context &ctx, uint32_t index /* TODO */) noexcept
+        : Device::Interface(ctx) {}
+    ~ISPCDevice() noexcept override = default;
 };
+
 }// namespace lc::ispc

@@ -12,7 +12,7 @@ vstd::unique_ptr<toolhub::db::IJsonDict> AstSerializer::Serialize(Type const &t,
 }
 void AstSerializer::DeSerialize(Type &t, IJsonDict *dict) {
     auto getOr = [&](auto &&opt) {
-        return dict->Get(opt).get_or<int64>(0);
+        return dict->Get(opt).template get_or<int64>(0);
     };
     t._hash = getOr("hash");
     t._size = getOr("size");

@@ -892,11 +892,13 @@ template<typename T>
 
 template<typename T, access a>
 [[nodiscard, gnu::always_inline]] inline auto texture_read(texture2d<T, a> t, uint2 uv) {
+  if constexpr (a == access::read_write) { t.fence(); }
   return t.read(uv);
 }
 
 template<typename T, access a>
 [[nodiscard, gnu::always_inline]] inline auto texture_read(texture3d<T, a> t, uint3 uvw) {
+  if constexpr (a == access::read_write) { t.fence(); }
   return t.read(uvw);
 }
 

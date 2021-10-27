@@ -598,9 +598,8 @@ public:
 		}
 		mSize = 0;
 	}
-	size_t size() const noexcept { return mSize; }
-
-	size_t GetCapacity() const noexcept { returnmCapacity; }
+	[[nodiscard]] size_t size() const noexcept { return mSize; }
+	[[nodiscard]] size_t GetCapacity() const noexcept { return mCapacity; }
 };
 
 template<typename K, typename V, typename Hash, typename Equal, VEngine_AllocType allocType>
