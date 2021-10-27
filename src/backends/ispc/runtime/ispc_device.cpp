@@ -2,6 +2,7 @@
 
 #include <backends/ispc/runtime/ispc_device.h>
 #include <runtime/texture.h>
+#include "ispc_codegen.h"
 
 namespace lc::ispc {
 void *ISPCDevice::native_handle() const noexcept {
@@ -46,7 +47,18 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 }
 
 // kernel
-uint64_t ISPCDevice::create_shader(Function kernel) noexcept { return 0; }
+uint64_t ISPCDevice::create_shader(Function kernel) noexcept {
+    std::string result;
+    CodegenUtility::PrintFunction(kernel, result);
+    auto f = fopen("test.ispc", "r");
+    if (f) {
+        auto disp = vstd::create_disposer([&] {
+            fclose(f);
+        });
+        fwrite(result.data(), result.size(), 1, f);
+    }
+    return 0;
+}
 void ISPCDevice::destroy_shader(uint64_t handle) noexcept {}
 
 // event

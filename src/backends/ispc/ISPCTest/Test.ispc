@@ -1,12 +1,9 @@
 #include "lib.h"
 export void irun(
-uniform uint x,
-uniform uint y,
-uniform uint z,
+uniform uint x_c,
+uniform uint y_c,
+uniform uint z_z,
 uniform uint64 arg) {
-uint64* intPtr = (uint64*)arg;
-uint64* vecPtr = (uint64*)intPtr[0];
-foreach(i = 0 ... x, j = 0 ... y, k = 0 ... z){
-vecPtr[i] += intPtr[1];
-}
-}
+uint64 a0 = *((uint64*)(arg + 0ull));
+float2 a1 = *((float2*)(arg + 8ull));
+float4 a2 = *((float4*)(arg + 16ull));

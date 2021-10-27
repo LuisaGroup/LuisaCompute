@@ -1,6 +1,7 @@
 #include <backends/ispc/runtime/ispc_codegen.h>
 
 namespace lc::ispc {
+#include "ispc.inl"
 static thread_local vstd::optional<vstd::HashMap<Type const *, void>> codegenStructType;
 void CodegenUtility::ClearStructType() {
     codegenStructType.New();
@@ -393,7 +394,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
             break;
         case CallOp::ATOMIC_FETCH_MAX:
             break;
-        case CallOp::TEXTURE_READ: 
+        case CallOp::TEXTURE_READ:
             break;
         case CallOp::TEXTURE_WRITE:
             break;
@@ -460,6 +461,34 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
             VEngine_Log("Function Not Implemented"sv);
             VSTL_ABORT();
     }
+}
+void CodegenUtility::PrintFunction(Function func, std::string &str) {
+    str << headerName;
+    //arguments
+    size_t ofst = 0;
+    for (auto &&i : func.arguments()) {
+        std::string argName;
+        std::string argType;
+        GetVariableName(i, argName);
+        GetTypeName(*i.type(), argType);
+        str << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
+        if (ofst > 0) {
+            str << '+';
+            vstd::to_string(ofst, str);
+            str << "ull";
+        }
+        str << "));\n";
+        ofst += 8;
+    }
+    //foreach
+    str << foreachName << "{\n"
+        << "uint3 dsp_id={x,y,z};"
+        << "uint3 thd_id={x,y,z};"
+        << "uint3 blk_id={0,0,0};";
+    StringStateVisitor vis(str);
+    func.body()->accept(vis);
+    //end
+    str << "}}";
 }
 void CodegenUtility::GetBasicTypeName(size_t typeIndex, std::string &str) {
     // Matrix

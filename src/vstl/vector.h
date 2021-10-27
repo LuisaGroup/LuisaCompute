@@ -9,6 +9,7 @@
 #include <vstl/VAllocator.h>
 #include <span>
 namespace vstd {
+namespace detail {
 template<typename T, size_t stackCount>
 struct vector_stack_obj {
     T *arr;
@@ -18,6 +19,7 @@ template<typename T>
 struct vector_stack_obj<T, 0> {
     T *arr;
 };
+}// namespace detail
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool forceTrivial = false, size_t stackCount = 0>
 class vector : public IOperatorNewBase {
 private:
@@ -32,7 +34,7 @@ private:
     //		using Type = T;
     //	};
     static_assert(!std::is_const_v<T>, "vector element cannot be constant!");
-    vector_stack_obj<T, stackCount> vec;
+    detail::vector_stack_obj<T, stackCount> vec;
     size_t mSize;
     size_t mCapacity;
     VAllocHandle<allocType> allocHandle;
@@ -368,16 +370,15 @@ public:
         mSize--;
     }
 
-    decltype(auto) erase_last() noexcept {
+    T erase_last() noexcept {
         mSize--;
         if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
             auto disp = create_disposer([this]() {
                 (vec.arr + mSize)->~T();
             });
-            auto x = std::move(vec.arr[mSize]);
-            return x;
+            return std::move(vec.arr[mSize]);
         } else {
-            return (vec.arr[mSize]);
+            return std::move(vec.arr[mSize]);
         }
     }
     void clear() noexcept {
