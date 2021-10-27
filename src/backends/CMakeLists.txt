@@ -26,6 +26,7 @@ option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
 option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
 option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
+option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" ON)
 
 if (LUISA_COMPUTE_ENABLE_DX)
     add_subdirectory(dx)
@@ -41,4 +42,8 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_CUDA)
     add_subdirectory(cuda)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_ISPC)
+    add_subdirectory(ispc)
 endif ()
