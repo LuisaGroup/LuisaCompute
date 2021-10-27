@@ -1186,7 +1186,7 @@ struct compare<variant<T...>> {
                     using TT = decltype(v);
                     using PureT = std::remove_cvref_t<TT>;
                     const compare<PureT> comp;
-                    return comp(v, b.force_get<TT>());
+                    return comp(v, b.template force_get<TT>());
                 });
         } else
             return (a.GetType() > b.GetType()) ? 1 : -1;

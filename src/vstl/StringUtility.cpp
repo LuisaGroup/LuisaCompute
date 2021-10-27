@@ -67,7 +67,7 @@ void CharSplitIterator::operator++() {
                 start = curPtr;
                 continue;
             }
-            result = std::string_view(start, curPtr);
+            result = std::string_view(start, curPtr - start);
             ++curPtr;
             return;
         }
@@ -76,7 +76,7 @@ void CharSplitIterator::operator++() {
     if (endPtr == start) {
         result = std::string_view(nullptr, 0);
     } else {
-        result = std::string_view(start, endPtr);
+        result = std::string_view(start, endPtr - start);
     }
 }
 bool CharSplitIterator::operator==(IteEndTag) const {
@@ -101,7 +101,7 @@ void StrVSplitIterator::operator++() {
                 start = curPtr;
                 continue;
             }
-            result = std::string_view(start, curPtr);
+            result = std::string_view(start, curPtr - start);
             curPtr += sign.size();
             return;
         }
@@ -110,7 +110,7 @@ void StrVSplitIterator::operator++() {
     if (endPtr == start) {
         result = std::string_view(nullptr, 0);
     } else {
-        result = std::string_view(start, endPtr);
+        result = std::string_view(start, endPtr - start);
     }
 }
 bool StrVSplitIterator::operator==(IteEndTag) const {

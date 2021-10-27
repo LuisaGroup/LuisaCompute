@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/config.h>
 #include <stdint.h>
-#include <xhash>
+#include <xxhash.h>
 #include <iostream>
 #include <string>
 #include <vstl/Hash.h>

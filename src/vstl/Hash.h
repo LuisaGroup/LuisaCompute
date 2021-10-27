@@ -8,6 +8,11 @@ VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_seed(void const* ptr, size_t sz
 //Size must less than 32 in x64
 VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small(void const* ptr, size_t sz);
 VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small_seed(void const* ptr, size_t sz, size_t seed);
+namespace vstd {
+template<typename K>
+struct hash;
+}
+
 class Hash {
 public:
 	static constexpr size_t FNV_offset_basis = 14695981039346656037ULL;
