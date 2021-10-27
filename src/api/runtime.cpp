@@ -5,7 +5,7 @@
 #include <core/rc.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
-#include <runtime/texture.h>
+#include <runtime/sampler.h>
 #include <runtime/command_list.h>
 #include <api/runtime.h>
 
@@ -58,7 +58,7 @@ uint64_t luisa_compute_texture_create(void *device, uint32_t format, uint32_t di
     return dev->retain()->impl()->create_texture(
         static_cast<PixelFormat>(format),
         dim, w, h, d, mips,
-        TextureSampler::decode(sampler),
+        Sampler::decode(sampler),
         heap, index_in_heap);
 }
 

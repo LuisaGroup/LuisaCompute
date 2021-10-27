@@ -273,6 +273,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
             break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
+        case CallOp::TEXTURE_READ_LEVEL: _scratch << "texture_read_level"; break;
+        case CallOp::TEXTURE_WRITE_LEVEL: _scratch << "texture_write_level"; break;
         case CallOp::TEXTURE_HEAP_SAMPLE2D: _scratch << "texture_heap_sample2d"; break;
         case CallOp::TEXTURE_HEAP_SAMPLE2D_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
         case CallOp::TEXTURE_HEAP_SAMPLE2D_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
@@ -910,6 +912,28 @@ template<typename T, access a, typename Value>
 template<typename T, access a, typename Value>
 [[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
   t.write(value, uvw);
+}
+
+template<typename T, access a, typename L>
+[[nodiscard, gnu::always_inline]] inline auto texture_read_level(texture2d<T, a> t, uint2 uv, L l) {
+  if constexpr (a == access::read_write) { t.fence(); }
+  return t.read(uv, l);
+}
+
+template<typename T, access a, typename L>
+[[nodiscard, gnu::always_inline]] inline auto texture_read(texture3d<T, a> t, uint3 uvw, L l) {
+  if constexpr (a == access::read_write) { t.fence(); }
+  return t.read(uvw, l);
+}
+
+template<typename T, access a, typename Value, typename L>
+[[gnu::always_inline]] inline void texture_write(texture2d<T, a> t, uint2 uv, Value value, L l) {
+  t.write(value, uv, l);
+}
+
+template<typename T, access a, typename Value, typename L>
+[[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value, L l) {
+  t.write(value, uvw, l);
 }
 
 template<typename T>

@@ -109,7 +109,7 @@ public:
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
                             uint width, uint height, uint depth, uint mipmap_levels,
-                            TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
+                            Sampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
     void destroy_texture(uint64_t handle) noexcept override;
     uint64_t create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

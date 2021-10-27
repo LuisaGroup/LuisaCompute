@@ -6,6 +6,7 @@
 
 #include <runtime/pixel.h>
 #include <runtime/resource.h>
+#include <runtime/mipmap.h>
 
 namespace luisa::compute {
 
@@ -26,32 +27,34 @@ class Volume : public Resource {
 
 private:
     PixelStorage _storage{};
+    uint _mip_levels{};
     uint3 _size{};
 
 private:
     friend class Device;
-    Volume(Device::Interface *device, PixelStorage storage, uint width, uint height, uint depth) noexcept
+    Volume(Device::Interface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u) noexcept
         : Resource{
-            device, Tag::TEXTURE,
-            device->create_texture(
-                pixel_storage_to_format<T>(storage), 3u,
-                width, height, depth, 1u, {},
-                std::numeric_limits<uint64_t>::max(), 0u)},
-          _storage{storage}, _size{width, height, depth} {}
+              device, Tag::TEXTURE,
+              device->create_texture(
+                  pixel_storage_to_format<T>(storage), 3u,
+                  size.x, size.y, size.z,
+                  detail::max_mip_levels(size, mip_levels),
+                  {}, std::numeric_limits<uint64_t>::max(), 0u)},
+          _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {}
 
-    Volume(Device::Interface *device, PixelStorage storage, uint3 size) noexcept
-        : Volume{device, storage, size.x, size.y, size.z} {}
+    Volume(Device::Interface *device, PixelStorage storage, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept
+        : Volume{device, storage, make_uint3(width, height, depth), mip_levels} {}
 
 public:
     Volume() noexcept = default;
     using Resource::operator bool;
 
     [[nodiscard]] auto native_handle() const noexcept { return device()->texture_native_handle(handle()); }
-
+    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{handle(), _storage, {}, _size}; }
+    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{handle(), _storage, _mip_levels, {}, _size}; }
     [[nodiscard]] auto view(uint3 offset, uint3 size) const noexcept {
         if (any(offset + size >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
@@ -60,8 +63,9 @@ public:
                 offset.x, offset.y, offset.z, size.x, size.y, size.z,
                 handle(), _size.x, _size.y, _size.z);
         }
-        return VolumeView<T>{handle(), _storage, offset, size};
+        return VolumeView<T>{handle(), _storage, _mip_levels, offset, size};
     }
+    [[nodiscard]] auto level(uint l) const noexcept { return view().level(l); }
 
     template<typename UVW>
     [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
@@ -75,15 +79,23 @@ public:
             std::forward<Value>(value));
     }
 
-    [[nodiscard]] Command *copy_to(void *data) const noexcept { return view().copy_to(data); }
-    [[nodiscard]] Command *copy_from(const void *data) const noexcept { return view().copy_from(data); }
-    [[nodiscard]] Command *copy_from(VolumeView<T> src) const noexcept { return view().copy_from(src); }
+    template<typename UVW, typename I>
+    [[nodiscard]] decltype(auto) read(UVW &&uvw, I &&level) const noexcept {
+        return this->view().read(std::forward<UVW>(uvw), std::forward<I>(level));
+    }
+
+    template<typename UVW, typename Value, typename I>
+    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value, I &&level) const noexcept {
+        return this->view().write(
+            std::forward<UVW>(uvw),
+            std::forward<Value>(value),
+            std::forward<I>(level));
+    }
 
     template<typename U>
-    [[nodiscard]] Command *copy_from(BufferView<U> src) const noexcept { return view().copy_from(src); }
-
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return view().copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] Command *copy_to(BufferView<U> src) const noexcept { return view().copy_to(src); }
+    [[nodiscard]] auto copy_from(U &&dst) const noexcept { return view().copy_from(std::forward<U>(dst)); }
 };
 
 template<typename T>
@@ -92,6 +104,7 @@ class VolumeView {
 private:
     uint64_t _handle;
     PixelStorage _storage;
+    uint _mip_levels;
     uint3 _offset;
     uint3 _size;
 
@@ -101,10 +114,12 @@ private:
     constexpr explicit VolumeView(
         uint64_t handle,
         PixelStorage storage,
+        uint mip_levels,
         uint3 offset,
         uint3 size) noexcept
         : _handle{handle},
           _storage{storage},
+          _mip_levels{mip_levels},
           _offset{offset},
           _size{size} {
 
@@ -122,53 +137,27 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
+    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
+
+    [[nodiscard]] auto level(uint l) const noexcept {
+        if (l >= _mip_levels) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid mipmap level {} (max = {}).",
+                l, _mip_levels - 1u);
+        }
+        return detail::MipmapView{
+            _handle, max(_size >> l, 1u),
+            _offset >> l, l, _storage};
+    }
 
     [[nodiscard]] auto subview(uint3 offset, uint3 size) const noexcept {
         return VolumeView{_handle, _storage, _offset + offset, size};
     }
 
-    [[nodiscard]] auto copy_from(const void *data) const noexcept {
-        return TextureUploadCommand::create(
-            _handle, _storage,
-            0u, _offset,
-            _size, data);
-    }
-
-    [[nodiscard]] auto copy_from(VolumeView src) const noexcept {
-        auto size = _size;
-        if (!all(size == src._size)) {
-            LUISA_WARNING_WITH_LOCATION(
-                "VolumeView sizes mismatch in copy command "
-                "(src: [{}, {}, {}], dest: [{}, {}, {}]).",
-                src._size.x, src._size.y, src._size.z,
-                size.x, size.y, size.z);
-            size = min(size, src._size);
-        }
-        return TextureCopyCommand::create(
-            src._handle, _handle, 0u, 0u,
-            src._offset, _offset, size);
-    }
-
     template<typename U>
-    [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
-        return BufferToTextureCopyCommand::create(
-            buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, 0u, _offset, _size);
-    }
-
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return level(0u).copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
-        return TextureToBufferCopyCommand::create(
-            buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, 0u, _offset, _size);
-    }
-
-    [[nodiscard]] auto copy_to(void *data) const noexcept {
-        return TextureDownloadCommand::create(
-            _handle, _storage,
-            0u, _offset,
-            _size, data);
-    }
+    [[nodiscard]] auto copy_from(U &&src) const noexcept { return level(0u).copy_from(std::forward<U>(src)); }
 
     template<typename UVW>
     [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
@@ -180,6 +169,19 @@ public:
         return Expr<Volume<T>>{*this}.write(
             std::forward<UVW>(uvw),
             std::forward<Value>(value));
+    }
+
+    template<typename UVW, typename I>
+    [[nodiscard]] decltype(auto) read(UVW &&uvw, I &&level) const noexcept {
+        return Expr<Volume<T>>{*this}.read(std::forward<UVW>(uvw), std::forward<I>(level));
+    }
+
+    template<typename UVW, typename Value, typename I>
+    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value, I &&level) const noexcept {
+        return Expr<Volume<T>>{*this}.write(
+            std::forward<UVW>(uvw),
+            std::forward<Value>(value),
+            std::forward<I>(level));
     }
 };
 

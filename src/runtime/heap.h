@@ -4,7 +4,8 @@
 
 #pragma once
 
-#include <runtime/texture.h>
+#include <runtime/sampler.h>
+#include <runtime/mipmap.h>
 #include <runtime/resource.h>
 
 namespace luisa::compute {
@@ -55,8 +56,56 @@ public:
     }
     void destroy_buffer(uint32_t index) noexcept;
 
-    [[nodiscard]] TextureView2D create_texture(uint index, PixelStorage storage, uint2 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
-    [[nodiscard]] TextureView3D create_texture(uint index, PixelStorage storage, uint3 size, TextureSampler sampler = TextureSampler{}, uint mip_levels = 1u) noexcept;
+    template<typename T>
+    [[nodiscard]] ImageView<T> create_image(uint index, PixelStorage storage, uint2 size, Sampler sampler = Sampler{}, uint mip_levels = 1u) noexcept {
+        if (auto h = _texture_slots[index]; h != invalid_handle) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Overwriting texture #{} at {} in heap #{}.",
+                h, index, handle());
+            destroy_texture(index);
+        }
+        auto valid_mip_levels = detail::max_mip_levels(make_uint3(size, 1u), mip_levels);
+        if (valid_mip_levels == 1u
+            && (sampler.filter() == Sampler::Filter::TRILINEAR
+                || sampler.filter() == Sampler::Filter::ANISOTROPIC)) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Textures without mipmaps do not support "
+                "trilinear or anisotropic sampling.");
+            sampler.set_filter(Sampler::Filter::BILINEAR);
+        }
+        auto handle = device()->create_texture(
+            pixel_storage_to_format<float>(storage), 2u,
+            size.x, size.y, 1u, valid_mip_levels,
+            sampler, this->handle(), index);
+        _texture_slots[index] = handle;
+        return {handle, storage, valid_mip_levels, make_uint2(0u), size};
+    }
+
+    template<typename T>
+    [[nodiscard]] VolumeView<T> create_volume(uint index, PixelStorage storage, uint3 size, Sampler sampler = Sampler{}, uint mip_levels = 1u) noexcept {
+        if (auto h = _texture_slots[index]; h != invalid_handle) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Overwriting texture #{} at {} in heap #{}.",
+                h, index, handle());
+            destroy_texture(index);
+        }
+        auto valid_mip_levels = detail::max_mip_levels(size, mip_levels);
+        if (valid_mip_levels == 1u
+            && (sampler.filter() == Sampler::Filter::TRILINEAR
+                || sampler.filter() == Sampler::Filter::ANISOTROPIC)) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Textures without mipmaps do not support "
+                "trilinear or anisotropic sampling.");
+            sampler.set_filter(Sampler::Filter::BILINEAR);
+        }
+        auto handle = device()->create_texture(
+            pixel_storage_to_format<float>(storage), 3u,
+            size.x, size.y, size.z, valid_mip_levels,
+            sampler, this->handle(), index);
+        _texture_slots[index] = handle;
+        return {handle, storage, valid_mip_levels, make_uint3(0u), size};
+    }
+
     void destroy_texture(uint32_t index) noexcept;
 
     // see implementations in dsl/expr.h

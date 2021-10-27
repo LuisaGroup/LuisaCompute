@@ -27,7 +27,7 @@ public:
     uint64_t create_shader(Function kernel) noexcept override { return _handle++; }
     void destroy_shader(uint64_t handle) noexcept override {}
     uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels,
-                            TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override { return _handle++; }
+                            Sampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override { return _handle++; }
     void destroy_texture(uint64_t handle) noexcept override {}
     uint64_t create_event() noexcept override { return _handle++; }
     void synchronize_event(uint64_t handle) noexcept override {}

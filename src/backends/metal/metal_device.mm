@@ -196,7 +196,7 @@ uint64_t MetalDevice::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels,
-    TextureSampler sampler,
+    Sampler sampler,
     uint64_t heap_handle,
     uint32_t index_in_heap) {
 

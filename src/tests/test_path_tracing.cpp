@@ -33,8 +33,8 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Material, albedo, emission) {};
-LUISA_STRUCT(Onb, tangent, binormal, normal) {
+LUISA_STRUCT(Material, albedo, emission){};
+LUISA_STRUCT(Onb, tangent, binormal, normal){
 
 };
 
@@ -185,95 +185,105 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel) noexcept {
-        set_block_size(8u, 8u, 1u);
+    static constexpr auto width = 1024u;
+    static constexpr auto height = 1024u;
+    static constexpr auto spp_per_dispatch = 128u;
+    static constexpr auto tile_size = make_uint2(64u);
+    static constexpr auto resolution = make_uint2(width, height);
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel, UInt2 tile_offset) noexcept {
+        set_block_size(8, 8, 1u);
 
-        Var coord = dispatch_id().xy();
-        Var frame_size = min(dispatch_size().x, dispatch_size().y).cast<float>();
-        Var state = state_image.read(coord).x;
-        Var rx = lcg(state);
-        Var ry = lcg(state);
-        Var pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
-        Var ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
-        Var radiance = make_float3(0.0f);
-        Var beta = make_float3(1.0f);
-        Var pdf_bsdf = 0.0f;
+        Var coord = dispatch_id().xy() + tile_offset;
+        if_(all(coord < resolution), [&] {
+            auto frame_size = static_cast<float>(min(resolution.x, resolution.y));
+            Var state = state_image.read(coord).x;
+            Var radiance = make_float3(0.0f);
 
-        constexpr auto light_position = make_float3(-0.24f, 1.98f, 0.16f);
-        constexpr auto light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
-        constexpr auto light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
-        constexpr auto light_emission = make_float3(17.0f, 12.0f, 4.0f);
-        auto light_area = length(cross(light_u, light_v));
-        auto light_normal = normalize(cross(light_u, light_v));
+            for (auto sub_frame : range(spp_per_dispatch)) {
+                Var rx = lcg(state);
+                Var ry = lcg(state);
+                Var pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
+                Var ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
+                Var beta = make_float3(1.0f);
+                Var pdf_bsdf = 0.0f;
 
-        for (auto depth : range(10u)) {
+                constexpr auto light_position = make_float3(-0.24f, 1.98f, 0.16f);
+                constexpr auto light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
+                constexpr auto light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
+                constexpr auto light_emission = make_float3(17.0f, 12.0f, 4.0f);
+                auto light_area = length(cross(light_u, light_v));
+                auto light_normal = normalize(cross(light_u, light_v));
 
-            // trace
-            Var hit = accel.trace_closest(ray);
-            if_(miss(hit), break_);
-            Var triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
-            Var p0 = vertex_buffer[triangle.i0];
-            Var p1 = vertex_buffer[triangle.i1];
-            Var p2 = vertex_buffer[triangle.i2];
-            Var p = interpolate(hit, p0, p1, p2);
-            Var n = normalize(cross(p1 - p0, p2 - p0));
-            Var cos_wi = dot(-direction(ray), n);
-            if_(cos_wi < 1e-4f, break_);
-            Var material = material_buffer[hit.inst];
+                for (auto depth : range(10u)) {
 
-            // hit light
-            if_(hit.inst == static_cast<uint>(meshes.size() - 1u), [&] {
-                if_(depth == 0u, [&] {
-                    radiance += light_emission;
-                }).else_([&] {
-                    Var pdf_light = length_squared(p - origin(ray)) / (light_area * cos_wi);
-                    Var mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-                    radiance += mis_weight * beta * light_emission;
-                });
-                break_();
-            });
+                    // trace
+                    Var hit = accel.trace_closest(ray);
+                    if_(miss(hit), break_);
+                    Var triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
+                    Var p0 = vertex_buffer[triangle.i0];
+                    Var p1 = vertex_buffer[triangle.i1];
+                    Var p2 = vertex_buffer[triangle.i2];
+                    Var p = interpolate(hit, p0, p1, p2);
+                    Var n = normalize(cross(p1 - p0, p2 - p0));
+                    Var cos_wi = dot(-direction(ray), n);
+                    if_(cos_wi < 1e-4f, break_);
+                    Var material = material_buffer[hit.inst];
 
-            // sample light
-            Var ux_light = lcg(state);
-            Var uy_light = lcg(state);
-            Var p_light = light_position + ux_light * light_u + uy_light * light_v;
-            Var d_light = distance(p, p_light);
-            Var wi_light = normalize(p_light - p);
-            Var shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
-            Var occluded = accel.trace_any(shadow_ray);
-            Var cos_wi_light = dot(wi_light, n);
-            Var cos_light = -dot(light_normal, wi_light);
-            if_(!occluded && cos_wi_light > 1e-4f && cos_light > 1e-4f, [&] {
-                Var pdf_light = (d_light * d_light) / (light_area * cos_light);
-                Var pdf_bsdf = cos_wi_light * inv_pi;
-                Var mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                Var bsdf = material.albedo * inv_pi * cos_wi_light;
-                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-            });
+                    // hit light
+                    if_(hit.inst == static_cast<uint>(meshes.size() - 1u), [&] {
+                        if_(depth == 0u, [&] {
+                            radiance += light_emission;
+                        }).else_([&] {
+                            Var pdf_light = length_squared(p - origin(ray)) / (light_area * cos_wi);
+                            Var mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                            radiance += mis_weight * beta * light_emission;
+                        });
+                        break_();
+                    });
 
-            // sample BSDF
-            Var onb = make_onb(n);
-            Var ux = lcg(state);
-            Var uy = lcg(state);
-            Var new_direction = transform_to_world(onb, cosine_sample_hemisphere(make_float2(ux, uy)));
-            ray = make_ray_robust(p, n, new_direction);
-            beta *= material.albedo;
-            pdf_bsdf = cos_wi * inv_pi;
+                    // sample light
+                    Var ux_light = lcg(state);
+                    Var uy_light = lcg(state);
+                    Var p_light = light_position + ux_light * light_u + uy_light * light_v;
+                    Var d_light = distance(p, p_light);
+                    Var wi_light = normalize(p_light - p);
+                    Var shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+                    Var occluded = accel.trace_any(shadow_ray);
+                    Var cos_wi_light = dot(wi_light, n);
+                    Var cos_light = -dot(light_normal, wi_light);
+                    if_(!occluded && cos_wi_light > 1e-4f && cos_light > 1e-4f, [&] {
+                        Var pdf_light = (d_light * d_light) / (light_area * cos_light);
+                        Var pdf_bsdf = cos_wi_light * inv_pi;
+                        Var mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+                        Var bsdf = material.albedo * inv_pi * cos_wi_light;
+                        radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+                    });
 
-            // rr
-            Var l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-            if_(l == 0.0f, break_);
-            Var q = max(l, 0.05f);
-            Var r = lcg(state);
-            if_(r >= q, break_);
-            beta *= 1.0f / q;
-        }
-        state_image.write(coord, make_uint4(state));
-        Var old = image.read(coord);
-        if_(isnan(radiance.x) || isnan(radiance.y) || isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
-        Var t = 1.0f / (old.w + 1.0f);
-        Var color = lerp(old.xyz(), clamp(radiance, 0.0f, 30.0f), t);
-        image.write(coord, make_float4(color, old.w + 1.0f));
+                    // sample BSDF
+                    Var onb = make_onb(n);
+                    Var ux = lcg(state);
+                    Var uy = lcg(state);
+                    Var new_direction = transform_to_world(onb, cosine_sample_hemisphere(make_float2(ux, uy)));
+                    ray = make_ray_robust(p, n, new_direction);
+                    beta *= material.albedo;
+                    pdf_bsdf = cos_wi * inv_pi;
+
+                    // rr
+                    Var l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
+                    if_(l == 0.0f, break_);
+                    Var q = max(l, 0.05f);
+                    Var r = lcg(state);
+                    if_(r >= q, break_);
+                    beta *= 1.0f / q;
+                }
+            }
+            state_image.write(coord, make_uint4(state));
+            Var old = image.read(coord);
+            if_(isnan(radiance.x) || isnan(radiance.y) || isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
+            Var t = 1.0f / (old.w + 1.0f);
+            Var color = lerp(old.xyz(), clamp(radiance * (1.0f / spp_per_dispatch), 0.0f, 30.0f), t);
+            image.write(coord, make_float4(color, old.w + 1.0f));
+        });
     };
 
     Callable aces_tonemapping = [](Float3 x) noexcept {
@@ -301,8 +311,6 @@ int main(int argc, char *argv[]) {
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
-    static constexpr auto width = 1024u;
-    static constexpr auto height = 1024u;
     auto state_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
     auto hdr_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
@@ -311,17 +319,16 @@ int main(int argc, char *argv[]) {
     Clock clock;
     clock.tic();
     static constexpr auto spp = 1024u;
-    static constexpr auto spp_per_dispatch = 4u;
     static constexpr auto dispatch_count = (spp + spp_per_dispatch - 1u) / spp_per_dispatch;
     stream << clear_shader(hdr_image).dispatch(width, height)
            << make_sampler_shader(state_image).dispatch(width, height);
-    for (auto d = 0u; d < dispatch_count; d++) {
-        auto command_buffer = stream.command_buffer();
-        for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(hdr_image, state_image, accel).dispatch(width, height);
+    for (auto y = 0u; y < height; y += tile_size.y) {
+        for (auto x = 0u; x < width; x += tile_size.x) {
+            for (auto d = 0u; d < dispatch_count; d++) {
+                stream << raytracing_shader(hdr_image, state_image, accel, make_uint2(x, y)).dispatch(tile_size);
+            }
         }
-        command_buffer << commit();
-        LUISA_INFO("Progress: {}/{}", d + 1u, dispatch_count);
+        LUISA_INFO("Progress: {}/{}", y + tile_size.y, height);
     }
     stream << hdr2ldr_shader(hdr_image, ldr_image, 1.0f).dispatch(width, height)
            << ldr_image.copy_to(pixels.data())

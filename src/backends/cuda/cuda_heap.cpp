@@ -78,7 +78,7 @@ CUdeviceptr CUDAHeap::descriptor_array() const noexcept {
     return _desc_array;
 }
 
-CUDATexture *CUDAHeap::allocate_texture(size_t index, PixelFormat format, uint dim, uint3 size, uint mip_levels, TextureSampler sampler) noexcept {
+CUDATexture *CUDAHeap::allocate_texture(size_t index, PixelFormat format, uint dim, uint3 size, uint mip_levels, Sampler sampler) noexcept {
 
     CUDA_ARRAY3D_DESCRIPTOR array_desc{};
     array_desc.Width = size.x;
@@ -197,42 +197,42 @@ CUDATexture *CUDAHeap::allocate_texture(size_t index, PixelFormat format, uint d
 
     CUDA_TEXTURE_DESC texture_desc{};
     switch (sampler.address()) {
-        case TextureSampler::Address::EDGE:
+        case Sampler::Address::EDGE:
             texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_CLAMP;
             texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_CLAMP;
             texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_CLAMP;
             break;
-        case TextureSampler::Address::REPEAT:
+        case Sampler::Address::REPEAT:
             texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_WRAP;
             texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_WRAP;
             texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_WRAP;
             break;
-        case TextureSampler::Address::MIRROR:
+        case Sampler::Address::MIRROR:
             texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_MIRROR;
             texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_MIRROR;
             texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_MIRROR;
             break;
-        case TextureSampler::Address::ZERO:
+        case Sampler::Address::ZERO:
             texture_desc.addressMode[0] = CU_TR_ADDRESS_MODE_BORDER;
             texture_desc.addressMode[1] = CU_TR_ADDRESS_MODE_BORDER;
             texture_desc.addressMode[2] = CU_TR_ADDRESS_MODE_BORDER;
             break;
     }
     switch (sampler.filter()) {
-        case TextureSampler::Filter::POINT:
+        case Sampler::Filter::POINT:
             texture_desc.filterMode = CU_TR_FILTER_MODE_POINT;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;
             break;
-        case TextureSampler::Filter::BILINEAR:
+        case Sampler::Filter::BILINEAR:
             texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;
             break;
-        case TextureSampler::Filter::TRILINEAR:
+        case Sampler::Filter::TRILINEAR:
             texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.maxMipmapLevelClamp = static_cast<float>(mip_levels - 1u);
             break;
-        case TextureSampler::Filter::ANISOTROPIC:
+        case Sampler::Filter::ANISOTROPIC:
             texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.maxAnisotropy = 16;
