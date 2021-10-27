@@ -33,7 +33,6 @@ private:
 private:
     friend class Device;
     Heap(Device::Interface *device, size_t capacity) noexcept;
-    [[nodiscard]] static constexpr auto _compute_mip_levels(uint3 size, uint requested_levels) noexcept;
 
 public:
     Heap() noexcept = default;

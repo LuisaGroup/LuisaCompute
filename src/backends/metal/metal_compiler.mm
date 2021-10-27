@@ -44,7 +44,6 @@ MetalShader MetalCompiler::compile(Function kernel) noexcept {
 
     auto options = [[MTLCompileOptions alloc] init];
     options.fastMathEnabled = YES;
-    options.languageVersion = MTLLanguageVersion2_4;
     options.libraryType = MTLLibraryTypeExecutable;
 
     __autoreleasing NSError *error = nullptr;
