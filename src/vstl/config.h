@@ -17,4 +17,6 @@
 #define VENGINE_C_FUNC_COMMON
 #define VENGINE_EXIT std::abort()
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
