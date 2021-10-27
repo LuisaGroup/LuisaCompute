@@ -247,10 +247,8 @@ uint64_t MetalDevice::create_texture(
     auto from_heap = heap_handle != Heap::invalid_handle;
     desc.allowGPUOptimizedContents = YES;
     desc.storageMode = MTLStorageModePrivate;
-    desc.hazardTrackingMode = from_heap ? MTLHazardTrackingModeUntracked
-                                        : MTLHazardTrackingModeTracked;
-    desc.usage = from_heap ? MTLTextureUsageShaderRead
-                           : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    desc.hazardTrackingMode = from_heap ? MTLHazardTrackingModeUntracked : MTLHazardTrackingModeTracked;
+    desc.usage = from_heap ? MTLTextureUsageShaderRead : MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     desc.mipmapLevelCount = mipmap_levels;
 
     id<MTLTexture> texture = nullptr;
