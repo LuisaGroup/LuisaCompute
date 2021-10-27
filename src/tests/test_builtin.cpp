@@ -193,6 +193,7 @@ int main(int argc, char *argv[]) {
         buffer[i].x = 5.0f;
 
         Var v0 = all(x == make_float4(0.0f));// TODO: GCC has trouble with x == 0.0f, related to operator== synthesis rules
+        // auto _ = x == 0.0f;
         Var v1 = saturate(x);
 
         Var s = soa_read<Some>(0u, soa.a, soa.b);
