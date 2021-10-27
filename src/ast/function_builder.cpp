@@ -18,7 +18,7 @@ void FunctionBuilder::push(FunctionBuilder *func) noexcept {
     _function_stack().emplace_back(func);
 }
 
-void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
+void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
     if (_function_stack().empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid pop on empty function stack.");
     }
@@ -35,6 +35,7 @@ void FunctionBuilder::pop(const FunctionBuilder *func) noexcept {
             "Custom callables may not have builtin, "
             "shared or captured variables.");
     }
+    f->_compute_hash();
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {

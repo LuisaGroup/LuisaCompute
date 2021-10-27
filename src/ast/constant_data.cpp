@@ -30,9 +30,12 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
             auto type = Type::of<T>();
             auto hash = hash64(view, type->hash());
             std::scoped_lock lock{detail::constant_registry_mutex()};
-            if (auto iter = std::find_if(detail::constant_registry().cbegin(),
-                                         detail::constant_registry().cend(),
-                                         [hash](auto &&item) noexcept { return item._hash == hash; });
+            if (auto iter = std::find_if(
+                    detail::constant_registry().cbegin(),
+                    detail::constant_registry().cend(),
+                    [hash](auto &&item) noexcept {
+                        return item._hash == hash;
+                    });
                 iter != detail::constant_registry().cend()) { return *iter; }
             auto &&arena = Arena::global();
             auto ptr = arena.allocate<T>(view.size());

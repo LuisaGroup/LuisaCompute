@@ -1,4 +1,5 @@
 import ctypes
+import numpy as np
 
 from ._internal.type import *
 from ._internal.logging import *
@@ -50,18 +51,21 @@ class Type:
         else:
             self._as_parameter_ = Type.of(desc)._as_parameter_
         self._fields = fields
-        if fields:
-            assert len(self._fields) == len(self.members)
+        assert fields is None or len(self._fields) == len(self.members)
+        self._desc = type_description(self)
 
     @property
     def description(self):
-        return type_description(self)
+        return self._desc
 
     def __str__(self):
         return self.description
 
     def __repr__(self):
         return self.description
+
+    def __eq__(self, other):
+        return self.description == Type.of(other).description
 
     @property
     def size(self):
@@ -135,12 +139,14 @@ class Type:
 
     @staticmethod
     def of(t):
-        if t == int:
+        if t == int or t == np.int32:
             return Type("int")
-        elif t == float:
+        elif t == float or t == np.float32:
             return Type("float")
-        elif t == bool:
+        elif t == bool or t == np.bool:
             return Type("bool")
+        elif t == np.uint32:
+            return Type("uint")
         elif isinstance(t, str):
             return Type(t)
         elif isinstance(t, Type):

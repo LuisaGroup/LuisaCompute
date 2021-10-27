@@ -223,7 +223,7 @@ template<typename T, size_t N,
     }
 }
 
-// binary operators
+// binary & assignment operators
 #define LUISA_MAKE_VECTOR_BINARY_OPERATOR(op, ...)                                      \
     template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
     [[nodiscard]] constexpr auto operator op(                                           \

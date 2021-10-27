@@ -186,7 +186,7 @@ public:
             _var = var.expression();
             auto bool_type = Type::of<bool>();
             _cond = f->binary(bool_type, BinaryOp::LESS, _var, _end.expression());
-            if constexpr (has_step) {// TODO: has step?
+            if constexpr (has_step) {
                 // step < 0
                 auto neg_step = f->binary(bool_type, BinaryOp::LESS, _step.expression(), f->literal(Type::of<T>(), T{0}));
                 // ((step < 0) && !(var < end)) || (!(step < 0) && (var < end))

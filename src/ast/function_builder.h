@@ -87,7 +87,6 @@ private:
     static void _define(FunctionBuilder *f, Def &&def) noexcept {
         push(f);
         f->with(&f->_body, std::forward<Def>(def));
-        f->_compute_hash();
         pop(f);
     }
 
@@ -113,6 +112,7 @@ public:
     [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
+    [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
     [[nodiscard]] auto return_type() const noexcept { return _ret; }
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
@@ -215,7 +215,7 @@ public:
     }
 
     static void push(FunctionBuilder *) noexcept;
-    static void pop(const FunctionBuilder *) noexcept;
+    static void pop(FunctionBuilder *) noexcept;
 
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;
