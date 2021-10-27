@@ -17,6 +17,7 @@ LUISA_EXPORT_API void luisa_compute_device_destroy(void *ctx, void *device) LUIS
 LUISA_EXPORT_API uint64_t luisa_compute_buffer_create(void *device, size_t size, uint64_t heap_handle, uint32_t index_in_heap) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_buffer_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT;
 
+LUISA_EXPORT_API uint32_t luisa_compute_pixel_format_to_storage(uint32_t format) LUISA_NOEXCEPT;
 LUISA_EXPORT_API uint64_t luisa_compute_texture_create(
     void *device, uint32_t format, uint32_t dim,
     uint32_t w, uint32_t h, uint32_t d, uint32_t mips,
@@ -25,6 +26,7 @@ LUISA_EXPORT_API void luisa_compute_texture_destroy(void *device, uint64_t handl
 
 LUISA_EXPORT_API uint64_t luisa_compute_heap_create(void *device, size_t size) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_heap_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT;
+LUISA_EXPORT_API size_t luisa_compute_heap_query_usage(void *device, uint64_t handle) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API uint64_t luisa_compute_stream_create(void *device) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT;
@@ -100,4 +102,6 @@ LUISA_EXPORT_API void *luisa_compute_command_update_mesh(uint64_t handle) LUISA_
 LUISA_EXPORT_API void *luisa_compute_command_build_accel(
     uint64_t handle, uint32_t hint, const void *instance_mesh_handles,
     const void *instance_transforms, size_t instance_count) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void *luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_command_update_accel(
+    uint64_t handle, const void *transforms,
+    size_t offset, size_t count) LUISA_NOEXCEPT;

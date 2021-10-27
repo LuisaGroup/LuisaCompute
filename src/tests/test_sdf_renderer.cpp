@@ -4,6 +4,8 @@
 
 #include <atomic>
 #include <numbers>
+#include <numeric>
+#include <algorithm>
 
 #include <opencv2/opencv.hpp>
 
@@ -134,20 +136,21 @@ int main(int argc, char *argv[]) {
         };
     };
 
-    Kernel2D render_kernel = [&](ImageUInt seed_image, ImageFloat accum_image, UInt frame_index) noexcept {
+    Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 accum_image, UInt frame_index) noexcept {
         set_block_size(8u, 8u, 1u);
 
         auto resolution = dispatch_size().xy().cast<float2>();
         auto coord = dispatch_id().xy();
+        auto global_id = coord.x + coord.y * dispatch_size_x();
 
         $if(frame_index == 0u) {
-            seed_image.write(coord, make_uint4(tea(coord.x, coord.y)));
-            accum_image.write(coord, make_float4(make_float3(0.0f), 1.0f));
+            seed_image[global_id] = tea(coord.x, coord.y);
+            accum_image[global_id] = make_float4(make_float3(0.0f), 1.0f);
         };
 
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
-        auto seed = seed_image.read(coord).x;
+        auto seed = seed_image[global_id];
         auto ux = rand(seed);
         auto uy = rand(seed);
         auto uv = make_uint2(dispatch_id().x, dispatch_size().y - 1u - dispatch_id().y).cast<float2>() + make_float2(ux, uy);
@@ -172,9 +175,9 @@ int main(int argc, char *argv[]) {
             pos = hit_pos + 1e-4f * d;
             throughput *= c;
         };
-        auto accum_color = accum_image.read(coord).xyz() + throughput.zyx() * hit_light;
-        accum_image.write(coord, make_float4(accum_color, 1.0f));
-        seed_image.write(coord, make_uint4(seed));
+        auto accum_color = accum_image[global_id].xyz() + throughput.zyx() * hit_light;
+        accum_image[global_id] = make_float4(accum_color, 1.0f);
+        seed_image[global_id] = seed;
     };
 
     Context context{argv[0]};
@@ -188,8 +191,8 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
-    auto seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
-    auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
+    auto seed_image = device.create_buffer<uint>(width * height);
+    auto accum_image = device.create_buffer<float4>(width * height);
     auto render = device.compile(render_kernel);
     auto stream = device.create_stream();
     auto swap_event = device.create_event();
@@ -201,8 +204,10 @@ int main(int argc, char *argv[]) {
     Clock clock;
     auto last_t = clock.toc();
 
-    static constexpr auto interval = 8u;
-    static constexpr auto total_spp = 65536u;
+    static constexpr auto interval = 1u;
+    static constexpr auto total_spp = 1u;
+    std::vector<double> fps;
+    fps.reserve(total_spp);
     for (auto spp = 0u; spp < total_spp; spp += interval) {
 
         // swap buffers
@@ -226,7 +231,11 @@ int main(int argc, char *argv[]) {
         cv::imshow("Display", cv_image);
         if (auto key = cv::waitKey(1); key == 'q' || key == 27) { break; }
         auto t = clock.toc();
-        LUISA_INFO("{:.2f} samples/s", interval * 1000.0 / (t - last_t));
+        LUISA_INFO(
+            "{:.2f} samples/s [{}/{}]",
+            fps.emplace_back(interval * 1000.0 / (t - last_t)),
+            spp + interval, total_spp);
         last_t = t;
     }
+    LUISA_INFO("Average: {} samples/s.", std::reduce(fps.cbegin(), fps.cend(), 0.0) / fps.size());
 }

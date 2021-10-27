@@ -122,7 +122,6 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     LUISA_INFO(
         "Created Metal device #{} with name: {}.",
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
-
     _compiler = luisa::make_unique<MetalCompiler>(this);
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
@@ -572,9 +571,9 @@ void *MetalDevice::stream_native_handle(uint64_t handle) const noexcept {
 }
 
 LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
-    return new luisa::compute::metal::MetalDevice{ctx, id};
+    return luisa::new_with_allocator<luisa::compute::metal::MetalDevice>(ctx, id);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {
-    delete device;
+    luisa::delete_with_allocator(device);
 }

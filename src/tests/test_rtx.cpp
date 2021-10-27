@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
                         rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
         stream << vertex_buffer.copy_from(vertices.data())
                << mesh.update()
-               << accel.refit(1u, 1u, &transforms[1])
+               << accel.update(1u, 1u, &transforms[1])
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)

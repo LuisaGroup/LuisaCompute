@@ -66,6 +66,14 @@ def buffer_destroy(device, handle):
     dll.luisa_compute_buffer_destroy(device, handle)
 
 
+dll.luisa_compute_pixel_format_to_storage.restype = c_uint32
+dll.luisa_compute_pixel_format_to_storage.argtypes = [c_uint32]
+
+
+def pixel_format_to_storage(format):
+    return dll.luisa_compute_pixel_format_to_storage(format)
+
+
 dll.luisa_compute_texture_create.restype = c_uint64
 dll.luisa_compute_texture_create.argtypes = [c_void_p, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint64, c_uint32]
 
@@ -96,6 +104,14 @@ dll.luisa_compute_heap_destroy.argtypes = [c_void_p, c_uint64]
 
 def heap_destroy(device, handle):
     dll.luisa_compute_heap_destroy(device, handle)
+
+
+dll.luisa_compute_heap_query_usage.restype = c_size_t
+dll.luisa_compute_heap_query_usage.argtypes = [c_void_p, c_uint64]
+
+
+def heap_query_usage(device, handle):
+    return dll.luisa_compute_heap_query_usage(device, handle)
 
 
 dll.luisa_compute_stream_create.restype = c_uint64
@@ -387,8 +403,8 @@ def command_build_accel(handle, hint, instance_mesh_handles, instance_transforms
 
 
 dll.luisa_compute_command_update_accel.restype = c_void_p
-dll.luisa_compute_command_update_accel.argtypes = [c_uint64]
+dll.luisa_compute_command_update_accel.argtypes = [c_uint64, c_void_p, c_size_t, c_size_t]
 
 
-def command_update_accel(handle):
-    return dll.luisa_compute_command_update_accel(handle)
+def command_update_accel(handle, transforms, offset, count):
+    return dll.luisa_compute_command_update_accel(handle, transforms, offset, count)

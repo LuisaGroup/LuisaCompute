@@ -299,6 +299,18 @@ void *luisa_compute_command_build_accel(
         std::span{static_cast<const float4x4 *>(instance_transforms), instance_count});
 }
 
-void *luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
-    return AccelUpdateCommand::create(handle);
+void *luisa_compute_command_update_accel(uint64_t handle, const void *transforms, size_t offset, size_t count) LUISA_NOEXCEPT {
+    if (transforms == nullptr) {
+        return AccelUpdateCommand::create(handle);
+    }
+    std::span s{static_cast<const float4x4 *>(transforms) + offset, count};
+    return AccelUpdateCommand::create(handle, s, offset);
+}
+
+uint32_t luisa_compute_pixel_format_to_storage(uint32_t format) LUISA_NOEXCEPT {
+    return to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format)));
+}
+
+size_t luisa_compute_heap_query_usage(void *device, uint64_t handle) LUISA_NOEXCEPT {
+    return static_cast<RC<Device> *>(device)->object()->impl()->query_heap_memory_usage(handle);
 }
