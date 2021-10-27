@@ -10,7 +10,7 @@ using namespace luisa::compute;
 namespace lc::ispc {
 class CodegenUtility {
 public:
-    static void GetCodegen(Function func, std::string &str, vstd::HashMap<uint, size_t> &varOffsets, size_t &cbufferSize);
+    static void PrintFunction(Function func, std::string &str);
     static void GetVariableName(Variable const &type, std::string &str);
     static void GetVariableName(Variable::Tag type, uint id, std::string &str);
     static void GetVariableName(Type::Tag type, uint id, std::string &str);
