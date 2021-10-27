@@ -1,6 +1,8 @@
 #pragma vengine_package ispc_vsproject
-#include "ispc_device.h"
+
+#include <backends/ispc/runtime/ispc_device.h>
 #include <runtime/texture.h>
+
 namespace lc::ispc {
 void *ISPCDevice::native_handle() const noexcept {
     return nullptr;

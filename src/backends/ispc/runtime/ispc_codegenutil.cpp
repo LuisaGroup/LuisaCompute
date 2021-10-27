@@ -1,4 +1,5 @@
-#include "ispc_codegen.h"
+#include <backends/ispc/runtime/ispc_codegen.h>
+
 namespace lc::ispc {
 static thread_local vstd::optional<vstd::HashMap<Type const *, void>> codegenStructType;
 void CodegenUtility::ClearStructType() {
@@ -88,7 +89,7 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str, bool isWrit
             str += "uint"sv;
             return;
         case Type::Tag::MATRIX: {
-            auto dim = vstd::to_string(type.dimension());
+            auto dim = std::to_string(type.dimension());
             CodegenUtility::GetTypeName(*type.element(), str, isWritable);
             str += dim;
             str += 'x';
@@ -97,7 +98,7 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str, bool isWrit
             return;
         case Type::Tag::VECTOR: {
             CodegenUtility::GetTypeName(*type.element(), str, isWritable);
-            vstd::to_string(type.dimension(), str);
+            vstd::to_string(static_cast<uint64_t>(type.dimension()), str);
         }
             return;
         case Type::Tag::STRUCTURE:
@@ -119,14 +120,18 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str, bool isWrit
             } else {
                 str += "Texture"sv;
             }
-            vstd::to_string(type.dimension(), str);
+            vstd::to_string(static_cast<uint64_t>(type.dimension()), str);
             str += "D<"sv;
             GetTypeName(*type.element(), str, isWritable);
             if (type.tag() != Type::Tag::VECTOR) {
                 str += '4';
             }
             str += '>';
-        } break;
+            break;
+        }
+        default:
+            LUISA_ERROR_WITH_LOCATION("Bad.");
+            break;
     }
 }
 
@@ -476,10 +481,12 @@ void CodegenUtility::GetBasicTypeName(size_t typeIndex, std::string &str) {
             case 3:
                 str << "uint";
                 break;
+            default:
+                break;
         }
         // vector
         if (vec > 1) {
-            vstd::to_string(vec, str);
+            vstd::to_string(static_cast<uint64_t>(vec), str);
         }
     }
 }
