@@ -368,15 +368,16 @@ public:
         mSize--;
     }
 
-    auto erase_last() noexcept {
+    decltype(auto) erase_last() noexcept {
         mSize--;
         if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
             auto disp = create_disposer([this]() {
                 (vec.arr + mSize)->~T();
             });
-            return std::move(vec.arr[mSize]);
+            auto x = std::move(vec.arr[mSize]);
+            return x;
         } else {
-            return std::move(vec.arr[mSize]);
+            return (vec.arr[mSize]);
         }
     }
     void clear() noexcept {
