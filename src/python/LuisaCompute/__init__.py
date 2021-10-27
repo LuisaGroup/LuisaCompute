@@ -12,6 +12,7 @@ from .runtime import Device, \
     HEAP_SLOT_COUNT
 from .type import Type
 from .pixel import *
+from .ast import Constant
 
 type = Type.of
 tuple = Type.tuple

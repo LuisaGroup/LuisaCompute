@@ -48,3 +48,7 @@ if __name__ == "__main__":
 
     src = inspect.getsource(aces_tonemapping)
     pprint(ast.parse(src, type_comments=True))
+
+    c = lc.Constant([[1, 1], [2, 2], [3, 3]])
+    print(c.element)
+    print(c.array)

@@ -2,6 +2,18 @@ cmake_minimum_required(VERSION 3.18...3.20)
 cmake_policy(VERSION 3.18)
 cmake_policy(SET CMP0069 NEW)
 
+find_program(SCCACHE_EXE sccache)
+if(SCCACHE_EXE)
+    message(STATUS "Build with sccache: ${SCCACHE_EXE}")
+    set(CMAKE_C_COMPILER_LAUNCHER ${SCCACHE_EXE})
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${SCCACHE_EXE})
+    set(CMAKE_OBJC_COMPILER_LAUNCHER ${SCCACHE_EXE})
+    set(CMAKE_OBJCXX_COMPILER_LAUNCHER ${SCCACHE_EXE})
+    set(CMAKE_CUDA_COMPILER_LAUNCHER ${SCCACHE_EXE})
+else()
+    message(STATUS "Could not find sccache")
+endif()
+
 project(LuisaCompute LANGUAGES C CXX VERSION 0.1)
 
 if (NOT DEFINED LUISA_COMPUTE_MASTER_PROJECT)

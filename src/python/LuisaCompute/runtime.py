@@ -379,8 +379,8 @@ class Accel:
         self._transforms = transforms
         cmd = command_build_accel(
             self, hint,
-            np.ascontiguousarray(self._meshes),
-            np.ascontiguousarray(self._transforms),
+            np.ascontiguousarray(self._meshes).ctypes.data,
+            np.ascontiguousarray(self._transforms).ctypes.data,
             count)
         Stream.dispatch(cmd)
 
@@ -393,7 +393,7 @@ class Accel:
             assert len(transforms.shape) == 3 and transforms.shape[1] == transforms.shape[2] == 4
             assert offset >= 0 and offset + len(transforms) <= len(self._meshes)
             self._transforms[offset:offset + len(transforms)] = transforms
-            cmd = command_update_accel(self, np.ascontiguousarray(self._transforms), offset, len(transforms))
+            cmd = command_update_accel(self, np.ascontiguousarray(self._transforms).ctypes.data, offset, len(transforms))
         Stream.dispatch(cmd)
 
 

@@ -27,7 +27,7 @@ class Constant:
         self._elem, self._array = view()
         self._as_parameter_ = ast_create_constant_data(
             self.element,
-            np.ascontiguousarray(self.array),
+            np.ascontiguousarray(self.array).ctypes.data,
             len(self.array))
 
     def __del__(self):
