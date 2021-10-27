@@ -474,7 +474,7 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         str << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
         if (ofst > 0) {
             str << '+';
-            vstd::to_string(ofst, str);
+            vstd::to_string(static_cast<uint64_t>(ofst), str);
             str << "ull";
         }
         str << "));\n";
