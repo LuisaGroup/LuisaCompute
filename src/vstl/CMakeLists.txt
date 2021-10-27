@@ -1,6 +1,6 @@
 set(LUISA_COMPUTE_UTIL_SOURCES
         ObjectPtr.cpp
-        stringUtility.cpp
+        StringUtility.cpp
         xxhash.cpp
         Log.cpp
         MD5.cpp
