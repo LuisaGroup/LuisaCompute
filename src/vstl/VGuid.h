@@ -20,8 +20,8 @@ public:
 	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const Guid& obj) noexcept;
 
 	explicit Guid(bool generate);
-	Guid(string_view strv);
-	static optional<Guid> TryParseGuid(string_view strv);
+	Guid(std::string_view strv);
+	static optional<Guid> TryParseGuid(std::string_view strv);
 	Guid(std::span<uint8_t> data);
 	Guid(MD5 const& md5) {
 		auto&& bin = md5.ToBinary();
@@ -42,9 +42,9 @@ public:
 	}
 	GuidData const& ToBinary() const { return data; }
 	std::array<uint8_t, sizeof(GuidData)> ToArray() const;
-	string ToString(bool upper = true) const;
+	std::string ToString(bool upper = true) const;
 	void ToString(char* result, bool upper = true) const;
-	string ToBase64() const;
+	std::string ToBase64() const;
 	void ToBase64(char* result) const;
 
 	inline bool operator==(Guid const& d) const {

@@ -4,9 +4,9 @@
 
 namespace toolhub::db {
 struct ParsingException {
-    vstd::string message;
+    std::string message;
     ParsingException() {}
-    ParsingException(vstd::string &&msg)
+    ParsingException(std::string &&msg)
         : message(std::move(msg)) {}
 };
 class IJsonDict;
@@ -14,7 +14,7 @@ class IJsonArray;
 
 using ReadJsonVariant = vstd::variant<int64,
                                       double,
-                                      vstd::string_view,
+                                      std::string_view,
                                       IJsonDict *,
                                       IJsonArray *,
                                       vstd::Guid,
@@ -22,14 +22,14 @@ using ReadJsonVariant = vstd::variant<int64,
                                       std::nullptr_t>;
 using WriteJsonVariant = vstd::variant<int64,
                                        double,
-                                       vstd::string,
+                                       std::string,
                                        vstd::unique_ptr<IJsonDict>,
                                        vstd::unique_ptr<IJsonArray>,
                                        vstd::Guid,
                                        bool,
                                        std::nullptr_t>;
 using Key = vstd::variant<int64,
-                          vstd::string_view,
+                          std::string_view,
                           vstd::Guid>;
 struct JsonKeyPair {
     Key key;
@@ -49,13 +49,13 @@ public:
     virtual void Serialize(vstd::vector<uint8_t> &vec) = 0;
     virtual void Reset() = 0;
     virtual bool IsEmpty() = 0;
-    virtual vstd::string FormattedPrint() = 0;
-    virtual vstd::string Print() = 0;
+    virtual std::string FormattedPrint() = 0;
+    virtual std::string Print() = 0;
     virtual bool Read(std::span<uint8_t const> sp,
                       bool clearLast) = 0;
     virtual void Reserve(size_t capacity) = 0;
     virtual vstd::optional<ParsingException> Parse(
-        vstd::string_view str,
+        std::string_view str,
         bool clearLast) = 0;
     virtual vstd::MD5 GetMD5() = 0;
     vstd::IteEndTag end() const { return vstd::IteEndTag(); }
@@ -74,6 +74,10 @@ public:
     virtual WriteJsonVariant GetAndSet(Key const &key, WriteJsonVariant &&newValue) = 0;
     virtual WriteJsonVariant GetAndRemove(Key const &key) = 0;
     virtual vstd::Iterator<JsonKeyPair> begin() const = 0;
+    IJsonDict &operator<<(std::pair<Key, WriteJsonVariant> &&value) {
+        Set(value.first, std::move(value.second));
+        return *this;
+    }
 };
 
 class IJsonArray : public IJsonObject {
@@ -89,5 +93,9 @@ public:
     virtual WriteJsonVariant GetAndSet(size_t index, WriteJsonVariant &&newValue) = 0;
     virtual WriteJsonVariant GetAndRemove(size_t) = 0;
     virtual vstd::Iterator<ReadJsonVariant> begin() const = 0;
+    IJsonArray& operator<<(WriteJsonVariant &&value) {
+        Add(std::move(value));
+        return *this;
+    }
 };
 }// namespace toolhub::db

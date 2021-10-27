@@ -21,6 +21,16 @@ struct vector_stack_obj<T, 0> {
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool forceTrivial = false, size_t stackCount = 0>
 class vector : public IOperatorNewBase {
 private:
+	template<bool v>
+	struct EraseLastType;
+	template<>
+	struct EraseLastType<true> {
+		using Type = T&&;
+	};
+	template<>
+	struct EraseLastType<false> {
+		using Type = T;
+	};
 	static_assert(!std::is_const_v<T>, "vector element cannot be constant!");
 	vector_stack_obj<T, stackCount> vec;
 	size_t mSize;
@@ -218,7 +228,7 @@ public:
 			} else if constexpr (std::is_invocable_v<std::remove_cvref_t<Func>>) {
 				new (ptr) T(std::move(f()));
 			} else {
-				static_assert(std::_Always_false<Func>, "Invalid Function Type!");
+				static_assert(AlwaysFalse<Func>, "Invalid Function Type!");
 			}
 			++index;
 		}
@@ -244,7 +254,7 @@ public:
 								lastPtr->~T();
 							new (lastPtr) T(std::move(*curPtr));
 						} else {
-							static_assert(std::_Always_false<Func>, "Element not movable!");
+							static_assert(AlwaysFalse<Func>, "Element not movable!");
 						}
 						lastPtr++;
 					}
@@ -272,7 +282,7 @@ public:
 	}
 	void SetZero() const noexcept {
 		if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
-			static_assert(std::_Always_false<T>, "Non-Trivial data cannot be setted");
+			static_assert(AlwaysFalse<T>, "Non-Trivial data cannot be setted");
 		} else {
 			if (vec.arr) memset(vec.arr, 0, sizeof(T) * mSize);
 		}
@@ -359,13 +369,13 @@ public:
 		mSize--;
 	}
 
-	decltype(auto) erase_last() noexcept {
+	typename EraseLastType<std::is_trivially_destructible_v<T> || forceTrivial>::Type erase_last() noexcept {
 		mSize--;
 		if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
 			auto disp = create_disposer([this]() {
 				(vec.arr + mSize)->~T();
 			});
-			return vec.arr[mSize];
+			return std::move(vec.arr[mSize]);
 		} else {
 			return std::move(vec.arr[mSize]);
 		}

@@ -1,5 +1,6 @@
 #pragma once
 #include <serialize/IJsonObject.h>
+#include <vector>
 namespace toolhub::db {
 enum class CompareFlag : uint8_t {
 	Less,
@@ -28,22 +29,22 @@ public:
 	virtual void AddNode(vstd::IEnumerable<KeyValue>* keyValues) = 0;
 	virtual void AddNode(IJsonDict* dictNode) = 0;
 	virtual vstd::optional<Table> FindOne(CompareKey const& key) = 0;
-	virtual vstd::vector<Table> FindAll(CompareKey const& key) = 0;
+	virtual std::vector<Table> FindAll(CompareKey const& key) = 0;
 	virtual vstd::optional<Table> FindOne_And(vstd::IEnumerable<CompareKey>* keys) = 0;
-	virtual vstd::vector<Table> FindAll_And(vstd::IEnumerable<CompareKey>* keys) = 0;
+	virtual std::vector<Table> FindAll_And(vstd::IEnumerable<CompareKey>* keys) = 0;
 	virtual vstd::optional<Table> FindOne_Or(vstd::IEnumerable<CompareKey>* keys) = 0;
-	virtual vstd::vector<Table> FindAll_Or(vstd::IEnumerable<CompareKey>* keys) = 0;
+	virtual std::vector<Table> FindAll_Or(vstd::IEnumerable<CompareKey>* keys) = 0;
 	virtual vstd::optional<Table> FindOneAndDelete(CompareKey const& key) = 0;
-	virtual vstd::vector<Table> FindAllAndDelete(CompareKey const& key) = 0;
+	virtual std::vector<Table> FindAllAndDelete(CompareKey const& key) = 0;
 	virtual vstd::optional<Table> FindOneAndDelete_And(vstd::IEnumerable<CompareKey>* keys) = 0;
-	virtual vstd::vector<Table> FindAllAndDelete_And(vstd::IEnumerable<CompareKey>* keys) = 0;
+	virtual std::vector<Table> FindAllAndDelete_And(vstd::IEnumerable<CompareKey>* keys) = 0;
 	virtual vstd::optional<Table> FindOneAndDelete_Or(vstd::IEnumerable<CompareKey>* keys) = 0;
-	virtual vstd::vector<Table> FindAllAndDelete_Or(vstd::IEnumerable<CompareKey>* keys) = 0;
+	virtual std::vector<Table> FindAllAndDelete_Or(vstd::IEnumerable<CompareKey>* keys) = 0;
 	virtual void DeleteAll(CompareKey const& key) = 0;
 	virtual void DeleteAll_And(vstd::IEnumerable<CompareKey>* keys) = 0;
 	virtual void DeleteAll_Or(vstd::IEnumerable<CompareKey>* keys) = 0;
 	virtual void Clear() = 0;
-	virtual vstd::vector<Table> GetAll() = 0;
+	virtual std::vector<Table> GetAll() = 0;
 };
 class INoSqlExecutor : public vstd::IDisposable {
 public:

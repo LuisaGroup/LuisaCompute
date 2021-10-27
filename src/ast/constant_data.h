@@ -31,9 +31,10 @@ struct constant_data_view<std::tuple<T...>> {
 template<typename T>
 using constant_data_view_t = typename constant_data_view<T>::type;
 
-}
-
+}// namespace detail
+class AstSerializer;
 class ConstantData {
+    friend class AstSerializer;
 
 public:
     using View = detail::constant_data_view_t<basic_types>;
@@ -41,9 +42,9 @@ public:
 private:
     View _view;
     uint64_t _hash{};
-    
+
     ConstantData(View v, uint64_t hash) noexcept
-        : _view{v}, _hash{hash}{}
+        : _view{v}, _hash{hash} {}
 
 public:
     ConstantData() noexcept = default;
