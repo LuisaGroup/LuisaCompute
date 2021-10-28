@@ -191,8 +191,8 @@ int main(int argc, char *argv[]) {
     auto device_upper = context.create_device("dx", 0u);
     auto device_lower = context.create_device("dx", 1u);
 #else
-    auto device_upper = FakeDevice::create(context, 0u);
-    auto device_lower = FakeDevice::create(context, 1u);
+    auto device_upper = FakeDevice::create(context);
+    auto device_lower = FakeDevice::create(context);
 #endif
 
     static constexpr auto height_upper = 540u;
