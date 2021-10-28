@@ -39,7 +39,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_OSX_DEPLOYMENT_TARGET 12)
 
 # IPO/LTO
-if (NOT MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if (MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(STATUS "Build with IPO/LTO")
+    add_compile_options(/GL)
+    add_link_options(/LTCG)
+else ()
     include(CheckIPOSupported)
     check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT CHECK_IPO_SUPPORTED_OUTPUT LANGUAGES C CXX)
     if (IPO_SUPPORTED)
