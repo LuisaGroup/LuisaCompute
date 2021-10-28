@@ -42,7 +42,7 @@ public:
     [[nodiscard]] auto allocated_size() const noexcept { return device()->query_heap_memory_usage(handle()); }
 
     template<typename T>
-    [[nodiscard]] BufferView<T> create_buffer(uint index, size_t size) noexcept {
+    [[nodiscard]] auto create_buffer(uint index, size_t size) noexcept {
         if (auto h = _buffer_slots[index]; h != invalid_handle) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Overwriting buffer #{} at {} in heap #{}.",
@@ -51,12 +51,12 @@ public:
         }
         auto buffer_handle = device()->create_buffer(size * sizeof(T), handle(), index);
         _buffer_slots[index] = buffer_handle;
-        return {buffer_handle, 0u, size};
+        return BufferView<T>{buffer_handle, 0u, size};
     }
     void destroy_buffer(uint32_t index) noexcept;
 
     template<typename T>
-    [[nodiscard]] ImageView<T> create_image(uint index, PixelStorage storage, uint2 size, Sampler sampler = Sampler{}, uint mip_levels = 1u) noexcept {
+    [[nodiscard]] auto create_image(uint index, PixelStorage storage, uint2 size, Sampler sampler = Sampler{}, uint mip_levels = 1u) noexcept {
         if (auto h = _texture_slots[index]; h != invalid_handle) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Overwriting texture #{} at {} in heap #{}.",
@@ -77,11 +77,11 @@ public:
             size.x, size.y, 1u, valid_mip_levels,
             sampler, this->handle(), index);
         _texture_slots[index] = handle;
-        return {handle, storage, valid_mip_levels, make_uint2(0u), size};
+        return ImageView<T>{handle, storage, valid_mip_levels, luisa::make_uint2(0u), size};
     }
 
     template<typename T>
-    [[nodiscard]] VolumeView<T> create_volume(uint index, PixelStorage storage, uint3 size, Sampler sampler = Sampler{}, uint mip_levels = 1u) noexcept {
+    [[nodiscard]] auto create_volume(uint index, PixelStorage storage, uint3 size, Sampler sampler = Sampler{}, uint mip_levels = 1u) noexcept {
         if (auto h = _texture_slots[index]; h != invalid_handle) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Overwriting texture #{} at {} in heap #{}.",
@@ -102,7 +102,7 @@ public:
             size.x, size.y, size.z, valid_mip_levels,
             sampler, this->handle(), index);
         _texture_slots[index] = handle;
-        return {handle, storage, valid_mip_levels, make_uint3(0u), size};
+        return VolumeView<T>{handle, storage, valid_mip_levels, luisa::make_uint3(0u), size};
     }
 
     void destroy_texture(uint32_t index) noexcept;

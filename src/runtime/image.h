@@ -47,9 +47,6 @@ private:
                   std::numeric_limits<uint64_t>::max(), 0u)},
           _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {}
 
-    Image(Device::Interface *device, PixelStorage storage, uint width, uint height, uint mip_levels = 1u) noexcept
-        : Image{device, storage, uint2{width, height}, mip_levels} {}
-
 public:
     Image() noexcept = default;
     using Resource::operator bool;

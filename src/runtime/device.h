@@ -138,7 +138,7 @@ public:
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
-        return _create<Image<T>>(pixel, width, height, mip_levels);
+        return _create<Image<T>>(pixel, make_uint2(width, height), mip_levels);
     }
 
     template<typename T>
@@ -148,7 +148,7 @@ public:
 
     template<typename T>
     [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
-        return _create<Volume<T>>(pixel, width, height, depth, mip_levels);
+        return _create<Volume<T>>(pixel, make_uint3(width, height, depth), mip_levels);
     }
 
     template<typename T>

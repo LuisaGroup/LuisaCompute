@@ -42,9 +42,6 @@ private:
                   {}, std::numeric_limits<uint64_t>::max(), 0u)},
           _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {}
 
-    Volume(Device::Interface *device, PixelStorage storage, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept
-        : Volume{device, storage, make_uint3(width, height, depth), mip_levels} {}
-
 public:
     Volume() noexcept = default;
     using Resource::operator bool;

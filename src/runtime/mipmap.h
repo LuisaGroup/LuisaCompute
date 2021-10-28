@@ -29,7 +29,7 @@ private:
     PixelStorage _storage;
 
 public:
-    constexpr MipmapView(uint64_t handle, uint3 size, uint3 offset, uint32_t level, PixelStorage ps) noexcept
+    MipmapView(uint64_t handle, uint3 size, uint3 offset, uint32_t level, PixelStorage ps) noexcept
         : _handle{handle},
           _size{size},
           _offset{offset},

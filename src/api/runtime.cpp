@@ -21,7 +21,7 @@ void luisa_compute_context_destroy(void *ctx) LUISA_NOEXCEPT {
 }
 
 inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
-    return strdup(path.string().c_str());
+    return _strdup(path.string().c_str());
 }
 
 char *luisa_compute_context_runtime_directory(void *ctx) LUISA_NOEXCEPT {

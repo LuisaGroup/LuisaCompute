@@ -210,7 +210,7 @@ template<typename T>
     detail::extract_expression(std::forward<decltype(value)>(value))
 
 template<typename Ts>
-    requires is_scalar_expr_v<Ts>
+    requires is_dsl_v<Ts> && is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector2(Ts &&s) noexcept {
     using V = Vector<expr_value_t<Ts>, 2>;
     return def<V>(
@@ -219,7 +219,10 @@ template<typename Ts>
 }
 
 template<typename Tx, typename Ty>
-    requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_same_expr_v<Tx, Ty>
+    requires any_dsl_v<Tx, Ty> &&
+        is_scalar_expr_v<Tx> &&
+        is_scalar_expr_v<Ty> &&
+        is_same_expr_v<Tx, Ty>
 [[nodiscard]] inline auto make_vector2(Tx &&x, Ty &&y) noexcept {
     using V = Vector<expr_value_t<Tx>, 2>;
     return def<V>(
@@ -229,7 +232,7 @@ template<typename Tx, typename Ty>
 }
 
 template<typename T, typename Tv>
-    requires is_vector_expr_v<Tv>
+    requires is_dsl_v<Tv> && is_vector_expr_v<Tv>
 [[nodiscard]] inline auto make_vector2(Tv &&v) noexcept {
     using V = Vector<T, 2>;
     return def<V>(
@@ -239,7 +242,7 @@ template<typename T, typename Tv>
 }
 
 template<typename Ts>
-    requires is_scalar_expr_v<Ts>
+    requires is_dsl_v<Ts> && is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector3(Ts &&s) noexcept {
     using V = Vector<expr_value_t<Ts>, 3>;
     return def<V>(
@@ -249,7 +252,11 @@ template<typename Ts>
 }
 
 template<typename Tx, typename Ty, typename Tz>
-    requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_scalar_expr_v<Tz> && is_same_expr_v<Tx, Ty, Tz>
+    requires any_dsl_v<Tx, Ty, Tz> &&
+        is_scalar_expr_v<Tx> &&
+        is_scalar_expr_v<Ty> &&
+        is_scalar_expr_v<Tz> &&
+        is_same_expr_v<Tx, Ty, Tz>
 [[nodiscard]] inline auto make_vector3(Tx &&x, Ty &&y, Tz &&z) noexcept {
     using V = Vector<expr_value_t<Tx>, 3>;
     return def<V>(
@@ -259,7 +266,10 @@ template<typename Tx, typename Ty, typename Tz>
 }
 
 template<typename T, typename Tv>
-    requires is_vector3_expr_v<Tv> || is_vector4_expr_v<Tv>
+    requires is_dsl_v<Tv> &&
+        std::disjunction_v<
+            is_vector3_expr<Tv>,
+            is_vector4_expr<Tv>>
 [[nodiscard]] inline auto make_vector3(Tv &&v) noexcept {
     using V = Vector<T, 3>;
     return def<V>(
@@ -268,7 +278,12 @@ template<typename T, typename Tv>
 }
 
 template<typename Txy, typename Tz>
-    requires is_vector2_expr_v<Txy> && is_scalar_expr_v<Tz> && std::same_as<vector_expr_element_t<Txy>, expr_value_t<Tz>>
+    requires any_dsl_v<Txy, Tz> &&
+        is_vector2_expr_v<Txy> &&
+        is_scalar_expr_v<Tz> &&
+        std::same_as<
+            vector_expr_element_t<Txy>,
+            expr_value_t<Tz>>
 [[nodiscard]] inline auto make_vector3(Txy &&xy, Tz &&z) noexcept {
     using V = Vector<expr_value_t<Tz>, 3>;
     return def<V>(
@@ -278,7 +293,12 @@ template<typename Txy, typename Tz>
 }
 
 template<typename Tx, typename Tyz>
-    requires is_scalar_expr_v<Tx> && is_vector2_expr_v<Tyz> && std::same_as<expr_value_t<Tx>, vector_expr_element_t<Tyz>>
+    requires any_dsl_v<Tx, Tyz> &&
+        is_scalar_expr_v<Tx> &&
+        is_vector2_expr_v<Tyz> &&
+        std::same_as<
+            expr_value_t<Tx>,
+            vector_expr_element_t<Tyz>>
 [[nodiscard]] inline auto make_vector3(Tx &&x, Tyz &&yz) noexcept {
     using V = Vector<expr_value_t<Tx>, 3>;
     return def<V>(
@@ -288,7 +308,7 @@ template<typename Tx, typename Tyz>
 }
 
 template<typename Ts>
-    requires is_scalar_expr_v<Ts>
+    requires is_dsl_v<Ts> && is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector4(Ts &&s) noexcept {
     using V = Vector<expr_value_t<Ts>, 4>;
     return def<V>(
@@ -297,7 +317,12 @@ template<typename Ts>
 }
 
 template<typename Tx, typename Ty, typename Tz, typename Tw>
-    requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_scalar_expr_v<Tz> && is_scalar_expr_v<Tw> && is_same_expr_v<Tx, Ty, Tz, Tw>
+    requires any_dsl_v<Tx, Ty, Tz, Tw> &&
+        is_scalar_expr_v<Tx> &&
+        is_scalar_expr_v<Ty> &&
+        is_scalar_expr_v<Tz> &&
+        is_scalar_expr_v<Tw> &&
+        is_same_expr_v<Tx, Ty, Tz, Tw>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Ty &&y, Tz &&z, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
     return def<V>(
@@ -307,7 +332,7 @@ template<typename Tx, typename Ty, typename Tz, typename Tw>
 }
 
 template<typename T, typename Tv>
-    requires is_vector4_expr_v<Tv>
+    requires is_dsl_v<Tv> && is_vector4_expr_v<Tv>
 [[nodiscard]] inline auto make_vector4(Tv &&v) noexcept {
     using V = Vector<T, 4>;
     return def<V>(
@@ -316,7 +341,14 @@ template<typename T, typename Tv>
 }
 
 template<typename Txy, typename Tz, typename Tw>
-    requires is_vector2_expr_v<Txy> && is_scalar_expr_v<Tz> && is_scalar_expr_v<Tw> && concepts::same<vector_expr_element_t<Txy>, expr_value_t<Tz>, expr_value_t<Tw>>
+    requires any_dsl_v<Txy, Tz, Tw> &&
+        is_vector2_expr_v<Txy> &&
+        is_scalar_expr_v<Tz> &&
+        is_scalar_expr_v<Tw> &&
+        concepts::same<
+            vector_expr_element_t<Txy>,
+            expr_value_t<Tz>,
+            expr_value_t<Tw>>
 [[nodiscard]] inline auto make_vector4(Txy &&xy, Tz &&z, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tz>, 4>;
     return def<V>(
@@ -326,7 +358,14 @@ template<typename Txy, typename Tz, typename Tw>
 }
 
 template<typename Tx, typename Tyz, typename Tw>
-    requires is_scalar_expr_v<Tx> && is_vector2_expr_v<Tyz> && is_scalar_expr_v<Tw> && concepts::same<expr_value_t<Tx>, vector_expr_element_t<Tyz>, expr_value_t<Tw>>
+    requires any_dsl_v<Tx, Tyz, Tw> &&
+        is_scalar_expr_v<Tx> &&
+        is_vector2_expr_v<Tyz> &&
+        is_scalar_expr_v<Tw> &&
+        concepts::same<
+            expr_value_t<Tx>,
+            vector_expr_element_t<Tyz>,
+            expr_value_t<Tw>>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Tyz &&yz, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
     return def<V>(
@@ -336,7 +375,14 @@ template<typename Tx, typename Tyz, typename Tw>
 }
 
 template<typename Tx, typename Ty, typename Tzw>
-    requires is_scalar_expr_v<Tx> && is_scalar_expr_v<Ty> && is_vector2_expr_v<Tzw> && concepts::same<expr_value_t<Tx>, expr_value_t<Ty>, vector_expr_element_t<Tzw>>
+    requires any_dsl_v<Tx, Ty, Tzw> &&
+        is_scalar_expr_v<Tx> &&
+        is_scalar_expr_v<Ty> &&
+        is_vector2_expr_v<Tzw> &&
+        concepts::same<
+            expr_value_t<Tx>,
+            expr_value_t<Ty>,
+            vector_expr_element_t<Tzw>>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Ty &&y, Tzw &&zw) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
     return def<V>(
@@ -346,7 +392,12 @@ template<typename Tx, typename Ty, typename Tzw>
 }
 
 template<typename Txy, typename Tzw>
-    requires is_vector2_expr_v<Txy> && is_vector2_expr_v<Tzw> && std::same_as<vector_expr_element_t<Txy>, vector_expr_element_t<Tzw>>
+    requires any_dsl_v<Txy, Tzw> &&
+        is_vector2_expr_v<Txy> &&
+        is_vector2_expr_v<Tzw> &&
+        std::same_as<
+            vector_expr_element_t<Txy>,
+            vector_expr_element_t<Tzw>>
 [[nodiscard]] inline auto make_vector4(Txy &&xy, Tzw &&zw) noexcept {
     using V = Vector<vector_expr_element_t<Txy>, 4>;
     return def<V>(
@@ -356,7 +407,12 @@ template<typename Txy, typename Tzw>
 }
 
 template<typename Txyz, typename Tw>
-    requires is_vector3_expr_v<Txyz> && is_scalar_expr_v<Tw> && std::same_as<vector_expr_element_t<Txyz>, expr_value_t<Tw>>
+    requires any_dsl_v<Txyz, Tw> &&
+        is_vector3_expr_v<Txyz> &&
+        is_scalar_expr_v<Tw> &&
+        std::same_as<
+            vector_expr_element_t<Txyz>,
+            expr_value_t<Tw>>
 [[nodiscard]] inline auto make_vector4(Txyz &&xyz, Tw &&w) noexcept {
     using V = Vector<expr_value_t<Tw>, 4>;
     return def<V>(
@@ -366,7 +422,12 @@ template<typename Txyz, typename Tw>
 }
 
 template<typename Tx, typename Tyzw>
-    requires is_scalar_expr_v<Tx> && is_vector3_expr_v<Tyzw> && std::same_as<expr_value_t<Tx>, vector_expr_element_t<Tyzw>>
+    requires any_dsl_v<Tx, Tyzw> &&
+        is_scalar_expr_v<Tx> &&
+        is_vector3_expr_v<Tyzw> &&
+        std::same_as<
+            expr_value_t<Tx>,
+            vector_expr_element_t<Tyzw>>
 [[nodiscard]] inline auto make_vector4(Tx &&x, Tyzw &&yzw) noexcept {
     using V = Vector<expr_value_t<Tx>, 4>;
     return def<V>(
@@ -394,11 +455,11 @@ template<size_t N, typename T>
     if constexpr (N == 1u) {
         return Expr{std::forward<T>(x)};
     } else if constexpr (N == 2u) {
-        return make_vector2(std::forward<T>(x));
+        return make_vector2(Expr{std::forward<T>(x)});
     } else if constexpr (N == 3u) {
-        return make_vector3(std::forward<T>(x));
+        return make_vector3(Expr{std::forward<T>(x)});
     } else if constexpr (N == 4u) {
-        return make_vector4(std::forward<T>(x));
+        return make_vector4(Expr{std::forward<T>(x)});
     } else {
         static_assert(always_false_v<T>);
     }
