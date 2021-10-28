@@ -14,9 +14,8 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class ScopeStmt;
+class MetaStmt;
 class Expression;
-class ScopeStmt;
 
 class Function {
 
@@ -74,8 +73,6 @@ public:
     Function() noexcept = default;
     Function(const detail::FunctionBuilder *builder) noexcept : _builder{builder} {}
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
-    [[nodiscard]] std::span<const Variable> shared_variables() const noexcept;
-    [[nodiscard]] std::span<const Variable> local_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
     [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
@@ -88,7 +85,7 @@ public:
     [[nodiscard]] Tag tag() const noexcept;
     [[nodiscard]] const Type *return_type() const noexcept;
     [[nodiscard]] Usage variable_usage(uint32_t uid) const noexcept;
-    [[nodiscard]] const ScopeStmt *body() const noexcept;
+    [[nodiscard]] const MetaStmt *body() const noexcept;
     [[nodiscard]] uint64_t hash() const noexcept;
     [[nodiscard]] bool raytracing() const noexcept;
     [[nodiscard]] auto builder() const noexcept { return _builder; }

@@ -41,6 +41,7 @@ private:
     void visit(const ForStmt *stmt) override;
     void visit(const ConstantExpr *expr) override;
     void visit(const CommentStmt *stmt) override;
+    void visit(const MetaStmt *stmt) override;
 
 private:
     virtual void _emit_type_decl() noexcept;
@@ -52,6 +53,7 @@ private:
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
     virtual void _emit_constant(Function::ConstantBinding c) noexcept;
     virtual void _emit_preamble(Function f) noexcept;
+    virtual void _emit_declarations(const MetaStmt *meta) noexcept;
 
 public:
     explicit MetalCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}

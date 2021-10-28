@@ -13,6 +13,7 @@
 #include <core/concepts.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>
+#include <runtime/meta.h>
 #include <runtime/command_list.h>
 
 namespace luisa::compute {
@@ -109,6 +110,8 @@ public:
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
         [[nodiscard]] virtual uint64_t create_accel() noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
+
+        [[nodiscard]] virtual std::string query(std::string_view meta_info) noexcept { return {}; }
     };
 
     using Deleter = void(Interface *);
@@ -165,6 +168,10 @@ public:
     template<size_t N, typename... Args>
     [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel) noexcept {
         return _create<Shader<N, Args...>>(kernel.function());
+    }
+
+    [[nodiscard]] auto query(std::string_view meta_info) const noexcept {
+        return _impl->query(meta_info);
     }
 };
 

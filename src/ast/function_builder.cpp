@@ -25,12 +25,11 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
     auto f = _function_stack().back();
     _function_stack().pop_back();
     if (f != func) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
-    if (f->tag() == Function::Tag::CALLABLE
-        && !(f->builtin_variables().empty()
-             && f->shared_variables().empty()
-             && f->captured_buffers().empty()
-             && f->captured_textures().empty()
-             && f->captured_heaps().empty())) [[unlikely]] {
+    if (f->tag() == Function::Tag::CALLABLE &&
+        !(f->builtin_variables().empty() &&
+          f->captured_buffers().empty() &&
+          f->captured_textures().empty() &&
+          f->captured_heaps().empty())) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom callables may not have builtin, "
             "shared or captured variables.");
@@ -100,13 +99,22 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
 
 const RefExpr *FunctionBuilder::local(const Type *type) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
-    _local_variables.emplace_back(v);
+    if (_meta_stack.empty()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Empty meta stack when adding local variable.");
+    }
+    _meta_stack.back()->add(v);
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
-    return _ref(_shared_variables.emplace_back(
-        Variable{type, Variable::Tag::SHARED, _next_variable_uid()}));
+    Variable sv{type, Variable::Tag::SHARED, _next_variable_uid()};
+    if (_meta_stack.empty()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Empty meta stack when adding shared variable.");
+    }
+    _meta_stack.back()->add(sv);
+    return _ref(sv);
 }
 
 uint32_t FunctionBuilder::_next_variable_uid() noexcept {
@@ -232,11 +240,14 @@ void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
 
 FunctionBuilder::FunctionBuilder(Arena *arena, FunctionBuilder::Tag tag) noexcept
     : _arena{arena},
-      _body{ArenaVector<const Statement *>(*arena)},
+      _body{
+          "__function_body",
+          scope(),
+          ArenaVector<const MetaStmt *>(*arena),
+          ArenaVector<Variable>{*arena}},
+      _meta_stack{*arena},
       _scope_stack{*arena},
       _builtin_variables{*arena},
-      _shared_variables{*arena},
-      _local_variables{*arena},
       _captured_constants{*arena},
       _captured_buffers{*arena},
       _captured_textures{*arena},
@@ -353,9 +364,9 @@ const RefExpr *FunctionBuilder::accel() noexcept {
 
 const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::span<const Expression *const> args) noexcept {
     if (call_op == CallOp::CUSTOM) [[unlikely]] {
-      LUISA_ERROR_WITH_LOCATION(
-          "Custom functions are not allowed to "
-          "be called with enum CallOp.");
+        LUISA_ERROR_WITH_LOCATION(
+            "Custom functions are not allowed to "
+            "be called with enum CallOp.");
     }
     _used_builtin_callables.mark(call_op);
     ArenaVector func_args{*_arena, args};
@@ -364,12 +375,16 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::spa
 
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::span<const Expression *const> args) noexcept {
     if (custom.tag() != Function::Tag::CALLABLE) {
-        LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
+        LUISA_ERROR_WITH_LOCATION(
+            "Calling non-callable function in device code.");
     }
     ArenaVector func_args{*_arena, args};
     auto expr = _arena->create<CallExpr>(type, custom, func_args);
-    if (auto iter = std::find(_used_custom_callables.cbegin(), _used_custom_callables.cend(), custom);
-    iter == _used_custom_callables.cend()) {
+    if (auto iter = std::find(
+            _used_custom_callables.cbegin(),
+            _used_custom_callables.cend(),
+            custom);
+        iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom);
     }
     return expr;
@@ -392,6 +407,33 @@ const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {
 void FunctionBuilder::comment_(std::string_view comment) noexcept {
     ArenaString s{*_arena, comment};
     _append(_arena->create<CommentStmt>(s));
+}
+
+MetaStmt *FunctionBuilder::meta(std::string_view info) noexcept {
+    auto meta = _arena->create<MetaStmt>(
+        ArenaString{*_arena, info},
+        scope(),
+        ArenaVector<const MetaStmt *>{*_arena},
+        ArenaVector<Variable>{*_arena});
+    if (_meta_stack.empty()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Invalid meta stack state.");
+    }
+    _meta_stack.back()->add(meta);
+    _append(meta);
+    return meta;
+}
+
+void FunctionBuilder::push_meta(MetaStmt *meta) noexcept {
+    _meta_stack.emplace_back(meta);
+    push_scope(meta->scope());
+}
+
+void FunctionBuilder::pop_meta(const MetaStmt *meta) noexcept {
+    pop_scope(meta->scope());
+    if (_meta_stack.empty() || _meta_stack.back() != meta) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Invalid meta stack pop.");
+    }
+    _meta_stack.pop_back();
 }
 
 }// namespace luisa::compute::detail

@@ -143,9 +143,12 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy();
         auto global_id = coord.x + coord.y * dispatch_size_x();
 
-        $if(frame_index == 0u) {
-            seed_image[global_id] = tea(coord.x, coord.y);
-            accum_image[global_id] = make_float4(make_float3(0.0f), 1.0f);
+        $meta("hello") {
+            $meta("nested") { $comment("good\nbad\n"); };
+            $if(frame_index == 0u) {
+                seed_image[global_id] = tea(coord.x, coord.y);
+                accum_image[global_id] = make_float4(make_float3(0.0f), 1.0f);
+            };
         };
 
         auto aspect_ratio = resolution.x / resolution.y;
@@ -205,7 +208,7 @@ int main(int argc, char *argv[]) {
     auto last_t = clock.toc();
 
     static constexpr auto interval = 10u;
-    static constexpr auto total_spp = 500000u;
+    static constexpr auto total_spp = 10u;
     std::vector<double> fps;
     fps.reserve(total_spp);
     for (auto spp = 0u; spp < total_spp; spp += interval) {

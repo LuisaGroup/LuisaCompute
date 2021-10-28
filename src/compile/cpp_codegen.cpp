@@ -470,24 +470,8 @@ void CppCodegen::_emit_function(Function f) noexcept {
         _scratch.pop_back();
     }
     _scratch << ") {";
-    if (!f.shared_variables().empty()) {
-        _scratch << "\n";
-        for (auto s : f.shared_variables()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(s);
-            _scratch << ";";
-        }
-        _scratch << "\n";
-    }
-    if (auto vs = f.local_variables(); !vs.empty()) {
-        _scratch << "\n\n";
-        for (auto v : vs) {
-            _scratch << "  ";
-            _emit_variable_decl(v);
-            _scratch << "{};\n";
-        }
-    }
-    _emit_statements(f.body()->statements());
+    _emit_variable_declarations(f.body());
+    _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 }
 
@@ -680,6 +664,31 @@ void CppCodegen::_emit_access_attribute(Variable v) noexcept {
 
 void CppCodegen::visit(const CommentStmt *stmt) {
     _scratch << "/* " << stmt->comment() << " */";
+}
+
+void CppCodegen::visit(const MetaStmt *stmt) {
+    _scratch << "\n";
+    _emit_indent();
+    _scratch << "// meta region begin: " << stmt->info();
+    for (auto s : stmt->scope()->statements()) {
+        _scratch << "\n";
+        _emit_indent();
+        s->accept(*this);
+    }
+    _scratch << "\n";
+    _emit_indent();
+    _scratch << "// meta region end: " << stmt->info() << "\n";
+}
+
+void CppCodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
+    for (auto v : meta->variables()) {
+        _scratch << "\n  ";
+        _emit_variable_decl(v);
+        _scratch << ";";
+    }
+    for (auto m : meta->children()) {
+        _emit_variable_declarations(m);
+    }
 }
 
 }// namespace luisa::compute

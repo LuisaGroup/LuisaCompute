@@ -357,5 +357,7 @@ StringStateVisitor::StringStateVisitor(std::string &str)
     : str(str) {
     CodegenUtility::ClearStructType();
 }
+void StringStateVisitor::visit(const MetaStmt *stmt) {
+}
 StringStateVisitor::~StringStateVisitor() = default;
 }// namespace lc::ispc

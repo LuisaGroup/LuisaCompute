@@ -12,10 +12,6 @@ std::span<const Variable> Function::builtin_variables() const noexcept {
     return _builder->builtin_variables();
 }
 
-std::span<const Variable> Function::shared_variables() const noexcept {
-    return _builder->shared_variables();
-}
-
 std::span<const Function::ConstantBinding> Function::constants() const noexcept {
     return _builder->constants();
 }
@@ -36,7 +32,7 @@ Function::Tag Function::tag() const noexcept {
     return _builder->tag();
 }
 
-const ScopeStmt *Function::body() const noexcept {
+const MetaStmt *Function::body() const noexcept {
     return _builder->body();
 }
 
@@ -74,10 +70,6 @@ std::span<const Function::HeapBinding> Function::captured_heaps() const noexcept
 
 std::span<const Function::AccelBinding> Function::captured_accels() const noexcept {
     return _builder->captured_accels();
-}
-
-std::span<const Variable> Function::local_variables() const noexcept {
-    return _builder->local_variables();
 }
 
 }// namespace luisa::compute

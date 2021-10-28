@@ -14,7 +14,7 @@ void *luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
     auto arena = new_with_allocator<Arena>();
     auto f = arena->create<FunctionBuilder>(arena, Function::Tag::KERNEL);
     FunctionBuilder::push(f);
-    f->push_scope(f->body());
+    f->push_meta(f->body());
     auto gid = f->dispatch_id();
     auto gs = f->dispatch_size();
     auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
@@ -28,7 +28,7 @@ void *luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
 
 void luisa_compute_ast_end_kernel(void *kernel) LUISA_NOEXCEPT {
     auto f = static_cast<FunctionBuilder *>(kernel);
-    f->pop_scope(f->body());
+    f->pop_meta(f->body());
     FunctionBuilder::pop(f);
 }
 
@@ -41,13 +41,13 @@ void *luisa_compute_ast_begin_callable() LUISA_NOEXCEPT {
     auto arena = &Arena::global();
     auto f = arena->create<FunctionBuilder>(arena, Function::Tag::CALLABLE);
     FunctionBuilder::push(f);
-    f->push_scope(f->body());
+    f->push_meta(f->body());
     return f;
 }
 
 void luisa_compute_ast_end_callable(void *callable) LUISA_NOEXCEPT {
     auto f = static_cast<FunctionBuilder *>(callable);
-    f->pop_scope(f->body());
+    f->pop_meta(f->body());
     FunctionBuilder::pop(f);
 }
 

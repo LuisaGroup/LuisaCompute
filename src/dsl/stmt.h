@@ -56,20 +56,36 @@ private:
     ScopeStmt *_body;
 
 public:
-    explicit LoopStmtBuilder() noexcept
+    LoopStmtBuilder() noexcept
         : _body{FunctionBuilder::current()->scope()} {
         FunctionBuilder::current()->loop_(_body);
     }
 
     template<typename Body>
     auto operator/(Body &&body) &&noexcept {
-        FunctionBuilder::current()->with(_body, std::forward<Body>(body));
+        FunctionBuilder::current()->with(
+            _body, std::forward<Body>(body));
         return *this;
     }
 
     template<typename Body>
     void operator%(Body &&body) &&noexcept {
         LoopStmtBuilder{*this} / std::forward<Body>(body);
+    }
+};
+
+class MetaStmtBuilder {
+
+private:
+    MetaStmt *_meta;
+
+public:
+    explicit MetaStmtBuilder(std::string_view info) noexcept
+        : _meta{FunctionBuilder::current()->meta(info)} {}
+    template<typename Body>
+    void operator%(Body &&body) &&noexcept {
+        FunctionBuilder::current()->with(
+            _meta, std::forward<Body>(body));
     }
 };
 
@@ -362,6 +378,11 @@ inline void match(std::initializer_list<T> tags, Tag &&tag, IndexedCase &&indexe
 
 inline void comment(std::string_view s) noexcept {
     detail::FunctionBuilder::current()->comment_(s);
+}
+
+template<typename Body>
+inline void meta(std::string_view info, Body &&body) noexcept {
+    detail::MetaStmtBuilder{info} % body;
 }
 
 }// namespace dsl

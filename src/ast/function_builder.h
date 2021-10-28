@@ -41,6 +41,18 @@ private:
         ~ScopeGuard() noexcept { _builder->pop_scope(_scope); }
     };
 
+    class MetaGuard {
+
+    private:
+        FunctionBuilder *_builder;
+        MetaStmt *_meta;
+
+    public:
+        explicit MetaGuard(FunctionBuilder *builder, MetaStmt *meta) noexcept
+            : _builder{builder}, _meta{meta} { _builder->push_meta(_meta); }
+        ~MetaGuard() noexcept { _builder->pop_meta(_meta); }
+    };
+
 public:
     using Tag = Function::Tag;
     using ConstantBinding = Function::ConstantBinding;
@@ -51,12 +63,11 @@ public:
 
 private:
     Arena *_arena;
-    ScopeStmt _body;
+    MetaStmt _body;
     const Type *_ret{nullptr};
+    ArenaVector<MetaStmt *> _meta_stack;
     ArenaVector<ScopeStmt *> _scope_stack;
     ArenaVector<Variable> _builtin_variables;
-    ArenaVector<Variable> _shared_variables;
-    ArenaVector<Variable> _local_variables;
     ArenaVector<ConstantBinding> _captured_constants;
     ArenaVector<BufferBinding> _captured_buffers;
     ArenaVector<TextureBinding> _captured_textures;
@@ -101,8 +112,6 @@ public:
 
     // interfaces for class Function
     [[nodiscard]] auto builtin_variables() const noexcept { return std::span{_builtin_variables.data(), _builtin_variables.size()}; }
-    [[nodiscard]] auto shared_variables() const noexcept { return std::span{_shared_variables.data(), _shared_variables.size()}; }
-    [[nodiscard]] auto local_variables() const noexcept { return std::span{_local_variables.data(), _local_variables.size()}; }
     [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants.data(), _captured_constants.size()}; }
     [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
     [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
@@ -207,6 +216,7 @@ public:
 
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] ScopeStmt *scope() noexcept;
+    [[nodiscard]] MetaStmt *meta(std::string_view info) noexcept;
 
     template<typename Body>
     decltype(auto) with(ScopeStmt *s, Body &&body) noexcept {
@@ -214,8 +224,17 @@ public:
         return body();
     }
 
+    template<typename Body>
+    decltype(auto) with(MetaStmt *m, Body &&body) noexcept {
+        MetaGuard guard{this, m};
+        return body();
+    }
+
     static void push(FunctionBuilder *) noexcept;
     static void pop(FunctionBuilder *) noexcept;
+
+    void push_meta(MetaStmt *meta) noexcept;
+    void pop_meta(const MetaStmt *meta) noexcept;
 
     void push_scope(ScopeStmt *) noexcept;
     void pop_scope(const ScopeStmt *) noexcept;

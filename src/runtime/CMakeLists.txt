@@ -14,7 +14,8 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         shader.h
         sampler.h
         resource.cpp resource.h
-        mipmap.h)
+        mipmap.h
+        meta.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast)

@@ -37,6 +37,7 @@ class SwitchDefaultStmt;
 class AssignStmt;
 class ForStmt;
 class CommentStmt;
+class MetaStmt;
 
 struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -52,6 +53,7 @@ struct StmtVisitor {
     virtual void visit(const AssignStmt *) = 0;
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
+    virtual void visit(const MetaStmt *) = 0;
 };
 
 #define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \
@@ -239,6 +241,33 @@ public:
     explicit CommentStmt(std::string_view comment) noexcept
         : _comment{comment} {}
     [[nodiscard]] auto comment() const noexcept { return _comment; }
+    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+};
+
+class MetaStmt : public Statement {
+
+private:
+    std::string_view _info;
+    ScopeStmt *_scope;
+    ArenaVector<const MetaStmt *> _children;
+    ArenaVector<Variable> _variables;
+
+public:
+    MetaStmt(
+        std::string_view info,
+        ScopeStmt *scope,
+        ArenaVector<const MetaStmt *> children,
+        ArenaVector<Variable> variables) noexcept
+        : _info{info}, _scope{scope},
+          _children{std::move(children)},
+          _variables{std::move(variables)} {}
+    [[nodiscard]] auto info() const noexcept { return _info; }
+    [[nodiscard]] auto scope() noexcept { return _scope; }
+    [[nodiscard]] auto scope() const noexcept { return const_cast<const ScopeStmt *>(_scope); }
+    [[nodiscard]] auto add(const MetaStmt *child) noexcept { _children.emplace_back(child); }
+    [[nodiscard]] auto add(Variable v) noexcept { _variables.emplace_back(v); }
+    [[nodiscard]] auto children() const noexcept { return std::span{_children.data(), _children.size()}; }
+    [[nodiscard]] auto variables() const noexcept { return std::span{_variables.data(), _variables.size()}; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
