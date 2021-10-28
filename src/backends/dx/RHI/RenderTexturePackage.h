@@ -1,14 +1,14 @@
 #pragma once
 #include <RenderComponent/RenderTexture.h>
 #include <runtime/pixel.h>
-#include <runtime/texture.h>
+#include <runtime/sampler.h>
 class UploadBuffer;
 namespace luisa::compute {
 class RenderTexturePackage {
 public:
 	StackObject<RenderTexture, true> rt;
 	PixelFormat format;
-	TextureSampler sampler;
+	Sampler sampler;
 	UploadBuffer* descHeap;
 	uint descIndex;
 

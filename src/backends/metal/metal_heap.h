@@ -42,7 +42,7 @@ public:
     [[nodiscard]] id<MTLTexture> allocate_texture(MTLTextureDescriptor *desc) noexcept;
     [[nodiscard]] id<MTLBuffer> allocate_buffer(size_t size_bytes) noexcept;
     void emplace_buffer(uint32_t index, uint64_t buffer_handle) noexcept;
-    void emplace_texture(uint32_t index, uint64_t texture_handle, TextureSampler sampler) noexcept;
+    void emplace_texture(uint32_t index, uint64_t texture_handle, Sampler sampler) noexcept;
     void destroy_buffer(uint64_t b) noexcept;
     void destroy_texture(uint64_t t) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }

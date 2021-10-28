@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <runtime/command.h>
 #include <runtime/resource.h>
+#include <runtime/mipmap.h>
 
 namespace luisa::compute {
 
@@ -18,6 +18,8 @@ class BufferView;
 template<typename T>
 struct Expr;
 
+class Heap;
+
 // Images are textures without sampling, i.e., surfaces.
 template<typename T>
 class Image : public Resource {
@@ -29,22 +31,24 @@ class Image : public Resource {
 
 private:
     uint2 _size{};
+    uint32_t _mip_levels{};
     PixelStorage _storage{};
 
 private:
     friend class Device;
-    Image(Device::Interface *device, PixelStorage storage, uint2 size) noexcept
+    Image(Device::Interface *device, PixelStorage storage, uint2 size, uint mip_levels = 1u) noexcept
         : Resource{
-            device,
-            Tag::TEXTURE,
-            device->create_texture(
-                pixel_storage_to_format<T>(storage), 2u,
-                size.x, size.y, 1u, 1u, {},
-                std::numeric_limits<uint64_t>::max(), 0u)},
-          _size{size}, _storage{storage} {}
+              device,
+              Tag::TEXTURE,
+              device->create_texture(
+                  pixel_storage_to_format<T>(storage), 2u,
+                  size.x, size.y, 1u,
+                  detail::max_mip_levels(make_uint3(size, 1u), mip_levels), {},
+                  std::numeric_limits<uint64_t>::max(), 0u)},
+          _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {}
 
-    Image(Device::Interface *device, PixelStorage storage, uint width, uint height) noexcept
-        : Image{device, storage, uint2{width, height}} {}
+    Image(Device::Interface *device, PixelStorage storage, uint width, uint height, uint mip_levels = 1u) noexcept
+        : Image{device, storage, uint2{width, height}, mip_levels} {}
 
 public:
     Image() noexcept = default;
@@ -53,9 +57,10 @@ public:
     [[nodiscard]] auto native_handle() const noexcept { return device()->texture_native_handle(handle()); }
 
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return ImageView<T>{handle(), _storage, {}, _size}; }
+    [[nodiscard]] auto view() const noexcept { return ImageView<T>{handle(), _storage, _mip_levels, {}, _size}; }
     [[nodiscard]] auto view(uint2 offset, uint2 size) const noexcept {
         if (any(offset + size >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
@@ -64,8 +69,9 @@ public:
                 offset.x, offset.y, size.x, size.y,
                 handle(), _size.x, _size.y);
         }
-        return ImageView<T>{handle(), _storage, offset, size};
+        return ImageView<T>{handle(), _storage, _mip_levels, offset, size};
     }
+    [[nodiscard]] auto level(uint l) const noexcept { return view().level(l); }
 
     template<typename UV>
     [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
@@ -79,15 +85,23 @@ public:
             std::forward<Value>(value));
     }
 
-    [[nodiscard]] auto copy_to(void *data) const noexcept { return view().copy_to(data); }
-    [[nodiscard]] auto copy_from(const void *data) const noexcept { return view().copy_from(data); }
-    [[nodiscard]] auto copy_from(ImageView<T> src) const noexcept { return view().copy_from(src); }
+    template<typename UV, typename I>
+    [[nodiscard]] decltype(auto) read(UV &&uv, I &&level) const noexcept {
+        return this->view().read(std::forward<UV>(uv), std::forward<I>(level));
+    }
+
+    template<typename UV, typename Value, typename I>
+    [[nodiscard]] decltype(auto) write(UV &&uv, Value &&value, I &&level) const noexcept {
+        return this->view().write(
+            std::forward<UV>(uv),
+            std::forward<Value>(value),
+            std::forward<I>(level));
+    }
 
     template<typename U>
-    [[nodiscard]] auto copy_from(BufferView<U> src) const noexcept { return view().copy_from(src); }
-
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return view().copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] auto copy_to(BufferView<U> src) const noexcept { return view().copy_to(src); }
+    [[nodiscard]] auto copy_from(U &&dst) const noexcept { return view().copy_from(std::forward<U>(dst)); }
 };
 
 template<typename T>
@@ -97,19 +111,23 @@ private:
     uint64_t _handle;
     uint2 _size;
     uint2 _offset;
+    uint _mip_levels;
     PixelStorage _storage;
 
 private:
     friend class Image<T>;
+    friend class Heap;
 
-    constexpr explicit ImageView(
+    constexpr ImageView(
         uint64_t handle,
         PixelStorage storage,
+        uint mip_levels,
         uint2 offset,
         uint2 size) noexcept
         : _handle{handle},
           _size{size},
           _offset{offset},
+          _mip_levels{mip_levels},
           _storage{storage} {
 
         if (any(_offset >= _size)) [[unlikely]] {
@@ -126,52 +144,28 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
+    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] auto level(uint32_t l) const noexcept {
+        if (l >= _mip_levels) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid mipmap level {} (max = {}).",
+                l, _mip_levels - 1u);
+        }
+        return detail::MipmapView{
+            _handle,
+            max(make_uint3(_size, 1u) >> l, 1u),
+            make_uint3(_offset, 0u) >> l,
+            l, _storage};
+    }
 
     [[nodiscard]] auto subview(uint2 offset, uint2 size) const noexcept {
         return ImageView{_handle, _storage, _offset + offset, size};
     }
 
-    [[nodiscard]] auto copy_from(const void *data) const noexcept {
-        return TextureUploadCommand::create(
-            _handle, _storage,
-            0u, make_uint3(_offset, 0u),
-            make_uint3(_size, 1u), data);
-    }
-
-    [[nodiscard]] auto copy_from(ImageView src) const noexcept {
-        auto size = _size;
-        if (!all(size == src._size)) {
-            LUISA_WARNING_WITH_LOCATION(
-                "ImageView sizes mismatch in copy command (src: [{}, {}], dest: [{}, {}]).",
-                src._size.x, src._size.y, size.x, size.y);
-            size = min(size, src._size);
-        }
-        return TextureCopyCommand::create(
-            src._handle, _handle, 0u, 0u,
-            make_uint3(src._offset, 0u), make_uint3(_offset, 0u),
-            make_uint3(size, 1u));
-    }
-
     template<typename U>
-    [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
-        return BufferToTextureCopyCommand::create(
-            buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, 0u, make_uint3(_offset, 0u), make_uint3(_size, 1u));
-    }
-
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return level(0u).copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
-        return TextureToBufferCopyCommand::create(
-            buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, 0u, make_uint3(_offset, 0u), make_uint3(_size, 1u));
-    }
-
-    [[nodiscard]] auto copy_to(void *data) const noexcept {
-        return TextureDownloadCommand::create(
-            _handle, _storage,
-            0u, make_uint3(_offset, 0u),
-            make_uint3(_size, 1u), data);
-    }
+    [[nodiscard]] auto copy_from(U &&src) const noexcept { return level(0u).copy_from(std::forward<U>(src)); }
 
     template<typename UV>
     [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
@@ -183,6 +177,18 @@ public:
         Expr<Image<T>>{*this}.write(
             std::forward<UV>(uv),
             std::forward<Value>(value));
+    }
+    template<typename UV, typename I>
+    [[nodiscard]] decltype(auto) read(UV &&uv, I &&l) const noexcept {
+        return Expr<Image<T>>{*this}.read(std::forward<UV>(uv), std::forward<I>(l));
+    }
+
+    template<typename UV, typename Value, typename I>
+    void write(UV uv, Value &&value, I &&l) const noexcept {
+        Expr<Image<T>>{*this}.write(
+            std::forward<UV>(uv),
+            std::forward<Value>(value),
+            std::forward<I>(l));
     }
 };
 

@@ -126,7 +126,7 @@ public:
 		PixelFormat format, uint dimension,
 		uint width, uint height, uint depth,
 		uint mipmap_levels,
-		TextureSampler sampler,
+		Sampler sampler,
 		uint64 heap_handle,// == uint64(-1) when not from heap
 		uint32_t index_in_heap) override {
 		Graphics::current = graphicsInstance;

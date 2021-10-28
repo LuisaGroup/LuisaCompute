@@ -1,7 +1,7 @@
 #pragma vengine_package ispc_vsproject
 
 #include <backends/ispc/runtime/ispc_device.h>
-#include <runtime/texture.h>
+#include <runtime/sampler.h>
 #include "ispc_codegen.h"
 
 namespace lc::ispc {
@@ -24,7 +24,7 @@ uint64_t ISPCDevice::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels,
-    TextureSampler sampler,
+    Sampler sampler,
     uint64_t heap_handle,// == uint64(-1) when not from heap
     uint32_t index_in_heap) { return 0; }
 void ISPCDevice::destroy_texture(uint64_t handle) noexcept {}

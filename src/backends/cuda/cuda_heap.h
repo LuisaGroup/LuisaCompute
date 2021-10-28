@@ -10,7 +10,7 @@
 #include <cuda.h>
 
 #include <core/spin_mutex.h>
-#include <runtime/texture.h>
+#include <runtime/sampler.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_texture.h>
@@ -45,7 +45,7 @@ public:
     ~CUDAHeap() noexcept;
     [[nodiscard]] CUDABuffer *allocate_buffer(size_t index, size_t size) noexcept;
     void destroy_buffer(CUDABuffer *buffer) noexcept;
-    [[nodiscard]] CUDATexture *allocate_texture(size_t index, PixelFormat format, uint dim, uint3 size, uint mip_levels, TextureSampler sampler) noexcept;
+    [[nodiscard]] CUDATexture *allocate_texture(size_t index, PixelFormat format, uint dim, uint3 size, uint mip_levels, Sampler sampler) noexcept;
     void destroy_texture(CUDATexture *texture) noexcept;
     [[nodiscard]] size_t memory_usage() const noexcept;
     [[nodiscard]] CUdeviceptr descriptor_array() const noexcept;

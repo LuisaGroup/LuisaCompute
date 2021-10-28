@@ -22,7 +22,7 @@ class Context;
 class Event;
 class Stream;
 class Heap;
-class TextureSampler;
+class Sampler;
 class Mesh;
 class Accel;
 
@@ -75,7 +75,7 @@ public:
             PixelFormat format, uint dimension,
             uint width, uint height, uint depth,
             uint mipmap_levels,
-            TextureSampler sampler,
+            Sampler sampler,
             uint64_t heap_handle,// == uint64(-1) when not from heap
             uint32_t index_in_heap) = 0;
         virtual void destroy_texture(uint64_t handle) noexcept = 0;
@@ -137,23 +137,23 @@ public:
     [[nodiscard]] Heap create_heap(size_t size = 128_mb) noexcept;// see definition in runtime/heap.cpp
 
     template<typename T>
-    [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height) noexcept {
-        return _create<Image<T>>(pixel, width, height);
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
+        return _create<Image<T>>(pixel, width, height, mip_levels);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size) noexcept {
-        return _create<Image<T>>(pixel, size);
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u) noexcept {
+        return _create<Image<T>>(pixel, size, mip_levels);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth) noexcept {
-        return _create<Volume<T>>(pixel, width, height, depth);
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
+        return _create<Volume<T>>(pixel, width, height, depth, mip_levels);
     }
 
     template<typename T>
-    [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size) noexcept {
-        return _create<Volume<T>>(pixel, size);
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u) noexcept {
+        return _create<Volume<T>>(pixel, size, mip_levels);
     }
 
     template<typename T>

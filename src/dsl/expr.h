@@ -452,6 +452,29 @@ public:
             CallOp::TEXTURE_WRITE,
             {_expression, _offset_uv(uv.expression()), value.expression()});
     }
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(Expr<uint2> uv, I &&level) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<Vector<T, 4>>(
+            f->call(
+                Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ_LEVEL,
+                {_expression,
+                 _offset_uv(uv.expression()),
+                 detail::extract_expression(std::forward<I>(level))}));
+    };
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    void write(Expr<uint2> uv, Expr<Vector<T, 4>> value, I &&level) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::TEXTURE_WRITE_LEVEL,
+            {_expression,
+             _offset_uv(uv.expression()),
+             value.expression(),
+             detail::extract_expression(std::forward<I>(level))});
+    }
 };
 
 template<typename T>
@@ -494,6 +517,29 @@ public:
         detail::FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
             {_expression, _offset_uvw(uvw.expression()), value.expression()});
+    }
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(Expr<uint3> uvw, I &&level) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return def<Vector<T, 4>>(
+            f->call(
+                Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ_LEVEL,
+                {_expression,
+                 _offset_uvw(uvw.expression()),
+                 detail::extract_expression(std::forward<I>(level))}));
+    };
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value, I &&level) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::TEXTURE_WRITE_LEVEL,
+            {_expression,
+             _offset_uvw(uvw.expression()),
+             value.expression(),
+             detail::extract_expression(std::forward<I>(level))});
     }
 };
 

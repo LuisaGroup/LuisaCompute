@@ -43,49 +43,49 @@ MetalHeap::MetalHeap(MetalDevice *device, size_t size) noexcept
     _device_buffer = [_device->handle() newBufferWithLength:_buffer.length
                                                     options:MTLResourceStorageModePrivate];
     for (auto i = 0u; i < 16u; i++) {
-        auto sampler = TextureSampler::decode(i);
+        auto sampler = Sampler::decode(i);
         auto desc = [[MTLSamplerDescriptor alloc] init];
         desc.supportArgumentBuffers = YES;
         desc.normalizedCoordinates = YES;
         switch (sampler.address()) {
-            case TextureSampler::Address::EDGE:
+            case Sampler::Address::EDGE:
                 desc.sAddressMode = MTLSamplerAddressModeClampToEdge;
                 desc.tAddressMode = MTLSamplerAddressModeClampToEdge;
                 desc.rAddressMode = MTLSamplerAddressModeClampToEdge;
                 break;
-            case TextureSampler::Address::REPEAT:
+            case Sampler::Address::REPEAT:
                 desc.sAddressMode = MTLSamplerAddressModeRepeat;
                 desc.tAddressMode = MTLSamplerAddressModeRepeat;
                 desc.rAddressMode = MTLSamplerAddressModeRepeat;
                 break;
-            case TextureSampler::Address::MIRROR:
+            case Sampler::Address::MIRROR:
                 desc.sAddressMode = MTLSamplerAddressModeMirrorRepeat;
                 desc.tAddressMode = MTLSamplerAddressModeMirrorRepeat;
                 desc.rAddressMode = MTLSamplerAddressModeMirrorRepeat;
                 break;
-            case TextureSampler::Address::ZERO:
+            case Sampler::Address::ZERO:
                 desc.sAddressMode = MTLSamplerAddressModeClampToZero;
                 desc.tAddressMode = MTLSamplerAddressModeClampToZero;
                 desc.rAddressMode = MTLSamplerAddressModeClampToZero;
                 break;
         }
         switch (sampler.filter()) {
-            case TextureSampler::Filter::POINT:
+            case Sampler::Filter::POINT:
                 desc.mipFilter = MTLSamplerMipFilterNearest;
                 desc.minFilter = MTLSamplerMinMagFilterNearest;
                 desc.magFilter = MTLSamplerMinMagFilterNearest;
                 break;
-            case TextureSampler::Filter::BILINEAR:
+            case Sampler::Filter::BILINEAR:
                 desc.mipFilter = MTLSamplerMipFilterNearest;
                 desc.minFilter = MTLSamplerMinMagFilterLinear;
                 desc.magFilter = MTLSamplerMinMagFilterLinear;
                 break;
-            case TextureSampler::Filter::TRILINEAR:
+            case Sampler::Filter::TRILINEAR:
                 desc.mipFilter = MTLSamplerMipFilterLinear;
                 desc.minFilter = MTLSamplerMinMagFilterLinear;
                 desc.magFilter = MTLSamplerMinMagFilterLinear;
                 break;
-            case TextureSampler::Filter::ANISOTROPIC:
+            case Sampler::Filter::ANISOTROPIC:
                 desc.mipFilter = MTLSamplerMipFilterLinear;
                 desc.minFilter = MTLSamplerMinMagFilterLinear;
                 desc.magFilter = MTLSamplerMinMagFilterLinear;
@@ -139,7 +139,7 @@ void MetalHeap::emplace_buffer(uint32_t index, uint64_t buffer_handle) noexcept 
     _dirty = true;
 }
 
-void MetalHeap::emplace_texture(uint32_t index, uint64_t texture_handle, TextureSampler sampler) noexcept {
+void MetalHeap::emplace_texture(uint32_t index, uint64_t texture_handle, Sampler sampler) noexcept {
     auto sampler_state = _samplers[sampler.code()];
     auto texture = _device->texture(texture_handle);
     std::scoped_lock lock{_mutex};

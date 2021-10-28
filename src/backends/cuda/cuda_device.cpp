@@ -2,7 +2,7 @@
 // Created by Mike on 7/28/2021.
 //
 
-#include <runtime/texture.h>
+#include <runtime/sampler.h>
 #include <runtime/heap.h>
 #include <backends/cuda/cuda_heap.h>
 #include <backends/cuda/cuda_device.h>
@@ -35,7 +35,7 @@ void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     });
 }
 
-uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) {
+uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, Sampler sampler, uint64_t heap_handle, uint32_t index_in_heap) {
 
     if (heap_handle != Heap::invalid_handle) {// from heap
         return with_handle([heap = reinterpret_cast<CUDAHeap *>(heap_handle),

@@ -62,7 +62,7 @@ public:
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
     uint64_t create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, TextureSampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
+    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, Sampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
     void destroy_texture(uint64_t handle) noexcept override;
     uint64_t create_heap(size_t size) noexcept override;
     size_t query_heap_memory_usage(uint64_t handle) noexcept override;
