@@ -183,6 +183,7 @@ class Buffer:
 
 
 class Texture:
+    # TODO: support mipmaps
     def __init__(self, _device, _handle, _format, _dim, _size, _total_size, _offset, _is_slice=False):
         self._device = _device
         self._as_parameter_ = _handle

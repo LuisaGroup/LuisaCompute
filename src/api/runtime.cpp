@@ -24,8 +24,10 @@ inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
     auto s = path.string();
     auto cs = static_cast<char *>(malloc(s.size() + 1u));
     memcpy(cs, s.c_str(), s.size() + 1u);
-    return cs;// TODO: free?
+    return cs;
 }
+
+void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT { free(cs); }
 
 char *luisa_compute_context_runtime_directory(void *ctx) LUISA_NOEXCEPT {
     return path_to_c_str(static_cast<RC<Context> *>(ctx)->object()->runtime_directory());

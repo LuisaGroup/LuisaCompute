@@ -2,6 +2,14 @@ from ctypes import c_void_p, c_char_p, c_int, c_int32, c_uint32, c_int64, c_uint
 from .config import dll
 
 
+dll.luisa_compute_free_c_string.restype = None
+dll.luisa_compute_free_c_string.argtypes = [c_char_p]
+
+
+def free_c_string(cs):
+    dll.luisa_compute_free_c_string(cs.encode())
+
+
 dll.luisa_compute_context_create.restype = c_void_p
 dll.luisa_compute_context_create.argtypes = [c_char_p]
 

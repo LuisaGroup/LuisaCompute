@@ -6,6 +6,8 @@
 
 #include <core/platform.h>
 
+LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT;
+
 LUISA_EXPORT_API void *luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_context_destroy(void *ctx) LUISA_NOEXCEPT;
 LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(void *ctx) LUISA_NOEXCEPT;
