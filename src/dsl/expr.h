@@ -562,7 +562,7 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(I &&i) const noexcept {
+    [[nodiscard]] auto operator[](I &&i) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<T>(
             f->call(

@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
                     // trace
                     Var hit = accel.trace_closest(ray);
                     if_(miss(hit), break_);
-                    Var triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
+                    Var triangle = heap.buffer<Triangle>(hit.inst)[hit.prim];
                     Var p0 = vertex_buffer[triangle.i0];
                     Var p1 = vertex_buffer[triangle.i1];
                     Var p2 = vertex_buffer[triangle.i2];

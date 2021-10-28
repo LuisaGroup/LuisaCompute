@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
             // trace
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
-            auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
+            auto triangle = heap.buffer<Triangle>(hit.inst)[hit.prim];
             auto p0 = vertex_buffer[triangle.i0];
             auto p1 = vertex_buffer[triangle.i1];
             auto p2 = vertex_buffer[triangle.i2];

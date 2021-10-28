@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel1D useless_kernel = [](HeapVar heap) noexcept {
-        Var x = heap.buffer<uint>(0).read(1u);
+        Var x = heap.buffer<uint>(0)[1u];
     };
     auto useless_shader = device.compile(useless_kernel);
 
