@@ -27,8 +27,9 @@ private:
         auto p = static_cast<T *>(detail::allocator_allocate(size, alignof(T)));
         if (_blocks.empty()) { _available_objects.reserve(block_size); }
         _blocks.emplace_back(p);
+        p += block_size;
         for (auto i = 0u; i < block_size; i++) {
-            _available_objects.emplace_back(p++);
+            _available_objects.emplace_back(--p);
         }
     }
 
