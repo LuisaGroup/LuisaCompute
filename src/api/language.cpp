@@ -11,8 +11,8 @@ using namespace luisa::compute;
 using luisa::compute::detail::FunctionBuilder;
 
 void *luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
-    auto arena = new_with_allocator<Arena>();
-    auto f = arena->create<FunctionBuilder>(arena, Function::Tag::KERNEL);
+    auto shared_f = luisa::make_shared<FunctionBuilder>(Function::Tag::KERNEL);
+    auto f = shared_f.get();
     FunctionBuilder::push(f);
     f->push_meta(f->body());
     auto gid = f->dispatch_id();
@@ -20,33 +20,33 @@ void *luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
     auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
     auto cond = f->call(Type::of<bool>(), CallOp::ALL, {less});
     auto ret_cond = f->unary(Type::of<bool>(), UnaryOp::NOT, cond);
-    auto if_body = f->scope();
-    f->with(if_body, [f] { f->return_(); });
-    f->if_(ret_cond, if_body, nullptr);
-    return f;
+    auto if_stmt = f->if_(ret_cond);
+    f->with(if_stmt->true_branch(), [f] { f->return_(); });
+    return new_with_allocator<luisa::shared_ptr<FunctionBuilder>>(std::move(shared_f));
 }
 
 void luisa_compute_ast_end_kernel(void *kernel) LUISA_NOEXCEPT {
-    auto f = static_cast<FunctionBuilder *>(kernel);
+    auto pf = static_cast<luisa::shared_ptr<FunctionBuilder> *>(kernel);
+    auto f = pf->get();
     f->pop_meta(f->body());
     FunctionBuilder::pop(f);
 }
 
-void luisa_compute_ast_destroy_kernel(void *kernel) LUISA_NOEXCEPT {
-    auto arena = &static_cast<FunctionBuilder *>(kernel)->arena();
-    delete_with_allocator(arena);
+void luisa_compute_ast_destroy_function(void *function) LUISA_NOEXCEPT {
+    delete_with_allocator(static_cast<luisa::shared_ptr<FunctionBuilder> *>(function));
 }
 
 void *luisa_compute_ast_begin_callable() LUISA_NOEXCEPT {
-    auto arena = &Arena::global();
-    auto f = arena->create<FunctionBuilder>(arena, Function::Tag::CALLABLE);
+    auto shared_f = luisa::make_shared<FunctionBuilder>(Function::Tag::CALLABLE);
+    auto f = shared_f.get();
     FunctionBuilder::push(f);
     f->push_meta(f->body());
-    return f;
+    return new_with_allocator<luisa::shared_ptr<FunctionBuilder>>(std::move(shared_f));
 }
 
 void luisa_compute_ast_end_callable(void *callable) LUISA_NOEXCEPT {
-    auto f = static_cast<FunctionBuilder *>(callable);
+    auto pf = static_cast<luisa::shared_ptr<FunctionBuilder> *>(callable);
+    auto f = pf->get();
     f->pop_meta(f->body());
     FunctionBuilder::pop(f);
 }
@@ -309,8 +309,10 @@ const void *luisa_compute_ast_call_expr(const void *t, uint32_t call_op, const v
     auto op = static_cast<CallOp>(call_op);
     std::span a{static_cast<Expression const *const *>(args), arg_count};
     if (op == CallOp::CUSTOM) {
-        auto callable = Function{static_cast<const FunctionBuilder *>(custom_callable)};
-        if (ret != nullptr) { return f->call(ret, callable, a); }
+        auto callable = Function{static_cast<const luisa::shared_ptr<FunctionBuilder> *>(custom_callable)->get()};
+        if (ret != nullptr) {
+            return f->call(ret, callable, a);
+        }
         f->call(callable, a);
         return nullptr;
     }
@@ -331,39 +333,31 @@ void luisa_compute_ast_return_stmt(const void *expr) LUISA_NOEXCEPT {
     FunctionBuilder::current()->return_(static_cast<const Expression *>(expr));
 }
 
-void luisa_compute_ast_if_stmt(const void *cond, const void *true_br, const void *false_br) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->if_(
-        static_cast<const Expression *>(cond),
-        static_cast<const ScopeStmt *>(true_br),
-        static_cast<const ScopeStmt *>(false_br));
+void *luisa_compute_ast_if_stmt(const void *cond) LUISA_NOEXCEPT {
+    return FunctionBuilder::current()->if_(static_cast<const Expression *>(cond));
 }
 
-void luisa_compute_ast_loop_stmt(const void *body) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->loop_(static_cast<const ScopeStmt *>(body));
+void *luisa_compute_ast_loop_stmt() LUISA_NOEXCEPT {
+    return FunctionBuilder::current()->loop_();
 }
 
-void luisa_compute_ast_switch_stmt(const void *expr, const void *body) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->switch_(
-        static_cast<const Expression *>(expr),
-        static_cast<const ScopeStmt *>(body));
+void *luisa_compute_ast_switch_stmt(const void *expr) LUISA_NOEXCEPT {
+    return FunctionBuilder::current()->switch_(static_cast<const Expression *>(expr));
 }
 
-void luisa_compute_ast_case_stmt(const void *expr, const void *body) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->case_(
-        static_cast<const Expression *>(expr),
-        static_cast<const ScopeStmt *>(body));
+void *luisa_compute_ast_case_stmt(const void *expr) LUISA_NOEXCEPT {
+    return FunctionBuilder::current()->case_(static_cast<const Expression *>(expr));
 }
 
-void luisa_compute_ast_default_stmt(const void *body) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->default_(static_cast<const ScopeStmt *>(body));
+void *luisa_compute_ast_default_stmt() LUISA_NOEXCEPT {
+    return FunctionBuilder::current()->default_();
 }
 
-void luisa_compute_ast_for_stmt(const void *var, const void *cond, const void *update, const void *body) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->for_(
+void *luisa_compute_ast_for_stmt(const void *var, const void *cond, const void *update) LUISA_NOEXCEPT {
+    return FunctionBuilder::current()->for_(
         static_cast<const Expression *>(var),
         static_cast<const Expression *>(cond),
-        static_cast<const Expression *>(update),
-        static_cast<const ScopeStmt *>(body));
+        static_cast<const Expression *>(update));
 }
 
 void luisa_compute_ast_assign_stmt(uint32_t op, const void *lhs, const void *rhs) LUISA_NOEXCEPT {
@@ -375,10 +369,6 @@ void luisa_compute_ast_assign_stmt(uint32_t op, const void *lhs, const void *rhs
 
 void luisa_compute_ast_comment(const char *comment) LUISA_NOEXCEPT {
     FunctionBuilder::current()->comment_(comment);
-}
-
-void *luisa_compute_ast_create_scope() LUISA_NOEXCEPT {
-    return FunctionBuilder::current()->scope();
 }
 
 void luisa_compute_ast_push_scope(void *scope) LUISA_NOEXCEPT {

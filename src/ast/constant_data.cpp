@@ -12,7 +12,7 @@ namespace luisa::compute {
 namespace detail {
 
 [[nodiscard]] auto &constant_registry() noexcept {
-    static ArenaVector<ConstantData> r{Arena::global()};
+    static luisa::vector<std::pair<ConstantData, luisa::vector<std::byte>>> r;
     return r;
 }
 
@@ -34,14 +34,16 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
                     detail::constant_registry().cbegin(),
                     detail::constant_registry().cend(),
                     [hash](auto &&item) noexcept {
-                        return item._hash == hash;
+                        return item.first._hash == hash;
                     });
-                iter != detail::constant_registry().cend()) { return *iter; }
-            auto &&arena = Arena::global();
-            auto ptr = arena.allocate<T>(view.size());
-            std::memmove(ptr, view.data(), view.size_bytes());
-            std::span<const T> new_view{ptr, view.size()};
-            return detail::constant_registry().emplace_back(ConstantData{new_view, hash});
+                iter != detail::constant_registry().cend()) { return iter->first; }
+            luisa::vector<std::byte> storage(view.size());
+            std::memmove(storage.data(), view.data(), view.size_bytes());
+            std::span<const T> new_view{reinterpret_cast<const T *>(storage.data()), view.size()};
+            return detail::constant_registry()
+                .emplace_back(std::make_pair(
+                    ConstantData{new_view, hash}, std::move(storage)))
+                .first;
         },
         data);
 }

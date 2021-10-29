@@ -15,7 +15,7 @@
 #include <core/clock.h>
 #include <core/logging.h>
 #include <core/basic_types.h>
-#include <core/arena.h>
+#include <core/pool.h>
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>
@@ -54,7 +54,7 @@ class CommandList;
 namespace detail {
 
 #define LUISA_MAKE_COMMAND_POOL_DECL(Cmd) \
-    [[nodiscard]] ArenaPool<Cmd> &pool_##Cmd() noexcept;
+    [[nodiscard]] Pool<Cmd> &pool_##Cmd() noexcept;
 LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_DECL
 

@@ -79,7 +79,7 @@ public:
     [[nodiscard]] std::span<const HeapBinding> captured_heaps() const noexcept;
     [[nodiscard]] std::span<const AccelBinding> captured_accels() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
-    [[nodiscard]] std::span<const Function> custom_callables() const noexcept;
+    [[nodiscard]] std::span<const luisa::shared_ptr<const detail::FunctionBuilder>> custom_callables() const noexcept;
     [[nodiscard]] CallOpSet builtin_callables() const noexcept;
     [[nodiscard]] uint3 block_size() const noexcept;
     [[nodiscard]] Tag tag() const noexcept;
@@ -89,6 +89,7 @@ public:
     [[nodiscard]] uint64_t hash() const noexcept;
     [[nodiscard]] bool raytracing() const noexcept;
     [[nodiscard]] auto builder() const noexcept { return _builder; }
+    [[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder> shared_builder() const noexcept;
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
     [[nodiscard]] explicit operator bool() const noexcept { return _builder != nullptr; }
 };

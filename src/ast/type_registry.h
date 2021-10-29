@@ -10,7 +10,6 @@
 #include <tuple>
 #include <sstream>
 
-#include <core/arena.h>
 #include <core/macro.h>
 #include <core/spin_mutex.h>
 #include <ast/type.h>

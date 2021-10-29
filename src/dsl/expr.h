@@ -284,7 +284,7 @@ public:
         auto expr = f->access(
             Type::of<T>(), _expression,
             index.expression());
-        return *f->arena().create<Var<T>>(expr);
+        return *luisa::new_with_allocator<Var<T>>(expr);
     };
 };
 

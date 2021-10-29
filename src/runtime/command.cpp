@@ -168,10 +168,10 @@ void ShaderDispatchCommand::encode_accel(uint32_t variable_uid, uint64_t handle)
 
 namespace detail {
 
-#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd)            \
-    ArenaPool<Cmd> &pool_##Cmd() noexcept {          \
-        static ArenaPool<Cmd> pool{Arena::global()}; \
-        return pool;                                 \
+#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd) \
+    Pool<Cmd> &pool_##Cmd() noexcept {    \
+        static Pool<Cmd> pool;            \
+        return pool;                      \
     }
 LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_ALL_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_IMPL

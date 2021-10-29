@@ -14,37 +14,40 @@ namespace detail {
 class IfStmtBuilder {
 
 private:
-    ScopeStmt *_true{nullptr};
-    ScopeStmt *_false{nullptr};
+    IfStmt *_stmt;
 
 public:
     explicit IfStmtBuilder(Expr<bool> condition) noexcept
-        : _true{FunctionBuilder::current()->scope()},
-          _false{FunctionBuilder::current()->scope()} {
-        FunctionBuilder::current()->if_(condition.expression(), _true, _false);
-    }
+        : _stmt{FunctionBuilder::current()->if_(condition.expression())} {}
 
     template<typename False>
     void else_(False &&f) &&noexcept {
-        FunctionBuilder::current()->with(_false, std::forward<False>(f));
+        FunctionBuilder::current()->with(_stmt->false_branch(), std::forward<False>(f));
     }
 
     template<typename True>
     auto operator%(True &&t) &&noexcept {
-        FunctionBuilder::current()->with(_true, std::forward<True>(t));
+        FunctionBuilder::current()->with(_stmt->true_branch(), std::forward<True>(t));
         return *this;
     }
 
     template<typename Body>
     [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
-        return FunctionBuilder::current()->with(_false, [condition] { return IfStmtBuilder{condition}; }) % std::forward<Body>(body);
+        return FunctionBuilder::current()->with(
+                   _stmt->false_branch(),
+                   [condition] {
+                       return IfStmtBuilder{condition};
+                   }) %
+               std::forward<Body>(body);
     }
 
     template<typename False>
-    void operator/(False &&f) &&noexcept { IfStmtBuilder{*this}.else_(std::forward<False>(f)); }
+    void operator/(False &&f) &&noexcept {
+        IfStmtBuilder{*this}.else_(std::forward<False>(f));
+    }
 
     [[nodiscard]] auto operator/(Expr<bool> elif_cond) &&noexcept {
-        return FunctionBuilder::current()->with(_false, [elif_cond] {
+        return FunctionBuilder::current()->with(_stmt->false_branch(), [elif_cond] {
             return IfStmtBuilder{elif_cond};
         });
     }
@@ -53,18 +56,15 @@ public:
 class LoopStmtBuilder {
 
 private:
-    ScopeStmt *_body;
+    LoopStmt *_stmt;
 
 public:
-    LoopStmtBuilder() noexcept
-        : _body{FunctionBuilder::current()->scope()} {
-        FunctionBuilder::current()->loop_(_body);
-    }
+    LoopStmtBuilder() noexcept : _stmt{FunctionBuilder::current()->loop_()} {}
 
     template<typename Body>
     auto operator/(Body &&body) &&noexcept {
         FunctionBuilder::current()->with(
-            _body, std::forward<Body>(body));
+            _stmt->body(), std::forward<Body>(body));
         return *this;
     }
 
@@ -80,8 +80,9 @@ private:
     MetaStmt *_meta;
 
 public:
-    explicit MetaStmtBuilder(std::string_view info) noexcept
-        : _meta{FunctionBuilder::current()->meta(info)} {}
+    template<typename S>
+    explicit MetaStmtBuilder(S &&info) noexcept
+        : _meta{FunctionBuilder::current()->meta(luisa::string{std::forward<S>(info)})} {}
     template<typename Body>
     void operator%(Body &&body) &&noexcept {
         FunctionBuilder::current()->with(
@@ -92,17 +93,16 @@ public:
 class SwitchCaseStmtBuilder {
 
 private:
-    ScopeStmt *_body;
+    SwitchCaseStmt *_stmt;
 
 public:
     template<concepts::integral T>
-    explicit SwitchCaseStmtBuilder(T c) noexcept : _body{FunctionBuilder::current()->scope()} {
-        FunctionBuilder::current()->case_(extract_expression(c), _body);
-    }
+    explicit SwitchCaseStmtBuilder(T c) noexcept
+        : _stmt{FunctionBuilder::current()->case_(extract_expression(c))} {}
 
     template<typename Body>
     void operator%(Body &&body) &&noexcept {
-        FunctionBuilder::current()->with(_body, [&body] {
+        FunctionBuilder::current()->with(_stmt->body(), [&body] {
             body();
             FunctionBuilder::current()->break_();
         });
@@ -112,16 +112,15 @@ public:
 class SwitchDefaultStmtBuilder {
 
 private:
-    ScopeStmt *_body;
+    SwitchDefaultStmt *_stmt;
 
 public:
-    SwitchDefaultStmtBuilder() noexcept : _body{FunctionBuilder::current()->scope()} {
-        FunctionBuilder::current()->default_(_body);
-    }
+    SwitchDefaultStmtBuilder() noexcept
+        : _stmt{FunctionBuilder::current()->default_()} {}
 
     template<typename Body>
     void operator%(Body &&body) &&noexcept {
-        FunctionBuilder::current()->with(_body, [&body] {
+        FunctionBuilder::current()->with(_stmt->body(), [&body] {
             body();
             FunctionBuilder::current()->break_();
         });
@@ -131,20 +130,18 @@ public:
 class SwitchStmtBuilder {
 
 private:
-    ScopeStmt *_body;
+    SwitchStmt *_stmt;
 
 public:
     template<typename T>
         requires is_integral_expr_v<T>
     explicit SwitchStmtBuilder(T &&cond) noexcept
-        : _body{FunctionBuilder::current()->scope()} {
-        FunctionBuilder::current()->switch_(
-            extract_expression(std::forward<T>(cond)), _body);
-    }
+        : _stmt{FunctionBuilder::current()->switch_(
+              extract_expression(std::forward<T>(cond)))} {}
 
     template<typename T, typename Body>
     auto case_(T &&case_cond, Body &&case_body) &&noexcept {
-        FunctionBuilder::current()->with(_body, [&case_cond, &case_body] {
+        FunctionBuilder::current()->with(_stmt->body(), [&case_cond, &case_body] {
             SwitchCaseStmtBuilder{case_cond} % std::forward<Body>(case_body);
         });
         return *this;
@@ -152,14 +149,14 @@ public:
 
     template<typename Default>
     auto default_(Default &&d) &&noexcept {
-        FunctionBuilder::current()->with(_body, [&d] {
+        FunctionBuilder::current()->with(_stmt->body(), [&d] {
             SwitchDefaultStmtBuilder{} % std::forward<Default>(d);
         });
     }
 
     template<typename Body>
     void operator%(Body &&body) &&noexcept {
-        FunctionBuilder::current()->with(_body, std::forward<Body>(body));
+        FunctionBuilder::current()->with(_stmt->body(), std::forward<Body>(body));
     }
 };
 
@@ -185,7 +182,7 @@ public:
         Expr<T> _step;
         const Expression *_var{nullptr};
         const Expression *_cond{nullptr};
-        const ScopeStmt *_body{nullptr};
+        ForStmt *_stmt{nullptr};
         uint _time{0u};
 
     public:
@@ -208,18 +205,14 @@ public:
                 // ((step < 0) && !(var < end)) || (!(step < 0) && (var < end))
                 _cond = f->binary(bool_type, BinaryOp::BIT_XOR, _cond, neg_step);
             }
-            auto body = f->scope();
-            _body = body;
-            f->push_scope(body);
+            _stmt = f->for_(_var, _cond, _step.expression());
+            f->push_scope(_stmt->body());
             return Var{std::move(var)};// to guarantee rvo
         }
 
         auto &operator++() noexcept {
-            if (++_time == 1u) {
-                auto f = FunctionBuilder::current();
-                f->pop_scope(_body);
-                f->for_(_var, _cond, _step.expression(), _body);
-            }
+            _time++;
+            FunctionBuilder::current()->pop_scope(_stmt->body());
             return *this;
         }
 
@@ -376,13 +369,14 @@ inline void match(std::initializer_list<T> tags, Tag &&tag, IndexedCase &&indexe
     match(tags, std::forward<Tag>(tag), std::forward<IndexedCase>(indexed_case), [] {});
 }
 
-inline void comment(std::string_view s) noexcept {
-    detail::FunctionBuilder::current()->comment_(s);
+template<typename S>
+inline void comment(S &&s) noexcept {
+    detail::FunctionBuilder::current()->comment_(luisa::string{std::forward<S>(s)});
 }
 
-template<typename Body>
-inline void meta(std::string_view info, Body &&body) noexcept {
-    detail::MetaStmtBuilder{info} % body;
+template<typename S, typename Body>
+inline void meta(S &&info, Body &&body) noexcept {
+    detail::MetaStmtBuilder{luisa::string{std::forward<S>(info)}} % body;
 }
 
 }// namespace dsl

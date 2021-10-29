@@ -29,7 +29,7 @@ public:
     template<typename U>
     Constant(U &&data) noexcept : Constant{std::span<const T>{std::forward<U>(data)}} {}
 
-    Constant(std::initializer_list<T> init) noexcept : Constant{std::vector<T>{init}} {}
+    Constant(std::initializer_list<T> init) noexcept : Constant{luisa::vector<T>{init}} {}
 
     Constant(Constant &&) noexcept = default;
     Constant(const Constant &) noexcept = delete;

@@ -12,7 +12,6 @@
 #include <spdlog/spdlog.h>
 
 #include <core/logging.h>
-#include <core/arena.h>
 #include <core/hash.h>
 #include <ast/type.h>
 #include <ast/type_registry.h>
@@ -138,13 +137,6 @@ int main() {
 
     LUISA_INFO("size = {}, alignment = {}", sizeof(AA), alignof(AA));
     LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
-
-    Arena arena;
-    ArenaVector<int> vec{arena, {1, 2, 3}};
-    vec.emplace_back(4);
-
-    ArenaString s{arena, "hello, world"};
-    LUISA_INFO("{}", s);
 
     int a[5]{1, 2, 3, 4, 5};
     auto hh = Hash64{}(a);

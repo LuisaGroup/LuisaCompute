@@ -30,13 +30,6 @@ int main(int argc, char *argv[]) {
 
     luisa::log_level_verbose();
 
-    Arena arena;
-    ArenaPool<Derived> pool{arena};
-    {
-        auto p = pool.create(1.0f, 2.0f);
-        LUISA_INFO("Pool object: ({}, {}).", p->a, p->b);
-    }
-
     Context context{argv[0]};
 
     Buffer<float> buffer;

@@ -12,6 +12,7 @@
 #include <core/basic_types.h>
 #include <core/logging.h>
 #include <core/hash.h>
+#include <core/allocator.h>
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <ast/op.h>
@@ -51,11 +52,9 @@ protected:
     virtual void _mark(Usage usage) const noexcept = 0;
     [[nodiscard]] virtual uint64_t _compute_hash() const noexcept = 0;
 
-protected:
-    ~Expression() noexcept = default;
-
 public:
     explicit Expression(Tag tag, const Type *type) noexcept : _type{type}, _tag{tag} {}
+    virtual ~Expression() noexcept = default;
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto usage() const noexcept { return _usage; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
@@ -298,7 +297,7 @@ class CallExpr final : public Expression {
     friend class AstSerializer;
 
 public:
-    using ArgumentList = std::span<const Expression *>;
+    using ArgumentList = std::vector<const Expression *>;
 
 private:
     ArgumentList _arguments;
@@ -316,11 +315,17 @@ protected:
 
 public:
     CallExpr(const Type *type, Function callable, ArgumentList args) noexcept
-        : Expression{Tag::CALL, type}, _arguments{args}, _custom{callable}, _op{CallOp::CUSTOM} { _mark(); }
+        : Expression{Tag::CALL, type},
+          _arguments{std::move(args)},
+          _custom{callable},
+          _op{CallOp::CUSTOM} { _mark(); }
     CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept
-        : Expression{Tag::CALL, type}, _arguments{args}, _custom{}, _op{builtin} { _mark(); }
+        : Expression{Tag::CALL, type},
+          _arguments{std::move(args)},
+          _custom{},
+          _op{builtin} { _mark(); }
     [[nodiscard]] auto op() const noexcept { return _op; }
-    [[nodiscard]] auto arguments() const noexcept { return _arguments; }
+    [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments}; }
     [[nodiscard]] auto custom() const noexcept { return _custom; }
     [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()

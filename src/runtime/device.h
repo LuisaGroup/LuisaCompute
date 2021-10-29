@@ -9,7 +9,6 @@
 #include <memory>
 #include <functional>
 
-#include <core/arena.h>
 #include <core/concepts.h>
 #include <ast/function.h>
 #include <meta/property.h>

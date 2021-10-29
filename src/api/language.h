@@ -8,10 +8,9 @@
 
 LUISA_EXPORT_API void *luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_end_kernel(void *kernel) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_ast_destroy_kernel(void *kernel) LUISA_NOEXCEPT;
-
 LUISA_EXPORT_API void *luisa_compute_ast_begin_callable() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_end_callable(void *callable) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_ast_destroy_function(void *function) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API void *luisa_compute_ast_create_constant_data(const void *t, const void *data, size_t n) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_destroy_constant_data(void *data) LUISA_NOEXCEPT;
@@ -50,15 +49,15 @@ LUISA_EXPORT_API const void *luisa_compute_ast_call_expr(const void *t, uint32_t
 LUISA_EXPORT_API void luisa_compute_ast_break_stmt() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_continue_stmt() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_return_stmt(const void *expr) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_ast_if_stmt(const void *cond, const void *true_br, const void *false_br) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_ast_loop_stmt(const void *body) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_ast_switch_stmt(const void *expr, const void *body) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_ast_case_stmt(const void *expr, const void *body) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_ast_default_stmt(const void *body) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_ast_for_stmt(const void *var, const void *cond, const void *update, const void *body) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_ast_if_stmt(const void *cond) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_ast_loop_stmt() LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_ast_switch_stmt(const void *expr) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_ast_case_stmt(const void *expr) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_ast_default_stmt() LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_ast_for_stmt(const void *var, const void *cond, const void *update) LUISA_NOEXCEPT;
+
 LUISA_EXPORT_API void luisa_compute_ast_assign_stmt(uint32_t op, const void *lhs, const void *rhs) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_comment(const char *comment) LUISA_NOEXCEPT;
 
-LUISA_EXPORT_API void *luisa_compute_ast_create_scope() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_push_scope(void *scope) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_ast_pop_scope(void *scope) LUISA_NOEXCEPT;

@@ -6,7 +6,7 @@
 
 #include <vector>
 
-#include <core/arena.h>
+#include <core/allocator.h>
 #include <core/hash.h>
 #include <core/spin_mutex.h>
 
@@ -26,7 +26,7 @@ class Expression;
 
 namespace luisa::compute::detail {
 
-class FunctionBuilder {
+class FunctionBuilder : public std::enable_shared_from_this<FunctionBuilder> {
 
 private:
     class ScopeGuard {
@@ -62,20 +62,21 @@ public:
     using AccelBinding = Function::AccelBinding;
 
 private:
-    Arena *_arena;
     MetaStmt _body;
     const Type *_ret{nullptr};
-    ArenaVector<MetaStmt *> _meta_stack;
-    ArenaVector<ScopeStmt *> _scope_stack;
-    ArenaVector<Variable> _builtin_variables;
-    ArenaVector<ConstantBinding> _captured_constants;
-    ArenaVector<BufferBinding> _captured_buffers;
-    ArenaVector<TextureBinding> _captured_textures;
-    ArenaVector<HeapBinding> _captured_heaps;
-    ArenaVector<AccelBinding> _captured_accels;
-    ArenaVector<Variable> _arguments;
-    ArenaVector<Function> _used_custom_callables;
-    ArenaVector<Usage> _variable_usages;
+    luisa::vector<luisa::unique_ptr<Expression>> _all_expressions;
+    luisa::vector<luisa::unique_ptr<Statement>> _all_statements;
+    luisa::vector<MetaStmt *> _meta_stack;
+    luisa::vector<ScopeStmt *> _scope_stack;
+    luisa::vector<Variable> _builtin_variables;
+    luisa::vector<ConstantBinding> _captured_constants;
+    luisa::vector<BufferBinding> _captured_buffers;
+    luisa::vector<TextureBinding> _captured_textures;
+    luisa::vector<HeapBinding> _captured_heaps;
+    luisa::vector<AccelBinding> _captured_accels;
+    luisa::vector<Variable> _arguments;
+    luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
+    luisa::vector<Usage> _variable_usages;
     CallOpSet _used_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
@@ -93,16 +94,35 @@ protected:
     void _void_expr(const Expression *expr) noexcept;
     void _compute_hash() noexcept;
 
+    template<typename Stmt, typename... Args>
+    auto _create_and_append_statement(Args &&...args) noexcept {
+        auto stmt = luisa::make_unique<Stmt>(std::forward<Args>(args)...);
+        auto p = stmt.get();
+        _all_statements.emplace_back(std::move(stmt)).get();
+        _append(p);
+        return p;
+    }
+
+    template<typename Expr, typename... Args>
+    [[nodiscard]] auto _create_expression(Args &&...args) noexcept {
+        auto expr = luisa::make_unique<Expr>(std::forward<Args>(args)...);
+        auto p = expr.get();
+        _all_expressions.emplace_back(std::move(expr));
+        return p;
+    }
+
 private:
     template<typename Def>
-    static void _define(FunctionBuilder *f, Def &&def) noexcept {
-        push(f);
+    static auto _define(Function::Tag tag, Def &&def) noexcept {
+        auto f = make_shared<FunctionBuilder>(tag);
+        push(f.get());
         f->with(&f->_body, std::forward<Def>(def));
-        pop(f);
+        pop(f.get());
+        return std::const_pointer_cast<const FunctionBuilder>(f);
     }
 
 public:
-    explicit FunctionBuilder(Arena *arena, Tag tag) noexcept;
+    explicit FunctionBuilder(Tag tag) noexcept;
     FunctionBuilder(FunctionBuilder &&) noexcept = delete;
     FunctionBuilder(const FunctionBuilder &) noexcept = delete;
     FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
@@ -132,30 +152,22 @@ public:
     // build primitives
     template<typename Def>
     static auto define_kernel(Def &&def) noexcept {
-        auto arena = new_with_allocator<Arena>();
-        auto f = arena->create<FunctionBuilder>(arena, Function::Tag::KERNEL);
-        _define(f, [f, &def] {
+        return _define(Function::Tag::KERNEL, [&def] {
+            auto f = current();
             auto gid = f->dispatch_id();
             auto gs = f->dispatch_size();
             auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
             auto cond = f->call(Type::of<bool>(), CallOp::ALL, {less});
             auto ret_cond = f->unary(Type::of<bool>(), UnaryOp::NOT, cond);
-            auto if_body = f->scope();
-            f->with(if_body, [f] { f->return_(); });
-            f->if_(ret_cond, if_body, nullptr);
+            auto if_stmt = f->if_(ret_cond);
+            f->with(if_stmt->true_branch(), [f] { f->return_(); });
             def();
         });
-        return luisa::shared_ptr<const FunctionBuilder>{
-            f, [](FunctionBuilder *f) noexcept { delete_with_allocator(f->_arena); },
-            allocator{}};
     }
 
     template<typename Def>
     static auto define_callable(Def &&def) noexcept {
-        auto arena = &Arena::global();
-        auto f = arena->create<FunctionBuilder>(arena, Function::Tag::CALLABLE);
-        _define(f, std::forward<Def>(def));
-        return std::as_const(f);
+        return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
     }
 
     // config
@@ -206,17 +218,16 @@ public:
     void break_() noexcept;
     void continue_() noexcept;
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
-    void if_(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept;
-    void loop_(const ScopeStmt *body) noexcept;
-    void switch_(const Expression *expr, const ScopeStmt *body) noexcept;
-    void case_(const Expression *expr, const ScopeStmt *body) noexcept;
-    void default_(const ScopeStmt *body) noexcept;
-    void for_(const Expression *var, const Expression *condition, const Expression *update, const ScopeStmt *body) noexcept;
-    void comment_(std::string_view comment) noexcept;
-
+    void comment_(luisa::string comment) noexcept;
     void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
-    [[nodiscard]] ScopeStmt *scope() noexcept;
-    [[nodiscard]] MetaStmt *meta(std::string_view info) noexcept;
+
+    [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;
+    [[nodiscard]] LoopStmt *loop_() noexcept;
+    [[nodiscard]] SwitchStmt *switch_(const Expression *expr) noexcept;
+    [[nodiscard]] SwitchCaseStmt *case_(const Expression *expr) noexcept;
+    [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
+    [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
+    [[nodiscard]] MetaStmt *meta(luisa::string info) noexcept;
 
     template<typename Body>
     decltype(auto) with(ScopeStmt *s, Body &&body) noexcept {
@@ -240,7 +251,6 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
 
-    [[nodiscard]] decltype(auto) arena() const noexcept { return *_arena; }
     [[nodiscard]] auto function() const noexcept { return Function{this}; }
 };
 

@@ -5,7 +5,7 @@
 #pragma once
 
 #include <core/concepts.h>
-#include <core/arena.h>
+#include <core/allocator.h>
 #include <ast/variable.h>
 #include <ast/expression.h>
 
@@ -15,11 +15,9 @@ struct StmtVisitor;
 
 class Statement : public concepts::Noncopyable {
 
-protected:
-    ~Statement() noexcept = default;
-
 public:
     virtual void accept(StmtVisitor &) const = 0;
+    virtual ~Statement() noexcept = default;
 };
 
 struct BreakStmt;
@@ -83,11 +81,10 @@ public:
 class ScopeStmt : public Statement {
 
 private:
-    ArenaVector<const Statement *> _statements;
+    vector<const Statement *> _statements;
 
 public:
-    explicit ScopeStmt(ArenaVector<const Statement *> stmts) noexcept : _statements{std::move(stmts)} {}
-    [[nodiscard]] auto statements() const noexcept { return std::span{_statements.data(), _statements.size()}; }
+    [[nodiscard]] auto statements() const noexcept { return std::span{_statements}; }
     void append(const Statement *stmt) noexcept { _statements.emplace_back(stmt); }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
@@ -130,28 +127,28 @@ class IfStmt : public Statement {
 
 private:
     const Expression *_condition;
-    const ScopeStmt *_true_branch;
-    const ScopeStmt *_false_branch;
+    ScopeStmt _true_branch;
+    ScopeStmt _false_branch;
 
 public:
-    IfStmt(const Expression *cond, const ScopeStmt *true_branch, const ScopeStmt *false_branch) noexcept
-        : _condition{cond}, _true_branch{true_branch}, _false_branch{false_branch} {
-        _condition->mark(Usage::READ);
-    }
+    IfStmt(const Expression *cond) noexcept
+        : _condition{cond} { _condition->mark(Usage::READ); }
     [[nodiscard]] auto condition() const noexcept { return _condition; }
-    [[nodiscard]] auto true_branch() const noexcept { return _true_branch; }
-    [[nodiscard]] auto false_branch() const noexcept { return _false_branch; }
+    [[nodiscard]] auto true_branch() noexcept { return &_true_branch; }
+    [[nodiscard]] auto false_branch() noexcept { return &_false_branch; }
+    [[nodiscard]] auto true_branch() const noexcept { return &_true_branch; }
+    [[nodiscard]] auto false_branch() const noexcept { return &_false_branch; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
 class LoopStmt : public Statement {
 
 private:
-    const ScopeStmt *_body;
+    ScopeStmt _body;
 
 public:
-    LoopStmt(const ScopeStmt *body) : _body{body} {}
-    [[nodiscard]] auto body() const noexcept { return _body; }
+    [[nodiscard]] auto body() noexcept { return &_body; }
+    [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
@@ -172,13 +169,14 @@ class SwitchStmt : public Statement {
 
 private:
     const Expression *_expr;
-    const ScopeStmt *_body;
+    ScopeStmt _body;
 
 public:
-    SwitchStmt(const Expression *expr, const ScopeStmt *body) noexcept
-        : _expr{expr}, _body{body} { _expr->mark(Usage::READ); }
+    explicit SwitchStmt(const Expression *expr) noexcept
+        : _expr{expr} { _expr->mark(Usage::READ); }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
-    [[nodiscard]] auto body() const noexcept { return _body; }
+    [[nodiscard]] auto body() noexcept { return &_body; }
+    [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
@@ -186,24 +184,25 @@ class SwitchCaseStmt : public Statement {
 
 private:
     const Expression *_expr;
-    const ScopeStmt *_body;
+    ScopeStmt _body;
 
 public:
-    SwitchCaseStmt(const Expression *expr, const ScopeStmt *body) noexcept
-        : _expr{expr}, _body{body} { _expr->mark(Usage::READ); }
+    explicit SwitchCaseStmt(const Expression *expr) noexcept
+        : _expr{expr} { _expr->mark(Usage::READ); }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
-    [[nodiscard]] auto body() const noexcept { return _body; }
+    [[nodiscard]] auto body() noexcept { return &_body; }
+    [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
 class SwitchDefaultStmt : public Statement {
 
 private:
-    const ScopeStmt *_body;
+    ScopeStmt _body;
 
 public:
-    explicit SwitchDefaultStmt(const ScopeStmt *body) noexcept : _body{body} {}
-    [[nodiscard]] auto body() const noexcept { return _body; }
+    [[nodiscard]] auto body() noexcept { return &_body; }
+    [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
@@ -213,14 +212,13 @@ private:
     const Expression *_var;
     const Expression *_cond;
     const Expression *_step;
-    const ScopeStmt *_body;
+    ScopeStmt _body;
 
 public:
     ForStmt(const Expression *var,
             const Expression *cond,
-            const Expression *step,
-            const ScopeStmt *body) noexcept
-        : _var{var}, _cond{cond}, _step{step}, _body{body} {
+            const Expression *step) noexcept
+        : _var{var}, _cond{cond}, _step{step} {
         _var->mark(Usage::READ_WRITE);
         _cond->mark(Usage::READ);
         _step->mark(Usage::READ);
@@ -228,64 +226,44 @@ public:
     [[nodiscard]] auto variable() const noexcept { return _var; }
     [[nodiscard]] auto condition() const noexcept { return _cond; }
     [[nodiscard]] auto step() const noexcept { return _step; }
-    [[nodiscard]] auto body() const noexcept { return _body; }
+    [[nodiscard]] auto body() noexcept { return &_body; }
+    [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
 class CommentStmt : public Statement {
 
 private:
-    std::string_view _comment;
+    luisa::string _comment;
 
 public:
-    explicit CommentStmt(std::string_view comment) noexcept
-        : _comment{comment} {}
-    [[nodiscard]] auto comment() const noexcept { return _comment; }
+    explicit CommentStmt(luisa::string comment) noexcept
+        : _comment{std::move(comment)} {}
+    [[nodiscard]] auto comment() const noexcept { return std::string_view{_comment}; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
 class MetaStmt : public Statement {
 
 private:
-    std::string_view _info;
-    ScopeStmt *_scope;
-    ArenaVector<const MetaStmt *> _children;
-    ArenaVector<Variable> _variables;
+    luisa::string _info;
+    ScopeStmt _scope;
+    vector<const MetaStmt *> _children;
+    vector<Variable> _variables;
 
 public:
-    MetaStmt(
-        std::string_view info,
-        ScopeStmt *scope,
-        ArenaVector<const MetaStmt *> children,
-        ArenaVector<Variable> variables) noexcept
-        : _info{info}, _scope{scope},
-          _children{std::move(children)},
-          _variables{std::move(variables)} {}
-    [[nodiscard]] auto info() const noexcept { return _info; }
-    [[nodiscard]] auto scope() noexcept { return _scope; }
-    [[nodiscard]] auto scope() const noexcept { return const_cast<const ScopeStmt *>(_scope); }
+    MetaStmt(luisa::string info) noexcept
+        : _info{std::move(info)} {}
+    [[nodiscard]] auto info() const noexcept { return std::string_view{_info}; }
+    [[nodiscard]] auto scope() noexcept { return &_scope; }
+    [[nodiscard]] auto scope() const noexcept { return &_scope; }
     [[nodiscard]] auto add(const MetaStmt *child) noexcept { _children.emplace_back(child); }
     [[nodiscard]] auto add(Variable v) noexcept { _variables.emplace_back(v); }
-    [[nodiscard]] auto children() const noexcept { return std::span{_children.data(), _children.size()}; }
-    [[nodiscard]] auto variables() const noexcept { return std::span{_variables.data(), _variables.size()}; }
+    [[nodiscard]] auto children() const noexcept { return std::span{_children}; }
+    [[nodiscard]] auto variables() const noexcept { return std::span{_variables}; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
 #undef LUISA_MAKE_STATEMENT_ACCEPT_VISITOR
-
-// checks for working with Arena
-static_assert(std::is_trivially_destructible_v<BreakStmt>);
-static_assert(std::is_trivially_destructible_v<ContinueStmt>);
-static_assert(std::is_trivially_destructible_v<ReturnStmt>);
-static_assert(std::is_trivially_destructible_v<ScopeStmt>);
-static_assert(std::is_trivially_destructible_v<IfStmt>);
-static_assert(std::is_trivially_destructible_v<LoopStmt>);
-static_assert(std::is_trivially_destructible_v<ExprStmt>);
-static_assert(std::is_trivially_destructible_v<SwitchStmt>);
-static_assert(std::is_trivially_destructible_v<SwitchCaseStmt>);
-static_assert(std::is_trivially_destructible_v<SwitchDefaultStmt>);
-static_assert(std::is_trivially_destructible_v<AssignStmt>);
-static_assert(std::is_trivially_destructible_v<ForStmt>);
-static_assert(std::is_trivially_destructible_v<CommentStmt>);
 
 }// namespace luisa::compute

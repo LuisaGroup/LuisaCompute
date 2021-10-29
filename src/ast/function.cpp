@@ -36,7 +36,7 @@ const MetaStmt *Function::body() const noexcept {
     return _builder->body();
 }
 
-std::span<const Function> Function::custom_callables() const noexcept {
+std::span<const luisa::shared_ptr<const detail::FunctionBuilder>> Function::custom_callables() const noexcept {
     return _builder->custom_callables();
 }
 
@@ -70,6 +70,10 @@ std::span<const Function::HeapBinding> Function::captured_heaps() const noexcept
 
 std::span<const Function::AccelBinding> Function::captured_accels() const noexcept {
     return _builder->captured_accels();
+}
+
+luisa::shared_ptr<const detail::FunctionBuilder> Function::shared_builder() const noexcept {
+    return _builder->shared_from_this();
 }
 
 }// namespace luisa::compute

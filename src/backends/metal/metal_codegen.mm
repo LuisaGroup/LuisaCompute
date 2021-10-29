@@ -473,7 +473,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
     if (std::find(_generated_functions.cbegin(), _generated_functions.cend(), f) != _generated_functions.cend()) { return; }
 
     _generated_functions.emplace_back(f);
-    for (auto callable : f.custom_callables()) { _emit_function(callable); }
+    for (auto callable : f.custom_callables()) {
+        _emit_function(callable->function());
+    }
 
     _function = f;
     _indent = 0u;

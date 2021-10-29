@@ -17,6 +17,8 @@ namespace detail {
 
 template<typename T>
 struct RefEnableSubscriptAccess {
+
+public:
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto operator[](I &&index) const &noexcept {
@@ -38,7 +40,7 @@ struct RefEnableSubscriptAccess {
             Type::of<Elem>(),
             static_cast<const T *>(this)->expression(),
             i.expression());
-        return *f->arena().create<Var<Elem>>(expr);
+        return *new_with_allocator<Var<Elem>>(expr);// TODO: store in function
     }
 };
 

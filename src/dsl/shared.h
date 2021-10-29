@@ -5,6 +5,7 @@
 #pragma once
 
 #include <dsl/expr.h>
+#include <core/allocator.h>
 
 namespace luisa::compute {
 
@@ -40,7 +41,7 @@ public:
         auto f = detail::FunctionBuilder::current();
         auto expr = f->access(
             Type::of<T>(), _expression, i.expression());
-        return *f->arena().create<Var<T>>(expr);
+        return *new_with_allocator<Var<T>>(expr);
     }
 };
 

@@ -4,6 +4,7 @@
 
 #include <charconv>
 #include <vector>
+#include <bit>
 
 #include <core/logging.h>
 #include <core/hash.h>

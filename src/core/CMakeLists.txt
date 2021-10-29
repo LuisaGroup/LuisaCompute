@@ -5,7 +5,6 @@ set(LUISA_COMPUTE_CORE_SOURCES
         hash.cpp hash.h
         macro.h
         spin_mutex.h
-        arena.cpp arena.h
         platform.cpp platform.h
         mathematics.h
         atomic.h
@@ -15,7 +14,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         intrin.h
         clock.h
         allocator.h allocator.cpp
-        rc.h)
+        rc.h
+        pool.h)
 
 find_package(Threads REQUIRED)
 

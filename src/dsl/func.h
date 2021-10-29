@@ -289,7 +289,7 @@ class Callable<Ret(Args...)> {
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
 private:
-    const detail::FunctionBuilder *_builder;
+    std::shared_ptr<const detail::FunctionBuilder> _builder;
 
 public:
     template<typename Def,
