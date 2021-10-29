@@ -12,8 +12,8 @@
 #include <core/arena.h>
 #include <core/concepts.h>
 #include <ast/function.h>
+#include <meta/property.h>
 #include <runtime/pixel.h>
-#include <runtime/meta.h>
 #include <runtime/command_list.h>
 
 namespace luisa::compute {

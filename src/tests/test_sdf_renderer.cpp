@@ -143,9 +143,9 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy();
         auto global_id = coord.x + coord.y * dispatch_size_x();
 
-        $meta("hello") {
-            $meta("nested") { $comment("good\nbad\n"); };
+        $meta(meta::supports_custom_block_size) {
             $if(frame_index == 0u) {
+                $meta("nested") { $comment("good\nbad\n"); };
                 seed_image[global_id] = tea(coord.x, coord.y);
                 accum_image[global_id] = make_float4(make_float3(0.0f), 1.0f);
             };
