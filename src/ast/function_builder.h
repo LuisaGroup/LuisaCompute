@@ -77,6 +77,7 @@ private:
     luisa::vector<Variable> _arguments;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Usage> _variable_usages;
+    luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
     CallOpSet _used_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
@@ -233,6 +234,17 @@ public:
     decltype(auto) with(ScopeStmt *s, Body &&body) noexcept {
         ScopeGuard guard{this, s};
         return body();
+    }
+
+    template<typename T, typename... Args>
+    [[nodiscard]] auto create_temporary(Args &&...args) noexcept {
+        static_assert(std::is_trivially_destructible_v<T>);
+        auto p = luisa::detail::allocator_allocate(sizeof(T), alignof(T));
+        _temporary_data.emplace_back(std::make_pair(
+            static_cast<std::byte *>(p), alignof(T)));
+        return luisa::construct_at(
+            static_cast<T *>(p),
+            std::forward<Args>(args)...);
     }
 
     template<typename Body>

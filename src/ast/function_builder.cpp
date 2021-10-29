@@ -35,6 +35,14 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
             "shared or captured variables.");
     }
     f->_compute_hash();
+
+    // clear temporary data
+    for (auto p : f->_temporary_data) {
+        luisa::detail::allocator_deallocate(
+            p.first, p.second);
+    }
+    f->_temporary_data.clear();
+    f->_temporary_data.shrink_to_fit();
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {

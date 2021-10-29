@@ -41,7 +41,7 @@ public:
         auto f = detail::FunctionBuilder::current();
         auto expr = f->access(
             Type::of<T>(), _expression, i.expression());
-        return *new_with_allocator<Var<T>>(expr);
+        return *f->create_temporary<Var<T>>(expr);
     }
 };
 

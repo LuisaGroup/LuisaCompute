@@ -40,7 +40,7 @@ public:
             Type::of<Elem>(),
             static_cast<const T *>(this)->expression(),
             i.expression());
-        return *new_with_allocator<Var<Elem>>(expr);// TODO: store in function
+        return *f->create_temporary<Var<Elem>>(expr);
     }
 };
 
