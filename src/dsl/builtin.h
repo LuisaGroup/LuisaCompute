@@ -148,6 +148,17 @@ template<typename T>
     return Var{Expr<T>{expr}};
 }
 
+template<typename T, typename SExpr>
+[[nodiscard]] inline auto eval(SExpr &&s_expr) noexcept {
+    static_assert(is_basic_v<T>, "only basic types are allowed in meta-values");
+    auto type = Type::of<T>();
+    auto meta_value = LiteralExpr::MetaValue{
+        type, luisa::string{std::forward<SExpr>(s_expr)}};
+    auto expr = detail::FunctionBuilder::current()->literal(
+        type, std::move(meta_value));
+    return Var{Expr<T>{expr}};
+}
+
 template<typename S, typename Index, typename... Buffers>
     requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {

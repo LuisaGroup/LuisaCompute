@@ -13,6 +13,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
+#include <meta/property.h>
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
@@ -143,7 +144,7 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy();
         auto global_id = coord.x + coord.y * dispatch_size_x();
 
-        $meta(meta::supports_custom_block_size) {
+        $meta(meta::supports_custom_block_size, "hello") {
             $if(frame_index == 0u) {
                 $meta("nested") { $comment("good\nbad\n"); };
                 seed_image[global_id] = tea(coord.x, coord.y);
@@ -208,7 +209,7 @@ int main(int argc, char *argv[]) {
     auto last_t = clock.toc();
 
     static constexpr auto interval = 10u;
-    static constexpr auto total_spp = 500000u;
+    static constexpr auto total_spp = 10u;
     std::vector<double> fps;
     fps.reserve(total_spp);
     for (auto spp = 0u; spp < total_spp; spp += interval) {

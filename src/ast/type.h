@@ -326,6 +326,10 @@ public:
                || _tag == Tag::UINT;
     }
 
+    [[nodiscard]] constexpr auto is_basic() const noexcept {
+        return is_scalar() || is_vector() || is_matrix();
+    }
+
     [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == Tag::ARRAY; }
     [[nodiscard]] constexpr bool is_vector() const noexcept { return _tag == Tag::VECTOR; }
     [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }

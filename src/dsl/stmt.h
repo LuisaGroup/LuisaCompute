@@ -77,12 +77,23 @@ public:
 class MetaStmtBuilder {
 
 private:
+    template<typename First, typename... S>
+    [[nodiscard]] static auto _join(First &&first, S &&...info) noexcept {
+        luisa::string s{"("};
+        s.append(std::string_view{std::forward<First>(first)});
+        (..., s.append(" ").append(std::string_view{std::forward<S>(info)}));
+        s.append(")");
+        return s;
+    }
+
+private:
     MetaStmt *_meta;
 
 public:
-    template<typename S>
-    explicit MetaStmtBuilder(S &&info) noexcept
-        : _meta{FunctionBuilder::current()->meta(luisa::string{std::forward<S>(info)})} {}
+    template<typename... S>
+    explicit MetaStmtBuilder(S &&...info) noexcept
+        : _meta{FunctionBuilder::current()->meta(
+              _join(std::forward<S>(info)...))} {}
     template<typename Body>
     void operator%(Body &&body) &&noexcept {
         FunctionBuilder::current()->with(
@@ -374,9 +385,9 @@ inline void comment(S &&s) noexcept {
     detail::FunctionBuilder::current()->comment_(luisa::string{std::forward<S>(s)});
 }
 
-template<typename S, typename Body>
-inline void meta(S &&info, Body &&body) noexcept {
-    detail::MetaStmtBuilder{luisa::string{std::forward<S>(info)}} % body;
+template<typename... S, typename Body>
+inline void meta(S &&...info, Body &&body) noexcept {
+    detail::MetaStmtBuilder{std::forward<S>(info)...} % body;
 }
 
 }// namespace dsl

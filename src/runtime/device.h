@@ -11,7 +11,7 @@
 
 #include <core/concepts.h>
 #include <ast/function.h>
-#include <meta/property.h>
+#include <meta/s_expr.h>
 #include <runtime/pixel.h>
 #include <runtime/command_list.h>
 
@@ -110,7 +110,7 @@ public:
         [[nodiscard]] virtual uint64_t create_accel() noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
 
-        [[nodiscard]] virtual std::string query(std::string_view meta_info) noexcept { return {}; }
+        [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
     };
 
     using Deleter = void(Interface *);
@@ -169,8 +169,8 @@ public:
         return _create<Shader<N, Args...>>(kernel.function());
     }
 
-    [[nodiscard]] auto query(std::string_view meta_info) const noexcept {
-        return _impl->query(meta_info);
+    [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {
+        return _impl->query(meta_expr);
     }
 };
 

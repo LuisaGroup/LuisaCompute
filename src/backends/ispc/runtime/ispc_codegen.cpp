@@ -185,6 +185,14 @@ struct PrintValue<Matrix<N>> {
             varName.erase(last);
     }
 };
+
+template<>
+struct PrintValue<LiteralExpr::MetaValue> {
+    void operator()(const LiteralExpr::MetaValue &s, std::string &varName) const noexcept {
+        // TODO...
+    }
+};
+
 void StringExprVisitor::visit(const LiteralExpr *expr) {
     LiteralExpr::Value const &value = expr->value();
     std::visit([&](auto &&value) -> void {

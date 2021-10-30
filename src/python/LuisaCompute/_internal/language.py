@@ -203,11 +203,11 @@ def ast_accel_argument():
 
 
 dll.luisa_compute_ast_literal_expr.restype = c_void_p
-dll.luisa_compute_ast_literal_expr.argtypes = [c_void_p, c_void_p]
+dll.luisa_compute_ast_literal_expr.argtypes = [c_void_p, c_void_p, c_char_p]
 
 
-def ast_literal_expr(t, value):
-    return dll.luisa_compute_ast_literal_expr(t, value)
+def ast_literal_expr(t, value, meta_value):
+    return dll.luisa_compute_ast_literal_expr(t, value, meta_value.encode())
 
 
 dll.luisa_compute_ast_unary_expr.restype = c_void_p
@@ -338,6 +338,78 @@ def ast_for_stmt(var, cond, update):
     return dll.luisa_compute_ast_for_stmt(var, cond, update)
 
 
+dll.luisa_compute_ast_meta_stmt.restype = c_void_p
+dll.luisa_compute_ast_meta_stmt.argtypes = [c_char_p]
+
+
+def ast_meta_stmt(meta_expr):
+    return dll.luisa_compute_ast_meta_stmt(meta_expr.encode())
+
+
+dll.luisa_compute_ast_if_stmt_true_scope.restype = c_void_p
+dll.luisa_compute_ast_if_stmt_true_scope.argtypes = [c_void_p]
+
+
+def ast_if_stmt_true_scope(stmt):
+    return dll.luisa_compute_ast_if_stmt_true_scope(stmt)
+
+
+dll.luisa_compute_ast_if_stmt_false_scope.restype = c_void_p
+dll.luisa_compute_ast_if_stmt_false_scope.argtypes = [c_void_p]
+
+
+def ast_if_stmt_false_scope(stmt):
+    return dll.luisa_compute_ast_if_stmt_false_scope(stmt)
+
+
+dll.luisa_compute_ast_loop_stmt_scope.restype = c_void_p
+dll.luisa_compute_ast_loop_stmt_scope.argtypes = [c_void_p]
+
+
+def ast_loop_stmt_scope(stmt):
+    return dll.luisa_compute_ast_loop_stmt_scope(stmt)
+
+
+dll.luisa_compute_ast_switch_stmt_scope.restype = c_void_p
+dll.luisa_compute_ast_switch_stmt_scope.argtypes = [c_void_p]
+
+
+def ast_switch_stmt_scope(stmt):
+    return dll.luisa_compute_ast_switch_stmt_scope(stmt)
+
+
+dll.luisa_compute_ast_switch_case_stmt_scope.restype = c_void_p
+dll.luisa_compute_ast_switch_case_stmt_scope.argtypes = [c_void_p]
+
+
+def ast_switch_case_stmt_scope(stmt):
+    return dll.luisa_compute_ast_switch_case_stmt_scope(stmt)
+
+
+dll.luisa_compute_ast_switch_default_stmt_scope.restype = c_void_p
+dll.luisa_compute_ast_switch_default_stmt_scope.argtypes = [c_void_p]
+
+
+def ast_switch_default_stmt_scope(stmt):
+    return dll.luisa_compute_ast_switch_default_stmt_scope(stmt)
+
+
+dll.luisa_compute_ast_for_stmt_scope.restype = c_void_p
+dll.luisa_compute_ast_for_stmt_scope.argtypes = [c_void_p]
+
+
+def ast_for_stmt_scope(stmt):
+    return dll.luisa_compute_ast_for_stmt_scope(stmt)
+
+
+dll.luisa_compute_ast_meta_stmt_scope.restype = c_void_p
+dll.luisa_compute_ast_meta_stmt_scope.argtypes = [c_void_p]
+
+
+def ast_meta_stmt_scope(stmt):
+    return dll.luisa_compute_ast_meta_stmt_scope(stmt)
+
+
 dll.luisa_compute_ast_assign_stmt.restype = None
 dll.luisa_compute_ast_assign_stmt.argtypes = [c_uint32, c_void_p, c_void_p]
 
@@ -368,3 +440,19 @@ dll.luisa_compute_ast_pop_scope.argtypes = [c_void_p]
 
 def ast_pop_scope(scope):
     dll.luisa_compute_ast_pop_scope(scope)
+
+
+dll.luisa_compute_ast_push_meta.restype = None
+dll.luisa_compute_ast_push_meta.argtypes = [c_void_p]
+
+
+def ast_push_meta(meta):
+    dll.luisa_compute_ast_push_meta(meta)
+
+
+dll.luisa_compute_ast_pop_meta.restype = None
+dll.luisa_compute_ast_pop_meta.argtypes = [c_void_p]
+
+
+def ast_pop_meta(meta):
+    dll.luisa_compute_ast_pop_meta(meta)

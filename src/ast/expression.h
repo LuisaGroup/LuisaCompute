@@ -237,7 +237,24 @@ class LiteralExpr final : public Expression {
     friend class AstSerializer;
 
 public:
-    using Value = detail::make_literal_value_t<basic_types>;
+    class MetaValue {
+    private:
+        const Type *_type;
+        luisa::string _expr;
+
+    public:
+        MetaValue(const Type *type, luisa::string expr) noexcept
+            : _type{type}, _expr{std::move(expr)} {
+            if (!type->is_basic()) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Invalid type for meta-value: {}",
+                    type->description());
+            }
+        }
+        [[nodiscard]] auto type() const noexcept { return _type; }
+        [[nodiscard]] auto expr() const noexcept { return std::string_view{_expr}; }
+    };
+    using Value = detail::make_literal_value_t<tuple_join_t<basic_types, std::tuple<MetaValue>>>;
 
 private:
     Value _value;

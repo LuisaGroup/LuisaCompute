@@ -18,8 +18,8 @@ public:
 
 private:
     spin_mutex _mutex;
-    std::vector<T *> _blocks;
-    std::vector<T *> _available_objects;
+    luisa::vector<T *> _blocks;
+    luisa::vector<T *> _available_objects;
 
 private:
     void _enlarge() noexcept {

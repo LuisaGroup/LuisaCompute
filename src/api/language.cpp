@@ -199,8 +199,13 @@ const void *luisa_compute_ast_accel_argument() LUISA_NOEXCEPT {
     return f->accel();
 }
 
-const void *luisa_compute_ast_literal_expr(const void *t, const void *value) LUISA_NOEXCEPT {
-    auto v = [type = static_cast<const Type *>(t), value]() noexcept -> LiteralExpr::Value {
+const void *luisa_compute_ast_literal_expr(const void *t, const void *value, const char *meta_value) LUISA_NOEXCEPT {
+    auto v = [type = static_cast<const Type *>(t), value, meta_value]() noexcept -> LiteralExpr::Value {
+        if (meta_value != nullptr) {
+            return LiteralExpr::MetaValue{
+                type,
+                meta_value};
+        }
         switch (type->tag()) {
             case Type::Tag::BOOL:
                 return *static_cast<const bool *>(value);
@@ -377,4 +382,48 @@ void luisa_compute_ast_push_scope(void *scope) LUISA_NOEXCEPT {
 
 void luisa_compute_ast_pop_scope(void *scope) LUISA_NOEXCEPT {
     FunctionBuilder::current()->pop_scope(static_cast<ScopeStmt *>(scope));
+}
+
+void *luisa_compute_ast_meta_stmt(const char *meta_expr) LUISA_NOEXCEPT {
+    return FunctionBuilder::current()->meta(meta_expr);
+}
+
+void *luisa_compute_ast_if_stmt_true_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<IfStmt *>(stmt)->true_branch();
+}
+
+void *luisa_compute_ast_if_stmt_false_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<IfStmt *>(stmt)->false_branch();
+}
+
+void *luisa_compute_ast_loop_stmt_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<LoopStmt *>(stmt)->body();
+}
+
+void *luisa_compute_ast_switch_stmt_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<SwitchStmt *>(stmt)->body();
+}
+
+void *luisa_compute_ast_switch_case_stmt_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<SwitchCaseStmt *>(stmt)->body();
+}
+
+void *luisa_compute_ast_switch_default_stmt_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<SwitchDefaultStmt *>(stmt)->body();
+}
+
+void *luisa_compute_ast_for_stmt_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<ForStmt *>(stmt)->body();
+}
+
+void *luisa_compute_ast_meta_stmt_scope(void *stmt) LUISA_NOEXCEPT {
+    return static_cast<MetaStmt *>(stmt)->scope();
+}
+
+void luisa_compute_ast_push_meta(void *meta) LUISA_NOEXCEPT {
+    FunctionBuilder::current()->push_meta(static_cast<MetaStmt *>(meta));
+}
+
+void luisa_compute_ast_pop_meta(void *meta) LUISA_NOEXCEPT {
+    FunctionBuilder::current()->pop_meta(static_cast<MetaStmt *>(meta));
 }
