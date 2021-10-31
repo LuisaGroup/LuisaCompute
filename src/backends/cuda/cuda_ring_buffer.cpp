@@ -7,7 +7,7 @@
 namespace luisa::compute::cuda {
 
 CUDARingBuffer::CUDARingBuffer(size_t size, bool write_combined) noexcept
-    : _size{std::max(next_pow2(size), alignment)},
+    : _size{std::max(next_pow2(size), static_cast<size_t>(4096u))},
       _free_begin{0u},
       _free_end{0u},
       _alloc_count{0u},

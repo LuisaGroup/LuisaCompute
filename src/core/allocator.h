@@ -43,6 +43,9 @@ struct allocator {
     }
 };
 
+//template<typename T = std::byte>
+//using allocator = std::allocator<T>;
+
 template<typename T>
 [[nodiscard]] inline auto allocate(size_t n = 1u) noexcept {
     return allocator<T>{}.allocate(n);
@@ -87,7 +90,7 @@ template<typename T, typename... Args>
 [[nodiscard]] auto make_shared(Args &&...args) noexcept {
     return shared_ptr<T>{
         new_with_allocator<T>(std::forward<Args>(args)...),
-        deleter{}, allocator{}};
+        deleter{}, allocator<std::byte>{}};
 }
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;

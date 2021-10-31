@@ -37,7 +37,7 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
                         return item.first._hash == hash;
                     });
                 iter != detail::constant_registry().cend()) { return iter->first; }
-            luisa::vector<std::byte> storage(view.size());
+            luisa::vector<std::byte> storage(view.size_bytes());
             std::memmove(storage.data(), view.data(), view.size_bytes());
             std::span<const T> new_view{reinterpret_cast<const T *>(storage.data()), view.size()};
             return detail::constant_registry()

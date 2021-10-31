@@ -99,7 +99,7 @@ protected:
     auto _create_and_append_statement(Args &&...args) noexcept {
         auto stmt = luisa::make_unique<Stmt>(std::forward<Args>(args)...);
         auto p = stmt.get();
-        _all_statements.emplace_back(std::move(stmt)).get();
+        _all_statements.emplace_back(std::move(stmt));
         _append(p);
         return p;
     }

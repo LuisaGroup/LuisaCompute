@@ -262,7 +262,13 @@ private:
 protected:
     void _mark(Usage) const noexcept override {}
     uint64_t _compute_hash() const noexcept override {
-        return std::visit([](auto v) noexcept { return hash64(v); }, _value);
+        return std::visit([](auto &&v) noexcept {
+            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(v)>, MetaValue>) {
+                return hash64(v.expr(), hash64(v.type()->hash()));
+            } else {
+                return hash64(v);
+            }
+        }, _value);
     }
 
 public:

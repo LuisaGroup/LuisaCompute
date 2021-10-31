@@ -18,7 +18,7 @@ struct RingBufferRecycleContext {
 };
 
 [[nodiscard]] decltype(auto) ring_buffer_recycle_context_pool() noexcept {
-    static ArenaPool<RingBufferRecycleContext> pool{Arena::global()};
+    static Pool<RingBufferRecycleContext> pool;
     return (pool);
 }
 
