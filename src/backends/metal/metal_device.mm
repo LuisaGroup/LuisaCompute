@@ -498,10 +498,10 @@ MetalHeap *MetalDevice::heap(uint64_t handle) const noexcept {
     return _heap_slots[handle].get();
 }
 
-uint64_t MetalDevice::create_shader(Function kernel) noexcept {
+uint64_t MetalDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     if (kernel.raytracing()) { check_raytracing_supported(); }
     Clock clock;
-    auto shader = _compiler->compile(kernel);
+    auto shader = _compiler->compile(kernel, meta_options);
     LUISA_VERBOSE_WITH_LOCATION("Compiled shader in {} ms.", clock.toc());
     std::scoped_lock lock{_shader_mutex};
     if (_available_shader_slots.empty()) {

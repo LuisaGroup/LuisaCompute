@@ -106,10 +106,11 @@ void luisa_compute_stream_dispatch(void *device, uint64_t handle, void *cmd_list
     delete_with_allocator(static_cast<CommandList *>(cmd_list));
 }
 
-uint64_t luisa_compute_shader_create(void *device, const void *function) LUISA_NOEXCEPT {
+uint64_t luisa_compute_shader_create(void *device, const void *function, const char *options) LUISA_NOEXCEPT {
     auto d = static_cast<RC<Device> *>(device);
     return d->retain()->impl()->create_shader(
-        Function{static_cast<const luisa::compute::detail::FunctionBuilder *>(function)});
+        Function{static_cast<const luisa::compute::detail::FunctionBuilder *>(function)},
+        std::string_view{options});
 }
 
 void luisa_compute_shader_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {

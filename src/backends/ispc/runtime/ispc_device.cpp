@@ -47,7 +47,7 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 }
 
 // kernel
-uint64_t ISPCDevice::create_shader(Function kernel) noexcept {
+uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     std::string result;
     CodegenUtility::PrintFunction(kernel, result);
     auto f = fopen("test.ispc", "r");

@@ -27,7 +27,7 @@ private:
 
 public:
     explicit MetalCompiler(MetalDevice *device) noexcept : _device{device} {}
-    [[nodiscard]] MetalShader compile(Function kernel) noexcept;
+    [[nodiscard]] MetalShader compile(Function kernel, std::string_view meta_options) noexcept;
 };
 
 }// namespace luisa::compute::metal

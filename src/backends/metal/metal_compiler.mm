@@ -10,9 +10,11 @@
 
 namespace luisa::compute::metal {
 
-MetalShader MetalCompiler::compile(Function kernel) noexcept {
+MetalShader MetalCompiler::compile(
+    Function kernel,
+    std::string_view meta_options) noexcept {// TODO: meta-options
 
-    auto hash_string = std::string{hash_to_string(kernel.hash())};
+    auto hash_string = luisa::string{hash_to_string(kernel.hash())};
     LUISA_INFO("Compiling kernel #{}.", hash_string);
 
     Clock clock;

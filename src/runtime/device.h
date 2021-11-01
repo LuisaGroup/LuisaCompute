@@ -11,7 +11,7 @@
 
 #include <core/concepts.h>
 #include <ast/function.h>
-#include <meta/s_expr.h>
+#include <meta/property.h>
 #include <runtime/pixel.h>
 #include <runtime/command_list.h>
 
@@ -94,7 +94,7 @@ public:
         [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
 
         // kernel
-        [[nodiscard]] virtual uint64_t create_shader(Function kernel) noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept = 0;
         virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
         // event
@@ -163,10 +163,9 @@ public:
         return _create<Buffer<T>>(size);
     }
 
-    // see definitions in dsl/func.h
     template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel) noexcept {
-        return _create<Shader<N, Args...>>(kernel.function());
+    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel, std::string_view meta_options = {}) noexcept {
+        return _create<Shader<N, Args...>>(kernel.function(), meta_options);
     }
 
     [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {

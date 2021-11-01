@@ -188,11 +188,11 @@ private:
 
 private:
     friend class Device;
-    Shader(Device::Interface *device, std::shared_ptr<const detail::FunctionBuilder> kernel) noexcept
+    Shader(Device::Interface *device, std::shared_ptr<const detail::FunctionBuilder> kernel, std::string_view meta_options) noexcept
         : Resource{
             device,
             Tag::SHADER,
-            device->create_shader(kernel->function())},
+            device->create_shader(kernel->function(), meta_options)},
           _kernel{std::move(kernel)} {}
 
 public:

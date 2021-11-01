@@ -155,11 +155,11 @@ def stream_dispatch(device, handle, cmd_list):
 
 
 dll.luisa_compute_shader_create.restype = c_uint64
-dll.luisa_compute_shader_create.argtypes = [c_void_p, c_void_p]
+dll.luisa_compute_shader_create.argtypes = [c_void_p, c_void_p, c_char_p]
 
 
-def shader_create(device, function):
-    return dll.luisa_compute_shader_create(device, function)
+def shader_create(device, function, options):
+    return dll.luisa_compute_shader_create(device, function, options.encode())
 
 
 dll.luisa_compute_shader_destroy.restype = None

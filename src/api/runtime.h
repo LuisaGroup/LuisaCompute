@@ -35,7 +35,7 @@ LUISA_EXPORT_API void luisa_compute_stream_destroy(void *device, uint64_t handle
 LUISA_EXPORT_API void luisa_compute_stream_synchronize(void *device, uint64_t handle) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_dispatch(void *device, uint64_t handle, void *cmd_list) LUISA_NOEXCEPT;
 
-LUISA_EXPORT_API uint64_t luisa_compute_shader_create(void *device, const void *function) LUISA_NOEXCEPT;
+LUISA_EXPORT_API uint64_t luisa_compute_shader_create(void *device, const void *function, const char *options) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_shader_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API uint64_t luisa_compute_event_create(void *device) LUISA_NOEXCEPT;

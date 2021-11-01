@@ -241,7 +241,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
     });
 }
 
-uint64_t CUDADevice::create_shader(Function kernel) noexcept {
+uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     return 0;
 }
 
