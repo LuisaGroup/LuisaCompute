@@ -56,7 +56,8 @@ public:
     [[nodiscard]] auto hash() const noexcept {
         auto u0 = static_cast<uint64_t>(_uid);
         auto u1 = static_cast<uint64_t>(_tag);
-        return hash64(u0 | (u1 << 32u), _type->hash());
+        using namespace std::string_view_literals;
+        return hash64(u0 | (u1 << 32u), hash64(_type->hash(), hash64("__hash_variable"sv)));
     }
 };
 

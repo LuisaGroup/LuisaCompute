@@ -2,6 +2,7 @@
 
 #include <span>
 #include <variant>
+#include <numeric>
 
 #include <core/basic_types.h>
 #include <ast/variable.h>
@@ -35,6 +36,10 @@ public:
         Variable variable;
         uint64_t handle;
         size_t offset_bytes;
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(offset_bytes, hash64(handle, hash64(variable.hash(), hash64("__hash_buffer_binding"))));
+        }
     };
 
     struct TextureBinding {
@@ -42,6 +47,10 @@ public:
         uint64_t handle;
         TextureBinding(Variable v, uint64_t handle) noexcept
             : variable{v}, handle{handle} {}
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(handle, hash64(variable.hash(), hash64("__hash_texture_binding")));
+        }
     };
 
     struct HeapBinding {
@@ -49,6 +58,10 @@ public:
         uint64_t handle;
         HeapBinding(Variable v, uint64_t handle) noexcept
             : variable{v}, handle{handle} {}
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(handle, hash64(variable.hash(), hash64("__hash_heap_binding")));
+        }
     };
 
     struct AccelBinding {
@@ -56,11 +69,19 @@ public:
         uint64_t handle;
         AccelBinding(Variable v, uint64_t handle) noexcept
             : variable{v}, handle{handle} {}
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(handle, hash64(variable.hash(), hash64("__hash_accel_binding")));
+        }
     };
 
     struct ConstantBinding {
         const Type *type{nullptr};
         ConstantData data;
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(data.hash(), hash64(type->hash(), hash64("__hash_constant_binding")));
+        }
     };
 
 private:

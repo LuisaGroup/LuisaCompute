@@ -170,7 +170,7 @@ const Type *Type::from(std::string_view description) noexcept {
         }
 
         auto description = s_copy.substr(0, s_copy.size() - s.size());
-        auto hash = hash64(description);
+        auto hash = hash64(description, hash64("__hash_type"sv));
 
         return _registry().with_types(
             [info = std::move(info), data = std::move(data), hash, description](auto &&types, auto &&type_map) mutable noexcept {

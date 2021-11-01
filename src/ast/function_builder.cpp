@@ -312,8 +312,18 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
 }
 
 void FunctionBuilder::_compute_hash() noexcept {
-    // TODO: compute hash based on the AST
-    _hash = std::hash<uint64_t>{}(reinterpret_cast<uint64_t>(this));
+    auto h = hash64(_body.hash(), hash64(_tag, hash64("__hash_function")));
+    if (_ret != nullptr) { h = hash64(_ret->hash(), h); }
+    h = std::reduce(
+        _arguments.cbegin(), _arguments.cend(), h,
+        [](auto seed, auto v) noexcept { return hash64(v.hash(), seed); });
+    h = hash64(_builtin_variables, h);
+    h = hash64(_captured_constants, h);
+    h = hash64(_captured_buffers, h);
+    h = hash64(_captured_textures, h);
+    h = hash64(_captured_accels, h);
+    h = hash64(_captured_heaps, h);
+    _hash = hash64(_arguments, h);
 }
 
 const RefExpr *FunctionBuilder::heap_binding(uint64_t handle) noexcept {

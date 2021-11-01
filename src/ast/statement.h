@@ -16,8 +16,37 @@ struct StmtVisitor;
 class Statement : public concepts::Noncopyable {
 
 public:
+    enum struct Tag : uint32_t {
+        BREAK,
+        CONTINUE,
+        RETURN,
+        SCOPE,
+        IF,
+        LOOP,
+        EXPR,
+        SWITCH,
+        SWITCH_CASE,
+        SWITCH_DEFAULT,
+        ASSIGN,
+        FOR,
+        COMMENT,
+        META
+    };
+
+private:
+    mutable uint64_t _hash{0u};
+    mutable bool _hash_computed{false};
+    Tag _tag;
+
+private:
+    [[nodiscard]] virtual uint64_t _compute_hash() const noexcept = 0;
+
+public:
+    explicit Statement(Tag tag) noexcept : _tag{tag} {}
+    [[nodiscard]] auto tag() const noexcept { return _tag; }
     virtual void accept(StmtVisitor &) const = 0;
     virtual ~Statement() noexcept = default;
+    [[nodiscard]] uint64_t hash() const noexcept;
 };
 
 struct BreakStmt;
@@ -57,11 +86,27 @@ struct StmtVisitor {
 #define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \
     void accept(StmtVisitor &visitor) const override { visitor.visit(this); }
 
-struct BreakStmt : public Statement {
+class BreakStmt final : public Statement {
+
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return Hash64::default_seed;
+    }
+
+public:
+    BreakStmt() noexcept : Statement{Tag::BREAK} {}
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
-struct ContinueStmt : public Statement {
+class ContinueStmt : public Statement {
+
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return Hash64::default_seed;
+    }
+
+public:
+    ContinueStmt() noexcept : Statement{Tag::CONTINUE} {}
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
@@ -70,8 +115,14 @@ class ReturnStmt : public Statement {
 private:
     const Expression *_expr;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_expr == nullptr ? 0ull : _expr->hash());
+    }
+
 public:
-    explicit ReturnStmt(const Expression *expr) noexcept : _expr{expr} {
+    explicit ReturnStmt(const Expression *expr) noexcept
+        : Statement{Tag::RETURN}, _expr{expr} {
         if (_expr != nullptr) { _expr->mark(Usage::READ); }
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
@@ -83,24 +134,18 @@ class ScopeStmt : public Statement {
 private:
     vector<const Statement *> _statements;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return std::reduce(
+            _statements.cbegin(), _statements.cend(), Hash64::default_seed,
+            [](auto seed, auto p) noexcept { return hash64(p->hash(), seed); });
+    }
+
 public:
+    ScopeStmt() noexcept : Statement{Tag::SCOPE} {}
     [[nodiscard]] auto statements() const noexcept { return std::span{_statements}; }
     void append(const Statement *stmt) noexcept { _statements.emplace_back(stmt); }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
-};
-
-enum struct AssignOp {
-    ASSIGN,
-    ADD_ASSIGN,
-    SUB_ASSIGN,
-    MUL_ASSIGN,
-    DIV_ASSIGN,
-    MOD_ASSIGN,
-    BIT_AND_ASSIGN,
-    BIT_OR_ASSIGN,
-    BIT_XOR_ASSIGN,
-    SHL_ASSIGN,
-    SHR_ASSIGN
 };
 
 class AssignStmt : public Statement {
@@ -110,9 +155,14 @@ private:
     const Expression *_rhs;
     AssignOp _op;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_op, hash64(_lhs->hash(), _rhs->hash()));
+    }
+
 public:
     AssignStmt(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept
-        : _lhs{lhs}, _rhs{rhs}, _op{op} {
+        : Statement{Tag::ASSIGN}, _lhs{lhs}, _rhs{rhs}, _op{op} {
         _lhs->mark(Usage::WRITE);
         _rhs->mark(Usage::READ);
     }
@@ -130,9 +180,20 @@ private:
     ScopeStmt _true_branch;
     ScopeStmt _false_branch;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(
+            _condition->hash(),
+            hash64(_true_branch.hash(),
+                   _false_branch.hash()));
+    }
+
 public:
-    IfStmt(const Expression *cond) noexcept
-        : _condition{cond} { _condition->mark(Usage::READ); }
+    explicit IfStmt(const Expression *cond) noexcept
+        : Statement{Tag::IF},
+          _condition{cond} {
+        _condition->mark(Usage::READ);
+    }
     [[nodiscard]] auto condition() const noexcept { return _condition; }
     [[nodiscard]] auto true_branch() noexcept { return &_true_branch; }
     [[nodiscard]] auto false_branch() noexcept { return &_false_branch; }
@@ -146,7 +207,13 @@ class LoopStmt : public Statement {
 private:
     ScopeStmt _body;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return _body.hash();
+    }
+
 public:
+    LoopStmt() noexcept : Statement{Tag::LOOP} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -157,8 +224,14 @@ class ExprStmt : public Statement {
 private:
     const Expression *_expr;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return _expr->hash();
+    }
+
 public:
-    explicit ExprStmt(const Expression *expr) noexcept : _expr{expr} {
+    explicit ExprStmt(const Expression *expr) noexcept
+        : Statement{Tag::EXPR}, _expr{expr} {
         _expr->mark(Usage::READ);
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
@@ -171,9 +244,17 @@ private:
     const Expression *_expr;
     ScopeStmt _body;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_body.hash(), _expr->hash());
+    }
+
 public:
     explicit SwitchStmt(const Expression *expr) noexcept
-        : _expr{expr} { _expr->mark(Usage::READ); }
+        : Statement{Tag::SWITCH},
+          _expr{expr} {
+        _expr->mark(Usage::READ);
+    }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
@@ -186,9 +267,17 @@ private:
     const Expression *_expr;
     ScopeStmt _body;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_body.hash(), _expr->hash());
+    }
+
 public:
     explicit SwitchCaseStmt(const Expression *expr) noexcept
-        : _expr{expr} { _expr->mark(Usage::READ); }
+        : Statement{Tag::SWITCH_CASE},
+          _expr{expr} {
+        _expr->mark(Usage::READ);
+    }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
@@ -200,7 +289,13 @@ class SwitchDefaultStmt : public Statement {
 private:
     ScopeStmt _body;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return _body.hash();
+    }
+
 public:
+    SwitchDefaultStmt() noexcept : Statement{Tag::SWITCH_DEFAULT} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
@@ -214,11 +309,17 @@ private:
     const Expression *_step;
     ScopeStmt _body;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_body.hash(), hash64(_var->hash(), hash64(_cond->hash(), _step->hash())));
+    }
+
 public:
     ForStmt(const Expression *var,
             const Expression *cond,
             const Expression *step) noexcept
-        : _var{var}, _cond{cond}, _step{step} {
+        : Statement{Tag::FOR},
+          _var{var}, _cond{cond}, _step{step} {
         _var->mark(Usage::READ_WRITE);
         _cond->mark(Usage::READ);
         _step->mark(Usage::READ);
@@ -236,9 +337,15 @@ class CommentStmt : public Statement {
 private:
     luisa::string _comment;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_comment);
+    }
+
 public:
     explicit CommentStmt(luisa::string comment) noexcept
-        : _comment{std::move(comment)} {}
+        : Statement{Tag::COMMENT},
+          _comment{std::move(comment)} {}
     [[nodiscard]] auto comment() const noexcept { return std::string_view{_comment}; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
@@ -251,9 +358,21 @@ private:
     vector<const MetaStmt *> _children;
     vector<Variable> _variables;
 
+private:
+    uint64_t _compute_hash() const noexcept override {
+        auto h = std::reduce(
+            _children.cbegin(), _children.cend(),
+            hash64(_info, _scope.hash()),
+            [](auto seed, auto p) noexcept { return hash64(p->hash(), seed); });
+        return std::reduce(
+            _variables.cbegin(), _variables.cend(), h,
+            [](auto seed, auto v) noexcept { return hash64(v.hash(), seed); });
+    }
+
 public:
-    MetaStmt(luisa::string info) noexcept
-        : _info{std::move(info)} {}
+    explicit MetaStmt(luisa::string info) noexcept
+        : Statement{Tag::META},
+          _info{std::move(info)} {}
     [[nodiscard]] auto info() const noexcept { return std::string_view{_info}; }
     [[nodiscard]] auto scope() noexcept { return &_scope; }
     [[nodiscard]] auto scope() const noexcept { return &_scope; }

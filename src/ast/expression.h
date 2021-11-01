@@ -7,6 +7,8 @@
 #include <utility>
 #include <variant>
 #include <charconv>
+#include <algorithm>
+#include <numeric>
 
 #include <core/concepts.h>
 #include <core/basic_types.h>
@@ -44,7 +46,8 @@ public:
 
 private:
     const Type *_type;
-    mutable std::atomic<uint64_t> _hash{0u};
+    mutable uint64_t _hash{0u};
+    mutable bool _hash_computed{false};
     Tag _tag;
 
 protected:
@@ -262,13 +265,15 @@ private:
 protected:
     void _mark(Usage) const noexcept override {}
     uint64_t _compute_hash() const noexcept override {
-        return std::visit([](auto &&v) noexcept {
-            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(v)>, MetaValue>) {
-                return hash64(v.expr(), hash64(v.type()->hash()));
-            } else {
-                return hash64(v);
-            }
-        }, _value);
+        return std::visit(
+            [](auto &&v) noexcept {
+                if constexpr (std::is_same_v<std::remove_cvref_t<decltype(v)>, MetaValue>) {
+                    return hash64(v.expr(), v.type()->hash());
+                } else {
+                    return hash64(v);
+                }
+            },
+            _value);
     }
 
 public:
@@ -331,7 +336,9 @@ protected:
     void _mark(Usage) const noexcept override {}
     void _mark() const noexcept;
     uint64_t _compute_hash() const noexcept override {
-        auto h = hash64(_op, hash64(_arguments));
+        auto h = std::reduce(
+            _arguments.cbegin(), _arguments.cend(), hash64(_op),
+            [](auto old, auto p) noexcept { return hash64(p->hash(), old); });
         if (_custom) { h = hash64(_custom.hash(), h); }
         return h;
     }
