@@ -71,7 +71,7 @@ private:
 
 public:
     Function() noexcept = default;
-    Function(const detail::FunctionBuilder *builder) noexcept : _builder{builder} {}
+    explicit Function(const detail::FunctionBuilder *builder) noexcept : _builder{builder} {}
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;

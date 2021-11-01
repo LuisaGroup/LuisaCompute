@@ -218,37 +218,93 @@ const Type *Type::of() noexcept {
     return info;
 }
 
+namespace detail {
+
+template<typename S, typename Members, typename offsets>
+struct is_valid_reflection : std::false_type {};
+
+template<typename S, typename... M, typename O, O... os>
+struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>> {
+
+private:
+    [[nodiscard]] constexpr static auto _check() noexcept {
+            constexpr auto count = sizeof...(M);
+            static_assert(sizeof...(os) == count);
+            constexpr std::array<size_t, count> sizes{sizeof(M)...};
+            constexpr std::array<size_t, count> alignments{alignof(M)...};
+            constexpr std::array<size_t, count> offsets{os...};
+            auto current_offset = 0u;
+            for (auto i = 0u; i < count; i++) {
+                auto offset = offsets[i];
+                auto size = sizes[i];
+                auto alignment = alignments[i];
+                current_offset = (current_offset + alignment - 1u) /
+                                 alignment *
+                                 alignment;
+                if (current_offset != offset) { return false; }
+                current_offset += size;
+            }
+            constexpr auto struct_size = sizeof(S);
+            constexpr auto struct_alignment = alignof(S);
+            current_offset = (current_offset + struct_alignment - 1u) /
+                             struct_alignment *
+                             struct_alignment;
+            return current_offset == struct_size;
+    };
+
+public:
+    static constexpr auto value = _check();
+};
+
+template<typename S, typename M, typename O>
+constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
+
+}// namespace detail
+
 }// namespace luisa::compute
 
 // struct
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_DESC(m) TypeDesc<std::remove_cvref_t<decltype(std::declval<this_type>().m)>>::description()
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_FMT(m) ",{}"
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE(m) std::remove_cvref_t<decltype(std::declval<this_type>().m)>
+#define LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET(m) offsetof(this_type, m)
 
-#define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...)                       \
-    namespace luisa::compute {                                                      \
-    template<>                                                                      \
-    struct is_struct<S> : std::true_type {};                                        \
-    template<>                                                                      \
-    struct struct_member_tuple<S> {                                                 \
-        using this_type = S;                                                        \
-        using type = std::tuple<                                                    \
-            LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE, ##__VA_ARGS__)>;     \
-    };                                                                              \
-    namespace detail {                                                              \
-    template<>                                                                      \
-    struct TypeDesc<S> {                                                            \
-        using this_type = S;                                                        \
-        static std::string_view description() noexcept {                            \
-            static auto s = fmt::format(                                            \
-                FMT_STRING("struct<{}" LUISA_MAP(                                   \
-                    LUISA_STRUCTURE_MAP_MEMBER_TO_FMT, ##__VA_ARGS__) ">"),         \
-                alignof(S),                                                         \
-                LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_DESC, ##__VA_ARGS__)); \
-            return s;                                                               \
-        }                                                                           \
-    };                                                                              \
-    }                                                                               \
+#define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...) \
+    namespace luisa::compute {                                \
+    template<>                                                \
+    struct is_struct<S> : std::true_type {};                  \
+    template<>                                                \
+    struct struct_member_tuple<S> {                           \
+        using this_type = S;                                  \
+        using type = std::tuple<                              \
+            LUISA_MAP_LIST(                                   \
+                LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE,           \
+                ##__VA_ARGS__)>;                              \
+        using offset = std::integer_sequence<                 \
+            size_t,                                           \
+            LUISA_MAP_LIST(                                   \
+                LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET,         \
+                ##__VA_ARGS__)>;                              \
+        static_assert(detail::is_valid_reflection_v<          \
+                      this_type, type, offset>);              \
+    };                                                        \
+    namespace detail {                                        \
+    template<>                                                \
+    struct TypeDesc<S> {                                      \
+        using this_type = S;                                  \
+        static std::string_view description() noexcept {      \
+            static auto s = fmt::format(                      \
+                FMT_STRING("struct<{}" LUISA_MAP(             \
+                    LUISA_STRUCTURE_MAP_MEMBER_TO_FMT,        \
+                    ##__VA_ARGS__) ">"),                      \
+                alignof(S),                                   \
+                LUISA_MAP_LIST(                               \
+                    LUISA_STRUCTURE_MAP_MEMBER_TO_DESC,       \
+                    ##__VA_ARGS__));                          \
+            return s;                                         \
+        }                                                     \
+    };                                                        \
+    }                                                         \
     }
 #define LUISA_STRUCT_REFLECT(S, ...) \
     LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)

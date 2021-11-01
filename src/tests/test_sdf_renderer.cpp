@@ -209,7 +209,7 @@ int main(int argc, char *argv[]) {
     auto last_t = clock.toc();
 
     static constexpr auto interval = 10u;
-    static constexpr auto total_spp = 10u;
+    static constexpr auto total_spp = 500000u;
     std::vector<double> fps;
     fps.reserve(total_spp);
     for (auto spp = 0u; spp < total_spp; spp += interval) {

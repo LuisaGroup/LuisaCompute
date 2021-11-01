@@ -1,4 +1,4 @@
-if (WIN32)
+if (WIN32) # mimalloc seems not beneficial on other platforms
     set(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT ON)
 else ()
     set(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT OFF)

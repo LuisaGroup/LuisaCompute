@@ -192,14 +192,14 @@ private:
         : Resource{
             device,
             Tag::SHADER,
-            device->create_shader(kernel.get())},
+            device->create_shader(kernel->function())},
           _kernel{std::move(kernel)} {}
 
 public:
     Shader() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        detail::ShaderInvoke<dimension> invoke{handle(), _kernel.get()};
+        detail::ShaderInvoke<dimension> invoke{handle(), _kernel->function()};
         (invoke << ... << args);
         return invoke;
     }

@@ -407,7 +407,7 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     stmt->condition()->accept(*this);
     _scratch << ") ";
     stmt->true_branch()->accept(*this);
-    if (auto fb = stmt->false_branch(); fb != nullptr && !fb->statements().empty()) {
+    if (auto fb = stmt->false_branch(); !fb->statements().empty()) {
         _scratch << " else ";
         if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
             fb->statements().size() == 1u && elif != nullptr) {

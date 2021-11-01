@@ -37,8 +37,7 @@ LUISA_STRUCT(Onb, tangent, binormal, normal){
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
 }
-}
-;
+};
 
 int main(int argc, char *argv[]) {
 
