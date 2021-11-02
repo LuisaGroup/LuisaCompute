@@ -104,20 +104,16 @@ def good(a):
 
 
 @ti.kernel
-def paint():
-    for i, j in pixels:
-        for x in ti.static(range(10)):
-            good("bad")
-        while True:
-            good("bad")
-        u = i / res[0]
-        v = j / res[1]
+def paint(w: int, h: int):
+    for i, j in ti.ndrange(w, h):
+        u = i / w
+        v = j / h
         pixels[i, j] = [u, v, 0]
 
 
 gui = ti.GUI('UV', res)
 while not gui.get_event(ti.GUI.ESCAPE):
     ti.impl.get_runtime().print_preprocessed = True
-    paint()
+    paint(480, 480)
     gui.set_image(pixels)
     gui.show()
