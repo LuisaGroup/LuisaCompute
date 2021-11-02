@@ -314,7 +314,7 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
 void FunctionBuilder::_compute_hash() noexcept {
     auto h = hash64(_body.hash(), hash64(_tag, hash64("__hash_function")));
     if (_ret != nullptr) { h = hash64(_ret->hash(), h); }
-    h = std::reduce(
+    h = std::accumulate(
         _arguments.cbegin(), _arguments.cend(), h,
         [](auto seed, auto v) noexcept { return hash64(v.hash(), seed); });
     h = hash64(_builtin_variables, h);

@@ -336,7 +336,7 @@ protected:
     void _mark(Usage) const noexcept override {}
     void _mark() const noexcept;
     uint64_t _compute_hash() const noexcept override {
-        auto h = std::reduce(
+        auto h = std::accumulate(
             _arguments.cbegin(), _arguments.cend(), hash64(_op),
             [](auto old, auto p) noexcept { return hash64(p->hash(), old); });
         if (_custom) { h = hash64(_custom.hash(), h); }

@@ -136,7 +136,7 @@ private:
 
 private:
     uint64_t _compute_hash() const noexcept override {
-        return std::reduce(
+        return std::accumulate(
             _statements.cbegin(), _statements.cend(), Hash64::default_seed,
             [](auto seed, auto p) noexcept { return hash64(p->hash(), seed); });
     }
@@ -360,11 +360,11 @@ private:
 
 private:
     uint64_t _compute_hash() const noexcept override {
-        auto h = std::reduce(
+        auto h = std::accumulate(
             _children.cbegin(), _children.cend(),
             hash64(_info, _scope.hash()),
             [](auto seed, auto p) noexcept { return hash64(p->hash(), seed); });
-        return std::reduce(
+        return std::accumulate(
             _variables.cbegin(), _variables.cend(), h,
             [](auto seed, auto v) noexcept { return hash64(v.hash(), seed); });
     }
