@@ -493,7 +493,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
     if (f.tag() == Function::Tag::KERNEL) {
 
         // function signature
-        _scratch << "[[kernel]] // block_size = ("
+        _scratch << "kernel // block_size = ("
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"

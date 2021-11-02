@@ -5,7 +5,9 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     enable_language(OBJC)
     enable_language(OBJCXX)
 
-    option(LUISA_COMPUTE_ENABLE_METAL_RAYTRACING "Enable Metal raytracing functionality" ON)
+    if (CMAKE_HOST_SYSTEM_VERSION VERSION_GREATER_EQUAL 20) # ray tracing enabled by default from big sur
+        option(LUISA_COMPUTE_ENABLE_METAL_RAYTRACING "Enable Metal raytracing functionality" ON)
+    endif ()
 
     set(METAL_SOURCES
             metal_device.mm metal_device.h
@@ -22,6 +24,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
     if (LUISA_COMPUTE_ENABLE_METAL_RAYTRACING)
+        message(STATUS "Build with Metal Ray Tracing")
         target_sources(luisa-compute-backend-metal PRIVATE
                 metal_mesh.mm metal_mesh.h
                 metal_accel.mm metal_accel.h)

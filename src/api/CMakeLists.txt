@@ -11,7 +11,7 @@ target_link_libraries(luisa-compute-api PRIVATE
 set_target_properties(luisa-compute-api PROPERTIES UNITY_BUILD ON)
 
 find_package(Python3 COMPONENTS Interpreter)
-if (Python3_Interpreter_FOUND AND Python3_VERSION GREATER_EQUAL 3.6)
+if (Python3_Interpreter_FOUND AND Python3_VERSION VERSION_GREATER_EQUAL 3.6)
     message(STATUS "Found suitable Python interpreter: ${Python3_VERSION}")
     set(LUISA_COMPUTE_API_PYTHON_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/generate_python_library.py")
     add_custom_target(luisa-compute-api-python ALL
