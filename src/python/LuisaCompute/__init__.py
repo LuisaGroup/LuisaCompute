@@ -8,8 +8,7 @@ from ._internal.logging import \
 from .runtime import Device, \
     ACCEL_BUILD_HINT_FAST_TRACE, \
     ACCEL_BUILD_HINT_FAST_UPDATE, \
-    ACCEL_BUILD_HINT_FAST_REBUILD, \
-    HEAP_SLOT_COUNT
+    ACCEL_BUILD_HINT_FAST_REBUILD
 from .type import Type
 from .pixel import *
 from .ast import Constant

@@ -1,3 +1,5 @@
+from os.path import realpath, dirname
+
 def generate(file, dim):
     entries = ["x", "y", "z", "w"][:dim]
     for ix, x in enumerate(entries):
@@ -27,6 +29,7 @@ def generate(file, dim):
 
 
 if __name__ == "__main__":
+    base = dirname(realpath(__file__))
     for dim in range(2, 5):
-        with open(f"swizzle_{dim}.inl.h", "w") as file:
+        with open(f"{base}/swizzle_{dim}.inl.h", "w") as file:
             generate(file, dim)

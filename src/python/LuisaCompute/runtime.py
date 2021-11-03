@@ -5,9 +5,6 @@ from .pixel import *
 from .type import Type
 import numpy as np
 
-INVALID_HEAP_HANDLE = c_uint64(-1)
-INVALID_INDEX_IN_HEAP = c_uint32(-1)
-
 
 class Command:
     def __init__(self, handle):
@@ -398,88 +395,6 @@ class Accel:
         Stream.dispatch(cmd)
 
 
-HEAP_SLOT_COUNT = 65536
-
-
-class Heap:
-
-    def __init__(self, _device, _handle, _capacity):
-        self._as_parameter_ = _handle
-        self._device = _device
-        self._capacity = _capacity
-        self._max_buffer_index = 0
-        self._max_texture_index = 0
-        self._buffer_slots = [None for _ in range(HEAP_SLOT_COUNT)]
-        self._texture_slots = [None for _ in range(HEAP_SLOT_COUNT)]
-
-    def __del__(self):
-        for i in range(self._max_buffer_index):
-            buffer = self._buffer_slots[i]
-            if buffer is not None:
-                buffer_destroy(self.device, buffer)
-        for i in range(self._max_texture_index):
-            texture = self._texture_slots[i]
-            if texture is not None:
-                texture_destroy(self.device, texture)
-        heap_destroy(self.device, self)
-
-    def _destroy_buffer(self, index):
-        assert 0 <= index < HEAP_SLOT_COUNT
-        if self._buffer_slots[index] is not None:
-            buffer_destroy(self.device, self._buffer_slots[index])
-            self._buffer_slots[index] = None
-
-    def _destroy_texture(self, index):
-        assert 0 <= index < HEAP_SLOT_COUNT
-        if self._texture_slots[index] is not None:
-            texture_destroy(self.device, self._texture_slots[index])
-            self._texture_slots[index] = None
-
-    @property
-    def device(self):
-        return self._device
-
-    @property
-    def capacity(self):
-        return self._capacity
-
-    @property
-    def memory_usage(self):
-        return heap_query_usage(self.device, self)
-
-    def create_buffer(self, index, t, count):
-        t = Type.of(t)
-        self._destroy_buffer(index)
-        handle = buffer_create(self.device, t.size * count, self, index)
-        self._buffer_slots[index] = handle
-        self._max_buffer_index = max(self._max_buffer_index, index)
-        return Buffer(self.device, handle, t, count, count, 0, True)
-
-    def _create_texture(self, index, dim, fmt, size):
-        assert 0 <= fmt <= PIXEL_FORMAT_RGBA32F
-        assert dim == 2 or dim == 3
-        assert len(size) == dim
-        self._destroy_texture(index)
-        size = (size[0], size[1], 1) if dim == 2 else (size[0], size[1], size[2])
-        handle = texture_create(
-            self, fmt, dim,
-            *size, 1, 0,
-            self, index)
-        self._texture_slots[index] = handle
-        self._max_texture_index = max(self._max_texture_index, index)
-        return Texture(self, handle, fmt, dim, size, size, (0, 0, 0), True)
-
-    def create_image(self, index, fmt, size):
-        if isinstance(size, int):
-            size = (size, size)
-        return self._create_texture(index, 2, fmt, size)
-
-    def create_volume(self, index, fmt, size):
-        if isinstance(size, int):
-            size = (size, size, size)
-        return self._create_texture(index, 3, fmt, size)
-
-
 class Context:
     def __init__(self):
         self._as_parameter_ = context_create(INSTALL_DIR)
@@ -536,34 +451,28 @@ class Device:
 
     def create_buffer(self, t, count):
         t = Type.of(t)
-        b = buffer_create(self, t.size * count, INVALID_HEAP_HANDLE, INVALID_INDEX_IN_HEAP)
+        b = buffer_create(self, t.size * count)
         return Buffer(self, b, t, count, count, 0)
 
-    def _create_texture(self, fmt, dim, size):
+    def _create_texture(self, fmt, dim, size, levels):
         assert 0 <= fmt <= PIXEL_FORMAT_RGBA32F
         assert dim == 2 or dim == 3
         assert len(size) == dim
         size = (size[0], size[1], 1) if dim == 2 else (size[0], size[1], size[2])
         handle = texture_create(
             self, fmt, dim,
-            *size, 1, 0,
-            INVALID_HEAP_HANDLE,
-            INVALID_INDEX_IN_HEAP)
+            *size, levels)
         return Texture(self, handle, fmt, dim, size, size, (0, 0, 0))
 
-    def create_image(self, fmt, size):
+    def create_image(self, fmt, size, levels=1):
         if isinstance(size, int):
             size = (size, size)
-        return self._create_texture(fmt, 2, size)
+        return self._create_texture(fmt, 2, size, levels)
 
-    def create_volume(self, fmt, size):
+    def create_volume(self, fmt, size, levels=1):
         if isinstance(size, int):
             size = (size, size, size)
-        return self._create_texture(fmt, 3, size)
-
-    def create_heap(self, capacity):
-        handle = heap_create(self, capacity)
-        return Heap(self, handle, capacity)
+        return self._create_texture(fmt, 3, size, levels)
 
     def create_mesh(self):
         handle = mesh_create(self)
