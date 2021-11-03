@@ -133,7 +133,7 @@ public:
     void *texture_native_handle(uint64_t handle) const noexcept override;
     void *native_handle() const noexcept override;
     void *stream_native_handle(uint64_t handle) const noexcept override;
-    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept override;
+    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept override;
     void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
     void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
     void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;

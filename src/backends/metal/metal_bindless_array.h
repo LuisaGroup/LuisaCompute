@@ -46,7 +46,7 @@ private:
 
 public:
     MetalBindlessArray(MetalDevice *device, size_t size) noexcept;
-    void emplace_buffer(size_t index, uint64_t buffer_handle) noexcept;
+    void emplace_buffer(size_t index, uint64_t buffer_handle, size_t offset) noexcept;
     void emplace_tex2d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept;
     void emplace_tex3d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept;
     void remove_buffer(size_t index) noexcept;

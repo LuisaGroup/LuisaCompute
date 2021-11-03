@@ -39,7 +39,7 @@ public:
     virtual void destroy_accel(uint64_t handle) noexcept override {}
     uint64_t create_bindless_array(size_t size) noexcept override { return _handle++; }
     void destroy_bindless_array(uint64_t handle) noexcept override {}
-    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept override {}
+    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept override {}
     void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override {}
     void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override {}
     void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override {}

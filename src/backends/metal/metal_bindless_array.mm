@@ -68,12 +68,12 @@ id<MTLCommandBuffer> MetalBindlessArray::encode_update(
     return cmd_buf;
 }
 
-void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle) noexcept {
+void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, size_t offset) noexcept {
     auto buffer = _device->buffer(buffer_handle);
     std::scoped_lock lock{_mutex};
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
-    [_encoder setBuffer:buffer offset:0u atIndex:0u];
+    [_encoder setBuffer:buffer offset:offset atIndex:0u];
     _retain(buffer);
     _dirty = true;
 }

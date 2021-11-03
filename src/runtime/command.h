@@ -129,7 +129,6 @@ public:
     [[nodiscard]] auto next() const noexcept { return _next(); }
     auto set_next(Command *cmd) noexcept { return _set_next(cmd); }
     void recycle();
-
 };
 
 class BufferUploadCommand : public Command {

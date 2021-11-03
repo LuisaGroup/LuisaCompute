@@ -67,7 +67,7 @@ uint64_t ISPCDevice::create_bindless_array(size_t size) noexcept {
 }
 void ISPCDevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
-void ISPCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept {
+void ISPCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
 }
 void ISPCDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
 }

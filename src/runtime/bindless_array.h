@@ -39,7 +39,7 @@ public:
     using Resource::operator bool;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
-    void emplace_buffer(size_t index, uint64_t handle) noexcept;
+    void emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
     void emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept;
     void emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept;
     void remove_buffer(size_t index) noexcept;
@@ -47,8 +47,10 @@ public:
     void remove_tex3d(size_t index) noexcept;
 
     template<typename T>
-    void emplace(size_t index, const Buffer<T> &buffer) noexcept {
-        emplace_buffer(index, buffer.handle());
+        requires is_buffer_or_view_v<std::remove_cvref_t<T>>
+    void emplace(size_t index, T &&buffer) noexcept {
+        BufferView view{std::forward<T>(buffer)};
+        emplace_buffer(index, view.handle(), view.offset_bytes());
     }
 
     template<typename T>

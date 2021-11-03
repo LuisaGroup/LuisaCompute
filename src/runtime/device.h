@@ -78,7 +78,7 @@ public:
         // bindless array
         [[nodiscard]] virtual uint64_t create_bindless_array(size_t size) noexcept = 0;
         virtual void destroy_bindless_array(uint64_t handle) noexcept = 0;
-        virtual void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept = 0;
+        virtual void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept = 0;
         virtual void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
         virtual void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
         virtual bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept = 0;

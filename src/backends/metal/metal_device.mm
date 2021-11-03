@@ -512,8 +512,8 @@ void *MetalDevice::stream_native_handle(uint64_t handle) const noexcept {
     return (__bridge void *)stream(handle)->handle();
 }
 
-void MetalDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept {
-    bindless_array(array)->emplace_buffer(index, handle);
+void MetalDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+    bindless_array(array)->emplace_buffer(index, handle, offset_bytes);
 }
 
 void MetalDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
