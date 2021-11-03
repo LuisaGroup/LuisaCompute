@@ -187,8 +187,8 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 1024u;
     static constexpr auto height = 1024u;
-    static constexpr auto spp_per_dispatch = 128u;
-    static constexpr auto tile_size = make_uint2(64u);
+    static constexpr auto spp_per_dispatch = 4u;
+    static constexpr auto tile_size = make_uint2(1024u);
     static constexpr auto resolution = make_uint2(width, height);
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel, UInt2 tile_offset) noexcept {
         set_block_size(8, 8, 1u);

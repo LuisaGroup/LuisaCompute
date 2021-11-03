@@ -30,7 +30,6 @@ private:
     id<MTLBuffer> _buffer{nullptr};
     id<MTLBuffer> _device_buffer{nullptr};
     id<MTLArgumentEncoder> _encoder{nullptr};
-    std::array<id<MTLSamplerState>, 16u> _samplers{};
     id<MTLEvent> _event{nullptr};
     luisa::set<MetalBindlessReousrce> _resources;
     mutable uint64_t _event_value{0u};
@@ -38,14 +37,18 @@ private:
     mutable spin_mutex _mutex;
     mutable bool _dirty{true};
     static constexpr auto slot_size = 32u;
+    std::vector<MetalBindlessReousrce> _buffer_slots;
+    std::vector<MetalBindlessReousrce> _tex2d_slots;
+    std::vector<MetalBindlessReousrce> _tex3d_slots;
 
 public:
     MetalBindlessArray(MetalDevice *device, size_t size) noexcept;
-    [[nodiscard]] id<MTLTexture> allocate_texture(MTLTextureDescriptor *desc) noexcept;
-    [[nodiscard]] id<MTLBuffer> allocate_buffer(size_t size_bytes) noexcept;
-    void emplace_buffer(uint32_t index, uint64_t buffer_handle) noexcept;
-    void emplace_tex2d(uint32_t index, uint64_t texture_handle, Sampler sampler) noexcept;
-    void emplace_tex3d(uint32_t index, uint64_t texture_handle, Sampler sampler) noexcept;
+    void emplace_buffer(size_t index, uint64_t buffer_handle) noexcept;
+    void emplace_tex2d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept;
+    void emplace_tex3d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept;
+    void remove_buffer(size_t index) noexcept;
+    void remove_tex2d(size_t index) noexcept;
+    void remove_tex3d(size_t index) noexcept;
     [[nodiscard]] auto desc_buffer() const noexcept { return _device_buffer; }
     [[nodiscard]] id<MTLCommandBuffer> encode_update(MetalStream *stream, id<MTLCommandBuffer> cmd_buf) const noexcept;
 

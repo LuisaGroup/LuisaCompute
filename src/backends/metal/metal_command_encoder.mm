@@ -174,8 +174,8 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 
     // update texture desc heap if any
     command->decode([&](auto, auto argument) noexcept -> void {
-        if constexpr (std::is_same_v<decltype(argument), ShaderDispatchCommand::TextureHeapArgument>) {
-            _command_buffer = _device->heap(argument.handle)->encode_update(_stream, _command_buffer);
+        if constexpr (std::is_same_v<decltype(argument), ShaderDispatchCommand::BindlessArrayArgument>) {
+            _command_buffer = _device->bindless_array(argument.handle)->encode_update(_stream, _command_buffer);
         }
     });
 
@@ -199,12 +199,15 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             auto texture = _device->texture(argument.handle);
             [compute_encoder setTexture:texture
                                 atIndex:texture_index++];
-        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureHeapArgument>) {
+        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture heap #{} at index {}.",
                 argument.handle, buffer_index);
-            auto heap = _device->heap(argument.handle);
-            [compute_encoder useHeap:heap->handle()];
+            auto heap = _device->bindless_array(argument.handle);
+            heap->traverse([&](auto &&res) noexcept {
+                [compute_encoder useResource:res
+                                       usage:MTLResourceUsageRead];
+            });
             [compute_encoder setBuffer:heap->desc_buffer()
                                 offset:0u
                                atIndex:buffer_index++];
@@ -218,9 +221,6 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 [compute_encoder useResources:resources.data()
                                         count:resources.size()
                                         usage:MTLResourceUsageRead];
-            }
-            if (auto heaps = accel->heaps(); !heaps.empty()) {
-                [compute_encoder useHeaps:heaps.data() count:heaps.size()];
             }
             [compute_encoder setAccelerationStructure:accel->handle()
                                         atBufferIndex:buffer_index++];

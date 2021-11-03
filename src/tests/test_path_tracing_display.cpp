@@ -303,7 +303,7 @@ int main(int argc, char *argv[]) {
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
     static constexpr auto resolution = make_uint2(1024u);
-    static constexpr auto tile_size = make_uint2(128u);
+    static constexpr auto tile_size = make_uint2(1024u);
     auto state_image = device.create_image<uint>(PixelStorage::INT1, tile_size);
     auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
@@ -323,7 +323,7 @@ int main(int argc, char *argv[]) {
     reset();
     for (auto d = 0u;; d++) {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 64u;
+        static constexpr auto spp_per_dispatch = 1u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, state_image, accel, tile_offset, resolution).dispatch(tile_size)
                            << accumulate_shader(accum_image, framebuffer).dispatch(tile_size);

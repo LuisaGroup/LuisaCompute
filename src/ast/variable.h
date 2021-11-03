@@ -29,7 +29,7 @@ public:
         // resources
         BUFFER,
         TEXTURE,
-        HEAP,
+        BINDLESS_ARRAY,
         ACCEL,
 
         // builtins

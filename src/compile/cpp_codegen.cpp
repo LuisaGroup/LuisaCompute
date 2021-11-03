@@ -240,9 +240,6 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_READ_LEVEL: _scratch << "texture_read_level"; break;
         case CallOp::TEXTURE_WRITE_LEVEL: _scratch << "texture_write_level"; break;
-        case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
-        case CallOp::TEXTURE_SAMPLE_LEVEL: _scratch << "texture_sample_level"; break;
-        case CallOp::TEXTURE_SAMPLE_GRAD: _scratch << "texture_sample_grad"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "texture_heap_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
@@ -490,7 +487,7 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
         case Variable::Tag::REFERENCE: _scratch << "r" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
-        case Variable::Tag::HEAP: _scratch << "h" << v.uid(); break;
+        case Variable::Tag::BINDLESS_ARRAY: _scratch << "h" << v.uid(); break;
         case Variable::Tag::ACCEL: _scratch << "a" << v.uid(); break;
         case Variable::Tag::THREAD_ID: _scratch << "tid"; break;
         case Variable::Tag::BLOCK_ID: _scratch << "bid"; break;
@@ -577,7 +574,7 @@ void CppCodegen::_emit_variable_decl(Variable v) noexcept {
             }
             _emit_variable_name(v);
             break;
-        case Variable::Tag::HEAP:
+        case Variable::Tag::BINDLESS_ARRAY:
             _scratch << "heap ";
             _emit_variable_name(v);
             break;

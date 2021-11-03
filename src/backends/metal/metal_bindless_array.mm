@@ -9,23 +9,26 @@ namespace luisa::compute::metal {
 
 MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcept
     : _device{device},
-      _event{[device->handle() newEvent]} {
+      _event{[device->handle() newEvent]},
+      _buffer_slots(size, MetalBindlessReousrce{nullptr}),
+      _tex2d_slots(size, MetalBindlessReousrce{nullptr}),
+      _tex3d_slots(size, MetalBindlessReousrce{nullptr}) {
 
     static constexpr auto src = @"#include <metal_stdlib>\n"
                                  "struct alignas(16) BindlessItem {\n"
                                  "  device const void *buffer;\n"
-                                 "  metal::ushort tex2d_sampler;\n"
-                                 "  metal::ushort tex3d_sampler;\n"
+                                 "  metal::ushort sampler2d;\n"
+                                 "  metal::ushort sampler3d;\n"
                                  "  metal::texture2d<float> handle2d;\n"
                                  "  metal::texture3d<float> handle3d;\n"
                                  "};\n"
-                                 "[[kernel]] void k(device const HeapItem *heap) {}\n";
+                                 "[[kernel]] void k(device const BindlessItem *array) {}\n";
     auto library = [_device->handle() newLibraryWithSource:src options:nullptr error:nullptr];
     auto function = [library newFunctionWithName:@"k"];
     _encoder = [function newArgumentEncoderWithBufferIndex:0];
     if (auto enc_size = _encoder.encodedLength; enc_size != slot_size) {
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid heap texture encoded size: {} (expected {}).",
+            "Invalid bindless array encoded size: {} (expected {}).",
             enc_size, slot_size);
     }
     _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * size
@@ -65,35 +68,62 @@ id<MTLCommandBuffer> MetalBindlessArray::encode_update(
     return cmd_buf;
 }
 
-void MetalBindlessArray::emplace_buffer(uint32_t index, uint64_t buffer_handle) noexcept {
+void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle) noexcept {
     auto buffer = _device->buffer(buffer_handle);
     std::scoped_lock lock{_mutex};
+    if (auto &&p = _buffer_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setBuffer:buffer offset:0u atIndex:0u];
     _resources.emplace(MetalBindlessReousrce{buffer});
     _dirty = true;
 }
 
-void MetalBindlessArray::emplace_tex2d(uint32_t index, uint64_t texture_handle, Sampler sampler) noexcept {
+void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
     auto texture = _device->texture(texture_handle);
-    auto sampler = static_cast<uint16_t>(sampler.code());
+    auto sampler_code = static_cast<uint16_t>(sampler.code());
     std::scoped_lock lock{_mutex};
+    if (auto &&p = _tex2d_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:3u];
-    std::memcpy([_encoder constantDataAtIndex: 1u], &sampler, sizeof(sampler));
+    std::memcpy([_encoder constantDataAtIndex: 1u], &sampler_code, sizeof(sampler));
     _resources.emplace(MetalBindlessReousrce{texture});
     _dirty = true;
 }
 
-void MetalBindlessArray::emplace_tex2d(uint32_t index, uint64_t texture_handle, Sampler sampler) noexcept {
+void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
     auto texture = _device->texture(texture_handle);
-    auto sampler = static_cast<uint16_t>(sampler.code());
+    auto sampler_code = static_cast<uint16_t>(sampler.code());
     std::scoped_lock lock{_mutex};
+    if (auto &&p = _tex3d_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:4u];
-    std::memcpy([_encoder constantDataAtIndex: 2u], &sampler, sizeof(sampler));
+    std::memcpy([_encoder constantDataAtIndex: 2u], &sampler_code, sizeof(sampler));
     _resources.emplace(MetalBindlessReousrce{texture});
     _dirty = true;
+}
+
+void MetalBindlessArray::remove_buffer(size_t index) noexcept {
+    std::scoped_lock lock{_mutex};
+    if (auto &&p = _buffer_slots[index]; p.handle != nullptr) {
+        _resources.erase(p);
+        p.handle = nullptr;
+    }
+}
+
+void MetalBindlessArray::remove_tex2d(size_t index) noexcept {
+    std::scoped_lock lock{_mutex};
+    if (auto &&p = _tex2d_slots[index]; p.handle != nullptr) {
+        _resources.erase(p);
+        p.handle = nullptr;
+    }
+}
+
+void MetalBindlessArray::remove_tex3d(size_t index) noexcept {
+    std::scoped_lock lock{_mutex};
+    if (auto &&p = _tex3d_slots[index]; p.handle != nullptr) {
+        _resources.erase(p);
+        p.handle = nullptr;
+    }
 }
 
 }

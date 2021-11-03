@@ -260,7 +260,7 @@ void luisa_compute_command_dispatch_shader_encode_uniform(void *cmd, uint32_t vi
 }
 
 void luisa_compute_command_dispatch_shader_encode_heap(void *cmd, uint32_t vid, uint64_t heap) LUISA_NOEXCEPT {
-    static_cast<ShaderDispatchCommand *>(cmd)->encode_heap(vid, heap);
+    static_cast<ShaderDispatchCommand *>(cmd)->encode_bindless_array(vid, heap);
 }
 
 void luisa_compute_command_dispatch_shader_encode_accel(void *cmd, uint32_t vid, uint64_t accel) LUISA_NOEXCEPT {

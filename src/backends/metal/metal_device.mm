@@ -178,8 +178,7 @@ MetalShader MetalDevice::compiled_kernel(uint64_t handle) const noexcept {
 uint64_t MetalDevice::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels,
-    Sampler sampler) {
+    uint mipmap_levels) noexcept {
 
     Clock clock;
 
@@ -414,7 +413,7 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
 
 #endif
 
-uint64_t MetalDevice::create_heap(size_t size) noexcept {
+uint64_t MetalDevice::create_bindless_array(size_t size) noexcept {
     Clock clock;
     auto heap = luisa::make_unique<MetalBindlessArray>(this, size);
     LUISA_VERBOSE_WITH_LOCATION("Created texture heap in {} ms.", clock.toc());
@@ -437,22 +436,6 @@ void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
         _available_bindless_array_slots.emplace_back(handle);
         return h;
     }();
-    // destroy all buffers
-    {
-        std::scoped_lock lock{_buffer_mutex};
-        bindless_array->traverse_buffers([&](auto b) noexcept {
-            _buffer_slots[b] = nullptr;
-            _available_buffer_slots.emplace_back(b);
-        });
-    }
-    // destroy all textures
-    {
-        std::scoped_lock lock{_texture_mutex};
-        bindless_array->traverse_textures([&](auto t) noexcept {
-            _texture_slots[t] = nullptr;
-            _available_texture_slots.emplace_back(t);
-        });
-    }
     LUISA_VERBOSE_WITH_LOCATION("Destroyed bindless array #{}.", handle);
 }
 
@@ -527,6 +510,30 @@ void *MetalDevice::native_handle() const noexcept {
 
 void *MetalDevice::stream_native_handle(uint64_t handle) const noexcept {
     return (__bridge void *)stream(handle)->handle();
+}
+
+void MetalDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept {
+    bindless_array(array)->emplace_buffer(index, handle);
+}
+
+void MetalDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    bindless_array(array)->emplace_tex2d(index, handle, sampler);
+}
+
+void MetalDevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    bindless_array(array)->emplace_tex3d(index, handle, sampler);
+}
+
+void MetalDevice::remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept {
+    bindless_array(array)->remove_buffer(index);
+}
+
+void MetalDevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    bindless_array(array)->remove_tex2d(index);
+}
+
+void MetalDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    bindless_array(array)->remove_tex3d(index);
 }
 
 }

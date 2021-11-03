@@ -66,7 +66,7 @@ public:
                 _kernel.variable_usage(texture.variable.uid()));
         }
         for (auto bindless_array : _kernel.captured_bindless_arrays()) {
-            _dispatch_command()->encode_heap(
+            _dispatch_command()->encode_bindless_array(
                 bindless_array.variable.uid(), bindless_array.handle);
         }
         for (auto accel : _kernel.captured_accels()) {

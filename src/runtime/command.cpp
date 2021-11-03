@@ -135,19 +135,19 @@ ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) n
     : _handle{handle},
       _kernel{kernel} {}
 
-void ShaderDispatchCommand::encode_heap(uint32_t variable_uid, uint64_t handle) noexcept {
-    if (_argument_buffer_size + sizeof(TextureHeapArgument) > _argument_buffer.size()) [[unlikely]] {
+void ShaderDispatchCommand::encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept {
+    if (_argument_buffer_size + sizeof(BindlessArrayArgument) > _argument_buffer.size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to encode texture heap. "
             "Shader argument buffer exceeded size limit {}.",
             _argument_buffer.size());
     }
-    TextureHeapArgument argument{variable_uid, handle};
+    BindlessArrayArgument argument{variable_uid, handle};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
-        &argument, sizeof(TextureHeapArgument));
-    _use_resource(handle, Binding::Tag::HEAP, Usage::READ);
-    _argument_buffer_size += sizeof(TextureHeapArgument);
+        &argument, sizeof(BindlessArrayArgument));
+    _use_resource(handle, Binding::Tag::BINDLESS_ARRAY, Usage::READ);
+    _argument_buffer_size += sizeof(BindlessArrayArgument);
     _argument_count++;
 }
 

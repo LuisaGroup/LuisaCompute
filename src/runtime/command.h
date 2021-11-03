@@ -92,7 +92,7 @@ public:
             NONE,
             BUFFER,
             TEXTURE,
-            HEAP,
+            BINDLESS_ARRAY,
             ACCEL
         };
 
@@ -374,7 +374,7 @@ public:
             BUFFER,
             TEXTURE,
             UNIFORM,
-            HEAP,
+            BINDLESS_ARRAY,
             ACCEL,
         };
 
@@ -414,11 +414,11 @@ public:
               alignment{alignment} {}
     };
 
-    struct TextureHeapArgument : Argument {
+    struct BindlessArrayArgument : Argument {
         uint64_t handle{};
-        TextureHeapArgument() noexcept : Argument{Tag::HEAP, 0u} {}
-        TextureHeapArgument(uint32_t vid, uint64_t handle) noexcept
-            : Argument{Tag::HEAP, vid},
+        BindlessArrayArgument() noexcept : Argument{Tag::BINDLESS_ARRAY, 0u} {}
+        BindlessArrayArgument(uint32_t vid, uint64_t handle) noexcept
+            : Argument{Tag::BINDLESS_ARRAY, vid},
               handle{handle} {}
     };
 
@@ -457,7 +457,7 @@ public:
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
     void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
-    void encode_heap(uint32_t variable_uid, uint64_t handle) noexcept;
+    void encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept;
     void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;
 
     template<typename Visit>
@@ -490,11 +490,11 @@ public:
                     p += uniform_argument.size;
                     break;
                 }
-                case Argument::Tag::HEAP: {
-                    TextureHeapArgument arg;
-                    std::memcpy(&arg, p, sizeof(TextureHeapArgument));
+                case Argument::Tag::BINDLESS_ARRAY: {
+                    BindlessArrayArgument arg;
+                    std::memcpy(&arg, p, sizeof(BindlessArrayArgument));
                     visit(argument.variable_uid, arg);
-                    p += sizeof(TextureHeapArgument);
+                    p += sizeof(BindlessArrayArgument);
                     break;
                 }
                 case Argument::Tag::ACCEL: {

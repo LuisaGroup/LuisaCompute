@@ -12,7 +12,7 @@ namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const BindlessArray &array) noexcept {
     auto v = _kernel.arguments()[_argument_index++].uid();
-    _dispatch_command()->encode_accel(v, array.handle());
+    _dispatch_command()->encode_bindless_array(v, array.handle());
     return *this;
 }
 

@@ -334,13 +334,13 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
         iter != _captured_bindless_arrays.cend()) {
         return _ref(iter->variable);
     }
-    Variable v{Type::of<BindlessArray>(), Variable::Tag::HEAP, _next_variable_uid()};
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
     _captured_bindless_arrays.emplace_back(BindlessArrayBinding{v, handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::bindless_array() noexcept {
-    Variable v{Type::of<BindlessArray>(), Variable::Tag::HEAP, _next_variable_uid()};
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }

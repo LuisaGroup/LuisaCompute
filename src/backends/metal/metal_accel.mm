@@ -18,12 +18,9 @@ id<MTLCommandBuffer> MetalAccel::build(
     // build instance buffer
     auto instance_buffer_size = mesh_handles.size() * sizeof(MTLAccelerationStructureInstanceDescriptor);
     _instance_buffer = [_device->handle() newBufferWithLength:instance_buffer_size
-                                                      options:MTLResourceStorageModePrivate
-                                                              | MTLResourceHazardTrackingModeUntracked];
+                                                      options:MTLResourceStorageModePrivate | MTLResourceHazardTrackingModeUntracked];
     _instance_buffer_host = [_device->handle() newBufferWithLength:instance_buffer_size
-                                                           options:MTLResourceStorageModeShared
-                                                                   | MTLResourceHazardTrackingModeUntracked
-                                                                   | MTLResourceOptionCPUCacheModeWriteCombined];
+                                                           options:MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked | MTLResourceOptionCPUCacheModeWriteCombined];
     auto instances = static_cast<MTLAccelerationStructureInstanceDescriptor *>(_instance_buffer_host.contents);
     for (auto i = 0u; i < mesh_handles.size(); i++) {
         instances[i].mask = 0xffffffffu;
@@ -51,32 +48,20 @@ id<MTLCommandBuffer> MetalAccel::build(
     auto descriptor = [MTLInstanceAccelerationStructureDescriptor descriptor];
 
     _resources.clear();
-    _heaps.clear();
     auto meshes = [[NSMutableArray<id<MTLAccelerationStructure>> alloc] init];
     _device->traverse_meshes(mesh_handles, [&](auto mesh) noexcept {
         [meshes addObject:mesh->handle()];
         _resources.emplace_back(mesh->handle());
-        if (auto v = mesh->vertex_buffer(); v.heap == nullptr) {
-            _resources.emplace_back(v);
-        } else {
-            _heaps.emplace_back(v.heap);
-        }
-        if (auto t = mesh->triangle_buffer(); t.heap == nullptr) {
-            _resources.emplace_back(t);
-        } else {
-            _heaps.emplace_back(t.heap);
-        }
+        _resources.emplace_back(mesh->vertex_buffer());
+        _resources.emplace_back(mesh->triangle_buffer());
     });
     _resources.emplace_back(_instance_buffer);
-    auto deduplicate = [](auto &v) noexcept {
-        std::sort(v.begin(), v.end());
-        v.erase(std::unique(v.begin(), v.end()), v.end());
-    };
-    deduplicate(_resources);
-    deduplicate(_heaps);
+    std::sort(_resources.begin(), _resources.end());
+    _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.end());
+
     LUISA_VERBOSE_WITH_LOCATION(
-        "Building accel with reference to {} resource(s) and {} heap(s).",
-        _resources.size(), _heaps.size());
+        "Building accel with reference to {} resource(s).",
+        _resources.size());
 
     descriptor.instancedAccelerationStructures = meshes;
     descriptor.instanceCount = mesh_handles.size();
@@ -91,8 +76,7 @@ id<MTLCommandBuffer> MetalAccel::build(
     _update_scratch_size = sizes.refitScratchBufferSize;
     _handle = [_device->handle() newAccelerationStructureWithSize:sizes.accelerationStructureSize];
     auto scratch_buffer = [_device->handle() newBufferWithLength:sizes.buildScratchBufferSize
-                                                         options:MTLResourceStorageModePrivate
-                                                                 | MTLResourceHazardTrackingModeUntracked];
+                                                         options:MTLResourceStorageModePrivate | MTLResourceHazardTrackingModeUntracked];
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
     [command_encoder buildAccelerationStructure:_handle
                                      descriptor:_descriptor
@@ -108,8 +92,7 @@ id<MTLCommandBuffer> MetalAccel::build(
         auto p_compacted_size = &compacted_size;
         [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
           *p_compacted_size = *reinterpret_cast<const uint *>(
-              static_cast<const std::byte *>(compacted_size_buffer.handle().contents)
-              + compacted_size_buffer.offset());
+              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset());
           pool->recycle(compacted_size_buffer);
         }];
 

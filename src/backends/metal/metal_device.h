@@ -108,8 +108,7 @@ public:
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
-                            uint width, uint height, uint depth, uint mipmap_levels,
-                            Sampler sampler) noexcept override;
+                            uint width, uint height, uint depth, uint mipmap_levels) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
@@ -134,6 +133,12 @@ public:
     void *texture_native_handle(uint64_t handle) const noexcept override;
     void *native_handle() const noexcept override;
     void *stream_native_handle(uint64_t handle) const noexcept override;
+    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept override;
+    void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
+    void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
+    void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;
+    void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override;
+    void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
 };
 
 }// namespace luisa::compute::metal
