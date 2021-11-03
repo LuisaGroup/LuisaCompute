@@ -56,7 +56,7 @@
 #define $image ::luisa::compute::ImageVar
 #define $volume ::luisa::compute::VolumeVar
 #define $atomic ::luisa::compute::AtomicVar
-#define $heap ::luisa::compute::HeapVar
+#define $bindless ::luisa::compute::BindlessVar
 #define $accel ::luisa::compute::AccelVar
 
 #define $break ::luisa::compute::break_()

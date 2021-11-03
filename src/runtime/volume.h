@@ -7,6 +7,7 @@
 #include <runtime/pixel.h>
 #include <runtime/resource.h>
 #include <runtime/mipmap.h>
+#include <runtime/sampler.h>
 
 namespace luisa::compute {
 
@@ -32,14 +33,13 @@ private:
 
 private:
     friend class Device;
-    Volume(Device::Interface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u) noexcept
+    Volume(Device::Interface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u, Sampler sampler = {}) noexcept
         : Resource{
               device, Tag::TEXTURE,
               device->create_texture(
                   pixel_storage_to_format<T>(storage), 3u,
                   size.x, size.y, size.z,
-                  detail::max_mip_levels(size, mip_levels),
-                  {}, std::numeric_limits<uint64_t>::max(), 0u)},
+                  detail::max_mip_levels(size, mip_levels))},
           _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {}
 
 public:

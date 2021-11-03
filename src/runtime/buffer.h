@@ -37,10 +37,7 @@ private:
     Buffer(Device::Interface *device, size_t size) noexcept
         : Resource{
             device, Tag::BUFFER,
-            device->create_buffer(
-                size * sizeof(T),
-                std::numeric_limits<uint64_t>::max(),
-                std::numeric_limits<uint32_t>::max())},
+            device->create_buffer(size * sizeof(T))},
           _size{size} {}
 
 public:
@@ -177,7 +174,7 @@ template<typename T>
 constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
 
 template<typename T>
-constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::view;
+constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::value;
 
 namespace detail {
 

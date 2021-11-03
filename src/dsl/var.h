@@ -117,10 +117,10 @@ struct Var<VolumeView<T>> : public Expr<Volume<T>> {
 };
 
 template<>
-struct Var<Heap> : public Expr<Heap> {
+struct Var<BindlessArray> : public Expr<BindlessArray> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Heap>{
-              detail::FunctionBuilder::current()->heap()} {}
+        : Expr<BindlessArray>{
+              detail::FunctionBuilder::current()->bindless_array()} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -143,7 +143,7 @@ using ImageVar = Var<Image<T>>;
 template<typename T>
 using VolumeVar = Var<Volume<T>>;
 
-using HeapVar = Var<Heap>;
+using BindlessVar = Var<BindlessArray>;
 
 using Int = Var<int>;
 using Int2 = Var<int2>;

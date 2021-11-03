@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
     //        "Loaded mesh with {} shape(s) and {} vertices.",
     //        obj_reader.GetShapes().size(), vertices.size());
     //
-    //    auto heap = device.create_heap();
+    //    auto heap = device.create_bindless_array();
     //    auto stream = device.create_stream();
     //    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     //    stream << vertex_buffer.copy_from(vertices.data());
@@ -302,7 +302,7 @@ int main(int argc, char *argv[]) {
     //                                        BufferUInt ray_count,
     //                                        BufferVar<Intersection> hits,
     //                                        AccelVar accel,
-    //                                        HeapVar heap) noexcept {
+    //                                        BindlessVar heap) noexcept {
     //        Var index = dispatch_x();
     //        $if(index < ray_count[0]) {
     //            Var ray = rays[index];

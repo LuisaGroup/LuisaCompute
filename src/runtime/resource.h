@@ -15,7 +15,7 @@ public:
     enum struct Tag : uint32_t {
         BUFFER,
         TEXTURE,
-        HEAP,
+        BINDLESS_ARRAY,
         MESH,
         ACCEL,
         STREAM,

@@ -19,7 +19,7 @@
 #import <backends/metal/metal_event.h>
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
-#import <backends/metal/metal_heap.h>
+#import <backends/metal/metal_bindless_array.h>
 #import <backends/metal/metal_shared_buffer_pool.h>
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
@@ -51,9 +51,9 @@ private:
     luisa::vector<MetalShader> _shader_slots;
     luisa::vector<size_t> _available_shader_slots;
 
-    // for heaps
-    luisa::vector<luisa::unique_ptr<MetalHeap>> _heap_slots;
-    luisa::vector<size_t> _available_heap_slots;
+    // for bindless arrays
+    luisa::vector<luisa::unique_ptr<MetalBindlessArray>> _bindless_array_slots;
+    luisa::vector<size_t> _available_bindless_array_slots;
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
     // for meshes
@@ -76,7 +76,7 @@ private:
     mutable spin_mutex _stream_mutex;
     mutable spin_mutex _texture_mutex;
     mutable spin_mutex _shader_mutex;
-    mutable spin_mutex _heap_mutex;
+    mutable spin_mutex _bindless_array_mutex;
     mutable spin_mutex _mesh_mutex;
     mutable spin_mutex _accel_mutex;
     mutable spin_mutex _event_mutex;
@@ -101,7 +101,7 @@ public:
     }
 #endif
     [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalHeap *heap(uint64_t handle) const noexcept;
+    [[nodiscard]] MetalBindlessArray *bindless_array(uint64_t handle) const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     [[nodiscard]] MetalSharedBufferPool *compacted_size_buffer_pool() const noexcept;
     void check_raytracing_supported() const noexcept;
@@ -109,9 +109,9 @@ public:
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
                             uint width, uint height, uint depth, uint mipmap_levels,
-                            Sampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
+                            Sampler sampler) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
-    uint64_t create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept override;
+    uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     uint64_t create_stream() noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
@@ -128,9 +128,8 @@ public:
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
-    uint64_t create_heap(size_t size) noexcept override;
-    size_t query_heap_memory_usage(uint64_t handle) noexcept override;
-    void destroy_heap(uint64_t handle) noexcept override;
+    uint64_t create_bindless_array(size_t size) noexcept override;
+    void destroy_bindless_array(uint64_t handle) noexcept override;
     void *buffer_native_handle(uint64_t handle) const noexcept override;
     void *texture_native_handle(uint64_t handle) const noexcept override;
     void *native_handle() const noexcept override;

@@ -2,7 +2,7 @@
 // Created by Mike on 7/30/2021.
 //
 
-#include <runtime/heap.h>
+#include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_heap.h>
 #include <backends/cuda/cuda_device.h>
 

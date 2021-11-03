@@ -5,24 +5,13 @@
 #pragma once
 
 #include <cstdint>
-
-#include <core/hash.h>
 #include <core/basic_types.h>
-#include <core/mathematics.h>
-#include <runtime/pixel.h>
-#include <runtime/buffer.h>
-#include <runtime/image.h>
-#include <runtime/volume.h>
 
 namespace luisa::compute {
 
 class Sampler {
 
 public:
-    struct Hash {
-        [[nodiscard]] auto operator()(Sampler s) const noexcept { return s.code(); }
-    };
-
     enum struct Filter : uint32_t {
         POINT,
         BILINEAR,
@@ -76,18 +65,4 @@ public:
     [[nodiscard]] auto operator==(Sampler rhs) const noexcept { return code() == rhs.code(); }
 };
 
-namespace detail {
-
-template<typename Texture>
-[[nodiscard]] inline auto validate_mip_level(Texture t, uint level) noexcept {
-    auto valid = level < t.mip_levels();
-    if (!valid) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Invalid mipmap level {} (max = {}) for heap texture #{}.",
-            level, t.mip_levels() - 1u, t.handle());
-    }
-    return valid;
-}
-
-}// namespace detail
 }// namespace luisa::compute

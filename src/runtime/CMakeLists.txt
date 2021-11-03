@@ -10,7 +10,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         buffer.h
         image.h
         volume.h
-        heap.cpp heap.h
+        bindless_array.cpp bindless_array.h
         shader.h
         sampler.h
         resource.cpp resource.h

@@ -159,9 +159,9 @@ const void *luisa_compute_ast_texture_binding(const void *t, uint64_t texture) L
     return f->texture_binding(static_cast<const Type *>(t), texture);
 }
 
-const void *luisa_compute_ast_heap_binding(uint64_t heap) LUISA_NOEXCEPT {
+const void *luisa_compute_ast_bindless_array_binding(uint64_t array) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
-    return f->heap_binding(heap);
+    return f->bindless_array_binding(array);
 }
 
 const void *luisa_compute_ast_accel_binding(uint64_t accel) LUISA_NOEXCEPT {
@@ -189,9 +189,9 @@ const void *luisa_compute_ast_texture_argument(const void *t) LUISA_NOEXCEPT {
     return f->texture(static_cast<const Type *>(t));
 }
 
-const void *luisa_compute_ast_heap_argument() LUISA_NOEXCEPT {
+const void *luisa_compute_ast_bindless_array_argument() LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
-    return f->heap();
+    return f->bindless_array();
 }
 
 const void *luisa_compute_ast_accel_argument() LUISA_NOEXCEPT {

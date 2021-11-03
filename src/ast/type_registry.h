@@ -35,7 +35,7 @@ class Volume;
 template<typename T>
 class VolumeView;
 
-class Heap;
+class BindlessArray;
 class Accel;
 
 class TypeRegistry {
@@ -156,9 +156,9 @@ struct TypeDesc<Volume<T>> {
 };
 
 template<>
-struct TypeDesc<Heap> {
+struct TypeDesc<BindlessArray> {
     static constexpr std::string_view description() noexcept {
-        return "heap";
+        return "bindless_array";
     }
 };
 

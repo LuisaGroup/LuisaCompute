@@ -64,8 +64,8 @@ bool Function::raytracing() const noexcept {
     return _builder->raytracing();
 }
 
-std::span<const Function::HeapBinding> Function::captured_heaps() const noexcept {
-    return _builder->captured_heaps();
+std::span<const Function::BindlessArrayBinding> Function::captured_bindless_arrays() const noexcept {
+    return _builder->captured_bindless_arrays();
 }
 
 std::span<const Function::AccelBinding> Function::captured_accels() const noexcept {

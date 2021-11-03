@@ -10,7 +10,7 @@
 #include <runtime/image.h>
 #include <runtime/volume.h>
 #include <runtime/buffer.h>
-#include <runtime/heap.h>
+#include <runtime/bindless_array.h>
 #include <ast/function_builder.h>
 #include <dsl/expr_traits.h>
 #include <dsl/arg.h>
@@ -438,7 +438,6 @@ public:
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
-
     [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<Vector<T, 4>>(
@@ -549,15 +548,15 @@ struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
 };
 
 template<typename T>
-class HeapBuffer {
+class BindlessBuffer {
 
 private:
-    const RefExpr *_heap{nullptr};
+    const RefExpr *_array{nullptr};
     const Expression *_index{nullptr};
 
 public:
-    HeapBuffer(const RefExpr *heap, const Expression *index) noexcept
-        : _heap{heap},
+    BindlessBuffer(const RefExpr *array, const Expression *index) noexcept
+        : _array{array},
           _index{index} {}
 
     template<typename I>
@@ -566,20 +565,20 @@ public:
         auto f = detail::FunctionBuilder::current();
         return def<T>(
             f->call(
-                Type::of<T>(), CallOp::BUFFER_HEAP_READ,
-                {_heap, _index, detail::extract_expression(std::forward<I>(i))}));
+                Type::of<T>(), CallOp::BINDLESS_BUFFER_READ,
+                {_array, _index, detail::extract_expression(std::forward<I>(i))}));
     }
 };
 
-class HeapTexture2D {
+class BindlessTexture2D {
 
 private:
-    const RefExpr *_heap{nullptr};
+    const RefExpr *_array{nullptr};
     const Expression *_index{nullptr};
 
 public:
-    HeapTexture2D(const RefExpr *heap, const Expression *index) noexcept
-        : _heap{heap},
+    BindlessTexture2D(const RefExpr *array, const Expression *index) noexcept
+        : _array{array},
           _index{index} {}
     [[nodiscard]] Var<float4> sample(Expr<float2> uv) const noexcept;
     [[nodiscard]] Var<float4> sample(Expr<float2> uv, Expr<float> mip) const noexcept;
@@ -594,21 +593,21 @@ public:
     [[nodiscard]] auto read(Expr<uint2> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ2D_LEVEL,
-            {_heap, _index, coord.expression(),
+            Type::of<float4>(), CallOp::BINDLESS_TEXTURE2D_READ_LEVEL,
+            {_array, _index, coord.expression(),
              detail::extract_expression(std::forward<I>(level))}));
     }
 };
 
-class HeapTexture3D {
+class BindlessTexture3D {
 
 private:
-    const RefExpr *_heap{nullptr};
+    const RefExpr *_array{nullptr};
     const Expression *_index{nullptr};
 
 public:
-    HeapTexture3D(const RefExpr *heap, const Expression *index) noexcept
-        : _heap{heap},
+    BindlessTexture3D(const RefExpr *array, const Expression *index) noexcept
+        : _array{array},
           _index{index} {}
     [[nodiscard]] Var<float4> sample(Expr<float3> uvw) const noexcept;
     [[nodiscard]] Var<float4> sample(Expr<float3> uvw, Expr<float> mip) const noexcept;
@@ -623,14 +622,14 @@ public:
     [[nodiscard]] auto read(Expr<uint3> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<float4>(f->call(
-            Type::of<float4>(), CallOp::TEXTURE_HEAP_READ3D_LEVEL,
-            {_heap, _index, coord.expression(),
+            Type::of<float4>(), CallOp::BINDLESS_TEXTURE3D_READ_LEVEL,
+            {_array, _index, coord.expression(),
              detail::extract_expression(std::forward<I>(level))}));
     }
 };
 
 template<>
-struct Expr<Heap> {
+struct Expr<BindlessArray> {
 
 private:
     const RefExpr *_expression{nullptr};
@@ -639,29 +638,29 @@ public:
     explicit Expr(const RefExpr *expr) noexcept
         : _expression{expr} {}
 
-    explicit Expr(const Heap &heap) noexcept
-        : _expression{detail::FunctionBuilder::current()->heap_binding(heap.handle())} {}
+    explicit Expr(const BindlessArray &array) noexcept
+        : _expression{detail::FunctionBuilder::current()->bindless_array_binding(array.handle())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto tex2d(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
-        return HeapTexture2D{_expression, i.expression()};
+        return BindlessTexture2D{_expression, i.expression()};
     }
 
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto tex3d(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
-        return HeapTexture3D{_expression, i.expression()};
+        return BindlessTexture3D{_expression, i.expression()};
     }
 
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto buffer(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
-        return HeapBuffer<T>{_expression, i.expression()};
+        return BindlessBuffer<T>{_expression, i.expression()};
     }
 };
 
@@ -696,24 +695,24 @@ Expr(const Volume<T> &) -> Expr<Volume<T>>;
 template<typename T>
 Expr(VolumeView<T>) -> Expr<Volume<T>>;
 
-Expr(const Heap &) -> Expr<Heap>;
+Expr(const BindlessArray &) -> Expr<BindlessArray>;
 
 template<typename I>
-HeapTexture2D Heap::tex2d(I &&index) const noexcept {
+BindlessTexture2D BindlessArray::tex2d(I &&index) const noexcept {
     auto i = def(std::forward<I>(index));
-    return Expr<Heap>{*this}.tex2d(i);
+    return Expr<BindlessArray>{*this}.tex2d(i);
 }
 
 template<typename I>
-HeapTexture2D Heap::tex3d(I &&index) const noexcept {
+BindlessTexture2D BindlessArray::tex3d(I &&index) const noexcept {
     auto i = def(std::forward<I>(index));
-    return Expr<Heap>{*this}.tex3d(i);
+    return Expr<BindlessArray>{*this}.tex3d(i);
 }
 
 template<typename T, typename I>
-HeapBuffer<T> Heap::buffer(I &&index) const noexcept {
+BindlessBuffer<T> BindlessArray::buffer(I &&index) const noexcept {
     auto i = def(std::forward<I>(index));
-    return Expr<Heap>{*this}.buffer<T>(i);
+    return Expr<BindlessArray>{*this}.buffer<T>(i);
 }
 
 }// namespace luisa::compute

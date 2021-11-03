@@ -12,10 +12,7 @@ private:
     void *native_handle() const noexcept override;
 
     // buffer
-    uint64_t create_buffer(
-        size_t size_bytes,
-        uint64_t heap_handle,// == uint64(-1) when not from heap
-        uint32_t index_in_heap) noexcept override;
+    uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     void *buffer_native_handle(uint64_t handle) const noexcept override;
 
@@ -23,18 +20,21 @@ private:
     uint64_t create_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels,
-        Sampler sampler,
-        uint64_t heap_handle,// == uint64(-1) when not from heap
-        uint32_t index_in_heap) override;
+        uint mipmap_levels) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
     void *texture_native_handle(uint64_t handle) const noexcept override;
 
-    // texture heap
-    uint64_t create_heap(size_t size) noexcept override;
-    size_t query_heap_memory_usage(uint64_t handle) noexcept override;
-    void destroy_heap(uint64_t handle) noexcept override;
+public:
+    uint64_t create_bindless_array(size_t size) noexcept override;
+    void destroy_bindless_array(uint64_t handle) noexcept override;
+    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle) noexcept override;
+    void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
+    void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
+    void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;
+    void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override;
+    void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
 
+private:
     // stream
     uint64_t create_stream() noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;

@@ -10,7 +10,7 @@
 #include <runtime/context.h>
 #include <runtime/stream.h>
 #include <runtime/buffer.h>
-#include <runtime/heap.h>
+#include <runtime/bindless_array.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
     Callable sub = [](Float a, Float b) noexcept { return a - b; };
     Callable mul = [](Float a, Float b) noexcept { return a * b; };
     std::vector ftab{add, sub, mul};
-    Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, HeapVar heap) noexcept {
+    Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, BindlessVar heap) noexcept {
         Var tag = 114514;
         match({123, 6666, 114514}, tag, [&](auto i) noexcept {
             Var result = ftab[i](float_consts[0], float_consts[1]);
@@ -144,15 +144,4 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[16382], results[16383]);
-
-    auto heap = device.create_heap(1_gb);
-    for (auto i = 0u; i < 10u; i++) {
-        static_cast<void>(heap.create_buffer<float>(i, 1024u));
-        static_cast<void>(heap.create_image<float>(i, PixelStorage::FLOAT4, uint2(1024u)));
-        LUISA_INFO("Used size: {}", heap.allocated_size());
-    }
-    for (auto i = 0u; i < 10u; i++) {
-        static_cast<void>(heap.destroy_buffer(i));
-        LUISA_INFO("Used size: {}", heap.allocated_size());
-    }
 }

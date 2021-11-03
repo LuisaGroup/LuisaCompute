@@ -8,7 +8,6 @@
 
 #include <core/logging.h>
 #include <core/hash.h>
-#include <core/macro.h>
 #include <ast/type.h>
 #include <ast/type_registry.h>
 
@@ -157,8 +156,8 @@ const Type *Type::from(std::string_view description) noexcept {
             match('>');
             info._size = 8u;
             info._alignment = 8u;
-        } else if (type_identifier == "heap"sv) {
-            info._tag = Tag::HEAP;
+        } else if (type_identifier == "bindless_array"sv) {
+            info._tag = Tag::BINDLESS_ARRAY;
             info._size = 8u;
             info._alignment = 8u;
         } else if (type_identifier == "accel"sv) {

@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <core/allocator.h>
+
 #import <Metal/Metal.h>
 #import <core/spin_mutex.h>
 
@@ -13,9 +15,9 @@ class MetalEvent {
 
 private:
     id<MTLEvent> _handle;
-    __weak id<MTLCommandBuffer> _last{nullptr};
-    uint64_t _counter{0u};
+    std::atomic<uint64_t> _counter{0u};
     spin_mutex _mutex;
+    __weak id<MTLCommandBuffer> _observer;
 
 public:
     explicit MetalEvent(id<MTLEvent> handle) noexcept
@@ -23,34 +25,29 @@ public:
     ~MetalEvent() noexcept { _handle = nullptr; }
 
     void signal(id<MTLCommandBuffer> command_buffer) noexcept {
-        auto value = [this, command_buffer] {
-            std::scoped_lock lock{_mutex};
-            _last = command_buffer;
-            return ++_counter;
-        }();
+        auto value = _counter.fetch_add(1u, std::memory_order::release) + 1u;
         [command_buffer encodeSignalEvent:_handle
                                     value:value];
+        std::scoped_lock lock{_mutex};
+        _observer = command_buffer;
     }
 
     void wait(id<MTLCommandBuffer> command_buffer) noexcept {
-        if (auto value = [this] {
-                std::scoped_lock lock{_mutex};
-                return _counter;
-            }();
-            value != 0u) {
+        if (auto value = _counter.load(std::memory_order::acquire);
+            value == 0u) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Ignoring MetalEvent::wait() without signaling.");
+        } else [[likely]] {
             [command_buffer encodeWaitForEvent:_handle
                                          value:value];
         }
     }
 
     void synchronize() noexcept {
-        if (auto last = [this]() noexcept
-            -> id<MTLCommandBuffer> {
+        if (auto observer = [this] {
                 std::scoped_lock lock{_mutex};
-                auto cmd = _last;
-                _last = nullptr;
-                return cmd;
-            }()) [[likely]] { [last waitUntilCompleted]; }
+                return (id<MTLCommandBuffer>)_observer;
+            }()) { [observer waitUntilCompleted]; }
     }
 };
 

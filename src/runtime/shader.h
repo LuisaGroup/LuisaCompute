@@ -7,12 +7,12 @@
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
 #include <runtime/resource.h>
-#include <runtime/heap.h>
+#include <runtime/bindless_array.h>
 
 namespace luisa::compute {
 
 class Accel;
-class Heap;
+class BindlessArray;
 
 namespace detail {
 
@@ -65,9 +65,9 @@ public:
                 texture.variable.uid(), texture.handle,
                 _kernel.variable_usage(texture.variable.uid()));
         }
-        for (auto heap : _kernel.captured_heaps()) {
+        for (auto bindless_array : _kernel.captured_bindless_arrays()) {
             _dispatch_command()->encode_heap(
-                heap.variable.uid(), heap.handle);
+                bindless_array.variable.uid(), bindless_array.handle);
         }
         for (auto accel : _kernel.captured_accels()) {
             _dispatch_command()->encode_accel(
@@ -123,14 +123,11 @@ public:
         return *this;
     }
 
-    ShaderInvokeBase &operator<<(const Heap &heap) noexcept {
-        auto v = _kernel.arguments()[_argument_index++].uid();
-        _dispatch_command()->encode_heap(v, heap.handle());
-        return *this;
-    }
-
     // see definition in rtx/accel.cpp
     ShaderInvokeBase &operator<<(const Accel &accel) noexcept;
+
+    // see definition in runtime/bindless_array.cpp
+    ShaderInvokeBase &operator<<(const BindlessArray &array) noexcept;
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) noexcept {

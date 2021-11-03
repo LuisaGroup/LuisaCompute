@@ -19,7 +19,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_stream.h metal_stream.mm
             metal_buffer_view.h
             metal_ring_buffer.mm metal_ring_buffer.h
-            metal_heap.mm metal_heap.h
+            metal_bindless_array.mm metal_bindless_array.h
             metal_shader.h)
 
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})

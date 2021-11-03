@@ -47,9 +47,9 @@ void luisa_compute_device_destroy(void *ctx, void *device) LUISA_NOEXCEPT {
     static_cast<RC<Context> *>(ctx)->release();
 }
 
-uint64_t luisa_compute_buffer_create(void *device, size_t size, uint64_t heap_handle, uint32_t index_in_heap) LUISA_NOEXCEPT {
+uint64_t luisa_compute_buffer_create(void *device, size_t size) LUISA_NOEXCEPT {
     auto d = static_cast<RC<Device> *>(device);
-    return d->retain()->impl()->create_buffer(size, heap_handle, index_in_heap);
+    return d->retain()->impl()->create_buffer(size);
 }
 
 void luisa_compute_buffer_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
@@ -58,29 +58,16 @@ void luisa_compute_buffer_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT 
     d->release();
 }
 
-uint64_t luisa_compute_texture_create(void *device, uint32_t format, uint32_t dim, uint32_t w, uint32_t h, uint32_t d, uint32_t mips, uint32_t sampler, uint64_t heap, uint32_t index_in_heap) LUISA_NOEXCEPT {
+uint64_t luisa_compute_texture_create(void *device, uint32_t format, uint32_t dim, uint32_t w, uint32_t h, uint32_t d, uint32_t mips) LUISA_NOEXCEPT {
     auto dev = static_cast<RC<Device> *>(device);
     return dev->retain()->impl()->create_texture(
         static_cast<PixelFormat>(format),
-        dim, w, h, d, mips,
-        Sampler::decode(sampler),
-        heap, index_in_heap);
+        dim, w, h, d, mips);
 }
 
 void luisa_compute_texture_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
     auto d = static_cast<RC<Device> *>(device);
     d->object()->impl()->destroy_texture(handle);
-    d->release();
-}
-
-uint64_t luisa_compute_heap_create(void *device, size_t size) LUISA_NOEXCEPT {
-    auto d = static_cast<RC<Device> *>(device);
-    return d->retain()->impl()->create_heap(size);
-}
-
-void luisa_compute_heap_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
-    auto d = static_cast<RC<Device> *>(device);
-    d->object()->impl()->destroy_heap(handle);
     d->release();
 }
 
@@ -315,8 +302,4 @@ void *luisa_compute_command_update_accel(uint64_t handle, const void *transforms
 
 uint32_t luisa_compute_pixel_format_to_storage(uint32_t format) LUISA_NOEXCEPT {
     return to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format)));
-}
-
-size_t luisa_compute_heap_query_usage(void *device, uint64_t handle) LUISA_NOEXCEPT {
-    return static_cast<RC<Device> *>(device)->object()->impl()->query_heap_memory_usage(handle);
 }

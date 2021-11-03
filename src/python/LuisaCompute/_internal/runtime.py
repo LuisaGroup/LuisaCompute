@@ -59,11 +59,11 @@ def device_destroy(ctx, device):
 
 
 dll.luisa_compute_buffer_create.restype = c_uint64
-dll.luisa_compute_buffer_create.argtypes = [c_void_p, c_size_t, c_uint64, c_uint32]
+dll.luisa_compute_buffer_create.argtypes = [c_void_p, c_size_t]
 
 
-def buffer_create(device, size, heap_handle, index_in_heap):
-    return dll.luisa_compute_buffer_create(device, size, heap_handle, index_in_heap)
+def buffer_create(device, size):
+    return dll.luisa_compute_buffer_create(device, size)
 
 
 dll.luisa_compute_buffer_destroy.restype = None
@@ -83,11 +83,11 @@ def pixel_format_to_storage(format):
 
 
 dll.luisa_compute_texture_create.restype = c_uint64
-dll.luisa_compute_texture_create.argtypes = [c_void_p, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint64, c_uint32]
+dll.luisa_compute_texture_create.argtypes = [c_void_p, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32]
 
 
-def texture_create(device, format, dim, w, h, d, mips, sampler, heap, index_in_heap):
-    return dll.luisa_compute_texture_create(device, format, dim, w, h, d, mips, sampler, heap, index_in_heap)
+def texture_create(device, format, dim, w, h, d, mips):
+    return dll.luisa_compute_texture_create(device, format, dim, w, h, d, mips)
 
 
 dll.luisa_compute_texture_destroy.restype = None
@@ -96,30 +96,6 @@ dll.luisa_compute_texture_destroy.argtypes = [c_void_p, c_uint64]
 
 def texture_destroy(device, handle):
     dll.luisa_compute_texture_destroy(device, handle)
-
-
-dll.luisa_compute_heap_create.restype = c_uint64
-dll.luisa_compute_heap_create.argtypes = [c_void_p, c_size_t]
-
-
-def heap_create(device, size):
-    return dll.luisa_compute_heap_create(device, size)
-
-
-dll.luisa_compute_heap_destroy.restype = None
-dll.luisa_compute_heap_destroy.argtypes = [c_void_p, c_uint64]
-
-
-def heap_destroy(device, handle):
-    dll.luisa_compute_heap_destroy(device, handle)
-
-
-dll.luisa_compute_heap_query_usage.restype = c_size_t
-dll.luisa_compute_heap_query_usage.argtypes = [c_void_p, c_uint64]
-
-
-def heap_query_usage(device, handle):
-    return dll.luisa_compute_heap_query_usage(device, handle)
 
 
 dll.luisa_compute_stream_create.restype = c_uint64

@@ -27,14 +27,14 @@ LUISA_EXPORT_API const void *luisa_compute_ast_constant_variable(const void *t, 
 
 LUISA_EXPORT_API const void *luisa_compute_ast_buffer_binding(const void *elem_t, uint64_t buffer, size_t offset_bytes) LUISA_NOEXCEPT;
 LUISA_EXPORT_API const void *luisa_compute_ast_texture_binding(const void *t, uint64_t texture) LUISA_NOEXCEPT;
-LUISA_EXPORT_API const void *luisa_compute_ast_heap_binding(uint64_t heap) LUISA_NOEXCEPT;
+LUISA_EXPORT_API const void *luisa_compute_ast_bindless_array_binding(uint64_t array) LUISA_NOEXCEPT;
 LUISA_EXPORT_API const void *luisa_compute_ast_accel_binding(uint64_t accel) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API const void *luisa_compute_ast_value_argument(const void *t) LUISA_NOEXCEPT;
 LUISA_EXPORT_API const void *luisa_compute_ast_reference_argument(const void *t) LUISA_NOEXCEPT;
 LUISA_EXPORT_API const void *luisa_compute_ast_buffer_argument(const void *t) LUISA_NOEXCEPT;
 LUISA_EXPORT_API const void *luisa_compute_ast_texture_argument(const void *t) LUISA_NOEXCEPT;
-LUISA_EXPORT_API const void *luisa_compute_ast_heap_argument() LUISA_NOEXCEPT;
+LUISA_EXPORT_API const void *luisa_compute_ast_bindless_array_argument() LUISA_NOEXCEPT;
 LUISA_EXPORT_API const void *luisa_compute_ast_accel_argument() LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API const void *luisa_compute_ast_literal_expr(const void *t, const void *value, const char *meta_value) LUISA_NOEXCEPT;

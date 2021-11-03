@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
         "Loaded mesh with {} shape(s) and {} vertices.",
         obj_reader.GetShapes().size(), vertices.size());
 
-    auto heap = device.create_heap();
+    auto heap = device.create_bindless_array();
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
@@ -95,9 +95,9 @@ int main(int argc, char *argv[]) {
         std::vector<uint> indices;
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
-        auto triangle_buffer = heap.create_buffer<Triangle>(index, triangle_count);
+        auto triangle_buffer = device.create_buffer<Triangle>(triangle_count);
+        heap.emplace(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               << commit()// buffers from heap are not hazard-tracked
                << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer);
     }
 

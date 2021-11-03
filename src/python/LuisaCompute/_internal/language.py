@@ -138,12 +138,12 @@ def ast_texture_binding(t, texture):
     return dll.luisa_compute_ast_texture_binding(t, texture)
 
 
-dll.luisa_compute_ast_heap_binding.restype = c_void_p
-dll.luisa_compute_ast_heap_binding.argtypes = [c_uint64]
+dll.luisa_compute_ast_bindless_array_binding.restype = c_void_p
+dll.luisa_compute_ast_bindless_array_binding.argtypes = [c_uint64]
 
 
-def ast_heap_binding(heap):
-    return dll.luisa_compute_ast_heap_binding(heap)
+def ast_bindless_array_binding(array):
+    return dll.luisa_compute_ast_bindless_array_binding(array)
 
 
 dll.luisa_compute_ast_accel_binding.restype = c_void_p
@@ -186,12 +186,12 @@ def ast_texture_argument(t):
     return dll.luisa_compute_ast_texture_argument(t)
 
 
-dll.luisa_compute_ast_heap_argument.restype = c_void_p
-dll.luisa_compute_ast_heap_argument.argtypes = []
+dll.luisa_compute_ast_bindless_array_argument.restype = c_void_p
+dll.luisa_compute_ast_bindless_array_argument.argtypes = []
 
 
-def ast_heap_argument():
-    return dll.luisa_compute_ast_heap_argument()
+def ast_bindless_array_argument():
+    return dll.luisa_compute_ast_bindless_array_argument()
 
 
 dll.luisa_compute_ast_accel_argument.restype = c_void_p

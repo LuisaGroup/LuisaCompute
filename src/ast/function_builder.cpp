@@ -29,7 +29,7 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
         !(f->builtin_variables().empty() &&
           f->captured_buffers().empty() &&
           f->captured_textures().empty() &&
-          f->captured_heaps().empty())) [[unlikely]] {
+          f->captured_bindless_arrays().empty())) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom callables may not have builtin, "
             "shared or captured variables.");
@@ -322,25 +322,25 @@ void FunctionBuilder::_compute_hash() noexcept {
     h = hash64(_captured_buffers, h);
     h = hash64(_captured_textures, h);
     h = hash64(_captured_accels, h);
-    h = hash64(_captured_heaps, h);
+    h = hash64(_captured_bindless_arrays, h);
     _hash = hash64(_arguments, h);
 }
 
-const RefExpr *FunctionBuilder::heap_binding(uint64_t handle) noexcept {
+const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
     if (auto iter = std::find_if(
-            _captured_heaps.cbegin(),
-            _captured_heaps.cend(),
+            _captured_bindless_arrays.cbegin(),
+            _captured_bindless_arrays.cend(),
             [handle](auto &&binding) { return binding.handle == handle; });
-        iter != _captured_heaps.cend()) {
+        iter != _captured_bindless_arrays.cend()) {
         return _ref(iter->variable);
     }
-    Variable v{Type::of<Heap>(), Variable::Tag::HEAP, _next_variable_uid()};
-    _captured_heaps.emplace_back(HeapBinding{v, handle});
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::HEAP, _next_variable_uid()};
+    _captured_bindless_arrays.emplace_back(BindlessArrayBinding{v, handle});
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::heap() noexcept {
-    Variable v{Type::of<Heap>(), Variable::Tag::HEAP, _next_variable_uid()};
+const RefExpr *FunctionBuilder::bindless_array() noexcept {
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::HEAP, _next_variable_uid()};
     _arguments.emplace_back(v);
     return _ref(v);
 }

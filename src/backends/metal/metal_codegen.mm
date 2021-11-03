@@ -279,22 +279,25 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::TEXTURE_READ_LEVEL: _scratch << "texture_read_level"; break;
         case CallOp::TEXTURE_WRITE_LEVEL: _scratch << "texture_write_level"; break;
-        case CallOp::TEXTURE_HEAP_SAMPLE2D: _scratch << "texture_heap_sample2d"; break;
-        case CallOp::TEXTURE_HEAP_SAMPLE2D_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
-        case CallOp::TEXTURE_HEAP_SAMPLE2D_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
-        case CallOp::TEXTURE_HEAP_SAMPLE3D: _scratch << "texture_heap_sample3d"; break;
-        case CallOp::TEXTURE_HEAP_SAMPLE3D_LEVEL: _scratch << "texture_heap_sample3d_level"; break;
-        case CallOp::TEXTURE_HEAP_SAMPLE3D_GRAD: _scratch << "texture_heap_sample3d_grad"; break;
-        case CallOp::TEXTURE_HEAP_READ2D: _scratch << "texture_heap_read2d"; break;
-        case CallOp::TEXTURE_HEAP_READ3D: _scratch << "texture_heap_read3d"; break;
-        case CallOp::TEXTURE_HEAP_READ2D_LEVEL: _scratch << "texture_heap_read2d_level"; break;
-        case CallOp::TEXTURE_HEAP_READ3D_LEVEL: _scratch << "texture_heap_read3d_level"; break;
-        case CallOp::TEXTURE_HEAP_SIZE2D: _scratch << "texture_heap_size2d"; break;
-        case CallOp::TEXTURE_HEAP_SIZE3D: _scratch << "texture_heap_size3d"; break;
-        case CallOp::TEXTURE_HEAP_SIZE2D_LEVEL: _scratch << "texture_heap_size2d_level"; break;
-        case CallOp::TEXTURE_HEAP_SIZE3D_LEVEL: _scratch << "texture_heap_size3d_level"; break;
-        case CallOp::BUFFER_HEAP_READ:
-            _scratch << "buffer_heap_read<";
+        case CallOp::TEXTURE_SAMPLE: _scratch << "texture_sample"; break;
+        case CallOp::TEXTURE_SAMPLE_LEVEL: _scratch << "texture_sample_level"; break;
+        case CallOp::TEXTURE_SAMPLE_GRAD: _scratch << "texture_sample_grad"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "bindless_texture_sample2d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "bindless_texture_sample3d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "bindless_texture_sample3d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "bindless_texture_read2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "bindless_texture_read3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "bindless_texture_read2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "bindless_texture_read3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "bindless_texture_size2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "bindless_texture_size3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
+        case CallOp::BINDLESS_BUFFER_READ:
+            _scratch << "bindless_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
@@ -510,9 +513,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
             _emit_argument_decl(image.variable);
             _scratch << ",";
         }
-        for (auto heap : f.captured_heaps()) {
+        for (auto array : f.captured_bindless_arrays()) {
             _scratch << "\n    ";
-            _emit_argument_decl(heap.variable);
+            _emit_argument_decl(array.variable);
             _scratch << ",";
         }
         for (auto accel : f.captured_accels()) {
@@ -1183,70 +1186,70 @@ struct alignas(16) Hit {
   float2 m2;
 };
 
-[[nodiscard]] auto texture_heap_sample2d(device const HeapItem *heap, uint index, float2 uv) {
+[[nodiscard]] auto bindless_texture_sample2d(device const HeapItem *heap, uint index, float2 uv) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv);
 }
 
-[[nodiscard]] auto texture_heap_sample3d(device const HeapItem *heap, uint index, float3 uvw) {
+[[nodiscard]] auto bindless_texture_sample3d(device const HeapItem *heap, uint index, float3 uvw) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw);
 }
 
-[[nodiscard]] auto texture_heap_sample2d_level(device const HeapItem *heap, uint index, float2 uv, float lod) {
+[[nodiscard]] auto bindless_texture_sample2d_level(device const HeapItem *heap, uint index, float2 uv, float lod) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, level(lod));
 }
 
-[[nodiscard]] auto texture_heap_sample3d_level(device const HeapItem *heap, uint index, float3 uvw, float lod) {
+[[nodiscard]] auto bindless_texture_sample3d_level(device const HeapItem *heap, uint index, float3 uvw, float lod) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, level(lod));
 }
 
-[[nodiscard]] auto texture_heap_sample2d_grad(device const HeapItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+[[nodiscard]] auto bindless_texture_sample2d_grad(device const HeapItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
   device const auto &t = heap[index];
   return t.handle2d.sample(t.sampler, uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto texture_heap_sample3d_grad(device const HeapItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+[[nodiscard]] auto bindless_texture_sample3d_grad(device const HeapItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
   device const auto &t = heap[index];
   return t.handle3d.sample(t.sampler, uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto texture_heap_size2d(device const HeapItem *heap, uint i) {
+[[nodiscard]] auto bindless_texture_size2d(device const HeapItem *heap, uint i) {
   return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
 }
 
-[[nodiscard]] auto texture_heap_size3d(device const HeapItem *heap, uint i) {
+[[nodiscard]] auto bindless_texture_size3d(device const HeapItem *heap, uint i) {
   return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
 }
 
-[[nodiscard]] auto texture_heap_size2d_level(device const HeapItem *heap, uint i, uint lv) {
+[[nodiscard]] auto bindless_texture_size2d_level(device const HeapItem *heap, uint i, uint lv) {
   return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
 }
 
-[[nodiscard]] auto texture_heap_size3d_level(device const HeapItem *heap, uint i, uint lv) {
+[[nodiscard]] auto bindless_texture_size3d_level(device const HeapItem *heap, uint i, uint lv) {
   return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
 }
 
-[[nodiscard]] auto texture_heap_read2d(device const HeapItem *heap, uint i, uint2 uv) {
+[[nodiscard]] auto bindless_texture_read2d(device const HeapItem *heap, uint i, uint2 uv) {
   return heap[i].handle2d.read(uv);
 }
 
-[[nodiscard]] auto texture_heap_read3d(device const HeapItem *heap, uint i, uint3 uvw) {
+[[nodiscard]] auto bindless_texture_read3d(device const HeapItem *heap, uint i, uint3 uvw) {
   return heap[i].handle3d.read(uvw);
 }
 
-[[nodiscard]] auto texture_heap_read2d_level(device const HeapItem *heap, uint i, uint2 uv, uint lv) {
+[[nodiscard]] auto bindless_texture_read2d_level(device const HeapItem *heap, uint i, uint2 uv, uint lv) {
   return heap[i].handle2d.read(uv, lv);
 }
 
-[[nodiscard]] auto texture_heap_read3d_level(device const HeapItem *heap, uint i, uint3 uvw, uint lv) {
+[[nodiscard]] auto bindless_texture_read3d_level(device const HeapItem *heap, uint i, uint3 uvw, uint lv) {
   return heap[i].handle3d.read(uvw, lv);
 }
 
 template<typename T>
-[[nodiscard]] auto buffer_heap_read(device const HeapItem *heap, uint buffer_index, uint i) {
+[[nodiscard]] auto bindless_buffer_read(device const HeapItem *heap, uint buffer_index, uint i) {
   return static_cast<device const T *>(heap[buffer_index].buffer)[i];
 }
 

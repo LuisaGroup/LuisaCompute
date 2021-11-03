@@ -11,7 +11,7 @@ void Resource::_destroy() noexcept {
         switch (_tag) {
             case Tag::BUFFER: _device->destroy_buffer(_handle); break;
             case Tag::TEXTURE: _device->destroy_texture(_handle); break;
-            case Tag::HEAP: _device->destroy_heap(_handle); break;
+            case Tag::BINDLESS_ARRAY: _device->destroy_bindless_array(_handle); break;
             case Tag::MESH: _device->destroy_mesh(_handle); break;
             case Tag::ACCEL: _device->destroy_accel(_handle); break;
             case Tag::STREAM: _device->destroy_stream(_handle); break;
@@ -32,6 +32,6 @@ Resource &Resource::operator=(Resource &&rhs) noexcept {
 }
 
 Resource::Resource(Device::Interface *device, Resource::Tag tag, uint64_t handle) noexcept
-: _device{device->shared_from_this()}, _handle{handle}, _tag{tag} {}
+    : _device{device->shared_from_this()}, _handle{handle}, _tag{tag} {}
 
-}
+}// namespace luisa::compute

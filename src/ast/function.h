@@ -53,14 +53,14 @@ public:
         }
     };
 
-    struct HeapBinding {
+    struct BindlessArrayBinding {
         Variable variable;
         uint64_t handle;
-        HeapBinding(Variable v, uint64_t handle) noexcept
+        BindlessArrayBinding(Variable v, uint64_t handle) noexcept
             : variable{v}, handle{handle} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
-            return hash64(handle, hash64(variable.hash(), hash64("__hash_heap_binding")));
+            return hash64(handle, hash64(variable.hash(), hash64("__hash_bindless_array_binding")));
         }
     };
 
@@ -97,7 +97,7 @@ public:
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
     [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
     [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
-    [[nodiscard]] std::span<const HeapBinding> captured_heaps() const noexcept;
+    [[nodiscard]] std::span<const BindlessArrayBinding> captured_bindless_arrays() const noexcept;
     [[nodiscard]] std::span<const AccelBinding> captured_accels() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const luisa::shared_ptr<const detail::FunctionBuilder>> custom_callables() const noexcept;

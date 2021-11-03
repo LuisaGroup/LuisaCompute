@@ -3,7 +3,7 @@
 //
 
 #include <runtime/sampler.h>
-#include <runtime/heap.h>
+#include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_heap.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_stream.h>

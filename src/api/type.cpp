@@ -71,7 +71,7 @@ int luisa_compute_type_is_texture(const void *t) LUISA_NOEXCEPT {
 }
 
 int luisa_compute_type_is_heap(const void *t) LUISA_NOEXCEPT {
-    return static_cast<const Type *>(t)->is_heap();
+    return static_cast<const Type *>(t)->is_bindless_array();
 }
 
 int luisa_compute_type_is_accel(const void *t) LUISA_NOEXCEPT {

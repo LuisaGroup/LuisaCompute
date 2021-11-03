@@ -38,16 +38,16 @@ int main(int argc, char *argv[]) {
         image.write(coord, make_float4(make_float2(0.3f, 0.4f), 0.5f, 1.0f));
     };
 
-    Callable sample = [](HeapVar heap, Float2 uv, Float mip) noexcept {
+    Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
         return heap.tex2d(0u).sample(uv, mip);
     };
 
-    Kernel1D useless_kernel = [](HeapVar heap) noexcept {
+    Kernel1D useless_kernel = [](BindlessVar heap) noexcept {
         Var x = heap.buffer<uint>(0)[1u];
     };
     auto useless_shader = device.compile(useless_kernel);
 
-    Kernel2D fill_image_kernel = [&](HeapVar heap, ImageVar<float> image) noexcept {
+    Kernel2D fill_image_kernel = [&](BindlessVar heap, ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
         Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
         Var r = length(uv - 0.5f);
@@ -58,12 +58,13 @@ int main(int argc, char *argv[]) {
     auto clear_image = device.compile(clear_image_kernel);
     auto fill_image = device.compile(fill_image_kernel);
 
-    auto heap = device.create_heap();
+    auto heap = device.create_bindless_array();
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
     auto image_pixels = stbi_load("test_path_tracing.png", &image_width, &image_height, &image_channels, 4);
-    auto texture = heap.create_image<float>(0u, PixelStorage::BYTE4, uint2(image_width, image_height), Sampler::trilinear_edge(), 0u);
+    auto texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 0u);
+    heap.emplace(0u, texture, Sampler::trilinear_edge());
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 

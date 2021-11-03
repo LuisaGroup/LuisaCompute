@@ -7,6 +7,7 @@
 #include <core/mathematics.h>
 #include <runtime/resource.h>
 #include <runtime/mipmap.h>
+#include <runtime/sampler.h>
 
 namespace luisa::compute {
 
@@ -19,7 +20,7 @@ class BufferView;
 template<typename T>
 struct Expr;
 
-class Heap;
+class BindlessArray;
 
 // Images are textures without sampling, i.e., surfaces.
 template<typename T>
@@ -44,9 +45,10 @@ private:
               device->create_texture(
                   pixel_storage_to_format<T>(storage), 2u,
                   size.x, size.y, 1u,
-                  detail::max_mip_levels(make_uint3(size, 1u), mip_levels), {},
-                  std::numeric_limits<uint64_t>::max(), 0u)},
-          _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {}
+                  detail::max_mip_levels(make_uint3(size, 1u), mip_levels))},
+          _size{size},
+          _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)},
+          _storage{storage} {}
 
 public:
     Image() noexcept = default;
