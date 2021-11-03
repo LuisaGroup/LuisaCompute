@@ -22,7 +22,7 @@ class BindlessBuffer;
 template<typename T>
 struct Expr;
 
-class BindlessArray : public Resource {
+class BindlessArray final : public Resource {
 
 public:
     static constexpr auto invalid_handle = std::numeric_limits<uint64_t>::max();
@@ -47,21 +47,18 @@ public:
     void remove_tex3d(size_t index) noexcept;
 
     template<typename T>
-        requires is_buffer_or_view_v<std::remove_cvref_t<T>>
-    void emplace(size_t index, T &&buffer) noexcept {
-        emplace_buffer(index, std::forward<T>(buffer).handle());
+    void emplace(size_t index, const Buffer<T> &buffer) noexcept {
+        emplace_buffer(index, buffer.handle());
     }
 
     template<typename T>
-        requires is_image_or_view_v<std::remove_cvref_t<T>>
-    void emplace(size_t index, T &&image, Sampler sampler) noexcept {
-        emplace_tex2d(index, std::forward<T>(image).handle(), sampler);
+    void emplace(size_t index, const Image<T> &image, Sampler sampler) noexcept {
+        emplace_tex2d(index, image.handle(), sampler);
     }
 
     template<typename T>
-        requires is_volume_or_view_v<std::remove_cvref_t<T>>
-    void emplace(size_t index, T &&volume, Sampler sampler) noexcept {
-        emplace_tex3d(index, std::forward<T>(volume).handle(), sampler);
+    void emplace(size_t index, const Volume<T> &volume, Sampler sampler) noexcept {
+        emplace_tex3d(index, volume.handle(), sampler);
     }
 
     // see implementations in dsl/expr.h

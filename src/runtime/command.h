@@ -84,8 +84,6 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 class Command {
 
 public:
-    static constexpr auto max_resource_count = 48u;
-
     struct Binding {
 
         enum struct Tag : uint32_t {
@@ -100,14 +98,12 @@ public:
         Tag tag{Tag::NONE};
         Usage usage{Usage::NONE};
 
-        constexpr Binding() noexcept = default;
         constexpr Binding(uint64_t handle, Tag tag, Usage usage) noexcept
             : handle{handle}, tag{tag}, usage{usage} {}
     };
 
 private:
-    std::array<Binding, max_resource_count> _resource_slots{};
-    size_t _resource_count{0u};
+    std::vector<Binding> _resource_slots{};
     Command *_next_command{nullptr};
 
 protected:
@@ -120,7 +116,6 @@ protected:
     void _texture_read_write(uint64_t handle) noexcept;
 
 private:
-    friend class CommandList;
     [[nodiscard]] auto _next() const noexcept { return _next_command; }
     Command *_set_next(Command *cmd) noexcept { return cmd == nullptr ? this : (_next_command = cmd); }
     virtual void _recycle() noexcept = 0;
@@ -131,6 +126,10 @@ protected:
 public:
     [[nodiscard]] std::span<const Binding> resources() const noexcept;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
+    [[nodiscard]] auto next() const noexcept { return _next(); }
+    auto set_next(Command *cmd) noexcept { return _set_next(cmd); }
+    void recycle();
+
 };
 
 class BufferUploadCommand : public Command {

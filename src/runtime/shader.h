@@ -176,7 +176,7 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
 }// namespace detail
 
 template<size_t dimension, typename... Args>
-class Shader : public Resource {
+class Shader final : public Resource {
 
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
 

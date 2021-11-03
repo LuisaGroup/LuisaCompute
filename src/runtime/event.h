@@ -11,7 +11,7 @@ namespace luisa::compute {
 
 class Device;
 
-class Event : public Resource {
+class Event final : public Resource {
 
 public:
     struct Signal { uint64_t handle; };

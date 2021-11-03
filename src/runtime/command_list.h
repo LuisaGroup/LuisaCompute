@@ -20,12 +20,12 @@ public:
     public:
         explicit Iterator(Command *cmd) noexcept : _command{cmd} {}
         decltype(auto) operator++() noexcept {
-            _command = _command->_next();
+            _command = _command->next();
             return (*this);
         }
         auto operator++(int) noexcept {
             auto self = *this;
-            _command = _command->_next();
+            _command = _command->next();
             return self;
         }
         [[nodiscard]] decltype(auto) operator*() const noexcept { return _command; }

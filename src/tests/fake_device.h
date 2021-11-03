@@ -45,6 +45,8 @@ public:
     void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override {}
     void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override {}
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override {}
+    bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept override { return false; }
+    bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept override { return false; }
     [[nodiscard]] static auto create(const Context &ctx) noexcept {
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};

@@ -14,8 +14,6 @@ namespace luisa::compute {
 template<typename T>
 struct Expr;
 
-class Heap;
-
 template<typename T>
 class BufferView;
 
@@ -25,7 +23,7 @@ class BufferView;
     static_assert(std::is_trivially_destructible_v<T>);
 
 template<typename T>
-class Buffer : public Resource {
+class Buffer final : public Resource {
 
     LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
 

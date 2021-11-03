@@ -79,6 +79,12 @@ void ISPCDevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) no
 }
 void ISPCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
 }
+bool ISPCDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+    return false;
+}
+bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+    return false;
+}
 
 }// namespace lc::ispc
 

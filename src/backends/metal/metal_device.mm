@@ -536,6 +536,14 @@ void MetalDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) n
     bindless_array(array)->remove_tex3d(index);
 }
 
+bool MetalDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+    return bindless_array(array)->has_buffer(handle);
+}
+
+bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+    return bindless_array(array)->has_texture(handle);
+}
+
 }
 
 LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {

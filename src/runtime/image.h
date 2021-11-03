@@ -24,7 +24,7 @@ class BindlessArray;
 
 // Images are textures without sampling, i.e., surfaces.
 template<typename T>
-class Image : public Resource {
+class Image final : public Resource {
 
     static_assert(std::disjunction_v<
                   std::is_same<T, int>,

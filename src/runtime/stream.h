@@ -14,7 +14,7 @@
 
 namespace luisa::compute {
 
-class Stream : public Resource {
+class Stream final : public Resource {
 
 public:
     struct Synchronize {};

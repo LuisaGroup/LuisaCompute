@@ -8,29 +8,38 @@
 namespace luisa::compute {
 
 std::span<const Command::Binding> Command::resources() const noexcept {
-    return {_resource_slots.data(), _resource_count};
+    return _resource_slots;
 }
 
 inline void Command::_use_resource(
-    uint64_t handle, Command::Binding::Tag tag,
-    Usage usage) noexcept {
+    uint64_t handle, Command::Binding::Tag tag, Usage usage) noexcept {
 
-    if (_resource_count == max_resource_count) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Number of resources in command exceeded limit {}.",
-            max_resource_count);
+    if (auto iter = std::find_if(
+            _resource_slots.cbegin(),
+            _resource_slots.cend(),
+            [handle, tag, usage](auto b) noexcept {
+                return b.tag == tag && b.handle == handle;
+            });
+        iter == _resource_slots.cend()) [[likely]] {
+        _resource_slots.emplace_back(handle, tag, usage);
+    } else [[unlikely]] {
+        if ((to_underlying(iter->usage) & to_underlying(Usage::WRITE)) != 0u ||
+            (to_underlying(usage) & to_underlying(Usage::WRITE)) != 0u) {
+            auto t = [tag] {
+                using namespace std::string_view_literals;
+                switch (tag) {
+                    case Binding::Tag::BUFFER: return "buffer"sv;
+                    case Binding::Tag::TEXTURE: return "texture"sv;
+                    case Binding::Tag::BINDLESS_ARRAY: return "bindless array"sv;
+                    case Binding::Tag::ACCEL: return "accel"sv;
+                    default: return "unknown"sv;
+                }
+            }();
+            LUISA_ERROR_WITH_LOCATION(
+                "Aliasing in {} with handle {}.",
+                t, handle);
+        }
     }
-    if (std::any_of(_resource_slots.cbegin(),
-                    _resource_slots.cbegin() + _resource_count,
-                    [handle, tag](auto b) noexcept {
-                        return b.tag == tag && b.handle == handle;
-                    })) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Aliasing in {} resource with handle {}.",
-            tag == Binding::Tag::BUFFER ? "buffer" : "image",
-            handle);
-    }
-    _resource_slots[_resource_count++] = {handle, tag, usage};
 }
 
 void Command::_buffer_read_only(uint64_t handle) noexcept {
@@ -55,6 +64,11 @@ void Command::_texture_write_only(uint64_t handle) noexcept {
 
 void Command::_texture_read_write(uint64_t handle) noexcept {
     _use_resource(handle, Binding::Tag::TEXTURE, Usage::READ_WRITE);
+}
+
+void Command::recycle() {
+    _resource_slots.clear();
+    _recycle();
 }
 
 void ShaderDispatchCommand::encode_buffer(

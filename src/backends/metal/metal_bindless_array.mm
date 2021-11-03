@@ -10,9 +10,9 @@ namespace luisa::compute::metal {
 MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcept
     : _device{device},
       _event{[device->handle() newEvent]},
-      _buffer_slots(size, MetalBindlessReousrce{nullptr}),
-      _tex2d_slots(size, MetalBindlessReousrce{nullptr}),
-      _tex3d_slots(size, MetalBindlessReousrce{nullptr}) {
+      _buffer_slots(size, MetalBindlessResource{nullptr}),
+      _tex2d_slots(size, MetalBindlessResource{nullptr}),
+      _tex3d_slots(size, MetalBindlessResource{nullptr}) {
 
     static constexpr auto src = @"#include <metal_stdlib>\n"
                                  "struct alignas(16) BindlessItem {\n"
@@ -74,7 +74,7 @@ void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle) no
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setBuffer:buffer offset:0u atIndex:0u];
-    _resources.emplace(MetalBindlessReousrce{buffer});
+    _retain(buffer);
     _dirty = true;
 }
 
@@ -86,7 +86,7 @@ void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sa
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:3u];
     std::memcpy([_encoder constantDataAtIndex: 1u], &sampler_code, sizeof(sampler));
-    _resources.emplace(MetalBindlessReousrce{texture});
+    _retain(texture);
     _dirty = true;
 }
 
@@ -98,14 +98,14 @@ void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sa
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:4u];
     std::memcpy([_encoder constantDataAtIndex: 2u], &sampler_code, sizeof(sampler));
-    _resources.emplace(MetalBindlessReousrce{texture});
+    _retain(texture);
     _dirty = true;
 }
 
 void MetalBindlessArray::remove_buffer(size_t index) noexcept {
     std::scoped_lock lock{_mutex};
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) {
-        _resources.erase(p);
+        _release(p.handle);
         p.handle = nullptr;
     }
 }
@@ -113,7 +113,7 @@ void MetalBindlessArray::remove_buffer(size_t index) noexcept {
 void MetalBindlessArray::remove_tex2d(size_t index) noexcept {
     std::scoped_lock lock{_mutex};
     if (auto &&p = _tex2d_slots[index]; p.handle != nullptr) {
-        _resources.erase(p);
+        _release(p.handle);
         p.handle = nullptr;
     }
 }
@@ -121,9 +121,44 @@ void MetalBindlessArray::remove_tex2d(size_t index) noexcept {
 void MetalBindlessArray::remove_tex3d(size_t index) noexcept {
     std::scoped_lock lock{_mutex};
     if (auto &&p = _tex3d_slots[index]; p.handle != nullptr) {
-        _resources.erase(p);
+        _release(p.handle);
         p.handle = nullptr;
     }
+}
+
+void MetalBindlessArray::_retain(id<MTLResource> r) noexcept {
+    MetalBindlessResource resource{r};
+    if (auto iter = _resources.find(resource);
+        iter != _resources.end()) {
+        iter->second++;
+    } else {
+        _resources.emplace(resource, 1u);
+    }
+}
+
+void MetalBindlessArray::_release(id<MTLResource> r) noexcept {
+    MetalBindlessResource resource{r};
+    if (auto iter = _resources.find(resource);
+        iter != _resources.end()) [[likely]] {
+        if (--iter->second == 0u) {
+            _resources.erase(iter);
+        }
+    } else [[unlikely]] {
+        LUISA_WARNING_WITH_LOCATION(
+            "Removing non-existent resource in bindless array.");
+    }
+}
+
+bool MetalBindlessArray::has_buffer(uint64_t handle) const noexcept {
+    auto buffer = _device->buffer(handle);
+    std::scoped_lock lock{_mutex};
+    return _resources.count(MetalBindlessResource{buffer}) != 0u;
+}
+
+bool MetalBindlessArray::has_texture(uint64_t handle) const noexcept {
+    auto texture = _device->texture(handle);
+    std::scoped_lock lock{_mutex};
+    return _resources.count(MetalBindlessResource{texture}) != 0u;
 }
 
 }

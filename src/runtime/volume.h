@@ -19,7 +19,7 @@ struct Expr;
 
 // Volumes are 3D textures without sampling, i.e., 3D surfaces.
 template<typename T>
-class Volume : public Resource {
+class Volume final : public Resource {
 
     static_assert(std::disjunction_v<
                   std::is_same<T, int>,

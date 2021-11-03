@@ -104,6 +104,12 @@ using map = std::map<Key, Value, Pred, allocator<std::pair<const Key, Value>>>;
 template<typename Key, typename Pred = std::less<>>
 using set = std::set<Key, Pred, allocator<Key>>;
 
+template<typename Key, typename Value, typename Pred = std::less<>>
+using multimap = std::map<Key, Value, Pred, allocator<std::pair<const Key, Value>>>;
+
+template<typename Key, typename Pred = std::less<>>
+using multiset = std::set<Key, Pred, allocator<Key>>;
+
 template<typename Key, typename Value, typename Hash = std::hash<Key>, typename Pred = std::equal_to<>>
 using unordered_map = std::unordered_map<Key, Value, Hash, Pred, allocator<std::pair<const Key, Value>>>;
 

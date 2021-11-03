@@ -16,9 +16,9 @@ namespace luisa::compute::metal {
 class MetalDevice;
 class MetalStream;
 
-struct MetalBindlessReousrce {
+struct MetalBindlessResource {
     id<MTLResource> handle;
-    [[nodiscard]] auto operator<(const MetalBindlessReousrce &rhs) const noexcept {
+    [[nodiscard]] auto operator<(const MetalBindlessResource &rhs) const noexcept {
         return handle < rhs.handle;
     }
 };
@@ -31,15 +31,18 @@ private:
     id<MTLBuffer> _device_buffer{nullptr};
     id<MTLArgumentEncoder> _encoder{nullptr};
     id<MTLEvent> _event{nullptr};
-    luisa::set<MetalBindlessReousrce> _resources;
+    luisa::map<MetalBindlessResource, size_t /* count */> _resources;
     mutable uint64_t _event_value{0u};
     mutable __weak id<MTLCommandBuffer> _last_update{nullptr};
     mutable spin_mutex _mutex;
     mutable bool _dirty{true};
     static constexpr auto slot_size = 32u;
-    std::vector<MetalBindlessReousrce> _buffer_slots;
-    std::vector<MetalBindlessReousrce> _tex2d_slots;
-    std::vector<MetalBindlessReousrce> _tex3d_slots;
+    std::vector<MetalBindlessResource> _buffer_slots;
+    std::vector<MetalBindlessResource> _tex2d_slots;
+    std::vector<MetalBindlessResource> _tex3d_slots;
+
+    void _retain(id<MTLResource> r) noexcept;
+    void _release(id<MTLResource> r) noexcept;
 
 public:
     MetalBindlessArray(MetalDevice *device, size_t size) noexcept;
@@ -49,12 +52,14 @@ public:
     void remove_buffer(size_t index) noexcept;
     void remove_tex2d(size_t index) noexcept;
     void remove_tex3d(size_t index) noexcept;
+    [[nodiscard]] bool has_buffer(uint64_t handle) const noexcept;
+    [[nodiscard]] bool has_texture(uint64_t handle) const noexcept;
     [[nodiscard]] auto desc_buffer() const noexcept { return _device_buffer; }
     [[nodiscard]] id<MTLCommandBuffer> encode_update(MetalStream *stream, id<MTLCommandBuffer> cmd_buf) const noexcept;
 
     template<typename F>
     decltype(auto) traverse(F &&f) const noexcept {
-        for (auto &&r : _resources) { f(r.handle); }
+        for (auto &&r : _resources) { f(r.first.handle); }
     }
 };
 
