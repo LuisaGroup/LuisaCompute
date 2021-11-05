@@ -49,7 +49,6 @@ struct SamplerState {
     TEXTURE_FILTER filter;
     TEXTURE_ADDRESS_MODE addressU;
     TEXTURE_ADDRESS_MODE addressV;
-    float4 borderColor;
     //TEXTURE_ADDRESS_MODE addressW;
     //FLOAT MipLODBias;
     //UINT MaxAnisotropy;
@@ -59,9 +58,9 @@ struct SamplerState {
 };
 
 struct Texture2D {
-    int width;
-    int height;
-    int numComponents;
-
-    float *pData;
+    uint width;
+    uint height;
+    uint numComponents;
+    uint lodLevel;
+    float** pData;
 };
