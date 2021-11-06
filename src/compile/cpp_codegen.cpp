@@ -238,8 +238,6 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
-        case CallOp::TEXTURE_READ_LEVEL: _scratch << "texture_read_level"; break;
-        case CallOp::TEXTURE_WRITE_LEVEL: _scratch << "texture_write_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "texture_heap_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "texture_heap_sample2d_grad"; break;

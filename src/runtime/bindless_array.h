@@ -34,14 +34,15 @@ private:
     friend class Device;
     BindlessArray(Device::Interface *device, size_t size) noexcept;
 
+    void _emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
+    void _emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept;
+    void _emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept;
+
 public:
     BindlessArray() noexcept = default;
     using Resource::operator bool;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
-    void emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
-    void emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept;
-    void emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept;
     void remove_buffer(size_t index) noexcept;
     void remove_tex2d(size_t index) noexcept;
     void remove_tex3d(size_t index) noexcept;
@@ -50,17 +51,15 @@ public:
         requires is_buffer_or_view_v<std::remove_cvref_t<T>>
     void emplace(size_t index, T &&buffer) noexcept {
         BufferView view{std::forward<T>(buffer)};
-        emplace_buffer(index, view.handle(), view.offset_bytes());
+        _emplace_buffer(index, view.handle(), view.offset_bytes());
     }
 
-    template<typename T>
-    void emplace(size_t index, const Image<T> &image, Sampler sampler) noexcept {
-        emplace_tex2d(index, image.handle(), sampler);
+    void emplace(size_t index, const Image<float> &image, Sampler sampler) noexcept {
+        _emplace_tex2d(index, image.handle(), sampler);
     }
 
-    template<typename T>
-    void emplace(size_t index, const Volume<T> &volume, Sampler sampler) noexcept {
-        emplace_tex3d(index, volume.handle(), sampler);
+    void emplace(size_t index, const Volume<float> &volume, Sampler sampler) noexcept {
+        _emplace_tex3d(index, volume.handle(), sampler);
     }
 
     // see implementations in dsl/expr.h

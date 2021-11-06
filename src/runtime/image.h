@@ -85,19 +85,6 @@ public:
             std::forward<Value>(value));
     }
 
-    template<typename UV, typename I>
-    [[nodiscard]] decltype(auto) read(UV &&uv, I &&level) const noexcept {
-        return this->view().read(std::forward<UV>(uv), std::forward<I>(level));
-    }
-
-    template<typename UV, typename Value, typename I>
-    [[nodiscard]] decltype(auto) write(UV &&uv, Value &&value, I &&level) const noexcept {
-        return this->view().write(
-            std::forward<UV>(uv),
-            std::forward<Value>(value),
-            std::forward<I>(level));
-    }
-
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept { return view().copy_to(std::forward<U>(dst)); }
     template<typename U>
@@ -177,18 +164,6 @@ public:
         Expr<Image<T>>{*this}.write(
             std::forward<UV>(uv),
             std::forward<Value>(value));
-    }
-    template<typename UV, typename I>
-    [[nodiscard]] decltype(auto) read(UV &&uv, I &&l) const noexcept {
-        return Expr<Image<T>>{*this}.read(std::forward<UV>(uv), std::forward<I>(l));
-    }
-
-    template<typename UV, typename Value, typename I>
-    void write(UV uv, Value &&value, I &&l) const noexcept {
-        Expr<Image<T>>{*this}.write(
-            std::forward<UV>(uv),
-            std::forward<Value>(value),
-            std::forward<I>(l));
     }
 };
 

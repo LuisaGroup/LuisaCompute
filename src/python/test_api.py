@@ -22,9 +22,10 @@ def aces_tonemapping(x: float) -> float:
 
 if __name__ == "__main__":
     lc.set_log_level_verbose()
-    device = lc.Device("metal", 1)
+    device = lc.Device("cuda", 0)
     buffer = device.create_buffer(lc.float4, 4096)
     image = device.create_image(lc.PIXEL_FORMAT_RGBA32F, 256)
+    exit()
     image_slice = image[:64, 64:64 + 64]
     print(f"size = {image_slice.size}, total_size = {image_slice.total_size}, offset = {image_slice.offset}")
     view = buffer[1024:2048]

@@ -428,13 +428,6 @@ private:
         return f->binary(Type::of<uint2>(), BinaryOp::ADD, uv, _offset);
     }
 
-    [[nodiscard]] auto _offset_uv_level(const Expression *uv, const Expression *level) const noexcept -> const Expression * {
-        if (_offset == nullptr) { return uv; }
-        auto f = detail::FunctionBuilder::current();
-        auto mip_offset = f->binary(Type::of<uint2>(), BinaryOp::SHR, _offset, level);
-        return f->binary(Type::of<uint2>(), BinaryOp::ADD, uv, mip_offset);
-    }
-
 public:
     explicit Expr(const RefExpr *expr, const Expression *offset) noexcept
         : _expression{expr}, _offset{offset} {}
@@ -458,31 +451,6 @@ public:
             CallOp::TEXTURE_WRITE,
             {_expression, _offset_uv(uv.expression()), value.expression()});
     }
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(Expr<uint2> uv, I &&level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto l = def<uint>(std::forward<I>(level));
-        return def<Vector<T, 4>>(
-            f->call(
-                Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ_LEVEL,
-                {_expression,
-                 _offset_uv_level(uv.expression(), l.expression()),
-                 l.expression()}));
-    };
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    void write(Expr<uint2> uv, Expr<Vector<T, 4>> value, I &&level) const noexcept {
-        auto l = def<uint>(std::forward<I>(level));
-        detail::FunctionBuilder::current()->call(
-            CallOp::TEXTURE_WRITE_LEVEL,
-            {_expression,
-             _offset_uv(uv.expression(), l.expression()),
-             value.expression(),
-             l.expression()});
-    }
 };
 
 template<typename T>
@@ -501,13 +469,6 @@ private:
         if (_offset == nullptr) { return uvw; }
         auto f = detail::FunctionBuilder::current();
         return f->binary(Type::of<uint3>(), BinaryOp::ADD, uvw, _offset);
-    }
-
-    [[nodiscard]] auto _offset_uvw_level(const Expression *uvw, const Expression *level) const noexcept -> const Expression * {
-        if (_offset == nullptr) { return uvw; }
-        auto f = detail::FunctionBuilder::current();
-        auto mip_offset = f->binary(Type::of<uint3>(), BinaryOp::SHR, _offset, level);
-        return f->binary(Type::of<uint3>(), BinaryOp::ADD, uvw, mip_offset);
     }
 
 public:
@@ -532,30 +493,6 @@ public:
         detail::FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
             {_expression, _offset_uvw(uvw.expression()), value.expression()});
-    }
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(Expr<uint3> uvw, I &&level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto l = def<uint>(std::forward<I>(level));
-        return def<Vector<T, 4>>(
-            f->call(Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ_LEVEL,
-                    {_expression,
-                     _offset_uvw(uvw.expression(), l.expression()),
-                     l.expression()}));
-    };
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value, I &&level) const noexcept {
-        auto l = def<uint>(std::forward<I>(level));
-        detail::FunctionBuilder::current()->call(
-            CallOp::TEXTURE_WRITE_LEVEL,
-            {_expression,
-             _offset_uvw(uvw.expression(), l.expression()),
-             value.expression(),
-             l.expression()});
     }
 };
 

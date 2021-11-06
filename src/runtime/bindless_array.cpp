@@ -27,7 +27,7 @@ BindlessArray::BindlessArray(Device::Interface *device, size_t size) noexcept
     : Resource{device, Tag::BINDLESS_ARRAY, device->create_bindless_array(size)},
       _size{size} {}
 
-void BindlessArray::emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+void BindlessArray::_emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept {
     if (index >= _size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid buffer slot {} for bindless array of size {}.",
@@ -36,7 +36,7 @@ void BindlessArray::emplace_buffer(size_t index, uint64_t handle, size_t offset_
     device()->emplace_buffer_in_bindless_array(this->handle(), index, handle, offset_bytes);
 }
 
-void BindlessArray::emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept {
+void BindlessArray::_emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept {
     if (index >= _size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid texture2d slot {} for bindless array of size {}.",
@@ -45,7 +45,7 @@ void BindlessArray::emplace_tex2d(size_t index, uint64_t handle, Sampler sampler
     device()->emplace_tex2d_in_bindless_array(this->handle(), index, handle, sampler);
 }
 
-void BindlessArray::emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept {
+void BindlessArray::_emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept {
     if (index >= _size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid texture3d slot {} for bindless array of size {}.",
