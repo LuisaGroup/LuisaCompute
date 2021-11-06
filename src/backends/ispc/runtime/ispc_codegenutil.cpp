@@ -1,3 +1,5 @@
+#pragma vengine_package ispc_vsproject
+
 #include <backends/ispc/runtime/ispc_codegen.h>
 
 namespace lc::ispc {
@@ -107,13 +109,9 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str, bool isWrit
             vstd::to_string(type.hash(), str);
             return;
         case Type::Tag::BUFFER:
-            if (isWritable) {
-                str += "RWStructuredBuffer<"sv;
-            } else {
-                str += "StructuredBuffer<"sv;
-            }
+
             GetTypeName(*type.element(), str, isWritable);
-            str += '>';
+            str << '*';
             break;
         case Type::Tag::TEXTURE: {
             if (isWritable) {
@@ -463,32 +461,35 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
     }
 }
 void CodegenUtility::PrintFunction(Function func, std::string &str) {
-    str << headerName;
-    //arguments
-    size_t ofst = 0;
-    for (auto &&i : func.arguments()) {
-        std::string argName;
-        std::string argType;
-        GetVariableName(i, argName);
-        GetTypeName(*i.type(), argType);
-        str << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
-        if (ofst > 0) {
-            str << '+';
-            vstd::to_string(static_cast<uint64_t>(ofst), str);
-            str << "ull";
+    if (func.tag() == Function::Tag::KERNEL) {
+        str << headerName;
+        //arguments
+        size_t ofst = 0;
+        for (auto &&i : func.arguments()) {
+            std::string argName;
+            std::string argType;
+            GetVariableName(i, argName);
+            GetTypeName(*i.type(), argType);
+            str << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
+            if (ofst > 0) {
+                str << '+';
+                vstd::to_string(static_cast<uint64_t>(ofst), str);
+                str << "ull";
+            }
+            str << "));\n";
+            ofst += 8;
         }
-        str << "));\n";
-        ofst += 8;
+        //foreach
+        str << foreachName <<R"(
+uint3 dsp_id={x,y,z};
+uint3 thd_id={x,y,z};
+uint3 blk_id={0,0,0};
+)"sv;
+        StringStateVisitor vis(str);
+        func.body()->accept(vis);
+        //end
+        str << "}}";
     }
-    //foreach
-    str << foreachName << "{\n"
-        << "uint3 dsp_id={x,y,z};"
-        << "uint3 thd_id={x,y,z};"
-        << "uint3 blk_id={0,0,0};";
-    StringStateVisitor vis(str);
-    func.body()->accept(vis);
-    //end
-    str << "}}";
 }
 void CodegenUtility::GetBasicTypeName(size_t typeIndex, std::string &str) {
     // Matrix

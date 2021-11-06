@@ -21,6 +21,159 @@ struct float4x4 { float m[4][4]; };
 //---------------------------------------------------------------------------------------------------------------------
 
 // abs
+int2 _int2(int s){int2 r={s,s};return r;}
+int2 _int2(int x,int y){int2 r={x,y};return r;}
+int2 _int2(int2 v){int2 r={v.x,v.y};return r;}
+int2 _int2(int3 v){int2 r={v.x,v.y};return r;}
+int2 _int2(int4 v){int2 r={v.x,v.y};return r;}
+int2 _int2(uint2 v){int2 r={v.x,v.y};return r;}
+int2 _int2(uint3 v){int2 r={v.x,v.y};return r;}
+int2 _int2(uint4 v){int2 r={v.x,v.y};return r;}
+int2 _int2(float2 v){int2 r={v.x,v.y};return r;}
+int2 _int2(float3 v){int2 r={v.x,v.y};return r;}
+int2 _int2(float4 v){int2 r={v.x,v.y};return r;}
+int2 _int2(bool2 v){int2 r={v.x,v.y};return r;}
+int2 _int2(bool3 v){int2 r={v.x,v.y};return r;}
+int2 _int2(bool4 v){int2 r={v.x,v.y};return r;}
+int3 _int3(int s){int3 r={s,s,s};return r;}
+int3 _int3(int x,int y,int z){int3 r={x,y,z};return r;}
+int3 _int3(int x,int2 yz){int3 r={x,yz.x,yz.y};return r;}
+int3 _int3(int2 xy,int z){int3 r={xy.x,xy.y,z};return r;}
+int3 _int3(int3 v){int3 r={v.x,v.y,v.z};return r;}
+int3 _int3(int4 v){int3 r={v.x,v.y,v.z};return r;}
+int3 _int3(uint3 v){int3 r={v.x,v.y,v.z};return r;}
+int3 _int3(uint4 v){int3 r={v.x,v.y,v.z};return r;}
+int3 _int3(float3 v){int3 r={v.x,v.y,v.z};return r;}
+int3 _int3(float4 v){int3 r={v.x,v.y,v.z};return r;}
+int3 _int3(bool3 v){int3 r={v.x,v.y,v.z};return r;}
+int3 _int3(bool4 v){int3 r={v.x,v.y,v.z};return r;}
+int4 _int4(int s){int4 r={s,s,s,s};return r;}
+int4 _int4(int x,int y,int z,int w){int4 r={x,y,z,w};return r;}
+int4 _int4(int x,int y,int2 zw){int4 r={x,y,zw.x,zw.y};return r;}
+int4 _int4(int x,int2 yz,int w){int4 r={x,yz.x,yz.y,w};return r;}
+int4 _int4(int2 xy,int z,int w){int4 r={xy.x,xy.y,z,w};return r;}
+int4 _int4(int2 xy,int2 zw){int4 r={xy.x,xy.y,zw.x,zw.y};return r;}
+int4 _int4(int x,int3 yzw){int4 r={x,yzw.x,yzw.y,yzw.z};return r;}
+int4 _int4(int3 xyz,int w){int4 r={xyz.x,xyz.y,xyz.z,w};return r;}
+int4 _int4(int4 v){int4 r={v.x,v.y,v.z,v.w};return r;}
+int4 _int4(uint4 v){int4 r={v.x,v.y,v.z,v.w};return r;}
+int4 _int4(float4 v){int4 r={v.x,v.y,v.z,v.w};return r;}
+int4 _int4(bool4 v){int4 r={v.x,v.y,v.z,v.w};return r;}
+uint2 _uint2(uint s){uint2 r={s,s};return r;}
+uint2 _uint2(uint x,uint y){uint2 r={x,y};return r;}
+uint2 _uint2(int2 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(int3 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(int4 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(uint2 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(uint3 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(uint4 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(float2 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(float3 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(float4 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(bool2 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(bool3 v){uint2 r={v.x,v.y};return r;}
+uint2 _uint2(bool4 v){uint2 r={v.x,v.y};return r;}
+uint3 _uint3(uint s){uint3 r={s,s,s};return r;}
+uint3 _uint3(uint x,uint y,uint z){uint3 r={x,y,z};return r;}
+uint3 _uint3(uint x,uint2 yz){uint3 r={x,yz.x,yz.y};return r;}
+uint3 _uint3(uint2 xy,uint z){uint3 r={xy.x,xy.y,z};return r;}
+uint3 _uint3(int3 v){uint3 r={v.x,v.y,v.z};return r;}
+uint3 _uint3(int4 v){uint3 r={v.x,v.y,v.z};return r;}
+uint3 _uint3(uint3 v){uint3 r={v.x,v.y,v.z};return r;}
+uint3 _uint3(uint4 v){uint3 r={v.x,v.y,v.z};return r;}
+uint3 _uint3(float3 v){uint3 r={v.x,v.y,v.z};return r;}
+uint3 _uint3(float4 v){uint3 r={v.x,v.y,v.z};return r;}
+uint3 _uint3(bool3 v){uint3 r={v.x,v.y,v.z};return r;}
+uint3 _uint3(bool4 v){uint3 r={v.x,v.y,v.z};return r;}
+uint4 _uint4(uint s){uint4 r={s,s,s,s};return r;}
+uint4 _uint4(uint x,uint y,uint z,uint w){uint4 r={x,y,z,w};return r;}
+uint4 _uint4(uint x,uint y,uint2 zw){uint4 r={x,y,zw.x,zw.y};return r;}
+uint4 _uint4(uint x,uint2 yz,uint w){uint4 r={x,yz.x,yz.y,w};return r;}
+uint4 _uint4(uint2 xy,uint z,uint w){uint4 r={xy.x,xy.y,z,w};return r;}
+uint4 _uint4(uint2 xy,uint2 zw){uint4 r={xy.x,xy.y,zw.x,zw.y};return r;}
+uint4 _uint4(uint x,uint3 yzw){uint4 r={x,yzw.x,yzw.y,yzw.z};return r;}
+uint4 _uint4(uint3 xyz,uint w){uint4 r={xyz.x,xyz.y,xyz.z,w};return r;}
+uint4 _uint4(int4 v){uint4 r={v.x,v.y,v.z,v.w};return r;}
+uint4 _uint4(uint4 v){uint4 r={v.x,v.y,v.z,v.w};return r;}
+uint4 _uint4(float4 v){uint4 r={v.x,v.y,v.z,v.w};return r;}
+uint4 _uint4(bool4 v){uint4 r={v.x,v.y,v.z,v.w};return r;}
+float2 _float2(float s){float2 r={s,s};return r;}
+float2 _float2(float x,float y){float2 r={x,y};return r;}
+float2 _float2(int2 v){float2 r={v.x,v.y};return r;}
+float2 _float2(int3 v){float2 r={v.x,v.y};return r;}
+float2 _float2(int4 v){float2 r={v.x,v.y};return r;}
+float2 _float2(uint2 v){float2 r={v.x,v.y};return r;}
+float2 _float2(uint3 v){float2 r={v.x,v.y};return r;}
+float2 _float2(uint4 v){float2 r={v.x,v.y};return r;}
+float2 _float2(float2 v){float2 r={v.x,v.y};return r;}
+float2 _float2(float3 v){float2 r={v.x,v.y};return r;}
+float2 _float2(float4 v){float2 r={v.x,v.y};return r;}
+float2 _float2(bool2 v){float2 r={v.x,v.y};return r;}
+float2 _float2(bool3 v){float2 r={v.x,v.y};return r;}
+float2 _float2(bool4 v){float2 r={v.x,v.y};return r;}
+float3 _float3(float s){float3 r={s,s,s};return r;}
+float3 _float3(float x,float y,float z){float3 r={x,y,z};return r;}
+float3 _float3(float x,float2 yz){float3 r={x,yz.x,yz.y};return r;}
+float3 _float3(float2 xy,float z){float3 r={xy.x,xy.y,z};return r;}
+float3 _float3(int3 v){float3 r={v.x,v.y,v.z};return r;}
+float3 _float3(int4 v){float3 r={v.x,v.y,v.z};return r;}
+float3 _float3(uint3 v){float3 r={v.x,v.y,v.z};return r;}
+float3 _float3(uint4 v){float3 r={v.x,v.y,v.z};return r;}
+float3 _float3(float3 v){float3 r={v.x,v.y,v.z};return r;}
+float3 _float3(float4 v){float3 r={v.x,v.y,v.z};return r;}
+float3 _float3(bool3 v){float3 r={v.x,v.y,v.z};return r;}
+float3 _float3(bool4 v){float3 r={v.x,v.y,v.z};return r;}
+float4 _float4(float s){float4 r={s,s,s,s};return r;}
+float4 _float4(float x,float y,float z,float w){float4 r={x,y,z,w};return r;}
+float4 _float4(float x,float y,float2 zw){float4 r={x,y,zw.x,zw.y};return r;}
+float4 _float4(float x,float2 yz,float w){float4 r={x,yz.x,yz.y,w};return r;}
+float4 _float4(float2 xy,float z,float w){float4 r={xy.x,xy.y,z,w};return r;}
+float4 _float4(float2 xy,float2 zw){float4 r={xy.x,xy.y,zw.x,zw.y};return r;}
+float4 _float4(float x,float3 yzw){float4 r={x,yzw.x,yzw.y,yzw.z};return r;}
+float4 _float4(float3 xyz,float w){float4 r={xyz.x,xyz.y,xyz.z,w};return r;}
+float4 _float4(int4 v){float4 r={v.x,v.y,v.z,v.w};return r;}
+float4 _float4(uint4 v){float4 r={v.x,v.y,v.z,v.w};return r;}
+float4 _float4(float4 v){float4 r={v.x,v.y,v.z,v.w};return r;}
+float4 _float4(bool4 v){float4 r={v.x,v.y,v.z,v.w};return r;}
+bool2 _bool2(bool s){bool2 r={s,s};return r;}
+bool2 _bool2(bool x,bool y){bool2 r={x,y};return r;}
+bool2 _bool2(int2 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(int3 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(int4 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(uint2 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(uint3 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(uint4 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(float2 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(float3 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(float4 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(bool2 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(bool3 v){bool2 r={v.x,v.y};return r;}
+bool2 _bool2(bool4 v){bool2 r={v.x,v.y};return r;}
+bool3 _bool3(bool s){bool3 r={s,s,s};return r;}
+bool3 _bool3(bool x,bool y,bool z){bool3 r={x,y,z};return r;}
+bool3 _bool3(bool x,bool2 yz){bool3 r={x,yz.x,yz.y};return r;}
+bool3 _bool3(bool2 xy,bool z){bool3 r={xy.x,xy.y,z};return r;}
+bool3 _bool3(int3 v){bool3 r={v.x,v.y,v.z};return r;}
+bool3 _bool3(int4 v){bool3 r={v.x,v.y,v.z};return r;}
+bool3 _bool3(uint3 v){bool3 r={v.x,v.y,v.z};return r;}
+bool3 _bool3(uint4 v){bool3 r={v.x,v.y,v.z};return r;}
+bool3 _bool3(float3 v){bool3 r={v.x,v.y,v.z};return r;}
+bool3 _bool3(float4 v){bool3 r={v.x,v.y,v.z};return r;}
+bool3 _bool3(bool3 v){bool3 r={v.x,v.y,v.z};return r;}
+bool3 _bool3(bool4 v){bool3 r={v.x,v.y,v.z};return r;}
+bool4 _bool4(bool s){bool4 r={s,s,s,s};return r;}
+bool4 _bool4(bool x,bool y,bool z,bool w){bool4 r={x,y,z,w};return r;}
+bool4 _bool4(bool x,bool y,bool2 zw){bool4 r={x,y,zw.x,zw.y};return r;}
+bool4 _bool4(bool x,bool2 yz,bool w){bool4 r={x,yz.x,yz.y,w};return r;}
+bool4 _bool4(bool2 xy,bool z,bool w){bool4 r={xy.x,xy.y,z,w};return r;}
+bool4 _bool4(bool2 xy,bool2 zw){bool4 r={xy.x,xy.y,zw.x,zw.y};return r;}
+bool4 _bool4(bool x,bool3 yzw){bool4 r={x,yzw.x,yzw.y,yzw.z};return r;}
+bool4 _bool4(bool3 xyz,bool w){bool4 r={xyz.x,xyz.y,xyz.z,w};return r;}
+bool4 _bool4(int4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
+bool4 _bool4(uint4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
+bool4 _bool4(float4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
+bool4 _bool4(bool4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
+
 inline float2 abs(float2 f) { float2 r = { abs(f.x), abs(f.y) }; return r; }
 inline float3 abs(float3 f) { float3 r = { abs(f.x), abs(f.y), abs(f.z) }; return r; }
 inline float4 abs(float4 f) { float4 r = { abs(f.x), abs(f.y), abs(f.z), abs(f.w) }; return r; }
@@ -161,9 +314,9 @@ inline float length(float4 p) { return sqrt(dot(p, p)); }
 
 // lerp
 inline float lerp(float a, float b, float s) { return a + s * (b - a); }
-inline float2 lerp(float2 a, float2 b, float s) { float2 r = { lerp(a.x, b.x, s), lerp(a.y, b.y, s) }; return r; }
-inline float3 lerp(float3 a, float3 b, float s) { float3 r = { lerp(a.x, b.x, s), lerp(a.y, b.y, s), lerp(a.z, b.z, s) }; return r; }
-inline float4 lerp(float4 a, float4 b, float s) { float4 r = { lerp(a.x, b.x, s), lerp(a.y, b.y, s), lerp(a.z, b.z, s), lerp(a.w, b.w, s) }; return r; }
+inline float2 lerp(float2 a, float2 b, float2 s) { float2 r = { lerp(a.x, b.x, s.x), lerp(a.y, b.y, s.y) }; return r; }
+inline float3 lerp(float3 a, float3 b, float3 s) { float3 r = { lerp(a.x, b.x, s.x), lerp(a.y, b.y, s.y), lerp(a.z, b.z, s.z) }; return r; }
+inline float4 lerp(float4 a, float4 b, float4 s) { float4 r = { lerp(a.x, b.x, s.x), lerp(a.y, b.y, s.y), lerp(a.z, b.z, s.z), lerp(a.w, b.w, s.w) }; return r; }
 
 // log
 inline float2 log(float2 f) { float2 r = { log(f.x), log(f.y) }; return r; }
@@ -533,6 +686,8 @@ inline int4 trunc(float4 f) { int4 r = { trunc(f.x), trunc(f.y), trunc(f.z), tru
 //-------------------------------------------------------------------------------------------------
 #include "Types.h"
 
+
+
 float GetCoord(float u, TEXTURE_ADDRESS_MODE addr) {
 	switch (addr) {
 	case TEXTURE_ADDRESS_WRAP:
@@ -549,8 +704,11 @@ float GetCoord(float u, TEXTURE_ADDRESS_MODE addr) {
 		break;
 	}
 }
-float4 SampleTexture2D(const Texture2D* pTexture, const SamplerState& sampler, const float2 uv)
+float4 SmptxPoint(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevelf)
 {
+	uint lodLevel = (uint)lodLevelf;
+	if(lodLevel >= pTexture->lodLevel) lodLevel = pTexture->lodLevel - 1;
+	float* pData = pTexture->pData[lodLevel];
 	float u = uv.x;
 	float v = uv.y;
 	u = GetCoord(u, sampler.addressU);
@@ -559,119 +717,52 @@ float4 SampleTexture2D(const Texture2D* pTexture, const SamplerState& sampler, c
 	u *= (pTexture->width - 1);
 	v *= (pTexture->height - 1);
 
-	int index = pTexture->numComponents * (trunc(v) * pTexture->width + trunc(u));
-	float4 f = { pTexture->pData[index + 0],
-	pTexture->pData[index + 1],
-	pTexture->pData[index + 2],
-	pTexture->pData[index + 3] };
+	uint index = pTexture->numComponents * (trunc(v) * pTexture->width + trunc(u));
+	float4 f;
+	switch(pTexture->numComponents){
+		case 1:
+		f = _float4(pData[index + 0],
+		0,
+		0,
+		0);
+		break;
+		case 2:
+		f = _float4(pData[index + 0],
+		pData[index + 1],
+		0,
+		0);
+		break;
+		case 3:
+		f = _float4(pData[index + 0],
+		pData[index + 1],
+		pData[index + 2],
+		0);
+		break;
+		case 4:
+		f = _float4(pData[index + 0],
+		pData[index + 1],
+		pData[index + 2],
+		pData[index + 3]);
+		break;
+		default:
+		f = _float4(0,0,0,0);
+	}
 	return f;
 }
 
-inline float2 make_float2(float x,float y) { float2 f = {x, y}; return f;}
-inline float2 make_float2(float2 xy) { return xy;}
-
-inline float3 make_float3(float x,float y,float z){float3 f = {x,y,z}; return f;};
-inline float3 make_float3(float2 xy,float z){float3 f = {xy.x,xy.y,z}; return f;};
-inline float3 make_float3(float x,float2 yz){float3 f = {x,yz.x,yz.y}; return f;};
-inline float3 make_float3(float3 xyz) { return xyz;}
-
-inline float4 make_float4(float x,float y,float z,float w){float4 f = {x,y,z,w}; return f;}
-inline float4 make_float4(float2 xy,float z,float w){float4 f = {xy.x, xy.y,z,w}; return f;}
-inline float4 make_float4(float3 xyz,float w){float4 f = {xyz.x, xyz.y,xyz.z,w}; return f;}
-inline float4 make_float4(float4 xyzw){return xyzw;}
-inline float4 make_float4(float x,float2 yz,float w){float4 f = {x,yz.x,yz.y,w}; return f;}
-inline float4 make_float4(float x,float3 yzw){float4 f = {x,yzw.x,yzw.y,yzw.z}; return f;}
-inline float4 make_float4(float x,float y,float2 zw){float4 f = {x,y,zw.x,zw.y}; return f;}
-
-
-inline uint2 make_uint2(uint x,uint y) { uint2 f = {x, y}; return f;}
-inline uint2 make_uint2(uint2 xy) { return xy;}
-
-inline uint3 make_uint3(uint x,uint y,uint z){uint3 f = {x,y,z}; return f;};
-inline uint3 make_uint3(uint2 xy,uint z){uint3 f = {xy.x,xy.y,z}; return f;};
-inline uint3 make_uint3(uint x,uint2 yz){uint3 f = {x,yz.x,yz.y}; return f;};
-inline uint3 make_uint3(uint3 xyz) { return xyz;}
-
-inline uint4 make_uint4(uint x,uint y,uint z,uint w){uint4 f = {x,y,z,w}; return f;}
-inline uint4 make_uint4(uint2 xy,uint z,uint w){uint4 f = {xy.x, xy.y,z,w}; return f;}
-inline uint4 make_uint4(uint3 xyz,uint w){uint4 f = {xyz.x, xyz.y,xyz.z,w}; return f;}
-inline uint4 make_uint4(uint4 xyzw){return xyzw;}
-inline uint4 make_uint4(uint x,uint2 yz,uint w){uint4 f = {x,yz.x,yz.y,w}; return f;}
-inline uint4 make_uint4(uint x,uint3 yzw){uint4 f = {x,yzw.x,yzw.y,yzw.z}; return f;}
-inline uint4 make_uint4(uint x,uint y,uint2 zw){uint4 f = {x,y,zw.x,zw.y}; return f;}
-
-
-inline int2 make_int2(int x,int y) { int2 f = {x, y}; return f;}
-inline int2 make_int2(int2 xy) { return xy;}
-
-inline int3 make_int3(int x,int y,int z){int3 f = {x,y,z}; return f;};
-inline int3 make_int3(int2 xy,int z){int3 f = {xy.x,xy.y,z}; return f;};
-inline int3 make_int3(int x,int2 yz){int3 f = {x,yz.x,yz.y}; return f;};
-inline int3 make_int3(int3 xyz) { return xyz;}
-
-inline int4 make_int4(int x,int y,int z,int w){int4 f = {x,y,z,w}; return f;}
-inline int4 make_int4(int2 xy,int z,int w){int4 f = {xy.x, xy.y,z,w}; return f;}
-inline int4 make_int4(int3 xyz,int w){int4 f = {xyz.x, xyz.y,xyz.z,w}; return f;}
-inline int4 make_int4(int4 xyzw){return xyzw;}
-inline int4 make_int4(int x,int2 yz,int w){int4 f = {x,yz.x,yz.y,w}; return f;}
-inline int4 make_int4(int x,int3 yzw){int4 f = {x,yzw.x,yzw.y,yzw.z}; return f;}
-inline int4 make_int4(int x,int y,int2 zw){int4 f = {x,y,zw.x,zw.y}; return f;}
-
-
-inline bool2 make_bool2(bool x,bool y) { bool2 f = {x, y}; return f;}
-inline bool2 make_bool2(bool2 xy) { return xy;}
-
-inline bool3 make_bool3(bool x,bool y,bool z){bool3 f = {x,y,z}; return f;};
-inline bool3 make_bool3(bool2 xy,bool z){bool3 f = {xy.x,xy.y,z}; return f;};
-inline bool3 make_bool3(bool x,bool2 yz){bool3 f = {x,yz.x,yz.y}; return f;};
-inline bool3 make_bool3(bool3 xyz) { return xyz;}
-
-inline bool4 make_bool4(bool x,bool y,bool z,bool w){bool4 f = {x,y,z,w}; return f;}
-inline bool4 make_bool4(bool2 xy,bool z,bool w){bool4 f = {xy.x, xy.y,z,w}; return f;}
-inline bool4 make_bool4(bool3 xyz,bool w){bool4 f = {xyz.x, xyz.y,xyz.z,w}; return f;}
-inline bool4 make_bool4(bool4 xyzw){return xyzw;}
-inline bool4 make_bool4(bool x,bool2 yz,bool w){bool4 f = {x,yz.x,yz.y,w}; return f;}
-inline bool4 make_bool4(bool x,bool3 yzw){bool4 f = {x,yzw.x,yzw.y,yzw.z}; return f;}
-inline bool4 make_bool4(bool x,bool y,bool2 zw){bool4 f = {x,y,zw.x,zw.y}; return f;}
-
-inline float2x2 make_float2x2(float2 c0,float2 c1){
-float2x2 f;
-f.m[0][0]=c0.x;
-f.m[1][0]=c0.y;
-f.m[0][1]=c1.x;
-f.m[1][1]=c1.y;
-return f;
+float4 SmptxBi(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevel){
+	float4 v0 = SmptxPoint(pTexture, sampler, uv, lodLevel);
+	float4 v1 = SmptxPoint(pTexture, sampler, uv + _float2(1, 0), lodLevel);
+	float4 v2 = SmptxPoint(pTexture, sampler, uv + _float2(0, 1), lodLevel);
+	float4 v3 = SmptxPoint(pTexture, sampler, uv + _float2(1, 1), lodLevel);
+	float2 fracUV = frac(uv);
+	float4 hori0 = lerp(v0, v1, _float4(fracUV.x));
+	float4 hori1 = lerp(v2, v3, _float4(fracUV.x));
+	return lerp(hori0, hori1, _float4(fracUV.y));
 }
-inline float3x3 make_float3x3(float3 c0,float3 c1,float3 c2){
-float3x3 f;
-f.m[0][0]=c0.x;
-f.m[1][0]=c0.y;
-f.m[2][0]=c0.z;
-f.m[0][1]=c1.x;
-f.m[1][1]=c1.y;
-f.m[2][1]=c1.z;
-f.m[0][2]=c2.x;
-f.m[1][2]=c2.y;
-f.m[2][2]=c2.z;
-return f;
-}
-inline float4x4 make_float4x4(float4 c0,float4 c1,float4 c2,float4 c3){
-float4x4 f;
-f.m[0][0]=c0.x;
-f.m[1][0]=c0.y;
-f.m[2][0]=c0.z;
-f.m[3][0]=c0.w;
-f.m[0][1]=c1.x;
-f.m[1][1]=c1.y;
-f.m[2][1]=c1.z;
-f.m[3][1]=c1.w;
-f.m[0][2]=c2.x;
-f.m[1][2]=c2.y;
-f.m[2][2]=c2.z;
-f.m[3][2]=c2.w;
-f.m[0][3]=c2.x;
-f.m[1][3]=c2.y;
-f.m[2][3]=c2.z;
-f.m[3][3]=c2.w;
-return f;
+
+float4 SmptxTri(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevel){
+	float4 v0 = SmptxBi(pTexture, sampler, uv, lodLevel);
+	float4 v1 = SmptxBi(pTexture, sampler, uv, lodLevel + 1);
+	return lerp(v0, v1, frac(lodLevel));
 }
