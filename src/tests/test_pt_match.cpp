@@ -180,7 +180,20 @@ int main(int argc, char *argv[]) {
     material_sample_and_eval.emplace_back(make_diffuse_material(make_float3(0.63f, 0.065f, 0.05f)));// red
     material_sample_and_eval.emplace_back(make_emissive_material(make_float3(17.0f, 12.0f, 4.0f))); // light
 
-    std::vector material_ids{0u, 0u, 0u, 1u, 2u, 0u, 0u, 3u};
+    static constexpr auto material_white = 1u;
+    static constexpr auto material_green = 2u;
+    static constexpr auto material_red = 3u;
+    static constexpr auto material_light = 4u;
+    std::array all_material_tags{material_white, material_green, material_red, material_light};
+    std::vector material_ids{
+        material_white,
+        material_white,
+        material_white,
+        material_green,
+        material_red,
+        material_white,
+        material_white,
+        material_light};
     auto material_buffer = device.create_buffer<uint>(material_ids.size());
     stream << material_buffer.copy_from(material_ids.data());
 
@@ -280,13 +293,9 @@ int main(int argc, char *argv[]) {
             auto uy = lcg(state);
             auto u = make_float2(ux, uy);
             Var<MaterialSampleAndEvaluation> mat;
-            $switch(material) {
-                for (auto i = 0u; i < material_sample_and_eval.size(); i++) {
-                    $case(i) {
-                        mat = material_sample_and_eval[i](n, wo, wi_light, u);
-                    };
-                }
-            };
+            match(all_material_tags, material, [&](auto index) noexcept {
+                mat = material_sample_and_eval[index](n, wo, wi_light, u);
+            });
 
             // hit light
             $if(any(mat.eval.emission != make_float3(0.0f))) {
