@@ -39,6 +39,7 @@ public:
     void visit(const AccelBuildCommand *command) noexcept override;
     void visit(const MeshUpdateCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
+    void visit(const BindlessArrayUpdateCommand *command) noexcept override;
 };
 
 }// namespace luisa::compute::metal

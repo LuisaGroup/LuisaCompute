@@ -64,7 +64,6 @@ int main(int argc, char *argv[]) {
     auto image_channels = 0;
     auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
     auto texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 0u);
-    heap.emplace(0u, texture, Sampler::trilinear_edge());
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
@@ -78,7 +77,8 @@ int main(int argc, char *argv[]) {
 
     // generate mip-maps
     auto cmd = upload_stream.command_buffer();
-    cmd << texture.copy_from(image_pixels);
+    cmd << heap.emplace(0u, texture, Sampler::trilinear_edge()).update()
+        << texture.copy_from(image_pixels);
     for (auto i = 1u; i < texture.mip_levels(); i++) {
         auto half_w = std::max(image_width / 2, 1);
         auto half_h = std::max(image_height / 2, 1);

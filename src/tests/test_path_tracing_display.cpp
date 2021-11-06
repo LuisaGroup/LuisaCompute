@@ -37,7 +37,8 @@ LUISA_STRUCT(Onb, tangent, binormal, normal){
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
 }
-};
+}
+;
 
 int main(int argc, char *argv[]) {
 
@@ -101,6 +102,7 @@ int main(int argc, char *argv[]) {
         stream << triangle_buffer.copy_from(indices.data())
                << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer);
     }
+    stream << heap.update();
 
     std::vector<uint64_t> instances;
     std::vector<float4x4> transforms;

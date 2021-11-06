@@ -23,7 +23,7 @@ private:
 public:
     explicit MetalMipmapTexture(id<MTLTexture> handle) noexcept
         : _handle{handle} {}
-
+    
 };
 
 static_assert(sizeof(MetalMipmapTexture) == 128u);

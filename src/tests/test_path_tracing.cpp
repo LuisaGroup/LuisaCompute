@@ -100,6 +100,7 @@ int main(int argc, char *argv[]) {
         stream << triangle_buffer.copy_from(indices.data())
                << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer);
     }
+    stream << heap.update();
 
     std::vector<uint64_t> instances;
     std::vector<float4x4> transforms;

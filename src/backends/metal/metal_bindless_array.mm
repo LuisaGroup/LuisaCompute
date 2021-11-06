@@ -37,33 +37,14 @@ MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcep
                                                     options:MTLResourceStorageModePrivate];
 }
 
-id<MTLCommandBuffer> MetalBindlessArray::encode_update(
-    MetalStream *stream,
-    id<MTLCommandBuffer> cmd_buf) const noexcept {
-
-    if (_dirty) {
-        if (auto last = _last_update;
-            last != nullptr) {
-            [last waitUntilCompleted];
-        }
-        _last_update = cmd_buf;
-        _dirty = false;
+void MetalBindlessArray::encode_update(id<MTLCommandBuffer> cmd_buf, size_t offset, size_t size) const noexcept {
         auto blit_encoder = [cmd_buf blitCommandEncoder];
         [blit_encoder copyFromBuffer:_buffer
-                        sourceOffset:0u
+                        sourceOffset:offset * slot_size
                             toBuffer:_device_buffer
-                   destinationOffset:0u
-                                size:_buffer.length];
+                   destinationOffset:offset * slot_size
+                                size:size * slot_size];
         [blit_encoder endEncoding];
-        [cmd_buf encodeSignalEvent:_event
-                             value:++_event_value];
-        // create a new command buffer to avoid dead locks
-        stream->dispatch(cmd_buf);
-        cmd_buf = stream->command_buffer();
-    }
-    [cmd_buf encodeWaitForEvent:_event
-                          value:_event_value];
-    return cmd_buf;
 }
 
 void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, size_t offset) noexcept {
@@ -72,7 +53,6 @@ void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, si
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setBuffer:buffer offset:offset atIndex:0u];
     _retain(buffer);
-    _dirty = true;
 }
 
 void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
@@ -83,7 +63,6 @@ void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sa
     [_encoder setTexture:texture atIndex:3u];
     std::memcpy([_encoder constantDataAtIndex:1u], &sampler_code, sizeof(sampler));
     _retain(texture);
-    _dirty = true;
 }
 
 void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
@@ -94,7 +73,6 @@ void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sa
     [_encoder setTexture:texture atIndex:4u];
     std::memcpy([_encoder constantDataAtIndex:2u], &sampler_code, sizeof(sampler));
     _retain(texture);
-    _dirty = true;
 }
 
 void MetalBindlessArray::remove_buffer(size_t index) noexcept {

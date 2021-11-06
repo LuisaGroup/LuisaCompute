@@ -192,13 +192,6 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z);
 
-    // update texture desc heap if any
-    command->decode([&](auto, auto argument) noexcept -> void {
-        if constexpr (std::is_same_v<decltype(argument), ShaderDispatchCommand::BindlessArrayArgument>) {
-            _command_buffer = to_bindless_array(argument.handle)->encode_update(_stream, _command_buffer);
-        }
-    });
-
     // encode compute shader
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:compiled_kernel.handle()];
@@ -335,6 +328,11 @@ void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
         v_buffer, command->vertex_buffer_offset(), command->vertex_stride(),
         t_buffer, command->triangle_buffer_offset(), command->triangle_count(),
         _device->compacted_size_buffer_pool());
+}
+
+void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
+    auto array = to_bindless_array(command->handle());
+    array->encode_update(_command_buffer, command->offset(), command->count());
 }
 
 #else

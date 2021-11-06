@@ -24,6 +24,7 @@ public:
     Accel() noexcept = default;
     using Resource::operator bool;
 
+    // TODO: modify these interfaces as done in BindlessArray
     [[nodiscard]] Command *update(
         size_t first,
         size_t count,
@@ -69,7 +70,7 @@ template<>
 struct Var<Accel> : public Expr<Accel> {
     explicit Var(detail::ArgumentCreation) noexcept
         : Expr<Accel>{
-            detail::FunctionBuilder::current()->accel()} {}
+              detail::FunctionBuilder::current()->accel()} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
     Var &operator=(Var &&) noexcept = delete;
