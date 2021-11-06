@@ -151,8 +151,7 @@ uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint wid
         CUmipmappedArray array_handle{nullptr};
         LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&array_handle, &array_desc, mipmap_levels));
         return reinterpret_cast<uint64_t>(
-            new_with_allocator<CUDAMipmapArray>(
-                array_handle, mipmap_levels));
+            new_with_allocator<CUDAMipmapArray>(array_handle));
     });
 }
 

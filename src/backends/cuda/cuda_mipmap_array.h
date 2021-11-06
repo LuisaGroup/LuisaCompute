@@ -14,16 +14,14 @@ namespace luisa::compute::cuda {
 class CUDAMipmapArray {
 
 public:
-    static constexpr auto max_level_count = 14u;
+    static constexpr auto max_level_count = 15u;
 
 private:
     CUmipmappedArray _array;
     mutable std::array<CUsurfObject, max_level_count> _surfaces{};
-    uint32_t _levels;
-    mutable spin_mutex _mutex;
 
 public:
-    CUDAMipmapArray(CUmipmappedArray array, uint32_t level_count) noexcept;
+    explicit CUDAMipmapArray(CUmipmappedArray array) noexcept;
     ~CUDAMipmapArray() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _array; }
     [[nodiscard]] CUsurfObject surface(uint32_t level) const noexcept;

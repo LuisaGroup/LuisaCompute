@@ -30,7 +30,6 @@ std::span<std::byte> CUDARingBuffer::allocate(size_t size) noexcept {
     size = (size + alignment - 1u) / alignment * alignment;
 
     auto memory = [this] {
-        std::scoped_lock lock{_mutex};
         if (_memory == nullptr) {// lazily create the device memory
             auto flags = _write_combined ? CU_MEMHOSTALLOC_WRITECOMBINED : 0;
             LUISA_CHECK_CUDA(cuMemHostAlloc(reinterpret_cast<void **>(&_memory), _size, flags));
@@ -39,7 +38,6 @@ std::span<std::byte> CUDARingBuffer::allocate(size_t size) noexcept {
     }();
 
     // try allocation
-    std::scoped_lock lock{_mutex};
     auto offset = [this, size] {
         if (_free_begin == _free_end && _alloc_count != 0u) { return _size; }
         if (_free_end <= _free_begin) {
@@ -62,7 +60,6 @@ std::span<std::byte> CUDARingBuffer::allocate(size_t size) noexcept {
 }
 
 void CUDARingBuffer::recycle(std::span<std::byte> view) noexcept {
-    std::scoped_lock lock{_mutex};
     if (_free_end + view.size() > _size) { _free_end = 0u; }
     if (view.data() != _memory + _free_end) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(

@@ -54,7 +54,6 @@ public:
 
 private:
     Handle _handle;
-    std::recursive_mutex _mutex;
 
 public:
     CUDADevice(const Context &ctx, uint device_id) noexcept;
@@ -102,11 +101,6 @@ public:
     }
     void *stream_native_handle(uint64_t handle) const noexcept override {
         return nullptr;
-    }
-    template<typename F>
-    decltype(auto) with_locked(F &&f) noexcept {
-        std::scoped_lock lock{_mutex};
-        return f();
     }
 
     template<typename F>

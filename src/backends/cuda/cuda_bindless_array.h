@@ -33,7 +33,6 @@ private:
     luisa::unordered_map<uint64_t, size_t> _buffers;
     luisa::unordered_map<uint64_t, size_t> _arrays;
     luisa::unordered_map<CUtexObject, CUDAMipmapArray *> _tex_to_array;
-    mutable spin_mutex _mutex;
     bool _dirty{true};
 
 public:

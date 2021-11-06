@@ -75,17 +75,14 @@ void CUDABindlessArray::_release(luisa::unordered_map<uint64_t, size_t> &resourc
 }
 
 bool CUDABindlessArray::has_buffer(CUdeviceptr buffer) const noexcept {
-    std::scoped_lock lock{_mutex};
     return _buffers.contains(buffer);
 }
 
 bool CUDABindlessArray::has_array(CUDAMipmapArray *array) const noexcept {
-    std::scoped_lock lock{_mutex};
     return _arrays.contains(reinterpret_cast<uint64_t>(array));
 }
 
 void CUDABindlessArray::remove_buffer(size_t index) noexcept {
-    std::scoped_lock lock{_mutex};
     auto buffer = _slots[index].buffer;
     if (buffer != 0u) [[likely]] {
         _release_buffer(_slots[index].origin);
@@ -96,44 +93,29 @@ void CUDABindlessArray::remove_buffer(size_t index) noexcept {
 }
 
 void CUDABindlessArray::remove_tex2d(size_t index) noexcept {
-    if (auto t = [this, index] {
-            std::scoped_lock lock{_mutex};
-            auto tex = _slots[index].tex2d;
-            if (tex != 0u) [[likely]] {
-                auto iter = _tex_to_array.find(tex);
-                _release_array(iter->second);
-                _tex_to_array.erase(iter);
-                _slots[index].tex2d = 0u;
-                _dirty = true;
-            }
-            return tex;
-        }();
-        t != 0u) [[likely]] {
-        LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
+    if (auto tex = _slots[index].tex2d) [[likely]] {
+        LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
+        auto iter = _tex_to_array.find(tex);
+        _release_array(iter->second);
+        _tex_to_array.erase(iter);
+        _slots[index].tex2d = 0u;
+        _dirty = true;
     }
 }
 
 void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
-    if (auto t = [this, index] {
-            std::scoped_lock lock{_mutex};
-            auto tex = _slots[index].tex3d;
-            if (tex != 0u) [[likely]] {
-                auto iter = _tex_to_array.find(tex);
-                _release_array(iter->second);
-                _tex_to_array.erase(iter);
-                _slots[index].tex3d = 0u;
-                _dirty = true;
-            }
-            return tex;
-        }();
-        t != 0u) [[likely]] {
-        LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
+    if (auto tex = _slots[index].tex3d) [[likely]] {
+        LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
+        auto iter = _tex_to_array.find(tex);
+        _release_array(iter->second);
+        _tex_to_array.erase(iter);
+        _slots[index].tex3d = 0u;
+        _dirty = true;
     }
 }
 
 void CUDABindlessArray::emplace_buffer(size_t index, CUdeviceptr buffer, size_t offset) noexcept {
-    std::scoped_lock lock{_mutex};
-    if (auto o = _slots[index].origin != 0u) [[unlikely]] {
+    if (auto o = _slots[index].origin) [[unlikely]] {
         _release_buffer(o);
     }
     _slots[index].buffer = buffer + offset;
@@ -149,8 +131,7 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
     auto tex_desc = cuda_texture_descriptor(sampler);
     CUtexObject texture;
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
-    std::scoped_lock lock{_mutex};
-    if (auto t = _slots[index].tex2d; t != 0u) [[unlikely]] {
+    if (auto t = _slots[index].tex2d) [[unlikely]] {
         auto iter = _tex_to_array.find(t);
         _release_array(iter->second);
         _tex_to_array.erase(iter);
@@ -168,7 +149,6 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
     auto tex_desc = cuda_texture_descriptor(sampler);
     CUtexObject texture;
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
-    std::scoped_lock lock{_mutex};
     if (auto t = _slots[index].tex3d; t != 0u) [[unlikely]] {
         auto iter = _tex_to_array.find(t);
         _release_array(iter->second);
@@ -181,7 +161,6 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
 }
 
 void CUDABindlessArray::encode_update(CUstream stream) noexcept {
-    std::scoped_lock lock{_mutex};
     if (_dirty) {
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             _handle, _slots.data(),

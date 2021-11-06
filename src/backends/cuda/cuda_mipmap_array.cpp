@@ -19,12 +19,6 @@ CUDAMipmapArray::~CUDAMipmapArray() noexcept {
 }
 
 CUsurfObject CUDAMipmapArray::surface(uint32_t level) const noexcept {
-    if (level >= _levels) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid level {} for CUDAMipmapArray with {} levels.",
-            level, _levels);
-    }
-    std::scoped_lock lock{_mutex};
     if (auto s = _surfaces[level]; s != 0u) { return s; }
     CUarray mipmap;
     LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&mipmap, _array, level));
@@ -37,14 +31,7 @@ CUsurfObject CUDAMipmapArray::surface(uint32_t level) const noexcept {
     return surface;
 }
 
-CUDAMipmapArray::CUDAMipmapArray(CUmipmappedArray array, uint32_t level_count) noexcept
-    : _array{array},
-      _levels{level_count} {
-    if (level_count > max_level_count) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Too many levels {} for CUDAMipmapArray (max = {}).",
-            level_count, max_level_count);
-    }
-}
+CUDAMipmapArray::CUDAMipmapArray(CUmipmappedArray array) noexcept
+    : _array{array} {}
 
 }// namespace luisa::compute::cuda
