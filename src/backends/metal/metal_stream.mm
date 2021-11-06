@@ -34,14 +34,12 @@ void MetalStream::dispatch(id<MTLCommandBuffer> command_buffer) noexcept {
       dispatch_semaphore_signal(_sem);
     }];
     dispatch_semaphore_wait(_sem, DISPATCH_TIME_FOREVER);
-    std::scoped_lock lock{_mutex};
     _last = command_buffer;
     [command_buffer commit];
 }
 
 void MetalStream::synchronize() noexcept {
     if (auto last = [this]() noexcept {
-            std::scoped_lock lock{_mutex};
             id<MTLCommandBuffer> last_cmd = _last;
             _last = nullptr;
             return last_cmd;

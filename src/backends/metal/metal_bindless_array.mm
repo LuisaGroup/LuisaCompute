@@ -41,7 +41,6 @@ id<MTLCommandBuffer> MetalBindlessArray::encode_update(
     MetalStream *stream,
     id<MTLCommandBuffer> cmd_buf) const noexcept {
 
-    std::scoped_lock lock{_mutex};
     if (_dirty) {
         if (auto last = _last_update;
             last != nullptr) {
@@ -68,8 +67,7 @@ id<MTLCommandBuffer> MetalBindlessArray::encode_update(
 }
 
 void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, size_t offset) noexcept {
-    auto buffer = _device->buffer(buffer_handle);
-    std::scoped_lock lock{_mutex};
+    auto buffer = (__bridge id<MTLBuffer>)(reinterpret_cast<void *>(buffer_handle));
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setBuffer:buffer offset:offset atIndex:0u];
@@ -78,9 +76,8 @@ void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, si
 }
 
 void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
-    auto texture = _device->texture(texture_handle);
+    auto texture = (__bridge id<MTLTexture>)(reinterpret_cast<void *>(texture_handle));
     auto sampler_code = static_cast<uint16_t>(sampler.code());
-    std::scoped_lock lock{_mutex};
     if (auto &&p = _tex2d_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:3u];
@@ -90,9 +87,8 @@ void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sa
 }
 
 void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
-    auto texture = _device->texture(texture_handle);
+    auto texture = (__bridge id<MTLTexture>)(reinterpret_cast<void *>(texture_handle));
     auto sampler_code = static_cast<uint16_t>(sampler.code());
-    std::scoped_lock lock{_mutex};
     if (auto &&p = _tex3d_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:4u];
@@ -102,7 +98,6 @@ void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sa
 }
 
 void MetalBindlessArray::remove_buffer(size_t index) noexcept {
-    std::scoped_lock lock{_mutex};
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) {
         _release(p.handle);
         p.handle = nullptr;
@@ -110,7 +105,6 @@ void MetalBindlessArray::remove_buffer(size_t index) noexcept {
 }
 
 void MetalBindlessArray::remove_tex2d(size_t index) noexcept {
-    std::scoped_lock lock{_mutex};
     if (auto &&p = _tex2d_slots[index]; p.handle != nullptr) {
         _release(p.handle);
         p.handle = nullptr;
@@ -118,7 +112,6 @@ void MetalBindlessArray::remove_tex2d(size_t index) noexcept {
 }
 
 void MetalBindlessArray::remove_tex3d(size_t index) noexcept {
-    std::scoped_lock lock{_mutex};
     if (auto &&p = _tex3d_slots[index]; p.handle != nullptr) {
         _release(p.handle);
         p.handle = nullptr;
@@ -146,14 +139,12 @@ void MetalBindlessArray::_release(id<MTLResource> r) noexcept {
 }
 
 bool MetalBindlessArray::has_buffer(uint64_t handle) const noexcept {
-    auto buffer = _device->buffer(handle);
-    std::scoped_lock lock{_mutex};
+    auto buffer = (__bridge id<MTLBuffer>)(reinterpret_cast<void *>(handle));
     return _resources.contains(MetalBindlessResource{buffer});
 }
 
 bool MetalBindlessArray::has_texture(uint64_t handle) const noexcept {
-    auto texture = _device->texture(handle);
-    std::scoped_lock lock{_mutex};
+    auto texture = (__bridge id<MTLTexture>)(reinterpret_cast<void *>(handle));
     return _resources.contains(MetalBindlessResource{texture});
 }
 

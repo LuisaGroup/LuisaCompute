@@ -26,7 +26,6 @@ private:
     MetalRingBuffer _upload_ring_buffer;
     MetalRingBuffer _download_ring_buffer;
     dispatch_semaphore_t _sem;
-    spin_mutex _mutex;
 
 public:
     explicit MetalStream(id<MTLDevice> device, uint max_command_buffers) noexcept;

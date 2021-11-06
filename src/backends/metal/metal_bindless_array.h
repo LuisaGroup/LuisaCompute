@@ -25,6 +25,9 @@ struct MetalBindlessResource {
 
 class MetalBindlessArray {
 
+public:
+    static constexpr auto slot_size = 32u;
+
 private:
     MetalDevice *_device;
     id<MTLBuffer> _buffer{nullptr};
@@ -34,13 +37,12 @@ private:
     luisa::map<MetalBindlessResource, size_t /* count */> _resources;
     mutable uint64_t _event_value{0u};
     mutable __weak id<MTLCommandBuffer> _last_update{nullptr};
-    mutable spin_mutex _mutex;
-    mutable bool _dirty{true};
-    static constexpr auto slot_size = 32u;
     std::vector<MetalBindlessResource> _buffer_slots;
     std::vector<MetalBindlessResource> _tex2d_slots;
     std::vector<MetalBindlessResource> _tex3d_slots;
+    mutable bool _dirty{true};
 
+private:
     void _retain(id<MTLResource> r) noexcept;
     void _release(id<MTLResource> r) noexcept;
 

@@ -49,12 +49,13 @@ id<MTLCommandBuffer> MetalAccel::build(
 
     _resources.clear();
     auto meshes = [[NSMutableArray<id<MTLAccelerationStructure>> alloc] init];
-    _device->traverse_meshes(mesh_handles, [&](auto mesh) noexcept {
+    for (auto mesh_handle : mesh_handles) {
+        auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
         [meshes addObject:mesh->handle()];
         _resources.emplace_back(mesh->handle());
         _resources.emplace_back(mesh->vertex_buffer());
         _resources.emplace_back(mesh->triangle_buffer());
-    });
+    }
     _resources.emplace_back(_instance_buffer);
     std::sort(_resources.begin(), _resources.end());
     _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.end());

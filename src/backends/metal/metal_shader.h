@@ -16,7 +16,7 @@ private:
 
 public:
     MetalShader() noexcept = default;
-    MetalShader(id<MTLComputePipelineState> pso) noexcept : _handle{pso} {}
+    explicit MetalShader(id<MTLComputePipelineState> pso) noexcept : _handle{pso} {}
     ~MetalShader() noexcept { _handle = nullptr; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
 };
