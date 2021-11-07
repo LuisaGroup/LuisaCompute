@@ -21,7 +21,7 @@ public:
 private:
     id<MTLEvent> _handle;
     uint64_t _counter{0u};
-    std::vector<Signaler> _signalers;
+    luisa::vector<Signaler> _signalers;
 
 private:
     void _purge() noexcept {

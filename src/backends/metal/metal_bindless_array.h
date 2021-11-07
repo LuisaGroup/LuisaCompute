@@ -34,9 +34,9 @@ private:
     id<MTLBuffer> _device_buffer{nullptr};
     id<MTLArgumentEncoder> _encoder{nullptr};
     luisa::map<MetalBindlessResource, size_t /* count */> _resources;
-    std::vector<MetalBindlessResource> _buffer_slots;
-    std::vector<MetalBindlessResource> _tex2d_slots;
-    std::vector<MetalBindlessResource> _tex3d_slots;
+    luisa::vector<MetalBindlessResource> _buffer_slots;
+    luisa::vector<MetalBindlessResource> _tex2d_slots;
+    luisa::vector<MetalBindlessResource> _tex3d_slots;
 
 private:
     void _retain(id<MTLResource> r) noexcept;

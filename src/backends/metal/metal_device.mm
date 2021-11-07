@@ -65,7 +65,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
             index, count - 1u);
         index = static_cast<uint>(count - 1u);
     }
-    std::vector<id<MTLDevice>> sorted_devices;
+    luisa::vector<id<MTLDevice>> sorted_devices;
     sorted_devices.reserve(devices.count);
     for (id<MTLDevice> d in devices) { sorted_devices.emplace_back(d); }
     std::sort(sorted_devices.begin(), sorted_devices.end(), [](id<MTLDevice> lhs, id<MTLDevice> rhs) noexcept {
