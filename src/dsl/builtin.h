@@ -1189,6 +1189,12 @@ template<typename X, typename Y>
         std::forward<Y>(y));
 }
 
+template<typename X, typename Y>
+    requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
+[[nodiscard]] inline auto sign(X &&x) noexcept {
+    return copysign(1.0f, std::forward<X>(x));
+}
+
 [[nodiscard]] inline auto cross(Expr<float3> x, Expr<float3> y) noexcept {
     return def<float3>(
         detail::FunctionBuilder::current()->call(

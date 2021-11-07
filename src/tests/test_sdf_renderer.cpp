@@ -140,7 +140,7 @@ int main(int argc, char *argv[]) {
     Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 accum_image, UInt frame_index) noexcept {
         set_block_size(8u, 8u, 1u);
 
-        auto resolution = dispatch_size().xy().cast<float2>();
+        auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
         auto global_id = coord.x + coord.y * dispatch_size_x();
 
@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
         auto seed = seed_image[global_id];
         auto ux = rand(seed);
         auto uy = rand(seed);
-        auto uv = make_uint2(dispatch_id().x, dispatch_size().y - 1u - dispatch_id().y).cast<float2>() + make_float2(ux, uy);
+        auto uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1u - dispatch_id().y + uy);
         auto d = make_float3(
             2.0f * fov * uv / resolution.y - fov * make_float2(aspect_ratio, 1.0f) - 1e-5f, -1.0f);
         d = normalize(d);

@@ -217,7 +217,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 "Encoding texture #{} at index {}.",
                 argument.handle, texture_index);
             id<MTLTexture> texture = to_texture(argument.handle);
-            if (auto level = argument.level) {
+            if (auto level = argument.level; level != 0u) {
                 texture = [texture newTextureViewWithPixelFormat:[texture pixelFormat]
                                                      textureType:[texture textureType]
                                                           levels:NSMakeRange(level, 1u)

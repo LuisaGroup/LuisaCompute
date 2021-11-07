@@ -37,12 +37,6 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     T x, y;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
-
-    template<typename U>
-    constexpr VectorStorage(VectorStorage<U, 2> v) noexcept
-        : VectorStorage{static_cast<T>(v.x),
-                        static_cast<T>(v.y)} {}
-
 #include <core/swizzle_2.inl.h>
 };
 
@@ -51,12 +45,6 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     T x, y, z;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
-
-    template<typename U>
-    constexpr VectorStorage(VectorStorage<U, 3> v) noexcept
-        : VectorStorage{static_cast<T>(v.x),
-                        static_cast<T>(v.y),
-                        static_cast<T>(v.z)} {}
 #include <core/swizzle_3.inl.h>
 };
 
@@ -65,13 +53,6 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     T x, y, z, w;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
-
-    template<typename U>
-    constexpr VectorStorage(VectorStorage<U, 4> v) noexcept
-        : VectorStorage{static_cast<T>(v.x),
-                        static_cast<T>(v.y),
-                        static_cast<T>(v.z),
-                        static_cast<T>(v.w)} {}
 #include <core/swizzle_4.inl.h>
 };
 
@@ -396,14 +377,23 @@ namespace luisa {
     [[nodiscard]] constexpr auto make_##type##2(type s = {}) noexcept { return type##2(s); }                                 \
     [[nodiscard]] constexpr auto make_##type##2(type x, type y) noexcept { return type##2(x, y); }                           \
     template<typename T>                                                                                                     \
-    [[nodiscard]] constexpr auto make_##type##2(Vector<T, 2> v) noexcept { return type##2(v); }                              \
+    [[nodiscard]] constexpr auto make_##type##2(Vector<T, 2> v) noexcept {                                                   \
+        return type##2(                                                                                                      \
+            static_cast<type>(v.x),                                                                                          \
+            static_cast<type>(v.y));                                                                                         \
+    }                                                                                                                        \
     [[nodiscard]] constexpr auto make_##type##2(type##3 v) noexcept { return type##2(v.x, v.y); }                            \
     [[nodiscard]] constexpr auto make_##type##2(type##4 v) noexcept { return type##2(v.x, v.y); }                            \
                                                                                                                              \
     [[nodiscard]] constexpr auto make_##type##3(type s = {}) noexcept { return type##3(s); }                                 \
     [[nodiscard]] constexpr auto make_##type##3(type x, type y, type z) noexcept { return type##3(x, y, z); }                \
     template<typename T>                                                                                                     \
-    [[nodiscard]] constexpr auto make_##type##3(Vector<T, 3> v) noexcept { return type##3(v); }                              \
+    [[nodiscard]] constexpr auto make_##type##3(Vector<T, 3> v) noexcept {                                                   \
+        return type##3(                                                                                                      \
+            static_cast<type>(v.x),                                                                                          \
+            static_cast<type>(v.y),                                                                                          \
+            static_cast<type>(v.z));                                                                                         \
+    }                                                                                                                        \
     [[nodiscard]] constexpr auto make_##type##3(type##2 v, type z) noexcept { return type##3(v.x, v.y, z); }                 \
     [[nodiscard]] constexpr auto make_##type##3(type x, type##2 v) noexcept { return type##3(x, v.x, v.y); }                 \
     [[nodiscard]] constexpr auto make_##type##3(type##4 v) noexcept { return type##3(v.x, v.y, v.z); }                       \
@@ -411,7 +401,13 @@ namespace luisa {
     [[nodiscard]] constexpr auto make_##type##4(type s = {}) noexcept { return type##4(s); }                                 \
     [[nodiscard]] constexpr auto make_##type##4(type x, type y, type z, type w) noexcept { return type##4(x, y, z, w); }     \
     template<typename T>                                                                                                     \
-    [[nodiscard]] constexpr auto make_##type##4(Vector<T, 4> v) noexcept { return type##4(v); }                              \
+    [[nodiscard]] constexpr auto make_##type##4(Vector<T, 4> v) noexcept {                                                   \
+        return type##4(                                                                                                      \
+            static_cast<type>(v.x),                                                                                          \
+            static_cast<type>(v.y),                                                                                          \
+            static_cast<type>(v.z),                                                                                          \
+            static_cast<type>(v.w));                                                                                         \
+    }                                                                                                                        \
     [[nodiscard]] constexpr auto make_##type##4(type##2 v, type z, type w) noexcept { return type##4(v.x, v.y, z, w); }      \
     [[nodiscard]] constexpr auto make_##type##4(type x, type##2 v, type w) noexcept { return type##4(x, v.x, v.y, w); }      \
     [[nodiscard]] constexpr auto make_##type##4(type x, type y, type##2 v) noexcept { return type##4(x, y, v.x, v.y); }      \

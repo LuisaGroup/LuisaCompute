@@ -74,8 +74,8 @@ int main(int argc, char *argv[]) {
 
     Kernel2D main_kernel = [&rm, &rotate](ImageFloat image, Float time) noexcept {
         Var xy = dispatch_id().xy();
-        Var resolution = dispatch_size().xy().cast<float2>();
-        Var uv = (xy.cast<float2>() - resolution * 0.5f) / resolution.x;
+        Var resolution = make_float2(dispatch_size().xy());
+        Var uv = (make_float2(xy) - resolution * 0.5f) / resolution.x;
         Var ro = make_float3(rotate(make_float2(0.0f, -50.0f), time), 0.0f).xzy();
         Var cf = normalize(-ro);
         Var cs = normalize(cross(cf, make_float3(0.0f, 1.0f, 0.0f)));

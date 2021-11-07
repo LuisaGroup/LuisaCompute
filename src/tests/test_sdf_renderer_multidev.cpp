@@ -156,7 +156,7 @@ int main(int argc, char *argv[]) {
         auto seed = seed_image[global_id];
         auto ux = rand(seed);
         auto uy = rand(seed);
-        auto uv = make_uint2(coord.x, height - 1u - coord.y).cast<float2>() + make_float2(ux, uy);
+        auto uv = make_float2(cast<float>(coord.x) + ux, cast<float>(height - 1u - coord.y) + uy);
         auto d = make_float3(
             2.0f * fov * uv / resolution.y - fov * make_float2(aspect_ratio, 1.0f) - 1e-5f, -1.0f);
         d = normalize(d);
