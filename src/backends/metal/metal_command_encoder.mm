@@ -5,6 +5,7 @@
 #import <core/platform.h>
 #import <core/clock.h>
 #import <ast/function.h>
+#import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_accel.h>
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_stream.h>
