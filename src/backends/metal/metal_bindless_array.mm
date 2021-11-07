@@ -8,43 +8,16 @@
 namespace luisa::compute::metal {
 
 MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcept
-    : _device{device},
-      _event{[device->handle() newEvent]},
+    : _encoder{device->bindless_array_encoder()},
       _buffer_slots(size, MetalBindlessResource{nullptr}),
       _tex2d_slots(size, MetalBindlessResource{nullptr}),
       _tex3d_slots(size, MetalBindlessResource{nullptr}) {
-
-    static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct alignas(16) BindlessItem {\n"
-                                 "  device const void *buffer;\n"
-                                 "  metal::ushort sampler2d;\n"
-                                 "  metal::ushort sampler3d;\n"
-                                 "  metal::texture2d<float> handle2d;\n"
-                                 "  metal::texture3d<float> handle3d;\n"
-                                 "};\n"
-                                 "[[kernel]] void k(device const BindlessItem *array) {}\n";
-    auto library = [_device->handle() newLibraryWithSource:src options:nullptr error:nullptr];
-    auto function = [library newFunctionWithName:@"k"];
-    _encoder = [function newArgumentEncoderWithBufferIndex:0];
-    if (auto enc_size = _encoder.encodedLength; enc_size != slot_size) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid bindless array encoded size: {} (expected {}).",
-            enc_size, slot_size);
-    }
-    _buffer = [_device->handle() newBufferWithLength:_encoder.encodedLength * size
-                                             options:MTLResourceOptionCPUCacheModeWriteCombined | MTLResourceStorageModeShared];
-    _device_buffer = [_device->handle() newBufferWithLength:_buffer.length
+    _buffer = [device->handle() newBufferWithLength:_encoder.encodedLength * size
+                                             options:MTLResourceCPUCacheModeDefaultCache |
+                                                     MTLResourceStorageModeShared |
+                                                     MTLResourceHazardTrackingModeUntracked];
+    _device_buffer = [device->handle() newBufferWithLength:_buffer.length
                                                     options:MTLResourceStorageModePrivate];
-}
-
-void MetalBindlessArray::encode_update(id<MTLCommandBuffer> cmd_buf, size_t offset, size_t size) const noexcept {
-        auto blit_encoder = [cmd_buf blitCommandEncoder];
-        [blit_encoder copyFromBuffer:_buffer
-                        sourceOffset:offset * slot_size
-                            toBuffer:_device_buffer
-                   destinationOffset:offset * slot_size
-                                size:size * slot_size];
-        [blit_encoder endEncoding];
 }
 
 void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, size_t offset) noexcept {
