@@ -81,6 +81,25 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
     _compacted_size_buffer_pool = luisa::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
 #endif
+
+    // initialize bindless array encoder
+    static constexpr auto src = @"#include <metal_stdlib>\n"
+                                 "struct alignas(16) BindlessItem {\n"
+                                 "  device const void *buffer;\n"
+                                 "  metal::ushort sampler2d;\n"
+                                 "  metal::ushort sampler3d;\n"
+                                 "  metal::texture2d<float> handle2d;\n"
+                                 "  metal::texture3d<float> handle3d;\n"
+                                 "};\n"
+                                 "[[kernel]] void k(device const BindlessItem *array) {}\n";
+    auto library = [_handle newLibraryWithSource:src options:nullptr error:nullptr];
+    auto function = [library newFunctionWithName:@"k"];
+    _bindless_array_encoder = [function newArgumentEncoderWithBufferIndex:0];
+    if (auto enc_size = _bindless_array_encoder.encodedLength; enc_size != MetalBindlessArray::slot_size) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid bindless array encoded size: {} (expected {}).",
+            enc_size, MetalBindlessArray::slot_size);
+    }
 }
 
 MetalDevice::~MetalDevice() noexcept {

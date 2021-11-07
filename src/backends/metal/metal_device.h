@@ -33,6 +33,7 @@ class MetalDevice final : public Device::Interface {
 
 private:
     id<MTLDevice> _handle{nullptr};
+    id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
@@ -82,6 +83,7 @@ public:
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
     bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
+    [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
 };
 
 }// namespace luisa::compute::metal

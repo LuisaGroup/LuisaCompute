@@ -10,6 +10,7 @@
 #import <core/spin_mutex.h>
 #import <core/allocator.h>
 #import <runtime/bindless_array.h>
+#import <backends/metal/metal_ring_buffer.h>
 
 namespace luisa::compute::metal {
 
@@ -29,11 +30,9 @@ public:
     static constexpr auto slot_size = 32u;
 
 private:
-    MetalDevice *_device;
     id<MTLBuffer> _buffer{nullptr};
     id<MTLBuffer> _device_buffer{nullptr};
     id<MTLArgumentEncoder> _encoder{nullptr};
-    id<MTLEvent> _event{nullptr};
     luisa::map<MetalBindlessResource, size_t /* count */> _resources;
     std::vector<MetalBindlessResource> _buffer_slots;
     std::vector<MetalBindlessResource> _tex2d_slots;
@@ -54,7 +53,7 @@ public:
     [[nodiscard]] bool has_buffer(uint64_t handle) const noexcept;
     [[nodiscard]] bool has_texture(uint64_t handle) const noexcept;
     [[nodiscard]] auto desc_buffer() const noexcept { return _device_buffer; }
-    void encode_update(id<MTLCommandBuffer> cmd_buf, size_t offset, size_t size) const noexcept;
+    [[nodiscard]] auto desc_buffer_host() const noexcept { return _buffer; }
 
     template<typename F>
     decltype(auto) traverse(F &&f) const noexcept {
