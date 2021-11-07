@@ -55,7 +55,6 @@ enum struct CallOp : uint32_t {
     CLAMP,
     LERP,
     SATURATE,
-    SIGN,
 
     STEP,
     SMOOTHSTEP,

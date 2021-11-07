@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
             p = make_float3(rotate(p.xy(), t * 1.89f), p.z);
             p = make_float3(abs(p.x) - 0.5f, p.y, abs(p.z) - 0.5f);
         }
-        return dot(sign(p), p) * 0.2f;
+        return dot(copysign(1.0f, p), p) * 0.2f;
     };
 
     Callable rm = [&map, &palette](Float3 ro, Float3 rd, Float time) noexcept {

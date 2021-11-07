@@ -166,7 +166,6 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::CLAMP: _scratch << "clamp"; break;
         case CallOp::LERP: _scratch << "mix"; break;
         case CallOp::SATURATE: _scratch << "saturate"; break;
-        case CallOp::SIGN: _scratch << "sign"; break;
         case CallOp::STEP: _scratch << "step"; break;
         case CallOp::SMOOTHSTEP: _scratch << "smoothstep"; break;
         case CallOp::ABS: _scratch << "abs"; break;

@@ -2,8 +2,9 @@ from os.path import realpath, dirname
 
 if __name__ == "__main__":
     curr_dir = dirname(realpath(__file__))
-
-    with open(f"{curr_dir}/cuda_device_lib.h", "w") as file:
+    text_library_name = "cuda_device_math"
+    c_array_library_name = "cuda_device_math_embedded"
+    with open(f"{curr_dir}/{text_library_name}.h", "w") as file:
         # scalar types
         print("""#pragma once
 
@@ -21,7 +22,7 @@ if __name__ == "__main__":
         for type in scalar_types:
             for i in range(2, 5):
                 elements = ["x", "y", "z", "w"][:i]
-                print(f"""struct alignas({vector_alignments[i]}) {ns}{type}{i} {{
+                print(f"""struct alignas({vector_alignments[i] if type != 'bool' else vector_alignments[i] // 4}) {ns}{type}{i} {{
     {ns}{type} {', '.join(elements[:i + 1])};
     explicit constexpr {ns}{type}{i}({type} s) noexcept
         : {', '.join(f"{m}{{s}}" for m in elements)} {{}}
@@ -221,10 +222,360 @@ struct {ns}float{i}x{i} {{
 [[nodiscard]] constexpr auto {ns}make_float{i}x{i}({", ".join(f"{ns}float{i} c{j}" for j in range(i))}) noexcept {{ return {ns}float{i}x{i}{{{", ".join(f"c{j}" for j in range(i))}}}; }}""",
                   file=file)
             if i == 3:
-                print(f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float2x2 m) noexcept {{ return {ns}float3x3{{{ns}make_float3(m[0], 0.0f), {ns}make_float3(m[1], 0.0f), {ns}make_float3(0.0f, 0.0f, 1.0f)}}; }}", file=file)
+                print(
+                    f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float2x2 m) noexcept {{ return {ns}float3x3{{{ns}make_float3(m[0], 0.0f), {ns}make_float3(m[1], 0.0f), {ns}make_float3(0.0f, 0.0f, 1.0f)}}; }}",
+                    file=file)
             if i == 4:
-                print(f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float2x2 m) noexcept {{ return {ns}float4x4{{{ns}make_float4(m[0], 0.0f, 0.0f), {ns}make_float4(m[1], 0.0f, 0.0f), {ns}make_float4(0.0f, 0.0f, 0.0f, 0.0f), {ns}make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}", file=file)
-                print(f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float3x3 m) noexcept {{ return {ns}float4x4{{{ns}make_float4(m[0], 0.0f), {ns}make_float4(m[1], 0.0f), {ns}make_float4(m[2], 0.0f), {ns}make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}", file=file)
-            print(f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float{i}x{i} m) noexcept {{ return m; }}", file=file)
+                print(
+                    f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float2x2 m) noexcept {{ return {ns}float4x4{{{ns}make_float4(m[0], 0.0f, 0.0f), {ns}make_float4(m[1], 0.0f, 0.0f), {ns}make_float4(0.0f, 0.0f, 0.0f, 0.0f), {ns}make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}",
+                    file=file)
+                print(
+                    f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float3x3 m) noexcept {{ return {ns}float4x4{{{ns}make_float4(m[0], 0.0f), {ns}make_float4(m[1], 0.0f), {ns}make_float4(m[2], 0.0f), {ns}make_float4(0.0f, 0.0f, 0.0f, 1.0f)}}; }}",
+                    file=file)
+            print(f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float{i}x{i} m) noexcept {{ return m; }}",
+                  file=file)
             for t in range(i + 1, 5):
-                print(f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float{t}x{t} m) noexcept {{ return {ns}float{i}x{i}{{{', '.join(f'{ns}make_float{i}(m[{j}])' for j in range(i))}}}; }}", file=file)
+                print(
+                    f"[[nodiscard]] constexpr auto {ns}make_float{i}x{i}({ns}float{t}x{t} m) noexcept {{ return {ns}float{i}x{i}{{{', '.join(f'{ns}make_float{i}(m[{j}])' for j in range(i))}}}; }}",
+                    file=file)
+        print(file=file)
+
+
+        def generate_vector_call(name, c, types, args):
+            types = [{"i": "int",
+                      "u": "uint",
+                      "f": "float",
+                      "b": "bool"}[t] for t in types]
+
+            def call(i):
+                e = "xyzw"[i]
+                return f"{c}(" + ", ".join(f"{a}.{e}" for a in args) + ")"
+
+            for t in types:
+                print(
+                    f"[[nodiscard]] inline auto lc_{name}({', '.join(f'lc_{t} {a}' for a in args)}) noexcept {{ return {c}({', '.join(args)}); }}",
+                    file=file)
+                for n in range(2, 5):
+                    print(
+                        f"[[nodiscard]] inline auto lc_{name}({', '.join(f'lc_{t}{n} {a}' for a in args)}) noexcept {{ return lc_make_{t}{n}({', '.join(call(i) for i in range(n))}); }}",
+                        file=file)
+            print(file=file)
+
+
+        # select
+        print(
+            "template<typename T>\n[[nodiscard]] inline auto lc_select(T f, T t, bool p) noexcept { return p ? t : f; }",
+            file=file)
+        for t in ["int", "uint", "float"]:
+            for n in range(2, 5):
+                print(
+                    f"[[nodiscard]] inline auto lc_select(lc_{t}{n} f, lc_{t}{n} t, lc_bool{n} p) noexcept {{ return lc_make_{t}{n}({', '.join(f'lc_select<lc_{t}>(f.{e}, t.{e}, p.{e})' for e in 'xyzw'[:n])}); }}",
+                    file=file)
+        print(file=file)
+
+        # min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
+        # cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
+        # log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
+        # isinf/isnan
+        generate_vector_call("min", "min", "iu", ["a", "b"])
+        generate_vector_call("max", "max", "iu", ["a", "b"])
+        generate_vector_call("abs", "abs", "iu", ["x"])
+        generate_vector_call("min", "fminf", "f", ["a", "b"])
+        generate_vector_call("max", "fmaxf", "f", ["a", "b"])
+        generate_vector_call("abs", "fabsf", "f", ["x"])
+        generate_vector_call("acos", "acosf", "f", ["x"])
+        generate_vector_call("asin", "asinf", "f", ["x"])
+        generate_vector_call("atan", "atanf", "f", ["x"])
+        generate_vector_call("acosh", "acoshf", "f", ["x"])
+        generate_vector_call("asinh", "asinhf", "f", ["x"])
+        generate_vector_call("atanh", "atanhf", "f", ["x"])
+        generate_vector_call("atan2", "atan2f", "f", ["y", "x"])
+        generate_vector_call("cos", "cosf", "f", ["x"])
+        generate_vector_call("cosh", "coshf", "f", ["x"])
+        generate_vector_call("sin", "sinf", "f", ["x"])
+        generate_vector_call("sinh", "sinhf", "f", ["x"])
+        generate_vector_call("tan", "tanf", "f", ["x"])
+        generate_vector_call("tanh", "tanhf", "f", ["x"])
+        generate_vector_call("exp", "expf", "f", ["x"])
+        generate_vector_call("exp2", "exp2f", "f", ["x"])
+        generate_vector_call("exp10", "exp10f", "f", ["x"])
+        generate_vector_call("log", "logf", "f", ["x"])
+        generate_vector_call("log2", "log2f", "f", ["x"])
+        generate_vector_call("log10", "log10f", "f", ["x"])
+        generate_vector_call("pow", "powf", "f", ["x", "a"])
+        generate_vector_call("sqrt", "sqrtf", "f", ["x", "a"])
+        generate_vector_call("rsqrt", "rsqrtf", "f", ["x", "a"])
+        generate_vector_call("ceil", "ceilf", "f", ["x"])
+        generate_vector_call("floor", "floorf", "f", ["x"])
+        generate_vector_call("trunc", "truncf", "f", ["x"])
+        generate_vector_call("round", "roundf", "f", ["x"])
+        generate_vector_call("fma", "fmaf", "f", ["x", "y", "z"])
+        generate_vector_call("copysign", "copysignf", "f", ["x", "y"])
+        generate_vector_call("isinf", "isinf", "f", ["x"])
+        generate_vector_call("isnan", "isnan", "f", ["x"])
+
+        # clamp
+        for t in ["int", "uint", "float"]:
+            print(
+                f"[[nodiscard]] inline auto lc_clamp_impl(lc_{t} v, lc_{t} lo, lc_{t} hi) noexcept {{ return v < lo ? lo : hi < v ? hi : v; }}",
+                file=file)
+        generate_vector_call("clamp", "lc_clamp_impl", "iuf", ["v", "lo", "hi"])
+
+        # lerp
+        print(
+            f"[[nodiscard]] inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept {{ return a + t * (b - a); }}",
+            file=file)
+        generate_vector_call("lerp", "lc_lerp_impl", "f", ["a", "b", "t"])
+
+        # saturate
+        print(
+            "[[nodiscard]] inline auto lc_saturate(lc_float x) noexcept { return lc_clamp(x, 0.0f, 1.0f); }",
+            file=file)
+        for n in range(2, 5):
+            print(
+                f"[[nodiscard]] inline auto lc_saturate(lc_float{n} x) noexcept {{ return lc_clamp(x, lc_make_float{n}(0.0f), lc_make_float{n}(1.0f)); }}",
+                file=file)
+        print(file=file)
+
+        # degrees/radians
+        print(
+            f"[[nodiscard]] inline auto lc_degrees_impl(lc_float rad) noexcept {{ return rad * (180.0f * 0.318309886183790671537767526745028724f); }}",
+            file=file)
+        generate_vector_call("degrees", "lc_degrees_impl", "f", ["rad"])
+        print(
+            f"[[nodiscard]] inline auto lc_radians_impl(lc_float deg) noexcept {{ return deg * (3.14159265358979323846264338327950288f / 180.0f); }}",
+            file=file)
+        generate_vector_call("radians", "lc_radians_impl", "f", ["deg"])
+
+        # step
+        print(
+            f"[[nodiscard]] inline auto lc_step_impl(lc_float edge, lc_float x) noexcept {{ return x < edge ? 0.0f : 1.0f; }}",
+            file=file)
+        generate_vector_call("step", "lc_step_impl", "f", ["edge", "x"])
+
+        # smoothstep
+        print(
+            f"""[[nodiscard]] inline auto lc_smoothstep_impl(lc_float edge0, lc_float edge1, lc_float x) noexcept {{
+    auto t = lc_clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}}""",
+            file=file)
+        generate_vector_call("smoothstep", "lc_smoothstep_impl", "f", ["edge0", "edge1", "x"])
+
+        # mod
+        print(
+            f"[[nodiscard]] inline auto lc_mod_impl(lc_float x, lc_float y) noexcept {{ return x - y * lc_floor(x / y); }}",
+            file=file)
+        generate_vector_call("mod", "lc_mod_impl", "f", ["x", "y"])
+
+        # fmod
+        generate_vector_call("fmod", "fmodf", "f", ["x", "y"])
+
+        # fract
+        print(
+            f"[[nodiscard]] inline auto lc_fract_impl(lc_float x) noexcept {{ return x - lc_floor(x); }}",
+            file=file)
+        generate_vector_call("fract", "lc_fract_impl", "f", ["x"])
+
+        # clz/popcount/reverse
+        generate_vector_call("clz", "__clz", "u", ["x"])
+        generate_vector_call("popcount", "__popc", "u", ["x"])
+        generate_vector_call("reverse", "__brev", "u", ["x"])
+
+        # ctz
+        print(
+            f"[[nodiscard]] inline auto lc_ctz_impl(lc_uint x) noexcept {{ return 32u - __clz(x); }}",
+            file=file)
+        generate_vector_call("ctz", "lc_ctz_impl", "u", ["x"])
+
+        # cross
+        print(
+            "[[nodiscard]] constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept { return lc_make_float3(u.y * v.z - v.y * u.z, u.z * v.x - v.z * u.x, u.x * v.y - v.x * u.y); }",
+            file=file)
+        print(file=file)
+
+        # dot
+        for n in range(2, 5):
+            print(
+                f"[[nodiscard]] inline auto lc_dot(lc_float{n} a, lc_float{n} b) noexcept {{ return {' + '.join(f'a.{e} * b.{e}' for e in 'xyzw'[:n])}; }}",
+                file=file)
+        print(file=file)
+
+        # length
+        print(f"[[nodiscard]] inline auto lc_length(lc_float2 v) noexcept {{ return hypotf(v.x, v.y); }}", file=file)
+        print(f"[[nodiscard]] inline auto lc_length(lc_float3 v) noexcept {{ return norm3df(v.x, v.y, v.z); }}",
+              file=file)
+        print(f"[[nodiscard]] inline auto lc_length(lc_float4 v) noexcept {{ return norm4df(v.x, v.y, v.z, v.w); }}",
+              file=file)
+        print(file=file)
+
+        # length_squared
+        for n in range(2, 5):
+            print(f"[[nodiscard]] inline auto lc_length_squared(lc_float{n} v) noexcept {{ return lc_dot(v, v); }}",
+                  file=file)
+        print(file=file)
+
+        # distance
+        for n in range(2, 5):
+            print(
+                f"[[nodiscard]] inline auto lc_distance(lc_float{n} a, lc_float{n} b) noexcept {{ return lc_length(a - b); }}",
+                file=file)
+        print(file=file)
+
+        # distance_squared
+        for n in range(2, 5):
+            print(
+                f"[[nodiscard]] inline auto lc_distance_squared(lc_float{n} a, lc_float{n} b) noexcept {{ return lc_length_squared(a - b); }}",
+                file=file)
+        print(file=file)
+
+        # normalize
+        for n in range(2, 5):
+            inv_norm = {
+                2: "rhypotf",
+                3: "rnorm3df",
+                4: "rnorm4df"
+            }[n]
+            print(
+                f"[[nodiscard]] inline auto lc_normalize(lc_float{n} v) noexcept {{ return v * {inv_norm}({', '.join(f'v.{e}' for e in 'xyzw'[:n])}); }}",
+                file=file)
+        print(file=file)
+
+        # faceforward
+        print(
+            "[[nodiscard]] inline auto lc_faceforward(lc_float3 n, lc_float3 i, lc_float3 n_ref) noexcept { return lc_dot(n_ref, i) < 0.0f ? n : -n; }",
+            file=file)
+        print(file=file)
+
+        # transpose
+        print("""[[nodiscard]] constexpr auto lc_transpose(const lc_float2x2 m) noexcept { return lc_make_float2x2(m[0].x, m[1].x, m[0].y, m[1].y); }
+[[nodiscard]] constexpr auto lc_transpose(const lc_float3x3 m) noexcept { return lc_make_float3x3(m[0].x, m[1].x, m[2].x, m[0].y, m[1].y, m[2].y, m[0].z, m[1].z, m[2].z); }
+[[nodiscard]] constexpr auto lc_transpose(const lc_float4x4 m) noexcept { return lc_make_float4x4(m[0].x, m[1].x, m[2].x, m[3].x, m[0].y, m[1].y, m[2].y, m[3].y, m[0].z, m[1].z, m[2].z, m[3].z, m[0].w, m[1].w, m[2].w, m[3].w); }
+""", file=file)
+
+        # determinant/inverse
+        print("""[[nodiscard]] constexpr auto lc_determinant(const lc_float2x2 m) noexcept {
+    return m[0][0] * m[1][1] - m[1][0] * m[0][1];
+}
+
+[[nodiscard]] constexpr auto lc_determinant(const lc_float3x3 m) noexcept {// from GLM
+    return m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
+         - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
+         + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z);
+}
+
+[[nodiscard]] constexpr auto lc_determinant(const lc_float4x4 m) noexcept {// from GLM
+    const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+    const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+    const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+    const auto coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+    const auto coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+    const auto coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+    const auto coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+    const auto coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+    const auto coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+    const auto coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+    const auto coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+    const auto coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+    const auto coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+    const auto coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+    const auto coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+    const auto coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+    const auto coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+    const auto coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+    const auto fac0 = lc_make_float4(coef00, coef00, coef02, coef03);
+    const auto fac1 = lc_make_float4(coef04, coef04, coef06, coef07);
+    const auto fac2 = lc_make_float4(coef08, coef08, coef10, coef11);
+    const auto fac3 = lc_make_float4(coef12, coef12, coef14, coef15);
+    const auto fac4 = lc_make_float4(coef16, coef16, coef18, coef19);
+    const auto fac5 = lc_make_float4(coef20, coef20, coef22, coef23);
+    const auto Vec0 = lc_make_float4(m[1].x, m[0].x, m[0].x, m[0].x);
+    const auto Vec1 = lc_make_float4(m[1].y, m[0].y, m[0].y, m[0].y);
+    const auto Vec2 = lc_make_float4(m[1].z, m[0].z, m[0].z, m[0].z);
+    const auto Vec3 = lc_make_float4(m[1].w, m[0].w, m[0].w, m[0].w);
+    const auto inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+    const auto inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+    const auto inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+    const auto inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+    constexpr auto sign_a = lc_make_float4(+1.0f, -1.0f, +1.0f, -1.0f);
+    constexpr auto sign_b = lc_make_float4(-1.0f, +1.0f, -1.0f, +1.0f);
+    const auto inv_0 = inv0 * sign_a;
+    const auto inv_1 = inv1 * sign_b;
+    const auto inv_2 = inv2 * sign_a;
+    const auto inv_3 = inv3 * sign_b;
+    const auto dot0 = m[0] * lc_make_float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x);
+    return dot0.x + dot0.y + dot0.z + dot0.w;
+}
+
+[[nodiscard]] constexpr auto lc_inverse(const lc_float2x2 m) noexcept {
+    const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
+    return lc_make_float2x2(m[1][1] * one_over_determinant,
+                           -m[0][1] * one_over_determinant,
+                           -m[1][0] * one_over_determinant,
+                           +m[0][0] * one_over_determinant);
+}
+
+[[nodiscard]] constexpr auto lc_inverse(const lc_float3x3 m) noexcept {// from GLM
+    const auto one_over_determinant = 1.0f
+                                      / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
+                                       - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
+                                       + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
+    return lc_make_float3x3(
+        (m[1].y * m[2].z - m[2].y * m[1].z) * one_over_determinant,
+        (m[2].y * m[0].z - m[0].y * m[2].z) * one_over_determinant,
+        (m[0].y * m[1].z - m[1].y * m[0].z) * one_over_determinant,
+        (m[2].x * m[1].z - m[1].x * m[2].z) * one_over_determinant,
+        (m[0].x * m[2].z - m[2].x * m[0].z) * one_over_determinant,
+        (m[1].x * m[0].z - m[0].x * m[1].z) * one_over_determinant,
+        (m[1].x * m[2].y - m[2].x * m[1].y) * one_over_determinant,
+        (m[2].x * m[0].y - m[0].x * m[2].y) * one_over_determinant,
+        (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant);
+}
+
+[[nodiscard]] constexpr auto lc_inverse(const lc_float4x4 m) noexcept {// from GLM
+    const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+    const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+    const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+    const auto coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+    const auto coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+    const auto coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+    const auto coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+    const auto coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+    const auto coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+    const auto coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+    const auto coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+    const auto coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+    const auto coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+    const auto coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+    const auto coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+    const auto coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+    const auto coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+    const auto coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+    const auto fac0 = lc_make_float4(coef00, coef00, coef02, coef03);
+    const auto fac1 = lc_make_float4(coef04, coef04, coef06, coef07);
+    const auto fac2 = lc_make_float4(coef08, coef08, coef10, coef11);
+    const auto fac3 = lc_make_float4(coef12, coef12, coef14, coef15);
+    const auto fac4 = lc_make_float4(coef16, coef16, coef18, coef19);
+    const auto fac5 = lc_make_float4(coef20, coef20, coef22, coef23);
+    const auto Vec0 = lc_make_float4(m[1].x, m[0].x, m[0].x, m[0].x);
+    const auto Vec1 = lc_make_float4(m[1].y, m[0].y, m[0].y, m[0].y);
+    const auto Vec2 = lc_make_float4(m[1].z, m[0].z, m[0].z, m[0].z);
+    const auto Vec3 = lc_make_float4(m[1].w, m[0].w, m[0].w, m[0].w);
+    const auto inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+    const auto inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+    const auto inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+    const auto inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+    constexpr auto sign_a = lc_make_float4(+1.0f, -1.0f, +1.0f, -1.0f);
+    constexpr auto sign_b = lc_make_float4(-1.0f, +1.0f, -1.0f, +1.0f);
+    const auto inv_0 = inv0 * sign_a;
+    const auto inv_1 = inv1 * sign_b;
+    const auto inv_2 = inv2 * sign_a;
+    const auto inv_3 = inv3 * sign_b;
+    const auto dot0 = m[0] * lc_make_float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x);
+    const auto dot1 = dot0.x + dot0.y + dot0.z + dot0.w;
+    const auto one_over_determinant = 1.0f / dot1;
+    return lc_make_float4x4(inv_0 * one_over_determinant,
+                            inv_1 * one_over_determinant,
+                            inv_2 * one_over_determinant,
+                            inv_3 * one_over_determinant);
+}""", file=file)

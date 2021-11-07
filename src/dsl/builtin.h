@@ -852,13 +852,6 @@ template<typename Tv>
         CallOp::SATURATE, std::forward<Tv>(v));
 }
 
-template<typename Tv>
-    requires is_dsl_v<Tv> && is_float_or_vector_expr_v<Tv>
-[[nodiscard]] inline auto sign(Tv &&v) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::SIGN, std::forward<Tv>(v));
-}
-
 template<typename E, typename X>
     requires any_dsl_v<E, X> && is_float_or_vector_expr_v<E> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto step(E &&edge, X &&x) noexcept {
@@ -893,7 +886,7 @@ template<typename Tx>
 }
 
 template<typename X, typename Y>
-    requires any_dsl_v<X, Y> && is_vector_expr_same_element_v<X, Y>
+    requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y>
 [[nodiscard]] inline auto mod(X &&x, Y &&y) noexcept {
     return detail::make_vector_call<vector_expr_element_t<X>>(
         CallOp::MOD,
@@ -902,7 +895,7 @@ template<typename X, typename Y>
 }
 
 template<typename X, typename Y>
-    requires any_dsl_v<X, Y> && is_vector_expr_same_element_v<X, Y>
+    requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y>
 [[nodiscard]] inline auto fmod(X &&x, Y &&y) noexcept {
     return detail::make_vector_call<vector_expr_element_t<X>>(
         CallOp::FMOD,

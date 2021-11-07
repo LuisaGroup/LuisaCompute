@@ -201,9 +201,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
         case CallOp::SATURATE:
             result << "saturate"sv;
             break;
-        case CallOp::SIGN:
-            result << "sign"sv;
-            break;
         case CallOp::STEP:
             result << "step"sv;
             break;
