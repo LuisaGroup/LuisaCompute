@@ -19,6 +19,7 @@ CUDAMipmapArray::~CUDAMipmapArray() noexcept {
 }
 
 CUsurfObject CUDAMipmapArray::surface(uint32_t level) const noexcept {
+    std::scoped_lock lock{_mutex};
     if (auto s = _surfaces[level]; s != 0u) { return s; }
     CUarray mipmap;
     LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&mipmap, _array, level));

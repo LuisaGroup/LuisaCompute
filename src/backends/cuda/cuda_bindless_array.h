@@ -15,6 +15,7 @@
 namespace luisa::compute::cuda {
 
 class CUDADevice;
+class CUDAStream;
 
 class CUDABindlessArray {
 
@@ -28,12 +29,10 @@ public:
 
 private:
     CUdeviceptr _handle;
-    CUevent _event{};
     luisa::vector<Item> _slots;
     luisa::unordered_map<uint64_t, size_t> _buffers;
     luisa::unordered_map<uint64_t, size_t> _arrays;
     luisa::unordered_map<CUtexObject, CUDAMipmapArray *> _tex_to_array;
-    bool _dirty{true};
 
 public:
     static void _retain(luisa::unordered_map<uint64_t, size_t> &resources, uint64_t r) noexcept;
@@ -47,7 +46,7 @@ public:
     CUDABindlessArray(CUdeviceptr handle, size_t capacity) noexcept;
     ~CUDABindlessArray() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    void encode_update(CUstream stream) noexcept;
+    [[nodiscard]] auto slots() const noexcept { return std::span{_slots}; }
     void emplace_buffer(size_t index, CUdeviceptr buffer, size_t offset) noexcept;
     void emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
     void emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;

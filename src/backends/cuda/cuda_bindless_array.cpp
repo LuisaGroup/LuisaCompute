@@ -3,8 +3,9 @@
 //
 
 #include <runtime/bindless_array.h>
-#include <backends/cuda/cuda_bindless_array.h>
+#include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_bindless_array.h>
 
 namespace luisa::compute::cuda {
 
@@ -88,7 +89,6 @@ void CUDABindlessArray::remove_buffer(size_t index) noexcept {
         _release_buffer(_slots[index].origin);
         _slots[index].buffer = 0u;
         _slots[index].origin = 0u;
-        _dirty = true;
     }
 }
 
@@ -99,7 +99,6 @@ void CUDABindlessArray::remove_tex2d(size_t index) noexcept {
         _release_array(iter->second);
         _tex_to_array.erase(iter);
         _slots[index].tex2d = 0u;
-        _dirty = true;
     }
 }
 
@@ -110,7 +109,6 @@ void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
         _release_array(iter->second);
         _tex_to_array.erase(iter);
         _slots[index].tex3d = 0u;
-        _dirty = true;
     }
 }
 
@@ -121,7 +119,6 @@ void CUDABindlessArray::emplace_buffer(size_t index, CUdeviceptr buffer, size_t 
     _slots[index].buffer = buffer + offset;
     _slots[index].origin = buffer;
     _retain_buffer(buffer);
-    _dirty = true;
 }
 
 void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
@@ -139,7 +136,6 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
     _slots[index].tex2d = texture;
     _tex_to_array.emplace(texture, array);
     _retain_array(array);
-    _dirty = true;
 }
 
 void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
@@ -157,18 +153,6 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
     _slots[index].tex3d = texture;
     _tex_to_array.emplace(texture, array);
     _retain_array(array);
-    _dirty = true;
-}
-
-void CUDABindlessArray::encode_update(CUstream stream) noexcept {
-    if (_dirty) {
-        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            _handle, _slots.data(),
-            _slots.size() * sizeof(Item), stream));
-        _dirty = false;
-        LUISA_CHECK_CUDA(cuEventRecord(_event, stream));
-    }
-    LUISA_CHECK_CUDA(cuStreamWaitEvent(stream, _event, CU_EVENT_WAIT_DEFAULT));
 }
 
 CUDABindlessArray::~CUDABindlessArray() noexcept {
@@ -176,12 +160,9 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(item.first));
     }
     LUISA_CHECK_CUDA(cuMemFreeAsync(_handle, nullptr));
-    LUISA_CHECK_CUDA(cuEventDestroy(_event));
 }
 
 CUDABindlessArray::CUDABindlessArray(CUdeviceptr handle, size_t capacity) noexcept
-    : _handle{handle}, _slots(capacity, Item{}) {
-    LUISA_CHECK_CUDA(cuEventCreate(&_event, CU_EVENT_DISABLE_TIMING));
-}
+    : _handle{handle}, _slots(capacity, Item{}) {}
 
 }// namespace luisa::compute::cuda
