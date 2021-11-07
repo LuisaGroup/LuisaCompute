@@ -36,7 +36,7 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          brew install cmake ninja opencv llvm sccache
+          brew install cmake ninja opencv llvm
       - name: "Configure and Build"
         run: |
           export PATH=$PATH:/usr/local/opt/llvm/bin
