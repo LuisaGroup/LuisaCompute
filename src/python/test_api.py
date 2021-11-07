@@ -1,5 +1,6 @@
 import numpy as np
 import LuisaCompute as lc
+from os import environ
 from astpretty import pprint
 import inspect
 import ast
@@ -22,7 +23,10 @@ def aces_tonemapping(x: float) -> float:
 
 if __name__ == "__main__":
     lc.set_log_level_verbose()
-    device = lc.Device("cuda", 0)
+    if "LUISA_COMPUTE_BACKEND" in environ:
+        device = lc.Device(environ["LUISA_COMPUTE_BACKEND"])
+    else:
+        device = lc.Device("cuda", 0)
     buffer = device.create_buffer(lc.float4, 4096)
     image = device.create_image(lc.PIXEL_FORMAT_RGBA32F, 256)
     exit()
