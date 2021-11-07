@@ -131,11 +131,11 @@ def ast_buffer_binding(elem_t, buffer, offset_bytes):
 
 
 dll.luisa_compute_ast_texture_binding.restype = c_void_p
-dll.luisa_compute_ast_texture_binding.argtypes = [c_void_p, c_uint64]
+dll.luisa_compute_ast_texture_binding.argtypes = [c_void_p, c_uint64, c_uint32]
 
 
-def ast_texture_binding(t, texture):
-    return dll.luisa_compute_ast_texture_binding(t, texture)
+def ast_texture_binding(t, texture, level):
+    return dll.luisa_compute_ast_texture_binding(t, texture, level)
 
 
 dll.luisa_compute_ast_bindless_array_binding.restype = c_void_p

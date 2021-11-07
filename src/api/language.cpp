@@ -154,9 +154,9 @@ const void *luisa_compute_ast_buffer_binding(const void *elem_t, uint64_t buffer
     return f->buffer_binding(static_cast<const Type *>(elem_t), buffer, offset_bytes);
 }
 
-const void *luisa_compute_ast_texture_binding(const void *t, uint64_t texture) LUISA_NOEXCEPT {
+const void *luisa_compute_ast_texture_binding(const void *t, uint64_t texture, uint32_t level) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
-    return f->texture_binding(static_cast<const Type *>(t), texture);
+    return f->texture_binding(static_cast<const Type *>(t), texture, level);
 }
 
 const void *luisa_compute_ast_bindless_array_binding(uint64_t array) LUISA_NOEXCEPT {

@@ -251,8 +251,8 @@ void luisa_compute_command_dispatch_shader_encode_buffer(void *cmd, uint32_t vid
     static_cast<ShaderDispatchCommand *>(cmd)->encode_buffer(vid, buffer, offset, static_cast<Usage>(usage));
 }
 
-void luisa_compute_command_dispatch_shader_encode_texture(void *cmd, uint32_t vid, uint64_t tex, uint32_t usage) LUISA_NOEXCEPT {
-    static_cast<ShaderDispatchCommand *>(cmd)->encode_texture(vid, tex, static_cast<Usage>(usage));
+void luisa_compute_command_dispatch_shader_encode_texture(void *cmd, uint32_t vid, uint64_t tex, uint32_t level, uint32_t usage) LUISA_NOEXCEPT {
+    static_cast<ShaderDispatchCommand *>(cmd)->encode_texture(vid, tex, level, static_cast<Usage>(usage));
 }
 
 void luisa_compute_command_dispatch_shader_encode_uniform(void *cmd, uint32_t vid, const void *data, size_t size, size_t alignment) LUISA_NOEXCEPT {

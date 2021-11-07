@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/7/1.
 //
 
-#include <backends/metal/metal_device.h>
-#include <backends/metal/metal_bindless_array.h>
+#import <backends/metal/metal_device.h>
+#import <backends/metal/metal_bindless_array.h>
 
 namespace luisa::compute::metal {
 

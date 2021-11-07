@@ -258,11 +258,14 @@ const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handle) noexcept {
+const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handle, uint32_t level) noexcept {
     if (auto iter = std::find_if(
             _captured_textures.cbegin(),
             _captured_textures.cend(),
-            [handle](auto &&binding) { return binding.handle == handle; });
+            [handle, level](auto &&binding) {
+                return binding.handle == handle &&
+                       binding.level == level;
+            });
         iter != _captured_textures.cend()) {
         auto v = iter->variable;
         if (*v.type() != *type) [[unlikely]] {
@@ -274,7 +277,7 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
         return _ref(v);
     }
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
-    _captured_textures.emplace_back(TextureBinding{v, handle});
+    _captured_textures.emplace_back(TextureBinding{v, handle, level});
     return _ref(v);
 }
 

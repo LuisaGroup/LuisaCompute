@@ -82,7 +82,7 @@ LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_set_size(void *cmd, 
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_encode_buffer(
     void *cmd, uint32_t vid, uint64_t buffer, size_t offset, uint32_t usage) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_encode_texture(
-    void *cmd, uint32_t vid, uint64_t tex, uint32_t usage) LUISA_NOEXCEPT;
+    void *cmd, uint32_t vid, uint64_t tex, uint32_t level, uint32_t usage) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_encode_uniform(
     void *cmd, uint32_t vid,
     const void *data, size_t size, size_t alignment) LUISA_NOEXCEPT;

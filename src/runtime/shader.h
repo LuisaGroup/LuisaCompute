@@ -62,7 +62,7 @@ public:
         }
         for (auto texture : _kernel.captured_textures()) {
             _dispatch_command()->encode_texture(
-                texture.variable.uid(), texture.handle,
+                texture.variable.uid(), texture.handle, texture.level,
                 _kernel.variable_usage(texture.variable.uid()));
         }
         for (auto bindless_array : _kernel.captured_bindless_arrays()) {
@@ -88,7 +88,7 @@ public:
     ShaderInvokeBase &operator<<(ImageView<T> image) noexcept {
         auto variable_uid = _kernel.arguments()[_argument_index++].uid();
         auto usage = _kernel.variable_usage(variable_uid);
-        _dispatch_command()->encode_texture(variable_uid, image.handle(), usage);
+        _dispatch_command()->encode_texture(variable_uid, image.handle(), image.level(), usage);
         return *this << image.offset();
     }
 
@@ -96,7 +96,7 @@ public:
     ShaderInvokeBase &operator<<(VolumeView<T> volume) noexcept {
         auto variable_uid = _kernel.arguments()[_argument_index++].uid();
         auto usage = _kernel.variable_usage(variable_uid);
-        _dispatch_command()->encode_texture(variable_uid, volume.handle(), usage);
+        _dispatch_command()->encode_texture(variable_uid, volume.handle(), volume.level(), usage);
         return *this << volume.offset();
     }
 

@@ -5,6 +5,7 @@
 #import <core/platform.h>
 #import <core/clock.h>
 #import <ast/function.h>
+#import <backends/metal/metal_accel.h>
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_command_encoder.h>
@@ -209,7 +210,13 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding texture #{} at index {}.",
                 argument.handle, texture_index);
-            auto texture = to_texture(argument.handle);
+            id<MTLTexture> texture = to_texture(argument.handle);
+            if (auto level = argument.level) {
+                texture = [texture newTextureViewWithPixelFormat:[texture pixelFormat]
+                                                     textureType:[texture textureType]
+                                                          levels:NSMakeRange(level, 1u)
+                                                          slices:NSMakeRange(0u, 1u)];
+            }
             [compute_encoder setTexture:texture
                                 atIndex:texture_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
@@ -265,9 +272,7 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
     auto rb = &_stream->upload_ring_buffer();
     auto buffer = rb->allocate(size);
     if (buffer.handle() == nullptr) {
-        auto options = MTLResourceStorageModeShared
-                       | MTLResourceCPUCacheModeWriteCombined
-                       | MTLResourceHazardTrackingModeUntracked;
+        auto options = MTLResourceStorageModeShared | MTLResourceCPUCacheModeWriteCombined | MTLResourceHazardTrackingModeUntracked;
         auto handle = [_device->handle() newBufferWithBytes:host_ptr length:size options:options];
         return {handle, 0u, size};
     }

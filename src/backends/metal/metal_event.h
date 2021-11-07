@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <core/allocator.h>
+#import <core/allocator.h>
 
 #import <Metal/Metal.h>
 #import <core/spin_mutex.h>

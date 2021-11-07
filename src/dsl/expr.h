@@ -433,7 +433,7 @@ public:
         : _expression{expr}, _offset{offset} {}
     explicit Expr(ImageView<T> image) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
-              Type::of<Image<T>>(), image.handle())},
+              Type::of<Image<T>>(), image.handle(), image.level())},
           _offset{any(image.offset()) ? detail::FunctionBuilder::current()->literal(Type::of<uint2>(), image.offset()) : nullptr} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
@@ -476,7 +476,7 @@ public:
         : _expression{expr}, _offset{offset} {}
     explicit Expr(VolumeView<T> volume) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
-              Type::of<Volume<T>>(), volume.handle())},
+              Type::of<Volume<T>>(), volume.handle(), volume.level())},
           _offset{any(volume.offset()) ? detail::FunctionBuilder::current()->literal(Type::of<uint3>(), volume.offset()) : nullptr} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }

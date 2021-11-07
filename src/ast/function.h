@@ -45,11 +45,12 @@ public:
     struct TextureBinding {
         Variable variable;
         uint64_t handle;
-        TextureBinding(Variable v, uint64_t handle) noexcept
-            : variable{v}, handle{handle} {}
+        uint32_t level;
+        TextureBinding(Variable v, uint64_t handle, uint32_t level) noexcept
+            : variable{v}, handle{handle}, level{level} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
-            return hash64(handle, hash64(variable.hash(), hash64("__hash_texture_binding")));
+            return hash64(level, hash64(handle, hash64(variable.hash(), hash64("__hash_texture_binding"))));
         }
     };
 

@@ -53,15 +53,15 @@ int main(int argc, char *argv[]) {
     auto clear_image = device.compile(clear_image_kernel);
     auto fill_image = device.compile(fill_image_kernel);
 
-    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
+    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u * 2u, 1024u * 2u, 2u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
     auto event = device.create_event();
     auto stream = device.create_stream();
 
-    stream << clear_image(device_image).dispatch(1024u, 1024u)
-           << fill_image(device_image.view(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
-           << device_image.view().copy_to(host_image.data())
+    stream << clear_image(device_image.view(1u)).dispatch(1024u, 1024u)
+           << fill_image(device_image.view(1u).region(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
+           << device_image.view(1u).copy_to(host_image.data())
            << event.signal();
 
     event.synchronize();

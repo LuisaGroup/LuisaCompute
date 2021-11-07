@@ -397,10 +397,12 @@ public:
 
     struct TextureArgument : Argument {
         uint64_t handle{};
+        uint32_t level{};
         TextureArgument() noexcept : Argument{Tag::TEXTURE, 0u} {}
-        TextureArgument(uint32_t vid, uint64_t handle) noexcept
+        TextureArgument(uint32_t vid, uint64_t handle, uint32_t level) noexcept
             : Argument{Tag::TEXTURE, vid},
-              handle{handle} {}
+              handle{handle},
+              level{level} {}
     };
 
     struct UniformArgument : Argument {
@@ -454,7 +456,7 @@ public:
     //   4. captured acceleration structures
     //   4. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
+    void encode_texture(uint32_t variable_uid, uint64_t handle, uint32_t level, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
     void encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept;
     void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;

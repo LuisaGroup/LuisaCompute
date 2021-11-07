@@ -46,9 +46,7 @@ private:
                   pixel_storage_to_format<T>(storage), 2u,
                   size.x, size.y, 1u,
                   detail::max_mip_levels(make_uint3(size, 1u), mip_levels))},
-          _size{size},
-          _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)},
-          _storage{storage} {}
+          _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {}
 
 public:
     Image() noexcept = default;
@@ -60,18 +58,19 @@ public:
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return ImageView<T>{handle(), _storage, _mip_levels, {}, _size}; }
-    [[nodiscard]] auto view(uint2 offset, uint2 size) const noexcept {
-        if (any(offset + size >= _size)) [[unlikely]] {
+    [[nodiscard]] auto view(uint32_t level = 0u) const noexcept {
+        if (level >= _mip_levels) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid offset[{}, {}] and size[{}, {}] of view "
-                "for image #{} with size[{}, {}].",
-                offset.x, offset.y, size.x, size.y,
-                handle(), _size.x, _size.y);
+                "Invalid mipmap level {} for image with {} levels.",
+                level, _mip_levels);
         }
-        return ImageView<T>{handle(), _storage, _mip_levels, offset, size};
+        auto mip_size = luisa::max(_size >> level, 1u);
+        return ImageView<T>{handle(), _storage, level, {}, mip_size};
     }
-    [[nodiscard]] auto level(uint l) const noexcept { return view().level(l); }
+
+    [[nodiscard]] auto region(uint2 offset, uint2 size) const noexcept {
+        return this->view().region(offset, size);
+    }
 
     template<typename UV>
     [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
@@ -86,9 +85,9 @@ public:
     }
 
     template<typename U>
-    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return view().copy_to(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return this->view().copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] auto copy_from(U &&dst) const noexcept { return view().copy_from(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_from(U &&dst) const noexcept { return this->view().copy_from(std::forward<U>(dst)); }
 };
 
 template<typename T>
@@ -98,30 +97,36 @@ private:
     uint64_t _handle;
     uint2 _size;
     uint2 _offset;
-    uint _mip_levels;
+    uint _level;
     PixelStorage _storage;
 
 private:
     friend class Image<T>;
-    friend class Heap;
+    friend class detail::MipmapView;
 
     constexpr ImageView(
         uint64_t handle,
         PixelStorage storage,
-        uint mip_levels,
+        uint level,
         uint2 offset,
         uint2 size) noexcept
         : _handle{handle},
           _size{size},
           _offset{offset},
-          _mip_levels{mip_levels},
+          _level{level},
           _storage{storage} {
 
         if (any(_offset >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid offset[{}, {}] and size[{}, {}] for image #{}.",
-                _offset.x, _offset.y, _size.x, _size.y, _handle);
+                "Invalid offset[{}, {}] and size[{}, {}] for image #{} at level {}.",
+                _offset.x, _offset.y, _size.x, _size.y, _handle, _level);
         }
+    }
+
+    [[nodiscard]] auto _as_mipmap() const noexcept {
+        return detail::MipmapView{
+            _handle, make_uint3(_size, 1u),
+            make_uint3(_offset, 0u), _level, _storage};
     }
 
 public:
@@ -131,28 +136,15 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
-    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
-    [[nodiscard]] auto level(uint32_t l) const noexcept {
-        if (l >= _mip_levels) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid mipmap level {} (max = {}).",
-                l, _mip_levels - 1u);
-        }
-        return detail::MipmapView{
-            _handle,
-            max(make_uint3(_size, 1u) >> l, 1u),
-            make_uint3(_offset, 0u) >> l,
-            l, _storage};
-    }
-
-    [[nodiscard]] auto subview(uint2 offset, uint2 size) const noexcept {
-        return ImageView{_handle, _storage, _offset + offset, size};
+    [[nodiscard]] auto level() const noexcept { return _level; }
+    [[nodiscard]] auto region(uint2 offset, uint2 size) const noexcept {
+        return ImageView{_handle, _storage, _level, _offset + offset, size};
     }
 
     template<typename U>
-    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return level(0u).copy_to(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return _as_mipmap().copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] auto copy_from(U &&src) const noexcept { return level(0u).copy_from(std::forward<U>(src)); }
+    [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
 
     template<typename UV>
     [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
