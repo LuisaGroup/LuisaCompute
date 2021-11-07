@@ -11,7 +11,7 @@ namespace luisa::compute::metal {
 class MetalDevice;
 class MetalStream;
 
-class MetalCommandEncoder : public CommandVisitor {
+class MetalCommandEncoder final : public CommandVisitor {
 
 private:
     MetalDevice *_device;

@@ -8,7 +8,6 @@ if __name__ == "__main__":
         print("""#pragma once
 
 #include <cmath>
-#include <cstdint>
 """, file=file)
         ns = "lc_"
         scalar_types = ["int", "uint", "float", "bool"]

@@ -5,10 +5,15 @@
 #import <core/platform.h>
 #import <core/clock.h>
 #import <ast/function.h>
+
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
 #import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_accel.h>
+#endif
+
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_stream.h>
+#import <backends/metal/metal_bindless_array.h>
 #import <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {

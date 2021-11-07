@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cmath>
-#include <cstdint>
 
 using lc_int = int;
 using lc_uint = unsigned int;
