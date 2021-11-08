@@ -303,6 +303,20 @@ MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noex
     return buffer;
 }
 
+void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
+    auto array = to_bindless_array(command->handle());
+    auto offset_bytes = MetalBindlessArray::slot_size * command->offset();
+    auto size_bytes = MetalBindlessArray::slot_size * command->count();
+    auto temp_buffer = _upload(static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
+    auto blit_encoder = [_command_buffer blitCommandEncoder];
+    [blit_encoder copyFromBuffer:temp_buffer.handle()
+                    sourceOffset:temp_buffer.offset()
+                        toBuffer:array->desc_buffer()
+               destinationOffset:offset_bytes
+                            size:size_bytes];
+    [blit_encoder endEncoding];
+}
+
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
 
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
@@ -339,20 +353,6 @@ void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
         v_buffer, command->vertex_buffer_offset(), command->vertex_stride(),
         t_buffer, command->triangle_buffer_offset(), command->triangle_count(),
         _device->compacted_size_buffer_pool());
-}
-
-void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
-    auto array = to_bindless_array(command->handle());
-    auto offset_bytes = MetalBindlessArray::slot_size * command->offset();
-    auto size_bytes = MetalBindlessArray::slot_size * command->count();
-    auto temp_buffer = _upload(static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
-    auto blit_encoder = [_command_buffer blitCommandEncoder];
-    [blit_encoder copyFromBuffer:temp_buffer.handle()
-                    sourceOffset:temp_buffer.offset()
-                        toBuffer:array->desc_buffer()
-               destinationOffset:offset_bytes
-                            size:size_bytes];
-    [blit_encoder endEncoding];
 }
 
 #else
