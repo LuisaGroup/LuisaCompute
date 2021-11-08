@@ -37,13 +37,14 @@ MetalCommandEncoder::MetalCommandEncoder(
     return reinterpret_cast<MetalBindlessArray *>(handle);
 }
 
+#ifdef LUISA_METAL_RAYTRACING_ENABLED
 [[nodiscard]] inline static auto to_accel(uint64_t handle) noexcept {
     return reinterpret_cast<MetalAccel *>(handle);
 }
-
 [[nodiscard]] inline static auto to_mesh(uint64_t handle) noexcept {
     return reinterpret_cast<MetalMesh *>(handle);
 }
+#endif
 
 void MetalCommandEncoder::visit(const BufferCopyCommand *command) noexcept {
     auto blit_encoder = [_command_buffer blitCommandEncoder];
