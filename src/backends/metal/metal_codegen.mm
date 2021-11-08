@@ -167,13 +167,10 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
-        case CallOp::NONE: _scratch << "none"; break;
         case CallOp::SELECT: _scratch << "select"; break;
         case CallOp::CLAMP: _scratch << "clamp"; break;
         case CallOp::LERP: _scratch << "mix"; break;
-        case CallOp::SATURATE: _scratch << "saturate"; break;
         case CallOp::STEP: _scratch << "step"; break;
-        case CallOp::SMOOTHSTEP: _scratch << "smoothstep"; break;
         case CallOp::ABS: _scratch << "abs"; break;
         case CallOp::MIN: _scratch << "min"; break;
         case CallOp::MAX: _scratch << "max"; break;
@@ -210,16 +207,10 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::FRACT: _scratch << "fract"; break;
         case CallOp::TRUNC: _scratch << "trunc"; break;
         case CallOp::ROUND: _scratch << "round"; break;
-        case CallOp::MOD: _scratch << "glsl_mod"; break;
-        case CallOp::FMOD: _scratch << "fmod"; break;
-        case CallOp::DEGREES: _scratch << "degrees"; break;
-        case CallOp::RADIANS: _scratch << "radians"; break;
         case CallOp::FMA: _scratch << "fma"; break;
         case CallOp::COPYSIGN: _scratch << "copysign"; break;
         case CallOp::CROSS: _scratch << "cross"; break;
         case CallOp::DOT: _scratch << "dot"; break;
-        case CallOp::DISTANCE: _scratch << "distance"; break;
-        case CallOp::DISTANCE_SQUARED: _scratch << "distance_squared"; break;
         case CallOp::LENGTH: _scratch << "length"; break;
         case CallOp::LENGTH_SQUARED: _scratch << "length_squared"; break;
         case CallOp::NORMALIZE: _scratch << "normalize"; break;
@@ -227,17 +218,7 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "transpose"; break;
         case CallOp::INVERSE: _scratch << "inverse"; break;
-        case CallOp::BLOCK_BARRIER: _scratch << "block_barrier"; break;
-        case CallOp::DEVICE_BARRIER: _scratch << "device_barrier"; break;
-        case CallOp::ALL_BARRIER: _scratch << "all_barrier"; break;
-        case CallOp::ATOMIC_LOAD:
-            _scratch << "atomic_load_explicit";
-            is_atomic_op = true;
-            break;
-        case CallOp::ATOMIC_STORE:
-            _scratch << "atomic_store_explicit";
-            is_atomic_op = true;
-            break;
+        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "block_barrier"; break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomic_exchange_explicit";
             is_atomic_op = true;
@@ -926,18 +907,15 @@ template<uint index, typename T>
   return reinterpret_cast<device vector_element_t<T> *>(&v) + index;
 }
 
-template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto none(T v) { return !any(v); }
-
 template<typename T, access a>
 [[nodiscard, gnu::always_inline]] inline auto texture_read(texture2d<T, a> t, uint2 uv) {
-  if constexpr (a == access::read_write) { t.fence(); }
+  // if constexpr (a == access::read_write) { t.fence(); }
   return t.read(uv);
 }
 
 template<typename T, access a>
 [[nodiscard, gnu::always_inline]] inline auto texture_read(texture3d<T, a> t, uint3 uvw) {
-  if constexpr (a == access::read_write) { t.fence(); }
+  // if constexpr (a == access::read_write) { t.fence(); }
   return t.read(uvw);
 }
 
@@ -950,34 +928,6 @@ template<typename T, access a, typename Value>
 [[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value) {
   t.write(value, uvw);
 }
-
-template<typename T, access a, typename L>
-[[nodiscard, gnu::always_inline]] inline auto texture_read_level(texture2d<T, a> t, uint2 uv, L l) {
-  if constexpr (a == access::read_write) { t.fence(); }
-  return t.read(uv, l);
-}
-
-template<typename T, access a, typename L>
-[[nodiscard, gnu::always_inline]] inline auto texture_read(texture3d<T, a> t, uint3 uvw, L l) {
-  if constexpr (a == access::read_write) { t.fence(); }
-  return t.read(uvw, l);
-}
-
-template<typename T, access a, typename Value, typename L>
-[[gnu::always_inline]] inline void texture_write(texture2d<T, a> t, uint2 uv, Value value, L l) {
-  t.write(value, uv, l);
-}
-
-template<typename T, access a, typename Value, typename L>
-[[gnu::always_inline]] inline void texture_write(texture3d<T, a> t, uint3 uvw, Value value, L l) {
-  t.write(value, uvw, l);
-}
-
-template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto radians(T v) { return v * (M_PI_F / 180.0f); }
-
-template<typename T>
-[[nodiscard, gnu::always_inline]] inline auto degrees(T v) { return v * (180.0f * M_1_PI_F); }
 
 [[nodiscard]] inline auto inverse(float2x2 m) {
   const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
@@ -1055,15 +1005,6 @@ template<typename T>
   threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
-[[gnu::always_inline]] inline void device_barrier() {
-  threadgroup_barrier(mem_flags::mem_device);
-}
-
-[[gnu::always_inline]] inline void all_barrier() {
-  block_barrier();
-  device_barrier();
-}
-
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(device int &a) {
   return reinterpret_cast<device atomic_int *>(&a);
 }
@@ -1114,11 +1055,6 @@ template<typename T>
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_uint *a, uint cmp, uint val, memory_order) {
   atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
   return cmp;
-}
-
-template<typename X, typename Y>
-[[gnu::always_inline, nodiscard]] inline auto glsl_mod(X x, Y y) {
-  return x - y * floor(x / y);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto is_nan(float x) {

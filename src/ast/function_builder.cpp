@@ -168,28 +168,19 @@ const RefExpr *FunctionBuilder::buffer(const Type *type) noexcept {
     return _ref(v);
 }
 
-const RefExpr *FunctionBuilder::buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept {
+const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
     if (auto iter = std::find_if(
             _captured_buffers.cbegin(),
             _captured_buffers.cend(),
-            [handle](auto &&binding) { return binding.handle == handle; });
+            [handle, type, offset_bytes](auto &&binding) {
+                return *binding.variable.type() == *type &&
+                       binding.handle == handle &&
+                       binding.offset_bytes == offset_bytes;
+            });
         iter != _captured_buffers.cend()) {
-        if (iter->offset_bytes != offset_bytes) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Aliasing in implicitly captured buffer "
-                "(handle = {}, original offset = {}, requested offset = {}).",
-                handle, iter->offset_bytes, offset_bytes);
-        }
-        auto v = iter->variable;
-        if (*v.type() != *element_type) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Aliasing in implicitly captured buffer "
-                "(handle = {}, original type = {}, requested type = {}).",
-                handle, v.type()->description(), element_type->description());
-        }
-        return _ref(v);
+        return _ref(iter->variable);
     }
-    Variable v{element_type, Variable::Tag::BUFFER, _next_variable_uid()};
+    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _captured_buffers.emplace_back(BufferBinding{v, handle, offset_bytes});
     return _ref(v);
 }
@@ -262,19 +253,13 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
     if (auto iter = std::find_if(
             _captured_textures.cbegin(),
             _captured_textures.cend(),
-            [handle, level](auto &&binding) {
-                return binding.handle == handle &&
+            [handle, level, type](auto &&binding) {
+                return *binding.variable.type() == *type &&
+                       binding.handle == handle &&
                        binding.level == level;
             });
         iter != _captured_textures.cend()) {
-        auto v = iter->variable;
-        if (*v.type() != *type) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Aliasing in implicitly captured texture "
-                "(handle = {}, original type = {}, requested type = {}).",
-                handle, v.type()->description(), type->description());
-        }
-        return _ref(v);
+        return _ref(iter->variable);
     }
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
     _captured_textures.emplace_back(TextureBinding{v, handle, level});

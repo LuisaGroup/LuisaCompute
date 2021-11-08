@@ -186,9 +186,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
         case CallOp::ANY:
             result << "any"sv;
             break;
-        case CallOp::NONE:
-            result << "!any"sv;
-            break;
         case CallOp::SELECT: {
             result << "select"sv;
         } break;
@@ -198,14 +195,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
         case CallOp::LERP:
             result << "lerp"sv;
             break;
-        case CallOp::SATURATE:
-            result << "saturate"sv;
-            break;
         case CallOp::STEP:
             result << "step"sv;
-            break;
-        case CallOp::SMOOTHSTEP:
-            result << "smoothstep"sv;
             break;
         case CallOp::ABS:
             result << "abs"sv;
@@ -312,12 +303,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
         case CallOp::ROUND:
             result << "round"sv;
             break;
-        case CallOp::DEGREES:
-            result << "degrees"sv;
-            break;
-        case CallOp::RADIANS:
-            result << "radians"sv;
-            break;
         case CallOp::FMA:
             result << "fma"sv;
             break;
@@ -329,12 +314,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
             break;
         case CallOp::DOT:
             result << "dot"sv;
-            break;
-        case CallOp::DISTANCE:
-            result << "distance"sv;
-            break;
-        case CallOp::DISTANCE_SQUARED:
-            result << "distance_sqr"sv;
             break;
         case CallOp::LENGTH:
             result << "length"sv;
@@ -358,18 +337,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
             result << "inverse"sv;
             break;
         //TODO
-        case CallOp::BLOCK_BARRIER:
+        case CallOp::SYNCHRONIZE_BLOCK:
             result << "memory_barrier"sv;
-            break;
-        case CallOp::DEVICE_BARRIER:
-            result << "memory_barrier"sv;
-            break;
-        case CallOp::ALL_BARRIER:
-            result << "memory_barrier"sv;
-            break;
-        case CallOp::ATOMIC_LOAD:
-            break;
-        case CallOp::ATOMIC_STORE:
             break;
         case CallOp::ATOMIC_EXCHANGE:
             break;

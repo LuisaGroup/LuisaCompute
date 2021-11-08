@@ -307,19 +307,6 @@ public:
     AtomicRef &operator=(AtomicRef &&) noexcept = delete;
     AtomicRef &operator=(const AtomicRef &) noexcept = delete;
 
-    void store(Expr<T> value) &&noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::ATOMIC_STORE,
-            {this->_expression, value.expression()});
-    }
-
-    [[nodiscard]] auto load() &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_LOAD,
-            {this->_expression});
-        return def<T>(expr);
-    };
-
     auto exchange(Expr<T> desired) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_EXCHANGE,

@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/constants.h>
 #include <dsl/var.h>
 #include <dsl/operators.h>
 
@@ -776,10 +777,7 @@ template<typename Tx>
 template<typename Tx>
     requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 [[nodiscard]] inline auto none(Tx &&x) noexcept {
-    return def<bool>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<bool>(), CallOp::NONE,
-            {LUISA_EXPR(x)}));
+    return !any(std::forward<Tx>(x));
 }
 
 // Tf: scalar or vector, Tt: scalar or vector, Tp: bool scalar or vector, vectorize
@@ -845,11 +843,20 @@ template<typename Ta, typename Tb, typename Tt>
         std::forward<Tt>(t));
 }
 
+template<typename X, typename Y, typename Z>
+    requires any_dsl_v<X, Y, Z> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y> && is_float_or_vector_expr_v<Z>
+[[nodiscard]] inline auto fma(X &&x, Y &&y, Z &&z) noexcept {
+    return detail::make_vector_call<float>(
+        CallOp::FMA,
+        std::forward<X>(x),
+        std::forward<Y>(y),
+        std::forward<Z>(z));
+}
+
 template<typename Tv>
     requires is_dsl_v<Tv> && is_float_or_vector_expr_v<Tv>
 [[nodiscard]] inline auto saturate(Tv &&v) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::SATURATE, std::forward<Tv>(v));
+    return clamp(std::forward<Tv>(v), 0.0f, 1.0f);
 }
 
 template<typename E, typename X>
@@ -863,12 +870,11 @@ template<typename E, typename X>
 
 template<typename L, typename R, typename T>
     requires any_dsl_v<L, R, T> && is_float_or_vector_expr_v<L> && is_float_or_vector_expr_v<R> && is_float_or_vector_expr_v<T>
-[[nodiscard]] inline auto smoothstep(L &&left, R &&right, T &&t) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::SMOOTHSTEP,
-        std::forward<L>(left),
-        std::forward<R>(right),
-        std::forward<T>(t));
+[[nodiscard]] inline auto smoothstep(L &&left, R &&right, T &&x) noexcept {
+    auto edge0 = def(std::forward<L>(left));
+    auto edge1 = def(std::forward<R>(right));
+    auto t = saturate((std::forward<T>(x) - edge0) / (edge1 - edge0));
+    return t * t * fma(t, -2.0f, 3.0f);
 }
 
 template<typename Tx>
@@ -887,20 +893,18 @@ template<typename Tx>
 
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y>
-[[nodiscard]] inline auto mod(X &&x, Y &&y) noexcept {
-    return detail::make_vector_call<vector_expr_element_t<X>>(
-        CallOp::MOD,
-        std::forward<X>(x),
-        std::forward<Y>(y));
+[[nodiscard]] inline auto mod(X &&x_in, Y &&y_in) noexcept {
+    auto x = def(std::forward<X>(x_in));
+    auto y = def(std::forward<Y>(y_in));
+    return x - y * floor(x / y);
 }
 
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y>
-[[nodiscard]] inline auto fmod(X &&x, Y &&y) noexcept {
-    return detail::make_vector_call<vector_expr_element_t<X>>(
-        CallOp::FMOD,
-        std::forward<X>(x),
-        std::forward<Y>(y));
+[[nodiscard]] inline auto fmod(X &&x_in, Y &&y_in) noexcept {
+    auto x = def(std::forward<X>(x_in));
+    auto y = def(std::forward<Y>(y_in));
+    return x - y * trunc(x / y);
 }
 
 template<typename X, typename Y>
@@ -1159,25 +1163,13 @@ template<typename T>
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto degrees(T &&x) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::DEGREES, std::forward<T>(x));
+    return std::forward<T>(x) * (180.0f * constants::inv_pi);
 }
 
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto radians(T &&x) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::RADIANS, std::forward<T>(x));
-}
-
-template<typename X, typename Y, typename Z>
-    requires any_dsl_v<X, Y, Z> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y> && is_float_or_vector_expr_v<Z>
-[[nodiscard]] inline auto fma(X &&x, Y &&y, Z &&z) noexcept {
-    return detail::make_vector_call<float>(
-        CallOp::FMA,
-        std::forward<X>(x),
-        std::forward<Y>(y),
-        std::forward<Z>(z));
+    return std::forward<T>(x) * (constants::pi / 180.0f);
 }
 
 template<typename X, typename Y>
@@ -1211,24 +1203,6 @@ template<typename X, typename Y>
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
 }
 
-template<typename X, typename Y>
-    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
-[[nodiscard]] inline auto distance(X &&x, Y &&y) noexcept {
-    return def<float>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::DISTANCE,
-            {LUISA_EXPR(x), LUISA_EXPR(y)}));
-}
-
-template<typename X, typename Y>
-    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
-[[nodiscard]] inline auto distance_squared(X &&x, Y &&y) noexcept {
-    return def<float>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float>(), CallOp::DISTANCE_SQUARED,
-            {LUISA_EXPR(x), LUISA_EXPR(y)}));
-}
-
 template<typename Tx>
     requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
 [[nodiscard]] inline auto length(Tx &&x) noexcept {
@@ -1245,6 +1219,18 @@ template<typename Tx>
         detail::FunctionBuilder::current()->call(
             Type::of<float>(), CallOp::LENGTH_SQUARED,
             {LUISA_EXPR(x)}));
+}
+
+template<typename X, typename Y>
+    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
+[[nodiscard]] inline auto distance(X &&x, Y &&y) noexcept {
+    return length(std::forward<X>(x) - std::forward<Y>(y));
+}
+
+template<typename X, typename Y>
+    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
+[[nodiscard]] inline auto distance_squared(X &&x, Y &&y) noexcept {
+    return length_squared(std::forward<X>(x) - std::forward<Y>(y));
 }
 
 template<typename T>
@@ -1290,19 +1276,9 @@ template<typename Tm>
 }
 
 // barriers
-inline void block_barrier() noexcept {
+inline void sync_block() noexcept {
     detail::FunctionBuilder::current()->call(
-        CallOp::BLOCK_BARRIER, {});
-}
-
-inline void device_barrier() noexcept {
-    detail::FunctionBuilder::current()->call(
-        CallOp::DEVICE_BARRIER, {});
-}
-
-inline void all_barrier() noexcept {
-    detail::FunctionBuilder::current()->call(
-        CallOp::ALL_BARRIER, {});
+        CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
 #undef LUISA_EXPR
