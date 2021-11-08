@@ -576,3 +576,16 @@ struct lc_float{i}x{i} {{
                             inv_2 * one_over_determinant,
                             inv_3 * one_over_determinant);
 }""", file=file)
+
+    with open(f"{curr_dir}/{text_library_name}.h", "r") as fin:
+        chars = [c for c in "".join(fin.readlines())] + ['\0']
+    with open(f"{curr_dir}/{c_array_library_name}.inl.h", "w") as fout:
+        print(f"static const char cuda_device_math_source[{len(chars) + 1}] = {{", file=fout)
+        chars_per_row = 32
+        rows = (len(chars) + chars_per_row) // chars_per_row
+        for row in range(rows):
+            begin = row * chars_per_row
+            end = begin + chars_per_row
+            line = ", ".join(f"0x{ord(c):02x}" for c in chars[begin:end])
+            print(f"    {line}{'' if row + 1 == rows else ','}", file=fout)
+        print("};", file=fout)
