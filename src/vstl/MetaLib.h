@@ -700,6 +700,26 @@ decltype(auto) array_same(A &&a, B &&b) {
     }
     return true;
 }
+namespace detail {
+template<bool... v>
+struct Any;
+
+template<bool... vs>
+struct Any<true, vs...> {
+    static constexpr bool value = true;
+};
+template<bool... vs>
+struct Any<false, vs...> {
+    static constexpr bool value = Any<vs...>::value;
+};
+template<>
+struct Any<> {
+    static constexpr bool value = false;
+};
+template<bool... v>
+static constexpr bool Any_v = Any<v...>::value;
+}// namespace detail
+
 template<typename... Args>
 static constexpr bool AlwaysFalse = false;
 template<typename... AA>
@@ -1102,16 +1122,23 @@ public:
         return Visitor<std::remove_cvref_t<Ret>, Func, void const>::template Visit<0, argSize - 1, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
     }
     void dispose() {
-        auto disposeFunc = [&]<typename T>(T &value) {
-            value.~T();
-        };
-        visit(disposeFunc);
+        if constexpr (detail::Any_v<!std::is_trivially_destructible_v<AA>...>) {
+            auto disposeFunc = [&]<typename T>(T &value) {
+                value.~T();
+            };
+            visit(disposeFunc);
+        }
         switcher = argSize;
     }
     variant() {
         switcher = argSize;
     }
-    template<typename T, typename... Arg>
+    template<
+        typename T,
+        typename... Arg,
+        std::enable_if_t<
+            detail::Any_v<
+                std::is_constructible_v<AA, T &&, Arg &&...>...>> * = nullptr>
     variant(T &&t, Arg &&...arg) {
         if constexpr (sizeof...(Arg) == 0) {
             switcher = Constructor<AA...>::template CopyOrMoveConst<T>(&placeHolder, 0, std::forward<T>(t));

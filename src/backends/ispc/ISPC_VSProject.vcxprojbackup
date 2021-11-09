@@ -80,7 +80,7 @@
 			<MinFilesInUnityFile>4</MinFilesInUnityFile>
 			<LanguageStandard_C>stdc17</LanguageStandard_C>
 			<EnableModules>true</EnableModules>
-			<AdditionalIncludeDirectories>.;../../;</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>.;../../;../../ext/spdlog/include;../../ext/xxhash;</AdditionalIncludeDirectories>
 			<UseStandardPreprocessor>true</UseStandardPreprocessor>
 			<ProgramDataBaseFileName>$(IntDir)vc_0.pdb</ProgramDataBaseFileName>
 			<OpenMPSupport>false</OpenMPSupport>
@@ -126,7 +126,7 @@
 			<LanguageStandard_C>stdc17</LanguageStandard_C>
 			<EnableModules>false</EnableModules>
 			<DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-			<AdditionalIncludeDirectories>.;../../;</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>.;../../;../../ext/spdlog/include;../../ext/xxhash;</AdditionalIncludeDirectories>
 			<UseStandardPreprocessor>true</UseStandardPreprocessor>
 			<DisableLanguageExtensions>false</DisableLanguageExtensions>
 			<ProgramDataBaseFileName>$(IntDir)vc_0.pdb</ProgramDataBaseFileName>

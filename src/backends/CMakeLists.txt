@@ -29,7 +29,7 @@ option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" ON)
 
 if (LUISA_COMPUTE_ENABLE_DX)
-    add_subdirectory(dx)
+    #add_subdirectory(dx)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_LLVM)
