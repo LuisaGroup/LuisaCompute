@@ -22,7 +22,7 @@ struct alignas(16) CUDASurface {
     };
     CUsurfObject handle;
     Storage storage;
-    uint16_t pixel_size_shift;
+    uint16_t pixel_size_shift;// size = pow(2, shift)
     uint16_t channel_count;
 };
 
@@ -34,17 +34,20 @@ public:
     static constexpr auto max_level_count = 14u;
 
 private:
-    CUmipmappedArray _array;
+    uint64_t _array;
     mutable std::array<CUsurfObject, max_level_count> _surfaces{};
-    PixelFormat _format;
+    uint16_t _format;
+    uint16_t _levels;
     mutable spin_mutex _mutex;
 
 public:
-    CUDAMipmapArray(CUmipmappedArray array, PixelFormat format) noexcept;
+    CUDAMipmapArray(uint64_t array, PixelFormat format, uint32_t levels) noexcept;
     ~CUDAMipmapArray() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _array; }
-    [[nodiscard]] auto format() const noexcept { return _format; }
-    [[nodiscard]] CUsurfObject surface(uint32_t level) const noexcept;
+    [[nodiscard]] auto format() const noexcept { return static_cast<PixelFormat>(_format); }
+    [[nodiscard]] auto levels() const noexcept { return static_cast<size_t>(_levels); }
+    [[nodiscard]] CUarray level(uint32_t i) const noexcept;
+    [[nodiscard]] CUDASurface surface(uint32_t level) const noexcept;
 };
 
 static_assert(sizeof(CUDAMipmapArray) == 128u);

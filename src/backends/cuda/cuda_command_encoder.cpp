@@ -72,8 +72,7 @@ void CUDACommandEncoder::visit(const BufferCopyCommand *command) noexcept {
 
 void CUDACommandEncoder::visit(const BufferToTextureCopyCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->texture());
-    CUarray array;
-    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&array, mipmap_array->handle(), command->level()));
+    auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pixel_size = pixel_storage_size(command->storage());
     copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
@@ -86,12 +85,65 @@ void CUDACommandEncoder::visit(const BufferToTextureCopyCommand *command) noexce
 }
 
 void CUDACommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
+    auto kernel = reinterpret_cast<CUfunction>(command->handle());
+    auto launch_size = command->dispatch_size();
+    auto block_size = command->kernel().block_size();
+    auto blocks = (launch_size + block_size - 1u) / block_size;
+    static thread_local std::array<std::byte, 4096u> argument_buffer;
+    static thread_local std::vector<void *> arguments;
+    auto argument_buffer_offset = static_cast<size_t>(0u);
+    auto allocate_argument = [&](size_t bytes) noexcept {
+        static constexpr auto alignment = 16u;
+        auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
+        argument_buffer_offset = offset + bytes;
+        return arguments.emplace_back(argument_buffer.data() + offset);
+    };
+    arguments.clear();
+    arguments.reserve(32u);
+    command->decode([&](auto, auto argument) noexcept -> void {
+        using T = decltype(argument);
+        if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
+            auto ptr = allocate_argument(sizeof(CUdeviceptr));
+            auto buffer = argument.handle + argument.offset;
+            std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
+        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
+            auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
+            auto surface = mipmap_array->surface(argument.level);
+            auto ptr = allocate_argument(sizeof(CUDASurface));
+            std::memcpy(ptr, &surface, sizeof(CUDASurface));
+        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
+            auto ptr = allocate_argument(sizeof(CUdeviceptr));
+            auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle);
+            auto desc_buffer = array->handle();
+            std::memcpy(ptr, &desc_buffer, sizeof(CUdeviceptr));
+        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
+            // TODO...
+        } else {// uniform
+            static_assert(std::same_as<T, std::span<const std::byte>>);
+            auto ptr = allocate_argument(argument.size_bytes());
+            std::memcpy(ptr, argument.data(), argument.size_bytes());
+        }
+    });
+    // the last one is always the launch size
+    auto ptr = allocate_argument(sizeof(luisa::uint3));
+    std::memcpy(ptr, &launch_size, sizeof(luisa::uint3));
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Dispatching shader #{} with {} argument(s) "
+        "in ({}, {}, {}) blocks of size ({}, {}, {}).",
+        command->handle(), arguments.size(),
+        blocks.x, blocks.y, blocks.z,
+        block_size.x, block_size.y, block_size.z);
+    LUISA_CHECK_CUDA(cuLaunchKernel(
+        kernel,
+        blocks.x, blocks.y, blocks.z,
+        block_size.x, block_size.y, block_size.z,
+        0u, _stream->handle(),
+        arguments.data(), nullptr));
 }
 
 void CUDACommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->handle());
-    CUarray array;
-    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&array, mipmap_array->handle(), command->level()));
+    auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pixel_size = pixel_storage_size(command->storage());
     auto data = command->data();
@@ -110,8 +162,7 @@ void CUDACommandEncoder::visit(const TextureUploadCommand *command) noexcept {
 
 void CUDACommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->handle());
-    CUarray array;
-    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&array, mipmap_array->handle(), command->level()));
+    auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pixel_size = pixel_storage_size(command->storage());
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
@@ -126,10 +177,8 @@ void CUDACommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
 void CUDACommandEncoder::visit(const TextureCopyCommand *command) noexcept {
     auto src_mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->src_handle());
     auto dst_mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->dst_handle());
-    CUarray src_array;
-    CUarray dst_array;
-    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&src_array, src_mipmap_array->handle(), command->src_level()));
-    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&dst_array, dst_mipmap_array->handle(), command->dst_level()));
+    auto src_array = src_mipmap_array->level(command->src_level());
+    auto dst_array = dst_mipmap_array->level(command->dst_level());
     CUDA_MEMCPY3D copy{};
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = src_array;
@@ -140,8 +189,7 @@ void CUDACommandEncoder::visit(const TextureCopyCommand *command) noexcept {
 
 void CUDACommandEncoder::visit(const TextureToBufferCopyCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->texture());
-    CUarray array;
-    LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(&array, mipmap_array->handle(), command->level()));
+    auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pixel_size = pixel_storage_size(command->storage());
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;

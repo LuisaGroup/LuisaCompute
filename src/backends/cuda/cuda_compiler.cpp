@@ -66,22 +66,18 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
 
     }
 
+    static thread_local Codegen::Scratch scratch;
+    scratch.clear();
+    CUDACodegen{scratch}.emit(function);
 
-    auto src = R"(
-__global__ void __launch_bounds__(256) my_kernel(const lc_float3 *a, const lc_float3 *b, lc_float *c, lc_uint t, LCSurface surf) {
-    t = blockDim.x * blockIdx.y + blockIdx.x;
-    auto p = lc_surf2d_read<float>(surf, lc_make_uint2());
-    auto q = lc_surf3d_read<float>(surf, lc_make_uint3());
-    lc_surf2d_write<float>(surf, lc_make_uint2(), lc_make_float4());
-    lc_surf3d_write<float>(surf, lc_make_uint3(), lc_make_float4());
-    c[t] = lc_dot(a[t], b[t] + lc_make_float3(p.x, p.y, p.z));
-})";
+    auto source = scratch.view();
+    LUISA_INFO("Source:\n{}", source);
 
     std::array header_names{"device_math.h", "device_surface.h"};
     std::array header_sources{cuda_device_math_source, cuda_device_surface_source};
     nvrtcProgram prog;
     LUISA_CHECK_NVRTC(nvrtcCreateProgram(
-        &prog, src, "my_kernel.cu",
+        &prog, source.data(), "my_kernel.cu",
         header_sources.size(), header_sources.data(), header_names.data()));
     auto sm_option = fmt::format("-arch=compute_{}", sm);
     std::array options{

@@ -7,7 +7,7 @@ using lc_bool = bool;
 
 struct alignas(8) lc_int2 {
     lc_int x, y;
-    __device__ explicit constexpr lc_int2(lc_int s) noexcept
+    __device__ explicit constexpr lc_int2(lc_int s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_int2(lc_int x, lc_int y) noexcept
         : x{x}, y{y} {}
@@ -17,7 +17,7 @@ struct alignas(8) lc_int2 {
 
 struct alignas(16) lc_int3 {
     lc_int x, y, z;
-    __device__ explicit constexpr lc_int3(lc_int s) noexcept
+    __device__ explicit constexpr lc_int3(lc_int s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_int3(lc_int x, lc_int y, lc_int z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -27,7 +27,7 @@ struct alignas(16) lc_int3 {
 
 struct alignas(16) lc_int4 {
     lc_int x, y, z, w;
-    __device__ explicit constexpr lc_int4(lc_int s) noexcept
+    __device__ explicit constexpr lc_int4(lc_int s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_int4(lc_int x, lc_int y, lc_int z, lc_int w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
@@ -37,7 +37,7 @@ struct alignas(16) lc_int4 {
 
 struct alignas(8) lc_uint2 {
     lc_uint x, y;
-    __device__ explicit constexpr lc_uint2(lc_uint s) noexcept
+    __device__ explicit constexpr lc_uint2(lc_uint s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_uint2(lc_uint x, lc_uint y) noexcept
         : x{x}, y{y} {}
@@ -47,7 +47,7 @@ struct alignas(8) lc_uint2 {
 
 struct alignas(16) lc_uint3 {
     lc_uint x, y, z;
-    __device__ explicit constexpr lc_uint3(lc_uint s) noexcept
+    __device__ explicit constexpr lc_uint3(lc_uint s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_uint3(lc_uint x, lc_uint y, lc_uint z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -57,7 +57,7 @@ struct alignas(16) lc_uint3 {
 
 struct alignas(16) lc_uint4 {
     lc_uint x, y, z, w;
-    __device__ explicit constexpr lc_uint4(lc_uint s) noexcept
+    __device__ explicit constexpr lc_uint4(lc_uint s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_uint4(lc_uint x, lc_uint y, lc_uint z, lc_uint w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
@@ -67,7 +67,7 @@ struct alignas(16) lc_uint4 {
 
 struct alignas(8) lc_float2 {
     lc_float x, y;
-    __device__ explicit constexpr lc_float2(lc_float s) noexcept
+    __device__ explicit constexpr lc_float2(lc_float s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_float2(lc_float x, lc_float y) noexcept
         : x{x}, y{y} {}
@@ -77,7 +77,7 @@ struct alignas(8) lc_float2 {
 
 struct alignas(16) lc_float3 {
     lc_float x, y, z;
-    __device__ explicit constexpr lc_float3(lc_float s) noexcept
+    __device__ explicit constexpr lc_float3(lc_float s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_float3(lc_float x, lc_float y, lc_float z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -87,7 +87,7 @@ struct alignas(16) lc_float3 {
 
 struct alignas(16) lc_float4 {
     lc_float x, y, z, w;
-    __device__ explicit constexpr lc_float4(lc_float s) noexcept
+    __device__ explicit constexpr lc_float4(lc_float s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_float4(lc_float x, lc_float y, lc_float z, lc_float w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
@@ -97,7 +97,7 @@ struct alignas(16) lc_float4 {
 
 struct alignas(2) lc_bool2 {
     lc_bool x, y;
-    __device__ explicit constexpr lc_bool2(lc_bool s) noexcept
+    __device__ explicit constexpr lc_bool2(lc_bool s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_bool2(lc_bool x, lc_bool y) noexcept
         : x{x}, y{y} {}
@@ -107,7 +107,7 @@ struct alignas(2) lc_bool2 {
 
 struct alignas(4) lc_bool3 {
     lc_bool x, y, z;
-    __device__ explicit constexpr lc_bool3(lc_bool s) noexcept
+    __device__ explicit constexpr lc_bool3(lc_bool s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_bool3(lc_bool x, lc_bool y, lc_bool z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -117,7 +117,7 @@ struct alignas(4) lc_bool3 {
 
 struct alignas(4) lc_bool4 {
     lc_bool x, y, z, w;
-    __device__ explicit constexpr lc_bool4(lc_bool s) noexcept
+    __device__ explicit constexpr lc_bool4(lc_bool s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_bool4(lc_bool x, lc_bool y, lc_bool z, lc_bool w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}

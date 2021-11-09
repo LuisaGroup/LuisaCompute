@@ -194,8 +194,8 @@ template<typename T, typename P>
             P x, y, z, w;
             surf2Dread(&x, surf, uv.x << pixel_size_shift, uv.y, cudaBoundaryModeZero);
             surf2Dread(&y, surf, (uv.x << pixel_size_shift) + sizeof(P), uv.y, cudaBoundaryModeZero);
-            surf2Dread(&y, surf, (uv.x << pixel_size_shift) + sizeof(P) * 2, uv.y, cudaBoundaryModeZero);
-            surf2Dread(&y, surf, (uv.x << pixel_size_shift) + sizeof(P) * 3, uv.y, cudaBoundaryModeZero);
+            surf2Dread(&z, surf, (uv.x << pixel_size_shift) + sizeof(P) * 2, uv.y, cudaBoundaryModeZero);
+            surf2Dread(&w, surf, (uv.x << pixel_size_shift) + sizeof(P) * 3, uv.y, cudaBoundaryModeZero);
             return lc_vec4_t<T>{
                 lc_texel_read_convert<T, P>(x),
                 lc_texel_read_convert<T, P>(y),
@@ -231,8 +231,8 @@ template<typename T, typename P>
             P x, y, z, w;
             surf3Dread(&x, surf, uvw.x << pixel_size_shift, uvw.y, uvw.z, cudaBoundaryModeZero);
             surf3Dread(&y, surf, (uvw.x << pixel_size_shift) + sizeof(P), uvw.y, uvw.z, cudaBoundaryModeZero);
-            surf3Dread(&y, surf, (uvw.x << pixel_size_shift) + sizeof(P) * 2, uvw.y, uvw.z, cudaBoundaryModeZero);
-            surf3Dread(&y, surf, (uvw.x << pixel_size_shift) + sizeof(P) * 3, uvw.y, uvw.z, cudaBoundaryModeZero);
+            surf3Dread(&z, surf, (uvw.x << pixel_size_shift) + sizeof(P) * 2, uvw.y, uvw.z, cudaBoundaryModeZero);
+            surf3Dread(&w, surf, (uvw.x << pixel_size_shift) + sizeof(P) * 3, uvw.y, uvw.z, cudaBoundaryModeZero);
             return lc_vec4_t<T>{
                 lc_texel_read_convert<T, P>(x),
                 lc_texel_read_convert<T, P>(y),

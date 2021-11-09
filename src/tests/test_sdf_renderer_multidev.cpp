@@ -184,7 +184,11 @@ int main(int argc, char *argv[]) {
     };
 
     Context context{argv[0]};
-#if defined(LUISA_BACKEND_METAL_ENABLED)
+
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device_upper = context.create_device("cuda", 0u);
+    auto device_lower = context.create_device("cuda", 1u);
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device_upper = context.create_device("metal", 0u);
     auto device_lower = context.create_device("metal", 1u);
 #elif defined(LUISA_BACKEND_DX_ENABLED)
@@ -195,7 +199,7 @@ int main(int argc, char *argv[]) {
     auto device_lower = FakeDevice::create(context);
 #endif
 
-    static constexpr auto height_upper = 540u;
+    static constexpr auto height_upper = 400u;
     static constexpr auto height_lower = height - height_upper;
 
     auto seed_image_upper = device_upper.create_buffer<uint>(width * height_upper);
@@ -218,7 +222,7 @@ int main(int argc, char *argv[]) {
     Clock clock;
     auto last_t = clock.toc();
 
-    static constexpr auto interval = 32u;
+    static constexpr auto interval = 10u;
     static constexpr auto total_spp = 500000u;
     std::vector<double> fps;
     fps.reserve(total_spp);

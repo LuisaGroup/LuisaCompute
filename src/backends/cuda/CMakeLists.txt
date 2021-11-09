@@ -12,6 +12,7 @@ if (CUDAToolkit_FOUND)
             cuda_command_encoder.cpp cuda_command_encoder.h
             cuda_mipmap_array.cpp cuda_mipmap_array.h
             cuda_device_math_embedded.inl.h
+            cuda_device_surface_embedded.inl.h
             cuda_codegen.cpp cuda_codegen.h
             cuda_compiler.cpp cuda_compiler.h)
 
