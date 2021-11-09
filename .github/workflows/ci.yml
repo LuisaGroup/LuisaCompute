@@ -28,20 +28,20 @@ jobs:
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LUISA_COMPUTE_ENABLE_LLVM=OFF
           cmake --build build
 
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          submodules: recursive
-      - name: "Install Dependencies"
-        run: |
-          brew install cmake ninja opencv llvm sccache
-      - name: "Configure and Build"
-        run: |
-          export PATH=$PATH:/usr/local/opt/llvm/bin
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++ -D LUISA_COMPUTE_ENABLE_LLVM=OFF
-          cmake --build build
+#  build-macos:
+#    runs-on: macos-latest
+#    steps:
+#      - uses: actions/checkout@v2
+#        with:
+#          submodules: recursive
+#      - name: "Install Dependencies"
+#        run: |
+#          brew install cmake ninja opencv llvm sccache
+#      - name: "Configure and Build"
+#        run: |
+#          export PATH=$PATH:/usr/local/opt/llvm/bin
+#          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++ -D LUISA_COMPUTE_ENABLE_LLVM=OFF
+#          cmake --build build
 
   build-windows:
     runs-on: windows-latest
