@@ -116,13 +116,13 @@ void CodegenUtility::GetVariableName(Variable const &type, std::string &str) {
 void CodegenUtility::GetConstName(ConstantData const &data, std::string &str) {
     size_t constCount = opt->GetConstCount(data.hash());
     str << "c";
-    vstd::to_string(constCount, str);
+    vstd::to_string(static_cast<uint64_t>(constCount), str);
 }
 void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &str) {
     size_t constCount = opt->GetConstCount(data.hash());
     //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
     str << "struct tc";
-    vstd::to_string(constCount, str);
+    vstd::to_string(static_cast<uint64_t>(constCount), str);
     size_t varCount = 1;
     std::visit(
         [&](auto &&arr) {
@@ -131,7 +131,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &st
         data.view());
     str << "{\n";
     str << CodegenUtility::GetBasicTypeName(data.view().index()) << " v[";
-    vstd::to_string(varCount, str);
+    vstd::to_string(static_cast<uint64_t>(varCount), str);
     str << "];\n";
     str << "};\n";
 }
@@ -139,7 +139,7 @@ void CodegenUtility::GetConstantData(ConstantData const &data, std::string &str)
     auto &&view = data.view();
     size_t constCount = opt->GetConstCount(data.hash());
 
-    std::string name = vstd::to_string(constCount);
+    std::string name = vstd::to_string(static_cast<uint64_t>(constCount));
     str << "uniform const tc" << name << " c" << name;
     str << "={{";
     std::visit(
@@ -194,7 +194,7 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
             return;
         case Type::Tag::STRUCTURE:
             str += 'T';
-            vstd::to_string(opt->GetTypeCount(&type), str);
+            vstd::to_string(static_cast<uint64_t>(opt->GetTypeCount(&type)), str);
             return;
         case Type::Tag::BUFFER:
 
@@ -229,7 +229,7 @@ void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
     switch (func.tag()) {
         case Function::Tag::CALLABLE: {
             data += " custom_"sv;
-            vstd::to_string(opt->GetFuncCount(func.hash()), data);
+            vstd::to_string(static_cast<uint64_t>(opt->GetFuncCount(func.hash())), data);
             if (func.arguments().empty()) {
                 data += "()"sv;
             } else {
@@ -294,7 +294,7 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
-            str << "custom_"sv << vstd::to_string(opt->GetFuncCount(expr->custom().hash()));
+            str << "custom_"sv << vstd::to_string(static_cast<uint64_t>(opt->GetFuncCount(expr->custom().hash())));
             break;
         case CallOp::ALL:
             str << "all"sv;
