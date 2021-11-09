@@ -39,6 +39,7 @@ public:
     private:
         CUcontext _context{nullptr};
         CUdevice _device{0};
+        uint32_t _compute_capability{};
 
     public:
         explicit Handle(uint index) noexcept;
@@ -50,6 +51,7 @@ public:
         [[nodiscard]] std::string_view name() const noexcept;
         [[nodiscard]] auto device() const noexcept { return _device; }
         [[nodiscard]] auto context() const noexcept { return _context; }
+        [[nodiscard]] auto compute_capability() const noexcept { return _compute_capability; }
     };
 
 private:

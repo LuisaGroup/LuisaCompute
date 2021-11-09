@@ -6,6 +6,7 @@
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_mipmap_array.h>
@@ -189,6 +190,9 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
 }
 
 uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
+    Clock clock;
+    auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
+    LUISA_INFO("Generated PTX in {} ms:\n{}", clock.toc(), ptx);
     return 0;
 }
 
@@ -331,6 +335,7 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     LUISA_INFO(
         "Created CUDA device at index {}: {} (capability = {}.{}).",
         index, name(), compute_cap_major, compute_cap_minor);
+    _compute_capability = 10u * compute_cap_major + compute_cap_minor;
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 }
 

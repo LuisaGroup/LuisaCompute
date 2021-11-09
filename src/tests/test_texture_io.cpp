@@ -21,7 +21,9 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_METAL_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
@@ -52,6 +54,11 @@ int main(int argc, char *argv[]) {
 
     auto clear_image = device.compile(clear_image_kernel);
     auto fill_image = device.compile(fill_image_kernel);
+
+    for (auto i = 0u; i < 2u; i++) {
+        clear_image = device.compile(clear_image_kernel);
+        fill_image = device.compile(fill_image_kernel);
+    }
 
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u * 2u, 1024u * 2u, 2u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
