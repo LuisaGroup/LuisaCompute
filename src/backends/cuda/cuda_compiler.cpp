@@ -5,15 +5,17 @@
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_codegen.h>
 #include <backends/cuda/cuda_compiler.h>
+#include <cuda_fp16.h>
 
 namespace luisa::compute::cuda {
 
 #include <backends/cuda/cuda_device_math_embedded.inl.h>
+#include <backends/cuda/cuda_device_surface_embedded.inl.h>
 
 luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint32_t sm) noexcept {
 
-    static const auto cuda_device_math_hash = hash64(cuda_device_math_source);
-    auto hash = hash64(sm, hash64(function.hash(), cuda_device_math_hash));
+    static const auto cuda_device_library_hash = hash64(cuda_device_math_source, hash64(cuda_device_surface_source));
+    auto hash = hash64(sm, hash64(function.hash(), cuda_device_library_hash));
 
     // try memory cache
     {
@@ -65,13 +67,18 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     }
 
 
-    auto src = R"(__global__ void __launch_bounds__(256) my_kernel(const lc_float3 *a, const lc_float3 *b, lc_float *c, lc_uint t, unsigned char u8) {
+    auto src = R"(
+__global__ void __launch_bounds__(256) my_kernel(const lc_float3 *a, const lc_float3 *b, lc_float *c, lc_uint t, LCSurface surf) {
     t = blockDim.x * blockIdx.y + blockIdx.x;
-    c[t] = lc_dot(a[t], b[t]);
+    auto p = lc_surf2d_read<float>(surf, lc_make_uint2());
+    auto q = lc_surf3d_read<float>(surf, lc_make_uint3());
+    lc_surf2d_write<float>(surf, lc_make_uint2(), lc_make_float4());
+    lc_surf3d_write<float>(surf, lc_make_uint3(), lc_make_float4());
+    c[t] = lc_dot(a[t], b[t] + lc_make_float3(p.x, p.y, p.z));
 })";
 
-    std::array header_names{"device_math.h"};
-    std::array header_sources{cuda_device_math_source};
+    std::array header_names{"device_math.h", "device_surface.h"};
+    std::array header_sources{cuda_device_math_source, cuda_device_surface_source};
     nvrtcProgram prog;
     LUISA_CHECK_NVRTC(nvrtcCreateProgram(
         &prog, src, "my_kernel.cu",
@@ -84,10 +91,10 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         "-default-device",
         "-restrict",
         "-include=device_math.h",
+        "-include=device_surface.h",
         "-ewp",
         "-dw"};
     LUISA_CHECK_NVRTC(nvrtcCompileProgram(prog, options.size(), options.data()));// options
-
     size_t log_size;
     LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
     if (log_size > 1u) {

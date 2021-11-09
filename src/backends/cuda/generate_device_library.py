@@ -2,9 +2,9 @@ from os.path import realpath, dirname
 
 if __name__ == "__main__":
     curr_dir = dirname(realpath(__file__))
-    text_library_name = "cuda_device_math"
-    c_array_library_name = "cuda_device_math_embedded"
-    with open(f"{curr_dir}/{text_library_name}.h", "w") as file:
+    math_library_name = "cuda_device_math"
+    surf_library_name = "cuda_device_surface"
+    with open(f"{curr_dir}/{math_library_name}.h", "w") as file:
         # scalar types
         print("#pragma once\n", file=file)
         scalar_types = ["int", "uint", "float", "bool"]
@@ -33,7 +33,7 @@ if __name__ == "__main__":
         # make type[n]
         for type in scalar_types:
             # make type2
-            print(f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}2(lc_{type} s) noexcept {{ return lc_{type}2{{s, s}}; }}
+            print(f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}2(lc_{type} s = 0) noexcept {{ return lc_{type}2{{s, s}}; }}
 [[nodiscard]] __device__ constexpr auto lc_make_{type}2(lc_{type} x, lc_{type} y) noexcept {{ return lc_{type}2{{x, y}}; }}""",
                   file=file)
             for t in scalar_types:
@@ -42,7 +42,7 @@ if __name__ == "__main__":
                         f"[[nodiscard]] __device__ constexpr auto lc_make_{type}2(lc_{t}{l} v) noexcept {{ return lc_{type}2{{static_cast<lc_{type}>(v.x), static_cast<lc_{type}>(v.y)}}; }}",
                         file=file)
             # make type3
-            print(f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type} s) noexcept {{ return lc_{type}3{{s, s, s}}; }}
+            print(f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type} s = 0) noexcept {{ return lc_{type}3{{s, s, s}}; }}
 [[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type} x, lc_{type} y, lc_{type} z) noexcept {{ return lc_{type}3{{x, y, z}}; }}
 [[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type} x, lc_{type}2 yz) noexcept {{ return lc_{type}3{{x, yz.x, yz.y}}; }}
 [[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{type}2 xy, lc_{type} z) noexcept {{ return lc_{type}3{{xy.x, xy.y, z}}; }}""",
@@ -53,7 +53,7 @@ if __name__ == "__main__":
                         f"[[nodiscard]] __device__ constexpr auto lc_make_{type}3(lc_{t}{l} v) noexcept {{ return lc_{type}3{{static_cast<lc_{type}>(v.x), static_cast<lc_{type}>(v.y), static_cast<lc_{type}>(v.z)}}; }}",
                         file=file)
             # make type4
-            print(f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} s) noexcept {{ return lc_{type}4{{s, s, s, s}}; }}
+            print(f"""[[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} s = 0) noexcept {{ return lc_{type}4{{s, s, s, s}}; }}
 [[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} x, lc_{type} y, lc_{type} z, lc_{type} w) noexcept {{ return lc_{type}4{{x, y, z, w}}; }}
 [[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} x, lc_{type} y, lc_{type}2 zw) noexcept {{ return lc_{type}4{{x, y, zw.x, zw.y}}; }}
 [[nodiscard]] __device__ constexpr auto lc_make_{type}4(lc_{type} x, lc_{type}2 yz, lc_{type} w) noexcept {{ return lc_{type}4{{x, yz.x, yz.y, w}}; }}
@@ -575,17 +575,34 @@ struct lc_float{i}x{i} {{
                             inv_1 * one_over_determinant,
                             inv_2 * one_over_determinant,
                             inv_3 * one_over_determinant);
-}""", file=file)
+}
 
-    with open(f"{curr_dir}/{text_library_name}.h", "r") as fin:
-        chars = [c for c in "".join(fin.readlines())] + ['\0']
-    with open(f"{curr_dir}/{c_array_library_name}.inl.h", "w") as fout:
-        print(f"static const char cuda_device_math_source[{len(chars) + 1}] = {{", file=fout)
-        chars_per_row = 32
-        rows = (len(chars) + chars_per_row) // chars_per_row
-        for row in range(rows):
-            begin = row * chars_per_row
-            end = begin + chars_per_row
-            line = ", ".join(f"0x{ord(c):02x}" for c in chars[begin:end])
-            print(f"    {line}{'' if row + 1 == rows else ','}", file=fout)
-        print("};", file=fout)
+[[nodiscard]] __device__ inline auto lc_half_to_float(unsigned short x) noexcept {
+    lc_float val;
+    asm("{  cvt.f32.f16 %0, %1;}\\n" : "=f"(val) : "h"(x));
+    return val;
+}
+
+[[nodiscard]] __device__ inline auto lc_float_to_half(lc_float x) noexcept {
+    unsigned short val;
+    asm("{  cvt.rn.f16.f32 %0, %1;}\\n" : "=h"(val) : "f"(x));
+    return val;
+}
+""", file=file)
+
+    def src2c(lib):
+        with open(f"{curr_dir}/{lib}.h", "r") as fin:
+            chars = [c for c in "".join(fin.readlines())] + ['\0']
+        with open(f"{curr_dir}/{lib}_embedded.inl.h", "w") as fout:
+            print(f"static const char {lib}_source[{len(chars) + 1}] = {{", file=fout)
+            chars_per_row = 32
+            rows = (len(chars) + chars_per_row) // chars_per_row
+            for row in range(rows):
+                begin = row * chars_per_row
+                end = begin + chars_per_row
+                line = ", ".join(f"0x{ord(c):02x}" for c in chars[begin:end])
+                print(f"    {line}{'' if row + 1 == rows else ','}", file=fout)
+            print("};", file=fout)
+
+    src2c(math_library_name)
+    src2c(surf_library_name)

@@ -32,7 +32,7 @@ CUsurfObject CUDAMipmapArray::surface(uint32_t level) const noexcept {
     return surface;
 }
 
-CUDAMipmapArray::CUDAMipmapArray(CUmipmappedArray array) noexcept
-    : _array{array} {}
+CUDAMipmapArray::CUDAMipmapArray(CUmipmappedArray array, PixelFormat format) noexcept
+    : _array{array}, _format{format} {}
 
 }// namespace luisa::compute::cuda
