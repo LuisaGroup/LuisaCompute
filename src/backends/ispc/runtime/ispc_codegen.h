@@ -9,22 +9,25 @@
 using namespace luisa;
 using namespace luisa::compute;
 namespace lc::ispc {
+class StringExprVisitor;
 class CodegenUtility {
 public:
+    static void GetConstName(ConstantData const &data, std::string &str);
     static void PrintFunction(Function func, std::string &str);
     static void GetVariableName(Variable const &type, std::string &str);
     static void GetVariableName(Variable::Tag type, uint id, std::string &str);
     static void GetVariableName(Type::Tag type, uint id, std::string &str);
-    static void GetTypeName(Type const &type, std::string &str, bool isWritable = false);
-    static void GetBasicTypeName(size_t typeIndex, std::string& str);
+    static void GetTypeName(Type const &type, std::string &str);
+    static void GetBasicTypeName(size_t typeIndex, std::string &str);
+    static void GetConstantStruct(ConstantData const& data, std::string& str);
+    static void GetConstantData(ConstantData const& data, std::string& str);
     static std::string GetBasicTypeName(size_t typeIndex) {
         std::string s;
         GetBasicTypeName(typeIndex, s);
         return s;
     }
     static void GetFunctionDecl(Function func, std::string &str);
-    static void GetFunctionName(CallExpr const *expr, std::string &result);
-
+    static vstd::function<void(StringExprVisitor &)> GetFunctionName(CallExpr const *expr, std::string &result);
     static void ClearStructType();
     static void RegistStructType(Type const *type);
 };
@@ -45,7 +48,6 @@ public:
 
 protected:
     std::string &str;
-    size_t constCount = 0;
 };
 class StringStateVisitor final : public StmtVisitor {
 public:

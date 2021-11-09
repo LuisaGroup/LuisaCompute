@@ -116,7 +116,7 @@ void StringExprVisitor::visit(const MemberExpr *expr) {
 }
 void StringExprVisitor::visit(const AccessExpr *expr) {
     expr->range()->accept(*this);
-    str += '[';
+    str += ".v[";
     StringExprVisitor vis(str);
     expr->index()->accept(vis);
     str += ']';
@@ -203,15 +203,7 @@ void StringExprVisitor::visit(const LiteralExpr *expr) {
                expr->value());
 }
 void StringExprVisitor::visit(const CallExpr *expr) {
-    CodegenUtility::GetFunctionName(expr, str);
-    str += '(';
-    auto &&args = expr->arguments();
-    StringExprVisitor vis(str);
-    for (auto &&i : args) {
-        i->accept(vis);
-        str += ',';
-    }
-    (str)[str.size() - 1] = ')';
+    CodegenUtility::GetFunctionName(expr, str)(*this);
 }
 void StringExprVisitor::visit(const CastExpr *expr) {
     str += '(';
@@ -221,27 +213,7 @@ void StringExprVisitor::visit(const CastExpr *expr) {
     expr->expression()->accept(vis);
 }
 void StringExprVisitor::visit(const ConstantExpr *expr) {
-    str << "uniform const ";
-    auto data = expr->data();
-    auto &&view = data.view();
-    auto typeName = CodegenUtility::GetBasicTypeName(view.index());
-    str << typeName << ' ' << 'c';
-    vstd::to_string(static_cast<uint64_t>(constCount), str);
-    constCount++;
-    str << "[]={";
-    std::visit(
-        [&](auto &&arr) {
-            for (auto const &ele : arr) {
-                PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
-                prt(ele, str);
-            }
-        },
-        view);
-    auto last = str.end() - 1;
-    if (*last == ',')
-        *last = '}';
-    else
-        str << '}';
+    CodegenUtility::GetConstName(expr->data(), str);
 }
 StringExprVisitor::StringExprVisitor(std::string &str)
     : str(str) {
@@ -255,20 +227,23 @@ void StringStateVisitor::visit(const ContinueStmt *state) {
     str << "continue;\n";
 }
 void StringStateVisitor::visit(const ReturnStmt *state) {
-    StringExprVisitor vis(str);
-    str << "return ";
-    state->expression()->accept(vis);
-    str << ";\n";
+    if (state->expression()) {
+        StringExprVisitor vis(str);
+        str << "return ";
+        state->expression()->accept(vis);
+        str << ";\n";
+    } else {
+        str << "return;\n";
+    }
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
     str << "{\n";
-    for (auto&& i : state->statements()) {
+    for (auto &&i : state->statements()) {
         i->accept(*this);
     }
     str << "}\n";
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
-
 }
 void StringStateVisitor::visit(const IfStmt *state) {
     str << "if(";
@@ -350,7 +325,7 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     state->rhs()->accept(vis);
     str << ";\n";
 }
-void StringStateVisitor::visit(const ForStmt * state) {
+void StringStateVisitor::visit(const ForStmt *state) {
     str << "for(";
     StringExprVisitor vis(str);
     state->variable()->accept(vis);
@@ -366,6 +341,15 @@ StringStateVisitor::StringStateVisitor(std::string &str)
     CodegenUtility::ClearStructType();
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
+    str << "{\n";
+    for (auto &&v : stmt->variables()) {
+        CodegenUtility::GetTypeName(*v.type(), str);
+        str << ' ';
+        CodegenUtility::GetVariableName(v, str);
+        str << ";\n";
+    }
+    stmt->scope()->accept(*this);
+    str << "}\n";
 }
 StringStateVisitor::~StringStateVisitor() = default;
 }// namespace lc::ispc

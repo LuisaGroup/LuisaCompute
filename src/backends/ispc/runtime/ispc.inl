@@ -1,5 +1,4 @@
-static const std::string_view headerName = R"(#include "lib.h"
-export void irun(
+static const std::string_view headerName = R"(export void irun(
     uniform uint xc,
     uniform uint yc,
     uniform uint zc,

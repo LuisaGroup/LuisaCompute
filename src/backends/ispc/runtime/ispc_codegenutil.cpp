@@ -1,17 +1,60 @@
 #pragma vengine_package ispc_vsproject
 
 #include <backends/ispc/runtime/ispc_codegen.h>
-
+#include <vstl/StringUtility.h>
 namespace lc::ispc {
+struct CodegenGlobal {
+    vstd::HashMap<Type const *, size_t> structTypes;
+    vstd::HashMap<uint64, size_t> constTypes;
+    vstd::HashMap<uint64, size_t> funcTypes;
+    size_t count = 0;
+    size_t constCount = 0;
+    size_t funcCount = 0;
+    void Clear() {
+        structTypes.Clear();
+        constTypes.Clear();
+        funcTypes.Clear();
+        constCount = 0;
+        count = 0;
+        funcCount = 0;
+    }
+    size_t GetConstCount(uint64 data) {
+        auto ite = constTypes.Emplace(
+            data,
+            vstd::MakeLazyEval(
+                [&] {
+                    return constCount++;
+                }));
+        return ite.Value();
+    }
+    size_t GetFuncCount(uint64 data) {
+        auto ite = funcTypes.Emplace(
+            data,
+            vstd::MakeLazyEval(
+                [&] {
+                    return funcCount++;
+                }));
+        return ite.Value();
+    }
+    size_t GetTypeCount(Type const *t) {
+        auto ite = structTypes.Emplace(
+            t,
+            vstd::MakeLazyEval(
+                [&] {
+                    return count++;
+                }));
+        return ite.Value();
+    }
+};
+static thread_local vstd::optional<CodegenGlobal> opt;
 #include "ispc.inl"
-static thread_local vstd::optional<vstd::HashMap<Type const *, void>> codegenStructType;
 void CodegenUtility::ClearStructType() {
-    codegenStructType.New();
-    codegenStructType->Clear();
+    opt.New();
+    opt->Clear();
 }
 void CodegenUtility::RegistStructType(Type const *type) {
     if (type->is_structure())
-        codegenStructType->Emplace(type);
+        opt->structTypes.Emplace(type, opt->count++);
     else if (type->is_buffer()) {
         RegistStructType(type->element());
     }
@@ -70,11 +113,56 @@ void CodegenUtility::GetVariableName(Type::Tag type, uint id, std::string &str) 
 void CodegenUtility::GetVariableName(Variable const &type, std::string &str) {
     GetVariableName(type.tag(), type.uid(), str);
 }
+void CodegenUtility::GetConstName(ConstantData const &data, std::string &str) {
+    size_t constCount = opt->GetConstCount(data.hash());
+    str << "c";
+    vstd::to_string(constCount, str);
+}
+void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &str) {
+    size_t constCount = opt->GetConstCount(data.hash());
+    //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
+    str << "struct tc";
+    vstd::to_string(constCount, str);
+    size_t varCount = 1;
+    std::visit(
+        [&](auto &&arr) {
+            varCount = arr.size();
+        },
+        data.view());
+    str << "{\n";
+    str << CodegenUtility::GetBasicTypeName(data.view().index()) << " v[";
+    vstd::to_string(varCount, str);
+    str << "];\n";
+    str << "};\n";
+}
+void CodegenUtility::GetConstantData(ConstantData const &data, std::string &str) {
+    auto &&view = data.view();
+    size_t constCount = opt->GetConstCount(data.hash());
 
-void CodegenUtility::GetTypeName(Type const &type, std::string &str, bool isWritable) {
+    std::string name = vstd::to_string(constCount);
+    str << "uniform const tc" << name << " c" << name;
+    str << "={{";
+    std::visit(
+        [&](auto &&arr) {
+            for (auto const &ele : arr) {
+                PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
+                prt(ele, str);
+                str << ',';
+            }
+        },
+        view);
+    auto last = str.end() - 1;
+    if (*last == ',')
+        *last = '}';
+    else
+        str << '}';
+    str << "};\n";
+}
+
+void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
     switch (type.tag()) {
         case Type::Tag::ARRAY:
-            CodegenUtility::GetTypeName(*type.element(), str, isWritable);
+            CodegenUtility::GetTypeName(*type.element(), str);
             return;
             //		case Type::Tag::ATOMIC:
             //			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
@@ -93,35 +181,32 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str, bool isWrit
             return;
         case Type::Tag::MATRIX: {
             auto dim = std::to_string(type.dimension());
-            CodegenUtility::GetTypeName(*type.element(), str, isWritable);
+            CodegenUtility::GetTypeName(*type.element(), str);
             str += dim;
             str += 'x';
             str += dim;
         }
             return;
         case Type::Tag::VECTOR: {
-            CodegenUtility::GetTypeName(*type.element(), str, isWritable);
+            CodegenUtility::GetTypeName(*type.element(), str);
             vstd::to_string(static_cast<uint64_t>(type.dimension()), str);
         }
             return;
         case Type::Tag::STRUCTURE:
             str += 'T';
-            vstd::to_string(type.hash(), str);
+            vstd::to_string(opt->GetTypeCount(&type), str);
             return;
         case Type::Tag::BUFFER:
 
-            GetTypeName(*type.element(), str, isWritable);
+            GetTypeName(*type.element(), str);
             str << '*';
             break;
         case Type::Tag::TEXTURE: {
-            if (isWritable) {
-                str += "RWTexture"sv;
-            } else {
-                str += "Texture"sv;
-            }
+            str += "Texture"sv;
+
             vstd::to_string(static_cast<uint64_t>(type.dimension()), str);
             str += "D<"sv;
-            GetTypeName(*type.element(), str, isWritable);
+            GetTypeName(*type.element(), str);
             if (type.tag() != Type::Tag::VECTOR) {
                 str += '4';
             }
@@ -144,14 +229,14 @@ void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
     switch (func.tag()) {
         case Function::Tag::CALLABLE: {
             data += " custom_"sv;
-            vstd::to_string(func.hash(), data);
+            vstd::to_string(opt->GetFuncCount(func.hash()), data);
             if (func.arguments().empty()) {
                 data += "()"sv;
             } else {
                 data += '(';
                 for (auto &&i : func.arguments()) {
                     RegistStructType(i.type());
-                    CodegenUtility::GetTypeName(*i.type(), data, IsVarWritable(func, i));
+                    CodegenUtility::GetTypeName(*i.type(), data);
                     data += ' ';
                     CodegenUtility::GetVariableName(i, data);
                     data += ',';
@@ -164,7 +249,38 @@ void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
             break;
     }
 }
-void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) {
+vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &str) {
+    auto defaultArgs = [&str, expr](StringExprVisitor &vis) {
+        str << '(';
+        size_t sz = 0;
+        auto args = expr->arguments();
+        for (auto &&i : args) {
+            ++sz;
+            i->accept(vis);
+            if (sz != args.size()) {
+                str << ',';
+            }
+        }
+    };
+    auto getPointer = [&str, expr](StringExprVisitor &vis) {
+        str << '(';
+        size_t sz = 1;
+        auto args = expr->arguments();
+        if (args.size() >= 1) {
+            str << "&(";
+            args[0]->accept(vis);
+            str << "),";
+        }
+        for (auto i : vstd::range(1, args.size())) {
+            ++sz;
+            args[i]->accept(vis);
+            if (sz != args.size()) {
+                str << ',';
+            }
+        }
+        str << ')';
+    };
+
     auto IsType = [](Type const *const type, Type::Tag const tag, uint const vecEle) {
         if (type->tag() == Type::Tag::VECTOR) {
             if (vecEle > 1) {
@@ -178,256 +294,282 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &result) 
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
-            result << "custom_"sv << vstd::to_string(expr->custom().hash());
+            str << "custom_"sv << vstd::to_string(opt->GetFuncCount(expr->custom().hash()));
             break;
         case CallOp::ALL:
-            result << "all"sv;
+            str << "all"sv;
             break;
         case CallOp::ANY:
-            result << "any"sv;
+            str << "any"sv;
             break;
         case CallOp::SELECT: {
-            result << "select"sv;
+            str << "select"sv;
         } break;
         case CallOp::CLAMP:
-            result << "clamp"sv;
+            str << "clamp"sv;
             break;
         case CallOp::LERP:
-            result << "lerp"sv;
+            str << "lerp"sv;
             break;
         case CallOp::STEP:
-            result << "step"sv;
+            str << "step"sv;
             break;
         case CallOp::ABS:
-            result << "abs"sv;
+            str << "abs"sv;
             break;
         case CallOp::MIN:
-            result << "min"sv;
+            str << "min"sv;
             break;
         case CallOp::POW:
-            result << "pow"sv;
+            str << "pow"sv;
             break;
         case CallOp::CLZ:
-            result << "clz"sv;
+            str << "clz"sv;
             break;
         case CallOp::CTZ:
-            result << "ctz"sv;
+            str << "ctz"sv;
             break;
         case CallOp::POPCOUNT:
-            result << "popcount"sv;
+            str << "popcount"sv;
             break;
         case CallOp::REVERSE:
-            result << "reverse"sv;
+            str << "reverse"sv;
             break;
         case CallOp::ISINF:
-            result << "isinf"sv;
+            str << "isinf"sv;
             break;
         case CallOp::ISNAN:
-            result << "isnan"sv;
+            str << "isnan"sv;
             break;
         case CallOp::ACOS:
-            result << "acos"sv;
+            str << "acos"sv;
             break;
         case CallOp::ACOSH:
-            result << "acosh"sv;
+            str << "acosh"sv;
             break;
         case CallOp::ASIN:
-            result << "asin"sv;
+            str << "asin"sv;
             break;
         case CallOp::ASINH:
-            result << "asinh"sv;
+            str << "asinh"sv;
             break;
         case CallOp::ATAN:
-            result << "atan"sv;
+            str << "atan"sv;
             break;
         case CallOp::ATAN2:
-            result << "atan2"sv;
+            str << "atan2"sv;
             break;
         case CallOp::ATANH:
-            result << "atanh"sv;
+            str << "atanh"sv;
             break;
         case CallOp::COS:
-            result << "cos"sv;
+            str << "cos"sv;
             break;
         case CallOp::COSH:
-            result << "cosh"sv;
+            str << "cosh"sv;
             break;
         case CallOp::SIN:
-            result << "sin"sv;
+            str << "sin"sv;
             break;
         case CallOp::SINH:
-            result << "sinh"sv;
+            str << "sinh"sv;
             break;
         case CallOp::TAN:
-            result << "tan"sv;
+            str << "tan"sv;
             break;
         case CallOp::TANH:
-            result << "tanh"sv;
+            str << "tanh"sv;
             break;
         case CallOp::EXP:
-            result << "exp"sv;
+            str << "exp"sv;
             break;
         case CallOp::EXP2:
-            result << "exp2"sv;
+            str << "exp2"sv;
             break;
         case CallOp::EXP10:
-            result << "exp10"sv;
+            str << "exp10"sv;
             break;
         case CallOp::LOG:
-            result << "log"sv;
+            str << "log"sv;
             break;
         case CallOp::LOG2:
-            result << "log2"sv;
+            str << "log2"sv;
             break;
         case CallOp::LOG10:
-            result << "log10"sv;
+            str << "log10"sv;
             break;
         case CallOp::SQRT:
-            result << "sqrt"sv;
+            str << "sqrt"sv;
             break;
         case CallOp::RSQRT:
-            result << "rsqrt"sv;
+            str << "rsqrt"sv;
             break;
         case CallOp::CEIL:
-            result << "ceil"sv;
+            str << "ceil"sv;
             break;
         case CallOp::FLOOR:
-            result << "floor"sv;
+            str << "floor"sv;
             break;
         case CallOp::FRACT:
-            result << "fract"sv;
+            str << "fract"sv;
             break;
         case CallOp::TRUNC:
-            result << "trunc"sv;
+            str << "trunc"sv;
             break;
         case CallOp::ROUND:
-            result << "round"sv;
+            str << "round"sv;
             break;
         case CallOp::FMA:
-            result << "fma"sv;
+            str << "fma"sv;
             break;
         case CallOp::COPYSIGN:
-            result << "copysign"sv;
+            str << "copysign"sv;
             break;
         case CallOp::CROSS:
-            result << "cross"sv;
+            str << "cross"sv;
             break;
         case CallOp::DOT:
-            result << "dot"sv;
+            str << "dot"sv;
             break;
         case CallOp::LENGTH:
-            result << "length"sv;
+            str << "length"sv;
             break;
         case CallOp::LENGTH_SQUARED:
-            result << "length_sqr"sv;
+            str << "length_sqr"sv;
             break;
         case CallOp::NORMALIZE:
-            result << "normalize"sv;
+            str << "normalize"sv;
             break;
         case CallOp::FACEFORWARD:
-            result << "faceforward"sv;
+            str << "faceforward"sv;
             break;
         case CallOp::DETERMINANT:
-            result << "determinant"sv;
+            str << "determinant"sv;
             break;
         case CallOp::TRANSPOSE:
-            result << "transpose"sv;
+            str << "transpose"sv;
             break;
         case CallOp::INVERSE:
-            result << "inverse"sv;
-            break;
-        //TODO
-        case CallOp::SYNCHRONIZE_BLOCK:
-            result << "memory_barrier"sv;
+            str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE:
-            break;
+            str << "_atomic_exchange"sv;
+            return getPointer;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            break;
+            str << "_atomic_compare_exchange"sv;
+            return getPointer;
         case CallOp::ATOMIC_FETCH_ADD:
-            break;
+            str << "_atomic_add"sv;
+            return getPointer;
         case CallOp::ATOMIC_FETCH_SUB:
-            break;
+            str << "_atomic_sub"sv;
+            return getPointer;
         case CallOp::ATOMIC_FETCH_AND:
-            break;
+            str << "_atomic_and"sv;
+            return getPointer;
         case CallOp::ATOMIC_FETCH_OR:
-            break;
+            str << "_atomic_or"sv;
+            return getPointer;
         case CallOp::ATOMIC_FETCH_XOR:
-            break;
+            str << "_atomic_xor"sv;
+            return getPointer;
         case CallOp::ATOMIC_FETCH_MIN:
-            break;
+            str << "_atomic_min"sv;
+            return getPointer;
         case CallOp::ATOMIC_FETCH_MAX:
-            break;
+            str << "_atomic_max"sv;
+            return getPointer;
         case CallOp::TEXTURE_READ:
+            str << "Smptx";
             break;
         case CallOp::TEXTURE_WRITE:
+            str << "Writetx";
             break;
         case CallOp::MAKE_BOOL2:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
-                result << "make_bool2"sv;
+                str << "_bool2"sv;
 
             break;
         case CallOp::MAKE_BOOL3:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 3))
-                result << "make_bool3"sv;
+                str << "_bool3"sv;
 
             break;
         case CallOp::MAKE_BOOL4:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 4))
-                result << "make_bool4"sv;
+                str << "_bool4"sv;
 
             break;
         case CallOp::MAKE_UINT2:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 2))
-                result << "make_uint2"sv;
+                str << "_uint2"sv;
 
             break;
         case CallOp::MAKE_UINT3:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 3))
-                result << "make_uint3"sv;
+                str << "_uint3"sv;
             break;
         case CallOp::MAKE_UINT4:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 4))
-                result << "make_uint4"sv;
+                str << "_uint4"sv;
 
             break;
         case CallOp::MAKE_INT2:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 2))
-                result << "make_int2"sv;
+                str << "_int2"sv;
 
             break;
         case CallOp::MAKE_INT3:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 3))
-                result << "make_int3"sv;
+                str << "_int3"sv;
 
             break;
         case CallOp::MAKE_INT4:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 4))
-                result << "make_int4"sv;
+                str << "_int4"sv;
 
             break;
         case CallOp::MAKE_FLOAT2:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 2))
-                result << "make_float2"sv;
+                str << "_float2"sv;
 
             break;
         case CallOp::MAKE_FLOAT3:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 3))
-                result << "make_float3"sv;
+                str << "_float3"sv;
 
             break;
         case CallOp::MAKE_FLOAT4:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 4))
-                result << "make_float4"sv;
+                str << "_float4"sv;
 
             break;
         default:
             VEngine_Log("Function Not Implemented"sv);
             VSTL_ABORT();
     }
+    return defaultArgs;
 }
 void CodegenUtility::PrintFunction(Function func, std::string &str) {
+    auto CurryArr = [&](auto&& f) {
+        return [&] {
+            auto consts = func.constants();
+            for (auto &&c : consts) {
+                f(c.data, str);
+            }
+        };
+    };
+    auto ConstStruct = CurryArr(GetConstantStruct);
+    auto ConstData = CurryArr(GetConstantData);
     if (func.tag() == Function::Tag::KERNEL) {
+        ClearStructType();
+        str << "#include \"lib.h\"\n";
+        ConstStruct();
+        ConstData();
+        auto callables = func.custom_callables();
+        for (auto &&i : callables) {
+            PrintFunction(Function(i.get()), str);
+        }
         str << headerName;
         //arguments
         size_t ofst = 0;
@@ -446,7 +588,7 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
             ofst += 8;
         }
         //foreach
-        str << foreachName <<R"(
+        str << foreachName << R"(
 uint3 dsp_id={x,y,z};
 uint3 thd_id={x,y,z};
 uint3 blk_id={0,0,0};
@@ -454,7 +596,27 @@ uint3 blk_id={0,0,0};
         StringStateVisitor vis(str);
         func.body()->accept(vis);
         //end
-        str << "}}";
+        str << "}";
+    } else {
+        GetTypeName(*func.return_type(), str);
+        str << " f";
+        vstd::to_string(func.hash(), str);
+        auto args = func.arguments();
+        if (args.empty()) {
+            str << "()";
+        } else {
+            str << '(';
+            for (auto &&i : args) {
+                GetTypeName(*i.type(), str);
+                str << ' ';
+                GetVariableName(i, str);
+                str << ',';
+            }
+            *(str.end() - 1) = ')';
+        }
+        StringStateVisitor vis(str);
+        func.body()->accept(vis);
+
     }
 }
 void CodegenUtility::GetBasicTypeName(size_t typeIndex, std::string &str) {
