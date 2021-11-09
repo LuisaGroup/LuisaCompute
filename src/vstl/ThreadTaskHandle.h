@@ -1,8 +1,10 @@
 #pragma once
+#include <span>
+#include <atomic>
+#include <condition_variable>
 #include <vstl/Common.h>
 #include <vstl/functional.h>
 #include <vstl/ObjectPtr.h>
-#include <span>
 class ThreadPool;
 class ThreadTaskHandle {
 	friend class ThreadPool;
