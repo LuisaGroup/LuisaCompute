@@ -22,7 +22,6 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
     size = (size + alignment - 1u) / alignment * alignment;
 
     auto buffer = [this] {
-      std::scoped_lock lock{_mutex};
       if (_buffer == nullptr) {// lazily create the device buffer
           auto buffer_options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
           if (_optimize_write) { buffer_options |= MTLResourceCPUCacheModeWriteCombined; }
@@ -32,7 +31,6 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
     }();
 
     // try allocation
-    std::scoped_lock lock{_mutex};
     auto offset = [this, size] {
         if (_free_begin == _free_end && _alloc_count != 0u) { return _size; }
         if (_free_end <= _free_begin) {
@@ -55,7 +53,6 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
 }
 
 void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
-    std::scoped_lock lock{_mutex};
     if (_free_end + view.size() > _size) { _free_end = 0u; }
     if (view.offset() != _free_end) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(

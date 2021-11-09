@@ -48,17 +48,11 @@ enum struct CallOp : uint32_t {
 
     ALL,
     ANY,
-    NONE,
 
     SELECT,
-
     CLAMP,
     LERP,
-    SATURATE,
-    SIGN,
-
     STEP,
-    SMOOTHSTEP,
 
     ABS,
     MIN,
@@ -103,19 +97,12 @@ enum struct CallOp : uint32_t {
     FRACT,
     TRUNC,
     ROUND,
-    MOD,
-    FMOD,
-
-    DEGREES,
-    RADIANS,
 
     FMA,
     COPYSIGN,
 
     CROSS,
     DOT,
-    DISTANCE,
-    DISTANCE_SQUARED,
     LENGTH,
     LENGTH_SQUARED,
     NORMALIZE,
@@ -125,12 +112,8 @@ enum struct CallOp : uint32_t {
     TRANSPOSE,
     INVERSE,
 
-    BLOCK_BARRIER,
-    DEVICE_BARRIER,
-    ALL_BARRIER,
+    SYNCHRONIZE_BLOCK,
 
-    ATOMIC_LOAD,
-    ATOMIC_STORE,
     ATOMIC_EXCHANGE,
     ATOMIC_COMPARE_EXCHANGE,
     ATOMIC_FETCH_ADD,
@@ -143,8 +126,6 @@ enum struct CallOp : uint32_t {
 
     TEXTURE_READ,
     TEXTURE_WRITE,
-    TEXTURE_READ_LEVEL,
-    TEXTURE_WRITE_LEVEL,
 
     BINDLESS_TEXTURE2D_SAMPLE,
     BINDLESS_TEXTURE2D_SAMPLE_LEVEL,

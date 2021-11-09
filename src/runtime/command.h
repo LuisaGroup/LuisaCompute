@@ -35,7 +35,8 @@ namespace luisa::compute {
         AccelUpdateCommand,         \
         AccelBuildCommand,          \
         MeshUpdateCommand,          \
-        MeshBuildCommand
+        MeshBuildCommand,           \
+        BindlessArrayUpdateCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
@@ -396,10 +397,12 @@ public:
 
     struct TextureArgument : Argument {
         uint64_t handle{};
+        uint32_t level{};
         TextureArgument() noexcept : Argument{Tag::TEXTURE, 0u} {}
-        TextureArgument(uint32_t vid, uint64_t handle) noexcept
+        TextureArgument(uint32_t vid, uint64_t handle, uint32_t level) noexcept
             : Argument{Tag::TEXTURE, vid},
-              handle{handle} {}
+              handle{handle},
+              level{level} {}
     };
 
     struct UniformArgument : Argument {
@@ -453,7 +456,7 @@ public:
     //   4. captured acceleration structures
     //   4. arguments
     void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, Usage usage) noexcept;
+    void encode_texture(uint32_t variable_uid, uint64_t handle, uint32_t level, Usage usage) noexcept;
     void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
     void encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept;
     void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;
@@ -601,6 +604,22 @@ public:
     [[nodiscard]] auto first_instance_to_update() const noexcept { return _first_instance; }
     [[nodiscard]] auto updated_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
+};
+
+class BindlessArrayUpdateCommand : public Command {
+
+private:
+    uint64_t _handle;
+    size_t _offset;
+    size_t _count;
+
+public:
+    BindlessArrayUpdateCommand(uint64_t handle, size_t offset, size_t count) noexcept
+        : _handle{handle}, _offset{offset}, _count{count} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
+    [[nodiscard]] auto count() const noexcept { return _count; }
+    LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand)
 };
 
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE

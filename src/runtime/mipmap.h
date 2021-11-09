@@ -9,6 +9,12 @@
 namespace luisa::compute {
 
 template<typename T>
+class Image;
+
+template<typename T>
+class Volume;
+
+template<typename T>
 class ImageView;
 
 template<typename T>
@@ -50,23 +56,23 @@ public:
     }
 
     template<typename T>
-    [[nodiscard]] auto copy_from(Image<T> &src) const noexcept {
+    [[nodiscard]] auto copy_from(const Image<T> &src) const noexcept {
         return copy_from(src.view());
     }
 
     template<typename T>
-    [[nodiscard]] auto copy_from(Volume<T> &src) const noexcept {
+    [[nodiscard]] auto copy_from(const Volume<T> &src) const noexcept {
         return copy_from(src.view());
     }
 
     template<typename T>
     [[nodiscard]] auto copy_from(ImageView<T> src) const noexcept {
-        return copy_from(src.level(0u));
+        return copy_from(src._as_mipmap());
     }
 
     template<typename T>
     [[nodiscard]] auto copy_from(VolumeView<T> src) const noexcept {
-        return copy_from(src.level(0u));
+        return copy_from(src._as_mipmap());
     }
 
     [[nodiscard]] auto copy_from(MipmapView src) const noexcept {

@@ -54,19 +54,15 @@ public:
 
 private:
     Handle _handle;
-    std::recursive_mutex _mutex;
 
 public:
     CUDADevice(const Context &ctx, uint device_id) noexcept;
     ~CUDADevice() noexcept override = default;
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
-    uint64_t create_buffer(size_t size_bytes, uint64_t heap_handle, uint32_t index_in_heap) noexcept override;
+    uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, Sampler sampler, uint64_t heap_handle, uint32_t index_in_heap) override;
+    uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
-    uint64_t create_heap(size_t size) noexcept override;
-    size_t query_heap_memory_usage(uint64_t handle) noexcept override;
-    void destroy_heap(uint64_t handle) noexcept override;
     uint64_t create_stream() noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
@@ -82,6 +78,16 @@ public:
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
+    uint64_t create_bindless_array(size_t size) noexcept override;
+    void destroy_bindless_array(uint64_t handle) noexcept override;
+    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept override;
+    void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
+    void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
+    bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
+    bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
+    void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;
+    void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override;
+    void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
 
     // TODO...
     void *native_handle() const noexcept override {
@@ -95,11 +101,6 @@ public:
     }
     void *stream_native_handle(uint64_t handle) const noexcept override {
         return nullptr;
-    }
-    template<typename F>
-    decltype(auto) with_locked(F &&f) noexcept {
-        std::scoped_lock lock{_mutex};
-        return f();
     }
 
     template<typename F>

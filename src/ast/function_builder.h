@@ -185,8 +185,8 @@ public:
     [[nodiscard]] const RefExpr *shared(const Type *type) noexcept;
 
     [[nodiscard]] const ConstantExpr *constant(const Type *type, ConstantData data) noexcept;
-    [[nodiscard]] const RefExpr *buffer_binding(const Type *element_type, uint64_t handle, size_t offset_bytes) noexcept;
-    [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle) noexcept;
+    [[nodiscard]] const RefExpr *buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept;
+    [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle, uint32_t level) noexcept;
     [[nodiscard]] const RefExpr *bindless_array_binding(uint64_t handle) noexcept;
     [[nodiscard]] const RefExpr *accel_binding(uint64_t handle) noexcept;
 

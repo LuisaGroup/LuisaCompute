@@ -8,20 +8,9 @@
 #include <algorithm>
 
 #include <core/basic_types.h>
+#include <core/constants.h>
 
 namespace luisa {
-
-inline namespace constants {
-
-constexpr auto pi = 3.14159265358979323846264338327950288f;
-constexpr auto pi_over_two = 1.57079632679489661923132169163975144f;
-constexpr auto pi_over_four = 0.785398163397448309615660845819875721f;
-constexpr auto inv_pi = 0.318309886183790671537767526745028724f;
-constexpr auto two_over_pi = 0.636619772367581343075535053490057448f;
-constexpr auto sqrt_two = 1.41421356237309504880168872420969808f;
-constexpr auto inv_sqrt_two = 0.707106781186547524400844362104849039f;
-
-}// namespace constants
 
 template<typename T, std::enable_if_t<std::is_unsigned_v<T> && (sizeof(T) == 4u || sizeof(T) == 8u), int> = 0>
 [[nodiscard]] constexpr auto next_pow2(T v) noexcept {
@@ -307,10 +296,10 @@ template<uint N>
 }
 
 [[nodiscard]] constexpr auto inverse(const float3x3 m) noexcept {// from GLM
-    const auto one_over_determinant = 1.0f
-                                      / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
-                                         - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
-                                         + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
+    const auto one_over_determinant = 1.0f /
+                                      (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) -
+                                       m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z) +
+                                       m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
     return make_float3x3(
         (m[1].y * m[2].z - m[2].y * m[1].z) * one_over_determinant,
         (m[2].y * m[0].z - m[0].y * m[2].z) * one_over_determinant,
@@ -369,6 +358,59 @@ template<uint N>
                     inv_1 * one_over_determinant,
                     inv_2 * one_over_determinant,
                     inv_3 * one_over_determinant};
+}
+
+[[nodiscard]] constexpr auto determinant(const float2x2 m) noexcept {
+    return m[0][0] * m[1][1] - m[1][0] * m[0][1];
+}
+
+[[nodiscard]] constexpr auto determinant(const float3x3 m) noexcept {// from GLM
+    return m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) -
+           m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z) +
+           m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z);
+}
+
+[[nodiscard]] constexpr auto determinant(const float4x4 m) noexcept {// from GLM
+    const auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+    const auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+    const auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+    const auto coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+    const auto coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+    const auto coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+    const auto coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+    const auto coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+    const auto coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+    const auto coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+    const auto coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+    const auto coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+    const auto coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+    const auto coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+    const auto coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+    const auto coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+    const auto coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+    const auto coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+    const auto fac0 = float4{coef00, coef00, coef02, coef03};
+    const auto fac1 = float4{coef04, coef04, coef06, coef07};
+    const auto fac2 = float4{coef08, coef08, coef10, coef11};
+    const auto fac3 = float4{coef12, coef12, coef14, coef15};
+    const auto fac4 = float4{coef16, coef16, coef18, coef19};
+    const auto fac5 = float4{coef20, coef20, coef22, coef23};
+    const auto Vec0 = float4{m[1].x, m[0].x, m[0].x, m[0].x};
+    const auto Vec1 = float4{m[1].y, m[0].y, m[0].y, m[0].y};
+    const auto Vec2 = float4{m[1].z, m[0].z, m[0].z, m[0].z};
+    const auto Vec3 = float4{m[1].w, m[0].w, m[0].w, m[0].w};
+    const auto inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+    const auto inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+    const auto inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+    const auto inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+    constexpr auto sign_a = float4{+1.0f, -1.0f, +1.0f, -1.0f};
+    constexpr auto sign_b = float4{-1.0f, +1.0f, -1.0f, +1.0f};
+    const auto inv_0 = inv0 * sign_a;
+    const auto inv_1 = inv1 * sign_b;
+    const auto inv_2 = inv2 * sign_a;
+    const auto inv_3 = inv3 * sign_b;
+    const auto dot0 = m[0] * float4{inv_0.x, inv_1.x, inv_2.x, inv_3.x};
+    return dot0.x + dot0.y + dot0.z + dot0.w;
 }
 
 // transforms

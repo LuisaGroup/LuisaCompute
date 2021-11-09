@@ -51,18 +51,19 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
 
-    [[nodiscard]] auto view() const noexcept { return VolumeView<T>{handle(), _storage, _mip_levels, {}, _size}; }
-    [[nodiscard]] auto view(uint3 offset, uint3 size) const noexcept {
-        if (any(offset + size >= _size)) [[unlikely]] {
+    [[nodiscard]] auto view(uint32_t level) const noexcept {
+        if (level >= _mip_levels) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid offset[{}, {}, {}] and size[{}, {}, {}] of view "
-                "for volume #{} with size[{}, {}, {}].",
-                offset.x, offset.y, offset.z, size.x, size.y, size.z,
-                handle(), _size.x, _size.y, _size.z);
+                "Invalid mipmap level {} for volume with {} levels.",
+                level, _mip_levels);
         }
-        return VolumeView<T>{handle(), _storage, _mip_levels, offset, size};
+        auto mip_size = luisa::max(_size >> level, 1u);
+        return VolumeView<T>{handle(), _storage, level, {}, mip_size};
     }
-    [[nodiscard]] auto level(uint l) const noexcept { return view().level(l); }
+
+    [[nodiscard]] auto region(uint3 offset, uint3 size) const noexcept {
+        return this->view().region(offset, size);
+    }
 
     template<typename UVW>
     [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
@@ -76,23 +77,10 @@ public:
             std::forward<Value>(value));
     }
 
-    template<typename UVW, typename I>
-    [[nodiscard]] decltype(auto) read(UVW &&uvw, I &&level) const noexcept {
-        return this->view().read(std::forward<UVW>(uvw), std::forward<I>(level));
-    }
-
-    template<typename UVW, typename Value, typename I>
-    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value, I &&level) const noexcept {
-        return this->view().write(
-            std::forward<UVW>(uvw),
-            std::forward<Value>(value),
-            std::forward<I>(level));
-    }
-
     template<typename U>
-    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return view().copy_to(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return this->view().copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] auto copy_from(U &&dst) const noexcept { return view().copy_from(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_from(U &&dst) const noexcept { return this->view().copy_from(std::forward<U>(dst)); }
 };
 
 template<typename T>
@@ -101,30 +89,35 @@ class VolumeView {
 private:
     uint64_t _handle;
     PixelStorage _storage;
-    uint _mip_levels;
+    uint _level;
     uint3 _offset;
     uint3 _size;
 
 private:
     friend class Volume<T>;
+    friend class detail::MipmapView;
 
     constexpr explicit VolumeView(
         uint64_t handle,
         PixelStorage storage,
-        uint mip_levels,
+        uint level,
         uint3 offset,
         uint3 size) noexcept
         : _handle{handle},
           _storage{storage},
-          _mip_levels{mip_levels},
+          _level{level},
           _offset{offset},
           _size{size} {
 
         if (any(_offset >= _size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Invalid offset[{}, {}, {}] and size[{}, {}, {}] for volume #{}.",
-                _offset.x, _offset.y, _offset.z, _size.x, _size.y, _size.z, _handle);
+                "Invalid offset[{}, {}, {}] and size[{}, {}, {}] for volume #{} at level {}.",
+                _offset.x, _offset.y, _offset.z, _size.x, _size.y, _size.z, _handle, _level);
         }
+    }
+
+    [[nodiscard]] auto _as_mipmap() const noexcept {
+        return detail::MipmapView{_handle, _size, _offset, _level, _storage};
     }
 
 public:
@@ -134,27 +127,16 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
-    [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
+    [[nodiscard]] auto level() const noexcept { return _level; }
 
-    [[nodiscard]] auto level(uint l) const noexcept {
-        if (l >= _mip_levels) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid mipmap level {} (max = {}).",
-                l, _mip_levels - 1u);
-        }
-        return detail::MipmapView{
-            _handle, max(_size >> l, 1u),
-            _offset >> l, l, _storage};
-    }
-
-    [[nodiscard]] auto subview(uint3 offset, uint3 size) const noexcept {
-        return VolumeView{_handle, _storage, _offset + offset, size};
+    [[nodiscard]] auto region(uint3 offset, uint3 size) const noexcept {
+        return VolumeView{_handle, _storage, _level, _offset + offset, size};
     }
 
     template<typename U>
-    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return level(0u).copy_to(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return _as_mipmap().copy_to(std::forward<U>(dst)); }
     template<typename U>
-    [[nodiscard]] auto copy_from(U &&src) const noexcept { return level(0u).copy_from(std::forward<U>(src)); }
+    [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
 
     template<typename UVW>
     [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
@@ -166,19 +148,6 @@ public:
         return Expr<Volume<T>>{*this}.write(
             std::forward<UVW>(uvw),
             std::forward<Value>(value));
-    }
-
-    template<typename UVW, typename I>
-    [[nodiscard]] decltype(auto) read(UVW &&uvw, I &&level) const noexcept {
-        return Expr<Volume<T>>{*this}.read(std::forward<UVW>(uvw), std::forward<I>(level));
-    }
-
-    template<typename UVW, typename Value, typename I>
-    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value, I &&level) const noexcept {
-        return Expr<Volume<T>>{*this}.write(
-            std::forward<UVW>(uvw),
-            std::forward<Value>(value),
-            std::forward<I>(level));
     }
 };
 

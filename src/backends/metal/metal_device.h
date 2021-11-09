@@ -33,75 +33,17 @@ class MetalDevice final : public Device::Interface {
 
 private:
     id<MTLDevice> _handle{nullptr};
+    id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
-    // for buffers
-    luisa::vector<id<MTLBuffer>> _buffer_slots;
-    luisa::vector<size_t> _available_buffer_slots;
-
-    // for streams
-    luisa::vector<luisa::unique_ptr<MetalStream>> _stream_slots;
-    luisa::vector<size_t> _available_stream_slots;
-
-    // for textures
-    luisa::vector<id<MTLTexture>> _texture_slots;
-    luisa::vector<size_t> _available_texture_slots;
-
-    // for shaders
-    luisa::vector<MetalShader> _shader_slots;
-    luisa::vector<size_t> _available_shader_slots;
-
-    // for bindless arrays
-    luisa::vector<luisa::unique_ptr<MetalBindlessArray>> _bindless_array_slots;
-    luisa::vector<size_t> _available_bindless_array_slots;
-
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
-    // for meshes
-    luisa::vector<luisa::unique_ptr<MetalMesh>> _mesh_slots;
-    luisa::vector<size_t> _available_mesh_slots;
-
-    // for acceleration structures
-    luisa::vector<luisa::unique_ptr<MetalAccel>> _accel_slots;
-    luisa::vector<size_t> _available_accel_slots;
-
     luisa::unique_ptr<MetalSharedBufferPool> _compacted_size_buffer_pool{nullptr};
 #endif
-
-    // for events
-    luisa::vector<luisa::unique_ptr<MetalEvent>> _event_slots;
-    luisa::vector<size_t> _available_event_slots;
-
-    // mutexes
-    mutable spin_mutex _buffer_mutex;
-    mutable spin_mutex _stream_mutex;
-    mutable spin_mutex _texture_mutex;
-    mutable spin_mutex _shader_mutex;
-    mutable spin_mutex _bindless_array_mutex;
-    mutable spin_mutex _mesh_mutex;
-    mutable spin_mutex _accel_mutex;
-    mutable spin_mutex _event_mutex;
 
 public:
     explicit MetalDevice(const Context &ctx, uint32_t index) noexcept;
     ~MetalDevice() noexcept override;
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
-    [[nodiscard]] id<MTLBuffer> buffer(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalStream *stream(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalEvent *event(uint64_t handle) const noexcept;
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    [[nodiscard]] MetalMesh *mesh(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalAccel *accel(uint64_t handle) const noexcept;
-
-    template<typename Visit>
-    void traverse_meshes(std::span<const uint64_t> handles, Visit &&f) const noexcept {
-        std::scoped_lock lock{_mesh_mutex};
-        for (auto h : handles) {
-            std::invoke(std::forward<Visit>(f), _mesh_slots[h].get());
-        }
-    }
-#endif
-    [[nodiscard]] id<MTLTexture> texture(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalBindlessArray *bindless_array(uint64_t handle) const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     [[nodiscard]] MetalSharedBufferPool *compacted_size_buffer_pool() const noexcept;
     void check_raytracing_supported() const noexcept;
@@ -141,6 +83,7 @@ public:
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
     bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
+    [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
 };
 
 }// namespace luisa::compute::metal

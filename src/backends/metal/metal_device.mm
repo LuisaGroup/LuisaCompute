@@ -28,55 +28,26 @@ uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     LUISA_VERBOSE_WITH_LOCATION(
         "Created buffer with size {} in {} ms.",
         size_bytes, clock.toc());
-
-    auto buffer_handle = [&] {
-        auto h = 0ull;
-        std::scoped_lock lock{_buffer_mutex};
-        if (_available_buffer_slots.empty()) {
-            h = _buffer_slots.size();
-            _buffer_slots.emplace_back(buffer);
-        } else {
-            h = _available_buffer_slots.back();
-            _buffer_slots[h] = buffer;
-            _available_buffer_slots.pop_back();
-        }
-        return h;
-    }();
-    return buffer_handle;
+return reinterpret_cast<uint64_t>((__bridge_retained void *)buffer);
 }
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
-    {
-        std::scoped_lock lock{_buffer_mutex};
-        _buffer_slots[handle] = nullptr;
-        _available_buffer_slots.emplace_back(handle);
-    }
+    auto ptr = reinterpret_cast<void *>(handle);
+    auto buffer = (__bridge_transfer id<MTLBuffer>)ptr;
     LUISA_VERBOSE_WITH_LOCATION("Destroyed buffer #{}.", handle);
 }
 
 uint64_t MetalDevice::create_stream() noexcept {
     Clock clock;
     auto max_command_buffer_count = _handle.isLowPower ? 8u : 16u;
-    auto stream = luisa::make_unique<MetalStream>(_handle, max_command_buffer_count);
+    auto stream = new_with_allocator<MetalStream>(_handle, max_command_buffer_count);
     LUISA_VERBOSE_WITH_LOCATION("Created stream in {} ms.", clock.toc());
-    std::scoped_lock lock{_stream_mutex};
-    if (_available_stream_slots.empty()) {
-        auto s = _stream_slots.size();
-        _stream_slots.emplace_back(std::move(stream));
-        return s;
-    }
-    auto s = _available_stream_slots.back();
-    _available_stream_slots.pop_back();
-    _stream_slots[s] = std::move(stream);
-    return s;
+    return reinterpret_cast<uint64_t>(stream);
 }
 
 void MetalDevice::destroy_stream(uint64_t handle) noexcept {
-    {
-        std::scoped_lock lock{_stream_mutex};
-        _stream_slots[handle] = nullptr;
-        _available_stream_slots.emplace_back(handle);
-    }
+    auto s = reinterpret_cast<MetalStream *>(handle);
+    delete_with_allocator(s);
     LUISA_VERBOSE_WITH_LOCATION("Destroyed stream #{}.", handle);
 }
 
@@ -94,7 +65,7 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
             index, count - 1u);
         index = static_cast<uint>(count - 1u);
     }
-    std::vector<id<MTLDevice>> sorted_devices;
+    luisa::vector<id<MTLDevice>> sorted_devices;
     sorted_devices.reserve(devices.count);
     for (id<MTLDevice> d in devices) { sorted_devices.emplace_back(d); }
     std::sort(sorted_devices.begin(), sorted_devices.end(), [](id<MTLDevice> lhs, id<MTLDevice> rhs) noexcept {
@@ -111,38 +82,24 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     _compacted_size_buffer_pool = luisa::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
 #endif
 
-    static constexpr auto initial_buffer_count = 64u;
-    _buffer_slots.resize(initial_buffer_count, nullptr);
-    _available_buffer_slots.resize(initial_buffer_count);
-    std::iota(_available_buffer_slots.rbegin(), _available_buffer_slots.rend(), 0u);
-
-    static constexpr auto initial_stream_count = 4u;
-    _stream_slots.reserve(initial_stream_count);
-    for (auto i = 0u; i < initial_stream_count; i++) { _stream_slots.emplace_back(nullptr); }
-    _available_stream_slots.resize(initial_stream_count);
-    std::iota(_available_stream_slots.rbegin(), _available_stream_slots.rend(), 0u);
-
-    static constexpr auto initial_texture_count = 16u;
-    _texture_slots.resize(initial_texture_count, nullptr);
-    _available_texture_slots.resize(initial_texture_count);
-    std::iota(_available_texture_slots.rbegin(), _available_texture_slots.rend(), 0u);
-
-    static constexpr auto initial_shader_count = 16u;
-    _shader_slots.resize(initial_shader_count, {});
-    _available_shader_slots.resize(initial_shader_count);
-    std::iota(_available_shader_slots.rbegin(), _available_shader_slots.rend(), 0u);
-
-    static constexpr auto initial_bindless_array_count = 4u;
-    _bindless_array_slots.reserve(initial_bindless_array_count);
-    for (auto i = 0u; i < initial_bindless_array_count; i++) { _bindless_array_slots.emplace_back(nullptr); }
-    _available_bindless_array_slots.resize(initial_bindless_array_count);
-    std::iota(_available_bindless_array_slots.rbegin(), _available_bindless_array_slots.rend(), 0u);
-
-    static constexpr auto initial_event_count = 4u;
-    _event_slots.reserve(initial_event_count);
-    for (auto i = 0u; i < initial_event_count; i++) { _event_slots.emplace_back(nullptr); }
-    _available_event_slots.resize(initial_event_count);
-    std::iota(_available_event_slots.rbegin(), _available_event_slots.rend(), 0u);
+    // initialize bindless array encoder
+    static constexpr auto src = @"#include <metal_stdlib>\n"
+                                 "struct alignas(16) BindlessItem {\n"
+                                 "  device const void *buffer;\n"
+                                 "  metal::ushort sampler2d;\n"
+                                 "  metal::ushort sampler3d;\n"
+                                 "  metal::texture2d<float> handle2d;\n"
+                                 "  metal::texture3d<float> handle3d;\n"
+                                 "};\n"
+                                 "[[kernel]] void k(device const BindlessItem *array) {}\n";
+    auto library = [_handle newLibraryWithSource:src options:nullptr error:nullptr];
+    auto function = [library newFunctionWithName:@"k"];
+    _bindless_array_encoder = [function newArgumentEncoderWithBufferIndex:0];
+    if (auto enc_size = _bindless_array_encoder.encodedLength; enc_size != MetalBindlessArray::slot_size) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid bindless array encoded size: {} (expected {}).",
+            enc_size, MetalBindlessArray::slot_size);
+    }
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -153,17 +110,7 @@ MetalDevice::~MetalDevice() noexcept {
 }
 
 void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {
-    stream(stream_handle)->synchronize();
-}
-
-id<MTLBuffer> MetalDevice::buffer(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_buffer_mutex};
-    return _buffer_slots[handle & 0xffffffffu];
-}
-
-MetalStream *MetalDevice::stream(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_stream_mutex};
-    return _stream_slots[handle].get();
+    reinterpret_cast<MetalStream *>(stream_handle)->synchronize();
 }
 
 id<MTLDevice> MetalDevice::handle() const noexcept {
@@ -171,8 +118,8 @@ id<MTLDevice> MetalDevice::handle() const noexcept {
 }
 
 MetalShader MetalDevice::compiled_kernel(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_shader_mutex};
-    return _shader_slots[handle];
+    auto ptr = reinterpret_cast<void *>(handle);
+    return MetalShader{(__bridge id<MTLComputePipelineState>)ptr};
 }
 
 uint64_t MetalDevice::create_texture(
@@ -244,70 +191,35 @@ uint64_t MetalDevice::create_texture(
         mipmap_levels, mipmap_levels <= 1u ? "" : "s",
         clock.toc());
 
-    auto texture_handle = [&] {
-        auto h = 0ull;
-        std::scoped_lock lock{_texture_mutex};
-        if (_available_texture_slots.empty()) {
-            h = _texture_slots.size();
-            _texture_slots.emplace_back(texture);
-        } else {
-            h = _available_texture_slots.back();
-            _texture_slots[h] = texture;
-            _available_texture_slots.pop_back();
-        }
-        return h;
-    }();
-    return texture_handle;
+    return reinterpret_cast<uint64_t>((__bridge_retained void *)texture);
 }
 
 void MetalDevice::destroy_texture(uint64_t handle) noexcept {
-    {
-        std::scoped_lock lock{_texture_mutex};
-        auto &&tex = _texture_slots[handle];
-        if (tex.heap != nullptr) { [tex makeAliasable]; }
-        tex = nullptr;
-        _available_texture_slots.emplace_back(handle);
-    }
+    auto ptr = reinterpret_cast<void *>(handle);
+    auto texture = (__bridge_transfer id<MTLTexture>)ptr;
     LUISA_VERBOSE_WITH_LOCATION("Destroyed image #{}.", handle);
-}
-
-id<MTLTexture> MetalDevice::texture(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_texture_mutex};
-    return _texture_slots[handle & 0xffffffffu];
 }
 
 uint64_t MetalDevice::create_event() noexcept {
     Clock clock;
-    auto event = luisa::make_unique<MetalEvent>([_handle newEvent]);
+    auto event = new_with_allocator<MetalEvent>([_handle newEvent]);
     LUISA_VERBOSE_WITH_LOCATION("Created event in {} ms.", clock.toc());
-    std::scoped_lock lock{_event_mutex};
-    if (_available_event_slots.empty()) {
-        auto s = _event_slots.size();
-        _event_slots.emplace_back(std::move(event));
-        return s;
-    }
-    auto s = _available_event_slots.back();
-    _available_event_slots.pop_back();
-    _event_slots[s] = std::move(event);
-    return s;
+    return reinterpret_cast<uint64_t>(event);
 }
 
 void MetalDevice::destroy_event(uint64_t handle) noexcept {
-    {
-        std::scoped_lock lock{_event_mutex};
-        _event_slots[handle] = nullptr;
-        _available_event_slots.emplace_back(handle);
-    }
+    auto event = reinterpret_cast<MetalEvent *>(handle);
+    delete_with_allocator(event);
     LUISA_VERBOSE_WITH_LOCATION("Destroyed event #{}.", handle);
 }
 
 void MetalDevice::synchronize_event(uint64_t handle) noexcept {
-    event(handle)->synchronize();
+    reinterpret_cast<MetalEvent *>(handle)->synchronize();
 }
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcept {
     @autoreleasepool {
-        auto s = stream(stream_handle);
+        auto s = reinterpret_cast<MetalStream *>(stream_handle);
         MetalCommandEncoder encoder{this, s};
         for (auto command : cmd_list) { command->accept(encoder); }
         s->dispatch(encoder.command_buffer());
@@ -316,8 +228,8 @@ void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcep
 
 void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
     @autoreleasepool {
-        auto e = event(handle);
-        auto s = stream(stream_handle);
+        auto e = reinterpret_cast<MetalEvent *>(handle);
+        auto s = reinterpret_cast<MetalStream *>(stream_handle);
         auto command_buffer = s->command_buffer();
         e->signal(command_buffer);
         s->dispatch(command_buffer);
@@ -326,17 +238,12 @@ void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept
 
 void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     @autoreleasepool {
-        auto e = event(handle);
-        auto s = stream(stream_handle);
+        auto e = reinterpret_cast<MetalEvent *>(handle);
+        auto s = reinterpret_cast<MetalStream *>(stream_handle);
         auto command_buffer = s->command_buffer();
         e->wait(command_buffer);
         s->dispatch(command_buffer);
     }
-}
-
-MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_event_mutex};
-    return _event_slots[handle].get();
 }
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
@@ -344,52 +251,28 @@ MetalEvent *MetalDevice::event(uint64_t handle) const noexcept {
 uint64_t MetalDevice::create_mesh() noexcept {
     check_raytracing_supported();
     Clock clock;
-    auto mesh = luisa::make_unique<MetalMesh>();
+    auto mesh = new_with_allocator<MetalMesh>();
     LUISA_VERBOSE_WITH_LOCATION("Created mesh in {} ms.", clock.toc());
-    std::scoped_lock lock{_mesh_mutex};
-    if (_available_mesh_slots.empty()) {
-        auto s = _mesh_slots.size();
-        _mesh_slots.emplace_back(std::move(mesh));
-        return s;
-    }
-    auto s = _available_mesh_slots.back();
-    _available_mesh_slots.pop_back();
-    _mesh_slots[s] = std::move(mesh);
-    return s;
+    return reinterpret_cast<uint64_t>(mesh);
 }
 
 void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
-    {
-        std::scoped_lock lock{_mesh_mutex};
-        _mesh_slots[handle] = {};
-        _available_mesh_slots.emplace_back(handle);
-    }
+    auto mesh = reinterpret_cast<MetalMesh *>(handle);
+    delete_with_allocator(mesh);
     LUISA_VERBOSE_WITH_LOCATION("Destroyed mesh #{}.", handle);
 }
 
 uint64_t MetalDevice::create_accel() noexcept {
     check_raytracing_supported();
     Clock clock;
-    auto accel = luisa::make_unique<MetalAccel>(this);
+    auto accel = new_with_allocator<MetalAccel>(this);
     LUISA_VERBOSE_WITH_LOCATION("Created accel in {} ms.", clock.toc());
-    std::scoped_lock lock{_accel_mutex};
-    if (_available_accel_slots.empty()) {
-        auto s = _accel_slots.size();
-        _accel_slots.emplace_back(std::move(accel));
-        return s;
-    }
-    auto s = _available_accel_slots.back();
-    _available_accel_slots.pop_back();
-    _accel_slots[s] = std::move(accel);
-    return s;
+    return reinterpret_cast<uint64_t>(accel);
 }
 
 void MetalDevice::destroy_accel(uint64_t handle) noexcept {
-    {
-        std::scoped_lock lock{_accel_mutex};
-        _accel_slots[handle] = {};
-        _available_accel_slots.emplace_back(handle);
-    }
+    auto accel = reinterpret_cast<MetalAccel *>(handle);
+    delete_with_allocator(accel);
     LUISA_VERBOSE_WITH_LOCATION("Destroyed accel #{}.", handle);
 }
 
@@ -415,33 +298,15 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
 
 uint64_t MetalDevice::create_bindless_array(size_t size) noexcept {
     Clock clock;
-    auto heap = luisa::make_unique<MetalBindlessArray>(this, size);
+    auto array = new_with_allocator<MetalBindlessArray>(this, size);
     LUISA_VERBOSE_WITH_LOCATION("Created texture heap in {} ms.", clock.toc());
-    std::scoped_lock lock{_bindless_array_mutex};
-    if (_available_bindless_array_slots.empty()) {
-        auto s = _bindless_array_slots.size();
-        _bindless_array_slots.emplace_back(std::move(heap));
-        return s;
-    }
-    auto s = _available_bindless_array_slots.back();
-    _available_bindless_array_slots.pop_back();
-    _bindless_array_slots[s] = std::move(heap);
-    return s;
+    return reinterpret_cast<uint64_t>(array);
 }
 
 void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
-    auto bindless_array = [&] {
-        std::scoped_lock lock{_bindless_array_mutex};
-        auto h = std::move(_bindless_array_slots[handle]);
-        _available_bindless_array_slots.emplace_back(handle);
-        return h;
-    }();
+    auto array = reinterpret_cast<MetalBindlessArray *>(handle);
+    delete_with_allocator(array);
     LUISA_VERBOSE_WITH_LOCATION("Destroyed bindless array #{}.", handle);
-}
-
-MetalBindlessArray *MetalDevice::bindless_array(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_bindless_array_mutex};
-    return _bindless_array_slots[handle].get();
 }
 
 uint64_t MetalDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
@@ -449,43 +314,19 @@ uint64_t MetalDevice::create_shader(Function kernel, std::string_view meta_optio
     Clock clock;
     auto shader = _compiler->compile(kernel, meta_options);
     LUISA_VERBOSE_WITH_LOCATION("Compiled shader in {} ms.", clock.toc());
-    std::scoped_lock lock{_shader_mutex};
-    if (_available_shader_slots.empty()) {
-        auto shader_handle = _shader_slots.size();
-        _shader_slots.emplace_back(shader);
-        return shader_handle;
-    }
-    auto s = _available_shader_slots.back();
-    _available_shader_slots.pop_back();
-    _shader_slots[s] = shader;
-    return s;
+    auto p = (__bridge void *)(shader.handle());
+    return reinterpret_cast<uint64_t>(p);
 }
 
 void MetalDevice::destroy_shader(uint64_t handle) noexcept {
-    {
-        std::scoped_lock lock{_shader_mutex};
-        _shader_slots[handle] = {};
-        _available_shader_slots.emplace_back(handle);
-    }
+    // nothing happens, the MetalCompiler class will manage all
     LUISA_VERBOSE_WITH_LOCATION("Destroyed shader #{}.", handle);
 }
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
-
-MetalMesh *MetalDevice::mesh(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_mesh_mutex};
-    return _mesh_slots[handle].get();
-}
-
-MetalAccel *MetalDevice::accel(uint64_t handle) const noexcept {
-    std::scoped_lock lock{_accel_mutex};
-    return _accel_slots[handle].get();
-}
-
 MetalSharedBufferPool *MetalDevice::compacted_size_buffer_pool() const noexcept {
     return _compacted_size_buffer_pool.get();
 }
-
 #endif
 
 void MetalDevice::check_raytracing_supported() const noexcept {
@@ -497,11 +338,11 @@ void MetalDevice::check_raytracing_supported() const noexcept {
 }
 
 void *MetalDevice::buffer_native_handle(uint64_t handle) const noexcept {
-    return (__bridge void *)buffer(handle);
+    return reinterpret_cast<void *>(handle);
 }
 
 void *MetalDevice::texture_native_handle(uint64_t handle) const noexcept {
-    return (__bridge void *)texture(handle);
+    return reinterpret_cast<void *>(handle);
 }
 
 void *MetalDevice::native_handle() const noexcept {
@@ -509,39 +350,40 @@ void *MetalDevice::native_handle() const noexcept {
 }
 
 void *MetalDevice::stream_native_handle(uint64_t handle) const noexcept {
-    return (__bridge void *)stream(handle)->handle();
+    auto stream = reinterpret_cast<MetalStream *>(handle);
+    return (__bridge void *)(stream->handle());
 }
 
 void MetalDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
-    bindless_array(array)->emplace_buffer(index, handle, offset_bytes);
+    reinterpret_cast<MetalBindlessArray *>(array)->emplace_buffer(index, handle, offset_bytes);
 }
 
 void MetalDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
-    bindless_array(array)->emplace_tex2d(index, handle, sampler);
+    reinterpret_cast<MetalBindlessArray *>(array)->emplace_tex2d(index, handle, sampler);
 }
 
 void MetalDevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
-    bindless_array(array)->emplace_tex3d(index, handle, sampler);
+    reinterpret_cast<MetalBindlessArray *>(array)->emplace_tex3d(index, handle, sampler);
 }
 
 void MetalDevice::remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept {
-    bindless_array(array)->remove_buffer(index);
+    reinterpret_cast<MetalBindlessArray *>(array)->remove_buffer(index);
 }
 
 void MetalDevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept {
-    bindless_array(array)->remove_tex2d(index);
+    reinterpret_cast<MetalBindlessArray *>(array)->remove_tex2d(index);
 }
 
 void MetalDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
-    bindless_array(array)->remove_tex3d(index);
+    reinterpret_cast<MetalBindlessArray *>(array)->remove_tex3d(index);
 }
 
 bool MetalDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
-    return bindless_array(array)->has_buffer(handle);
+    return reinterpret_cast<MetalBindlessArray *>(array)->has_buffer(handle);
 }
 
 bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
-    return bindless_array(array)->has_texture(handle);
+    return reinterpret_cast<MetalBindlessArray *>(array)->has_texture(handle);
 }
 
 }

@@ -307,19 +307,6 @@ public:
     AtomicRef &operator=(AtomicRef &&) noexcept = delete;
     AtomicRef &operator=(const AtomicRef &) noexcept = delete;
 
-    void store(Expr<T> value) &&noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::ATOMIC_STORE,
-            {this->_expression, value.expression()});
-    }
-
-    [[nodiscard]] auto load() &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_LOAD,
-            {this->_expression});
-        return def<T>(expr);
-    };
-
     auto exchange(Expr<T> desired) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_EXCHANGE,
@@ -428,19 +415,12 @@ private:
         return f->binary(Type::of<uint2>(), BinaryOp::ADD, uv, _offset);
     }
 
-    [[nodiscard]] auto _offset_uv_level(const Expression *uv, const Expression *level) const noexcept -> const Expression * {
-        if (_offset == nullptr) { return uv; }
-        auto f = detail::FunctionBuilder::current();
-        auto mip_offset = f->binary(Type::of<uint2>(), BinaryOp::SHR, _offset, level);
-        return f->binary(Type::of<uint2>(), BinaryOp::ADD, uv, mip_offset);
-    }
-
 public:
     explicit Expr(const RefExpr *expr, const Expression *offset) noexcept
         : _expression{expr}, _offset{offset} {}
     explicit Expr(ImageView<T> image) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
-              Type::of<Image<T>>(), image.handle())},
+              Type::of<Image<T>>(), image.handle(), image.level())},
           _offset{any(image.offset()) ? detail::FunctionBuilder::current()->literal(Type::of<uint2>(), image.offset()) : nullptr} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
@@ -457,31 +437,6 @@ public:
         detail::FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
             {_expression, _offset_uv(uv.expression()), value.expression()});
-    }
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(Expr<uint2> uv, I &&level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto l = def<uint>(std::forward<I>(level));
-        return def<Vector<T, 4>>(
-            f->call(
-                Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ_LEVEL,
-                {_expression,
-                 _offset_uv_level(uv.expression(), l.expression()),
-                 l.expression()}));
-    };
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    void write(Expr<uint2> uv, Expr<Vector<T, 4>> value, I &&level) const noexcept {
-        auto l = def<uint>(std::forward<I>(level));
-        detail::FunctionBuilder::current()->call(
-            CallOp::TEXTURE_WRITE_LEVEL,
-            {_expression,
-             _offset_uv(uv.expression(), l.expression()),
-             value.expression(),
-             l.expression()});
     }
 };
 
@@ -503,19 +458,12 @@ private:
         return f->binary(Type::of<uint3>(), BinaryOp::ADD, uvw, _offset);
     }
 
-    [[nodiscard]] auto _offset_uvw_level(const Expression *uvw, const Expression *level) const noexcept -> const Expression * {
-        if (_offset == nullptr) { return uvw; }
-        auto f = detail::FunctionBuilder::current();
-        auto mip_offset = f->binary(Type::of<uint3>(), BinaryOp::SHR, _offset, level);
-        return f->binary(Type::of<uint3>(), BinaryOp::ADD, uvw, mip_offset);
-    }
-
 public:
     explicit Expr(const RefExpr *expr, const Expression *offset) noexcept
         : _expression{expr}, _offset{offset} {}
     explicit Expr(VolumeView<T> volume) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
-              Type::of<Volume<T>>(), volume.handle())},
+              Type::of<Volume<T>>(), volume.handle(), volume.level())},
           _offset{any(volume.offset()) ? detail::FunctionBuilder::current()->literal(Type::of<uint3>(), volume.offset()) : nullptr} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
@@ -532,30 +480,6 @@ public:
         detail::FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
             {_expression, _offset_uvw(uvw.expression()), value.expression()});
-    }
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(Expr<uint3> uvw, I &&level) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto l = def<uint>(std::forward<I>(level));
-        return def<Vector<T, 4>>(
-            f->call(Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ_LEVEL,
-                    {_expression,
-                     _offset_uvw(uvw.expression(), l.expression()),
-                     l.expression()}));
-    };
-
-    template<typename I>
-        requires is_integral_expr_v<I>
-    void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value, I &&level) const noexcept {
-        auto l = def<uint>(std::forward<I>(level));
-        detail::FunctionBuilder::current()->call(
-            CallOp::TEXTURE_WRITE_LEVEL,
-            {_expression,
-             _offset_uvw(uvw.expression(), l.expression()),
-             value.expression(),
-             l.expression()});
     }
 };
 

@@ -11,7 +11,7 @@ namespace luisa::compute::metal {
 class MetalDevice;
 class MetalStream;
 
-class MetalCommandEncoder : public CommandVisitor {
+class MetalCommandEncoder final : public CommandVisitor {
 
 private:
     MetalDevice *_device;
@@ -39,6 +39,7 @@ public:
     void visit(const AccelBuildCommand *command) noexcept override;
     void visit(const MeshUpdateCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
+    void visit(const BindlessArrayUpdateCommand *command) noexcept override;
 };
 
 }// namespace luisa::compute::metal

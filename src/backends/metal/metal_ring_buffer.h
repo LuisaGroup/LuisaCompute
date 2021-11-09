@@ -22,7 +22,6 @@ private:
     size_t _free_end;
     uint _alloc_count;
     bool _optimize_write;
-    spin_mutex _mutex;
 
 public:
     MetalRingBuffer(id<MTLDevice> device, size_t size, bool optimize_write) noexcept

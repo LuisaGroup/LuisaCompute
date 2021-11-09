@@ -237,13 +237,6 @@ r.y = a.z * b.x - a.x * b.z;
 r.z = a.x * b.y - a.y * b.x;
 return r;
 }
-
-// degrees
-inline float degrees(float f) { return (180 * f) / PI; }
-inline float2 degrees(float2 f) { float2 r = { degrees(f.x), degrees(f.y) }; return r; }
-inline float3 degrees(float3 f) { float3 r = { degrees(f.x), degrees(f.y), degrees(f.z) }; return r; }
-inline float4 degrees(float4 f) { float4 r = { degrees(f.x), degrees(f.y), degrees(f.z), degrees(f.w) }; return r; }
-
 // determinant
 inline float determinant(float2x2 m)
 {
@@ -269,12 +262,6 @@ return m.m[0][0] * (m.m[1][1] * m.m[2][2] - m.m[2][1] * m.m[1][2])
 inline float dot(float2 a, float2 b) { return a.x * b.x + a.y * b.y; }
 inline float dot(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 inline float dot(float4 a, float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
-
-// distance
-inline float distance(float a, float b) { return abs(a - b); }
-inline float distance(float2 a, float2 b) { return sqrt(dot(a, b)); }
-inline float distance(float3 a, float3 b) { return sqrt(dot(a, b)); }
-inline float distance(float4 a, float4 b) { return sqrt(dot(a, b)); }
 
 // exp
 inline float2 exp(float2 f) { float2 r = { exp(f.x), exp(f.y) }; return r; }
@@ -419,13 +406,6 @@ inline float3 pow(float3 f, float3 m) { float3 r = { pow(f.x, m.x), pow(f.y, m.y
 inline float4 pow(float4 f, float m) { float4 r = { pow(f.x, m), pow(f.y, m), pow(f.z, m), pow(f.w, m) }; return r; }
 inline float4 pow(float4 f, float4 m) { float4 r = { pow(f.x, m.x), pow(f.y, m.y), pow(f.z, m.z), pow(f.w, m.w) }; return r; }
 
-// radians
-inline float radians(float f) { return (PI * f) / 180.0f; }
-inline float2 radians(float2 f) { return (PI * f) / 180.0f; }
-inline float3 radians(float3 f) { return (PI * f) / 180.0f; }
-inline float4 radians(float4 f) { return (PI * f) / 180.0f; }
-
-// rcp
 inline float2 rcp(float2 f) { float2 r = { rcp(f.x), rcp(f.y) }; return r; }
 inline float3 rcp(float3 f) { float3 r = { rcp(f.x), rcp(f.y), rcp(f.z) }; return r; }
 inline float4 rcp(float4 f) { float4 r = { rcp(f.x), rcp(f.y), rcp(f.z), rcp(f.w) }; return r; }
@@ -482,18 +462,6 @@ inline float4 round(float4 f) { float4 r = { round(f.x), round(f.y), round(f.z),
 inline float2 rsqrt(float2 f) { float2 r = { rsqrt(f.x), rsqrt(f.y) }; return r; }
 inline float3 rsqrt(float3 f) { float3 r = { rsqrt(f.x), rsqrt(f.y), rsqrt(f.z) }; return r; }
 inline float4 rsqrt(float4 f) { float4 r = { rsqrt(f.x), rsqrt(f.y), rsqrt(f.z), rsqrt(f.w) }; return r; }
-
-// saturate
-inline float saturate(float f) { return clamp(f, 0.0f, 1.0f); }
-inline float2 saturate(float2 f) { return clamp(f, 0.0f, 1.0f); }
-inline float3 saturate(float3 f) { return clamp(f, 0.0f, 1.0f); }
-inline float4 saturate(float4 f) { return clamp(f, 0.0f, 1.0f); }
-
-// sign
-inline float sign(float f) { return f < 0 ? -1 : 1; }
-inline float2 sign(float2 f) { float2 r = { f.x < 0 ? -1 : 1, f.y < 0 ? -1 : 1 }; return r; }
-inline float3 sign(float3 f) { float3 r = { f.x < 0 ? -1 : 1, f.y < 0 ? -1 : 1, f.z < 0 ? -1 : 1 }; return r; }
-inline float4 sign(float4 f) { float4 r = { f.x < 0 ? -1 : 1, f.y < 0 ? -1 : 1, f.z < 0 ? -1 : 1, f.w < 0 ? -1 : 1 }; return r; }
 
 // sin
 inline float2 sin(float2 f) { float2 r = { sin(f.x), sin(f.y) }; return r; }
@@ -553,18 +521,6 @@ return lower ? ctz(upper) : 16 + ctz(lower);
 inline uint2 ctz(uint2 x) { uint2 r = { ctz(x.x), ctz(x.y) }; return r; }
 inline uint3 ctz(uint3 x) { uint3 r = { ctz(x.x), ctz(x.y), ctz(x.z) }; return r; }
 inline uint4 ctz(uint4 x) { uint4 r = { ctz(x.x), ctz(x.y), ctz(x.z), ctz(x.w) }; return r; }
-
-// smoothstep
-inline float smoothstep(float minValue, float maxValue, float x)
-{
-float t;
-t = saturate((x - minValue) / (maxValue - minValue));
-return t * t * (3.0f - 2.0f * t);
-}
-inline float2 smoothstep(float2 a, float2 b, float x) { float2 r = { smoothstep(a.x, b.x, x), smoothstep(a.y, b.y, x) }; return r; }
-inline float3 smoothstep(float3 a, float3 b, float x) { float3 r = { smoothstep(a.x, b.x, x), smoothstep(a.y, b.y, x), smoothstep(a.z, b.z, x) }; return r; }
-inline float4 smoothstep(float4 a, float4 b, float x) { float4 r = { smoothstep(a.x, b.x, x), smoothstep(a.y, b.y, x), smoothstep(a.z, b.z, x), smoothstep(a.w, b.w, x) }; return r; }
-
 // sqrt
 inline float2 sqrt(float2 f) { float2 r = { sqrt(f.x), sqrt(f.y) }; return r; }
 inline float3 sqrt(float3 f) { float3 r = { sqrt(f.x), sqrt(f.y), sqrt(f.z) }; return r; }
@@ -684,10 +640,6 @@ inline int4 trunc(float4 f) { int4 r = { trunc(f.x), trunc(f.y), trunc(f.z), tru
 // TEXTURES, SAMPLERS, et Al.
 //-------------------------------------------------------------------------------------------------
 #include "Types.h"
-inline int _atomic_load(uniform int* v){return *v;}
-inline uint _atomic_load(uniform uint* v){return *v;}
-inline void _atomic_store(uniform int *v, const int a) { *v = a; }
-inline void _atomic_store(uniform uint *v, const uint a) { *v = a; }
 inline int _atomic_exchange(uniform int* v, const int a){return atomic_swap_global(v, a);}
 inline uint _atomic_exchange(uniform uint* v, const uint a){return atomic_swap_global(v, a);}
 inline int _atomic_add(uniform int* v, const int a){return atomic_add_global(v, a);}

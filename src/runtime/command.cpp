@@ -35,7 +35,7 @@ inline void Command::_use_resource(
                     default: return "unknown"sv;
                 }
             }();
-            LUISA_ERROR_WITH_LOCATION(
+            LUISA_WARNING_WITH_LOCATION(
                 "Aliasing in {} with handle {}.",
                 t, handle);
         }
@@ -96,6 +96,7 @@ void ShaderDispatchCommand::encode_buffer(
 void ShaderDispatchCommand::encode_texture(
     uint32_t variable_uid,
     uint64_t handle,
+    uint32_t level,
     Usage usage) noexcept {
 
     if (_argument_buffer_size + sizeof(TextureArgument) > _argument_buffer.size()) [[unlikely]] {
@@ -105,7 +106,7 @@ void ShaderDispatchCommand::encode_texture(
             _argument_buffer.size());
     }
 
-    TextureArgument argument{variable_uid, handle};
+    TextureArgument argument{variable_uid, handle, level};
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureArgument));

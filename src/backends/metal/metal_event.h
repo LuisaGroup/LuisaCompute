@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <core/allocator.h>
+#import <core/allocator.h>
 
 #import <Metal/Metal.h>
 #import <core/spin_mutex.h>
@@ -13,11 +13,27 @@ namespace luisa::compute::metal {
 
 class MetalEvent {
 
+public:
+    struct Signaler {
+        __weak id<MTLCommandBuffer> handle;
+    };
+
 private:
     id<MTLEvent> _handle;
-    std::atomic<uint64_t> _counter{0u};
-    spin_mutex _mutex;
-    __weak id<MTLCommandBuffer> _observer;
+    uint64_t _counter{0u};
+    luisa::vector<Signaler> _signalers;
+
+private:
+    void _purge() noexcept {
+        _signalers.erase(
+            std::remove_if(
+                _signalers.begin(),
+                _signalers.end(),
+                [](auto &&s) noexcept {
+                    return s.handle == nullptr;
+                }),
+            _signalers.end());
+    }
 
 public:
     explicit MetalEvent(id<MTLEvent> handle) noexcept
@@ -25,29 +41,29 @@ public:
     ~MetalEvent() noexcept { _handle = nullptr; }
 
     void signal(id<MTLCommandBuffer> command_buffer) noexcept {
-        auto value = _counter.fetch_add(1u, std::memory_order::release) + 1u;
         [command_buffer encodeSignalEvent:_handle
-                                    value:value];
-        std::scoped_lock lock{_mutex};
-        _observer = command_buffer;
+                                    value:++_counter];
+        _purge();
+        _signalers.emplace_back(Signaler{command_buffer});
     }
 
     void wait(id<MTLCommandBuffer> command_buffer) noexcept {
-        if (auto value = _counter.load(std::memory_order::acquire);
-            value == 0u) [[unlikely]] {
+        if (_counter == 0u) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Ignoring MetalEvent::wait() without signaling.");
         } else [[likely]] {
             [command_buffer encodeWaitForEvent:_handle
-                                         value:value];
+                                         value:_counter];
         }
     }
 
     void synchronize() noexcept {
-        if (auto observer = [this] {
-                std::scoped_lock lock{_mutex};
-                return (id<MTLCommandBuffer>)_observer;
-            }()) { [observer waitUntilCompleted]; }
+        for (auto &&s : _signalers) {
+            if (id<MTLCommandBuffer> h = s.handle) {
+                [h waitUntilCompleted];
+            }
+        }
+        _signalers.clear();
     }
 };
 

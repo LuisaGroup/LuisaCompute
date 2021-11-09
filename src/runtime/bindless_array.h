@@ -15,6 +15,7 @@ namespace luisa::compute {
 
 class BindlessTexture2D;
 class BindlessTexture3D;
+class Command;
 
 template<typename T>
 class BindlessBuffer;
@@ -24,44 +25,48 @@ struct Expr;
 
 class BindlessArray final : public Resource {
 
-public:
-    static constexpr auto invalid_handle = std::numeric_limits<uint64_t>::max();
-
 private:
     size_t _size{0u};
+    size_t _dirty_begin{};
+    size_t _dirty_count{};
 
 private:
     friend class Device;
     BindlessArray(Device::Interface *device, size_t size) noexcept;
+
+    void _emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
+    void _emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept;
+    void _emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept;
+    void _mark_dirty(size_t index) noexcept;
 
 public:
     BindlessArray() noexcept = default;
     using Resource::operator bool;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
-    void emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
-    void emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept;
-    void emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept;
-    void remove_buffer(size_t index) noexcept;
-    void remove_tex2d(size_t index) noexcept;
-    void remove_tex3d(size_t index) noexcept;
+    BindlessArray &remove_buffer(size_t index) noexcept;
+    BindlessArray &remove_tex2d(size_t index) noexcept;
+    BindlessArray &remove_tex3d(size_t index) noexcept;
 
     template<typename T>
         requires is_buffer_or_view_v<std::remove_cvref_t<T>>
-    void emplace(size_t index, T &&buffer) noexcept {
+    auto &emplace(size_t index, T &&buffer) noexcept {
         BufferView view{std::forward<T>(buffer)};
-        emplace_buffer(index, view.handle(), view.offset_bytes());
+        _emplace_buffer(index, view.handle(), view.offset_bytes());
+        return *this;
     }
 
-    template<typename T>
-    void emplace(size_t index, const Image<T> &image, Sampler sampler) noexcept {
-        emplace_tex2d(index, image.handle(), sampler);
+    auto &emplace(size_t index, const Image<float> &image, Sampler sampler) noexcept {
+        _emplace_tex2d(index, image.handle(), sampler);
+        return *this;
     }
 
-    template<typename T>
-    void emplace(size_t index, const Volume<T> &volume, Sampler sampler) noexcept {
-        emplace_tex3d(index, volume.handle(), sampler);
+    auto &emplace(size_t index, const Volume<float> &volume, Sampler sampler) noexcept {
+        _emplace_tex3d(index, volume.handle(), sampler);
+        return *this;
     }
+
+    [[nodiscard]] Command *update() noexcept;
 
     // see implementations in dsl/expr.h
     template<typename I>

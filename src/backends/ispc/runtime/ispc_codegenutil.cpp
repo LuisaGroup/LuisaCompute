@@ -115,10 +115,9 @@ void CodegenUtility::GetVariableName(Variable const &type, std::string &str) {
 }
 void CodegenUtility::GetConstName(ConstantData const &data, std::string &str) {
     size_t constCount = opt->GetConstCount(data.hash());
-    str << 'c';
+    str << "c";
     vstd::to_string(constCount, str);
 }
-
 void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &str) {
     size_t constCount = opt->GetConstCount(data.hash());
     //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
@@ -303,9 +302,6 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::ANY:
             str << "any"sv;
             break;
-        case CallOp::NONE:
-            str << "!any"sv;
-            break;
         case CallOp::SELECT: {
             str << "select"sv;
         } break;
@@ -315,17 +311,8 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::LERP:
             str << "lerp"sv;
             break;
-        case CallOp::SATURATE:
-            str << "saturate"sv;
-            break;
-        case CallOp::SIGN:
-            str << "sign"sv;
-            break;
         case CallOp::STEP:
             str << "step"sv;
-            break;
-        case CallOp::SMOOTHSTEP:
-            str << "smoothstep"sv;
             break;
         case CallOp::ABS:
             str << "abs"sv;
@@ -432,12 +419,6 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::ROUND:
             str << "round"sv;
             break;
-        case CallOp::DEGREES:
-            str << "degrees"sv;
-            break;
-        case CallOp::RADIANS:
-            str << "radians"sv;
-            break;
         case CallOp::FMA:
             str << "fma"sv;
             break;
@@ -449,12 +430,6 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
             break;
         case CallOp::DOT:
             str << "dot"sv;
-            break;
-        case CallOp::DISTANCE:
-            str << "distance"sv;
-            break;
-        case CallOp::DISTANCE_SQUARED:
-            str << "distance_sqr"sv;
             break;
         case CallOp::LENGTH:
             str << "length"sv;
@@ -477,22 +452,6 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::INVERSE:
             str << "inverse"sv;
             break;
-        //TODO
-        case CallOp::BLOCK_BARRIER:
-            str << "memory_barrier"sv;
-            break;
-        case CallOp::DEVICE_BARRIER:
-            str << "memory_barrier"sv;
-            break;
-        case CallOp::ALL_BARRIER:
-            str << "memory_barrier"sv;
-            break;
-        case CallOp::ATOMIC_LOAD:
-            str << "_atomic_load"sv;
-            return getPointer;
-        case CallOp::ATOMIC_STORE:
-            str << "_atomic_store"sv;
-            return getPointer;
         case CallOp::ATOMIC_EXCHANGE:
             str << "_atomic_exchange"sv;
             return getPointer;
@@ -639,7 +598,22 @@ uint3 blk_id={0,0,0};
         //end
         str << "}";
     } else {
-        GetFunctionDecl(func, str);
+        GetTypeName(*func.return_type(), str);
+        str << " f";
+        vstd::to_string(func.hash(), str);
+        auto args = func.arguments();
+        if (args.empty()) {
+            str << "()";
+        } else {
+            str << '(';
+            for (auto &&i : args) {
+                GetTypeName(*i.type(), str);
+                str << ' ';
+                GetVariableName(i, str);
+                str << ',';
+            }
+            *(str.end() - 1) = ')';
+        }
         StringStateVisitor vis(str);
         func.body()->accept(vis);
 

@@ -24,7 +24,6 @@ private:
     size_t _free_begin;
     size_t _free_end;
     uint _alloc_count;
-    spin_mutex _mutex;
     bool _write_combined;
 
 public:

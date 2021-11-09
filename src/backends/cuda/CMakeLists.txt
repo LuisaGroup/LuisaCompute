@@ -5,13 +5,12 @@ if (CUDAToolkit_FOUND)
 
     set(LUISA_COMPUTE_CUDA_SOURCES
             cuda_error.h
-            cuda_heap.cpp cuda_heap.h
+            cuda_bindless_array.cpp cuda_bindless_array.h
             cuda_stream.cpp cuda_stream.h
             cuda_device.cpp cuda_device.h
-            cuda_buffer.cpp cuda_buffer.h
-            cuda_texture.cpp cuda_texture.h
             cuda_ring_buffer.cpp cuda_ring_buffer.h
-            cuda_command_encoder.cpp cuda_command_encoder.h)
+            cuda_command_encoder.cpp cuda_command_encoder.h
+            cuda_mipmap_array.cpp cuda_mipmap_array.h)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cuda_driver CUDA::nvrtc)

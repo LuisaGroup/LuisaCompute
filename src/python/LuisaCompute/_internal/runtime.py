@@ -331,11 +331,11 @@ def command_dispatch_shader_encode_buffer(cmd, vid, buffer, offset, usage):
 
 
 dll.luisa_compute_command_dispatch_shader_encode_texture.restype = None
-dll.luisa_compute_command_dispatch_shader_encode_texture.argtypes = [c_void_p, c_uint32, c_uint64, c_uint32]
+dll.luisa_compute_command_dispatch_shader_encode_texture.argtypes = [c_void_p, c_uint32, c_uint64, c_uint32, c_uint32]
 
 
-def command_dispatch_shader_encode_texture(cmd, vid, tex, usage):
-    dll.luisa_compute_command_dispatch_shader_encode_texture(cmd, vid, tex, usage)
+def command_dispatch_shader_encode_texture(cmd, vid, tex, level, usage):
+    dll.luisa_compute_command_dispatch_shader_encode_texture(cmd, vid, tex, level, usage)
 
 
 dll.luisa_compute_command_dispatch_shader_encode_uniform.restype = None
