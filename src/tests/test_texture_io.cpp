@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
     //        fill_image = device.compile(fill_image_kernel);
     //    }
 
-    auto device_image = device.create_image<float>(PixelStorage::FLOAT4, 1024u, 1024u, 1u);
+    auto device_image = device.create_image<float>(PixelStorage::FLOAT4, 1024u, 1024u, 0u);
     std::vector<float> host_image(1024u * 1024u * 4u, 1.0f);
     std::vector<float> download_image(1024u * 1024u * 4u);
     auto device_buffer = device.create_buffer<float4>(1024 * 1024);
@@ -83,11 +83,12 @@ int main(int argc, char *argv[]) {
 
     stream << clear_image(device_image.view(0)).dispatch(1024u, 1024u)
            << fill_image(device_image.view(0).region(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
-           //           << fill_buffer(device_buffer).dispatch(1024, 1024)
+           << fill_buffer(device_buffer).dispatch(1024, 1024)
            //           << device_buffer.copy_from(host_image.data())
-           //           << device_image.view(0).copy_to(device_buffer.view())
-           << copy(device_buffer, device_image).dispatch(1024, 1024)
-           << device_buffer.copy_to(download_image.data())
+//           << device_image.view(0).copy_from(device_buffer.view())
+           << device_image.view(0).copy_to(download_image.data())
+           //           << copy(device_buffer, device_image).dispatch(1024, 1024)
+//                      << device_buffer.copy_to(download_image.data())
            << synchronize();
 
     //    event.synchronize();
