@@ -21,4 +21,14 @@ if (CUDAToolkit_FOUND)
     target_compile_definitions(luisa-compute-backend-cuda PUBLIC LUISA_BACKEND_CUDA_ENABLED=1)
     set_target_properties(luisa-compute-backend-cuda PROPERTIES UNITY_BUILD OFF)
 
+    find_package(Python3 COMPONENTS Interpreter)
+    if (Python3_Interpreter_FOUND AND Python3_VERSION VERSION_GREATER_EQUAL 3.6)
+        set(LUISA_COMPUTE_BACKEND_CUDA_PYTHON_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/generate_device_library.py")
+        add_custom_target(luisa-compute-backend-cuda-python ALL
+                COMMAND ${Python3_EXECUTABLE} "${LUISA_COMPUTE_BACKEND_CUDA_PYTHON_SCRIPT}"
+                DEPENDS "${LUISA_COMPUTE_BACKEND_CUDA_PYTHON_SCRIPT}"
+                COMMENT "Updating CUDA device library")
+        add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-python)
+    endif ()
+
 endif ()

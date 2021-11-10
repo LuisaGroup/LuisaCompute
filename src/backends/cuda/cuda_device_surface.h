@@ -243,7 +243,7 @@ template<typename T, typename P>
 }
 
 template<typename T, typename P, typename V>
-[[nodiscard]] __device__ inline void lc_surf2d_write_impl(cudaSurfaceObject_t surf, V value, lc_uint2 uv, lc_uint pixel_size_shift, lc_uint channel_count) noexcept {
+__device__ inline void lc_surf2d_write_impl(cudaSurfaceObject_t surf, V value, lc_uint2 uv, lc_uint pixel_size_shift, lc_uint channel_count) noexcept {
     switch (channel_count) {
         case 1:
             surf2Dwrite(lc_texel_write_convert<T, P>(value.x), surf, uv.x << pixel_size_shift, uv.y, cudaBoundaryModeZero);
@@ -262,7 +262,7 @@ template<typename T, typename P, typename V>
 }
 
 template<typename T, typename P, typename V>
-[[nodiscard]] __device__ inline void lc_surf3d_write_impl(cudaSurfaceObject_t surf, V value, lc_uint3 uvw, lc_uint pixel_size_shift, lc_uint channel_count) noexcept {
+__device__ inline void lc_surf3d_write_impl(cudaSurfaceObject_t surf, V value, lc_uint3 uvw, lc_uint pixel_size_shift, lc_uint channel_count) noexcept {
     switch (channel_count) {
         case 1:
             surf3Dwrite(lc_texel_write_convert<T, P>(value.x), surf, uvw.x << pixel_size_shift, uvw.y, uvw.z, cudaBoundaryModeZero);
@@ -303,7 +303,7 @@ template<typename T>
 }
 
 template<typename T, typename V>
-[[nodiscard]] __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 uv, V value) noexcept {
+__device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 uv, V value) noexcept {
     switch (surf.storage) {
         case 0: lc_surf2d_write_impl<T, char>(surf.handle, value, uv, surf.pixel_size_shift, surf.channel_count); break;
         case 1: lc_surf2d_write_impl<T, short>(surf.handle, value, uv, surf.pixel_size_shift, surf.channel_count); break;
@@ -314,7 +314,7 @@ template<typename T, typename V>
 }
 
 template<typename T, typename V>
-[[nodiscard]] __device__ inline auto lc_surf3d_write(LCSurface surf, lc_uint3 uvw, V value) noexcept {
+__device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 uvw, V value) noexcept {
     switch (surf.storage) {
         case 0: lc_surf3d_write_impl<T, char>(surf.handle, value, uvw, surf.pixel_size_shift, surf.channel_count); break;
         case 1: lc_surf3d_write_impl<T, short>(surf.handle, value, uvw, surf.pixel_size_shift, surf.channel_count); break;

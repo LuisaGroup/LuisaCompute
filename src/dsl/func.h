@@ -17,6 +17,16 @@ namespace luisa::compute {
 
 namespace detail {
 
+namespace tuple_operators {
+template<typename... T, typename A>
+[[nodiscard]] inline auto operator<<(std::tuple<T...> tuple, A &&arg) noexcept {
+    auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA &&arg, std::index_sequence<i...>) noexcept {
+        return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
+    };
+    return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
+}
+}// namespace tuple_operators
+
 template<typename T>
 struct definition_to_prototype {
     static_assert(always_false_v<T>, "Invalid type in function definition.");
@@ -172,8 +182,9 @@ public:
             detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
             []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                 using arg_tuple = std::tuple<Args...>;
-                auto args = std::tuple{Var<std::remove_cvref_t<Args>>{
-                    detail::prototype_to_creation_tag_t<Args>{}}...};
+                std::tuple<> arg_init;
+                using namespace detail::tuple_operators;
+                auto args = (arg_init << ... << Var<std::remove_cvref_t<Args>>{detail::prototype_to_creation_tag_t<Args>{}});
                 return std::invoke(std::forward<decltype(def)>(def),
                                    static_cast<detail::prototype_to_creation_t<
                                        std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
@@ -303,8 +314,9 @@ public:
         : _builder{detail::FunctionBuilder::define_callable([&f] {
               auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                   using arg_tuple = std::tuple<Args...>;
-                  auto args = std::tuple{Var<std::remove_cvref_t<Args>>{
-                      detail::prototype_to_creation_tag_t<Args>{}}...};
+                  std::tuple<> arg_init;
+                  using namespace detail::tuple_operators;
+                  auto args = (arg_init << ... << Var<std::remove_cvref_t<Args>>{detail::prototype_to_creation_tag_t<Args>{}});
                   return std::invoke(std::forward<decltype(def)>(def),
                                      static_cast<detail::prototype_to_creation_t<
                                          std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);

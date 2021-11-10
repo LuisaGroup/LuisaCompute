@@ -2,10 +2,11 @@
 // Created by Mike on 2021/11/8.
 //
 
+#include <fstream>
+
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_codegen.h>
 #include <backends/cuda/cuda_compiler.h>
-#include <cuda_fp16.h>
 
 namespace luisa::compute::cuda {
 
@@ -73,6 +74,11 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     auto source = scratch.view();
     LUISA_INFO("Source:\n{}", source);
 
+    {// dump file
+        std::ofstream dump{ctx.cache_directory() / fmt::format("kernel_{:016X}.cu", function.hash())};
+        dump << source;
+    }
+
     std::array header_names{"device_math.h", "device_surface.h"};
     std::array header_sources{cuda_device_math_source, cuda_device_surface_source};
     nvrtcProgram prog;
@@ -90,15 +96,16 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         "-include=device_surface.h",
         "-ewp",
         "-dw"};
-    LUISA_CHECK_NVRTC(nvrtcCompileProgram(prog, options.size(), options.data()));// options
+    auto error = nvrtcCompileProgram(prog, options.size(), options.data());
     size_t log_size;
     LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
     if (log_size > 1u) {
         luisa::string log;
         log.resize(log_size - 1);
         LUISA_CHECK_NVRTC(nvrtcGetProgramLog(prog, log.data()));
-        LUISA_INFO("Compile log: ", log.data());
+        LUISA_INFO("Compile log:\n{}", log);
     }
+    LUISA_CHECK_NVRTC(error);
 
     size_t ptx_size;
     LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));

@@ -207,6 +207,7 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
         CUfunction function{nullptr};
         LUISA_CHECK_CUDA(cuModuleLoadData(&module, ptx.data()));
         LUISA_CHECK_CUDA(cuModuleGetFunction(&function, module, kernel_name.c_str()));
+//        LUISA_CHECK_CUDA(cuFuncSetCacheConfig(function, CU_FUNC_CACHE_PREFER_L1));
         return reinterpret_cast<uint64_t>(function);
     });
 }
