@@ -72,58 +72,50 @@ inline std::string to_string(float Val) noexcept {
     return to_string((double)Val);
 }
 
-inline std::string to_string(int32_t Val) noexcept {
-    return IntegerToString(Val);
-}
-inline std::string to_string(uint32_t Val) noexcept {
-    return IntegerToString(Val);
-}
-inline std::string to_string(int16_t Val) noexcept {
-    return IntegerToString(Val);
-}
-inline std::string to_string(uint16_t Val) noexcept {
-    return IntegerToString(Val);
-}
-inline std::string to_string(int8_t Val) noexcept {
-    return IntegerToString(Val);
-}
-inline std::string to_string(uint8_t Val) noexcept {
-    return IntegerToString(Val);
-}
-inline std::string to_string(int64_t Val) noexcept {
-    return IntegerToString(Val);
-}
-inline std::string to_string(uint64_t Val) noexcept {
-    return IntegerToString(Val);
+namespace detail {
+
+template<size_t size, bool is_signed>
+struct make_integer {};
+
+template<bool is_signed>
+struct make_integer<1u, is_signed> {
+    using type = std::conditional_t<is_signed, int8_t, uint8_t>;
+};
+
+template<bool is_signed>
+struct make_integer<2u, is_signed> {
+    using type = std::conditional_t<is_signed, int16_t, uint16_t>;
+};
+
+template<bool is_signed>
+struct make_integer<4u, is_signed> {
+    using type = std::conditional_t<is_signed, int32_t, uint32_t>;
+};
+
+template<bool is_signed>
+struct make_integer<8u, is_signed> {
+    using type = std::conditional_t<is_signed, int64_t, uint64_t>;
+};
+
+}// namespace detail
+
+template<typename T>
+using canonical_integer_t = typename detail::make_integer<sizeof(T), std::is_signed_v<T>>::type;
+
+template<typename T>
+    requires std::is_integral_v<T>
+[[nodiscard]] inline auto to_string(T val) noexcept {
+    return IntegerToString(static_cast<canonical_integer_t<T>>(val));
 }
 
 inline void to_string(float Val, std::string &str) noexcept {
     to_string((double)Val, str);
 }
 
-inline void to_string(int32_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
-}
-inline void to_string(uint32_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
-}
-inline void to_string(int16_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
-}
-inline void to_string(uint16_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
-}
-inline void to_string(int8_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
-}
-inline void to_string(uint8_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
-}
-inline void to_string(int64_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
-}
-inline void to_string(uint64_t Val, std::string &str) noexcept {
-    IntegerToString(Val, str);
+template<typename T>
+    requires std::is_integral_v<T>
+inline void to_string(T Val, std::string &str) noexcept {
+    IntegerToString(static_cast<canonical_integer_t<T>>(Val), str);
 }
 
 }// namespace vstd
