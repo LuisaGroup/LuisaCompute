@@ -7,16 +7,16 @@ void StringExprVisitor::visit(const UnaryExpr *expr) {
 
     switch (expr->op()) {
         case UnaryOp::PLUS://+x
-            str += '+';
+            str << '+';
             break;
         case UnaryOp::MINUS://-x
-            str += '-';
+            str << '-';
             break;
         case UnaryOp::NOT://!x
-            str += '!';
+            str << '!';
             break;
         case UnaryOp::BIT_NOT://~x
-            str += '~';
+            str << '~';
             break;
     }
     StringExprVisitor vis(str);
@@ -31,74 +31,73 @@ void StringExprVisitor::visit(const BinaryExpr *expr) {
         }
         return false;
     };
-    StringExprVisitor vis(str);
     if (IsMulFuncCall()) {
-        str += "mul("sv;
-        expr->rhs()->accept(vis);//Reverse matrix
-        str += ',';
-        expr->lhs()->accept(vis);
-        str += ')';
+        str << "mul("sv;
+        expr->rhs()->accept(*this);//Reverse matrix
+        str << ',';
+        expr->lhs()->accept(*this);
+        str << ')';
 
     } else {
 
-        expr->lhs()->accept(vis);
+        expr->lhs()->accept(*this);
         switch (expr->op()) {
             case BinaryOp::ADD:
-                str += '+';
+                str << '+';
                 break;
             case BinaryOp::SUB:
-                str += '-';
+                str << '-';
                 break;
             case BinaryOp::MUL:
-                str += '*';
+                str << '*';
                 break;
             case BinaryOp::DIV:
-                str += '/';
+                str << '/';
                 break;
             case BinaryOp::MOD:
-                str += '%';
+                str << '%';
                 break;
             case BinaryOp::BIT_AND:
-                str += '&';
+                str << '&';
                 break;
             case BinaryOp::BIT_OR:
-                str += '|';
+                str << '|';
                 break;
             case BinaryOp::BIT_XOR:
-                str += '^';
+                str << '^';
                 break;
             case BinaryOp::SHL:
-                str += "<<"sv;
+                str << "<<"sv;
                 break;
             case BinaryOp::SHR:
-                str += ">>"sv;
+                str << ">>"sv;
                 break;
             case BinaryOp::AND:
-                str += "&&"sv;
+                str << "&&"sv;
                 break;
             case BinaryOp::OR:
-                str += "||"sv;
+                str << "||"sv;
                 break;
             case BinaryOp::LESS:
-                str += '<';
+                str << '<';
                 break;
             case BinaryOp::GREATER:
-                str += '>';
+                str << '>';
                 break;
             case BinaryOp::LESS_EQUAL:
-                str += "<="sv;
+                str << "<="sv;
                 break;
             case BinaryOp::GREATER_EQUAL:
-                str += ">="sv;
+                str << ">="sv;
                 break;
             case BinaryOp::EQUAL:
-                str += "=="sv;
+                str << "=="sv;
                 break;
             case BinaryOp::NOT_EQUAL:
-                str += "!="sv;
+                str << "!="sv;
                 break;
         }
-        expr->rhs()->accept(vis);
+        expr->rhs()->accept(*this);
     }
 }
 void StringExprVisitor::visit(const MemberExpr *expr) {
@@ -110,16 +109,19 @@ void StringExprVisitor::visit(const MemberExpr *expr) {
             str << xyzw[expr->swizzle_index(i)];
         }
     } else {
-        str += ".v"sv;
+        str << ".v"sv;
         vstd::to_string(static_cast<uint64_t>(expr->member_index()), (str));
     }
 }
 void StringExprVisitor::visit(const AccessExpr *expr) {
     expr->range()->accept(*this);
-    str += ".v[";
-    StringExprVisitor vis(str);
-    expr->index()->accept(vis);
-    str += ']';
+    auto t = expr->range()->type();
+    if (t && (t->is_buffer() || t->is_vector()))
+        str << '[';
+    else
+        str << ".v[";
+    expr->index()->accept(*this);
+    str << ']';
 }
 void StringExprVisitor::visit(const RefExpr *expr) {
     Variable v = expr->variable();
@@ -156,11 +158,11 @@ struct PrintValue<bool> {
             str << "false";
     }
 };
-template<typename EleType, size_t N>
+template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
-    void operator()(T const &v, std::string &varName) {
-        for (size_t i = 0; i < N; ++i) {
+    void PureRun(T const &v, std::string &varName) {
+        for (uint64 i = 0; i < N; ++i) {
             vstd::to_string(v[i], varName);
             varName += ',';
         }
@@ -168,21 +170,45 @@ struct PrintValue<Vector<EleType, N>> {
         if (*last == ',')
             varName.erase(last);
     }
+    void operator()(T const &v, std::string &varName) {
+        if constexpr (N > 1) {
+            if constexpr (std::is_same_v<EleType, float>) {
+                varName << "_float";
+            } else if constexpr (std::is_same_v<EleType, uint>) {
+                varName << "_uint";
+            } else if constexpr (std::is_same_v<EleType, int>) {
+                varName << "_int";
+            } else if constexpr (std::is_same_v<EleType, bool>) {
+                varName << "_bool";
+            }
+            vstd::to_string(N, varName);
+            varName << '(';
+            PureRun(v, varName);
+            varName << ')';
+        } else {
+            PureRun(v, varName);     
+        }
+    }
+
 };
 
-template<size_t N>
+template<uint64 N>
 struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
     void operator()(T const &v, std::string &varName) {
+        varName << "_float";
+        auto ss = vstd::to_string(N);
+        varName << ss << 'x' << ss << '(';
         PrintValue<Vector<EleType, N>> vecPrinter;
-        for (size_t i = 0; i < N; ++i) {
-            vecPrinter(v[i], varName);
+        for (uint64 i = 0; i < N; ++i) {
+            vecPrinter.PureRun(v[i], varName);
             varName += ',';
         }
         auto &&last = varName.end() - 1;
         if (*last == ',')
             varName.erase(last);
+        varName << ')';
     }
 };
 
@@ -206,12 +232,13 @@ void StringExprVisitor::visit(const CallExpr *expr) {
     CodegenUtility::GetFunctionName(expr, str)(*this);
 }
 void StringExprVisitor::visit(const CastExpr *expr) {
-    str += '(';
+    str << '(';
     CodegenUtility::GetTypeName(*expr->type(), str);
-    str += ')';
+    str << ')';
     StringExprVisitor vis(str);
     expr->expression()->accept(vis);
 }
+
 void StringExprVisitor::visit(const ConstantExpr *expr) {
     CodegenUtility::GetConstName(expr->data(), str);
 }
@@ -246,6 +273,7 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
 void StringStateVisitor::visit(const CommentStmt *state) {
 }
 void StringStateVisitor::visit(const IfStmt *state) {
+    stmtCount = std::numeric_limits<uint64>::max();
     str << "if(";
     StringExprVisitor vis(str);
     state->condition()->accept(vis);
@@ -256,14 +284,17 @@ void StringStateVisitor::visit(const IfStmt *state) {
     str << "}\n";
 }
 void StringStateVisitor::visit(const LoopStmt *state) {
+    stmtCount = std::numeric_limits<uint64>::max();
     str << "while(1){\n";
     str << "}\n";
 }
 void StringStateVisitor::visit(const ExprStmt *state) {
+    stmtCount++;
     StringExprVisitor vis(str);
     state->expression()->accept(vis);
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
+   stmtCount++;
     str << "switch(";
     StringExprVisitor vis(str);
     state->expression()->accept(vis);
@@ -272,6 +303,7 @@ void StringStateVisitor::visit(const SwitchStmt *state) {
     str << "}\n";
 }
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
+    stmtCount++;
     str << "case ";
     StringExprVisitor vis(str);
     state->expression()->accept(vis);
@@ -280,11 +312,13 @@ void StringStateVisitor::visit(const SwitchCaseStmt *state) {
     str << "}\n";
 }
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
+    stmtCount++;
     str << "default:{\n";
     state->body()->accept(*this);
     str << "}\n";
 }
 void StringStateVisitor::visit(const AssignStmt *state) {
+    stmtCount++;
     StringExprVisitor vis(str);
     state->lhs()->accept(vis);
     switch (state->op()) {
@@ -326,6 +360,7 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
+    stmtCount = std::numeric_limits<uint64>::max();
     str << "for(";
     StringExprVisitor vis(str);
     state->variable()->accept(vis);
@@ -338,7 +373,6 @@ void StringStateVisitor::visit(const ForStmt *state) {
 }
 StringStateVisitor::StringStateVisitor(std::string &str)
     : str(str) {
-    CodegenUtility::ClearStructType();
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
     str << "{\n";
