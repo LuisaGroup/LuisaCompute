@@ -7,6 +7,7 @@ struct CodegenGlobal {
     vstd::HashMap<Type const *, size_t> structTypes;
     vstd::HashMap<uint64, size_t> constTypes;
     vstd::HashMap<uint64, size_t> funcTypes;
+    vstd::vector<std::pair<Type const *, size_t>> customStructs;
     size_t count = 0;
     size_t constCount = 0;
     size_t funcCount = 0;
@@ -14,6 +15,7 @@ struct CodegenGlobal {
         structTypes.Clear();
         constTypes.Clear();
         funcTypes.Clear();
+        customStructs.clear();
         constCount = 0;
         count = 0;
         funcCount = 0;
@@ -41,6 +43,8 @@ struct CodegenGlobal {
             t,
             vstd::MakeLazyEval(
                 [&] {
+                    if (t->is_structure() || t->is_array())
+                        customStructs.emplace_back(t, count);
                     return count++;
                 }));
         return ite.Value();
@@ -66,28 +70,31 @@ static bool IsVarWritable(Function func, Variable i) {
 void CodegenUtility::GetVariableName(Variable::Tag type, uint id, std::string &str) {
     switch (type) {
         case Variable::Tag::BLOCK_ID:
-            str += "blk_id"sv;
+            str << "blk_id"sv;
             break;
         case Variable::Tag::DISPATCH_ID:
-            str += "dsp_id"sv;
+            str << "dsp_id"sv;
             break;
         case Variable::Tag::THREAD_ID:
-            str += "thd_id"sv;
+            str << "thd_id"sv;
             break;
         case Variable::Tag::LOCAL:
-            str += "_v"sv;
+            str << "_v"sv;
             vstd::to_string(id, str);
             break;
         case Variable::Tag::BUFFER:
-            str += "_b"sv;
+            str << "_b"sv;
             vstd::to_string(id, str);
             break;
         case Variable::Tag::TEXTURE:
-            str += "_t"sv;
+            str << "_t"sv;
             vstd::to_string(id, str);
             break;
+        case Variable::Tag::DISPATCH_SIZE:
+            str << "dsp_c"sv;
+            break;
         default:
-            str += 'v';
+            str << 'v';
             vstd::to_string(id, str);
             break;
     }
@@ -96,15 +103,15 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, std::string &s
 void CodegenUtility::GetVariableName(Type::Tag type, uint id, std::string &str) {
     switch (type) {
         case Type::Tag::BUFFER:
-            str += "_b"sv;
+            str << "_b"sv;
             vstd::to_string(id, str);
             break;
         case Type::Tag::TEXTURE:
-            str += "_t"sv;
+            str << "_t"sv;
             vstd::to_string(id, str);
             break;
         default:
-            str += 'v';
+            str << 'v';
             vstd::to_string(id, str);
             break;
     }
@@ -135,6 +142,19 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &st
     str << "];\n";
     str << "};\n";
 }
+void CodegenUtility::GetCustomStruct(Type const &t, std::string_view strName, std::string &str) {
+    str << "struct " << strName << "{\n";
+    size_t vCount = 0;
+    for (auto &&m : t.members()) {
+        GetTypeName(*m, str);
+        str << " v";
+        vstd::to_string(vCount, str);
+        vCount++;
+        str << ";\n";
+    }
+    //t.members
+    str << "};\n";
+}
 void CodegenUtility::GetConstantData(ConstantData const &data, std::string &str) {
     auto &&view = data.view();
     size_t constCount = opt->GetConstCount(data.hash());
@@ -159,32 +179,38 @@ void CodegenUtility::GetConstantData(ConstantData const &data, std::string &str)
     str << "};\n";
 }
 
+void CodegenUtility::GetArrayStruct(Type const &t, std::string_view name, std::string &str) {
+    str << "struct " << name << "{\n";
+    GetTypeName(*t.element(), str);
+    str << " v[";
+    vstd::to_string(t.dimension(), str);
+    str << "];\n};\n";
+}
+
 void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
     switch (type.tag()) {
         case Type::Tag::ARRAY:
-            CodegenUtility::GetTypeName(*type.element(), str);
+            str << 'A';
+            vstd::to_string(opt->GetTypeCount(&type), str);
             return;
-            //		case Type::Tag::ATOMIC:
-            //			CodegenUtility::GetTypeName(*type.element(), str, isWritable);
-            //			return;
         case Type::Tag::BOOL:
-            str += "bool"sv;
+            str << "bool"sv;
             return;
         case Type::Tag::FLOAT:
-            str += "float"sv;
+            str << "float"sv;
             return;
         case Type::Tag::INT:
-            str += "int"sv;
+            str << "int"sv;
             return;
         case Type::Tag::UINT:
-            str += "uint"sv;
+            str << "uint"sv;
             return;
         case Type::Tag::MATRIX: {
             auto dim = std::to_string(type.dimension());
             CodegenUtility::GetTypeName(*type.element(), str);
-            str += dim;
-            str += 'x';
-            str += dim;
+            str << dim;
+            str << 'x';
+            str << dim;
         }
             return;
         case Type::Tag::VECTOR: {
@@ -193,24 +219,23 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
         }
             return;
         case Type::Tag::STRUCTURE:
-            str += 'T';
+            str << 'T';
             vstd::to_string(opt->GetTypeCount(&type), str);
             return;
         case Type::Tag::BUFFER:
-
             GetTypeName(*type.element(), str);
             str << '*';
             break;
         case Type::Tag::TEXTURE: {
-            str += "Texture"sv;
+            str << "Texture"sv;
 
             vstd::to_string(static_cast<uint64_t>(type.dimension()), str);
-            str += "D<"sv;
+            str << "D<"sv;
             GetTypeName(*type.element(), str);
             if (type.tag() != Type::Tag::VECTOR) {
-                str += '4';
+                str << '4';
             }
-            str += '>';
+            str << '>';
             break;
         }
         default:
@@ -261,6 +286,7 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
                 str << ',';
             }
         }
+        str << ')';
     };
     auto getPointer = [&str, expr](StringExprVisitor &vis) {
         str << '(';
@@ -551,72 +577,75 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
     return defaultArgs;
 }
 void CodegenUtility::PrintFunction(Function func, std::string &str) {
-    auto CurryArr = [&](auto&& f) {
-        return [&] {
-            auto consts = func.constants();
-            for (auto &&c : consts) {
-                f(c.data, str);
-            }
-        };
+    auto ExecuteConst = [&](auto &&f) {
+        auto consts = func.constants();
+        for (auto &&c : consts) {
+            f(c.data, str);
+        }
     };
-    auto ConstStruct = CurryArr(GetConstantStruct);
-    auto ConstData = CurryArr(GetConstantData);
     if (func.tag() == Function::Tag::KERNEL) {
         ClearStructType();
         str << "#include \"lib.h\"\n";
-        ConstStruct();
-        ConstData();
+        ExecuteConst(GetConstantStruct);
+        ExecuteConst(GetConstantData);
+        std::string bodyStr;
         auto callables = func.custom_callables();
         for (auto &&i : callables) {
-            PrintFunction(Function(i.get()), str);
+            PrintFunction(Function(i.get()), bodyStr);
         }
-        str << headerName;
+        bodyStr << headerName;
         //arguments
         size_t ofst = 0;
-        for (auto &&i : func.arguments()) {
-            std::string argName;
-            std::string argType;
+        std::string argName;
+        std::string argType;
+        auto printArg = [&](auto &&i) {
+            argName.clear();
+            argType.clear();
             GetVariableName(i, argName);
             GetTypeName(*i.type(), argType);
-            str << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
+            bodyStr << "uniform " << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
             if (ofst > 0) {
-                str << '+';
-                vstd::to_string(static_cast<uint64_t>(ofst), str);
-                str << "ull";
+                bodyStr << '+';
+                vstd::to_string(static_cast<uint64_t>(ofst), bodyStr);
+                bodyStr << "ull";
             }
-            str << "));\n";
+            bodyStr << "));\n";
             ofst += 8;
+        };
+        for (auto &&i : func.arguments()) {
+            printArg(i);
+        }
+        for (auto &&bf : func.captured_buffers()) {
+            printArg(bf.variable);
         }
         //foreach
-        str << foreachName << R"(
-uint3 dsp_id={x,y,z};
-uint3 thd_id={x,y,z};
-uint3 blk_id={0,0,0};
-)"sv;
-        StringStateVisitor vis(str);
+
+        StringStateVisitor vis(bodyStr);
         func.body()->accept(vis);
         //end
-        str << "}";
-    } else {
-        GetTypeName(*func.return_type(), str);
-        str << " f";
-        vstd::to_string(func.hash(), str);
-        auto args = func.arguments();
-        if (args.empty()) {
-            str << "()";
-        } else {
-            str << '(';
-            for (auto &&i : args) {
-                GetTypeName(*i.type(), str);
-                str << ' ';
-                GetVariableName(i, str);
-                str << ',';
-            }
-            *(str.end() - 1) = ')';
-        }
-        StringStateVisitor vis(str);
-        func.body()->accept(vis);
+        bodyStr << '}' << exportName;
+        for (auto &&i : opt->customStructs) {
 
+            if (i.first->is_structure()) {
+                std::string s = "T";
+                vstd::to_string(i.second, s);
+                GetCustomStruct(*i.first, s, str);
+            } else {
+                std::string s = "A";
+                vstd::to_string(i.second, s);
+                GetArrayStruct(*i.first, s, str);
+            }
+        }
+        str << bodyStr;
+    } else {
+        std::string ss;
+        GetFunctionDecl(func, ss);
+        StringStateVisitor vis(ss);
+        func.body()->accept(vis);
+        if (vis.StmtCount() < INLINE_STMT_LIMIT) {
+            str << "inline ";
+        }
+        str << ss;
     }
 }
 void CodegenUtility::GetBasicTypeName(size_t typeIndex, std::string &str) {

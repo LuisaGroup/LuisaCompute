@@ -767,8 +767,13 @@ uint index = pTexture->numComponents * ((uint)(uv.y * (pTexture->height - 1)) * 
 return GetColor(pData, index, pTexture->numComponents);
 }
 
-
-
+inline float sign(float v){
+if (v > 0) return 1;
+else if(v < 0) return -1;
+return 0;
+}
+inline float2 sign(float2 v){float2 r={sign(v.x),sign(v.y)};return r;}
+inline float3 sign(float3 v){float3 r={sign(v.x),sign(v.y),sign(v.z)};return r;}
 float4 Smp2DBi(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevel){
 float2 uvSign = sign(uv);
 float4 v0 = Smp2DPoint(pTexture, sampler, uv, lodLevel);

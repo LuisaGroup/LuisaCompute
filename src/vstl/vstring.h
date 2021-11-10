@@ -20,32 +20,16 @@ Elem *UIntegral_to_buff(Elem *RNext, UTy UVal) noexcept {// format UVal into buf
     } while (UVal_trunc != 0);
     return RNext;
 }
-template<class Ty>
-inline std::string IntegerToString(const Ty Val) noexcept {// convert Val to std::string
-    static_assert(std::is_integral_v<Ty>, "_Ty must be integral");
-    using UTy = std::make_unsigned_t<Ty>;
-    char Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
-    char *const Buff_end = std::end(Buff);
-    char *RNext = Buff_end;
-    const auto UVal = static_cast<UTy>(Val);
-    if (Val < 0) {
-        RNext = UIntegral_to_buff(RNext, static_cast<UTy>(0 - UVal));
-        *--RNext = '-';
-    } else {
-        RNext = UIntegral_to_buff(RNext, UVal);
-    }
 
-    return std::string(RNext, Buff_end);
-}
 template<class Ty>
-inline void IntegerToString(const Ty Val, std::string &str) noexcept {// convert Val to std::string
+inline void IntegerToString(const Ty Val, std::string &str, bool negative = false) noexcept {// convert Val to std::string
     static_assert(std::is_integral_v<Ty>, "_Ty must be integral");
     using UTy = std::make_unsigned_t<Ty>;
     char Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
     char *const Buff_end = std::end(Buff);
     char *RNext = Buff_end;
     const auto UVal = static_cast<UTy>(Val);
-    if (Val < 0) {
+    if (Val < 0 || negative) {
         RNext = UIntegral_to_buff(RNext, static_cast<UTy>(0 - UVal));
         *--RNext = '-';
     } else {
@@ -53,10 +37,17 @@ inline void IntegerToString(const Ty Val, std::string &str) noexcept {// convert
     }
     str.append(RNext, Buff_end - RNext);
 }
+template<class Ty>
+inline std::string IntegerToString(const Ty Val) noexcept {// convert Val to std::string
+    std::string s;
+    IntegerToString<Ty>(Val, s);
+    return s;
+}
 inline void to_string(double Val, std::string &str) noexcept {
     int64 v = (int64)Val;
-    IntegerToString(v, str);
+    IntegerToString(v, str, Val < 0);
     Val -= v;
+    Val = abs(Val);
     char tempArr[12];
     str.push_back('.');
     for (auto i : range(12)) {

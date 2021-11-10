@@ -12,6 +12,7 @@ namespace lc::ispc {
 class StringExprVisitor;
 class CodegenUtility {
 public:
+    static constexpr size_t INLINE_STMT_LIMIT = 5;
     static void GetConstName(ConstantData const &data, std::string &str);
     static void PrintFunction(Function func, std::string &str);
     static void GetVariableName(Variable const &type, std::string &str);
@@ -19,8 +20,11 @@ public:
     static void GetVariableName(Type::Tag type, uint id, std::string &str);
     static void GetTypeName(Type const &type, std::string &str);
     static void GetBasicTypeName(size_t typeIndex, std::string &str);
-    static void GetConstantStruct(ConstantData const& data, std::string& str);
-    static void GetConstantData(ConstantData const& data, std::string& str);
+    static void GetConstantStruct(ConstantData const &data, std::string &str);
+    //static void
+    static void GetCustomStruct(Type const &t, std::string_view strName, std::string &str);
+    static void GetArrayStruct(Type const &t, std::string_view name, std::string &str);
+    static void GetConstantData(ConstantData const &data, std::string &str);
     static std::string GetBasicTypeName(size_t typeIndex) {
         std::string s;
         GetBasicTypeName(typeIndex, s);
@@ -67,8 +71,10 @@ public:
     void visit(const CommentStmt *) override;
     StringStateVisitor(std::string &str);
     ~StringStateVisitor();
+    size_t StmtCount() const { return stmtCount; }
 
 protected:
     std::string &str;
+    size_t stmtCount = 0;
 };
 }// namespace lc::ispc
