@@ -107,7 +107,7 @@ template<size_t N>
     }
 }
 template<typename NextVar, typename... OtherVars, typename NextTag, typename... OtherTags, typename... T>
-[[nodiscard]] std::tuple<T..., NextVar> create_argument_definitions_impl(
+[[nodiscard]] std::tuple<T..., NextVar, OtherVars...> create_argument_definitions_impl(
     std::tuple<T...> tuple, std::tuple<NextVar, OtherVars...> *, std::tuple<NextTag, OtherTags...> *) noexcept;
 
 template<typename VarTuple, typename TagTuple, typename T>
@@ -131,7 +131,7 @@ template<typename... T, typename A>
 }
 
 template<typename NextVar, typename... OtherVars, typename NextTag, typename... OtherTags, typename... T>
-[[nodiscard]] inline std::tuple<T..., NextVar> create_argument_definitions_impl(
+[[nodiscard]] inline std::tuple<T..., NextVar, OtherVars...> create_argument_definitions_impl(
     std::tuple<T...> tuple, std::tuple<NextVar, OtherVars...> *, std::tuple<NextTag, OtherTags...> *) noexcept {
     return create_argument_definitions<std::tuple<OtherVars...>, std::tuple<OtherTags...>>(
         tuple_append(std::move(tuple), NextVar{NextTag{}}));
@@ -205,6 +205,7 @@ public:
                 using var_tuple = std::tuple<Var<std::remove_cvref_t<Args>>...>;
                 using tag_tuple = std::tuple<detail::prototype_to_creation_tag_t<Args>...>;
                 auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
+                static_assert(std::tuple_size_v<decltype(args)> == sizeof...(Args));
                 return std::invoke(std::forward<decltype(def)>(def),
                                    static_cast<detail::prototype_to_creation_t<
                                        std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
@@ -337,6 +338,7 @@ public:
                   using var_tuple = std::tuple<Var<std::remove_cvref_t<Args>>...>;
                   using tag_tuple = std::tuple<detail::prototype_to_creation_tag_t<Args>...>;
                   auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
+                  static_assert(std::tuple_size_v<decltype(args)> == sizeof...(Args));
                   return std::invoke(std::forward<decltype(def)>(def),
                                      static_cast<detail::prototype_to_creation_t<
                                          std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
