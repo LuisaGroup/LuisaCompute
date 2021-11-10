@@ -17,16 +17,6 @@ namespace luisa::compute {
 
 namespace detail {
 
-namespace tuple_operators {
-template<typename... T, typename A>
-[[nodiscard]] inline auto operator<<(std::tuple<T...> tuple, A &&arg) noexcept {
-    auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA &&arg, std::index_sequence<i...>) noexcept {
-        return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
-    };
-    return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
-}
-}// namespace tuple_operators
-
 template<typename T>
 struct definition_to_prototype {
     static_assert(always_false_v<T>, "Invalid type in function definition.");
@@ -116,6 +106,36 @@ template<size_t N>
         static_assert(always_false_v<std::integral_constant<size_t, N>>);
     }
 }
+template<typename NextVar, typename... OtherVars, typename NextTag, typename... OtherTags, typename... T>
+[[nodiscard]] std::tuple<T..., NextVar> create_argument_definitions_impl(
+    std::tuple<T...> tuple, std::tuple<NextVar, OtherVars...> *, std::tuple<NextTag, OtherTags...> *) noexcept;
+
+template<typename VarTuple, typename TagTuple, typename T>
+[[nodiscard]] inline auto create_argument_definitions(T tuple) noexcept {
+    if constexpr (std::tuple_size_v<VarTuple> == 0) {
+        return std::move(tuple);// ensure move ctor
+    } else {
+        return create_argument_definitions_impl(
+            std::move(tuple),
+            static_cast<VarTuple *>(nullptr),
+            static_cast<TagTuple *>(nullptr));
+    }
+}
+
+template<typename... T, typename A>
+[[nodiscard]] inline auto tuple_append(std::tuple<T...> tuple, A &&arg) noexcept {
+        auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA &&arg, std::index_sequence<i...>) noexcept {
+            return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
+        };
+        return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
+}
+
+template<typename NextVar, typename... OtherVars, typename NextTag, typename... OtherTags, typename... T>
+[[nodiscard]] inline std::tuple<T..., NextVar> create_argument_definitions_impl(
+    std::tuple<T...> tuple, std::tuple<NextVar, OtherVars...> *, std::tuple<NextTag, OtherTags...> *) noexcept {
+    return create_argument_definitions<std::tuple<OtherVars...>, std::tuple<OtherTags...>>(
+        tuple_append(std::move(tuple), NextVar{NextTag{}}));
+}
 
 }// namespace detail
 
@@ -182,9 +202,9 @@ public:
             detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
             []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                 using arg_tuple = std::tuple<Args...>;
-                std::tuple<> arg_init;
-                using namespace detail::tuple_operators;
-                auto args = (arg_init << ... << Var<std::remove_cvref_t<Args>>{detail::prototype_to_creation_tag_t<Args>{}});
+                using var_tuple = std::tuple<Var<std::remove_cvref_t<Args>>...>;
+                using tag_tuple = std::tuple<detail::prototype_to_creation_tag_t<Args>...>;
+                auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
                 return std::invoke(std::forward<decltype(def)>(def),
                                    static_cast<detail::prototype_to_creation_t<
                                        std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
@@ -314,9 +334,9 @@ public:
         : _builder{detail::FunctionBuilder::define_callable([&f] {
               auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                   using arg_tuple = std::tuple<Args...>;
-                  std::tuple<> arg_init;
-                  using namespace detail::tuple_operators;
-                  auto args = (arg_init << ... << Var<std::remove_cvref_t<Args>>{detail::prototype_to_creation_tag_t<Args>{}});
+                  using var_tuple = std::tuple<Var<std::remove_cvref_t<Args>>...>;
+                  using tag_tuple = std::tuple<detail::prototype_to_creation_tag_t<Args>...>;
+                  auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
                   return std::invoke(std::forward<decltype(def)>(def),
                                      static_cast<detail::prototype_to_creation_t<
                                          std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
