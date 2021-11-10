@@ -123,8 +123,13 @@ void CUDABindlessArray::emplace_buffer(size_t index, CUdeviceptr buffer, size_t 
 
 void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
     CUDA_RESOURCE_DESC res_desc{};
-    res_desc.resType = CU_RESOURCE_TYPE_MIPMAPPED_ARRAY;
-    res_desc.res.mipmap.hMipmappedArray = array->handle();
+    if (array->levels() == 1u) {
+        res_desc.resType = CU_RESOURCE_TYPE_ARRAY;
+        res_desc.res.array.hArray = reinterpret_cast<CUarray>(array->handle());
+    } else {
+        res_desc.resType = CU_RESOURCE_TYPE_MIPMAPPED_ARRAY;
+        res_desc.res.mipmap.hMipmappedArray = reinterpret_cast<CUmipmappedArray>(array->handle());
+    }
     auto tex_desc = cuda_texture_descriptor(sampler);
     CUtexObject texture;
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
@@ -140,8 +145,13 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
 
 void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
     CUDA_RESOURCE_DESC res_desc{};
-    res_desc.resType = CU_RESOURCE_TYPE_MIPMAPPED_ARRAY;
-    res_desc.res.mipmap.hMipmappedArray = array->handle();
+    if (array->levels() == 1u) {
+        res_desc.resType = CU_RESOURCE_TYPE_ARRAY;
+        res_desc.res.array.hArray = reinterpret_cast<CUarray>(array->handle());
+    } else {
+        res_desc.resType = CU_RESOURCE_TYPE_MIPMAPPED_ARRAY;
+        res_desc.res.mipmap.hMipmappedArray = reinterpret_cast<CUmipmappedArray>(array->handle());
+    }
     auto tex_desc = cuda_texture_descriptor(sampler);
     CUtexObject texture;
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));

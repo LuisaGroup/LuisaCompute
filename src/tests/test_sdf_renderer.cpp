@@ -138,7 +138,7 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 accum_image, UInt frame_index) noexcept {
-        set_block_size(8u, 8u, 1u);
+        set_block_size(256u, 1u,1u);
 
         auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
@@ -185,7 +185,9 @@ int main(int argc, char *argv[]) {
     };
 
     Context context{argv[0]};
-#if defined(LUISA_BACKEND_METAL_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda", 0);
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal", 0u);
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
@@ -205,41 +207,49 @@ int main(int argc, char *argv[]) {
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
     cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
 
-    Clock clock;
-    auto last_t = clock.toc();
 
     static constexpr auto interval = 10u;
-    static constexpr auto total_spp = 500000u;
+    static constexpr auto total_spp = 4096u;
     std::vector<double> fps;
     fps.reserve(total_spp);
-    for (auto spp = 0u; spp < total_spp; spp += interval) {
+    for (auto i = 0; i < 10; i++) {
+        stream << render(seed_image, accum_image, 0).dispatch(width, height);
+    }
+    stream << synchronize();
+    Clock clock;
+    auto last_t = clock.toc();
+    for (auto spp = 0u; spp < total_spp; spp++) {
 
         // swap buffers
-        copy_event.synchronize();
-        std::swap(cv_image, cv_back_image);
-        stream << swap_event.signal();
+//        copy_event.synchronize();
+//        std::swap(cv_image, cv_back_image);
+//        stream << swap_event.signal();
 
+        stream << render(seed_image, accum_image, spp).dispatch(width, height);
         // render
-        auto command_buffer = stream.command_buffer();
-        for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
-            command_buffer << render(seed_image, accum_image, frame).dispatch(width, height);
-        }
-        command_buffer << swap_event.wait()
-                       << accum_image.copy_to(cv_back_image.data)
-                       << copy_event.signal();
+//        auto command_buffer = stream.command_buffer();
+//        for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
+//            command_buffer << render(seed_image, accum_image, frame).dispatch(width, height);
+//        }
+//        command_buffer << commit();
+//        command_buffer << swap_event.wait()
+//                       << accum_image.copy_to(cv_back_image.data)
+//                       << copy_event.signal();
 
         // display
-        cv_image *= 1.0 / std::max(spp, 1u);
-        auto mean = std::max(cv::mean(cv::mean(cv_image))[0], 1e-3);
-        cv::sqrt(cv_image * (0.24 / mean), cv_image);
-        cv::imshow("Display", cv_image);
-        if (auto key = cv::waitKey(1); key == 'q' || key == 27) { break; }
-        auto t = clock.toc();
-        LUISA_INFO(
-            "{:.2f} samples/s [{}/{}]",
-            fps.emplace_back(interval * 1000.0 / (t - last_t)),
-            spp + interval, total_spp);
-        last_t = t;
+//        cv_image *= 1.0 / std::max(spp, 1u);
+//        auto mean = std::max(cv::mean(cv::mean(cv_image))[0], 1e-3);
+//        cv::sqrt(cv_image * (0.24 / mean), cv_image);
+//        cv::imshow("Display", cv_image);
+//        if (auto key = cv::waitKey(1); key == 'q' || key == 27) { break; }
+//        auto t = clock.toc();
+//        LUISA_INFO(
+//            "{:.2f} samples/s [{}/{}]",
+//            fps.emplace_back(interval * 1000.0 / (t - last_t)),
+//            spp + interval, total_spp);
+//        last_t = t;
     }
-    LUISA_INFO("Average: {} samples/s.", std::reduce(fps.cbegin(), fps.cend(), 0.0) / fps.size());
+    stream << synchronize();
+    LUISA_INFO("{} samples/s", total_spp / (clock.toc() - last_t) * 1000);
+//    LUISA_INFO("Average: {} samples/s.", std::reduce(fps.cbegin(), fps.cend(), 0.0) / fps.size());
 }

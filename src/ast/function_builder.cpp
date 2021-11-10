@@ -24,7 +24,9 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
     }
     auto f = _function_stack().back();
     _function_stack().pop_back();
-    if (f != func) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Invalid function on stack top."); }
+    if (func != nullptr && f != func) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Invalid function on stack top.");
+    }
     if (f->tag() == Function::Tag::CALLABLE &&
         !(f->builtin_variables().empty() &&
           f->captured_buffers().empty() &&
@@ -224,7 +226,8 @@ void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {
 }
 
 void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
-    if (_scope_stack.empty() || _scope_stack.back() != s) [[unlikely]] {
+    if (_scope_stack.empty() ||
+        (s != nullptr && _scope_stack.back() != s)) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid scope stack pop.");
     }
     _scope_stack.pop_back();
@@ -422,7 +425,8 @@ void FunctionBuilder::push_meta(MetaStmt *meta) noexcept {
 
 void FunctionBuilder::pop_meta(const MetaStmt *meta) noexcept {
     pop_scope(meta->scope());
-    if (_meta_stack.empty() || _meta_stack.back() != meta) [[unlikely]] {
+    if (_meta_stack.empty() ||
+        (meta != nullptr && _meta_stack.back() != meta)) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid meta stack pop.");
     }
     _meta_stack.pop_back();

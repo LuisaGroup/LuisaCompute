@@ -158,11 +158,11 @@ struct PrintValue<bool> {
             str << "false";
     }
 };
-template<typename EleType, size_t N>
+template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
     void PureRun(T const &v, std::string &varName) {
-        for (size_t i = 0; i < N; ++i) {
+        for (uint64 i = 0; i < N; ++i) {
             vstd::to_string(v[i], varName);
             varName += ',';
         }
@@ -192,7 +192,7 @@ struct PrintValue<Vector<EleType, N>> {
 
 };
 
-template<size_t N>
+template<uint64 N>
 struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
@@ -201,7 +201,7 @@ struct PrintValue<Matrix<N>> {
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';
         PrintValue<Vector<EleType, N>> vecPrinter;
-        for (size_t i = 0; i < N; ++i) {
+        for (uint64 i = 0; i < N; ++i) {
             vecPrinter.PureRun(v[i], varName);
             varName += ',';
         }
@@ -273,7 +273,7 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
 void StringStateVisitor::visit(const CommentStmt *state) {
 }
 void StringStateVisitor::visit(const IfStmt *state) {
-    stmtCount = std::numeric_limits<size_t>::max();
+    stmtCount = std::numeric_limits<uint64>::max();
     str << "if(";
     StringExprVisitor vis(str);
     state->condition()->accept(vis);
@@ -284,7 +284,7 @@ void StringStateVisitor::visit(const IfStmt *state) {
     str << "}\n";
 }
 void StringStateVisitor::visit(const LoopStmt *state) {
-    stmtCount = std::numeric_limits<size_t>::max();
+    stmtCount = std::numeric_limits<uint64>::max();
     str << "while(1){\n";
     str << "}\n";
 }
@@ -360,7 +360,7 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
-    stmtCount = std::numeric_limits<size_t>::max();
+    stmtCount = std::numeric_limits<uint64>::max();
     str << "for(";
     StringExprVisitor vis(str);
     state->variable()->accept(vis);

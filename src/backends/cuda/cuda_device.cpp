@@ -6,6 +6,7 @@
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_mipmap_array.h>
@@ -148,10 +149,18 @@ uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint wid
         array_desc.Format = array_format;
         array_desc.NumChannels = num_channels;
         array_desc.Flags = CUDA_ARRAY3D_SURFACE_LDST;
-        CUmipmappedArray array_handle{nullptr};
-        LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&array_handle, &array_desc, mipmap_levels));
+        auto array_handle = [&] {
+            if (mipmap_levels == 1u) {
+                CUarray handle{nullptr};
+                LUISA_CHECK_CUDA(cuArray3DCreate(&handle, &array_desc));
+                return reinterpret_cast<uint64_t>(handle);
+            }
+            CUmipmappedArray handle{nullptr};
+            LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&handle, &array_desc, mipmap_levels));
+            return reinterpret_cast<uint64_t>(handle);
+        }();
         return reinterpret_cast<uint64_t>(
-            new_with_allocator<CUDAMipmapArray>(array_handle));
+            new_with_allocator<CUDAMipmapArray>(array_handle, format, mipmap_levels));
     });
 }
 
@@ -189,10 +198,26 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
 }
 
 uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    return 0;
+    Clock clock;
+    auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
+    auto kernel_name = fmt::format("kernel_{:016X}", kernel.hash());
+    LUISA_INFO("Generated PTX for {} in {} ms: {}", kernel_name, clock.toc(), ptx);
+    return with_handle([&] {
+        CUmodule module{nullptr};
+        CUfunction function{nullptr};
+        LUISA_CHECK_CUDA(cuModuleLoadData(&module, ptx.data()));
+        LUISA_CHECK_CUDA(cuModuleGetFunction(&function, module, kernel_name.c_str()));
+        return reinterpret_cast<uint64_t>(function);
+    });
 }
 
 void CUDADevice::destroy_shader(uint64_t handle) noexcept {
+    auto function = reinterpret_cast<CUfunction>(handle);
+    CUmodule module;
+    with_handle([&] {
+        LUISA_CHECK_CUDA(cuFuncGetModule(&module, function));
+        LUISA_CHECK_CUDA(cuModuleUnload(module));
+    });
 }
 
 uint64_t CUDADevice::create_event() noexcept {
@@ -331,6 +356,7 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     LUISA_INFO(
         "Created CUDA device at index {}: {} (capability = {}.{}).",
         index, name(), compute_cap_major, compute_cap_minor);
+    _compute_capability = 10u * compute_cap_major + compute_cap_minor;
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 }
 

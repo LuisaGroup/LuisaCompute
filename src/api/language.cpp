@@ -19,15 +19,15 @@ void *luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
     auto gs = f->dispatch_size();
     auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
     auto cond = f->call(Type::of<bool>(), CallOp::ALL, {less});
-    auto ret_cond = f->unary(Type::of<bool>(), UnaryOp::NOT, cond);
-    auto if_stmt = f->if_(ret_cond);
-    f->with(if_stmt->true_branch(), [f] { f->return_(); });
+    auto if_stmt = f->if_(cond);
+    f->push_scope(if_stmt->true_branch());
     return new_with_allocator<luisa::shared_ptr<FunctionBuilder>>(std::move(shared_f));
 }
 
 void luisa_compute_ast_end_kernel(void *kernel) LUISA_NOEXCEPT {
     auto pf = static_cast<luisa::shared_ptr<FunctionBuilder> *>(kernel);
     auto f = pf->get();
+    f->pop_scope(nullptr);
     f->pop_meta(f->body());
     FunctionBuilder::pop(f);
 }

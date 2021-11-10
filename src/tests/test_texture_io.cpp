@@ -21,7 +21,9 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_METAL_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
@@ -50,22 +52,48 @@ int main(int argc, char *argv[]) {
         image.write(coord, linear_to_srgb(make_float4(rg, 1.0f, 1.0f)));
     };
 
+    Kernel2D fill_buffer_kernel = [](BufferFloat4 image) noexcept {
+        Var coord = dispatch_id().xy();
+        Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
+        image[coord.x + coord.y * dispatch_size_x()] = make_float4(rg, 1.0f, 1.0f);
+    };
+
+    Kernel2D copy_texture_kernel = [](BufferFloat4 buffer, ImageFloat image) noexcept {
+        Var coord = dispatch_id().xy();
+        buffer[coord.x + coord.y * dispatch_size_x()] = image.read(coord);
+    };
+
     auto clear_image = device.compile(clear_image_kernel);
     auto fill_image = device.compile(fill_image_kernel);
+    auto fill_buffer = device.compile(fill_buffer_kernel);
+    auto copy = device.compile(copy_texture_kernel);
 
-    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u * 2u, 1024u * 2u, 2u);
-    std::vector<uint8_t> host_image(1024u * 1024u * 4u);
+    //    for (auto i = 0u; i < 2u; i++) {
+    //        clear_image = device.compile(clear_image_kernel);
+    //        fill_image = device.compile(fill_image_kernel);
+    //    }
+
+    auto device_image = device.create_image<float>(PixelStorage::FLOAT1, 1024u, 1024u, 1u);
+    std::vector<float> host_image(1024u * 1024u * 4u, 1.0f);
+    std::vector<float> download_image(1024u * 1024u * 4u);
+    auto device_buffer = device.create_buffer<float4>(1024 * 1024);
 
     auto event = device.create_event();
     auto stream = device.create_stream();
 
-    stream << clear_image(device_image.view(1u)).dispatch(1024u, 1024u)
-           << fill_image(device_image.view(1u).region(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
-           << device_image.view(1u).copy_to(host_image.data())
-           << event.signal();
+    stream << clear_image(device_image.view(0)).dispatch(1024u, 1024u)
+           << fill_image(device_image.view(0).region(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
+           << fill_buffer(device_buffer).dispatch(1024, 1024)
+           //           << device_buffer.copy_from(host_image.data())
+//           << device_image.view(0).copy_from(device_buffer.view())
+           << device_image.view(0).copy_to(download_image.data())
+           //           << copy(device_buffer, device_image).dispatch(1024, 1024)
+//                      << device_buffer.copy_to(download_image.data())
+           << synchronize();
 
-    event.synchronize();
-    stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
+    //    event.synchronize();
+    stbi_write_hdr("result.hdr", 1024, 1024, 4, download_image.data());
+    //    stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
 
     auto volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
 }

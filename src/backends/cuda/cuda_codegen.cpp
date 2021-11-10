@@ -1,5 +1,5 @@
 //
-// Created by Mike Smith on 2021/3/6.
+// Created by Mike on 2021/11/8.
 //
 
 #include <string_view>
@@ -8,11 +8,11 @@
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
-#include <compile/cpp_codegen.h>
+#include <backends/cuda/cuda_codegen.h>
 
-namespace luisa::compute {
+namespace luisa::compute::cuda {
 
-void CppCodegen::visit(const UnaryExpr *expr) {
+void CUDACodegen::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
         case UnaryOp::PLUS: _scratch << "+"; break;
         case UnaryOp::MINUS: _scratch << "-"; break;
@@ -23,7 +23,7 @@ void CppCodegen::visit(const UnaryExpr *expr) {
     expr->operand()->accept(*this);
 }
 
-void CppCodegen::visit(const BinaryExpr *expr) {
+void CUDACodegen::visit(const BinaryExpr *expr) {
     _scratch << "(";
     expr->lhs()->accept(*this);
     switch (expr->op()) {
@@ -50,20 +50,41 @@ void CppCodegen::visit(const BinaryExpr *expr) {
     _scratch << ")";
 }
 
-void CppCodegen::visit(const MemberExpr *expr) {
-    expr->self()->accept(*this);
+void CUDACodegen::visit(const MemberExpr *expr) {
     if (expr->is_swizzle()) {
         static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
-        _scratch << ".";
-        for (auto i = 0u; i < expr->swizzle_size(); i++) {
-            _scratch << xyzw[expr->swizzle_index(i)];
+        if (auto ss = expr->swizzle_size(); ss == 1u) {
+            expr->self()->accept(*this);
+            _scratch << ".";
+            _scratch << xyzw[expr->swizzle_index(0)];
+        } else {
+            _scratch << "lc_make_";
+            auto elem = expr->type()->element();
+            switch (elem->tag()) {
+                case Type::Tag::BOOL: _scratch << "bool"; break;
+                case Type::Tag::INT: _scratch << "int"; break;
+                case Type::Tag::UINT: _scratch << "uint"; break;
+                case Type::Tag::FLOAT: _scratch << "float"; break;
+                default: LUISA_ERROR_WITH_LOCATION(
+                    "Invalid vector element type: {}.",
+                    elem->description());
+            }
+            _scratch << ss << "(";
+            for (auto i = 0u; i < ss; i++) {
+                expr->self()->accept(*this);
+                _scratch << "." << xyzw[expr->swizzle_index(i)] << ", ";
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
+            _scratch << ")";
         }
     } else {
+        expr->self()->accept(*this);
         _scratch << ".m" << expr->member_index();
     }
 }
 
-void CppCodegen::visit(const AccessExpr *expr) {
+void CUDACodegen::visit(const AccessExpr *expr) {
     expr->range()->accept(*this);
     _scratch << "[";
     expr->index()->accept(*this);
@@ -94,7 +115,7 @@ public:
     template<typename T, size_t N>
     void operator()(Vector<T, N> v) const noexcept {
         auto t = Type::of<T>();
-        _s << t->description() << N << "(";
+        _s << "lc_make_" << t->description() << N << "(";
         for (auto i = 0u; i < N; i++) {
             (*this)(v[i]);
             _s << ", ";
@@ -105,7 +126,7 @@ public:
     }
 
     void operator()(float2x2 m) const noexcept {
-        _s << "float2x2(";
+        _s << "lc_make_float2x2(";
         for (auto col = 0u; col < 2u; col++) {
             for (auto row = 0u; row < 2u; row++) {
                 (*this)(m[col][row]);
@@ -118,7 +139,7 @@ public:
     }
 
     void operator()(float3x3 m) const noexcept {
-        _s << "float3x3(";
+        _s << "lc_make_float3x3(";
         for (auto col = 0u; col < 3u; col++) {
             for (auto row = 0u; row < 3u; row++) {
                 (*this)(m[col][row]);
@@ -131,7 +152,7 @@ public:
     }
 
     void operator()(float4x4 m) const noexcept {
-        _s << "float4x4(";
+        _s << "lc_make_float4x4(";
         for (auto col = 0u; col < 4u; col++) {
             for (auto row = 0u; row < 4u; row++) {
                 (*this)(m[col][row]);
@@ -147,72 +168,75 @@ public:
 
 }// namespace detail
 
-void CppCodegen::visit(const LiteralExpr *expr) {
+void CUDACodegen::visit(const LiteralExpr *expr) {
     std::visit(detail::LiteralPrinter{_scratch}, expr->value());
 }
 
-void CppCodegen::visit(const RefExpr *expr) {
+void CUDACodegen::visit(const RefExpr *expr) {
     _emit_variable_name(expr->variable());
 }
 
-void CppCodegen::visit(const CallExpr *expr) {
+void CUDACodegen::visit(const CallExpr *expr) {
 
     switch (expr->op()) {
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
-        case CallOp::ALL: _scratch << "all"; break;
-        case CallOp::ANY: _scratch << "any"; break;
-        case CallOp::SELECT: _scratch << "select"; break;
-        case CallOp::CLAMP: _scratch << "clamp"; break;
-        case CallOp::LERP: _scratch << "mix"; break;
-        case CallOp::STEP: _scratch << "step"; break;
-        case CallOp::ABS: _scratch << "abs"; break;
-        case CallOp::MIN: _scratch << "min"; break;
-        case CallOp::MAX: _scratch << "max"; break;
-        case CallOp::CLZ: _scratch << "clz"; break;
-        case CallOp::CTZ: _scratch << "ctz"; break;
-        case CallOp::POPCOUNT: _scratch << "popcount"; break;
-        case CallOp::REVERSE: _scratch << "reverse_bits"; break;
-        case CallOp::ISINF: _scratch << "precise::isinf"; break;
-        case CallOp::ISNAN: _scratch << "precise::isnan"; break;
-        case CallOp::ACOS: _scratch << "acos"; break;
-        case CallOp::ACOSH: _scratch << "acosh"; break;
-        case CallOp::ASIN: _scratch << "asin"; break;
-        case CallOp::ASINH: _scratch << "asinh"; break;
-        case CallOp::ATAN: _scratch << "atan"; break;
-        case CallOp::ATAN2: _scratch << "atan2"; break;
-        case CallOp::ATANH: _scratch << "atanh"; break;
-        case CallOp::COS: _scratch << "cos"; break;
-        case CallOp::COSH: _scratch << "cosh"; break;
-        case CallOp::SIN: _scratch << "sin"; break;
-        case CallOp::SINH: _scratch << "sinh"; break;
-        case CallOp::TAN: _scratch << "tan"; break;
-        case CallOp::TANH: _scratch << "tanh"; break;
-        case CallOp::EXP: _scratch << "exp"; break;
-        case CallOp::EXP2: _scratch << "exp2"; break;
-        case CallOp::EXP10: _scratch << "exp10"; break;
-        case CallOp::LOG: _scratch << "log"; break;
-        case CallOp::LOG2: _scratch << "log2"; break;
-        case CallOp::LOG10: _scratch << "log10"; break;
-        case CallOp::POW: _scratch << "pow"; break;
-        case CallOp::SQRT: _scratch << "sqrt"; break;
-        case CallOp::RSQRT: _scratch << "rsqrt"; break;
-        case CallOp::CEIL: _scratch << "ceil"; break;
-        case CallOp::FLOOR: _scratch << "floor"; break;
-        case CallOp::FRACT: _scratch << "fract"; break;
-        case CallOp::TRUNC: _scratch << "trunc"; break;
-        case CallOp::ROUND: _scratch << "round"; break;
-        case CallOp::FMA: _scratch << "fma"; break;
-        case CallOp::COPYSIGN: _scratch << "copysign"; break;
-        case CallOp::CROSS: _scratch << "cross"; break;
-        case CallOp::DOT: _scratch << "dot"; break;
-        case CallOp::LENGTH: _scratch << "length"; break;
-        case CallOp::LENGTH_SQUARED: _scratch << "length_squared"; break;
-        case CallOp::NORMALIZE: _scratch << "normalize"; break;
-        case CallOp::FACEFORWARD: _scratch << "faceforward"; break;
-        case CallOp::DETERMINANT: _scratch << "determinant"; break;
-        case CallOp::TRANSPOSE: _scratch << "transpose"; break;
-        case CallOp::INVERSE: _scratch << "inverse"; break;
-        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "sync_block"; break;
+        case CallOp::ALL: _scratch << "lc_all"; break;
+        case CallOp::ANY: _scratch << "lc_any"; break;
+        case CallOp::SELECT: _scratch << "lc_select"; break;
+        case CallOp::CLAMP: _scratch << "lc_clamp"; break;
+        case CallOp::LERP: _scratch << "lc_lerp"; break;
+        case CallOp::STEP: _scratch << "lc_step"; break;
+        case CallOp::ABS: _scratch << "lc_abs"; break;
+        case CallOp::MIN: _scratch << "lc_min"; break;
+        case CallOp::MAX: _scratch << "lc_max"; break;
+        case CallOp::CLZ: _scratch << "lc_clz"; break;
+        case CallOp::CTZ: _scratch << "lc_ctz"; break;
+        case CallOp::POPCOUNT: _scratch << "lc_popcount"; break;
+        case CallOp::REVERSE: _scratch << "lc_reverse"; break;
+        case CallOp::ISINF: _scratch << "lc_isinf"; break;
+        case CallOp::ISNAN: _scratch << "lc_isnan"; break;
+        case CallOp::ACOS: _scratch << "lc_acos"; break;
+        case CallOp::ACOSH: _scratch << "lc_acosh"; break;
+        case CallOp::ASIN: _scratch << "lc_asin"; break;
+        case CallOp::ASINH: _scratch << "lc_asinh"; break;
+        case CallOp::ATAN: _scratch << "lc_atan"; break;
+        case CallOp::ATAN2: _scratch << "lc_atan2"; break;
+        case CallOp::ATANH: _scratch << "lc_atanh"; break;
+        case CallOp::COS: _scratch << "lc_cos"; break;
+        case CallOp::COSH: _scratch << "lc_cosh"; break;
+        case CallOp::SIN: _scratch << "lc_sin"; break;
+        case CallOp::SINH: _scratch << "lc_sinh"; break;
+        case CallOp::TAN: _scratch << "lc_tan"; break;
+        case CallOp::TANH: _scratch << "lc_tanh"; break;
+        case CallOp::EXP: _scratch << "lc_exp"; break;
+        case CallOp::EXP2: _scratch << "lc_exp2"; break;
+        case CallOp::EXP10: _scratch << "lc_exp10"; break;
+        case CallOp::LOG: _scratch << "lc_log"; break;
+        case CallOp::LOG2: _scratch << "lc_log2"; break;
+        case CallOp::LOG10: _scratch << "lc_log10"; break;
+        case CallOp::POW: _scratch << "lc_pow"; break;
+        case CallOp::SQRT: _scratch << "lc_sqrt"; break;
+        case CallOp::RSQRT: _scratch << "lc_rsqrt"; break;
+        case CallOp::CEIL: _scratch << "lc_ceil"; break;
+        case CallOp::FLOOR: _scratch << "lc_floor"; break;
+        case CallOp::FRACT: _scratch << "lc_fract"; break;
+        case CallOp::TRUNC: _scratch << "lc_trunc"; break;
+        case CallOp::ROUND: _scratch << "lc_round"; break;
+        case CallOp::FMA: _scratch << "lc_fma"; break;
+        case CallOp::COPYSIGN: _scratch << "lc_copysign"; break;
+        case CallOp::CROSS: _scratch << "lc_cross"; break;
+        case CallOp::DOT: _scratch << "lc_dot"; break;
+        case CallOp::LENGTH: _scratch << "lc_length"; break;
+        case CallOp::LENGTH_SQUARED: _scratch << "lc_length_squared"; break;
+        case CallOp::NORMALIZE: _scratch << "lc_normalize"; break;
+        case CallOp::FACEFORWARD: _scratch << "lc_faceforward"; break;
+        case CallOp::DETERMINANT: _scratch << "lc_determinant"; break;
+        case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
+        case CallOp::INVERSE: _scratch << "lc_inverse"; break;
+        case CallOp::SYNCHRONIZE_BLOCK:
+            _scratch << "__syncthreads";
+            break;
+            // TODO: atomics
         case CallOp::ATOMIC_EXCHANGE: _scratch << "atomic_exchange"; break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "atomic_compare_exchange"; break;
         case CallOp::ATOMIC_FETCH_ADD: _scratch << "atomic_fetch_add"; break;
@@ -222,8 +246,17 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::ATOMIC_FETCH_XOR: _scratch << "atomic_fetch_xor"; break;
         case CallOp::ATOMIC_FETCH_MIN: _scratch << "atomic_fetch_min"; break;
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
-        case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
-        case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
+        case CallOp::TEXTURE_READ:
+            _scratch << "lc_surf"
+                     << expr->arguments().front()->type()->dimension() << "d_read<"
+                     << "lc_" << expr->arguments().front()->type()->element()->description() << ">";
+            break;
+        case CallOp::TEXTURE_WRITE:
+            _scratch << "lc_surf"
+                     << expr->arguments().front()->type()->dimension() << "d_write<"
+                     << "lc_" << expr->arguments().front()->type()->element()->description() << ">";
+            break;
+            // TODO: bindless resources
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "texture_heap_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
@@ -243,18 +276,21 @@ void CppCodegen::visit(const CallExpr *expr) {
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
-#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)       \
-    case CallOp::MAKE_##tag##2: _scratch << #type "2"; break; \
-    case CallOp::MAKE_##tag##3: _scratch << #type "3"; break; \
-    case CallOp::MAKE_##tag##4: _scratch << #type "4"; break;
+#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)                     \
+    case CallOp::MAKE_##tag##2: _scratch << "lc_make_" << #type "2"; break; \
+    case CallOp::MAKE_##tag##3: _scratch << "lc_make_" << #type "3"; break; \
+    case CallOp::MAKE_##tag##4: _scratch << "lc_make_" << #type "4"; break;
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
-        case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
-        case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
-        case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4:
+            _scratch << "lc_make_float4x4";
+            break;
+            // TODO: RTX functions
         case CallOp::TRACE_CLOSEST: break;
         case CallOp::TRACE_ANY: break;
     }
@@ -270,7 +306,7 @@ void CppCodegen::visit(const CallExpr *expr) {
     _scratch << ")";
 }
 
-void CppCodegen::visit(const CastExpr *expr) {
+void CUDACodegen::visit(const CastExpr *expr) {
     switch (expr->op()) {
         case CastOp::STATIC:
             _scratch << "static_cast<";
@@ -278,9 +314,9 @@ void CppCodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "as<";
+            _scratch << "reinterpret_cast<";
             _emit_type_name(expr->type());
-            _scratch << ">(";
+            _scratch << " &>(";
             break;
         default: break;
     }
@@ -288,15 +324,15 @@ void CppCodegen::visit(const CastExpr *expr) {
     _scratch << ")";
 }
 
-void CppCodegen::visit(const BreakStmt *) {
+void CUDACodegen::visit(const BreakStmt *) {
     _scratch << "break;";
 }
 
-void CppCodegen::visit(const ContinueStmt *) {
+void CUDACodegen::visit(const ContinueStmt *) {
     _scratch << "continue;";
 }
 
-void CppCodegen::visit(const ReturnStmt *stmt) {
+void CUDACodegen::visit(const ReturnStmt *stmt) {
     _scratch << "return";
     if (auto expr = stmt->expression(); expr != nullptr) {
         _scratch << " ";
@@ -305,13 +341,13 @@ void CppCodegen::visit(const ReturnStmt *stmt) {
     _scratch << ";";
 }
 
-void CppCodegen::visit(const ScopeStmt *stmt) {
+void CUDACodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_statements(stmt->statements());
     _scratch << "}";
 }
 
-void CppCodegen::visit(const IfStmt *stmt) {
+void CUDACodegen::visit(const IfStmt *stmt) {
     _scratch << "if (";
     stmt->condition()->accept(*this);
     _scratch << ") ";
@@ -327,36 +363,36 @@ void CppCodegen::visit(const IfStmt *stmt) {
     }
 }
 
-void CppCodegen::visit(const LoopStmt *stmt) {
+void CUDACodegen::visit(const LoopStmt *stmt) {
     _scratch << "for (;;) ";
     stmt->body()->accept(*this);
 }
 
-void CppCodegen::visit(const ExprStmt *stmt) {
+void CUDACodegen::visit(const ExprStmt *stmt) {
     stmt->expression()->accept(*this);
     _scratch << ";";
 }
 
-void CppCodegen::visit(const SwitchStmt *stmt) {
+void CUDACodegen::visit(const SwitchStmt *stmt) {
     _scratch << "switch (";
     stmt->expression()->accept(*this);
     _scratch << ") ";
     stmt->body()->accept(*this);
 }
 
-void CppCodegen::visit(const SwitchCaseStmt *stmt) {
+void CUDACodegen::visit(const SwitchCaseStmt *stmt) {
     _scratch << "case ";
     stmt->expression()->accept(*this);
     _scratch << ": ";
     stmt->body()->accept(*this);
 }
 
-void CppCodegen::visit(const SwitchDefaultStmt *stmt) {
+void CUDACodegen::visit(const SwitchDefaultStmt *stmt) {
     _scratch << "default: ";
     stmt->body()->accept(*this);
 }
 
-void CppCodegen::visit(const AssignStmt *stmt) {
+void CUDACodegen::visit(const AssignStmt *stmt) {
     stmt->lhs()->accept(*this);
     switch (stmt->op()) {
         case AssignOp::ASSIGN: _scratch << " = "; break;
@@ -376,18 +412,18 @@ void CppCodegen::visit(const AssignStmt *stmt) {
     _scratch << ";";
 }
 
-void CppCodegen::emit(Function f) {
+void CUDACodegen::emit(Function f) {
     _emit_type_decl();
     _emit_function(f);
 }
 
-void CppCodegen::_emit_function(Function f) noexcept {
+void CUDACodegen::_emit_function(Function f) noexcept {
 
     if (auto iter = std::find(_generated_functions.cbegin(), _generated_functions.cend(), f);
         iter != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f);
 
-    for (auto callable : f.custom_callables()) { _emit_function(callable->function()); }
+    for (auto &&callable : f.custom_callables()) { _emit_function(callable->function()); }
 
     _function = f;
     _indent = 0u;
@@ -400,9 +436,11 @@ void CppCodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "__kernel__ void kernel_" << hash_to_string(f.hash());
+        _scratch << "extern \"C\" __global__ void __launch_bounds__("
+                 << f.block_size().x * f.block_size().y * f.block_size().z
+                 << ") kernel_" << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
-        _scratch << "__device__ ";
+        _scratch << "__device__ inline ";
         if (f.return_type() != nullptr) {
             _emit_type_name(f.return_type());
         } else {
@@ -413,58 +451,58 @@ void CppCodegen::_emit_function(Function f) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     // argument list
-    _scratch << "(";
-    for (auto arg : f.arguments()) {
+    for (auto buffer : f.captured_buffers()) {
         _scratch << "\n    ";
-        if (f.tag() == Function::Tag::KERNEL && arg.tag() == Variable::Tag::LOCAL) {
-            _scratch << "__uniform__ ";
-        }
-        _emit_variable_decl(arg);
-        if (arg.tag() == Variable::Tag::BUFFER) {
-            _scratch << " ";
-            _emit_access_attribute(arg);
-        }
+        _emit_variable_decl(buffer.variable);
         _scratch << ",";
     }
     for (auto image : f.captured_textures()) {
         _scratch << "\n    ";
         _emit_variable_decl(image.variable);
-        _scratch << " ";
-        _emit_access_attribute(image.variable);
         _scratch << ",";
     }
-    for (auto buffer : f.captured_buffers()) {
+    // TODO
+    for (auto array : f.captured_bindless_arrays()) {
+    }
+    for (auto accel : f.captured_accels()) {
+    }
+    _scratch << "(";
+    auto any_arg = false;
+    for (auto arg : f.arguments()) {
         _scratch << "\n    ";
-        _emit_variable_decl(buffer.variable);
-        _scratch << " ";
-        _emit_access_attribute(buffer.variable);
+        _emit_variable_decl(arg);
         _scratch << ",";
+        any_arg = true;
     }
-    for (auto builtin : f.builtin_variables()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(builtin);
-        switch (builtin.tag()) {
-            case Variable::Tag::THREAD_ID: _scratch << " [[thread_id]]"; break;
-            case Variable::Tag::BLOCK_ID: _scratch << " [[block_id]]"; break;
-            case Variable::Tag::DISPATCH_ID: _scratch << " [[dispatch_id]]"; break;
-            case Variable::Tag::DISPATCH_SIZE: _scratch << " [[launch_size]]"; break;
-            default: break;
-        }
-        _scratch << ",";
-    }
-    if (!f.arguments().empty()
-        || !f.captured_textures().empty()
-        || !f.captured_buffers().empty()
-        || !f.builtin_variables().empty()) {
-        _scratch.pop_back();
+    if (f.tag() == Function::Tag::KERNEL) {
+        _scratch << "\n    lc_uint3 ls";// launch size
+    } else {
+        if (any_arg) { _scratch.pop_back(); }
     }
     _scratch << ") {";
+    for (auto builtin : f.builtin_variables()) {
+        switch (builtin.tag()) {
+            case Variable::Tag::THREAD_ID:
+                _scratch << "\n  auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
+                break;
+            case Variable::Tag::BLOCK_ID:
+                _scratch << "\n  auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
+                break;
+            case Variable::Tag::DISPATCH_ID:
+                _scratch << "\n  auto did = lc_make_uint3("
+                         << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
+                         << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
+                         << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
+                break;
+            default: break;
+        }
+    }
     _emit_variable_declarations(f.body());
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 }
 
-void CppCodegen::_emit_variable_name(Variable v) noexcept {
+void CUDACodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
@@ -480,11 +518,11 @@ void CppCodegen::_emit_variable_name(Variable v) noexcept {
     }
 }
 
-void CppCodegen::_emit_type_decl() noexcept {
+void CUDACodegen::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
-void CppCodegen::visit(const Type *type) noexcept {
+void CUDACodegen::visit(const Type *type) noexcept {
     if (type->is_structure()) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
@@ -498,25 +536,25 @@ void CppCodegen::visit(const Type *type) noexcept {
     }
 }
 
-void CppCodegen::_emit_type_name(const Type *type) noexcept {
+void CUDACodegen::_emit_type_name(const Type *type) noexcept {
 
     switch (type->tag()) {
-        case Type::Tag::BOOL: _scratch << "bool"; break;
-        case Type::Tag::FLOAT: _scratch << "float"; break;
-        case Type::Tag::INT: _scratch << "int"; break;
-        case Type::Tag::UINT: _scratch << "uint"; break;
+        case Type::Tag::BOOL: _scratch << "lc_bool"; break;
+        case Type::Tag::FLOAT: _scratch << "lc_float"; break;
+        case Type::Tag::INT: _scratch << "lc_int"; break;
+        case Type::Tag::UINT: _scratch << "lc_uint"; break;
         case Type::Tag::VECTOR:
             _emit_type_name(type->element());
             _scratch << type->dimension();
             break;
         case Type::Tag::MATRIX:
-            _scratch << "float"
+            _scratch << "lc_float"
                      << type->dimension()
                      << "x"
                      << type->dimension();
             break;
         case Type::Tag::ARRAY:
-            _scratch << "array<";
+            _scratch << "lc_array<";
             _emit_type_name(type->element());
             _scratch << ", ";
             _scratch << type->dimension() << ">";
@@ -528,61 +566,59 @@ void CppCodegen::_emit_type_name(const Type *type) noexcept {
     }
 }
 
-void CppCodegen::_emit_variable_decl(Variable v) noexcept {
+void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
+    auto usage = _function.variable_usage(v.uid());
+    auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
         case Variable::Tag::SHARED:
             _scratch << "__shared__ ";
             _emit_type_name(v.type());
             _scratch << " ";
+            _emit_variable_name(v);
             break;
         case Variable::Tag::REFERENCE:
+            if (readonly) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " &";
+            _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:
-            _scratch << "__device__ ";
+            if (readonly) { _scratch << "const "; }
             _emit_type_name(v.type()->element());
-            _scratch << " *";
+            _scratch << " *__restrict__ ";
+            _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "image<";
-            _emit_type_name(v.type()->element());
-            _scratch << ", ";
-            if (auto usage = _function.variable_usage(v.uid());
-                usage == Usage::READ_WRITE) {
-                _scratch << "access::read_write> ";
-            } else if (usage == Usage::WRITE) {
-                _scratch << "access::write> ";
-            } else if (usage == Usage::READ) {
-                _scratch << "access::read> ";
-            }
+            _scratch << "const ";
+            _scratch << "LCSurface ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
+            if (readonly) { _scratch << "const "; }
             _scratch << "heap ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
+            if (readonly) { _scratch << "const "; }
             _scratch << "accel ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::THREAD_ID:
-        case Variable::Tag::BLOCK_ID:
-        case Variable::Tag::DISPATCH_ID:
-        case Variable::Tag::DISPATCH_SIZE:
         case Variable::Tag::LOCAL:
+            if (readonly) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " ";
+            _emit_variable_name(v);
+            break;
+        default:
             break;
     }
-    _emit_variable_name(v);
 }
 
-void CppCodegen::_emit_indent() noexcept {
+void CUDACodegen::_emit_indent() noexcept {
     for (auto i = 0u; i < _indent; i++) { _scratch << "  "; }
 }
 
-void CppCodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+void CUDACodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";
@@ -596,11 +632,10 @@ void CppCodegen::_emit_statements(std::span<const Statement *const> stmts) noexc
     }
 }
 
-void CppCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
+void CUDACodegen::_emit_constant(Function::ConstantBinding c) noexcept {
 
     if (std::find(_generated_constants.cbegin(),
-                  _generated_constants.cend(), c.data.hash())
-        != _generated_constants.cend()) { return; }
+                  _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }
     _generated_constants.emplace_back(c.data.hash());
 
     _scratch << "__constant__ ";
@@ -626,11 +661,11 @@ void CppCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
     _scratch << "};\n";
 }
 
-void CppCodegen::visit(const ConstantExpr *expr) {
+void CUDACodegen::visit(const ConstantExpr *expr) {
     _scratch << "c" << hash_to_string(expr->data().hash());
 }
 
-void CppCodegen::visit(const ForStmt *stmt) {
+void CUDACodegen::visit(const ForStmt *stmt) {
     _scratch << "for (; ";
     stmt->condition()->accept(*this);
     _scratch << "; ";
@@ -641,21 +676,11 @@ void CppCodegen::visit(const ForStmt *stmt) {
     stmt->body()->accept(*this);
 }
 
-void CppCodegen::_emit_access_attribute(Variable v) noexcept {
-    switch (_function.variable_usage(v.uid())) {
-        case Usage::NONE: _scratch << "[[access::none]]"; break;
-        case Usage::READ: _scratch << "[[access::read]]"; break;
-        case Usage::WRITE: _scratch << "[[access::write]]"; break;
-        case Usage::READ_WRITE: _scratch << "[[access::read_write]]"; break;
-        default: _scratch << "[[access::unknown]]"; break;
-    }
-}
-
-void CppCodegen::visit(const CommentStmt *stmt) {
+void CUDACodegen::visit(const CommentStmt *stmt) {
     _scratch << "/* " << stmt->comment() << " */";
 }
 
-void CppCodegen::visit(const MetaStmt *stmt) {
+void CUDACodegen::visit(const MetaStmt *stmt) {
     _scratch << "\n";
     _emit_indent();
     _scratch << "// meta region begin: " << stmt->info();
@@ -669,7 +694,7 @@ void CppCodegen::visit(const MetaStmt *stmt) {
     _scratch << "// meta region end: " << stmt->info() << "\n";
 }
 
-void CppCodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
+void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
         _scratch << "\n  ";
         _emit_variable_decl(v);
@@ -680,4 +705,4 @@ void CppCodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     }
 }
 
-}// namespace luisa::compute
+}// namespace luisa::compute::cuda

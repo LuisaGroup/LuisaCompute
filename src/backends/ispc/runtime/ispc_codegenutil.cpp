@@ -4,13 +4,13 @@
 #include <vstl/StringUtility.h>
 namespace lc::ispc {
 struct CodegenGlobal {
-    vstd::HashMap<Type const *, size_t> structTypes;
-    vstd::HashMap<uint64, size_t> constTypes;
-    vstd::HashMap<uint64, size_t> funcTypes;
-    vstd::vector<std::pair<Type const *, size_t>> customStructs;
-    size_t count = 0;
-    size_t constCount = 0;
-    size_t funcCount = 0;
+    vstd::HashMap<Type const *, uint64> structTypes;
+    vstd::HashMap<uint64, uint64> constTypes;
+    vstd::HashMap<uint64, uint64> funcTypes;
+    vstd::vector<std::pair<Type const *, uint64>> customStructs;
+    uint64 count = 0;
+    uint64 constCount = 0;
+    uint64 funcCount = 0;
     void Clear() {
         structTypes.Clear();
         constTypes.Clear();
@@ -20,7 +20,7 @@ struct CodegenGlobal {
         count = 0;
         funcCount = 0;
     }
-    size_t GetConstCount(uint64 data) {
+    uint64 GetConstCount(uint64 data) {
         auto ite = constTypes.Emplace(
             data,
             vstd::MakeLazyEval(
@@ -29,7 +29,7 @@ struct CodegenGlobal {
                 }));
         return ite.Value();
     }
-    size_t GetFuncCount(uint64 data) {
+    uint64 GetFuncCount(uint64 data) {
         auto ite = funcTypes.Emplace(
             data,
             vstd::MakeLazyEval(
@@ -38,7 +38,7 @@ struct CodegenGlobal {
                 }));
         return ite.Value();
     }
-    size_t GetTypeCount(Type const *t) {
+    uint64 GetTypeCount(Type const *t) {
         auto ite = structTypes.Emplace(
             t,
             vstd::MakeLazyEval(
@@ -121,16 +121,16 @@ void CodegenUtility::GetVariableName(Variable const &type, std::string &str) {
     GetVariableName(type.tag(), type.uid(), str);
 }
 void CodegenUtility::GetConstName(ConstantData const &data, std::string &str) {
-    size_t constCount = opt->GetConstCount(data.hash());
+    uint64 constCount = opt->GetConstCount(data.hash());
     str << "c";
-    vstd::to_string(constCount, str);
+    vstd::to_string((constCount), str);
 }
 void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &str) {
-    size_t constCount = opt->GetConstCount(data.hash());
+    uint64 constCount = opt->GetConstCount(data.hash());
     //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
     str << "struct tc";
-    vstd::to_string(constCount, str);
-    size_t varCount = 1;
+    vstd::to_string((constCount), str);
+    uint64 varCount = 1;
     std::visit(
         [&](auto &&arr) {
             varCount = arr.size();
@@ -138,13 +138,13 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &st
         data.view());
     str << "{\n";
     str << CodegenUtility::GetBasicTypeName(data.view().index()) << " v[";
-    vstd::to_string(varCount, str);
+    vstd::to_string((varCount), str);
     str << "];\n";
     str << "};\n";
 }
 void CodegenUtility::GetCustomStruct(Type const &t, std::string_view strName, std::string &str) {
     str << "struct " << strName << "{\n";
-    size_t vCount = 0;
+    uint64 vCount = 0;
     for (auto &&m : t.members()) {
         GetTypeName(*m, str);
         str << " v";
@@ -157,9 +157,9 @@ void CodegenUtility::GetCustomStruct(Type const &t, std::string_view strName, st
 }
 void CodegenUtility::GetConstantData(ConstantData const &data, std::string &str) {
     auto &&view = data.view();
-    size_t constCount = opt->GetConstCount(data.hash());
+    uint64 constCount = opt->GetConstCount(data.hash());
 
-    std::string name = vstd::to_string(constCount);
+    std::string name = vstd::to_string((constCount));
     str << "uniform const tc" << name << " c" << name;
     str << "={{";
     std::visit(
@@ -215,12 +215,13 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
             return;
         case Type::Tag::VECTOR: {
             CodegenUtility::GetTypeName(*type.element(), str);
-            vstd::to_string(static_cast<uint64_t>(type.dimension()), str);
+            vstd::to_string((type.dimension()), str);
         }
             return;
         case Type::Tag::STRUCTURE:
             str << 'T';
             vstd::to_string(opt->GetTypeCount(&type), str);
+
             return;
         case Type::Tag::BUFFER:
             GetTypeName(*type.element(), str);
@@ -229,7 +230,7 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
         case Type::Tag::TEXTURE: {
             str << "Texture"sv;
 
-            vstd::to_string(static_cast<uint64_t>(type.dimension()), str);
+            vstd::to_string((type.dimension()), str);
             str << "D<"sv;
             GetTypeName(*type.element(), str);
             if (type.tag() != Type::Tag::VECTOR) {
@@ -254,7 +255,7 @@ void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
     switch (func.tag()) {
         case Function::Tag::CALLABLE: {
             data += " custom_"sv;
-            vstd::to_string(opt->GetFuncCount(func.hash()), data);
+            vstd::to_string((opt->GetFuncCount(func.hash())), data);
             if (func.arguments().empty()) {
                 data += "()"sv;
             } else {
@@ -277,7 +278,7 @@ void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
 vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &str) {
     auto defaultArgs = [&str, expr](StringExprVisitor &vis) {
         str << '(';
-        size_t sz = 0;
+        uint64 sz = 0;
         auto args = expr->arguments();
         for (auto &&i : args) {
             ++sz;
@@ -290,7 +291,7 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
     };
     auto getPointer = [&str, expr](StringExprVisitor &vis) {
         str << '(';
-        size_t sz = 1;
+        uint64 sz = 1;
         auto args = expr->arguments();
         if (args.size() >= 1) {
             str << "&(";
@@ -320,7 +321,7 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
-            str << "custom_"sv << vstd::to_string(opt->GetFuncCount(expr->custom().hash()));
+            str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().hash())));
             break;
         case CallOp::ALL:
             str << "all"sv;
@@ -595,7 +596,7 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         }
         bodyStr << headerName;
         //arguments
-        size_t ofst = 0;
+        uint64 ofst = 0;
         std::string argName;
         std::string argType;
         auto printArg = [&](auto &&i) {
@@ -606,7 +607,7 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
             bodyStr << "uniform " << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
             if (ofst > 0) {
                 bodyStr << '+';
-                vstd::to_string(static_cast<uint64_t>(ofst), bodyStr);
+                vstd::to_string((ofst), bodyStr);
                 bodyStr << "ull";
             }
             bodyStr << "));\n";
@@ -648,7 +649,7 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         str << ss;
     }
 }
-void CodegenUtility::GetBasicTypeName(size_t typeIndex, std::string &str) {
+void CodegenUtility::GetBasicTypeName(uint64 typeIndex, std::string &str) {
     // Matrix
     if (typeIndex > 15) {
 
@@ -673,7 +674,7 @@ void CodegenUtility::GetBasicTypeName(size_t typeIndex, std::string &str) {
         }
         // vector
         if (vec > 1) {
-            vstd::to_string(static_cast<uint64_t>(vec), str);
+            vstd::to_string((vec), str);
         }
     }
 }

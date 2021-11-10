@@ -7,7 +7,7 @@ using lc_bool = bool;
 
 struct alignas(8) lc_int2 {
     lc_int x, y;
-    __device__ explicit constexpr lc_int2(lc_int s) noexcept
+    __device__ explicit constexpr lc_int2(lc_int s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_int2(lc_int x, lc_int y) noexcept
         : x{x}, y{y} {}
@@ -17,7 +17,7 @@ struct alignas(8) lc_int2 {
 
 struct alignas(16) lc_int3 {
     lc_int x, y, z;
-    __device__ explicit constexpr lc_int3(lc_int s) noexcept
+    __device__ explicit constexpr lc_int3(lc_int s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_int3(lc_int x, lc_int y, lc_int z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -27,7 +27,7 @@ struct alignas(16) lc_int3 {
 
 struct alignas(16) lc_int4 {
     lc_int x, y, z, w;
-    __device__ explicit constexpr lc_int4(lc_int s) noexcept
+    __device__ explicit constexpr lc_int4(lc_int s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_int4(lc_int x, lc_int y, lc_int z, lc_int w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
@@ -37,7 +37,7 @@ struct alignas(16) lc_int4 {
 
 struct alignas(8) lc_uint2 {
     lc_uint x, y;
-    __device__ explicit constexpr lc_uint2(lc_uint s) noexcept
+    __device__ explicit constexpr lc_uint2(lc_uint s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_uint2(lc_uint x, lc_uint y) noexcept
         : x{x}, y{y} {}
@@ -47,7 +47,7 @@ struct alignas(8) lc_uint2 {
 
 struct alignas(16) lc_uint3 {
     lc_uint x, y, z;
-    __device__ explicit constexpr lc_uint3(lc_uint s) noexcept
+    __device__ explicit constexpr lc_uint3(lc_uint s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_uint3(lc_uint x, lc_uint y, lc_uint z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -57,7 +57,7 @@ struct alignas(16) lc_uint3 {
 
 struct alignas(16) lc_uint4 {
     lc_uint x, y, z, w;
-    __device__ explicit constexpr lc_uint4(lc_uint s) noexcept
+    __device__ explicit constexpr lc_uint4(lc_uint s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_uint4(lc_uint x, lc_uint y, lc_uint z, lc_uint w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
@@ -67,7 +67,7 @@ struct alignas(16) lc_uint4 {
 
 struct alignas(8) lc_float2 {
     lc_float x, y;
-    __device__ explicit constexpr lc_float2(lc_float s) noexcept
+    __device__ explicit constexpr lc_float2(lc_float s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_float2(lc_float x, lc_float y) noexcept
         : x{x}, y{y} {}
@@ -77,7 +77,7 @@ struct alignas(8) lc_float2 {
 
 struct alignas(16) lc_float3 {
     lc_float x, y, z;
-    __device__ explicit constexpr lc_float3(lc_float s) noexcept
+    __device__ explicit constexpr lc_float3(lc_float s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_float3(lc_float x, lc_float y, lc_float z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -87,7 +87,7 @@ struct alignas(16) lc_float3 {
 
 struct alignas(16) lc_float4 {
     lc_float x, y, z, w;
-    __device__ explicit constexpr lc_float4(lc_float s) noexcept
+    __device__ explicit constexpr lc_float4(lc_float s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_float4(lc_float x, lc_float y, lc_float z, lc_float w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
@@ -97,7 +97,7 @@ struct alignas(16) lc_float4 {
 
 struct alignas(2) lc_bool2 {
     lc_bool x, y;
-    __device__ explicit constexpr lc_bool2(lc_bool s) noexcept
+    __device__ explicit constexpr lc_bool2(lc_bool s = 0) noexcept
         : x{s}, y{s} {}
     __device__ constexpr lc_bool2(lc_bool x, lc_bool y) noexcept
         : x{x}, y{y} {}
@@ -107,7 +107,7 @@ struct alignas(2) lc_bool2 {
 
 struct alignas(4) lc_bool3 {
     lc_bool x, y, z;
-    __device__ explicit constexpr lc_bool3(lc_bool s) noexcept
+    __device__ explicit constexpr lc_bool3(lc_bool s = 0) noexcept
         : x{s}, y{s}, z{s} {}
     __device__ constexpr lc_bool3(lc_bool x, lc_bool y, lc_bool z) noexcept
         : x{x}, y{y}, z{z} {}
@@ -117,7 +117,7 @@ struct alignas(4) lc_bool3 {
 
 struct alignas(4) lc_bool4 {
     lc_bool x, y, z, w;
-    __device__ explicit constexpr lc_bool4(lc_bool s) noexcept
+    __device__ explicit constexpr lc_bool4(lc_bool s = 0) noexcept
         : x{s}, y{s}, z{s}, w{s} {}
     __device__ constexpr lc_bool4(lc_bool x, lc_bool y, lc_bool z, lc_bool w) noexcept
         : x{x}, y{y}, z{z}, w{w} {}
@@ -125,7 +125,7 @@ struct alignas(4) lc_bool4 {
     __device__ constexpr auto operator[](lc_uint i) const noexcept { return (&x)[i]; }
 };
 
-[[nodiscard]] __device__ constexpr auto lc_make_int2(lc_int s) noexcept { return lc_int2{s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_int2(lc_int s = 0) noexcept { return lc_int2{s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int2(lc_int x, lc_int y) noexcept { return lc_int2{x, y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int2(lc_int2 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int2(lc_int3 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
@@ -139,7 +139,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_int2(lc_bool2 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int2(lc_bool3 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int2(lc_bool4 v) noexcept { return lc_int2{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_int3(lc_int s) noexcept { return lc_int3{s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_int3(lc_int s = 0) noexcept { return lc_int3{s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int3(lc_int x, lc_int y, lc_int z) noexcept { return lc_int3{x, y, z}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int3(lc_int x, lc_int2 yz) noexcept { return lc_int3{x, yz.x, yz.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int3(lc_int2 xy, lc_int z) noexcept { return lc_int3{xy.x, xy.y, z}; }
@@ -151,7 +151,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_int3(lc_float4 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int3(lc_bool3 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int3(lc_bool4 v) noexcept { return lc_int3{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_int4(lc_int s) noexcept { return lc_int4{s, s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_int4(lc_int s = 0) noexcept { return lc_int4{s, s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int4(lc_int x, lc_int y, lc_int z, lc_int w) noexcept { return lc_int4{x, y, z, w}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int4(lc_int x, lc_int y, lc_int2 zw) noexcept { return lc_int4{x, y, zw.x, zw.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int4(lc_int x, lc_int2 yz, lc_int w) noexcept { return lc_int4{x, yz.x, yz.y, w}; }
@@ -164,7 +164,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_int4(lc_float4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_int4(lc_bool4 v) noexcept { return lc_int4{static_cast<lc_int>(v.x), static_cast<lc_int>(v.y), static_cast<lc_int>(v.z), static_cast<lc_int>(v.w)}; }
 
-[[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_uint s) noexcept { return lc_uint2{s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_uint s = 0) noexcept { return lc_uint2{s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_uint x, lc_uint y) noexcept { return lc_uint2{x, y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_int2 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_int3 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
@@ -178,7 +178,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_bool2 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_bool3 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint2(lc_bool4 v) noexcept { return lc_uint2{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_uint s) noexcept { return lc_uint3{s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_uint s = 0) noexcept { return lc_uint3{s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_uint x, lc_uint y, lc_uint z) noexcept { return lc_uint3{x, y, z}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_uint x, lc_uint2 yz) noexcept { return lc_uint3{x, yz.x, yz.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_uint2 xy, lc_uint z) noexcept { return lc_uint3{xy.x, xy.y, z}; }
@@ -190,7 +190,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_float4 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_bool3 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint3(lc_bool4 v) noexcept { return lc_uint3{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_uint4(lc_uint s) noexcept { return lc_uint4{s, s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_uint4(lc_uint s = 0) noexcept { return lc_uint4{s, s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint4(lc_uint x, lc_uint y, lc_uint z, lc_uint w) noexcept { return lc_uint4{x, y, z, w}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint4(lc_uint x, lc_uint y, lc_uint2 zw) noexcept { return lc_uint4{x, y, zw.x, zw.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint4(lc_uint x, lc_uint2 yz, lc_uint w) noexcept { return lc_uint4{x, yz.x, yz.y, w}; }
@@ -203,7 +203,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_uint4(lc_float4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_uint4(lc_bool4 v) noexcept { return lc_uint4{static_cast<lc_uint>(v.x), static_cast<lc_uint>(v.y), static_cast<lc_uint>(v.z), static_cast<lc_uint>(v.w)}; }
 
-[[nodiscard]] __device__ constexpr auto lc_make_float2(lc_float s) noexcept { return lc_float2{s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_float2(lc_float s = 0) noexcept { return lc_float2{s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float2(lc_float x, lc_float y) noexcept { return lc_float2{x, y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float2(lc_int2 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float2(lc_int3 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
@@ -217,7 +217,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_float2(lc_bool2 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float2(lc_bool3 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float2(lc_bool4 v) noexcept { return lc_float2{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_float3(lc_float s) noexcept { return lc_float3{s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_float3(lc_float s = 0) noexcept { return lc_float3{s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float3(lc_float x, lc_float y, lc_float z) noexcept { return lc_float3{x, y, z}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float3(lc_float x, lc_float2 yz) noexcept { return lc_float3{x, yz.x, yz.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float3(lc_float2 xy, lc_float z) noexcept { return lc_float3{xy.x, xy.y, z}; }
@@ -229,7 +229,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_float3(lc_float4 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float3(lc_bool3 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float3(lc_bool4 v) noexcept { return lc_float3{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_float4(lc_float s) noexcept { return lc_float4{s, s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_float4(lc_float s = 0) noexcept { return lc_float4{s, s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float4(lc_float x, lc_float y, lc_float z, lc_float w) noexcept { return lc_float4{x, y, z, w}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float4(lc_float x, lc_float y, lc_float2 zw) noexcept { return lc_float4{x, y, zw.x, zw.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float4(lc_float x, lc_float2 yz, lc_float w) noexcept { return lc_float4{x, yz.x, yz.y, w}; }
@@ -242,7 +242,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_float4(lc_float4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float4(lc_bool4 v) noexcept { return lc_float4{static_cast<lc_float>(v.x), static_cast<lc_float>(v.y), static_cast<lc_float>(v.z), static_cast<lc_float>(v.w)}; }
 
-[[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_bool s) noexcept { return lc_bool2{s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_bool s = 0) noexcept { return lc_bool2{s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_bool x, lc_bool y) noexcept { return lc_bool2{x, y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_int2 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_int3 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
@@ -256,7 +256,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_bool2 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_bool3 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool2(lc_bool4 v) noexcept { return lc_bool2{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_bool s) noexcept { return lc_bool3{s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_bool s = 0) noexcept { return lc_bool3{s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_bool x, lc_bool y, lc_bool z) noexcept { return lc_bool3{x, y, z}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_bool x, lc_bool2 yz) noexcept { return lc_bool3{x, yz.x, yz.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_bool2 xy, lc_bool z) noexcept { return lc_bool3{xy.x, xy.y, z}; }
@@ -268,7 +268,7 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_float4 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_bool3 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool3(lc_bool4 v) noexcept { return lc_bool3{static_cast<lc_bool>(v.x), static_cast<lc_bool>(v.y), static_cast<lc_bool>(v.z)}; }
-[[nodiscard]] __device__ constexpr auto lc_make_bool4(lc_bool s) noexcept { return lc_bool4{s, s, s, s}; }
+[[nodiscard]] __device__ constexpr auto lc_make_bool4(lc_bool s = 0) noexcept { return lc_bool4{s, s, s, s}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool4(lc_bool x, lc_bool y, lc_bool z, lc_bool w) noexcept { return lc_bool4{x, y, z, w}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool4(lc_bool x, lc_bool y, lc_bool2 zw) noexcept { return lc_bool4{x, y, zw.x, zw.y}; }
 [[nodiscard]] __device__ constexpr auto lc_make_bool4(lc_bool x, lc_bool2 yz, lc_bool w) noexcept { return lc_bool4{x, yz.x, yz.y, w}; }
@@ -1891,3 +1891,16 @@ template<typename T>
                             inv_2 * one_over_determinant,
                             inv_3 * one_over_determinant);
 }
+
+[[nodiscard]] __device__ inline auto lc_half_to_float(unsigned short x) noexcept {
+    lc_float val;
+    asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(x));
+    return val;
+}
+
+[[nodiscard]] __device__ inline auto lc_float_to_half(lc_float x) noexcept {
+    unsigned short val;
+    asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(x));
+    return val;
+}
+
