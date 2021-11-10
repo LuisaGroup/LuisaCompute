@@ -159,10 +159,8 @@ public:
             auto gs = f->dispatch_size();
             auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
             auto cond = f->call(Type::of<bool>(), CallOp::ALL, {less});
-            auto ret_cond = f->unary(Type::of<bool>(), UnaryOp::NOT, cond);
-            auto if_stmt = f->if_(ret_cond);
-            f->with(if_stmt->true_branch(), [f] { f->return_(); });
-            def();
+            auto if_stmt = f->if_(cond);
+            f->with(if_stmt->true_branch(), [&def] { def(); });
         });
     }
 

@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
     //        fill_image = device.compile(fill_image_kernel);
     //    }
 
-    auto device_image = device.create_image<float>(PixelStorage::FLOAT4, 1024u, 1024u, 0u);
+    auto device_image = device.create_image<float>(PixelStorage::FLOAT1, 1024u, 1024u, 1u);
     std::vector<float> host_image(1024u * 1024u * 4u, 1.0f);
     std::vector<float> download_image(1024u * 1024u * 4u);
     auto device_buffer = device.create_buffer<float4>(1024 * 1024);

@@ -436,7 +436,9 @@ void CUDACodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "extern \"C\" __global__ void kernel_" << hash_to_string(f.hash());
+        _scratch << "extern \"C\" __global__ void __launch_bounds__("
+                 << f.block_size().x * f.block_size().y * f.block_size().z
+                 << ") kernel_" << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "__device__ inline ";
         if (f.return_type() != nullptr) {
