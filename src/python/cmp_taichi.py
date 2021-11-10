@@ -152,14 +152,17 @@ def render():
 
 
 # gui = ti.GUI('SDF Path Tracer', res)
-render()
-total = 4096
-a = color_buffer.to_numpy()
-print(a)
-t0 = time.time()
-for i in tqdm(range(total)):
+if __name__ == "__main__":
     render()
-a = color_buffer.to_numpy()
-t1 = time.time()
+    total = 1024
+    a = color_buffer.to_numpy()
+    print(a)
+    t0 = time.time()
+    for i in tqdm(range(total)):
+        render()
+        if i % 100 == 99:
+            a = color_buffer.to_numpy()
+    a = color_buffer.to_numpy()
+    t1 = time.time()
 
-print(f"{total / (t1 - t0)} samples/s")
+    print(f"{total / (t1 - t0)} samples/s")
