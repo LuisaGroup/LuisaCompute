@@ -1,6 +1,6 @@
 #pragma vengine_package ispc_vsproject
 
-#include <backends/ispc/runtime/ispc_codegen.h>
+#include "ispc_codegen.h"
 
 namespace lc::ispc {
 void StringExprVisitor::visit(const UnaryExpr *expr) {

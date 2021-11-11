@@ -7,6 +7,7 @@ set(LUISA_COMPUTE_UTIL_SOURCES
         VGuid.cpp
         ThreadPool.cpp
         ThreadTaskHandle.cpp
+        file_system.cpp
         vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
@@ -16,6 +17,7 @@ set_target_properties(luisa-compute-vstl PROPERTIES
         UNITY_BUILD ON)
 
 if (WIN32)
+    target_link_libraries(luisa-compute-vstl PRIVATE Shlwapi)
 elseif (APPLE)
     target_link_libraries(luisa-compute-vstl PUBLIC "-framework CoreFoundation")
 else ()
