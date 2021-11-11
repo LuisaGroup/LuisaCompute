@@ -3,6 +3,9 @@
 #include <backends/ispc/runtime/ispc_device.h>
 #include <runtime/sampler.h>
 #include "ispc_codegen.h"
+#include "ispc_compiler.h"
+#include "ispc_shader.h"
+#include <core/dynamic_module.h>
 
 namespace lc::ispc {
 void *ISPCDevice::native_handle() const noexcept {
@@ -39,16 +42,13 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     std::string result;
     CodegenUtility::PrintFunction(kernel, result);
-    auto f = fopen("test.txt", "w");
-    if (f) {
-        auto disp = vstd::create_disposer([&] {
-            fclose(f);
-        });
-        fwrite(result.data(), result.size(), 1, f);
-    }
-    return 0;
+    Compiler comp;
+    auto binName = comp.CompileCode(result);
+    return reinterpret_cast<uint64>(new Shader(binName));
 }
-void ISPCDevice::destroy_shader(uint64_t handle) noexcept {}
+void ISPCDevice::destroy_shader(uint64_t handle) noexcept {
+    delete reinterpret_cast<Shader *>(handle);
+}
 
 // event
 uint64_t ISPCDevice::create_event() noexcept { return 0; }
