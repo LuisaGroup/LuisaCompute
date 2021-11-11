@@ -322,1040 +322,1202 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto operator!(lc_bool4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 
 [[nodiscard]] __device__ constexpr auto operator==(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_int2 lhs, lc_int rhs) noexcept { return lhs == lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs == rhs.x, lhs == rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_int3 lhs, lc_int rhs) noexcept { return lhs == lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_bool3(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z, lhs.w == rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_int4 lhs, lc_int rhs) noexcept { return lhs == lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_bool4(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs, lhs.w == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z, lhs == rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs == lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs == rhs.x, lhs == rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs == lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_bool3(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z, lhs.w == rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs == lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs, lhs.w == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z, lhs == rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_float2 lhs, lc_float rhs) noexcept { return lhs == lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs == rhs.x, lhs == rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_float3 lhs, lc_float rhs) noexcept { return lhs == lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_bool3(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z, lhs.w == rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_float4 lhs, lc_float rhs) noexcept { return lhs == lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_bool4(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs, lhs.w == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z, lhs == rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_bool2 lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_bool2 lhs, lc_bool rhs) noexcept { return lhs == lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_bool2 lhs, lc_bool rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs == rhs.x, lhs == rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_bool3 lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_bool3 lhs, lc_bool rhs) noexcept { return lhs == lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_bool3 lhs, lc_bool rhs) noexcept { return lc_make_bool3(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_bool4 lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs.x == rhs.x, lhs.y == rhs.y, lhs.z == rhs.z, lhs.w == rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_bool4 lhs, lc_bool rhs) noexcept { return lhs == lc_make_bool4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator==(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs) == rhs; }
+[[nodiscard]] __device__ constexpr auto operator==(lc_bool4 lhs, lc_bool rhs) noexcept { return lc_make_bool4(lhs.x == rhs, lhs.y == rhs, lhs.z == rhs, lhs.w == rhs); }
+[[nodiscard]] __device__ constexpr auto operator==(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs == rhs.x, lhs == rhs.y, lhs == rhs.z, lhs == rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator!=(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs.x != rhs.x, lhs.y != rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_int2 lhs, lc_int rhs) noexcept { return lhs != lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_bool2(lhs.x != rhs, lhs.y != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs != rhs.x, lhs != rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_int3 lhs, lc_int rhs) noexcept { return lhs != lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_bool3(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z, lhs.w != rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_int4 lhs, lc_int rhs) noexcept { return lhs != lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_bool4(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs, lhs.w != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z, lhs != rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs.x != rhs.x, lhs.y != rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs != lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_bool2(lhs.x != rhs, lhs.y != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs != rhs.x, lhs != rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs != lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_bool3(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z, lhs.w != rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs != lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs, lhs.w != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z, lhs != rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x != rhs.x, lhs.y != rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_float2 lhs, lc_float rhs) noexcept { return lhs != lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x != rhs, lhs.y != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs != rhs.x, lhs != rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_float3 lhs, lc_float rhs) noexcept { return lhs != lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_bool3(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z, lhs.w != rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_float4 lhs, lc_float rhs) noexcept { return lhs != lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_bool4(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs, lhs.w != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z, lhs != rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_bool2 lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs.x != rhs.x, lhs.y != rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_bool2 lhs, lc_bool rhs) noexcept { return lhs != lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_bool2 lhs, lc_bool rhs) noexcept { return lc_make_bool2(lhs.x != rhs, lhs.y != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs != rhs.x, lhs != rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_bool3 lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_bool3 lhs, lc_bool rhs) noexcept { return lhs != lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_bool3 lhs, lc_bool rhs) noexcept { return lc_make_bool3(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator!=(lc_bool4 lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs.x != rhs.x, lhs.y != rhs.y, lhs.z != rhs.z, lhs.w != rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_bool4 lhs, lc_bool rhs) noexcept { return lhs != lc_make_bool4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator!=(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs) != rhs; }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_bool4 lhs, lc_bool rhs) noexcept { return lc_make_bool4(lhs.x != rhs, lhs.y != rhs, lhs.z != rhs, lhs.w != rhs); }
+[[nodiscard]] __device__ constexpr auto operator!=(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs != rhs.x, lhs != rhs.y, lhs != rhs.z, lhs != rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator<(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs.x < rhs.x, lhs.y < rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_int2 lhs, lc_int rhs) noexcept { return lhs < lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_bool2(lhs.x < rhs, lhs.y < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs < rhs.x, lhs < rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs.x < rhs.x, lhs.y < rhs.y, lhs.z < rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_int3 lhs, lc_int rhs) noexcept { return lhs < lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_bool3(lhs.x < rhs, lhs.y < rhs, lhs.z < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs < rhs.x, lhs < rhs.y, lhs < rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs.x < rhs.x, lhs.y < rhs.y, lhs.z < rhs.z, lhs.w < rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_int4 lhs, lc_int rhs) noexcept { return lhs < lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_bool4(lhs.x < rhs, lhs.y < rhs, lhs.z < rhs, lhs.w < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs < rhs.x, lhs < rhs.y, lhs < rhs.z, lhs < rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs.x < rhs.x, lhs.y < rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs < lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_bool2(lhs.x < rhs, lhs.y < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs < rhs.x, lhs < rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs.x < rhs.x, lhs.y < rhs.y, lhs.z < rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs < lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_bool3(lhs.x < rhs, lhs.y < rhs, lhs.z < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs < rhs.x, lhs < rhs.y, lhs < rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x < rhs.x, lhs.y < rhs.y, lhs.z < rhs.z, lhs.w < rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs < lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x < rhs, lhs.y < rhs, lhs.z < rhs, lhs.w < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs < rhs.x, lhs < rhs.y, lhs < rhs.z, lhs < rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x < rhs.x, lhs.y < rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_float2 lhs, lc_float rhs) noexcept { return lhs < lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x < rhs, lhs.y < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs < rhs.x, lhs < rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs.x < rhs.x, lhs.y < rhs.y, lhs.z < rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_float3 lhs, lc_float rhs) noexcept { return lhs < lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_bool3(lhs.x < rhs, lhs.y < rhs, lhs.z < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs < rhs.x, lhs < rhs.y, lhs < rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs.x < rhs.x, lhs.y < rhs.y, lhs.z < rhs.z, lhs.w < rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_float4 lhs, lc_float rhs) noexcept { return lhs < lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) < rhs; }
+[[nodiscard]] __device__ constexpr auto operator<(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_bool4(lhs.x < rhs, lhs.y < rhs, lhs.z < rhs, lhs.w < rhs); }
+[[nodiscard]] __device__ constexpr auto operator<(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs < rhs.x, lhs < rhs.y, lhs < rhs.z, lhs < rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator>(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs.x > rhs.x, lhs.y > rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_int2 lhs, lc_int rhs) noexcept { return lhs > lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_bool2(lhs.x > rhs, lhs.y > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs > rhs.x, lhs > rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs.x > rhs.x, lhs.y > rhs.y, lhs.z > rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_int3 lhs, lc_int rhs) noexcept { return lhs > lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_bool3(lhs.x > rhs, lhs.y > rhs, lhs.z > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs > rhs.x, lhs > rhs.y, lhs > rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs.x > rhs.x, lhs.y > rhs.y, lhs.z > rhs.z, lhs.w > rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_int4 lhs, lc_int rhs) noexcept { return lhs > lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_bool4(lhs.x > rhs, lhs.y > rhs, lhs.z > rhs, lhs.w > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs > rhs.x, lhs > rhs.y, lhs > rhs.z, lhs > rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs.x > rhs.x, lhs.y > rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs > lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_bool2(lhs.x > rhs, lhs.y > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs > rhs.x, lhs > rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs.x > rhs.x, lhs.y > rhs.y, lhs.z > rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs > lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_bool3(lhs.x > rhs, lhs.y > rhs, lhs.z > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs > rhs.x, lhs > rhs.y, lhs > rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x > rhs.x, lhs.y > rhs.y, lhs.z > rhs.z, lhs.w > rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs > lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x > rhs, lhs.y > rhs, lhs.z > rhs, lhs.w > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs > rhs.x, lhs > rhs.y, lhs > rhs.z, lhs > rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x > rhs.x, lhs.y > rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_float2 lhs, lc_float rhs) noexcept { return lhs > lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x > rhs, lhs.y > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs > rhs.x, lhs > rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs.x > rhs.x, lhs.y > rhs.y, lhs.z > rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_float3 lhs, lc_float rhs) noexcept { return lhs > lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_bool3(lhs.x > rhs, lhs.y > rhs, lhs.z > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs > rhs.x, lhs > rhs.y, lhs > rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs.x > rhs.x, lhs.y > rhs.y, lhs.z > rhs.z, lhs.w > rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_float4 lhs, lc_float rhs) noexcept { return lhs > lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) > rhs; }
+[[nodiscard]] __device__ constexpr auto operator>(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_bool4(lhs.x > rhs, lhs.y > rhs, lhs.z > rhs, lhs.w > rhs); }
+[[nodiscard]] __device__ constexpr auto operator>(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs > rhs.x, lhs > rhs.y, lhs > rhs.z, lhs > rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator<=(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs.x <= rhs.x, lhs.y <= rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_int2 lhs, lc_int rhs) noexcept { return lhs <= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_bool2(lhs.x <= rhs, lhs.y <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs <= rhs.x, lhs <= rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs.x <= rhs.x, lhs.y <= rhs.y, lhs.z <= rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_int3 lhs, lc_int rhs) noexcept { return lhs <= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_bool3(lhs.x <= rhs, lhs.y <= rhs, lhs.z <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs <= rhs.x, lhs <= rhs.y, lhs <= rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs.x <= rhs.x, lhs.y <= rhs.y, lhs.z <= rhs.z, lhs.w <= rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_int4 lhs, lc_int rhs) noexcept { return lhs <= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_bool4(lhs.x <= rhs, lhs.y <= rhs, lhs.z <= rhs, lhs.w <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs <= rhs.x, lhs <= rhs.y, lhs <= rhs.z, lhs <= rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs.x <= rhs.x, lhs.y <= rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs <= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_bool2(lhs.x <= rhs, lhs.y <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs <= rhs.x, lhs <= rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs.x <= rhs.x, lhs.y <= rhs.y, lhs.z <= rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs <= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_bool3(lhs.x <= rhs, lhs.y <= rhs, lhs.z <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs <= rhs.x, lhs <= rhs.y, lhs <= rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x <= rhs.x, lhs.y <= rhs.y, lhs.z <= rhs.z, lhs.w <= rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs <= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x <= rhs, lhs.y <= rhs, lhs.z <= rhs, lhs.w <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs <= rhs.x, lhs <= rhs.y, lhs <= rhs.z, lhs <= rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x <= rhs.x, lhs.y <= rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_float2 lhs, lc_float rhs) noexcept { return lhs <= lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x <= rhs, lhs.y <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs <= rhs.x, lhs <= rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs.x <= rhs.x, lhs.y <= rhs.y, lhs.z <= rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_float3 lhs, lc_float rhs) noexcept { return lhs <= lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_bool3(lhs.x <= rhs, lhs.y <= rhs, lhs.z <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs <= rhs.x, lhs <= rhs.y, lhs <= rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<=(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs.x <= rhs.x, lhs.y <= rhs.y, lhs.z <= rhs.z, lhs.w <= rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_float4 lhs, lc_float rhs) noexcept { return lhs <= lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<=(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) <= rhs; }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_bool4(lhs.x <= rhs, lhs.y <= rhs, lhs.z <= rhs, lhs.w <= rhs); }
+[[nodiscard]] __device__ constexpr auto operator<=(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs <= rhs.x, lhs <= rhs.y, lhs <= rhs.z, lhs <= rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator>=(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs.x >= rhs.x, lhs.y >= rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_int2 lhs, lc_int rhs) noexcept { return lhs >= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_bool2(lhs.x >= rhs, lhs.y >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs >= rhs.x, lhs >= rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs.x >= rhs.x, lhs.y >= rhs.y, lhs.z >= rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_int3 lhs, lc_int rhs) noexcept { return lhs >= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_bool3(lhs.x >= rhs, lhs.y >= rhs, lhs.z >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_bool3(lhs >= rhs.x, lhs >= rhs.y, lhs >= rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs.x >= rhs.x, lhs.y >= rhs.y, lhs.z >= rhs.z, lhs.w >= rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_int4 lhs, lc_int rhs) noexcept { return lhs >= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_bool4(lhs.x >= rhs, lhs.y >= rhs, lhs.z >= rhs, lhs.w >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_bool4(lhs >= rhs.x, lhs >= rhs.y, lhs >= rhs.z, lhs >= rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs.x >= rhs.x, lhs.y >= rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs >= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_bool2(lhs.x >= rhs, lhs.y >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_bool2(lhs >= rhs.x, lhs >= rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs.x >= rhs.x, lhs.y >= rhs.y, lhs.z >= rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs >= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_bool3(lhs.x >= rhs, lhs.y >= rhs, lhs.z >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_bool3(lhs >= rhs.x, lhs >= rhs.y, lhs >= rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs.x >= rhs.x, lhs.y >= rhs.y, lhs.z >= rhs.z, lhs.w >= rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs >= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_bool4(lhs.x >= rhs, lhs.y >= rhs, lhs.z >= rhs, lhs.w >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_bool4(lhs >= rhs.x, lhs >= rhs.y, lhs >= rhs.z, lhs >= rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs.x >= rhs.x, lhs.y >= rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_float2 lhs, lc_float rhs) noexcept { return lhs >= lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_bool2(lhs.x >= rhs, lhs.y >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_bool2(lhs >= rhs.x, lhs >= rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs.x >= rhs.x, lhs.y >= rhs.y, lhs.z >= rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_float3 lhs, lc_float rhs) noexcept { return lhs >= lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_bool3(lhs.x >= rhs, lhs.y >= rhs, lhs.z >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_bool3(lhs >= rhs.x, lhs >= rhs.y, lhs >= rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>=(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs.x >= rhs.x, lhs.y >= rhs.y, lhs.z >= rhs.z, lhs.w >= rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_float4 lhs, lc_float rhs) noexcept { return lhs >= lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>=(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) >= rhs; }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_bool4(lhs.x >= rhs, lhs.y >= rhs, lhs.z >= rhs, lhs.w >= rhs); }
+[[nodiscard]] __device__ constexpr auto operator>=(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_bool4(lhs >= rhs.x, lhs >= rhs.y, lhs >= rhs.z, lhs >= rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator+(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x + rhs.x, lhs.y + rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_int2 lhs, lc_int rhs) noexcept { return lhs + lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x + rhs, lhs.y + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs + rhs.x, lhs + rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_int3 lhs, lc_int rhs) noexcept { return lhs + lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x + rhs, lhs.y + rhs, lhs.z + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs + rhs.x, lhs + rhs.y, lhs + rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_int4 lhs, lc_int rhs) noexcept { return lhs + lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x + rhs, lhs.y + rhs, lhs.z + rhs, lhs.w + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs + rhs.x, lhs + rhs.y, lhs + rhs.z, lhs + rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x + rhs.x, lhs.y + rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs + lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x + rhs, lhs.y + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs + rhs.x, lhs + rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs + lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x + rhs, lhs.y + rhs, lhs.z + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs + rhs.x, lhs + rhs.y, lhs + rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs + lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x + rhs, lhs.y + rhs, lhs.z + rhs, lhs.w + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs + rhs.x, lhs + rhs.y, lhs + rhs.z, lhs + rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs.x + rhs.x, lhs.y + rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_float2 lhs, lc_float rhs) noexcept { return lhs + lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_float2(lhs.x + rhs, lhs.y + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs + rhs.x, lhs + rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_float3 lhs, lc_float rhs) noexcept { return lhs + lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_float3(lhs.x + rhs, lhs.y + rhs, lhs.z + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs + rhs.x, lhs + rhs.y, lhs + rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator+(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_float4 lhs, lc_float rhs) noexcept { return lhs + lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator+(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) + rhs; }
+[[nodiscard]] __device__ constexpr auto operator+(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_float4(lhs.x + rhs, lhs.y + rhs, lhs.z + rhs, lhs.w + rhs); }
+[[nodiscard]] __device__ constexpr auto operator+(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs + rhs.x, lhs + rhs.y, lhs + rhs.z, lhs + rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator-(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x - rhs.x, lhs.y - rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_int2 lhs, lc_int rhs) noexcept { return lhs - lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x - rhs, lhs.y - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs - rhs.x, lhs - rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_int3 lhs, lc_int rhs) noexcept { return lhs - lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x - rhs, lhs.y - rhs, lhs.z - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs - rhs.x, lhs - rhs.y, lhs - rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_int4 lhs, lc_int rhs) noexcept { return lhs - lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x - rhs, lhs.y - rhs, lhs.z - rhs, lhs.w - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs - rhs.x, lhs - rhs.y, lhs - rhs.z, lhs - rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x - rhs.x, lhs.y - rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs - lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x - rhs, lhs.y - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs - rhs.x, lhs - rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs - lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x - rhs, lhs.y - rhs, lhs.z - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs - rhs.x, lhs - rhs.y, lhs - rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs - lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x - rhs, lhs.y - rhs, lhs.z - rhs, lhs.w - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs - rhs.x, lhs - rhs.y, lhs - rhs.z, lhs - rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs.x - rhs.x, lhs.y - rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_float2 lhs, lc_float rhs) noexcept { return lhs - lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_float2(lhs.x - rhs, lhs.y - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs - rhs.x, lhs - rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_float3 lhs, lc_float rhs) noexcept { return lhs - lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_float3(lhs.x - rhs, lhs.y - rhs, lhs.z - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs - rhs.x, lhs - rhs.y, lhs - rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator-(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_float4 lhs, lc_float rhs) noexcept { return lhs - lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator-(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) - rhs; }
+[[nodiscard]] __device__ constexpr auto operator-(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_float4(lhs.x - rhs, lhs.y - rhs, lhs.z - rhs, lhs.w - rhs); }
+[[nodiscard]] __device__ constexpr auto operator-(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs - rhs.x, lhs - rhs.y, lhs - rhs.z, lhs - rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator*(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x * rhs.x, lhs.y * rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_int2 lhs, lc_int rhs) noexcept { return lhs * lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x * rhs, lhs.y * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs * rhs.x, lhs * rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_int3 lhs, lc_int rhs) noexcept { return lhs * lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs * rhs.x, lhs * rhs.y, lhs * rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_int4 lhs, lc_int rhs) noexcept { return lhs * lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs * rhs.x, lhs * rhs.y, lhs * rhs.z, lhs * rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x * rhs.x, lhs.y * rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs * lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x * rhs, lhs.y * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs * rhs.x, lhs * rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs * lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs * rhs.x, lhs * rhs.y, lhs * rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs * lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs * rhs.x, lhs * rhs.y, lhs * rhs.z, lhs * rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs.x * rhs.x, lhs.y * rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_float2 lhs, lc_float rhs) noexcept { return lhs * lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_float2(lhs.x * rhs, lhs.y * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs * rhs.x, lhs * rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_float3 lhs, lc_float rhs) noexcept { return lhs * lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_float3(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs * rhs.x, lhs * rhs.y, lhs * rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator*(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_float4 lhs, lc_float rhs) noexcept { return lhs * lc_make_float4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator*(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) * rhs; }
+[[nodiscard]] __device__ constexpr auto operator*(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_float4(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs); }
+[[nodiscard]] __device__ constexpr auto operator*(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs * rhs.x, lhs * rhs.y, lhs * rhs.z, lhs * rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator/(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x / rhs.x, lhs.y / rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_int2 lhs, lc_int rhs) noexcept { return lhs / lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) / rhs; }
+[[nodiscard]] __device__ constexpr auto operator/(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x / rhs, lhs.y / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs / rhs.x, lhs / rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator/(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_int3 lhs, lc_int rhs) noexcept { return lhs / lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) / rhs; }
+[[nodiscard]] __device__ constexpr auto operator/(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs / rhs.x, lhs / rhs.y, lhs / rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator/(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z, lhs.w / rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_int4 lhs, lc_int rhs) noexcept { return lhs / lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) / rhs; }
+[[nodiscard]] __device__ constexpr auto operator/(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs, lhs.w / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs / rhs.x, lhs / rhs.y, lhs / rhs.z, lhs / rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator/(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x / rhs.x, lhs.y / rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs / lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) / rhs; }
+[[nodiscard]] __device__ constexpr auto operator/(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x / rhs, lhs.y / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs / rhs.x, lhs / rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator/(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs / lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) / rhs; }
+[[nodiscard]] __device__ constexpr auto operator/(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs / rhs.x, lhs / rhs.y, lhs / rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator/(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z, lhs.w / rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs / lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) / rhs; }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs.x * (1.0f / rhs.x), lhs.y * (1.0f / rhs.y)); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float2 lhs, lc_float rhs) noexcept { return lhs * lc_make_float2(1.0f / rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs) / rhs; }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs.x * (1.0f / rhs.x), lhs.y * (1.0f / rhs.y), lhs.z * (1.0f / rhs.z)); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float3 lhs, lc_float rhs) noexcept { return lhs * lc_make_float3(1.0f / rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs) / rhs; }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs.x * (1.0f / rhs.x), lhs.y * (1.0f / rhs.y), lhs.z * (1.0f / rhs.z), lhs.w * (1.0f / rhs.w)); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float4 lhs, lc_float rhs) noexcept { return lhs * lc_make_float4(1.0f / rhs); }
-[[nodiscard]] __device__ constexpr auto operator/(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs) / rhs; }
+[[nodiscard]] __device__ constexpr auto operator/(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs, lhs.w / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs / rhs.x, lhs / rhs.y, lhs / rhs.z, lhs / rhs.w); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float2 lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs.x / rhs.x, lhs.y / rhs.y); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float2 lhs, lc_float rhs) noexcept { return lc_make_float2(lhs.x / rhs, lhs.y / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float lhs, lc_float2 rhs) noexcept { return lc_make_float2(lhs / rhs.x, lhs / rhs.y); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float3 lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float3 lhs, lc_float rhs) noexcept { return lc_make_float3(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float lhs, lc_float3 rhs) noexcept { return lc_make_float3(lhs / rhs.x, lhs / rhs.y, lhs / rhs.z); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float4 lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs.x / rhs.x, lhs.y / rhs.y, lhs.z / rhs.z, lhs.w / rhs.w); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float4 lhs, lc_float rhs) noexcept { return lc_make_float4(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs, lhs.w / rhs); }
+[[nodiscard]] __device__ constexpr auto operator/(lc_float lhs, lc_float4 rhs) noexcept { return lc_make_float4(lhs / rhs.x, lhs / rhs.y, lhs / rhs.z, lhs / rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator%(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x % rhs.x, lhs.y % rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_int2 lhs, lc_int rhs) noexcept { return lhs % lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) % rhs; }
+[[nodiscard]] __device__ constexpr auto operator%(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x % rhs, lhs.y % rhs); }
+[[nodiscard]] __device__ constexpr auto operator%(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs % rhs.x, lhs % rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator%(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x % rhs.x, lhs.y % rhs.y, lhs.z % rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_int3 lhs, lc_int rhs) noexcept { return lhs % lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) % rhs; }
+[[nodiscard]] __device__ constexpr auto operator%(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x % rhs, lhs.y % rhs, lhs.z % rhs); }
+[[nodiscard]] __device__ constexpr auto operator%(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs % rhs.x, lhs % rhs.y, lhs % rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator%(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x % rhs.x, lhs.y % rhs.y, lhs.z % rhs.z, lhs.w % rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_int4 lhs, lc_int rhs) noexcept { return lhs % lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) % rhs; }
+[[nodiscard]] __device__ constexpr auto operator%(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x % rhs, lhs.y % rhs, lhs.z % rhs, lhs.w % rhs); }
+[[nodiscard]] __device__ constexpr auto operator%(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs % rhs.x, lhs % rhs.y, lhs % rhs.z, lhs % rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator%(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x % rhs.x, lhs.y % rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs % lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) % rhs; }
+[[nodiscard]] __device__ constexpr auto operator%(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x % rhs, lhs.y % rhs); }
+[[nodiscard]] __device__ constexpr auto operator%(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs % rhs.x, lhs % rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator%(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x % rhs.x, lhs.y % rhs.y, lhs.z % rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs % lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) % rhs; }
+[[nodiscard]] __device__ constexpr auto operator%(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x % rhs, lhs.y % rhs, lhs.z % rhs); }
+[[nodiscard]] __device__ constexpr auto operator%(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs % rhs.x, lhs % rhs.y, lhs % rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator%(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x % rhs.x, lhs.y % rhs.y, lhs.z % rhs.z, lhs.w % rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs % lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator%(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) % rhs; }
+[[nodiscard]] __device__ constexpr auto operator%(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x % rhs, lhs.y % rhs, lhs.z % rhs, lhs.w % rhs); }
+[[nodiscard]] __device__ constexpr auto operator%(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs % rhs.x, lhs % rhs.y, lhs % rhs.z, lhs % rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator<<(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x << rhs.x, lhs.y << rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_int2 lhs, lc_int rhs) noexcept { return lhs << lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) << rhs; }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x << rhs, lhs.y << rhs); }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs << rhs.x, lhs << rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<<(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x << rhs.x, lhs.y << rhs.y, lhs.z << rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_int3 lhs, lc_int rhs) noexcept { return lhs << lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) << rhs; }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x << rhs, lhs.y << rhs, lhs.z << rhs); }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs << rhs.x, lhs << rhs.y, lhs << rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<<(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x << rhs.x, lhs.y << rhs.y, lhs.z << rhs.z, lhs.w << rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_int4 lhs, lc_int rhs) noexcept { return lhs << lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) << rhs; }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x << rhs, lhs.y << rhs, lhs.z << rhs, lhs.w << rhs); }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs << rhs.x, lhs << rhs.y, lhs << rhs.z, lhs << rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator<<(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x << rhs.x, lhs.y << rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs << lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) << rhs; }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x << rhs, lhs.y << rhs); }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs << rhs.x, lhs << rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator<<(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x << rhs.x, lhs.y << rhs.y, lhs.z << rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs << lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) << rhs; }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x << rhs, lhs.y << rhs, lhs.z << rhs); }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs << rhs.x, lhs << rhs.y, lhs << rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator<<(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x << rhs.x, lhs.y << rhs.y, lhs.z << rhs.z, lhs.w << rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs << lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator<<(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) << rhs; }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x << rhs, lhs.y << rhs, lhs.z << rhs, lhs.w << rhs); }
+[[nodiscard]] __device__ constexpr auto operator<<(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs << rhs.x, lhs << rhs.y, lhs << rhs.z, lhs << rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator>>(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x >> rhs.x, lhs.y >> rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_int2 lhs, lc_int rhs) noexcept { return lhs >> lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) >> rhs; }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x >> rhs, lhs.y >> rhs); }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs >> rhs.x, lhs >> rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>>(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x >> rhs.x, lhs.y >> rhs.y, lhs.z >> rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_int3 lhs, lc_int rhs) noexcept { return lhs >> lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) >> rhs; }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x >> rhs, lhs.y >> rhs, lhs.z >> rhs); }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs >> rhs.x, lhs >> rhs.y, lhs >> rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>>(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x >> rhs.x, lhs.y >> rhs.y, lhs.z >> rhs.z, lhs.w >> rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_int4 lhs, lc_int rhs) noexcept { return lhs >> lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) >> rhs; }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x >> rhs, lhs.y >> rhs, lhs.z >> rhs, lhs.w >> rhs); }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs >> rhs.x, lhs >> rhs.y, lhs >> rhs.z, lhs >> rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator>>(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x >> rhs.x, lhs.y >> rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs >> lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) >> rhs; }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x >> rhs, lhs.y >> rhs); }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs >> rhs.x, lhs >> rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator>>(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x >> rhs.x, lhs.y >> rhs.y, lhs.z >> rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs >> lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) >> rhs; }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x >> rhs, lhs.y >> rhs, lhs.z >> rhs); }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs >> rhs.x, lhs >> rhs.y, lhs >> rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator>>(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x >> rhs.x, lhs.y >> rhs.y, lhs.z >> rhs.z, lhs.w >> rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs >> lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator>>(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) >> rhs; }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x >> rhs, lhs.y >> rhs, lhs.z >> rhs, lhs.w >> rhs); }
+[[nodiscard]] __device__ constexpr auto operator>>(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs >> rhs.x, lhs >> rhs.y, lhs >> rhs.z, lhs >> rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator|(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x | rhs.x, lhs.y | rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_int2 lhs, lc_int rhs) noexcept { return lhs | lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x | rhs, lhs.y | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs | rhs.x, lhs | rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x | rhs.x, lhs.y | rhs.y, lhs.z | rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_int3 lhs, lc_int rhs) noexcept { return lhs | lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x | rhs, lhs.y | rhs, lhs.z | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs | rhs.x, lhs | rhs.y, lhs | rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x | rhs.x, lhs.y | rhs.y, lhs.z | rhs.z, lhs.w | rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_int4 lhs, lc_int rhs) noexcept { return lhs | lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x | rhs, lhs.y | rhs, lhs.z | rhs, lhs.w | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs | rhs.x, lhs | rhs.y, lhs | rhs.z, lhs | rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x | rhs.x, lhs.y | rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs | lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x | rhs, lhs.y | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs | rhs.x, lhs | rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x | rhs.x, lhs.y | rhs.y, lhs.z | rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs | lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x | rhs, lhs.y | rhs, lhs.z | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs | rhs.x, lhs | rhs.y, lhs | rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x | rhs.x, lhs.y | rhs.y, lhs.z | rhs.z, lhs.w | rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs | lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x | rhs, lhs.y | rhs, lhs.z | rhs, lhs.w | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs | rhs.x, lhs | rhs.y, lhs | rhs.z, lhs | rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_bool2 lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs.x | rhs.x, lhs.y | rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_bool2 lhs, lc_bool rhs) noexcept { return lhs | lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_bool2 lhs, lc_bool rhs) noexcept { return lc_make_bool2(lhs.x | rhs, lhs.y | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs | rhs.x, lhs | rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_bool3 lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs.x | rhs.x, lhs.y | rhs.y, lhs.z | rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_bool3 lhs, lc_bool rhs) noexcept { return lhs | lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_bool3 lhs, lc_bool rhs) noexcept { return lc_make_bool3(lhs.x | rhs, lhs.y | rhs, lhs.z | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs | rhs.x, lhs | rhs.y, lhs | rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator|(lc_bool4 lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs.x | rhs.x, lhs.y | rhs.y, lhs.z | rhs.z, lhs.w | rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_bool4 lhs, lc_bool rhs) noexcept { return lhs | lc_make_bool4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator|(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs) | rhs; }
+[[nodiscard]] __device__ constexpr auto operator|(lc_bool4 lhs, lc_bool rhs) noexcept { return lc_make_bool4(lhs.x | rhs, lhs.y | rhs, lhs.z | rhs, lhs.w | rhs); }
+[[nodiscard]] __device__ constexpr auto operator|(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs | rhs.x, lhs | rhs.y, lhs | rhs.z, lhs | rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator&(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x & rhs.x, lhs.y & rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_int2 lhs, lc_int rhs) noexcept { return lhs & lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x & rhs, lhs.y & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs & rhs.x, lhs & rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x & rhs.x, lhs.y & rhs.y, lhs.z & rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_int3 lhs, lc_int rhs) noexcept { return lhs & lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x & rhs, lhs.y & rhs, lhs.z & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs & rhs.x, lhs & rhs.y, lhs & rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x & rhs.x, lhs.y & rhs.y, lhs.z & rhs.z, lhs.w & rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_int4 lhs, lc_int rhs) noexcept { return lhs & lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x & rhs, lhs.y & rhs, lhs.z & rhs, lhs.w & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs & rhs.x, lhs & rhs.y, lhs & rhs.z, lhs & rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x & rhs.x, lhs.y & rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs & lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x & rhs, lhs.y & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs & rhs.x, lhs & rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x & rhs.x, lhs.y & rhs.y, lhs.z & rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs & lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x & rhs, lhs.y & rhs, lhs.z & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs & rhs.x, lhs & rhs.y, lhs & rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x & rhs.x, lhs.y & rhs.y, lhs.z & rhs.z, lhs.w & rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs & lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x & rhs, lhs.y & rhs, lhs.z & rhs, lhs.w & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs & rhs.x, lhs & rhs.y, lhs & rhs.z, lhs & rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_bool2 lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs.x & rhs.x, lhs.y & rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_bool2 lhs, lc_bool rhs) noexcept { return lhs & lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_bool2 lhs, lc_bool rhs) noexcept { return lc_make_bool2(lhs.x & rhs, lhs.y & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs & rhs.x, lhs & rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_bool3 lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs.x & rhs.x, lhs.y & rhs.y, lhs.z & rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_bool3 lhs, lc_bool rhs) noexcept { return lhs & lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_bool3 lhs, lc_bool rhs) noexcept { return lc_make_bool3(lhs.x & rhs, lhs.y & rhs, lhs.z & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs & rhs.x, lhs & rhs.y, lhs & rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator&(lc_bool4 lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs.x & rhs.x, lhs.y & rhs.y, lhs.z & rhs.z, lhs.w & rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_bool4 lhs, lc_bool rhs) noexcept { return lhs & lc_make_bool4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs) & rhs; }
+[[nodiscard]] __device__ constexpr auto operator&(lc_bool4 lhs, lc_bool rhs) noexcept { return lc_make_bool4(lhs.x & rhs, lhs.y & rhs, lhs.z & rhs, lhs.w & rhs); }
+[[nodiscard]] __device__ constexpr auto operator&(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs & rhs.x, lhs & rhs.y, lhs & rhs.z, lhs & rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator^(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs.x ^ rhs.x, lhs.y ^ rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_int2 lhs, lc_int rhs) noexcept { return lhs ^ lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_int2(lhs.x ^ rhs, lhs.y ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_int2(lhs ^ rhs.x, lhs ^ rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_int3 lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs.x ^ rhs.x, lhs.y ^ rhs.y, lhs.z ^ rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_int3 lhs, lc_int rhs) noexcept { return lhs ^ lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_int3 lhs, lc_int rhs) noexcept { return lc_make_int3(lhs.x ^ rhs, lhs.y ^ rhs, lhs.z ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_int lhs, lc_int3 rhs) noexcept { return lc_make_int3(lhs ^ rhs.x, lhs ^ rhs.y, lhs ^ rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_int4 lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs.x ^ rhs.x, lhs.y ^ rhs.y, lhs.z ^ rhs.z, lhs.w ^ rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_int4 lhs, lc_int rhs) noexcept { return lhs ^ lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_int4 lhs, lc_int rhs) noexcept { return lc_make_int4(lhs.x ^ rhs, lhs.y ^ rhs, lhs.z ^ rhs, lhs.w ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_int lhs, lc_int4 rhs) noexcept { return lc_make_int4(lhs ^ rhs.x, lhs ^ rhs.y, lhs ^ rhs.z, lhs ^ rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_uint2 lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs.x ^ rhs.x, lhs.y ^ rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_uint2 lhs, lc_uint rhs) noexcept { return lhs ^ lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_uint2 lhs, lc_uint rhs) noexcept { return lc_make_uint2(lhs.x ^ rhs, lhs.y ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_uint lhs, lc_uint2 rhs) noexcept { return lc_make_uint2(lhs ^ rhs.x, lhs ^ rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_uint3 lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs.x ^ rhs.x, lhs.y ^ rhs.y, lhs.z ^ rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_uint3 lhs, lc_uint rhs) noexcept { return lhs ^ lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_uint3 lhs, lc_uint rhs) noexcept { return lc_make_uint3(lhs.x ^ rhs, lhs.y ^ rhs, lhs.z ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_uint lhs, lc_uint3 rhs) noexcept { return lc_make_uint3(lhs ^ rhs.x, lhs ^ rhs.y, lhs ^ rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_uint4 lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs.x ^ rhs.x, lhs.y ^ rhs.y, lhs.z ^ rhs.z, lhs.w ^ rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_uint4 lhs, lc_uint rhs) noexcept { return lhs ^ lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_uint4 lhs, lc_uint rhs) noexcept { return lc_make_uint4(lhs.x ^ rhs, lhs.y ^ rhs, lhs.z ^ rhs, lhs.w ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_uint lhs, lc_uint4 rhs) noexcept { return lc_make_uint4(lhs ^ rhs.x, lhs ^ rhs.y, lhs ^ rhs.z, lhs ^ rhs.w); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_bool2 lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs.x ^ rhs.x, lhs.y ^ rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_bool2 lhs, lc_bool rhs) noexcept { return lhs ^ lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_bool2 lhs, lc_bool rhs) noexcept { return lc_make_bool2(lhs.x ^ rhs, lhs.y ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs ^ rhs.x, lhs ^ rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_bool3 lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs.x ^ rhs.x, lhs.y ^ rhs.y, lhs.z ^ rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_bool3 lhs, lc_bool rhs) noexcept { return lhs ^ lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_bool3 lhs, lc_bool rhs) noexcept { return lc_make_bool3(lhs.x ^ rhs, lhs.y ^ rhs, lhs.z ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs ^ rhs.x, lhs ^ rhs.y, lhs ^ rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator^(lc_bool4 lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs.x ^ rhs.x, lhs.y ^ rhs.y, lhs.z ^ rhs.z, lhs.w ^ rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_bool4 lhs, lc_bool rhs) noexcept { return lhs ^ lc_make_bool4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator^(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs) ^ rhs; }
+[[nodiscard]] __device__ constexpr auto operator^(lc_bool4 lhs, lc_bool rhs) noexcept { return lc_make_bool4(lhs.x ^ rhs, lhs.y ^ rhs, lhs.z ^ rhs, lhs.w ^ rhs); }
+[[nodiscard]] __device__ constexpr auto operator^(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs ^ rhs.x, lhs ^ rhs.y, lhs ^ rhs.z, lhs ^ rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator||(lc_bool2 lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs.x || rhs.x, lhs.y || rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator||(lc_bool2 lhs, lc_bool rhs) noexcept { return lhs || lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator||(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs) || rhs; }
+[[nodiscard]] __device__ constexpr auto operator||(lc_bool2 lhs, lc_bool rhs) noexcept { return lc_make_bool2(lhs.x || rhs, lhs.y || rhs); }
+[[nodiscard]] __device__ constexpr auto operator||(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs || rhs.x, lhs || rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator||(lc_bool3 lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs.x || rhs.x, lhs.y || rhs.y, lhs.z || rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator||(lc_bool3 lhs, lc_bool rhs) noexcept { return lhs || lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator||(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs) || rhs; }
+[[nodiscard]] __device__ constexpr auto operator||(lc_bool3 lhs, lc_bool rhs) noexcept { return lc_make_bool3(lhs.x || rhs, lhs.y || rhs, lhs.z || rhs); }
+[[nodiscard]] __device__ constexpr auto operator||(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs || rhs.x, lhs || rhs.y, lhs || rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator||(lc_bool4 lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs.x || rhs.x, lhs.y || rhs.y, lhs.z || rhs.z, lhs.w || rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator||(lc_bool4 lhs, lc_bool rhs) noexcept { return lhs || lc_make_bool4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator||(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs) || rhs; }
+[[nodiscard]] __device__ constexpr auto operator||(lc_bool4 lhs, lc_bool rhs) noexcept { return lc_make_bool4(lhs.x || rhs, lhs.y || rhs, lhs.z || rhs, lhs.w || rhs); }
+[[nodiscard]] __device__ constexpr auto operator||(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs || rhs.x, lhs || rhs.y, lhs || rhs.z, lhs || rhs.w); }
 
 [[nodiscard]] __device__ constexpr auto operator&&(lc_bool2 lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs.x && rhs.x, lhs.y && rhs.y); }
-[[nodiscard]] __device__ constexpr auto operator&&(lc_bool2 lhs, lc_bool rhs) noexcept { return lhs && lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&&(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs) && rhs; }
+[[nodiscard]] __device__ constexpr auto operator&&(lc_bool2 lhs, lc_bool rhs) noexcept { return lc_make_bool2(lhs.x && rhs, lhs.y && rhs); }
+[[nodiscard]] __device__ constexpr auto operator&&(lc_bool lhs, lc_bool2 rhs) noexcept { return lc_make_bool2(lhs && rhs.x, lhs && rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator&&(lc_bool3 lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs.x && rhs.x, lhs.y && rhs.y, lhs.z && rhs.z); }
-[[nodiscard]] __device__ constexpr auto operator&&(lc_bool3 lhs, lc_bool rhs) noexcept { return lhs && lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&&(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs) && rhs; }
+[[nodiscard]] __device__ constexpr auto operator&&(lc_bool3 lhs, lc_bool rhs) noexcept { return lc_make_bool3(lhs.x && rhs, lhs.y && rhs, lhs.z && rhs); }
+[[nodiscard]] __device__ constexpr auto operator&&(lc_bool lhs, lc_bool3 rhs) noexcept { return lc_make_bool3(lhs && rhs.x, lhs && rhs.y, lhs && rhs.z); }
 [[nodiscard]] __device__ constexpr auto operator&&(lc_bool4 lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs.x && rhs.x, lhs.y && rhs.y, lhs.z && rhs.z, lhs.w && rhs.w); }
-[[nodiscard]] __device__ constexpr auto operator&&(lc_bool4 lhs, lc_bool rhs) noexcept { return lhs && lc_make_bool4(rhs); }
-[[nodiscard]] __device__ constexpr auto operator&&(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs) && rhs; }
+[[nodiscard]] __device__ constexpr auto operator&&(lc_bool4 lhs, lc_bool rhs) noexcept { return lc_make_bool4(lhs.x && rhs, lhs.y && rhs, lhs.z && rhs, lhs.w && rhs); }
+[[nodiscard]] __device__ constexpr auto operator&&(lc_bool lhs, lc_bool4 rhs) noexcept { return lc_make_bool4(lhs && rhs.x, lhs && rhs.y, lhs && rhs.z, lhs && rhs.w); }
 
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator+=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x += rhs.x;
     lhs.y += rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs += lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_int3 &lhs, lc_int3 rhs) noexcept {
+__device__ void operator+=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs; }
+__device__ void operator+=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x += rhs.x;
     lhs.y += rhs.y;
     lhs.z += rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs += lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator+=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs;
+    lhs.z += rhs; }
+__device__ void operator+=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x += rhs.x;
     lhs.y += rhs.y;
     lhs.z += rhs.z;
     lhs.w += rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs += lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
+__device__ void operator+=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs;
+    lhs.z += rhs;
+    lhs.w += rhs; }
+__device__ void operator+=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x += rhs.x;
     lhs.y += rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs += lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x += rhs.x;
-    lhs.y += rhs.y;
-    lhs.z += rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs += lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator+=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs; }
+__device__ void operator+=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x += rhs.x;
     lhs.y += rhs.y;
     lhs.z += rhs.z;
-    lhs.w += rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs += lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_float2 &lhs, lc_float2 rhs) noexcept {
-    lhs.x += rhs.x;
-    lhs.y += rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_float2 &lhs, lc_float rhs) noexcept { return lhs += lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_float3 &lhs, lc_float3 rhs) noexcept {
-    lhs.x += rhs.x;
-    lhs.y += rhs.y;
-    lhs.z += rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_float3 &lhs, lc_float rhs) noexcept { return lhs += lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+__device__ void operator+=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs;
+    lhs.z += rhs; }
+__device__ void operator+=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x += rhs.x;
     lhs.y += rhs.y;
     lhs.z += rhs.z;
     lhs.w += rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator+=(lc_float4 &lhs, lc_float rhs) noexcept { return lhs += lc_make_float4(rhs); }
+__device__ void operator+=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs;
+    lhs.z += rhs;
+    lhs.w += rhs; }
+__device__ void operator+=(lc_float2 &lhs, lc_float2 rhs) noexcept {
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+}
+__device__ void operator+=(lc_float2 &lhs, lc_float rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs; }
+__device__ void operator+=(lc_float3 &lhs, lc_float3 rhs) noexcept {
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    lhs.z += rhs.z;
+}
+__device__ void operator+=(lc_float3 &lhs, lc_float rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs;
+    lhs.z += rhs; }
+__device__ void operator+=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    lhs.z += rhs.z;
+    lhs.w += rhs.w;
+}
+__device__ void operator+=(lc_float4 &lhs, lc_float rhs) noexcept {
+    lhs.x += rhs;
+    lhs.y += rhs;
+    lhs.z += rhs;
+    lhs.w += rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator-=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x -= rhs.x;
     lhs.y -= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs -= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_int3 &lhs, lc_int3 rhs) noexcept {
+__device__ void operator-=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs; }
+__device__ void operator-=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x -= rhs.x;
     lhs.y -= rhs.y;
     lhs.z -= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs -= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator-=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs;
+    lhs.z -= rhs; }
+__device__ void operator-=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x -= rhs.x;
     lhs.y -= rhs.y;
     lhs.z -= rhs.z;
     lhs.w -= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs -= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
+__device__ void operator-=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs;
+    lhs.z -= rhs;
+    lhs.w -= rhs; }
+__device__ void operator-=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x -= rhs.x;
     lhs.y -= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs -= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x -= rhs.x;
-    lhs.y -= rhs.y;
-    lhs.z -= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs -= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator-=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs; }
+__device__ void operator-=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x -= rhs.x;
     lhs.y -= rhs.y;
     lhs.z -= rhs.z;
-    lhs.w -= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs -= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_float2 &lhs, lc_float2 rhs) noexcept {
-    lhs.x -= rhs.x;
-    lhs.y -= rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_float2 &lhs, lc_float rhs) noexcept { return lhs -= lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_float3 &lhs, lc_float3 rhs) noexcept {
-    lhs.x -= rhs.x;
-    lhs.y -= rhs.y;
-    lhs.z -= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_float3 &lhs, lc_float rhs) noexcept { return lhs -= lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+__device__ void operator-=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs;
+    lhs.z -= rhs; }
+__device__ void operator-=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x -= rhs.x;
     lhs.y -= rhs.y;
     lhs.z -= rhs.z;
     lhs.w -= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator-=(lc_float4 &lhs, lc_float rhs) noexcept { return lhs -= lc_make_float4(rhs); }
+__device__ void operator-=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs;
+    lhs.z -= rhs;
+    lhs.w -= rhs; }
+__device__ void operator-=(lc_float2 &lhs, lc_float2 rhs) noexcept {
+    lhs.x -= rhs.x;
+    lhs.y -= rhs.y;
+}
+__device__ void operator-=(lc_float2 &lhs, lc_float rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs; }
+__device__ void operator-=(lc_float3 &lhs, lc_float3 rhs) noexcept {
+    lhs.x -= rhs.x;
+    lhs.y -= rhs.y;
+    lhs.z -= rhs.z;
+}
+__device__ void operator-=(lc_float3 &lhs, lc_float rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs;
+    lhs.z -= rhs; }
+__device__ void operator-=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+    lhs.x -= rhs.x;
+    lhs.y -= rhs.y;
+    lhs.z -= rhs.z;
+    lhs.w -= rhs.w;
+}
+__device__ void operator-=(lc_float4 &lhs, lc_float rhs) noexcept {
+    lhs.x -= rhs;
+    lhs.y -= rhs;
+    lhs.z -= rhs;
+    lhs.w -= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator*=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x *= rhs.x;
     lhs.y *= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs *= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_int3 &lhs, lc_int3 rhs) noexcept {
+__device__ void operator*=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs; }
+__device__ void operator*=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x *= rhs.x;
     lhs.y *= rhs.y;
     lhs.z *= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs *= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator*=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    lhs.z *= rhs; }
+__device__ void operator*=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x *= rhs.x;
     lhs.y *= rhs.y;
     lhs.z *= rhs.z;
     lhs.w *= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs *= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
+__device__ void operator*=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    lhs.z *= rhs;
+    lhs.w *= rhs; }
+__device__ void operator*=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x *= rhs.x;
     lhs.y *= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs *= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x *= rhs.x;
-    lhs.y *= rhs.y;
-    lhs.z *= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs *= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator*=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs; }
+__device__ void operator*=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x *= rhs.x;
     lhs.y *= rhs.y;
     lhs.z *= rhs.z;
-    lhs.w *= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs *= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_float2 &lhs, lc_float2 rhs) noexcept {
-    lhs.x *= rhs.x;
-    lhs.y *= rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_float2 &lhs, lc_float rhs) noexcept { return lhs *= lc_make_float2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_float3 &lhs, lc_float3 rhs) noexcept {
-    lhs.x *= rhs.x;
-    lhs.y *= rhs.y;
-    lhs.z *= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_float3 &lhs, lc_float rhs) noexcept { return lhs *= lc_make_float3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+__device__ void operator*=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    lhs.z *= rhs; }
+__device__ void operator*=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x *= rhs.x;
     lhs.y *= rhs.y;
     lhs.z *= rhs.z;
     lhs.w *= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator*=(lc_float4 &lhs, lc_float rhs) noexcept { return lhs *= lc_make_float4(rhs); }
+__device__ void operator*=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    lhs.z *= rhs;
+    lhs.w *= rhs; }
+__device__ void operator*=(lc_float2 &lhs, lc_float2 rhs) noexcept {
+    lhs.x *= rhs.x;
+    lhs.y *= rhs.y;
+}
+__device__ void operator*=(lc_float2 &lhs, lc_float rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs; }
+__device__ void operator*=(lc_float3 &lhs, lc_float3 rhs) noexcept {
+    lhs.x *= rhs.x;
+    lhs.y *= rhs.y;
+    lhs.z *= rhs.z;
+}
+__device__ void operator*=(lc_float3 &lhs, lc_float rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    lhs.z *= rhs; }
+__device__ void operator*=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+    lhs.x *= rhs.x;
+    lhs.y *= rhs.y;
+    lhs.z *= rhs.z;
+    lhs.w *= rhs.w;
+}
+__device__ void operator*=(lc_float4 &lhs, lc_float rhs) noexcept {
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    lhs.z *= rhs;
+    lhs.w *= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator/=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x *= 1.0f / rhs.x;
     lhs.y *= 1.0f / rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs /= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_int3 &lhs, lc_int3 rhs) noexcept {
-    lhs.x *= 1.0f / rhs.x;
-    lhs.y *= 1.0f / rhs.y;
-    lhs.z *= 1.0f / rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs /= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator/=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs; }
+__device__ void operator/=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x *= 1.0f / rhs.x;
     lhs.y *= 1.0f / rhs.y;
     lhs.z *= 1.0f / rhs.z;
-    lhs.w *= 1.0f / rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs /= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
-    lhs.x *= 1.0f / rhs.x;
-    lhs.y *= 1.0f / rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs /= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x *= 1.0f / rhs.x;
-    lhs.y *= 1.0f / rhs.y;
-    lhs.z *= 1.0f / rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs /= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator/=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    lhs.z /= rhs; }
+__device__ void operator/=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x *= 1.0f / rhs.x;
     lhs.y *= 1.0f / rhs.y;
     lhs.z *= 1.0f / rhs.z;
     lhs.w *= 1.0f / rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs /= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_float2 &lhs, lc_float2 rhs) noexcept {
+__device__ void operator/=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    lhs.z /= rhs;
+    lhs.w /= rhs; }
+__device__ void operator/=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x *= 1.0f / rhs.x;
     lhs.y *= 1.0f / rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_float2 &lhs, lc_float rhs) noexcept { return lhs *= lc_make_float2(1.0f / rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_float3 &lhs, lc_float3 rhs) noexcept {
+__device__ void operator/=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs; }
+__device__ void operator/=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x *= 1.0f / rhs.x;
     lhs.y *= 1.0f / rhs.y;
     lhs.z *= 1.0f / rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_float3 &lhs, lc_float rhs) noexcept { return lhs *= lc_make_float3(1.0f / rhs); }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+__device__ void operator/=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    lhs.z /= rhs; }
+__device__ void operator/=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x *= 1.0f / rhs.x;
     lhs.y *= 1.0f / rhs.y;
     lhs.z *= 1.0f / rhs.z;
     lhs.w *= 1.0f / rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator/=(lc_float4 &lhs, lc_float rhs) noexcept { return lhs *= lc_make_float4(1.0f / rhs); }
+__device__ void operator/=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    lhs.z /= rhs;
+    lhs.w /= rhs; }
+__device__ void operator/=(lc_float2 &lhs, lc_float2 rhs) noexcept {
+    lhs.x *= 1.0f / rhs.x;
+    lhs.y *= 1.0f / rhs.y;
+}
+__device__ void operator/=(lc_float2 &lhs, lc_float rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs; }
+__device__ void operator/=(lc_float3 &lhs, lc_float3 rhs) noexcept {
+    lhs.x *= 1.0f / rhs.x;
+    lhs.y *= 1.0f / rhs.y;
+    lhs.z *= 1.0f / rhs.z;
+}
+__device__ void operator/=(lc_float3 &lhs, lc_float rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    lhs.z /= rhs; }
+__device__ void operator/=(lc_float4 &lhs, lc_float4 rhs) noexcept {
+    lhs.x *= 1.0f / rhs.x;
+    lhs.y *= 1.0f / rhs.y;
+    lhs.z *= 1.0f / rhs.z;
+    lhs.w *= 1.0f / rhs.w;
+}
+__device__ void operator/=(lc_float4 &lhs, lc_float rhs) noexcept {
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    lhs.z /= rhs;
+    lhs.w /= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator%=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x %= rhs.x;
     lhs.y %= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs %= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_int3 &lhs, lc_int3 rhs) noexcept {
+__device__ void operator%=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x %= rhs;
+    lhs.y %= rhs; }
+__device__ void operator%=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x %= rhs.x;
     lhs.y %= rhs.y;
     lhs.z %= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs %= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator%=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x %= rhs;
+    lhs.y %= rhs;
+    lhs.z %= rhs; }
+__device__ void operator%=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x %= rhs.x;
     lhs.y %= rhs.y;
     lhs.z %= rhs.z;
     lhs.w %= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs %= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
+__device__ void operator%=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x %= rhs;
+    lhs.y %= rhs;
+    lhs.z %= rhs;
+    lhs.w %= rhs; }
+__device__ void operator%=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x %= rhs.x;
     lhs.y %= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs %= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
+__device__ void operator%=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x %= rhs;
+    lhs.y %= rhs; }
+__device__ void operator%=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x %= rhs.x;
     lhs.y %= rhs.y;
     lhs.z %= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs %= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator%=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x %= rhs;
+    lhs.y %= rhs;
+    lhs.z %= rhs; }
+__device__ void operator%=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x %= rhs.x;
     lhs.y %= rhs.y;
     lhs.z %= rhs.z;
     lhs.w %= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator%=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs %= lc_make_uint4(rhs); }
+__device__ void operator%=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x %= rhs;
+    lhs.y %= rhs;
+    lhs.z %= rhs;
+    lhs.w %= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator<<=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x <<= rhs.x;
     lhs.y <<= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs <<= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_int3 &lhs, lc_int3 rhs) noexcept {
-    lhs.x <<= rhs.x;
-    lhs.y <<= rhs.y;
-    lhs.z <<= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs <<= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator<<=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x <<= rhs;
+    lhs.y <<= rhs; }
+__device__ void operator<<=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x <<= rhs.x;
     lhs.y <<= rhs.y;
     lhs.z <<= rhs.z;
-    lhs.w <<= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs <<= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
-    lhs.x <<= rhs.x;
-    lhs.y <<= rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs <<= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x <<= rhs.x;
-    lhs.y <<= rhs.y;
-    lhs.z <<= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs <<= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator<<=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x <<= rhs;
+    lhs.y <<= rhs;
+    lhs.z <<= rhs; }
+__device__ void operator<<=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x <<= rhs.x;
     lhs.y <<= rhs.y;
     lhs.z <<= rhs.z;
     lhs.w <<= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator<<=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs <<= lc_make_uint4(rhs); }
+__device__ void operator<<=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x <<= rhs;
+    lhs.y <<= rhs;
+    lhs.z <<= rhs;
+    lhs.w <<= rhs; }
+__device__ void operator<<=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
+    lhs.x <<= rhs.x;
+    lhs.y <<= rhs.y;
+}
+__device__ void operator<<=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x <<= rhs;
+    lhs.y <<= rhs; }
+__device__ void operator<<=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
+    lhs.x <<= rhs.x;
+    lhs.y <<= rhs.y;
+    lhs.z <<= rhs.z;
+}
+__device__ void operator<<=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x <<= rhs;
+    lhs.y <<= rhs;
+    lhs.z <<= rhs; }
+__device__ void operator<<=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+    lhs.x <<= rhs.x;
+    lhs.y <<= rhs.y;
+    lhs.z <<= rhs.z;
+    lhs.w <<= rhs.w;
+}
+__device__ void operator<<=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x <<= rhs;
+    lhs.y <<= rhs;
+    lhs.z <<= rhs;
+    lhs.w <<= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator>>=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x >>= rhs.x;
     lhs.y >>= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs >>= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_int3 &lhs, lc_int3 rhs) noexcept {
+__device__ void operator>>=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x >>= rhs;
+    lhs.y >>= rhs; }
+__device__ void operator>>=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x >>= rhs.x;
     lhs.y >>= rhs.y;
     lhs.z >>= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs >>= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator>>=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x >>= rhs;
+    lhs.y >>= rhs;
+    lhs.z >>= rhs; }
+__device__ void operator>>=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x >>= rhs.x;
     lhs.y >>= rhs.y;
     lhs.z >>= rhs.z;
     lhs.w >>= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs >>= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
+__device__ void operator>>=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x >>= rhs;
+    lhs.y >>= rhs;
+    lhs.z >>= rhs;
+    lhs.w >>= rhs; }
+__device__ void operator>>=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x >>= rhs.x;
     lhs.y >>= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs >>= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
+__device__ void operator>>=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x >>= rhs;
+    lhs.y >>= rhs; }
+__device__ void operator>>=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x >>= rhs.x;
     lhs.y >>= rhs.y;
     lhs.z >>= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs >>= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator>>=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x >>= rhs;
+    lhs.y >>= rhs;
+    lhs.z >>= rhs; }
+__device__ void operator>>=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x >>= rhs.x;
     lhs.y >>= rhs.y;
     lhs.z >>= rhs.z;
     lhs.w >>= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator>>=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs >>= lc_make_uint4(rhs); }
+__device__ void operator>>=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x >>= rhs;
+    lhs.y >>= rhs;
+    lhs.z >>= rhs;
+    lhs.w >>= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator|=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x |= rhs.x;
     lhs.y |= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs |= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_int3 &lhs, lc_int3 rhs) noexcept {
+__device__ void operator|=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs; }
+__device__ void operator|=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x |= rhs.x;
     lhs.y |= rhs.y;
     lhs.z |= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs |= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator|=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs;
+    lhs.z |= rhs; }
+__device__ void operator|=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x |= rhs.x;
     lhs.y |= rhs.y;
     lhs.z |= rhs.z;
     lhs.w |= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs |= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
+__device__ void operator|=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs;
+    lhs.z |= rhs;
+    lhs.w |= rhs; }
+__device__ void operator|=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x |= rhs.x;
     lhs.y |= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs |= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x |= rhs.x;
-    lhs.y |= rhs.y;
-    lhs.z |= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs |= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator|=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs; }
+__device__ void operator|=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x |= rhs.x;
     lhs.y |= rhs.y;
     lhs.z |= rhs.z;
-    lhs.w |= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs |= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_bool2 &lhs, lc_bool2 rhs) noexcept {
-    lhs.x |= rhs.x;
-    lhs.y |= rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_bool2 &lhs, lc_bool rhs) noexcept { return lhs |= lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_bool3 &lhs, lc_bool3 rhs) noexcept {
-    lhs.x |= rhs.x;
-    lhs.y |= rhs.y;
-    lhs.z |= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_bool3 &lhs, lc_bool rhs) noexcept { return lhs |= lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_bool4 &lhs, lc_bool4 rhs) noexcept {
+__device__ void operator|=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs;
+    lhs.z |= rhs; }
+__device__ void operator|=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x |= rhs.x;
     lhs.y |= rhs.y;
     lhs.z |= rhs.z;
     lhs.w |= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator|=(lc_bool4 &lhs, lc_bool rhs) noexcept { return lhs |= lc_make_bool4(rhs); }
+__device__ void operator|=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs;
+    lhs.z |= rhs;
+    lhs.w |= rhs; }
+__device__ void operator|=(lc_bool2 &lhs, lc_bool2 rhs) noexcept {
+    lhs.x |= rhs.x;
+    lhs.y |= rhs.y;
+}
+__device__ void operator|=(lc_bool2 &lhs, lc_bool rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs; }
+__device__ void operator|=(lc_bool3 &lhs, lc_bool3 rhs) noexcept {
+    lhs.x |= rhs.x;
+    lhs.y |= rhs.y;
+    lhs.z |= rhs.z;
+}
+__device__ void operator|=(lc_bool3 &lhs, lc_bool rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs;
+    lhs.z |= rhs; }
+__device__ void operator|=(lc_bool4 &lhs, lc_bool4 rhs) noexcept {
+    lhs.x |= rhs.x;
+    lhs.y |= rhs.y;
+    lhs.z |= rhs.z;
+    lhs.w |= rhs.w;
+}
+__device__ void operator|=(lc_bool4 &lhs, lc_bool rhs) noexcept {
+    lhs.x |= rhs;
+    lhs.y |= rhs;
+    lhs.z |= rhs;
+    lhs.w |= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator&=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x &= rhs.x;
     lhs.y &= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs &= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_int3 &lhs, lc_int3 rhs) noexcept {
-    lhs.x &= rhs.x;
-    lhs.y &= rhs.y;
-    lhs.z &= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs &= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator&=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs; }
+__device__ void operator&=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x &= rhs.x;
     lhs.y &= rhs.y;
     lhs.z &= rhs.z;
-    lhs.w &= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs &= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
-    lhs.x &= rhs.x;
-    lhs.y &= rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs &= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x &= rhs.x;
-    lhs.y &= rhs.y;
-    lhs.z &= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs &= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator&=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs;
+    lhs.z &= rhs; }
+__device__ void operator&=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x &= rhs.x;
     lhs.y &= rhs.y;
     lhs.z &= rhs.z;
     lhs.w &= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs &= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_bool2 &lhs, lc_bool2 rhs) noexcept {
+__device__ void operator&=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs;
+    lhs.z &= rhs;
+    lhs.w &= rhs; }
+__device__ void operator&=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x &= rhs.x;
     lhs.y &= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_bool2 &lhs, lc_bool rhs) noexcept { return lhs &= lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_bool3 &lhs, lc_bool3 rhs) noexcept {
+__device__ void operator&=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs; }
+__device__ void operator&=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x &= rhs.x;
     lhs.y &= rhs.y;
     lhs.z &= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_bool3 &lhs, lc_bool rhs) noexcept { return lhs &= lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_bool4 &lhs, lc_bool4 rhs) noexcept {
+__device__ void operator&=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs;
+    lhs.z &= rhs; }
+__device__ void operator&=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x &= rhs.x;
     lhs.y &= rhs.y;
     lhs.z &= rhs.z;
     lhs.w &= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator&=(lc_bool4 &lhs, lc_bool rhs) noexcept { return lhs &= lc_make_bool4(rhs); }
+__device__ void operator&=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs;
+    lhs.z &= rhs;
+    lhs.w &= rhs; }
+__device__ void operator&=(lc_bool2 &lhs, lc_bool2 rhs) noexcept {
+    lhs.x &= rhs.x;
+    lhs.y &= rhs.y;
+}
+__device__ void operator&=(lc_bool2 &lhs, lc_bool rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs; }
+__device__ void operator&=(lc_bool3 &lhs, lc_bool3 rhs) noexcept {
+    lhs.x &= rhs.x;
+    lhs.y &= rhs.y;
+    lhs.z &= rhs.z;
+}
+__device__ void operator&=(lc_bool3 &lhs, lc_bool rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs;
+    lhs.z &= rhs; }
+__device__ void operator&=(lc_bool4 &lhs, lc_bool4 rhs) noexcept {
+    lhs.x &= rhs.x;
+    lhs.y &= rhs.y;
+    lhs.z &= rhs.z;
+    lhs.w &= rhs.w;
+}
+__device__ void operator&=(lc_bool4 &lhs, lc_bool rhs) noexcept {
+    lhs.x &= rhs;
+    lhs.y &= rhs;
+    lhs.z &= rhs;
+    lhs.w &= rhs; }
 
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_int2 &lhs, lc_int2 rhs) noexcept {
+__device__ void operator^=(lc_int2 &lhs, lc_int2 rhs) noexcept {
     lhs.x ^= rhs.x;
     lhs.y ^= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_int2 &lhs, lc_int rhs) noexcept { return lhs ^= lc_make_int2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_int3 &lhs, lc_int3 rhs) noexcept {
-    lhs.x ^= rhs.x;
-    lhs.y ^= rhs.y;
-    lhs.z ^= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_int3 &lhs, lc_int rhs) noexcept { return lhs ^= lc_make_int3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_int4 &lhs, lc_int4 rhs) noexcept {
+__device__ void operator^=(lc_int2 &lhs, lc_int rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs; }
+__device__ void operator^=(lc_int3 &lhs, lc_int3 rhs) noexcept {
     lhs.x ^= rhs.x;
     lhs.y ^= rhs.y;
     lhs.z ^= rhs.z;
-    lhs.w ^= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_int4 &lhs, lc_int rhs) noexcept { return lhs ^= lc_make_int4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
-    lhs.x ^= rhs.x;
-    lhs.y ^= rhs.y;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_uint2 &lhs, lc_uint rhs) noexcept { return lhs ^= lc_make_uint2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
-    lhs.x ^= rhs.x;
-    lhs.y ^= rhs.y;
-    lhs.z ^= rhs.z;
-    return lhs;
-}
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_uint3 &lhs, lc_uint rhs) noexcept { return lhs ^= lc_make_uint3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
+__device__ void operator^=(lc_int3 &lhs, lc_int rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs;
+    lhs.z ^= rhs; }
+__device__ void operator^=(lc_int4 &lhs, lc_int4 rhs) noexcept {
     lhs.x ^= rhs.x;
     lhs.y ^= rhs.y;
     lhs.z ^= rhs.z;
     lhs.w ^= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_uint4 &lhs, lc_uint rhs) noexcept { return lhs ^= lc_make_uint4(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_bool2 &lhs, lc_bool2 rhs) noexcept {
+__device__ void operator^=(lc_int4 &lhs, lc_int rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs;
+    lhs.z ^= rhs;
+    lhs.w ^= rhs; }
+__device__ void operator^=(lc_uint2 &lhs, lc_uint2 rhs) noexcept {
     lhs.x ^= rhs.x;
     lhs.y ^= rhs.y;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_bool2 &lhs, lc_bool rhs) noexcept { return lhs ^= lc_make_bool2(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_bool3 &lhs, lc_bool3 rhs) noexcept {
+__device__ void operator^=(lc_uint2 &lhs, lc_uint rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs; }
+__device__ void operator^=(lc_uint3 &lhs, lc_uint3 rhs) noexcept {
     lhs.x ^= rhs.x;
     lhs.y ^= rhs.y;
     lhs.z ^= rhs.z;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_bool3 &lhs, lc_bool rhs) noexcept { return lhs ^= lc_make_bool3(rhs); }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_bool4 &lhs, lc_bool4 rhs) noexcept {
+__device__ void operator^=(lc_uint3 &lhs, lc_uint rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs;
+    lhs.z ^= rhs; }
+__device__ void operator^=(lc_uint4 &lhs, lc_uint4 rhs) noexcept {
     lhs.x ^= rhs.x;
     lhs.y ^= rhs.y;
     lhs.z ^= rhs.z;
     lhs.w ^= rhs.w;
-    return lhs;
 }
-[[nodiscard]] __device__ constexpr auto &operator^=(lc_bool4 &lhs, lc_bool rhs) noexcept { return lhs ^= lc_make_bool4(rhs); }
+__device__ void operator^=(lc_uint4 &lhs, lc_uint rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs;
+    lhs.z ^= rhs;
+    lhs.w ^= rhs; }
+__device__ void operator^=(lc_bool2 &lhs, lc_bool2 rhs) noexcept {
+    lhs.x ^= rhs.x;
+    lhs.y ^= rhs.y;
+}
+__device__ void operator^=(lc_bool2 &lhs, lc_bool rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs; }
+__device__ void operator^=(lc_bool3 &lhs, lc_bool3 rhs) noexcept {
+    lhs.x ^= rhs.x;
+    lhs.y ^= rhs.y;
+    lhs.z ^= rhs.z;
+}
+__device__ void operator^=(lc_bool3 &lhs, lc_bool rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs;
+    lhs.z ^= rhs; }
+__device__ void operator^=(lc_bool4 &lhs, lc_bool4 rhs) noexcept {
+    lhs.x ^= rhs.x;
+    lhs.y ^= rhs.y;
+    lhs.z ^= rhs.z;
+    lhs.w ^= rhs.w;
+}
+__device__ void operator^=(lc_bool4 &lhs, lc_bool rhs) noexcept {
+    lhs.x ^= rhs;
+    lhs.y ^= rhs;
+    lhs.z ^= rhs;
+    lhs.w ^= rhs; }
 
 [[nodiscard]] __device__ constexpr auto lc_any(lc_bool2 v) noexcept { return v.x || v.y; }
 [[nodiscard]] __device__ constexpr auto lc_any(lc_bool3 v) noexcept { return v.x || v.y || v.z; }

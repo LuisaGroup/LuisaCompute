@@ -92,22 +92,19 @@ if __name__ == "__main__":
         def gen_binary_op(arg_t, ret_t, op):
             for i in range(2, 5):
                 elements = ["x", "y", "z", "w"][:i]
-                if op == "/" and arg_t == "float":
-                    print(
-                        f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({', '.join(f'lhs.{m} * (1.0f / rhs.{m})' for m in elements)}); }}",
-                        file=file)
-                    print(
-                        f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t} rhs) noexcept {{ return lhs * lc_make_{arg_t}{i}(1.0f / rhs); }}",
-                        file=file)
-                else:
-                    print(
-                        f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({', '.join(f'lhs.{m} {op} rhs.{m}' for m in elements)}); }}",
-                        file=file)
-                    print(
-                        f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t} rhs) noexcept {{ return lhs {op} lc_make_{arg_t}{i}(rhs); }}",
-                        file=file)
+                # vector-vector
                 print(
-                    f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{arg_t}{i}(lhs) {op} rhs; }}",
+                    f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({', '.join(f'lhs.{m} {op} rhs.{m}' for m in elements)}); }}",
+                    file=file)
+                # vector-scalar
+                operation = ", ".join(f"lhs.{e} {op} rhs" for e in "xyzw"[:i])
+                print(
+                    f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t}{i} lhs, lc_{arg_t} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
+                    file=file)
+                # scalar-vector
+                operation = ", ".join(f"lhs {op} rhs.{e}" for e in "xyzw"[:i])
+                print(
+                    f"[[nodiscard]] __device__ constexpr auto operator{op}(lc_{arg_t} lhs, lc_{arg_t}{i} rhs) noexcept {{ return lc_make_{ret_t}{i}({operation}); }}",
                     file=file)
 
 
@@ -143,18 +140,13 @@ if __name__ == "__main__":
                 elements = ["x", "y", "z", "w"][:i]
                 fast_op = "*= 1.0f /" if op == "/=" else op
                 print(
-                    f"""[[nodiscard]] __device__ constexpr auto &operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t}{i} rhs) noexcept {{
+                    f"""__device__ void operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t}{i} rhs) noexcept {{
 {newline.join(f'    lhs.{m} {fast_op} rhs.{m};' for m in elements)}
-    return lhs;
 }}""", file=file)
-                if op == "/=" and arg_t == "float":
-                    print(
-                        f"[[nodiscard]] __device__ constexpr auto &operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t} rhs) noexcept {{ return lhs *= lc_make_{arg_t}{i}(1.0f / rhs); }}",
-                        file=file)
-                else:
-                    print(
-                        f"[[nodiscard]] __device__ constexpr auto &operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t} rhs) noexcept {{ return lhs {op} lc_make_{arg_t}{i}(rhs); }}",
-                        file=file)
+                elems = "\n".join(f"    lhs.{e} {op} rhs;" for e in "xyzw"[:i])
+                print(
+                    f"__device__ void operator{op}(lc_{arg_t}{i} &lhs, lc_{arg_t} rhs) noexcept {{{newline}{elems} }}",
+                    file=file)
 
 
         # assign operators

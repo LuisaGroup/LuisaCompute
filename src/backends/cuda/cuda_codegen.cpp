@@ -440,7 +440,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
                  << f.block_size().x * f.block_size().y * f.block_size().z
                  << ") kernel_" << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
-        _scratch << "__device__ inline ";
+        _scratch << "inline __device__ ";
         if (f.return_type() != nullptr) {
             _emit_type_name(f.return_type());
         } else {
@@ -497,7 +497,9 @@ void CUDACodegen::_emit_function(Function f) noexcept {
             default: break;
         }
     }
+    _indent = 1;
     _emit_variable_declarations(f.body());
+    _indent = 0;
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 }
@@ -684,6 +686,7 @@ void CUDACodegen::visit(const MetaStmt *stmt) {
     _scratch << "\n";
     _emit_indent();
     _scratch << "// meta region begin: " << stmt->info();
+    _emit_variable_declarations(stmt);
     for (auto s : stmt->scope()->statements()) {
         _scratch << "\n";
         _emit_indent();
@@ -696,13 +699,14 @@ void CUDACodegen::visit(const MetaStmt *stmt) {
 
 void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        _scratch << "\n  ";
+        _scratch << "\n";
+        _emit_indent();
         _emit_variable_decl(v);
-        _scratch << ";";
+        _scratch << "{};";
     }
-    for (auto m : meta->children()) {
-        _emit_variable_declarations(m);
-    }
+//    for (auto m : meta->children()) {
+//        _emit_variable_declarations(m);
+//    }
 }
 
 }// namespace luisa::compute::cuda

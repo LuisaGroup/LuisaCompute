@@ -2,6 +2,9 @@
 // Created by Mike on 7/28/2021.
 //
 
+#include <cstring>
+#include <fstream>
+
 #include <runtime/sampler.h>
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_device.h>
@@ -201,6 +204,10 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
     auto kernel_name = fmt::format("kernel_{:016X}", kernel.hash());
+    {
+        std::ofstream dump{context().cache_directory() / fmt::format("{}.ptx", kernel_name)};
+        dump << ptx;
+    }
     LUISA_INFO("Generated PTX for {} in {} ms: {}", kernel_name, clock.toc(), ptx);
     return with_handle([&] {
         CUmodule module{nullptr};
