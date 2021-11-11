@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <direct.h>
 #include <fileapi.h>
-namespace vstl {
+namespace vstd {
 bool FileSystem::IsFileExists(std::string const& path) {
 	return PathFileExistsA(path.c_str());
 }

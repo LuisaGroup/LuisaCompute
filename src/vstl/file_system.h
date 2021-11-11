@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/Common.h>
 #include <vstl/functional.h>
-namespace vstl {
+namespace vstd {
 
 class FileSystem {
 public:
