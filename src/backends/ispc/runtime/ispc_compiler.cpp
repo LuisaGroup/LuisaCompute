@@ -22,16 +22,14 @@ static void GenerateDll(
     compileCmd.clear();
     compileCmd << "link.exe /DLL /NOLOGO /OUT:"sv
                << libName
-               << " /DYNAMICBASE msvcrt.lib /NOENTRY /NODEFAULTLIB run_ispc.exp "sv
+               << " /DYNAMICBASE msvcrt.lib /NOENTRY /EXPORT:run /NODEFAULTLIB "sv
                << fileName
                << ".obj"sv;
     system(compileCmd.c_str());
-    compileCmd.clear();
-    compileCmd << "del " << fileName << ".obj"sv;
-    system(compileCmd.c_str());
-    compileCmd.clear();
-    compileCmd << "del " << fileName << ".txt"sv;
-    system(compileCmd.c_str());
+    remove((fileName + ".obj").c_str());
+    remove((fileName + ".txt").c_str());
+    remove((fileName + ".exp").c_str());
+    remove((fileName + ".lib").c_str());
     //link
 }
 std::string Compiler::CompileCode(
