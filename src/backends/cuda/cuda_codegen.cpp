@@ -436,9 +436,9 @@ void CUDACodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "extern \"C\" __global__ void __launch_bounds__("
+        _scratch << "extern \"C\" __global__ void /* __launch_bounds__("
                  << f.block_size().x * f.block_size().y * f.block_size().z
-                 << ") kernel_" << hash_to_string(f.hash());
+                 << ") */ kernel_" << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "inline __device__ ";
         if (f.return_type() != nullptr) {
@@ -450,6 +450,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     } else [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
+    _scratch << "(";
     // argument list
     for (auto buffer : f.captured_buffers()) {
         _scratch << "\n    ";
@@ -466,7 +467,6 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     }
     for (auto accel : f.captured_accels()) {
     }
-    _scratch << "(";
     auto any_arg = false;
     for (auto arg : f.arguments()) {
         _scratch << "\n    ";
@@ -475,21 +475,21 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         any_arg = true;
     }
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "\n    lc_uint3 ls";// launch size
+        _scratch << "\n    const lc_uint3 ls) {";// launch size
     } else {
         if (any_arg) { _scratch.pop_back(); }
+        _scratch << ") noexcept {";
     }
-    _scratch << ") {";
     for (auto builtin : f.builtin_variables()) {
         switch (builtin.tag()) {
             case Variable::Tag::THREAD_ID:
-                _scratch << "\n  auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
+                _scratch << "\n  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
                 break;
             case Variable::Tag::BLOCK_ID:
-                _scratch << "\n  auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
+                _scratch << "\n  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
                 break;
             case Variable::Tag::DISPATCH_ID:
-                _scratch << "\n  auto did = lc_make_uint3("
+                _scratch << "\n  const auto did = lc_make_uint3("
                          << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
                          << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
                          << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
@@ -699,14 +699,13 @@ void CUDACodegen::visit(const MetaStmt *stmt) {
 
 void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        _scratch << "\n";
-        _emit_indent();
-        _emit_variable_decl(v);
-        _scratch << "{};";
+        if (_function.variable_usage(v.uid()) != Usage::NONE) {
+            _scratch << "\n";
+            _emit_indent();
+            _emit_variable_decl(v);
+            _scratch << "{};";
+        }
     }
-//    for (auto m : meta->children()) {
-//        _emit_variable_declarations(m);
-//    }
 }
 
 }// namespace luisa::compute::cuda

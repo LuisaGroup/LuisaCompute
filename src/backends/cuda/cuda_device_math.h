@@ -1902,9 +1902,9 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_dot(lc_float3 a, lc_float3 b) noexcept { return a.x * b.x + a.y * b.y + a.z * b.z; }
 [[nodiscard]] __device__ inline auto lc_dot(lc_float4 a, lc_float4 b) noexcept { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
 
-[[nodiscard]] __device__ inline auto lc_length(lc_float2 v) noexcept { return hypotf(v.x, v.y); }
-[[nodiscard]] __device__ inline auto lc_length(lc_float3 v) noexcept { return norm3df(v.x, v.y, v.z); }
-[[nodiscard]] __device__ inline auto lc_length(lc_float4 v) noexcept { return norm4df(v.x, v.y, v.z, v.w); }
+[[nodiscard]] __device__ inline auto lc_length(lc_float2 v) noexcept { return sqrtf(lc_dot(v, v)); }
+[[nodiscard]] __device__ inline auto lc_length(lc_float3 v) noexcept { return sqrtf(lc_dot(v, v)); }
+[[nodiscard]] __device__ inline auto lc_length(lc_float4 v) noexcept { return sqrtf(lc_dot(v, v)); }
 
 [[nodiscard]] __device__ inline auto lc_length_squared(lc_float2 v) noexcept { return lc_dot(v, v); }
 [[nodiscard]] __device__ inline auto lc_length_squared(lc_float3 v) noexcept { return lc_dot(v, v); }
@@ -1918,9 +1918,9 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_distance_squared(lc_float3 a, lc_float3 b) noexcept { return lc_length_squared(a - b); }
 [[nodiscard]] __device__ inline auto lc_distance_squared(lc_float4 a, lc_float4 b) noexcept { return lc_length_squared(a - b); }
 
-[[nodiscard]] __device__ inline auto lc_normalize(lc_float2 v) noexcept { return v * rhypotf(v.x, v.y); }
-[[nodiscard]] __device__ inline auto lc_normalize(lc_float3 v) noexcept { return v * rnorm3df(v.x, v.y, v.z); }
-[[nodiscard]] __device__ inline auto lc_normalize(lc_float4 v) noexcept { return v * rnorm4df(v.x, v.y, v.z, v.w); }
+[[nodiscard]] __device__ inline auto lc_normalize(lc_float2 v) noexcept { return v * rsqrtf(lc_dot(v, v)); }
+[[nodiscard]] __device__ inline auto lc_normalize(lc_float3 v) noexcept { return v * rsqrtf(lc_dot(v, v)); }
+[[nodiscard]] __device__ inline auto lc_normalize(lc_float4 v) noexcept { return v * rsqrtf(lc_dot(v, v)); }
 
 [[nodiscard]] __device__ inline auto lc_faceforward(lc_float3 n, lc_float3 i, lc_float3 n_ref) noexcept { return lc_dot(n_ref, i) < 0.0f ? n : -n; }
 

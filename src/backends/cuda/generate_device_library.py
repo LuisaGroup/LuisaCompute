@@ -391,10 +391,10 @@ struct lc_float{i}x{i} {{
         print(file=file)
 
         # length
-        print(f"[[nodiscard]] __device__ inline auto lc_length(lc_float2 v) noexcept {{ return hypotf(v.x, v.y); }}", file=file)
-        print(f"[[nodiscard]] __device__ inline auto lc_length(lc_float3 v) noexcept {{ return norm3df(v.x, v.y, v.z); }}",
+        print(f"[[nodiscard]] __device__ inline auto lc_length(lc_float2 v) noexcept {{ return sqrtf(lc_dot(v, v)); }}", file=file)
+        print(f"[[nodiscard]] __device__ inline auto lc_length(lc_float3 v) noexcept {{ return sqrtf(lc_dot(v, v)); }}",
               file=file)
-        print(f"[[nodiscard]] __device__ inline auto lc_length(lc_float4 v) noexcept {{ return norm4df(v.x, v.y, v.z, v.w); }}",
+        print(f"[[nodiscard]] __device__ inline auto lc_length(lc_float4 v) noexcept {{ return sqrtf(lc_dot(v, v)); }}",
               file=file)
         print(file=file)
 
@@ -426,7 +426,7 @@ struct lc_float{i}x{i} {{
                 4: "rnorm4df"
             }[n]
             print(
-                f"[[nodiscard]] __device__ inline auto lc_normalize(lc_float{n} v) noexcept {{ return v * {inv_norm}({', '.join(f'v.{e}' for e in 'xyzw'[:n])}); }}",
+                f"[[nodiscard]] __device__ inline auto lc_normalize(lc_float{n} v) noexcept {{ return v * rsqrtf(lc_dot(v, v)); }}",
                 file=file)
         print(file=file)
 

@@ -19,14 +19,14 @@ namespace luisa::compute::cuda {
 uint64_t CUDADevice::create_buffer(size_t size_bytes) noexcept {
     return with_handle([size = size_bytes] {
         CUdeviceptr ptr = 0ul;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&ptr, size, nullptr));
+        LUISA_CHECK_CUDA(cuMemAlloc(&ptr, size));
         return ptr;
     });
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     with_handle([buffer = handle] {
-        LUISA_CHECK_CUDA(cuMemFreeAsync(buffer, nullptr));
+        LUISA_CHECK_CUDA(cuMemFree(buffer));
     });
 }
 
@@ -283,7 +283,7 @@ CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
         CUdeviceptr desc_array = 0u;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&desc_array, size * sizeof(CUDABindlessArray::Item), nullptr));
+        LUISA_CHECK_CUDA(cuMemAlloc(&desc_array, size * sizeof(CUDABindlessArray::Item)));
         return reinterpret_cast<uint64_t>(new_with_allocator<CUDABindlessArray>(desc_array, size));
     });
 }

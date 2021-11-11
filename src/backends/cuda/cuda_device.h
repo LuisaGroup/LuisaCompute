@@ -26,9 +26,9 @@ class CUDADevice : public Device::Interface {
             CUcontext ctx = nullptr;
             LUISA_CHECK_CUDA(cuCtxPopCurrent(&ctx));
             if (ctx != _ctx) [[unlikely]] {
-              LUISA_ERROR_WITH_LOCATION(
-                  "Invalid CUDA context {} (expected {}).",
-                  fmt::ptr(ctx), fmt::ptr(_ctx));
+                LUISA_ERROR_WITH_LOCATION(
+                    "Invalid CUDA context {} (expected {}).",
+                    fmt::ptr(ctx), fmt::ptr(_ctx));
             }
         }
     };

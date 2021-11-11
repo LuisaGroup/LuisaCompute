@@ -224,10 +224,10 @@ int main(int argc, char *argv[]) {
         //        stream << swap_event.signal();
 
         stream << render(seed_image, accum_image, spp).dispatch(width, height);
-        if (spp % 100 == 99) {
-            stream << accum_image.copy_to(cv_back_image.data)
-                   << synchronize();
-        }
+//        if (spp % 100 == 99) {
+//            stream << accum_image.copy_to(cv_back_image.data)
+//                   << synchronize();
+//        }
         // render
         //        auto command_buffer = stream.command_buffer();
         //        for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
