@@ -451,22 +451,6 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     _scratch << "(";
-    // argument list
-    for (auto buffer : f.captured_buffers()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(buffer.variable);
-        _scratch << ",";
-    }
-    for (auto image : f.captured_textures()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(image.variable);
-        _scratch << ",";
-    }
-    // TODO
-    for (auto array : f.captured_bindless_arrays()) {
-    }
-    for (auto accel : f.captured_accels()) {
-    }
     auto any_arg = false;
     for (auto arg : f.arguments()) {
         _scratch << "\n    ";

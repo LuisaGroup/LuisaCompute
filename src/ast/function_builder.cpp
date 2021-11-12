@@ -36,6 +36,14 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
             "Custom callables may not have builtin, "
             "shared or captured variables.");
     }
+
+    // emplace captured resources
+    for (auto b : f->_captured_buffers) { f->_arguments.emplace_back(b.variable); }
+    for (auto b : f->_captured_textures) { f->_arguments.emplace_back(b.variable); }
+    for (auto b : f->_captured_bindless_arrays) { f->_arguments.emplace_back(b.variable); }
+    for (auto b : f->_captured_accels) { f->_arguments.emplace_back(b.variable); }
+
+    // hash
     f->_compute_hash();
 
     // clear temporary data
