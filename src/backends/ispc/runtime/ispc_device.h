@@ -1,7 +1,7 @@
 #pragma once
 
 #include <runtime/device.h>
-
+#include <vstl/ThreadPool.h>
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -9,6 +9,7 @@ namespace lc::ispc {
 class ISPCDevice final : public Device::Interface {
 
 private:
+    ThreadPool tPool;
     void *native_handle() const noexcept override;
 
     // buffer
@@ -63,7 +64,7 @@ private:
 
 public:
     ISPCDevice(const luisa::compute::Context &ctx, uint32_t index /* TODO */) noexcept
-        : Device::Interface(ctx) {}
+        : Device::Interface(ctx), tPool(std::thread::hardware_concurrency()) {}
     ~ISPCDevice() noexcept override = default;
 };
 
