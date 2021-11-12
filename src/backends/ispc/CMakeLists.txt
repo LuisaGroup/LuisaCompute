@@ -1,9 +1,12 @@
 ##[[[]]]
-set(ISPC_BACKEND_SOURCES
-        runtime/ispc.inl
-        runtime/ispc_codegen.cpp runtime/ispc_codegen.h
+    set(ISPC_BACKEND_SOURCES
+        runtime/ispc_codegen.cpp
         runtime/ispc_codegenutil.cpp
-        runtime/ispc_device.cpp runtime/ispc_device.h)
+        runtime/ispc_compiler.cpp
+        runtime/ispc_device.cpp
+        runtime/ispc_runtime.cpp
+        runtime/ispc_shader.cpp
+    )
 ##[[[]]]
 message(STATUS "Build with ISPC")
 luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})

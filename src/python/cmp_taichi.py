@@ -2,10 +2,10 @@ import math
 import time
 
 import numpy as np
-from tqdm import tqdm
+
 import taichi as ti
 
-ti.init(arch=ti.gpu)
+ti.init(arch=ti.cuda, fast_math=True, advanced_optimization=True)
 res = 1280, 720
 color_buffer = ti.Vector.field(3, dtype=ti.f32, shape=res)
 max_ray_depth = 6
@@ -119,6 +119,7 @@ def next_hit(pos, d):
 
 @ti.kernel
 def render():
+    ti.block_dim(256)
     for u, v in color_buffer:
         aspect_ratio = res[0] / res[1]
         pos = camera_pos
@@ -151,18 +152,21 @@ def render():
         color_buffer[u, v] += throughput * hit_light
 
 
-# gui = ti.GUI('SDF Path Tracer', res)
 if __name__ == "__main__":
+    # gui = ti.GUI('SDF Path Tracer', res)
     render()
-    total = 1024
-    a = color_buffer.to_numpy()
-    print(a)
-    t0 = time.time()
-    for i in tqdm(range(total)):
+    ti.sync()
+    total_spp = 1024
+    last_t = time.time()
+    for i in range(total_spp):
         render()
-        if i % 100 == 99:
-            a = color_buffer.to_numpy()
-    a = color_buffer.to_numpy()
-    t1 = time.time()
-
-    print(f"{total / (t1 - t0)} samples/s")
+        # interval = 32
+        # if i % interval == 0 and i > 0:
+        #     print("{:.2f} samples/s".format(interval / (time.time() - last_t)))
+        #     last_t = time.time()
+        #     img = color_buffer.to_numpy() * (1 / (i + 1))
+        #     img = img / img.mean() * 0.24
+        #     gui.set_image(np.sqrt(img))
+        #     gui.show()
+    ti.sync()
+    print("{:.2f} samples/s".format(total_spp / (time.time() - last_t)))

@@ -67,7 +67,7 @@ public:
             return seed;
         } else {
             using V = std::remove_cvref_t<T>;
-            static_assert(std::is_standard_layout_v<V>);
+            static_assert(std::is_standard_layout_v<V> && !std::is_pointer_v<V>);
             auto v = s;
             return detail::xxh3_hash64(std::addressof(v), sizeof(V), _seed);
         }

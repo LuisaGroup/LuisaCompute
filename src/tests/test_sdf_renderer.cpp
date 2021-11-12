@@ -17,6 +17,8 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
+#define ENABLE_DISPLAY
+
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -138,7 +140,7 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 accum_image, UInt frame_index) noexcept {
-        set_block_size(256u, 1u, 1u);
+        set_block_size(16u, 8u, 1u);
 
         auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
@@ -155,6 +157,7 @@ int main(int argc, char *argv[]) {
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
         auto seed = seed_image[global_id];
+//        auto seed = frame_index + 1u;
         auto ux = rand(seed);
         auto uy = rand(seed);
         auto uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1u - dispatch_id().y + uy);
@@ -186,7 +189,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda", 0);
+    auto device = context.create_device("cuda", 1);
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal", 0u);
 #elif defined(LUISA_BACKEND_DX_ENABLED)
@@ -207,51 +210,54 @@ int main(int argc, char *argv[]) {
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
     cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
 
-    static constexpr auto interval = 10u;
-    static constexpr auto total_spp = 1024u;
-    std::vector<double> fps;
-    fps.reserve(total_spp);
-    stream << render(seed_image, accum_image, 0).dispatch(width, height)
-           << accum_image.copy_to(cv_back_image.data)
-           << synchronize();
+    static constexpr auto interval = 32u;
+
+#ifdef ENABLE_DISPLAY
+    static constexpr auto total_spp = 500000u;
+#else
+    static constexpr auto total_spp = 5000u;
+#endif
+
     Clock clock;
-    auto last_t = clock.toc();
-    for (auto spp = 0u; spp < total_spp; spp++) {
+    auto t0 = clock.toc();
+    auto last_t = t0;
+    auto spp_count = 0u;
+    for (auto spp = 0u; spp < total_spp; spp += interval) {
 
+#ifdef ENABLE_DISPLAY
         // swap buffers
-        //        copy_event.synchronize();
-        //        std::swap(cv_image, cv_back_image);
-        //        stream << swap_event.signal();
+        copy_event.synchronize();
+        std::swap(cv_image, cv_back_image);
+        stream << swap_event.signal();
+#endif
 
-        stream << render(seed_image, accum_image, spp).dispatch(width, height);
-        if (spp % 100 == 99) {
-            stream << accum_image.copy_to(cv_back_image.data)
-                   << synchronize();
-        }
         // render
-        //        auto command_buffer = stream.command_buffer();
-        //        for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
-        //            command_buffer << render(seed_image, accum_image, frame).dispatch(width, height);
-        //        }
-        //        command_buffer << commit();
-        //        command_buffer << swap_event.wait()
-        //                       << accum_image.copy_to(cv_back_image.data)
-        //                       << copy_event.signal();
+        auto command_buffer = stream.command_buffer();
+        for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
+            command_buffer << render(seed_image, accum_image, frame).dispatch(width, height);
+            spp_count++;
+        }
+        command_buffer << commit();
+
+#ifdef ENABLE_DISPLAY
+        command_buffer << swap_event.wait()
+                       << accum_image.copy_to(cv_back_image.data)
+                       << copy_event.signal();
 
         // display
-        //        cv_image *= 1.0 / std::max(spp, 1u);
-        //        auto mean = std::max(cv::mean(cv::mean(cv_image))[0], 1e-3);
-        //        cv::sqrt(cv_image * (0.24 / mean), cv_image);
-        //        cv::imshow("Display", cv_image);
-        //        if (auto key = cv::waitKey(1); key == 'q' || key == 27) { break; }
-        //        auto t = clock.toc();
-        //        LUISA_INFO(
-        //            "{:.2f} samples/s [{}/{}]",
-        //            fps.emplace_back(interval * 1000.0 / (t - last_t)),
-        //            spp + interval, total_spp);
-        //        last_t = t;
+        cv_image *= 1.0 / std::max(spp, 1u);
+        auto mean = std::max(cv::mean(cv::mean(cv_image))[0], 1e-3);
+        cv::sqrt(cv_image * (0.24 / mean), cv_image);
+        cv::imshow("Display", cv_image);
+        if (auto key = cv::waitKey(1); key == 'q' || key == 27) { break; }
+        auto t = clock.toc();
+        LUISA_INFO(
+            "{:.2f} samples/s [{}/{}]",
+            interval * 1000.0 / (t - last_t),
+            spp + interval, total_spp);
+        last_t = t;
+#endif
     }
     stream << accum_image.copy_to(cv_back_image.data) << synchronize();
-    LUISA_INFO("{} samples/s", total_spp / (clock.toc() - last_t) * 1000);
-    //    LUISA_INFO("Average: {} samples/s.", std::reduce(fps.cbegin(), fps.cend(), 0.0) / fps.size());
+    LUISA_INFO("{} samples/s", spp_count / (clock.toc() - t0) * 1000);
 }
