@@ -15,73 +15,43 @@ namespace luisa::compute::cuda {
 
 luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint32_t sm) noexcept {
 
-    static const auto cuda_device_library_hash = hash64(cuda_device_math_source, hash64(cuda_device_resource_source));
-    auto hash = hash64(sm, hash64(function.hash(), cuda_device_library_hash));
+    auto hash = hash64(sm, function.hash());
+    if (auto ptx = _cache->fetch(hash)) { return *ptx; }
 
-    // try memory cache
-    {
-        std::scoped_lock lock{_mutex};
-        if (auto timepoint_iter = _function_hash_to_timepoint.find(hash);
-            timepoint_iter != _function_hash_to_timepoint.end()) {
-            auto old_timepoint = timepoint_iter->second;
-            auto new_timepoint = ++_current_timepoint;
-            timepoint_iter->second = new_timepoint;
-            auto ptx_iter = _timepoint_to_ptx_and_hash.find(old_timepoint);
-            auto ptx = std::move(ptx_iter->second.first);
-            _timepoint_to_ptx_and_hash.erase(ptx_iter);
-            _timepoint_to_ptx_and_hash.emplace(new_timepoint, std::make_pair(ptx, hash));
-            return ptx;
-        }
-    }
+    auto ver_major = 0;
+    auto ver_minor = 0;
+    LUISA_CHECK_NVRTC(nvrtcVersion(&ver_major, &ver_minor));
+    static const auto library_hash = hash64(
+        cuda_device_math_source,
+        hash64(cuda_device_resource_source,
+               ver_major * 1000 + ver_minor * 10));
 
-    auto update_memory_cache = [hash, this](const luisa::string &ptx_string) noexcept {
-        std::scoped_lock lock{_mutex};
-        // another thread has updated the cache, just update timepoint
-        if (auto timepoint_iter = _function_hash_to_timepoint.find(hash);
-            timepoint_iter != _function_hash_to_timepoint.end()) {
-            auto old_timepoint = timepoint_iter->second;
-            auto new_timepoint = ++_current_timepoint;
-            timepoint_iter->second = new_timepoint;
-            auto ptx_iter = _timepoint_to_ptx_and_hash.find(old_timepoint);
-            auto ptx = std::move(ptx_iter->second.first);
-            _timepoint_to_ptx_and_hash.erase(ptx_iter);
-            _timepoint_to_ptx_and_hash.emplace(new_timepoint, std::make_pair(std::move(ptx), hash));
-            return;
-        }
-        // remove the least recently used item if cache exceeds the limit
-        if (_function_hash_to_timepoint.size() >= max_cache_item_count) {
-            auto lru_iter = _timepoint_to_ptx_and_hash.begin();
-            auto lru_timepoint = lru_iter->first;
-            auto lru_hash = lru_iter->second.second;
-            _timepoint_to_ptx_and_hash.erase(lru_iter);
-            _function_hash_to_timepoint.erase(lru_hash);
-        }
-        // emplace the new item
-        auto timepoint = ++_current_timepoint;
-        _function_hash_to_timepoint.emplace(hash, timepoint);
-        _timepoint_to_ptx_and_hash.emplace(timepoint, std::make_pair(ptx_string, hash));
-    };
-
-    auto identifier = fmt::format(
-        "func_{:016X}.lib_{:016X}.sm_{}",
-        function.hash(), cuda_device_library_hash, sm);
+    auto ptx_file_name = fmt::format(
+        "func_{:016x}.lib_{:016x}.sm_{}.ptx",
+        function.hash(), library_hash, sm);
+    auto ptx_file_path = ctx.cache_directory() / ptx_file_name;
 
     // try disk cache
-    {
-
+    if (std::ifstream ptx_file{ptx_file_path}; ptx_file.is_open()) {
+        LUISA_INFO("Found compilation cache: '{}'.", ptx_file_name);
+        luisa::string ptx{
+            std::istreambuf_iterator<char>{ptx_file},
+            std::istreambuf_iterator<char>{}};
+        _cache->update(hash, ptx);
+        return ptx;
     }
+    LUISA_INFO(
+        "Failed to load compilation cache for kernel {:016X},"
+        " falling back to re-compiling.",
+        function.hash());
 
+    // compile
     static thread_local Codegen::Scratch scratch;
     scratch.clear();
     CUDACodegen{scratch}.emit(function);
 
     auto source = scratch.view();
     LUISA_VERBOSE_WITH_LOCATION("Generated CUDA source:\n{}", source);
-
-    {// dump file
-        std::ofstream dump{ctx.cache_directory() / fmt::format("{}.cu", identifier)};
-        dump << source;
-    }
 
     std::array header_names{"device_math.h", "device_resource.h"};
     std::array header_sources{cuda_device_math_source, cuda_device_resource_source};
@@ -119,11 +89,11 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
 
-    update_memory_cache(ptx);
-    {
-        std::ofstream dump{ctx.cache_directory() / fmt::format("{}.ptx", identifier)};
-        dump << ptx;
-    }
+    _cache->update(hash, ptx);
+
+    // save cache
+    std::ofstream ptx_file{ctx.cache_directory() / ptx_file_name};
+    ptx_file << ptx;
     return ptx;
 }
 

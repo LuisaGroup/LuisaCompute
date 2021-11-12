@@ -15,7 +15,9 @@ set(LUISA_COMPUTE_CORE_SOURCES
         clock.h
         allocator.h allocator.cpp
         rc.h
-        pool.h constants.h)
+        pool.h
+        constants.h
+        lru_cache.h)
 
 find_package(Threads REQUIRED)
 

@@ -37,6 +37,8 @@ int main(int argc, char *argv[]) {
     static constexpr auto light_normal = make_float3(1.0f, 0.0f, 0.0f);
     static constexpr auto light_radius = 2.0f;
 
+    Clock clock;
+
     Callable intersect_light = [](Float3 pos, Float3 d) noexcept {
         auto cos_w = dot(-d, light_normal);
         auto dist = dot(d, light_pos - pos);
@@ -187,6 +189,8 @@ int main(int argc, char *argv[]) {
         seed_image[global_id] = seed;
     };
 
+    LUISA_INFO("Recorded AST in {} ms.", clock.toc());
+
     Context context{argv[0]};
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
     auto device = context.create_device("cuda", 1);
@@ -218,7 +222,6 @@ int main(int argc, char *argv[]) {
     static constexpr auto total_spp = 5000u;
 #endif
 
-    Clock clock;
     auto t0 = clock.toc();
     auto last_t = t0;
     auto spp_count = 0u;

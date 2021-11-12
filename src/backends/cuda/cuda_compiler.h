@@ -5,7 +5,7 @@
 #include <nvrtc.h>
 #include <cuda.h>
 
-#include <core/allocator.h>
+#include <core/lru_cache.h>
 #include <ast/function.h>
 #include <runtime/context.h>
 
@@ -14,16 +14,14 @@ namespace luisa::compute::cuda {
 class CUDACompiler {
 
 public:
+    using Cache = LRUCache<uint64_t, luisa::string>;
     static constexpr auto max_cache_item_count = 128u;
 
 private:
-    std::mutex _mutex;
-    uint64_t _current_timepoint{0u};
-    luisa::unordered_map<uint64_t, uint64_t> _function_hash_to_timepoint;
-    luisa::map<uint64_t, std::pair<luisa::string, uint64_t>> _timepoint_to_ptx_and_hash;
+    luisa::unique_ptr<Cache> _cache;
 
 private:
-    CUDACompiler() noexcept = default;
+    CUDACompiler() noexcept : _cache{Cache::create(max_cache_item_count)} {}
 
 public:
     CUDACompiler(CUDACompiler &&) noexcept = delete;
