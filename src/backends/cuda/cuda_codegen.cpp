@@ -516,7 +516,7 @@ void CUDACodegen::visit(const Type *type) noexcept {
         for (auto i = 0u; i < type->members().size(); i++) {
             _scratch << "  ";
             _emit_type_name(type->members()[i]);
-            _scratch << " m" << i << ";\n";
+            _scratch << " m" << i << "{};\n";
         }
         _scratch << "};\n\n";
     }
