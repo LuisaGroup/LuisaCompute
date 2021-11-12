@@ -106,6 +106,7 @@ template<size_t N>
         static_assert(always_false_v<std::integral_constant<size_t, N>>);
     }
 }
+
 template<typename NextVar, typename... OtherVars, typename NextTag, typename... OtherTags, typename... T>
 [[nodiscard]] std::tuple<T..., NextVar, OtherVars...> create_argument_definitions_impl(
     std::tuple<T...> tuple, std::tuple<NextVar, OtherVars...> *, std::tuple<NextTag, OtherTags...> *) noexcept;

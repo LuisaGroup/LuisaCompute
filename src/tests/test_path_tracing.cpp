@@ -144,7 +144,8 @@ int main(int argc, char *argv[]) {
     Kernel2D make_sampler_kernel = [&](ImageUInt state_image) noexcept {
         Var p = dispatch_id().xy();
         Var state = tea(p.x, p.y);
-        state_image.write(p, make_uint4(state));
+//        state_image.write(p, make_uint4(state));
+        state_image.write(p, make_uint4(1u));
     };
 
     Callable lcg = [](UInt &state) noexcept {
@@ -197,7 +198,9 @@ int main(int argc, char *argv[]) {
         Var coord = dispatch_id().xy() + tile_offset;
         if_(all(coord < resolution), [&] {
             auto frame_size = static_cast<float>(min(resolution.x, resolution.y));
-            Var state = state_image.read(coord).x;
+//            Var state = state_image.read(coord).x;
+            auto frame_id = state_image.read(coord).x;
+            Var state = frame_id;
             Var radiance = make_float3(0.0f);
 
             for (auto sub_frame : range(spp_per_dispatch)) {
@@ -278,7 +281,7 @@ int main(int argc, char *argv[]) {
                     beta *= 1.0f / q;
                 }
             }
-            state_image.write(coord, make_uint4(state));
+            state_image.write(coord, make_uint4(frame_id + 1u));
             Var old = image.read(coord);
             if_(isnan(radiance.x) || isnan(radiance.y) || isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
             Var t = 1.0f / (old.w + 1.0f);
@@ -319,7 +322,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 1024u;
+    static constexpr auto spp = 4096u;
     static constexpr auto dispatch_count = (spp + spp_per_dispatch - 1u) / spp_per_dispatch;
     stream << clear_shader(hdr_image).dispatch(width, height)
            << make_sampler_shader(state_image).dispatch(width, height);

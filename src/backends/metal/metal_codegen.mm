@@ -478,26 +478,6 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << "void kernel_" << hash_to_string(f.hash()) << "(";
 
         // arguments
-        for (auto buffer : f.captured_buffers()) {
-            _scratch << "\n    ";
-            _emit_argument_decl(buffer.variable);
-            _scratch << ",";
-        }
-        for (auto image : f.captured_textures()) {
-            _scratch << "\n    ";
-            _emit_argument_decl(image.variable);
-            _scratch << ",";
-        }
-        for (auto array : f.captured_bindless_arrays()) {
-            _scratch << "\n    ";
-            _emit_argument_decl(array.variable);
-            _scratch << ",";
-        }
-        for (auto accel : f.captured_accels()) {
-            _scratch << "\n    ";
-            _emit_argument_decl(accel.variable);
-            _scratch << ",";
-        }
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
             _emit_argument_decl(arg);
