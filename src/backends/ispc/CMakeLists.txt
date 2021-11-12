@@ -4,6 +4,7 @@
         runtime/ispc_codegenutil.cpp
         runtime/ispc_compiler.cpp
         runtime/ispc_device.cpp
+        runtime/ispc_runtime.cpp
         runtime/ispc_shader.cpp
     )
 ##[[[]]]

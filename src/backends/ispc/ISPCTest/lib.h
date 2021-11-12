@@ -835,3 +835,6 @@ float4 v0 = Smp3DBi(pTexture, sampler, uv, lod);
 float4 v1 = Smp3DBi(pTexture, sampler, uv, lod + 1);
 return lerp(v0, v1, frac(lod));
 }
+inline uniform uint64 Arg(uniform uint64 value) {
+	return (value + 15) & ~15;
+}

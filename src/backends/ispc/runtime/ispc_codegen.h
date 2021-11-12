@@ -25,6 +25,8 @@ public:
     static void GetCustomStruct(Type const &t, std::string_view strName, std::string &str);
     static void GetArrayStruct(Type const &t, std::string_view name, std::string &str);
     static void GetConstantData(ConstantData const &data, std::string &str);
+    static size_t GetTypeSize(Type const &t);
+    static size_t GetTypeAlign(Type const &t);
     static std::string GetBasicTypeName(uint64 typeIndex) {
         std::string s;
         GetBasicTypeName(typeIndex, s);

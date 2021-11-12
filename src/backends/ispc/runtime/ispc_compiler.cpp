@@ -27,7 +27,7 @@ static void GenerateDll(
                << ".obj"sv;
     system(compileCmd.c_str());
     remove((fileName + ".obj").c_str());
-    remove((fileName + ".txt").c_str());
+    //remove((fileName + ".txt").c_str());
     remove((fileName + ".exp").c_str());
     remove((fileName + ".lib").c_str());
     //link
@@ -35,8 +35,7 @@ static void GenerateDll(
 std::string Compiler::CompileCode(
     std::string_view code) const {
     vstd::MD5 md5(code);
-    std::string fileName;
-    vstd::StringUtil::EncodeToBase64({(uint8_t const *)(&md5.ToBinary()), sizeof(vstd::MD5::MD5Data)}, fileName);
+    std::string fileName = md5.ToString();
     constexpr size_t MD5_BASE64_STRLEN = 22;
     fileName.resize(MD5_BASE64_STRLEN);
     std::string dllName = fileName + ".dll";

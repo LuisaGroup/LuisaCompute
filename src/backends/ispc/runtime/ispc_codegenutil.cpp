@@ -1,7 +1,9 @@
 #pragma vengine_package ispc_vsproject
 
+
 #include <backends/ispc/runtime/ispc_codegen.h>
 #include <vstl/StringUtility.h>
+#include "ispc_shader.h"
 namespace lc::ispc {
 struct CodegenGlobal {
     vstd::HashMap<Type const *, uint64> structTypes;
@@ -577,6 +579,65 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
     }
     return defaultArgs;
 }
+size_t CodegenUtility::GetTypeAlign(Type const &t) {
+    switch (t.tag()) {
+        case Type::Tag::BOOL:
+            return 1;
+        case Type::Tag::FLOAT:
+        case Type::Tag::INT:
+        case Type::Tag::UINT:
+            return 4;
+        case Type::Tag::VECTOR:
+            return GetTypeAlign(*t.element()) * 4;
+        case Type::Tag::ARRAY:
+            return GetTypeAlign(*t.element());
+        case Type::Tag::STRUCTURE: {
+            size_t maxAlign = 1;
+            for (auto &&i : t.members()) {
+                maxAlign = std::max(maxAlign, GetTypeAlign(*i));
+            }
+            return maxAlign;
+        }
+        case Type::Tag::BUFFER:
+        case Type::Tag::TEXTURE:
+        case Type::Tag::ACCEL:
+        case Type::Tag::BINDLESS_ARRAY:
+            return 8;
+    }
+}
+
+size_t CodegenUtility::GetTypeSize(Type const &t) {
+    switch (t.tag()) {
+        case Type::Tag::BOOL:
+            return 1;
+        case Type::Tag::FLOAT:
+        case Type::Tag::INT:
+        case Type::Tag::UINT:
+            return 4;
+        case Type::Tag::VECTOR:
+        case Type::Tag::ARRAY:
+            return GetTypeSize(*t.element()) * t.dimension();
+        case Type::Tag::MATRIX:
+            return GetTypeSize(*t.element()) * t.dimension() * t.dimension();
+        case Type::Tag::STRUCTURE: {
+            size_t sz = 0;
+            size_t maxAlign = 1;
+            for (auto &&i : t.members()) {
+                auto a = GetTypeAlign(*i);
+                maxAlign = std::max(maxAlign, a);
+                sz = Shader::CalcAlign(sz, a);
+                sz += GetTypeSize(*i);
+            }
+            return Shader::CalcAlign(sz, maxAlign);
+        }
+        case Type::Tag::BUFFER:
+        case Type::Tag::TEXTURE:
+        case Type::Tag::ACCEL:
+        case Type::Tag::BINDLESS_ARRAY:
+            return 8;
+    }
+}
+
 void CodegenUtility::PrintFunction(Function func, std::string &str) {
     auto ExecuteConst = [&](auto &&f) {
         auto consts = func.constants();
@@ -596,28 +657,30 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         }
         bodyStr << headerName;
         //arguments
-        uint64 ofst = 0;
         std::string argName;
         std::string argType;
+        size_t argOffset = 0;
+        size_t collectSize = 0;
         auto printArg = [&](auto &&i) {
             argName.clear();
             argType.clear();
             GetVariableName(i, argName);
             GetTypeName(*i.type(), argType);
-            bodyStr << "uniform " << argType << ' ' << argName << '=' << "*((" << argType << "*)(arg";
-            if (ofst > 0) {
-                bodyStr << '+';
-                vstd::to_string((ofst), bodyStr);
-                bodyStr << "ull";
+            collectSize += Shader::CalcAlign(argOffset, GetTypeAlign(*i.type())) - argOffset;
+            if (collectSize > 0) {
+                bodyStr << "arg+=";
+                vstd::to_string(collectSize, bodyStr);
+                bodyStr << ";\n";
+                argOffset += collectSize;
+                collectSize = 0;
             }
-            bodyStr << "));\n";
-            ofst += 8;
+            bodyStr << "uniform " << argType << ' ' << argName << '=' << "*((" << argType << "*)arg);\n";
+            auto sz = GetTypeSize(*i.type());
+            collectSize += sz;
+            argOffset += sz;
         };
         for (auto &&i : func.arguments()) {
             printArg(i);
-        }
-        for (auto &&bf : func.captured_buffers()) {
-            printArg(bf.variable);
         }
         //foreach
 
