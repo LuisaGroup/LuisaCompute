@@ -1,6 +1,5 @@
 #pragma vengine_package ispc_vsproject
 
-
 #include "ispc_runtime.h"
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
@@ -36,7 +35,8 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
     Shader *sd = reinterpret_cast<Shader *>(cmd->handle());
     ShaderDispatcher disp{cmd->kernel(), vec, sd};
     cmd->decode(disp);
-    sd->dispatch(cmd->dispatch_size(), vec);
+    auto szzz = cmd->dispatch_size();
+    handles.emplace_back(sd->dispatch(tPool, cmd->dispatch_size(), vec));
 }
 void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {}

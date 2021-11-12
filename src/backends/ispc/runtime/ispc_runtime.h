@@ -9,6 +9,9 @@ namespace lc::ispc {
 class CommandExecutor : public CommandVisitor {
 public:
     Shader::ArgVector vec;
+    ThreadPool* tPool;
+    vstd::vector<ThreadTaskHandle> handles;
+    CommandExecutor(ThreadPool *tPool) : tPool(tPool){}
     void visit(BufferUploadCommand const *cmd) noexcept override;
     void visit(BufferDownloadCommand const *cmd) noexcept override;
     void visit(BufferCopyCommand const *cmd) noexcept override;

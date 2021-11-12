@@ -1,6 +1,5 @@
 #pragma vengine_package ispc_vsproject
 
-
 #include <backends/ispc/runtime/ispc_device.h>
 #include <runtime/sampler.h>
 #include "ispc_codegen.h"
@@ -37,12 +36,18 @@ void *ISPCDevice::texture_native_handle(uint64_t handle) const noexcept {
 
 // stream
 uint64_t ISPCDevice::create_stream() noexcept {
-    return reinterpret_cast<uint64>(new CommandExecutor());
+    return reinterpret_cast<uint64>(new CommandExecutor(&tPool));
 }
 void ISPCDevice::destroy_stream(uint64_t handle) noexcept {
     delete reinterpret_cast<CommandExecutor *>(handle);
 }
-void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {}
+void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
+    auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
+    for (auto&& i : cmd->handles) {
+        i.Complete();
+    }
+    cmd->handles.clear();
+}
 void ISPCDevice::dispatch(uint64_t stream_handle, CommandList cmdList) noexcept {
     for (auto &&i : cmdList) {
         i->accept(*reinterpret_cast<CommandExecutor *>(stream_handle));

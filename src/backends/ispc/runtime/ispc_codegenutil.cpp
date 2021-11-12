@@ -1,6 +1,5 @@
 #pragma vengine_package ispc_vsproject
 
-
 #include <backends/ispc/runtime/ispc_codegen.h>
 #include <vstl/StringUtility.h>
 #include "ispc_shader.h"
@@ -325,6 +324,7 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::CUSTOM:
             str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().hash())));
             break;
+
         case CallOp::ALL:
             str << "all"sv;
             break;
@@ -332,7 +332,10 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
             str << "any"sv;
             break;
         case CallOp::SELECT: {
-            str << "select"sv;
+            if (expr->arguments()[2]->type()->tag() == Type::Tag::BOOL)
+                str << "select_scale"sv;
+            else
+                str << "select"sv;
         } break;
         case CallOp::CLAMP:
             str << "clamp"sv;
@@ -345,6 +348,9 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
             break;
         case CallOp::ABS:
             str << "abs"sv;
+            break;
+        case CallOp::MAX:
+            str << "max"sv;
             break;
         case CallOp::MIN:
             str << "min"sv;
@@ -573,9 +579,11 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
                 str << "_float4"sv;
 
             break;
-        default:
+        default: {
+            auto errorType = expr->op();
             VEngine_Log("Function Not Implemented"sv);
             VSTL_ABORT();
+        }
     }
     return defaultArgs;
 }
@@ -645,6 +653,18 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
             f(c.data, str);
         }
     };
+    vstd::HashMap<uint64, void> executedFunc;
+    auto PrintCustom = [&](Function func, std::string &bodyStr, auto &&PrintCustom) -> void {
+        auto callables = func.custom_callables();
+        for (auto &&i : callables) {
+            Function f = Function(i.get());
+            bool needPrint = executedFunc.TryEmplace(f.hash()).second;
+            if (needPrint) {
+                PrintCustom(f, bodyStr, PrintCustom);
+                PrintFunction(f, bodyStr);
+            }
+        }
+    };
     if (func.tag() == Function::Tag::KERNEL) {
         ClearStructType();
         str << "#include \"lib.h\"\n";
@@ -653,7 +673,12 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         std::string bodyStr;
         auto callables = func.custom_callables();
         for (auto &&i : callables) {
-            PrintFunction(Function(i.get()), bodyStr);
+            Function f = Function(i.get());
+            bool needPrint = executedFunc.TryEmplace(f.hash()).second;
+            if (needPrint) {
+                PrintCustom(f, bodyStr, PrintCustom);
+                PrintFunction(f, bodyStr);
+            }
         }
         bodyStr << headerName;
         //arguments

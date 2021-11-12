@@ -1,13 +1,26 @@
 #pragma once
 #include <vstl/Common.h>
 #include <core/dynamic_module.h>
+#include <vstl/ThreadPool.h>
 namespace lc::ispc {
 using namespace luisa;
 class Shader {
 private:
     DynamicModule dllModule;
     Function func;
-    vstd::funcPtr_t<void(uint, uint, uint, uint64)> exportFunc;
+    using FuncType = void(
+        uint, // thd_cX,
+        uint, //thd_cY,
+        uint, //thd_cZ,
+        uint, //blk_cX,
+        uint, //blk_cY,
+        uint, //blk_cZ,
+        uint, // thd_idX,
+        uint, //thd_idY,
+        uint, // thd_idZ,
+        uint64// arg
+    );
+    vstd::funcPtr_t<FuncType> exportFunc;
     vstd::HashMap<uint, uint> varIdToArg;
 
 public:
@@ -36,7 +49,8 @@ public:
         vec.resize(sz + arrSize);
         memcpy(vec.data() + sz, ptr, arrSize);
     }
-    void dispatch(
+    ThreadTaskHandle dispatch(
+        ThreadPool* tPool,
         uint3 sz,
         ArgVector const &vec) const;
 };
