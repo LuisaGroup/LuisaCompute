@@ -125,7 +125,9 @@ private:
 protected:
     void _mark(Usage) const noexcept override {}
     uint64_t _compute_hash() const noexcept override {
-        return hash64(_op, hash64(_rhs->hash(), _lhs->hash()));
+        auto hl = _lhs->hash();
+        auto hr = _rhs->hash();
+        return hash64(_op, hash64(hl, hr));
     }
 
 public:
@@ -278,7 +280,7 @@ protected:
 
 public:
     LiteralExpr(const Type *type, Value v) noexcept
-        : Expression{Tag::LITERAL, type}, _value{v} {}
+        : Expression{Tag::LITERAL, type}, _value{std::move(v)} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
@@ -336,11 +338,10 @@ protected:
     void _mark(Usage) const noexcept override {}
     void _mark() const noexcept;
     uint64_t _compute_hash() const noexcept override {
-        auto h = std::accumulate(
-            _arguments.cbegin(), _arguments.cend(), hash64(_op),
-            [](auto old, auto p) noexcept { return hash64(p->hash(), old); });
-        if (_custom) { h = hash64(_custom.hash(), h); }
-        return h;
+        auto hash = hash64(_op);
+        for (auto &&a : _arguments) { hash = hash64(a->hash(), hash); }
+        if (_op == CallOp::CUSTOM) { hash = hash64(_custom.hash(), hash); }
+        return hash;
     }
 
 public:

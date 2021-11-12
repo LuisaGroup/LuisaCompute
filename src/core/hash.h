@@ -58,18 +58,20 @@ public:
         } else if constexpr (concepts::string_viewable<T>) {
             std::string_view sv{std::forward<T>(s)};
             return detail::xxh3_hash64(sv.data(), sv.size(), _seed);
-        } else if constexpr (concepts::span_convertible<T>) {
-            std::span v{std::forward<T>(s)};
-            return detail::xxh3_hash64(v.data(), v.size_bytes(), _seed);
-        } else if constexpr (concepts::iterable<T>) {
-            auto seed = _seed;
-            for (auto &&a : std::forward<T>(s)) { seed = Hash64{seed}(a); }
-            return seed;
+        } else if constexpr (is_vector3_v<T>) {
+            auto x = s;
+            return detail::xxh3_hash64(&x, sizeof(vector_element_t<T>) * 3u, _seed);
+        } else if constexpr (is_matrix3_v<T>) {
+            auto x = luisa::make_float4x4(s);
+            return (*this)(x);
+        } else if constexpr (
+            std::is_arithmetic_v<std::remove_cvref_t<T>> ||
+            std::is_enum_v<std::remove_cvref_t<T>> ||
+            is_basic_v<T>) {
+            auto x = s;
+            return detail::xxh3_hash64(&x, sizeof(x), _seed);
         } else {
-            using V = std::remove_cvref_t<T>;
-            static_assert(std::is_standard_layout_v<V> && !std::is_pointer_v<V>);
-            auto v = s;
-            return detail::xxh3_hash64(std::addressof(v), sizeof(V), _seed);
+            static_assert(always_false_v<T>);
         }
     }
 };

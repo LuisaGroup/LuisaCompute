@@ -62,6 +62,10 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         _timepoint_to_ptx_and_hash.emplace(timepoint, std::make_pair(ptx_string, hash));
     };
 
+    auto identifier = fmt::format(
+        "func_{:016X}.lib_{:016X}.sm_{}",
+        function.hash(), cuda_device_library_hash, sm);
+
     // try disk cache
     {
 
@@ -75,7 +79,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     LUISA_VERBOSE_WITH_LOCATION("Generated CUDA source:\n{}", source);
 
     {// dump file
-        std::ofstream dump{ctx.cache_directory() / fmt::format("kernel_{:016X}.cu", function.hash())};
+        std::ofstream dump{ctx.cache_directory() / fmt::format("{}.cu", identifier)};
         dump << source;
     }
 
@@ -116,7 +120,10 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
 
     update_memory_cache(ptx);
-
+    {
+        std::ofstream dump{ctx.cache_directory() / fmt::format("{}.ptx", identifier)};
+        dump << ptx;
+    }
     return ptx;
 }
 

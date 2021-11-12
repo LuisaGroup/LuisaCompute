@@ -204,13 +204,9 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
     auto kernel_name = fmt::format("kernel_{:016X}", kernel.hash());
-    {
-        std::ofstream dump{context().cache_directory() / fmt::format("{}.ptx", kernel_name)};
-        dump << ptx;
-    }
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Generated PTX for {} in {} ms:\n{}",
-        kernel_name, clock.toc(), ptx);
+    LUISA_INFO(
+        "Generated PTX for {} in {} ms.",
+        kernel_name, clock.toc());
     return with_handle([&] {
         CUmodule module{nullptr};
         CUfunction function{nullptr};

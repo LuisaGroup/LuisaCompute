@@ -310,19 +310,12 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
     _void_expr(call(nullptr, custom, args));
 }
 
-void FunctionBuilder::_compute_hash() noexcept {
-    auto h = hash64(_body.hash(), hash64(_tag, hash64("__hash_function")));
-    if (_ret != nullptr) { h = hash64(_ret->hash(), h); }
-    h = std::accumulate(
-        _arguments.cbegin(), _arguments.cend(), h,
-        [](auto seed, auto v) noexcept { return hash64(v.hash(), seed); });
-    h = hash64(_builtin_variables, h);
-    h = hash64(_captured_constants, h);
-    h = hash64(_captured_buffers, h);
-    h = hash64(_captured_textures, h);
-    h = hash64(_captured_accels, h);
-    h = hash64(_captured_bindless_arrays, h);
-    _hash = hash64(_arguments, h);
+void FunctionBuilder::_compute_hash() noexcept {// FIXME: seems not good
+    _hash = hash64(_body.hash(), hash64(_tag, hash64("__hash_function")));
+    if (_ret != nullptr) { _hash = hash64(_ret->hash(), _hash); }
+    for (auto &&arg : _arguments) { _hash = hash64(arg.hash(), _hash); }
+    for (auto &&c : _captured_constants) { _hash = hash64(c.hash(), _hash); }
+
 }
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
