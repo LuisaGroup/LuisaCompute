@@ -56,4 +56,11 @@ CUDASurface CUDAMipmapArray::surface(uint32_t level) const noexcept {
 CUDAMipmapArray::CUDAMipmapArray(uint64_t array, PixelFormat format, uint32_t levels) noexcept
     : _array{array}, _format{static_cast<uint16_t>(format)}, _levels{static_cast<uint16_t>(levels)} {}
 
+uint3 CUDAMipmapArray::size() const noexcept {
+    auto base = level(0);
+    CUDA_ARRAY3D_DESCRIPTOR_st desc{};
+    cuArray3DGetDescriptor(&desc, base);
+    return luisa::make_uint3(desc.Width, desc.Height, desc.Height);
+}
+
 }// namespace luisa::compute::cuda

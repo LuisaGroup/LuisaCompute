@@ -257,22 +257,22 @@ void CUDACodegen::visit(const CallExpr *expr) {
                      << "lc_" << expr->arguments().front()->type()->element()->description() << ">";
             break;
             // TODO: bindless resources
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "texture_heap_sample2d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "texture_heap_sample3d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "texture_heap_sample3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "texture_heap_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "texture_heap_read2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "texture_heap_read3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "texture_heap_read2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "texture_heap_read3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "texture_heap_size2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "texture_heap_size3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "texture_heap_size2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "texture_heap_size3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "lc_bindless_texture_sample3d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample3d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "lc_bindless_texture_read2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "lc_bindless_texture_read3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "lc_bindless_texture_read2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "lc_bindless_texture_read3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "lc_bindless_texture_size2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "lc_bindless_texture_size3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "lc_bindless_texture_size2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "lc_bindless_texture_size3d_level"; break;
         case CallOp::BINDLESS_BUFFER_READ:
-            _scratch << "buffer_heap_read<";
+            _scratch << "lc_bindless_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
@@ -581,10 +581,10 @@ void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
             break;
         case Variable::Tag::BINDLESS_ARRAY:
             if (readonly) { _scratch << "const "; }
-            _scratch << "heap ";
+            _scratch << "LCBindlessItem *";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::ACCEL:
+        case Variable::Tag::ACCEL:// TODO
             if (readonly) { _scratch << "const "; }
             _scratch << "accel ";
             _emit_variable_name(v);

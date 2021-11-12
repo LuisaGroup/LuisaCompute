@@ -601,9 +601,99 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
     }
 }
 
-struct LCBindlessItem {
-    void *buffer;
-    void *origin;
-    cudaTextureObject_t tex2d;
-    cudaTextureObject_t tex3d;
+struct alignas(16) LCBindlessItem {
+    const void *buffer;
+    const void *origin;
+    const cudaTextureObject_t tex2d;
+    const uint2 size2d;
+    const cudaTextureObject_t tex3d;
+    const ushort3 size3d;
 };
+
+static_assert(sizeof(LCBindlessItem) == 48);
+
+template<typename T>
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_read(const LCBindlessItem *array, lc_uint index, lc_uint i) noexcept {
+    auto buffer = reinterpret_cast<const T *>(array[index].buffer);
+    return buffer[i];
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(const LCBindlessItem *array, lc_uint index, lc_float2 p) noexcept {
+    auto t = array[index].tex2d;
+    auto v = tex2D<float4>(t, p.x, p.y);
+    return lc_make_float4(v.x, v.y, v.z, v.w);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d(const LCBindlessItem *array, lc_uint index, lc_float3 p) noexcept {
+    auto t = array[index].tex3d;
+    auto v = tex3D<float4>(t, p.x, p.y, p.z);
+    return lc_make_float4(v.x, v.y, v.z, v.w);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_level(const LCBindlessItem *array, lc_uint index, lc_float2 p, float level) noexcept {
+    auto t = array[index].tex2d;
+    auto v = tex2DLod<float4>(t, p.x, p.y, level);
+    return lc_make_float4(v.x, v.y, v.z, v.w);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_level(const LCBindlessItem *array, lc_uint index, lc_float3 p, float level) noexcept {
+    auto t = array[index].tex3d;
+    auto v = tex3DLod<float4>(t, p.x, p.y, p.z, level);
+    return lc_make_float4(v.x, v.y, v.z, v.w);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_grad(const LCBindlessItem *array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy) noexcept {
+    auto t = array[index].tex2d;
+    auto v = tex2DGrad<float4>(t, p.x, p.y, make_float2(dx.x, dx.y), make_float2(dy.x, dy.y));
+    return lc_make_float4(v.x, v.y, v.z, v.w);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_grad(const LCBindlessItem *array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy) noexcept {
+    auto t = array[index].tex3d;
+    auto v = tex3DGrad<float4>(t, p.x, p.y, p.z, make_float4(dx.x, dx.y, dx.z, 1.0f), make_float4(dy.x, dy.y, dy.z, 1.0f));
+    return lc_make_float4(v.x, v.y, v.z, v.w);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_size2d(const LCBindlessItem *array, lc_uint index) noexcept {
+    auto s = array[index].size2d;
+    return lc_make_uint2(s.x, s.y);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_size3d(const LCBindlessItem *array, lc_uint index) noexcept {
+    auto s = array[index].size3d;
+    return lc_make_uint3(s.x, s.y, s.z);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_size2d_level(const LCBindlessItem *array, lc_uint index, lc_uint level) noexcept {
+    auto s = array[index].size2d;
+    return lc_max(lc_make_uint2(s.x, s.y) >> level, lc_make_uint2(1u));
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_size3d_level(const LCBindlessItem *array, lc_uint index, lc_uint level) noexcept {
+    auto s = array[index].size3d;
+    return lc_max(lc_make_uint3(s.x, s.y, s.z) >> level, lc_make_uint3(1u));
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_read2d(const LCBindlessItem *array, lc_uint index, lc_uint2 p) noexcept {
+    auto s = lc_bindless_texture_size2d(array, index);
+    auto pp = (lc_make_float2(p) + lc_make_float2(0.5f)) / lc_make_float2(s);
+    return lc_bindless_texture_sample2d(array, index, pp);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_read3d(const LCBindlessItem *array, lc_uint index, lc_uint3 p) noexcept {
+    auto s = lc_bindless_texture_size3d(array, index);
+    auto pp = (lc_make_float3(p) + lc_make_float3(0.5f)) / lc_make_float3(s);
+    return lc_bindless_texture_sample3d(array, index, pp);
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_read2d_level(const LCBindlessItem *array, lc_uint index, lc_uint2 p, lc_uint level) noexcept {
+    auto s = lc_bindless_texture_size2d_level(array, index, level);
+    auto pp = (lc_make_float2(p) + lc_make_float2(0.5f)) / lc_make_float2(s);
+    return lc_bindless_texture_sample2d_level(array, index, pp, static_cast<float>(level));
+}
+
+[[nodiscard]] inline __device__ auto lc_bindless_texture_read3d_level(const LCBindlessItem *array, lc_uint index, lc_uint3 p, lc_uint level) noexcept {
+    auto s = lc_bindless_texture_size3d_level(array, index, level);
+    auto pp = (lc_make_float3(p) + lc_make_float3(0.5f)) / lc_make_float3(s);
+    return lc_bindless_texture_sample3d_level(array, index, pp, static_cast<float>(level));
+}

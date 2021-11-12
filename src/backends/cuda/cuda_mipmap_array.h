@@ -39,6 +39,7 @@ public:
     [[nodiscard]] auto levels() const noexcept { return static_cast<size_t>(_levels); }
     [[nodiscard]] CUarray level(uint32_t i) const noexcept;
     [[nodiscard]] CUDASurface surface(uint32_t level) const noexcept;
+    [[nodiscard]] uint3 size() const noexcept;
 };
 
 static_assert(sizeof(CUDAMipmapArray) == 128u);
