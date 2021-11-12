@@ -283,7 +283,6 @@ void CUDACodegen::visit(const CallExpr *expr) {
                      << expr->arguments().front()->type()->dimension() << "d_write<"
                      << "lc_" << expr->arguments().front()->type()->element()->description() << ">";
             break;
-            // TODO: bindless resources
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
@@ -312,8 +311,12 @@ void CUDACodegen::visit(const CallExpr *expr) {
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
-        case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
-        case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
+        case CallOp::MAKE_FLOAT2X2:
+            _scratch << "lc_make_float2x2";
+            break;
+        case CallOp::MAKE_FLOAT3X3:
+            _scratch << "lc_make_float3x3";
+            break;
         case CallOp::MAKE_FLOAT4X4:
             _scratch << "lc_make_float4x4";
             break;
