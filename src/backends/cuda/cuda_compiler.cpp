@@ -95,8 +95,8 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         "-include=device_math.h",
         "-include=device_resource.h",
         "-extra-device-vectorization",
-        "-dw"
-    };
+        "-dw",
+        "-w"};
     auto error = nvrtcCompileProgram(prog, options.size(), options.data());
     size_t log_size;
     LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
