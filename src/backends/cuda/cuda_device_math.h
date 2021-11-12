@@ -1804,9 +1804,9 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_isnan(lc_float3 x) noexcept { return lc_make_float3(isnan(x.x), isnan(x.y), isnan(x.z)); }
 [[nodiscard]] __device__ inline auto lc_isnan(lc_float4 x) noexcept { return lc_make_float4(isnan(x.x), isnan(x.y), isnan(x.z), isnan(x.w)); }
 
-[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_int v, lc_int lo, lc_int hi) noexcept { return v < lo ? lo : hi < v ? hi : v; }
-[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_uint v, lc_uint lo, lc_uint hi) noexcept { return v < lo ? lo : hi < v ? hi : v; }
-[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_float v, lc_float lo, lc_float hi) noexcept { return v < lo ? lo : hi < v ? hi : v; }
+[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_int v, lc_int lo, lc_int hi) noexcept { return lc_min(lc_max(v, lo), hi); }
+[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_uint v, lc_uint lo, lc_uint hi) noexcept { return lc_min(lc_max(v, lo), hi); }
+[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_float v, lc_float lo, lc_float hi) noexcept { return lc_min(lc_max(v, lo), hi); }
 [[nodiscard]] __device__ inline auto lc_clamp(lc_int v, lc_int lo, lc_int hi) noexcept { return lc_clamp_impl(v, lo, hi); }
 [[nodiscard]] __device__ inline auto lc_clamp(lc_int2 v, lc_int2 lo, lc_int2 hi) noexcept { return lc_make_int2(lc_clamp_impl(v.x, lo.x, hi.x), lc_clamp_impl(v.y, lo.y, hi.y)); }
 [[nodiscard]] __device__ inline auto lc_clamp(lc_int3 v, lc_int3 lo, lc_int3 hi) noexcept { return lc_make_int3(lc_clamp_impl(v.x, lo.x, hi.x), lc_clamp_impl(v.y, lo.y, hi.y), lc_clamp_impl(v.z, lo.z, hi.z)); }

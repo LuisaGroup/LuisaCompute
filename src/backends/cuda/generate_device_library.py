@@ -306,7 +306,7 @@ struct lc_float{i}x{i} {{
         # clamp
         for t in ["int", "uint", "float"]:
             print(
-                f"[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_{t} v, lc_{t} lo, lc_{t} hi) noexcept {{ return v < lo ? lo : hi < v ? hi : v; }}",
+                f"[[nodiscard]] __device__ inline auto lc_clamp_impl(lc_{t} v, lc_{t} lo, lc_{t} hi) noexcept {{ return lc_min(lc_max(v, lo), hi); }}",
                 file=file)
         generate_vector_call("clamp", "lc_clamp_impl", "iuf", ["v", "lo", "hi"])
 
