@@ -1,10 +1,12 @@
 #pragma vengine_package ispc_vsproject
 
+
 #include <backends/ispc/runtime/ispc_device.h>
 #include <runtime/sampler.h>
 #include "ispc_codegen.h"
 #include "ispc_compiler.h"
 #include "ispc_shader.h"
+#include "ispc_runtime.h"
 #include <core/dynamic_module.h>
 
 namespace lc::ispc {
@@ -13,10 +15,14 @@ void *ISPCDevice::native_handle() const noexcept {
 }
 
 // buffer
-uint64_t ISPCDevice::create_buffer(size_t size_bytes) noexcept { return 0; }
-void ISPCDevice::destroy_buffer(uint64_t handle) noexcept {}
+uint64_t ISPCDevice::create_buffer(size_t size_bytes) noexcept {
+    return reinterpret_cast<uint64>(vengine_malloc(size_bytes));
+}
+void ISPCDevice::destroy_buffer(uint64_t handle) noexcept {
+    vengine_free(reinterpret_cast<void *>(handle));
+}
 void *ISPCDevice::buffer_native_handle(uint64_t handle) const noexcept {
-    return nullptr;
+    return reinterpret_cast<void *>(handle);
 }
 
 // texture
@@ -30,21 +36,32 @@ void *ISPCDevice::texture_native_handle(uint64_t handle) const noexcept {
 }
 
 // stream
-uint64_t ISPCDevice::create_stream() noexcept { return 0; }
-void ISPCDevice::destroy_stream(uint64_t handle) noexcept {}
+uint64_t ISPCDevice::create_stream() noexcept {
+    return reinterpret_cast<uint64>(new CommandExecutor());
+}
+void ISPCDevice::destroy_stream(uint64_t handle) noexcept {
+    delete reinterpret_cast<CommandExecutor *>(handle);
+}
 void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {}
-void ISPCDevice::dispatch(uint64_t stream_handle, CommandList) noexcept {}
+void ISPCDevice::dispatch(uint64_t stream_handle, CommandList cmdList) noexcept {
+    for (auto &&i : cmdList) {
+        i->accept(*reinterpret_cast<CommandExecutor *>(stream_handle));
+    }
+}
 void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
-    return nullptr;
+    return (void *)handle;
 }
 
 // kernel
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    std::string result;
-    CodegenUtility::PrintFunction(kernel, result);
-    Compiler comp;
-    auto binName = comp.CompileCode(result);
-    return reinterpret_cast<uint64>(new Shader(binName));
+    std::string binName;
+    {
+        std::string result;
+        CodegenUtility::PrintFunction(kernel, result);
+        Compiler comp;
+        binName = comp.CompileCode(result);
+    }
+    return reinterpret_cast<uint64>(new Shader(kernel, binName));
 }
 void ISPCDevice::destroy_shader(uint64_t handle) noexcept {
     delete reinterpret_cast<Shader *>(handle);

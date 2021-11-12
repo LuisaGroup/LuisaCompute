@@ -718,6 +718,24 @@ struct Any<> {
 };
 template<bool... v>
 static constexpr bool Any_v = Any<v...>::value;
+template<size_t... size>
+struct max_size {
+    static constexpr auto value = static_cast<size_t>(0u);
+};
+template<size_t first, size_t... other>
+struct max_size<first, other...> {
+    static constexpr auto value = std::max(first, max_size<other...>::value);
+};
+template<typename... Funcs>
+struct PackedFunctors {
+    std::tuple<Funcs...> funcs;
+    PackedFunctors(Funcs &&...funcs)
+        : funcs(std::forward<Funcs>(funcs)...) {}
+    template<size_t idx, typename T>
+    decltype(auto) Run(T &&v) {
+        return std::get<idx>(funcs)(std::forward<T>(v));
+    }
+};
 }// namespace detail
 
 template<typename... Args>
@@ -728,14 +746,7 @@ public:
     static constexpr size_t argSize = sizeof...(AA);
 
 private:
-    template<size_t... size>
-    struct max_size {
-        static constexpr auto value = static_cast<size_t>(0u);
-    };
-    template<size_t first, size_t... other>
-    struct max_size<first, other...> {
-        static constexpr auto value = std::max(first, max_size<other...>::value);
-    };
+
     template<size_t i, typename T, typename... Args>
     struct TChsStr {
         using TT = typename TChsStr<i - 1, Args...>::TT;
@@ -748,16 +759,7 @@ private:
     template<size_t i, typename... Args>
     using Types = typename TChsStr<i, Args...>::TT;
 
-    template<typename... Funcs>
-    struct PackedFunctors {
-        std::tuple<Funcs...> funcs;
-        PackedFunctors(Funcs &&...funcs)
-            : funcs(std::forward<Funcs>(funcs)...) {}
-        template<size_t idx, typename T>
-        decltype(auto) Run(T &&v) {
-            return std::get<idx>(funcs)(std::forward<T>(v));
-        }
-    };
+
     template<typename Ret, typename Func, typename PtrType>
     struct Visitor {
         template<size_t begin, size_t end, typename... Args>
@@ -868,7 +870,7 @@ private:
         }
     };
 
-    std::aligned_storage_t<(max_size<sizeof(AA)...>::value), (max_size<alignof(AA)...>::value)> placeHolder;
+    std::aligned_storage_t<(detail::max_size<sizeof(AA)...>::value), (detail::max_size<alignof(AA)...>::value)> placeHolder;
     size_t switcher = 0;
 
     template<size_t i, typename Dest, typename... Args>
@@ -1055,55 +1057,55 @@ public:
     void multi_visit(Funcs &&...funcs) & {
         static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return;
-        Visitor<void, PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
+        Visitor<void, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
             switcher,
             GetPlaceHolder(),
-            PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename... Funcs>
     void multi_visit(Funcs &&...funcs) && {
         static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return;
-        Visitor<void, PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
+        Visitor<void, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
             switcher,
             GetPlaceHolder(),
-            PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename... Funcs>
     void multi_visit(Funcs &&...funcs) const & {
         static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return;
-        Visitor<void, PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
+        Visitor<void, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
             switcher,
             GetPlaceHolder(),
-            PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename Ret, typename... Funcs>
     std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) & {
         static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
+        return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
             switcher,
             GetPlaceHolder(),
-            PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename Ret, typename... Funcs>
     std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) && {
         static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
+        return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
             switcher,
             GetPlaceHolder(),
-            PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename Ret, typename... Funcs>
     std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) const & {
         static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
+        return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
             switcher,
             GetPlaceHolder(),
-            PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
 
     template<typename Ret, typename Func>
