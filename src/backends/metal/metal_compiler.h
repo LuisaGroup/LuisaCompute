@@ -12,6 +12,7 @@
 
 #import <core/hash.h>
 #import <core/spin_mutex.h>
+#import <core/lru_cache.h>
 #import <backends/metal/metal_shader.h>
 
 namespace luisa::compute::metal {
@@ -20,13 +21,17 @@ class MetalDevice;
 
 class MetalCompiler {
 
+public:
+    static constexpr size_t max_cache_item_count = 64u;
+    using Cache = LRUCache<uint64_t, MetalShader>;
+
 private:
     MetalDevice *_device;
-    luisa::unordered_map<uint64_t, MetalShader> _cache;
-    spin_mutex _cache_mutex;
+    luisa::unique_ptr<Cache> _cache;
 
 public:
-    explicit MetalCompiler(MetalDevice *device) noexcept : _device{device} {}
+    explicit MetalCompiler(MetalDevice *device) noexcept
+        : _device{device}, _cache{Cache::create(max_cache_item_count)} {}
     [[nodiscard]] MetalShader compile(Function kernel, std::string_view meta_options) noexcept;
 };
 

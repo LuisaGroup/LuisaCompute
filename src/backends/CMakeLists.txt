@@ -5,7 +5,8 @@ function(luisa_compute_add_backend name)
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
             luisa-compute-ast
             luisa-compute-runtime
-            luisa-compute-compile)
+            luisa-compute-compile
+            luisa-compute-vstl)
     add_dependencies(luisa-compute-backends luisa-compute-backend-${name})
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends"

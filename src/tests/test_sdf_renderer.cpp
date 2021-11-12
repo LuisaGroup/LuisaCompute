@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-//#define ENABLE_DISPLAY
+#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;

@@ -1,7 +1,7 @@
 #pragma vengine_package ispc_vsproject
 #include <backends/ispc/runtime/ispc_compiler.h>
-#ifdef _WIN32
 namespace lc::ispc {
+#ifdef _WIN32
 static void GenerateDll(
     std::string_view code,
     std::string const &fileName,
@@ -44,6 +44,10 @@ std::string Compiler::CompileCode(
     }
     return fileName;
 }
-}// namespace lc::ispc
-#endif
+#else
 //TODO: other platforms
+std::string lc::ispc::Compiler::CompileCode(std::string_view code) const {
+    return std::string();
+}
+#endif
+}// namespace lc::ispc

@@ -315,7 +315,7 @@ void FunctionBuilder::_compute_hash() noexcept {// FIXME: seems not good
     if (_ret != nullptr) { _hash = hash64(_ret->hash(), _hash); }
     for (auto &&arg : _arguments) { _hash = hash64(arg.hash(), _hash); }
     for (auto &&c : _captured_constants) { _hash = hash64(c.hash(), _hash); }
-
+    _hash = hash64(_block_size, _hash);
 }
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
