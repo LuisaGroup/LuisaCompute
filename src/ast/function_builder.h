@@ -56,10 +56,50 @@ private:
 public:
     using Tag = Function::Tag;
     using ConstantBinding = Function::ConstantBinding;
-    using BufferBinding = Function::BufferBinding;
-    using TextureBinding = Function::TextureBinding;
-    using BindlessArrayBinding = Function::BindlessArrayBinding;
-    using AccelBinding = Function::AccelBinding;
+
+    struct BufferBinding {
+        Variable variable;
+        uint64_t handle;
+        size_t offset_bytes;
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(offset_bytes, hash64(handle, hash64(variable.hash(), hash64("__hash_buffer_binding"))));
+        }
+    };
+
+    struct TextureBinding {
+        Variable variable;
+        uint64_t handle;
+        uint32_t level;
+        TextureBinding(Variable v, uint64_t handle, uint32_t level) noexcept
+            : variable{v}, handle{handle}, level{level} {}
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(level, hash64(handle, hash64(variable.hash(), hash64("__hash_texture_binding"))));
+        }
+    };
+
+    struct BindlessArrayBinding {
+        Variable variable;
+        uint64_t handle;
+        BindlessArrayBinding(Variable v, uint64_t handle) noexcept
+            : variable{v}, handle{handle} {}
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(handle, hash64(variable.hash(), hash64("__hash_bindless_array_binding")));
+        }
+    };
+
+    struct AccelBinding {
+        Variable variable;
+        uint64_t handle;
+        AccelBinding(Variable v, uint64_t handle) noexcept
+            : variable{v}, handle{handle} {}
+        [[nodiscard]] auto hash() const noexcept {
+            using namespace std::string_view_literals;
+            return hash64(handle, hash64(variable.hash(), hash64("__hash_accel_binding")));
+        }
+    };
 
 private:
     MetaStmt _body;

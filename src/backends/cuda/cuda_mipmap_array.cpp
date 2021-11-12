@@ -50,27 +50,7 @@ CUDASurface CUDAMipmapArray::surface(uint32_t level) const noexcept {
         _surfaces[level] = surf;
         return surf;
     }();
-    auto [storage, shift, channels] = [ps = pixel_format_to_storage(format())] {
-        switch (ps) {
-            case PixelStorage::BYTE1: return std::make_tuple(CUDASurface::Storage::BYTE, 0u, 1u);
-            case PixelStorage::BYTE2: return std::make_tuple(CUDASurface::Storage::BYTE, 1u, 2u);
-            case PixelStorage::BYTE4: return std::make_tuple(CUDASurface::Storage::BYTE, 2u, 4u);
-            case PixelStorage::SHORT1: return std::make_tuple(CUDASurface::Storage::SHORT, 1u, 1u);
-            case PixelStorage::SHORT2: return std::make_tuple(CUDASurface::Storage::SHORT, 2u, 2u);
-            case PixelStorage::SHORT4: return std::make_tuple(CUDASurface::Storage::SHORT, 3u, 4u);
-            case PixelStorage::INT1: return std::make_tuple(CUDASurface::Storage::INT, 2u, 1u);
-            case PixelStorage::INT2: return std::make_tuple(CUDASurface::Storage::INT, 3u, 2u);
-            case PixelStorage::INT4: return std::make_tuple(CUDASurface::Storage::INT, 4u, 4u);
-            case PixelStorage::HALF1: return std::make_tuple(CUDASurface::Storage::HALF, 1u, 1u);
-            case PixelStorage::HALF2: return std::make_tuple(CUDASurface::Storage::HALF, 2u, 2u);
-            case PixelStorage::HALF4: return std::make_tuple(CUDASurface::Storage::HALF, 3u, 4u);
-            case PixelStorage::FLOAT1: return std::make_tuple(CUDASurface::Storage::INT, 2u, 1u);
-            case PixelStorage::FLOAT2: return std::make_tuple(CUDASurface::Storage::INT, 3u, 2u);
-            case PixelStorage::FLOAT4: return std::make_tuple(CUDASurface::Storage::INT, 4u, 4u);
-            default: LUISA_ERROR_WITH_LOCATION("Invalid pixel storage.");
-        }
-    }();
-    return CUDASurface{handle, storage, static_cast<uint16_t>(shift), static_cast<uint16_t>(channels)};
+    return CUDASurface{handle, pixel_format_to_storage(format())};
 }
 
 CUDAMipmapArray::CUDAMipmapArray(uint64_t array, PixelFormat format, uint32_t levels) noexcept

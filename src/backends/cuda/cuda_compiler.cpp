@@ -11,11 +11,11 @@
 namespace luisa::compute::cuda {
 
 #include <backends/cuda/cuda_device_math_embedded.inl.h>
-#include <backends/cuda/cuda_device_surface_embedded.inl.h>
+#include <backends/cuda/cuda_device_resource_embedded.inl.h>
 
 luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint32_t sm) noexcept {
 
-    static const auto cuda_device_library_hash = hash64(cuda_device_math_source, hash64(cuda_device_surface_source));
+    static const auto cuda_device_library_hash = hash64(cuda_device_math_source, hash64(cuda_device_resource_source));
     auto hash = hash64(sm, hash64(function.hash(), cuda_device_library_hash));
 
     // try memory cache
@@ -79,8 +79,8 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         dump << source;
     }
 
-    std::array header_names{"device_math.h", "device_surface.h"};
-    std::array header_sources{cuda_device_math_source, cuda_device_surface_source};
+    std::array header_names{"device_math.h", "device_resource.h"};
+    std::array header_sources{cuda_device_math_source, cuda_device_resource_source};
     nvrtcProgram prog;
     LUISA_CHECK_NVRTC(nvrtcCreateProgram(
         &prog, source.data(), "my_kernel.cu",
@@ -93,7 +93,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         "-default-device",
         "-restrict",
         "-include=device_math.h",
-        "-include=device_surface.h",
+        "-include=device_resource.h",
         "-extra-device-vectorization",
         "-dw"
     };

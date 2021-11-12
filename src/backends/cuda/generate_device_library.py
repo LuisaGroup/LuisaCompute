@@ -3,7 +3,7 @@ from os.path import realpath, dirname
 if __name__ == "__main__":
     curr_dir = dirname(realpath(__file__))
     math_library_name = "cuda_device_math"
-    surf_library_name = "cuda_device_surface"
+    surf_library_name = "cuda_device_resource"
     with open(f"{curr_dir}/{math_library_name}.h", "w") as file:
         # scalar types
         print("#pragma once\n", file=file)
