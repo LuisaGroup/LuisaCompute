@@ -72,7 +72,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     CUDACodegen{scratch}.emit(function);
 
     auto source = scratch.view();
-    LUISA_INFO("Source:\n{}", source);
+    LUISA_VERBOSE_WITH_LOCATION("Generated CUDA source:\n{}", source);
 
     {// dump file
         std::ofstream dump{ctx.cache_directory() / fmt::format("kernel_{:016X}.cu", function.hash())};

@@ -208,13 +208,14 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
         std::ofstream dump{context().cache_directory() / fmt::format("{}.ptx", kernel_name)};
         dump << ptx;
     }
-    LUISA_INFO("Generated PTX for {} in {} ms: {}", kernel_name, clock.toc(), ptx);
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Generated PTX for {} in {} ms:\n{}",
+        kernel_name, clock.toc(), ptx);
     return with_handle([&] {
         CUmodule module{nullptr};
         CUfunction function{nullptr};
         LUISA_CHECK_CUDA(cuModuleLoadData(&module, ptx.data()));
         LUISA_CHECK_CUDA(cuModuleGetFunction(&function, module, kernel_name.c_str()));
-//        LUISA_CHECK_CUDA(cuFuncSetCacheConfig(function, CU_FUNC_CACHE_PREFER_L1));
         return reinterpret_cast<uint64_t>(function);
     });
 }
