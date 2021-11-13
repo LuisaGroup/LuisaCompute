@@ -8,6 +8,8 @@
 
 #include <runtime/device.h>
 #include <backends/cuda/cuda_error.h>
+#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_stream.h>
 
 namespace luisa::compute::cuda {
 
@@ -90,19 +92,15 @@ public:
     void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
-
-    // TODO...
-    void *native_handle() const noexcept override {
-        return nullptr;
-    }
+    void *native_handle() const noexcept override { return _handle.context(); }
     void *buffer_native_handle(uint64_t handle) const noexcept override {
-        return nullptr;
+        return reinterpret_cast<void *>(handle);
     }
     void *texture_native_handle(uint64_t handle) const noexcept override {
-        return nullptr;
+        return reinterpret_cast<void *>(reinterpret_cast<CUDAMipmapArray *>(handle)->handle());
     }
     void *stream_native_handle(uint64_t handle) const noexcept override {
-        return nullptr;
+        return reinterpret_cast<CUDAStream *>(handle)->handle();
     }
 
     template<typename F>
