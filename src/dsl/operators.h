@@ -27,41 +27,42 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(!, NOT)
 LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
 #undef LUISA_MAKE_GLOBAL_DSL_UNARY_OP
 
-#define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_tag_name)                                              \
-    template<typename Lhs, typename Rhs>                                                              \
-        requires luisa::compute::any_dsl_v<Lhs, Rhs>                                                  \
-    [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {                            \
-        using namespace std::string_view_literals;                                                    \
-        if constexpr (#op == "||"sv || #op == "&&"sv) {                                               \
-            static_assert(                                                                            \
-                !luisa::compute::is_dsl_v<Rhs> ||                                                     \
-                    !luisa::compute::is_scalar_expr_v<Lhs> && !luisa::compute::is_scalar_expr_v<Rhs>, \
-                "Operator `&&` and `||` are not allowed for DSL scalars, "                            \
-                "since the short-circuit semantics are not implemented. "                             \
-                "Please use `&` and `|` to workaround.");                                             \
-        }                                                                                             \
-        static constexpr auto is_bit_op = #op == "&"sv ||                                             \
-                                          #op == "|"sv ||                                             \
-                                          #op == "^"sv;                                               \
-        static constexpr auto is_bool_lhs = luisa::compute::is_boolean_expr_v<Lhs>;                   \
-        static constexpr auto is_bool_rhs = luisa::compute::is_boolean_expr_v<Rhs>;                   \
-        if constexpr (is_bit_op) {                                                                    \
-            static_assert(                                                                            \
-                (is_bool_lhs && is_bool_rhs) ||                                                       \
-                    (!is_bool_lhs && !is_bool_rhs),                                                   \
-                "Mixing boolean and non-boolean operands "                                            \
-                "for `&`, `|`, and `^` is not allowed.");                                             \
-        }                                                                                             \
-        using NormalR = std::remove_cvref_t<                                                          \
-            decltype(std::declval<luisa::compute::expr_value_t<Lhs>>() op                             \
-                         std::declval<luisa::compute::expr_value_t<Rhs>>())>;                         \
-        using R = std::conditional_t<is_bit_op && is_bool_lhs, bool, NormalR>;                        \
-        return luisa::compute::dsl::def<R>(                                                           \
-            luisa::compute::detail::FunctionBuilder::current()->binary(                               \
-                luisa::compute::Type::of<R>(),                                                        \
-                luisa::compute::BinaryOp::op_tag_name,                                                \
-                luisa::compute::detail::extract_expression(std::forward<Lhs>(lhs)),                   \
-                luisa::compute::detail::extract_expression(std::forward<Rhs>(rhs))));                 \
+#define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_tag_name)                              \
+    template<typename Lhs, typename Rhs>                                              \
+        requires luisa::compute::any_dsl_v<Lhs, Rhs>                                  \
+    [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {            \
+        using namespace std::string_view_literals;                                    \
+        static constexpr auto is_logic_op = #op == "||"sv || #op == "&&"sv;           \
+        if constexpr (is_logic_op && luisa::compute::is_dsl_v<Rhs>) {                 \
+            static_assert(                                                            \
+                !luisa::compute::is_scalar_expr_v<Lhs> &&                             \
+                    !luisa::compute::is_scalar_expr_v<Rhs>,                           \
+                "Operator `&&` and `||` are not allowed for DSL scalars, "            \
+                "since the short-circuit semantics are not implemented. "             \
+                "Please use `&` and `|` to workaround.");                             \
+        }                                                                             \
+        static constexpr auto is_bit_op = #op == "&"sv ||                             \
+                                          #op == "|"sv ||                             \
+                                          #op == "^"sv;                               \
+        static constexpr auto is_bool_lhs = luisa::compute::is_boolean_expr_v<Lhs>;   \
+        static constexpr auto is_bool_rhs = luisa::compute::is_boolean_expr_v<Rhs>;   \
+        if constexpr (is_bit_op) {                                                    \
+            static_assert(                                                            \
+                (is_bool_lhs && is_bool_rhs) ||                                       \
+                    (!is_bool_lhs && !is_bool_rhs),                                   \
+                "Mixing boolean and non-boolean operands "                            \
+                "for `&`, `|`, and `^` is not allowed.");                             \
+        }                                                                             \
+        using NormalR = std::remove_cvref_t<                                          \
+            decltype(std::declval<luisa::compute::expr_value_t<Lhs>>() op             \
+                         std::declval<luisa::compute::expr_value_t<Rhs>>())>;         \
+        using R = std::conditional_t<is_bit_op && is_bool_lhs, bool, NormalR>;        \
+        return luisa::compute::dsl::def<R>(                                           \
+            luisa::compute::detail::FunctionBuilder::current()->binary(               \
+                luisa::compute::Type::of<R>(),                                        \
+                luisa::compute::BinaryOp::op_tag_name,                                \
+                luisa::compute::detail::extract_expression(std::forward<Lhs>(lhs)),   \
+                luisa::compute::detail::extract_expression(std::forward<Rhs>(rhs)))); \
     }
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(+, ADD)
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(-, SUB)
