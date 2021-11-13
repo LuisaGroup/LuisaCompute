@@ -35,7 +35,11 @@ public:
     [[nodiscard]] auto fetch(const Key &key) noexcept -> std::optional<Value> {
         std::scoped_lock lock{_mutex};
         auto timepoint_iter = _key_to_timepoint.find(key);
-        if (timepoint_iter == _key_to_timepoint.end()) { return std::nullopt; }
+        // not in cache
+        if (timepoint_iter == _key_to_timepoint.end()) {
+            return std::nullopt;
+        }
+        // in cache, update timepoint
         auto old_timepoint = timepoint_iter->second;
         auto new_timepoint = ++_current_timepoint;
         timepoint_iter->second = new_timepoint;
@@ -51,17 +55,21 @@ public:
 
     void update(const Key &key, Value value) noexcept {
         std::scoped_lock lock{_mutex};
-        // another thread has updated the cache, just update
+        // already in the cache, just update
+        auto item = std::make_pair(key, std::move(value));
         if (auto timepoint_iter = _key_to_timepoint.find(key);
             timepoint_iter != _key_to_timepoint.end()) {
+            // update timepoint
             auto old_timepoint = timepoint_iter->second;
             auto new_timepoint = ++_current_timepoint;
             timepoint_iter->second = new_timepoint;
+            // update the cache item
             _timepoint_to_key_and_value.erase(old_timepoint);
-            _timepoint_to_key_and_value.emplace(new_timepoint, std::make_pair(key, std::move(value)));
+            _timepoint_to_key_and_value.emplace(new_timepoint, item);
         } else {
             // remove the least recently used item if cache exceeds the limit
             if (_key_to_timepoint.size() >= _capacity) {
+                // note: map is sorted, so begin() is the least recently used
                 auto lru_iter = _timepoint_to_key_and_value.begin();
                 auto lru_key = lru_iter->second.first;
                 _timepoint_to_key_and_value.erase(lru_iter);
@@ -70,7 +78,7 @@ public:
             // emplace the new item
             auto timepoint = ++_current_timepoint;
             _key_to_timepoint.emplace(key, timepoint);
-            _timepoint_to_key_and_value.emplace(timepoint, std::make_pair(key, std::move(value)));
+            _timepoint_to_key_and_value.emplace(timepoint, item);
         }
     }
 };
