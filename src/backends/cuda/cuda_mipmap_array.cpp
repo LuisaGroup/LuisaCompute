@@ -60,7 +60,7 @@ uint3 CUDAMipmapArray::size() const noexcept {
     auto base = level(0);
     CUDA_ARRAY3D_DESCRIPTOR_st desc{};
     cuArray3DGetDescriptor(&desc, base);
-    return luisa::make_uint3(desc.Width, desc.Height, desc.Height);
+    return luisa::make_uint3(desc.Width, desc.Height, desc.Depth);
 }
 
 }// namespace luisa::compute::cuda

@@ -32,7 +32,7 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
         requires luisa::compute::any_dsl_v<Lhs, Rhs>                                                  \
     [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {                            \
         using namespace std::string_view_literals;                                                    \
-        if constexpr (#op ""sv == "||"sv || #op ""sv == "&&"sv) {                                     \
+        if constexpr (#op == "||"sv || #op == "&&"sv) {                                               \
             static_assert(                                                                            \
                 !luisa::compute::is_dsl_v<Rhs> ||                                                     \
                     !luisa::compute::is_scalar_expr_v<Lhs> && !luisa::compute::is_scalar_expr_v<Rhs>, \
@@ -40,9 +40,9 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
                 "since the short-circuit semantics are not implemented. "                             \
                 "Please use `&` and `|` to workaround.");                                             \
         }                                                                                             \
-        static constexpr auto is_bit_op = #op ""sv == "&"sv ||                                        \
-                                          #op ""sv == "|"sv ||                                        \
-                                          #op ""sv == "^"sv;                                          \
+        static constexpr auto is_bit_op = #op == "&"sv ||                                             \
+                                          #op == "|"sv ||                                             \
+                                          #op == "^"sv;                                               \
         static constexpr auto is_bool_lhs = luisa::compute::is_boolean_expr_v<Lhs>;                   \
         static constexpr auto is_bool_rhs = luisa::compute::is_boolean_expr_v<Rhs>;                   \
         if constexpr (is_bit_op) {                                                                    \
