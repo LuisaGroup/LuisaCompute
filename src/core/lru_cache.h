@@ -16,7 +16,7 @@ class LRUCache {
 
 private:
     luisa::unordered_map<Key, uint64_t, Hash> _key_to_timepoint;
-    luisa::unordered_map<uint64_t, std::pair<Key, Value>> _timepoint_to_key_and_value;
+    luisa::map<uint64_t, std::pair<Key, Value>> _timepoint_to_key_and_value;
     size_t _capacity;
     uint64_t _current_timepoint{0u};
     std::mutex _mutex;
