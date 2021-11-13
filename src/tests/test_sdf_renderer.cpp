@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
         auto cos_w = dot(-d, light_normal);
         auto dist = dot(d, light_pos - pos);
         auto dist_to_light = def(inf);
-        $if(cos_w > 0.0f && dist > 0.0f) {
+        $if(cos_w > 0.0f & dist > 0.0f) {
             auto D = dist / cos_w;
             auto dist_to_center = distance_squared(light_pos, pos + D * d);
             $if(dist_to_center < light_radius * light_radius) {
@@ -109,7 +109,7 @@ int main(int argc, char *argv[]) {
         auto dist = def(0.0f);
         $for(j) : $range(100) {
             auto s = sdf(p + dist * d);
-            $if(s <= 1e-6f || dist >= inf) { $break; };
+            $if(s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
         };
         return min(dist, inf);

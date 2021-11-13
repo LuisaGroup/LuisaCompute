@@ -272,7 +272,7 @@ int main(int argc, char *argv[]) {
             auto cos_wi_light = dot(wi_light, n);
             auto cos_light = -dot(light_normal, wi_light);
             auto pdf_light = def(0.0f);
-            $if(!occluded && cos_wi_light > 1e-4f && cos_light > 1e-4f) {
+            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                 pdf_light = (d_light * d_light) / (light_area * cos_light);
             };
 

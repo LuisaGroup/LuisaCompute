@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
         }
         Var c0 = count == 2u;
         Var c1 = count == 3u;
-        pair.curr.write(uv, make_float4(ite((state && c0) || c1, 1.0f, 0.0f)));
+        pair.curr.write(uv, make_float4(ite((state & c0) | c1, 1.0f, 0.0f)));
     };
     auto shader = device.compile(kernel);
 

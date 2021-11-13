@@ -240,7 +240,7 @@ int main(int argc, char *argv[]) {
             auto occluded = accel.trace_any(shadow_ray);
             auto cos_wi_light = dot(wi_light, n);
             auto cos_light = -dot(light_normal, wi_light);
-            $if(!occluded && cos_wi_light > 1e-4f && cos_light > 1e-4f) {
+            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                 auto pdf_light = (d_light * d_light) / (light_area * cos_light);
                 auto pdf_bsdf = cos_wi_light * inv_pi;
                 auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);

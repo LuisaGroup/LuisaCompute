@@ -209,18 +209,17 @@ template<typename T, size_t N,
     template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
     [[nodiscard]] constexpr auto operator op(                                           \
         luisa::Vector<T, N> lhs, luisa::Vector<T, N> rhs) noexcept {                    \
-        using R = std::decay_t<decltype(static_cast<T>(0) op static_cast<T>(0))>;       \
         if constexpr (N == 2) {                                                         \
-            return luisa::Vector<R, 2>{                                                 \
+            return luisa::Vector<T, 2>{                                                 \
                 lhs.x op rhs.x,                                                         \
                 lhs.y op rhs.y};                                                        \
         } else if constexpr (N == 3) {                                                  \
-            return luisa::Vector<R, 3>{                                                 \
+            return luisa::Vector<T, 3>{                                                 \
                 lhs.x op rhs.x,                                                         \
                 lhs.y op rhs.y,                                                         \
                 lhs.z op rhs.z};                                                        \
         } else {                                                                        \
-            return luisa::Vector<R, 4>{                                                 \
+            return luisa::Vector<T, 4>{                                                 \
                 lhs.x op rhs.x,                                                         \
                 lhs.y op rhs.y,                                                         \
                 lhs.z op rhs.z,                                                         \
@@ -245,14 +244,44 @@ LUISA_MAKE_VECTOR_BINARY_OPERATOR(>>, luisa::is_integral_v<T>)
 LUISA_MAKE_VECTOR_BINARY_OPERATOR(|, std::negation_v<luisa::is_floating_point<T>>)
 LUISA_MAKE_VECTOR_BINARY_OPERATOR(&, std::negation_v<luisa::is_floating_point<T>>)
 LUISA_MAKE_VECTOR_BINARY_OPERATOR(^, std::negation_v<luisa::is_floating_point<T>>)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(||, luisa::is_boolean_v<T>)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(&&, luisa::is_boolean_v<T>)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(==, true)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(!=, true)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(<, std::negation_v<luisa::is_boolean<T>>)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(>, std::negation_v<luisa::is_boolean<T>>)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(<=, std::negation_v<luisa::is_boolean<T>>)
-LUISA_MAKE_VECTOR_BINARY_OPERATOR(>=, std::negation_v<luisa::is_boolean<T>>)
+
+#define LUISA_MAKE_VECTOR_LOGIC_OPERATOR(op, ...)                                       \
+    template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
+    [[nodiscard]] constexpr auto operator op(                                           \
+        luisa::Vector<T, N> lhs, luisa::Vector<T, N> rhs) noexcept {                    \
+        if constexpr (N == 2) {                                                         \
+            return luisa::bool2{                                                        \
+                lhs.x op rhs.x,                                                         \
+                lhs.y op rhs.y};                                                        \
+        } else if constexpr (N == 3) {                                                  \
+            return luisa::bool3{                                                        \
+                lhs.x op rhs.x,                                                         \
+                lhs.y op rhs.y,                                                         \
+                lhs.z op rhs.z};                                                        \
+        } else {                                                                        \
+            return luisa::bool4{                                                        \
+                lhs.x op rhs.x,                                                         \
+                lhs.y op rhs.y,                                                         \
+                lhs.z op rhs.z,                                                         \
+                lhs.w op rhs.w};                                                        \
+        }                                                                               \
+    }                                                                                   \
+    template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
+    [[nodiscard]] constexpr auto operator op(luisa::Vector<T, N> lhs, T rhs) noexcept { \
+        return lhs op luisa::Vector<T, N>{rhs};                                         \
+    }                                                                                   \
+    template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
+    [[nodiscard]] constexpr auto operator op(T lhs, luisa::Vector<T, N> rhs) noexcept { \
+        return luisa::Vector<T, N>{lhs} op rhs;                                         \
+    }
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(||, luisa::is_boolean_v<T>)
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(&&, luisa::is_boolean_v<T>)
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(==, true)
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(!=, true)
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(<, std::negation_v<luisa::is_boolean<T>>)
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(>, std::negation_v<luisa::is_boolean<T>>)
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(<=, std::negation_v<luisa::is_boolean<T>>)
+LUISA_MAKE_VECTOR_LOGIC_OPERATOR(>=, std::negation_v<luisa::is_boolean<T>>)
 
 #define LUISA_MAKE_VECTOR_ASSIGN_OPERATOR(op, ...)                         \
     template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0> \
@@ -281,6 +310,7 @@ LUISA_MAKE_VECTOR_ASSIGN_OPERATOR(&=, std::negation_v<luisa::is_floating_point<T
 LUISA_MAKE_VECTOR_ASSIGN_OPERATOR(^=, std::negation_v<luisa::is_floating_point<T>>)
 
 #undef LUISA_MAKE_VECTOR_BINARY_OPERATOR
+#undef LUISA_MAKE_VECTOR_LOGIC_OPERATOR
 #undef LUISA_MAKE_VECTOR_ASSIGN_OPERATOR
 
 // float2x2
