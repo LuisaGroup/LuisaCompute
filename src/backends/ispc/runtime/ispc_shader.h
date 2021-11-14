@@ -27,7 +27,7 @@ public:
     using ArgVector = vstd::vector<uint8_t, VEngine_AllocType::VEngine, true, 32>;
     Shader(
         Function func,
-        std::string const &str);
+        luisa::string const &str);
     size_t GetArgIndex(uint varID) const;
     static constexpr size_t CalcAlign(size_t value, size_t align) {
         return (value + (align - 1)) & ~(align - 1);

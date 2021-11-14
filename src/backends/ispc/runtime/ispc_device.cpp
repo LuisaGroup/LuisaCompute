@@ -59,10 +59,10 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 
 // kernel
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    std::string binName;
+    luisa::string binName;
     {
-        std::string result;
-        CodegenUtility::PrintFunction(kernel, result);
+        luisa::string result;
+        CodegenUtility::PrintFunction(kernel, result, kernel.block_size());
         Compiler comp;
         binName = comp.CompileCode(result);
     }

@@ -30,7 +30,7 @@ public:
 	template<typename... T>
 	static size_t MultipleHash(T const&... values) {
 		auto func = [](auto&& value) -> size_t {
-			vstd::hash<std::remove_cvref_t<decltype(value)>> hs;
+			hash<std::remove_cvref_t<decltype(value)>> hs;
 			return hs(value);
 		};
 		auto results = {func(values)...};
@@ -55,50 +55,50 @@ struct hash {
 template<>
 struct hash<int8_t> {
 	size_t operator()(int8_t const& value) const noexcept {
-		vstd::hash<uint64_t> hs;
+		hash<uint64_t> hs;
 		return hs(value);
 	};
 };
 template<>
 struct hash<uint8_t> {
 	size_t operator()(uint8_t const& value) const noexcept {
-		vstd::hash<uint64_t> hs;
+		hash<uint64_t> hs;
 		return hs(value);
 	};
 };
 template<>
 struct hash<int16_t> {
 	size_t operator()(int16_t const& value) const noexcept {
-		vstd::hash<uint64_t> hs;
+		hash<uint64_t> hs;
 		return hs(value);
 	};
 };
 template<>
 struct hash<uint16_t> {
 	size_t operator()(uint16_t const& value) const noexcept {
-		vstd::hash<uint64_t> hs;
+		hash<uint64_t> hs;
 		return hs(value);
 	};
 };
 template<>
 struct hash<int32_t> {
 	size_t operator()(int32_t const& value) const noexcept {
-		vstd::hash<uint64_t> hs;
+		hash<uint64_t> hs;
 		return hs(value);
 	};
 };
 template<>
 struct hash<uint32_t> {
 	size_t operator()(uint32_t const& value) const noexcept {
-		vstd::hash<uint64_t> hs;
+		hash<uint64_t> hs;
 		return hs(value);
 	};
 };
 template<typename A, typename B>
 struct hash<std::pair<A, B>> {
 	size_t operator()(std::pair<A, B> const& v) const noexcept {
-		vstd::hash<A> hs;
-		vstd::hash<B> hs1;
+		hash<A> hs;
+		hash<B> hs1;
 		return Hash::GetNextHash(hs(v.first), hs1(v.second));
 	}
 };

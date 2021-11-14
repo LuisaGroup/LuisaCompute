@@ -52,12 +52,12 @@ public:
     }
 
     static variant<int64, double> StringToNumber(std::string_view numStr);
-    static void ToLower(std::string &str);
-    static void ToUpper(std::string &str);
+    static void ToLower(string &str);
+    static void ToUpper(string &str);
 
-    static std::string ToLower(std::string_view str);
-    static std::string ToUpper(std::string_view str);
-    static void EncodeToBase64(std::span<uint8_t const> binary, std::string &result);
+    static string ToLower(std::string_view str);
+    static string ToUpper(std::string_view str);
+    static void EncodeToBase64(std::span<uint8_t const> binary, string &result);
     static void EncodeToBase64(std::span<uint8_t const> binary, char *result);
     static void DecodeFromBase64(std::string_view str, vector<uint8_t> &result);
     static void DecodeFromBase64(std::string_view str, uint8_t *size);

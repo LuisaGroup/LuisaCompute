@@ -172,6 +172,19 @@ inline bool4 _bool4(int4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
 inline bool4 _bool4(uint4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
 inline bool4 _bool4(float4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
 inline bool4 _bool4(bool4 v){bool4 r={v.x,v.y,v.z,v.w};return r;}
+#define select_scale(a,b,c) ((c)?(b):(a))
+inline float2 select(float2 f, float2 t, bool2 v){float2 r={(v.x?t.x:f.x),(v.y?t.y:f.y)};return r;}
+inline float3 select(float3 f, float3 t, bool3 v){float3 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z)};return r;}
+inline float4 select(float4 f, float4 t, bool4 v){float4 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z),(v.w?t.w:f.w)};return r;}
+inline uint2 select(uint2 f, uint2 t, bool2 v){uint2 r={(v.x?t.x:f.x),(v.y?t.y:f.y)};return r;}
+inline uint3 select(uint3 f, uint3 t, bool3 v){uint3 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z)};return r;}
+inline uint4 select(uint4 f, uint4 t, bool4 v){uint4 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z),(v.w?t.w:f.w)};return r;}
+inline int2 select(int2 f, int2 t, bool2 v){int2 r={(v.x?t.x:f.x),(v.y?t.y:f.y)};return r;}
+inline int3 select(int3 f, int3 t, bool3 v){int3 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z)};return r;}
+inline int4 select(int4 f, int4 t, bool4 v){int4 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z),(v.w?t.w:f.w)};return r;}
+inline bool2 select(bool2 f, bool2 t, bool2 v){bool2 r={(v.x?t.x:f.x),(v.y?t.y:f.y)};return r;}
+inline bool3 select(bool3 f, bool3 t, bool3 v){bool3 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z)};return r;}
+inline bool4 select(bool4 f, bool4 t, bool4 v){bool4 r={(v.x?t.x:f.x),(v.y?t.y:f.y),(v.z?t.z:f.z),(v.w?t.w:f.w)};return r;}
 
 inline float2 abs(float2 f) { float2 r = { abs(f.x), abs(f.y) }; return r; }
 inline float3 abs(float3 f) { float3 r = { abs(f.x), abs(f.y), abs(f.z) }; return r; }
@@ -297,6 +310,9 @@ inline float4 frac(float4 f) { return f - floor(f); }
 inline float length(float2 p) { return sqrt(dot(p, p)); }
 inline float length(float3 p) { return sqrt(dot(p, p)); }
 inline float length(float4 p) { return sqrt(dot(p, p)); }
+inline float length_sqr(float2 p) { return dot(p, p); }
+inline float length_sqr(float3 p) { return dot(p, p); }
+inline float length_sqr(float4 p) { return dot(p, p); }
 
 // lerp
 inline float lerp(float a, float b, float s) { return a + s * (b - a); }
@@ -834,7 +850,4 @@ float lod = max(0, lodLevel);
 float4 v0 = Smp3DBi(pTexture, sampler, uv, lod);
 float4 v1 = Smp3DBi(pTexture, sampler, uv, lod + 1);
 return lerp(v0, v1, frac(lod));
-}
-inline uniform uint64 Arg(uniform uint64 value) {
-	return (value + 15) & ~15;
 }

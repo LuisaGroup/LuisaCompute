@@ -132,26 +132,26 @@ template<typename T>
 struct PrintValue;
 template<>
 struct PrintValue<float> {
-    void operator()(float const &v, std::string &str) {
+    void operator()(float const &v, luisa::string &str) {
         vstd::to_string(v, str);
     }
 };
 template<>
 struct PrintValue<int> {
-    void operator()(int const &v, std::string &str) {
+    void operator()(int const &v, luisa::string &str) {
         vstd::to_string(v, str);
     }
 };
 template<>
 struct PrintValue<uint> {
-    void operator()(uint const &v, std::string &str) {
+    void operator()(uint const &v, luisa::string &str) {
         vstd::to_string(v, str);
     }
 };
 
 template<>
 struct PrintValue<bool> {
-    void operator()(bool const &v, std::string &str) {
+    void operator()(bool const &v, luisa::string &str) {
         if (v)
             str << "true";
         else
@@ -161,7 +161,7 @@ struct PrintValue<bool> {
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
-    void PureRun(T const &v, std::string &varName) {
+    void PureRun(T const &v, luisa::string &varName) {
         for (uint64 i = 0; i < N; ++i) {
             vstd::to_string(v[i], varName);
             varName += ',';
@@ -170,7 +170,7 @@ struct PrintValue<Vector<EleType, N>> {
         if (*last == ',')
             varName.erase(last);
     }
-    void operator()(T const &v, std::string &varName) {
+    void operator()(T const &v, luisa::string &varName) {
         if constexpr (N > 1) {
             if constexpr (std::is_same_v<EleType, float>) {
                 varName << "_float";
@@ -196,7 +196,7 @@ template<uint64 N>
 struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
-    void operator()(T const &v, std::string &varName) {
+    void operator()(T const &v, luisa::string &varName) {
         varName << "_float";
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';
@@ -214,7 +214,7 @@ struct PrintValue<Matrix<N>> {
 
 template<>
 struct PrintValue<LiteralExpr::MetaValue> {
-    void operator()(const LiteralExpr::MetaValue &s, std::string &varName) const noexcept {
+    void operator()(const LiteralExpr::MetaValue &s, luisa::string &varName) const noexcept {
         // TODO...
     }
 };
@@ -242,7 +242,7 @@ void StringExprVisitor::visit(const CastExpr *expr) {
 void StringExprVisitor::visit(const ConstantExpr *expr) {
     CodegenUtility::GetConstName(expr->data(), str);
 }
-StringExprVisitor::StringExprVisitor(std::string &str)
+StringExprVisitor::StringExprVisitor(luisa::string &str)
     : str(str) {
 }
 StringExprVisitor::~StringExprVisitor() {}
@@ -371,7 +371,7 @@ void StringStateVisitor::visit(const ForStmt *state) {
     str << "){\n";
     str << "}\n";
 }
-StringStateVisitor::StringStateVisitor(std::string &str)
+StringStateVisitor::StringStateVisitor(luisa::string &str)
     : str(str) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {

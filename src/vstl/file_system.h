@@ -10,10 +10,10 @@ public:
 		uint64 lastAccessTime;
 		uint64 lastWriteTime;
 	};
-	static bool IsFileExists(std::string const& path);
+	static bool IsFileExists(string const& path);
 	static void GetFiles(
-		std::string const& path,
-		vstd::function<bool(std::string&&)> const& callBack,
+		string const& path,
+		function<bool(string&&)> const& callBack,
 		bool recursionFolder);
 };
 }// namespace vstl

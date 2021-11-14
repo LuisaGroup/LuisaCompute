@@ -7,7 +7,7 @@ namespace lc::ispc {
 class Compiler {
 private:
 public:
-    std::string CompileCode(
+    luisa::string CompileCode(
         std::string_view code) const;
 };
 }// namespace lc::ispc

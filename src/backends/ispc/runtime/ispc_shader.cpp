@@ -4,7 +4,7 @@
 namespace lc::ispc {
 Shader::Shader(
     Function func,
-    std::string const &str)
+    luisa::string const &str)
     : dllModule(str), func(func) {
     exportFunc = dllModule.function<FuncType>("run");
     size_t sz = 0;
