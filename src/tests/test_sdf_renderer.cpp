@@ -37,11 +37,13 @@ int main(int argc, char *argv[]) {
     static constexpr auto light_normal = make_float3(1.0f, 0.0f, 0.0f);
     static constexpr auto light_radius = 2.0f;
 
+    Clock clock;
+
     Callable intersect_light = [](Float3 pos, Float3 d) noexcept {
         auto cos_w = dot(-d, light_normal);
         auto dist = dot(d, light_pos - pos);
         auto dist_to_light = def(inf);
-        $if(cos_w > 0.0f && dist > 0.0f) {
+        $if(cos_w > 0.0f & dist > 0.0f) {
             auto D = dist / cos_w;
             auto dist_to_center = distance_squared(light_pos, pos + D * d);
             $if(dist_to_center < light_radius * light_radius) {
@@ -107,7 +109,7 @@ int main(int argc, char *argv[]) {
         auto dist = def(0.0f);
         $for(j) : $range(100) {
             auto s = sdf(p + dist * d);
-            $if(s <= 1e-6f || dist >= inf) { $break; };
+            $if(s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
         };
         return min(dist, inf);
@@ -187,6 +189,8 @@ int main(int argc, char *argv[]) {
         seed_image[global_id] = seed;
     };
 
+    LUISA_INFO("Recorded AST in {} ms.", clock.toc());
+
     Context context{argv[0]};
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
     auto device = context.create_device("cuda", 1);
@@ -218,7 +222,6 @@ int main(int argc, char *argv[]) {
     static constexpr auto total_spp = 5000u;
 #endif
 
-    Clock clock;
     auto t0 = clock.toc();
     auto last_t = t0;
     auto spp_count = 0u;

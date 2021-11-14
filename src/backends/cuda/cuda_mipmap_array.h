@@ -13,17 +13,8 @@
 namespace luisa::compute::cuda {
 
 struct alignas(16) CUDASurface {
-    enum struct Storage : uint32_t {
-        BYTE,
-        SHORT,
-        INT,
-        HALF,
-        FLOAT
-    };
     CUsurfObject handle;
-    Storage storage;
-    uint16_t pixel_size_shift;// size = pow(2, shift)
-    uint16_t channel_count;
+    PixelStorage storage;
 };
 
 static_assert(sizeof(CUDASurface) == 16u);
@@ -48,6 +39,7 @@ public:
     [[nodiscard]] auto levels() const noexcept { return static_cast<size_t>(_levels); }
     [[nodiscard]] CUarray level(uint32_t i) const noexcept;
     [[nodiscard]] CUDASurface surface(uint32_t level) const noexcept;
+    [[nodiscard]] uint3 size() const noexcept;
 };
 
 static_assert(sizeof(CUDAMipmapArray) == 128u);

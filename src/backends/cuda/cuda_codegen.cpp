@@ -178,6 +178,7 @@ void CUDACodegen::visit(const RefExpr *expr) {
 
 void CUDACodegen::visit(const CallExpr *expr) {
 
+    auto is_atomic = false;
     switch (expr->op()) {
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::ALL: _scratch << "lc_all"; break;
@@ -236,16 +237,42 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::SYNCHRONIZE_BLOCK:
             _scratch << "__syncthreads";
             break;
-            // TODO: atomics
-        case CallOp::ATOMIC_EXCHANGE: _scratch << "atomic_exchange"; break;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "atomic_compare_exchange"; break;
-        case CallOp::ATOMIC_FETCH_ADD: _scratch << "atomic_fetch_add"; break;
-        case CallOp::ATOMIC_FETCH_SUB: _scratch << "atomic_fetch_sub"; break;
-        case CallOp::ATOMIC_FETCH_AND: _scratch << "atomic_fetch_and"; break;
-        case CallOp::ATOMIC_FETCH_OR: _scratch << "atomic_fetch_or"; break;
-        case CallOp::ATOMIC_FETCH_XOR: _scratch << "atomic_fetch_xor"; break;
-        case CallOp::ATOMIC_FETCH_MIN: _scratch << "atomic_fetch_min"; break;
-        case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
+        case CallOp::ATOMIC_EXCHANGE:
+            _scratch << "atomicExch";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE:
+            _scratch << "atomicCAS";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_FETCH_ADD:
+            _scratch << "atomicAdd";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_FETCH_SUB:
+            _scratch << "atomicSub";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_FETCH_AND:
+            _scratch << "atomicAnd";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_FETCH_OR:
+            _scratch << "atomicOr";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_FETCH_XOR:
+            _scratch << "atomicXor";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_FETCH_MIN:
+            _scratch << "atomicMin";
+            is_atomic = true;
+            break;
+        case CallOp::ATOMIC_FETCH_MAX:
+            _scratch << "atomicMax";
+            is_atomic = true;
+            break;
         case CallOp::TEXTURE_READ:
             _scratch << "lc_surf"
                      << expr->arguments().front()->type()->dimension() << "d_read<"
@@ -256,23 +283,22 @@ void CUDACodegen::visit(const CallExpr *expr) {
                      << expr->arguments().front()->type()->dimension() << "d_write<"
                      << "lc_" << expr->arguments().front()->type()->element()->description() << ">";
             break;
-            // TODO: bindless resources
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "texture_heap_sample2d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "texture_heap_sample2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "texture_heap_sample2d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "texture_heap_sample3d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "texture_heap_sample3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "texture_heap_sample3d_grad"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "texture_heap_read2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "texture_heap_read3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "texture_heap_read2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "texture_heap_read3d_level"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "texture_heap_size2d"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "texture_heap_size3d"; break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "texture_heap_size2d_level"; break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "texture_heap_size3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "lc_bindless_texture_sample2d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample2d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: _scratch << "lc_bindless_texture_sample3d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: _scratch << "lc_bindless_texture_sample3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: _scratch << "lc_bindless_texture_sample3d_grad"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ: _scratch << "lc_bindless_texture_read2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ: _scratch << "lc_bindless_texture_read3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: _scratch << "lc_bindless_texture_read2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: _scratch << "lc_bindless_texture_read3d_level"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE: _scratch << "lc_bindless_texture_size2d"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "lc_bindless_texture_size3d"; break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "lc_bindless_texture_size2d_level"; break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "lc_bindless_texture_size3d_level"; break;
         case CallOp::BINDLESS_BUFFER_READ:
-            _scratch << "buffer_heap_read<";
+            _scratch << "lc_bindless_buffer_read<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
@@ -285,8 +311,12 @@ void CUDACodegen::visit(const CallExpr *expr) {
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
-        case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
-        case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
+        case CallOp::MAKE_FLOAT2X2:
+            _scratch << "lc_make_float2x2";
+            break;
+        case CallOp::MAKE_FLOAT3X3:
+            _scratch << "lc_make_float3x3";
+            break;
         case CallOp::MAKE_FLOAT4X4:
             _scratch << "lc_make_float4x4";
             break;
@@ -295,8 +325,17 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::TRACE_ANY: break;
     }
     _scratch << "(";
-    if (!expr->arguments().empty()) {
-        for (auto arg : expr->arguments()) {
+    auto args = expr->arguments();
+    if (is_atomic) {
+        _scratch << "&(";
+        args.front()->accept(*this);
+        _scratch << ")";
+        for (auto arg : args.subspan(1u)) {
+            _scratch << ", ";
+            arg->accept(*this);
+        }
+    } else if (!args.empty()) {
+        for (auto arg : args) {
             arg->accept(*this);
             _scratch << ", ";
         }
@@ -516,7 +555,7 @@ void CUDACodegen::visit(const Type *type) noexcept {
         for (auto i = 0u; i < type->members().size(); i++) {
             _scratch << "  ";
             _emit_type_name(type->members()[i]);
-            _scratch << " m" << i << ";\n";
+            _scratch << " m" << i << "{};\n";
         }
         _scratch << "};\n\n";
     }
@@ -581,10 +620,10 @@ void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
             break;
         case Variable::Tag::BINDLESS_ARRAY:
             if (readonly) { _scratch << "const "; }
-            _scratch << "heap ";
+            _scratch << "LCBindlessItem *";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::ACCEL:
+        case Variable::Tag::ACCEL:// TODO
             if (readonly) { _scratch << "const "; }
             _scratch << "accel ";
             _emit_variable_name(v);
@@ -624,7 +663,7 @@ void CUDACodegen::_emit_constant(Function::ConstantBinding c) noexcept {
                   _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }
     _generated_constants.emplace_back(c.data.hash());
 
-    _scratch << "__constant__ ";
+    _scratch << "__constant__ const ";
     _emit_type_name(c.type);
     _scratch << " c" << hash_to_string(c.data.hash()) << "{";
     auto count = c.type->dimension();

@@ -5,7 +5,8 @@ function(luisa_compute_add_backend name)
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
             luisa-compute-ast
             luisa-compute-runtime
-            luisa-compute-compile)
+            luisa-compute-compile
+            luisa-compute-vstl)
     add_dependencies(luisa-compute-backends luisa-compute-backend-${name})
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends"
@@ -22,18 +23,18 @@ function(luisa_compute_add_backend name)
     target_compile_definitions(luisa-compute-backends INTERFACE LUISA_BACKEND_${UPPER_NAME}_ENABLED)
 endfunction()
 
-option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
-option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
+option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" OFF)
+option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" OFF)
 option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" ON)
 
 if (LUISA_COMPUTE_ENABLE_DX)
-    #add_subdirectory(dx)
+    # add_subdirectory(dx)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_LLVM)
-    add_subdirectory(llvm)
+    # add_subdirectory(llvm)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_METAL)

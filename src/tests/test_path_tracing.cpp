@@ -255,7 +255,7 @@ int main(int argc, char *argv[]) {
                     Var occluded = accel.trace_any(shadow_ray);
                     Var cos_wi_light = dot(wi_light, n);
                     Var cos_light = -dot(light_normal, wi_light);
-                    if_(!occluded && cos_wi_light > 1e-4f && cos_light > 1e-4f, [&] {
+                    if_(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f, [&] {
                         Var pdf_light = (d_light * d_light) / (light_area * cos_light);
                         Var pdf_bsdf = cos_wi_light * inv_pi;
                         Var mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
@@ -283,7 +283,7 @@ int main(int argc, char *argv[]) {
             }
             state_image.write(coord, make_uint4(frame_id + 1u));
             Var old = image.read(coord);
-            if_(isnan(radiance.x) || isnan(radiance.y) || isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
+            if_(isnan(radiance.x) | isnan(radiance.y) | isnan(radiance.z), [&] { radiance = make_float3(0.0f); });
             Var t = 1.0f / (old.w + 1.0f);
             Var color = lerp(old.xyz(), clamp(radiance * (1.0f / spp_per_dispatch), 0.0f, 30.0f), t);
             image.write(coord, make_float4(color, old.w + 1.0f));

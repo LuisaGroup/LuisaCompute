@@ -9,7 +9,8 @@ namespace luisa::compute {
 uint64_t Statement::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
-        _hash = hash64(_tag, hash64(_compute_hash(), hash64("__hash_statement")));
+        auto h = _compute_hash();
+        _hash = hash64(_tag, hash64(h, hash64("__hash_statement"sv)));
         _hash_computed = true;
     }
     return _hash;

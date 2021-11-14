@@ -117,24 +117,25 @@ public:
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) &&noexcept {
         // populate captured resources
-        for (auto buffer : _kernel.captured_buffers()) {
+        for (auto buffer : _kernel.builder()->captured_buffers()) {
             _dispatch_command()->encode_buffer(
                 buffer.variable.uid(), buffer.handle, buffer.offset_bytes,
                 _kernel.variable_usage(buffer.variable.uid()));
         }
-        for (auto texture : _kernel.captured_textures()) {
+        for (auto texture : _kernel.builder()->captured_textures()) {
             _dispatch_command()->encode_texture(
                 texture.variable.uid(), texture.handle, texture.level,
                 _kernel.variable_usage(texture.variable.uid()));
         }
-        for (auto bindless_array : _kernel.captured_bindless_arrays()) {
+        for (auto bindless_array : _kernel.builder()->captured_bindless_arrays()) {
             _dispatch_command()->encode_bindless_array(
                 bindless_array.variable.uid(), bindless_array.handle);
         }
-        for (auto accel : _kernel.captured_accels()) {
+        for (auto accel : _kernel.builder()->captured_accels()) {
             _dispatch_command()->encode_accel(
                 accel.variable.uid(), accel.handle);
         }
+        // TODO: check arguments
         // set launch size
         _dispatch_command()->set_dispatch_size(dispatch_size);
         Command *command{nullptr};

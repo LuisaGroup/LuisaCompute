@@ -16,14 +16,6 @@ std::span<const Function::ConstantBinding> Function::constants() const noexcept 
     return _builder->constants();
 }
 
-std::span<const Function::BufferBinding> Function::captured_buffers() const noexcept {
-    return _builder->captured_buffers();
-}
-
-std::span<const Function::TextureBinding> Function::captured_textures() const noexcept {
-    return _builder->captured_textures();
-}
-
 std::span<const Variable> Function::arguments() const noexcept {
     return _builder->arguments();
 }
@@ -62,14 +54,6 @@ uint64_t Function::hash() const noexcept {
 
 bool Function::raytracing() const noexcept {
     return _builder->raytracing();
-}
-
-std::span<const Function::BindlessArrayBinding> Function::captured_bindless_arrays() const noexcept {
-    return _builder->captured_bindless_arrays();
-}
-
-std::span<const Function::AccelBinding> Function::captured_accels() const noexcept {
-    return _builder->captured_accels();
 }
 
 luisa::shared_ptr<const detail::FunctionBuilder> Function::shared_builder() const noexcept {

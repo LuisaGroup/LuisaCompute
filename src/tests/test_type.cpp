@@ -138,9 +138,6 @@ int main() {
     LUISA_INFO("size = {}, alignment = {}", sizeof(AA), alignof(AA));
     LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
 
-    int a[5]{1, 2, 3, 4, 5};
-    auto hh = Hash64{}(a);
-
     auto &&type_aa = typeid(AA);
     auto &&type_bb = typeid(BB);
     LUISA_INFO("{}", type_aa.before(type_bb));

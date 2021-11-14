@@ -14,34 +14,20 @@ MetalShader MetalCompiler::compile(
     Function kernel,
     std::string_view meta_options) noexcept {// TODO: meta-options
 
-    auto hash_string = luisa::string{hash_to_string(kernel.hash())};
-    LUISA_INFO("Compiling kernel #{}.", hash_string);
+    auto hash = hash64(meta_options, kernel.hash());
+    if (auto shader = _cache->fetch(hash)) { return *shader; }
 
+    LUISA_INFO("Compiling kernel_{:016X}.", kernel.hash());
     Clock clock;
 
     Codegen::Scratch scratch;
     MetalCodegen codegen{scratch};
     codegen.emit(kernel);
 
-    auto s = scratch.view();
-    auto hash = hash64(s);
-    LUISA_VERBOSE(
-        "Generated source (hash = 0x{:016x}) for kernel #{} in {} ms:\n\n{}",
-        hash, hash_string, clock.toc(), s);
-
-    // try memory cache
-    {
-        std::scoped_lock lock{_cache_mutex};
-        if (auto iter = _cache.find(hash); iter != _cache.cend()) {
-            LUISA_VERBOSE_WITH_LOCATION(
-                "Cache hit for kernel #{}. Compilation skipped.", hash_string);
-            return iter->second;
-        }
-    }
-
-    // compile from source
-    auto src = [[NSString alloc] initWithBytes:s.data()
-                                        length:s.size()
+        // compile from source
+    auto source = scratch.view();
+    auto src = [[NSString alloc] initWithBytes:source.data()
+                                        length:source.size()
                                       encoding:NSUTF8StringEncoding];
 
     auto options = [[MTLCompileOptions alloc] init];
@@ -52,20 +38,21 @@ MetalShader MetalCompiler::compile(
     auto library = [_device->handle() newLibraryWithSource:src options:options error:&error];
     if (error != nullptr) [[unlikely]] {
         auto error_msg = [error.description cStringUsingEncoding:NSUTF8StringEncoding];
-        LUISA_WARNING("Output while compiling kernel #{}: {}", hash_string, error_msg);
+        LUISA_WARNING("Output while compiling kernel_{:016X}: {}", kernel.hash(), error_msg);
         if (library == nullptr || error.code == MTLLibraryErrorCompileFailure) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Failed to compile kernel #{}.", hash_string);
+            LUISA_ERROR_WITH_LOCATION("Failed to compile kernel_{:016X}.", kernel.hash());
         }
         error = nullptr;
     }
 
-    auto name = fmt::format("kernel_{}", hash_string);
+    auto name = fmt::format("kernel_{:016X}", kernel.hash());
     __autoreleasing auto objc_name = @(name.c_str());
     auto func = [library newFunctionWithName:objc_name];
     if (func == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to find function '{}' in compiled Metal library for kernel #{}.",
-            name, hash_string);
+            "Failed to find function '{}' in "
+            "compiled Metal library for kernel_{:016X}.",
+            name, kernel.hash());
     }
 
     auto block_size = kernel.block_size();
@@ -80,13 +67,15 @@ MetalShader MetalCompiler::compile(
                                                                   error:&error];
     if (error != nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to create pipeline state object for kernel #{}: {}.",
-            hash_string, [error.description cStringUsingEncoding:NSUTF8StringEncoding]);
+            "Failed to create pipeline state object for kernel_{:016X}: {}.",
+            kernel.hash(),
+            [error.description cStringUsingEncoding:NSUTF8StringEncoding]);
     }
 
-    // TODO: LRU
-    std::scoped_lock lock{_cache_mutex};
-    return _cache.try_emplace(hash, pso).first->second;
+    // update cache
+    MetalShader shader{pso};
+    _cache->update(hash, shader);
+    return shader;
 }
 
 }

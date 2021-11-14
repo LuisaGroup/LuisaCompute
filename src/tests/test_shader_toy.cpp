@@ -24,7 +24,9 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_METAL_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda", 1);
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
@@ -59,7 +61,7 @@ int main(int argc, char *argv[]) {
         for (auto i : range(64)) {
             Var p = ro + rd * t;
             d = map(p, time) * 0.5f;
-            if_(d < 0.02f || d > 100.0f, [] { break_(); });
+            if_(d < 0.02f | d > 100.0f, [] { break_(); });
             col += palette(length(p) * 0.1f) / (400.0f * d);
             t += d;
         }

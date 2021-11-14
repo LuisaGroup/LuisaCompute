@@ -36,7 +36,9 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_METAL_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda", 0);
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
@@ -65,7 +67,7 @@ int main(int argc, char *argv[]) {
         }
         Var c0 = count == 2u;
         Var c1 = count == 3u;
-        pair.curr.write(uv, make_float4(ite((state && c0) || c1, 1.0f, 0.0f)));
+        pair.curr.write(uv, make_float4(ite((state & c0) | c1, 1.0f, 0.0f)));
     };
     auto shader = device.compile(kernel);
 

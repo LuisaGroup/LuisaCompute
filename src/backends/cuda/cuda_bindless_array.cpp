@@ -139,6 +139,7 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
         _tex_to_array.erase(iter);
     }
     _slots[index].tex2d = texture;
+    _slots[index].size2d = array->size().xy();
     _tex_to_array.emplace(texture, array);
     _retain_array(array);
 }
@@ -160,7 +161,12 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
         _release_array(iter->second);
         _tex_to_array.erase(iter);
     }
+    auto s = array->size();
     _slots[index].tex3d = texture;
+    _slots[index].size3d = {
+        static_cast<unsigned short>(s.x),
+        static_cast<unsigned short>(s.y),
+        static_cast<unsigned short>(s.z)};
     _tex_to_array.emplace(texture, array);
     _retain_array(array);
 }

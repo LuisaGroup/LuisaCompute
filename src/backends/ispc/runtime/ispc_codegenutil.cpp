@@ -587,7 +587,7 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
     }
     return defaultArgs;
 }
-size_t CodegenUtility::GetTypeAlign(Type const &t) {
+size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     switch (t.tag()) {
         case Type::Tag::BOOL:
             return 1;
@@ -595,6 +595,7 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {
         case Type::Tag::INT:
         case Type::Tag::UINT:
             return 4;
+            // TODO: incorrect
         case Type::Tag::VECTOR:
             return GetTypeAlign(*t.element()) * 4;
         case Type::Tag::ARRAY:
@@ -614,7 +615,7 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {
     }
 }
 
-size_t CodegenUtility::GetTypeSize(Type const &t) {
+size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
     switch (t.tag()) {
         case Type::Tag::BOOL:
             return 1;

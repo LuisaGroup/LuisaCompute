@@ -20,12 +20,15 @@ class CUDAStream;
 class CUDABindlessArray {
 
 public:
-    struct Item {
+    struct alignas(16) Item {
         CUdeviceptr buffer{};
         CUdeviceptr origin{};
         CUtexObject tex2d{};
+        uint2 size2d{};
         CUtexObject tex3d{};
+        std::array<uint16_t, 3> size3d{};
     };
+    static_assert(sizeof(Item) == 48);
 
 private:
     CUdeviceptr _handle;

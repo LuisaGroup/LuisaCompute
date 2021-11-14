@@ -32,50 +32,6 @@ public:
         // TODO: Ray-tracing functions, e.g. custom intersectors...
     };
 
-    struct BufferBinding {
-        Variable variable;
-        uint64_t handle;
-        size_t offset_bytes;
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(offset_bytes, hash64(handle, hash64(variable.hash(), hash64("__hash_buffer_binding"))));
-        }
-    };
-
-    struct TextureBinding {
-        Variable variable;
-        uint64_t handle;
-        uint32_t level;
-        TextureBinding(Variable v, uint64_t handle, uint32_t level) noexcept
-            : variable{v}, handle{handle}, level{level} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(level, hash64(handle, hash64(variable.hash(), hash64("__hash_texture_binding"))));
-        }
-    };
-
-    struct BindlessArrayBinding {
-        Variable variable;
-        uint64_t handle;
-        BindlessArrayBinding(Variable v, uint64_t handle) noexcept
-            : variable{v}, handle{handle} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(handle, hash64(variable.hash(), hash64("__hash_bindless_array_binding")));
-        }
-    };
-
-    struct AccelBinding {
-        Variable variable;
-        uint64_t handle;
-        AccelBinding(Variable v, uint64_t handle) noexcept
-            : variable{v}, handle{handle} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(handle, hash64(variable.hash(), hash64("__hash_accel_binding")));
-        }
-    };
-
     struct ConstantBinding {
         const Type *type{nullptr};
         ConstantData data;
@@ -96,10 +52,6 @@ public:
     explicit Function(const detail::FunctionBuilder *builder) noexcept : _builder{builder} {}
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
     [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
-    [[nodiscard]] std::span<const BufferBinding> captured_buffers() const noexcept;
-    [[nodiscard]] std::span<const TextureBinding> captured_textures() const noexcept;
-    [[nodiscard]] std::span<const BindlessArrayBinding> captured_bindless_arrays() const noexcept;
-    [[nodiscard]] std::span<const AccelBinding> captured_accels() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const luisa::shared_ptr<const detail::FunctionBuilder>> custom_callables() const noexcept;
     [[nodiscard]] CallOpSet builtin_callables() const noexcept;

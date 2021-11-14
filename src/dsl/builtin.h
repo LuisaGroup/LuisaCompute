@@ -1181,7 +1181,7 @@ template<typename X, typename Y>
         std::forward<Y>(y));
 }
 
-template<typename X, typename Y>
+template<typename X>
     requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto sign(X &&x) noexcept {
     return copysign(1.0f, std::forward<X>(x));
