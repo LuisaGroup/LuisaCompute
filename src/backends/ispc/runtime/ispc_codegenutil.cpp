@@ -52,7 +52,6 @@ struct CodegenGlobal {
     }
 };
 static thread_local vstd::optional<CodegenGlobal> opt;
-#include "ispc.inl"
 void CodegenUtility::ClearStructType() {
     opt.New();
     opt->Clear();
@@ -648,6 +647,7 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
 }
 
 void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 blockSize) {
+#include "ispc.inl"
     auto ExecuteConst = [&](auto &&f) {
         auto consts = func.constants();
         for (auto &&c : consts) {
@@ -672,15 +672,7 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
         ExecuteConst(GetConstantStruct);
         ExecuteConst(GetConstantData);
         luisa::string bodyStr;
-        auto callables = func.custom_callables();
-        for (auto &&i : callables) {
-            Function f = Function(i.get());
-            bool needPrint = executedFunc.TryEmplace(f.hash()).second;
-            if (needPrint) {
-                PrintCustom(f, bodyStr, PrintCustom);
-                PrintFunction(f, bodyStr, blockSize);
-            }
-        }
+        PrintCustom(func, bodyStr, PrintCustom);
         bodyStr << headerName;
         //arguments
         luisa::string argName;
@@ -714,6 +706,37 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
         func.body()->accept(vis);
         //end
         bodyStr << '}' << exportName;
+        size_t tailCount = 1;
+        if (blockSize.x <= 1 && blockSize.y <= 1 && blockSize.z <= 1) {
+            bodyStr << zero_blk_id;
+        } else {
+            bodyStr << "foreach(";
+            vstd::string defineStr;
+            auto printStr = [&](char var, char varCount, uint count) {
+                if (count <= 1) {
+                    defineStr << "#define " << var << " 0\n";
+                } else {
+                    bodyStr << var << " = 0 ... " << varCount << ',';
+                }
+            };
+            printStr('x', 'X', blockSize.x);
+            printStr('y', 'Y', blockSize.y);
+            printStr('z', 'Z', blockSize.z);
+            if (*(bodyStr.end() - 1) == ',') {
+                *(bodyStr.end() - 1) = ')';
+            } else {
+                bodyStr << ')';
+            }
+            bodyStr << "{\n"
+                    << defineStr
+                    << blk_id;
+            tailCount++;
+        }
+
+        bodyStr << tail;
+        for (auto i : vstd::range(tailCount)) {
+            bodyStr << '}';
+        }
         for (auto &&i : opt->customStructs) {
 
             if (i.first->is_structure()) {

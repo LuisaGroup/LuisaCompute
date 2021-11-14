@@ -24,9 +24,9 @@ uniform uint3 thd_id = {thd_idX, thd_idY, thd_idZ};
 uniform uint3 blk_c = {blk_cX,blk_cY,blk_cZ};
 uniform uint3 dsp_c = thd_c * blk_c;
 uniform uint3 ldsp_id = thd_id * blk_c;
-foreach(x = 0 ... X, y = 0 ... Y, z = 0 ... Z){
-uint3 blk_id = {x,y,z};
-uint3 dsp_id = ldsp_id + blk_id;
+)"sv;
+static const std::string_view zero_blk_id = "uint3 blk_id={0,0,0};\n";
+static const std::string_view blk_id = "uint3 blk_id={x,y,z};\n";
+static const std::string_view tail = R"(uint3 dsp_id = ldsp_id + blk_id;
 kernel(blk_c, thd_c, blk_id, thd_id, dsp_c, dsp_id, arg);
-}}
 )"sv;
