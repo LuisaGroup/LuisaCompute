@@ -277,45 +277,44 @@ void StringStateVisitor::visit(const IfStmt *state) {
     str << "if(";
     StringExprVisitor vis(str);
     state->condition()->accept(vis);
-    str << "){\n";
+    str << ")";
     state->true_branch()->accept(*this);
-    str << "}else{\n";
-    state->false_branch()->accept(*this);
-    str << "}\n";
+    if (!state->false_branch()->statements().empty()) {
+        str << "else";
+        state->false_branch()->accept(*this);
+    }
 }
 void StringStateVisitor::visit(const LoopStmt *state) {
     stmtCount = std::numeric_limits<uint64>::max();
-    str << "while(1){\n";
-    str << "}\n";
+    str << "while(1)";
+    state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const ExprStmt *state) {
     stmtCount++;
     StringExprVisitor vis(str);
     state->expression()->accept(vis);
+    str << ";\n";
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
    stmtCount++;
     str << "switch(";
     StringExprVisitor vis(str);
     state->expression()->accept(vis);
-    str << "){\n";
+    str << ")";
     state->body()->accept(*this);
-    str << "}\n";
 }
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
     stmtCount++;
     str << "case ";
     StringExprVisitor vis(str);
     state->expression()->accept(vis);
-    str << ":{\n";
+    str << ":";
     state->body()->accept(*this);
-    str << "}\n";
 }
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
     stmtCount++;
-    str << "default:{\n";
+    str << "default:";
     state->body()->accept(*this);
-    str << "}\n";
 }
 void StringStateVisitor::visit(const AssignStmt *state) {
     stmtCount++;
@@ -363,19 +362,21 @@ void StringStateVisitor::visit(const ForStmt *state) {
     stmtCount = std::numeric_limits<uint64>::max();
     str << "for(";
     StringExprVisitor vis(str);
-    state->variable()->accept(vis);
+//    state->variable()->accept(vis);
     str << ';';
     state->condition()->accept(vis);
     str << ';';
+    state->variable()->accept(vis);
+    str << "+=";
     state->step()->accept(vis);
-    str << "){\n";
-    str << "}\n";
+    str << ")";
+    state->body()->accept(*this);
 }
 StringStateVisitor::StringStateVisitor(luisa::string &str)
     : str(str) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
-    str << "{\n";
+    str << "{ // begin: " << stmt->info() << "\n";
     for (auto &&v : stmt->variables()) {
         CodegenUtility::GetTypeName(*v.type(), str);
         str << ' ';
@@ -383,7 +384,7 @@ void StringStateVisitor::visit(const MetaStmt *stmt) {
         str << ";\n";
     }
     stmt->scope()->accept(*this);
-    str << "}\n";
+    str << "} // end: " << stmt->info() << "\n";
 }
 StringStateVisitor::~StringStateVisitor() = default;
 }// namespace lc::ispc

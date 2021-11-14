@@ -1,8 +1,12 @@
 #pragma vengine_package ispc_vsproject
+
+#include <core/platform.h>
 #include <backends/ispc/runtime/ispc_compiler.h>
-#ifdef _WIN32
 
 namespace lc::ispc {
+
+// windows
+#if defined(LUISA_PLATFORM_WINDOWS)
 namespace detail {
 static std::string_view FOLDER_NAME = "ispc_backend\\";
 }
@@ -53,6 +57,21 @@ luisa::string Compiler::CompileCode(
     }
     return fileName;
 }
-}// namespace lc::ispc
-#endif
+#elif defined(LUISA_PLATFORM_UNIX)
 //TODO: other platforms
+luisa::string Compiler::CompileCode(
+    std::string_view code) const {
+    LUISA_INFO("Code:\n{}", code);
+    {
+        std::ofstream src_file{"source.ispc"};
+        src_file << code;
+    }
+    auto command = fmt::format("ispc -O3 source.ispc -woff -o source.o && clang -shared source.o -o libsource.dylib");
+    system(command.c_str());
+    return "source";
+}
+#else
+#error Unsupported platform for ISPC backend.
+#endif
+
+}// namespace lc::ispc

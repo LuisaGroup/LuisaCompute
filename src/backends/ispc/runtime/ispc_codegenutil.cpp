@@ -611,6 +611,9 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
         case Type::Tag::ACCEL:
         case Type::Tag::BINDLESS_ARRAY:
             return 8;
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid type: {}.", t.description());
     }
 }
 

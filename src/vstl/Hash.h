@@ -30,7 +30,7 @@ public:
 	template<typename... T>
 	static size_t MultipleHash(T const&... values) {
 		auto func = [](auto&& value) -> size_t {
-			hash<std::remove_cvref_t<decltype(value)>> hs;
+			vstd::hash<std::remove_cvref_t<decltype(value)>> hs;
 			return hs(value);
 		};
 		auto results = {func(values)...};
