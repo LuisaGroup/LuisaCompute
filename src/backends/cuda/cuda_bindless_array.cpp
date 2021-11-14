@@ -175,7 +175,7 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
     for (auto item : _tex_to_array) {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(item.first));
     }
-    LUISA_CHECK_CUDA(cuMemFreeAsync(_handle, nullptr));
+    LUISA_CHECK_CUDA(cuMemFree(_handle));
 }
 
 CUDABindlessArray::CUDABindlessArray(CUdeviceptr handle, size_t capacity) noexcept
