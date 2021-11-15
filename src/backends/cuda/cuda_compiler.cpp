@@ -26,9 +26,26 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         hash64(cuda_device_resource_source,
                ver_major * 1000 + ver_minor * 10));
 
+    auto sm_option = fmt::format("-arch=compute_{}", sm);
+    std::array options{
+        sm_option.c_str(),
+        "--std=c++17",
+        "--use_fast_math",
+//        "--fmad=false",
+        "-default-device",
+        "-restrict",
+        "-include=device_math.h",
+        "-include=device_resource.h",
+        "-extra-device-vectorization",
+        "-dw",
+        "-w"};
+
+    auto opt_hash = Hash64::default_seed;
+    for (auto o : options) { opt_hash = hash64(o, opt_hash); }
+
     auto ptx_file_name = fmt::format(
-        "func_{:016x}.lib_{:016x}.sm_{}.ptx",
-        function.hash(), library_hash, sm);
+        "func_{:016x}.lib_{:016x}.opt_{:016x}.ptx",
+        function.hash(), library_hash, opt_hash);
     auto ptx_file_path = ctx.cache_directory() / ptx_file_name;
 
     // try disk cache
@@ -59,18 +76,6 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     LUISA_CHECK_NVRTC(nvrtcCreateProgram(
         &prog, source.data(), "my_kernel.cu",
         header_sources.size(), header_sources.data(), header_names.data()));
-    auto sm_option = fmt::format("-arch=compute_{}", sm);
-    std::array options{
-        sm_option.c_str(),
-        "--std=c++17",
-        "--use_fast_math",
-        "-default-device",
-        "-restrict",
-        "-include=device_math.h",
-        "-include=device_resource.h",
-        "-extra-device-vectorization",
-        "-dw",
-        "-w"};
     auto error = nvrtcCompileProgram(prog, options.size(), options.data());
     size_t log_size;
     LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
