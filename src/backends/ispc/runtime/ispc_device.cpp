@@ -59,14 +59,13 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 
 // kernel
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    luisa::string binName;
-    {
+    auto module = [=]{
         luisa::string result;
         CodegenUtility::PrintFunction(kernel, result, kernel.block_size());
         Compiler comp;
-        binName = comp.CompileCode(result);
-    }
-    return reinterpret_cast<uint64>(new Shader(kernel, binName));
+        return comp.CompileCode(context(), result);
+    }();
+    return reinterpret_cast<uint64>(new Shader(kernel, std::move(module)));
 }
 void ISPCDevice::destroy_shader(uint64_t handle) noexcept {
     delete reinterpret_cast<Shader *>(handle);

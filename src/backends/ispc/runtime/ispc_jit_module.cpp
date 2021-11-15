@@ -1,5 +1,5 @@
 //
-// Created by Mike Smith on 2021/9/3.
+// Created by Mike Smith on 2021/11/15.
 //
 
 #include <llvm/IR/Module.h>
@@ -17,12 +17,27 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/IPO.h>
 
-#include <runtime/context.h>
+#include <backends/ispc/runtime/ispc_jit_module.h>
+
+namespace lc::ispc {
+
+JITModule::JITModule(luisa::unique_ptr<llvm::LLVMContext> ctx, std::unique_ptr<llvm::ExecutionEngine> engine) noexcept
+    : _context{std::move(ctx)}, _engine{std::move(engine)} {
+    _run = reinterpret_cast<function_type *>(_engine->getFunctionAddress("run"));
+}
+
+JITModule::~JITModule() noexcept = default;
+
+void JITModule::operator()(luisa::uint3 thread_count, luisa::uint3 thread_start, const void *args) const noexcept {
+    _run(thread_count.x, thread_count.y, thread_count.z,
+         thread_start.x, thread_start.y, thread_start.z,
+         reinterpret_cast<uint64_t>(args));
+}
 
 [[nodiscard]] auto get_target_machine() {
     static std::once_flag flag;
     static llvm::TargetMachine *machine{nullptr};
-    std::call_once(flag, []{
+    std::call_once(flag, [] {
         llvm::InitializeNativeTarget();
         llvm::InitializeNativeTargetAsmPrinter();
         LLVMLinkInMCJIT();
@@ -43,62 +58,27 @@
     return machine;
 }
 
-class JITModule {
-
-public:
-    using function_type = void(
-        uint32_t,// thd_cX
-        uint32_t,// thd_cY
-        uint32_t,// thd_cZ
-        uint32_t,// thd_idX
-        uint32_t,// thd_idY
-        uint32_t,// thd_idZ
-        uint64_t// arg
-    );
-
-private:
-    luisa::unique_ptr<llvm::LLVMContext> _context;
-    std::unique_ptr<llvm::ExecutionEngine> _engine;
-    function_type *_run{nullptr};
-
-public:
-    JITModule(luisa::unique_ptr<llvm::LLVMContext> ctx,
-              std::unique_ptr<llvm::ExecutionEngine> engine) noexcept
-        : _context{std::move(ctx)}, _engine{std::move(engine)} {
-        _run = reinterpret_cast<function_type *>(_engine->getFunctionAddress("run"));
-    }
-
-    void operator()(luisa::uint3 block_size, luisa::uint3 thread_start, const void *args) noexcept {
-        _run(block_size.x, block_size.y, block_size.z,
-             thread_start.x, thread_start.y, thread_start.z,
-             reinterpret_cast<uint64_t>(args));
-    }
-};
-
-[[nodiscard]] auto load_jit_module(const std::filesystem::path &ir_path) noexcept {
+JITModule JITModule::load(const std::filesystem::path &ir_path) noexcept {
     auto context = luisa::make_unique<llvm::LLVMContext>();
     llvm::SMDiagnostic error;
+    LUISA_INFO("Loading LLVM IR: {}.", ir_path.string());
     auto module = llvm::parseIRFile(ir_path.string(), error, *context);
     if (module == nullptr) {
-        LUISA_ERROR_WITH_LOCATION("Failed to load module: {}.", error.getMessage().data());
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to load module: {}.",
+            error.getMessage().data());
     }
-    module->print(llvm::errs(), nullptr);
     std::string err;
     llvm::EngineBuilder engine_builder{std::move(module)};
     engine_builder.setErrorStr(&err);
     engine_builder.setOptLevel(llvm::CodeGenOpt::Aggressive);
-    std::unique_ptr<llvm::ExecutionEngine> exec_engine{engine_builder.create(get_target_machine())};
+    std::unique_ptr<llvm::ExecutionEngine> exec_engine{
+        engine_builder.create(get_target_machine())};
     if (exec_engine == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to create execution engine: {}.", err);
     }
-    return JITModule{std::move(context), std::move(exec_engine)};
+    return {std::move(context), std::move(exec_engine)};
 }
 
-int main(int argc, char *argv[]) {
-    auto ir_path = [argv] {
-        luisa::compute::Context ctx{argv[0]};
-        return std::filesystem::canonical(ctx.cache_directory() / "source.ll");
-    }();
-    auto module = load_jit_module(ir_path);
-}
+}// namespace lc::ispc

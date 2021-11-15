@@ -4,9 +4,8 @@
 namespace lc::ispc {
 Shader::Shader(
     Function func,
-    luisa::string const &str)
-    : dllModule(str), func(func) {
-    exportFunc = dllModule.function<FuncType>("run");
+    JITModule module)
+    : module{std::move(module)}, func(func) {
     size_t sz = 0;
     for (auto &&i : func.arguments()) {
         varIdToArg.Emplace(i.uid(), sz);
@@ -31,14 +30,7 @@ ThreadTaskHandle Shader::dispatch(
             uint threadIdxY = i / threadCount.x;
             i -= threadIdxY * threadCount.x;
             uint threadIdxX = i;
-            exportFunc(
-                threadCount.x,
-                threadCount.y,
-                threadCount.z,
-                threadIdxX,
-                threadIdxY,
-                threadIdxZ,
-                (uint64)vec.data());
+            module(threadCount, make_uint3(threadIdxX, threadIdxY, threadIdxZ), vec.data());
         },
         threadCount.x * threadCount.y * threadCount.z,
         true);

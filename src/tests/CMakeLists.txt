@@ -40,9 +40,6 @@ target_link_libraries(test_pt_match PRIVATE luisa::compute)
 add_executable(test_wavefront_pt test_wavefront_pt.cpp)
 target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
 
-add_executable(test_playground test_playground.cpp)
-target_link_libraries(test_playground PRIVATE luisa::compute)
-
 add_executable(test_ispc_101 test_ispc_101.cpp)
 target_link_libraries(test_ispc_101 PRIVATE luisa::compute)
 
@@ -63,3 +60,11 @@ if (OpenCV_FOUND)
 endif ()
 
 add_subdirectory(network)
+
+find_package(LLVM CONFIG REQUIRED)
+llvm_map_components_to_libnames(
+        LLVM_LIBS
+        core executionengine support mcjit nativecodegen irreader passes analysis)
+add_executable(test_playground test_playground.cpp)
+target_include_directories(test_playground PRIVATE ${LLVM_INCLUDE_DIRS})
+target_link_libraries(test_playground PRIVATE luisa::compute ${LLVM_LIBS})
