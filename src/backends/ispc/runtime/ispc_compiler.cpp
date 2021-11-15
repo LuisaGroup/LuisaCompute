@@ -59,7 +59,7 @@ namespace lc::ispc {
 //    return fileName;
 //}
 //#elif defined(LUISA_PLATFORM_UNIX)
-//TODO: other platforms
+
 JITModule Compiler::CompileCode(
     const Context &ctx,
     std::string_view code) const {
@@ -107,6 +107,7 @@ JITModule Compiler::CompileCode(
     }
     return JITModule::load(llvm_ir_path);
 }
+
 //#else
 //#error Unsupported platform for ISPC backend.
 //#endif
