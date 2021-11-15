@@ -140,7 +140,7 @@ public:
     }
     template<typename Functor>
     void operator=(Functor &&f) noexcept {
-        ~SelfType();
+        this->~function();
         new (this) SelfType(std::forward<Functor>(f));
     }
     Ret operator()(TypeArgs... t) const noexcept {
