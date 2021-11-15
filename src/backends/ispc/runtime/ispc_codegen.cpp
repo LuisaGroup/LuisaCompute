@@ -157,7 +157,20 @@ struct PrintValue;
 template<>
 struct PrintValue<float> {
     void operator()(float const &v, luisa::string &str) {
-        vstd::to_string(v, str);
+        if (std::isnan(v)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
+        }
+        if (std::isinf(v)) {
+            str.append(v < 0.0f ? "(-INFINITY_f)" : "(+INFINITY_f)");
+        } else {
+            auto s = fmt::format("{}", v);
+            str.append(s);
+            if (s.find('.') == std::string_view::npos &&
+                s.find('e') == std::string_view::npos) {
+                str.append(".0");
+            }
+            str.append("f");
+        }
     }
 };
 template<>
