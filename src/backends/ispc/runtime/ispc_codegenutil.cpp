@@ -695,7 +695,7 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
                 argOffset += collectSize;
                 collectSize = 0;
             }
-            bodyStr << "uniform " << argType << ' ' << argName << '=' << "*((" << argType << "*)arg);\n";
+            bodyStr << argType << ' ' << argName << '=' << "*((" << argType << "*)arg);\n";
             auto sz = GetTypeSize(*i.type());
             collectSize += sz;
             argOffset += sz;
