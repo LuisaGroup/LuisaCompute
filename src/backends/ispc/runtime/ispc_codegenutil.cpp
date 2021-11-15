@@ -263,7 +263,11 @@ void CodegenUtility::GetFunctionDecl(Function func, luisa::string &data) {
                 for (auto &&i : func.arguments()) {
                     RegistStructType(i.type());
                     CodegenUtility::GetTypeName(*i.type(), data);
-                    data += ' ';
+                    if (i.tag() == Variable::Tag::REFERENCE) {
+                        data += "& ";
+                    } else {
+                        data += ' ';
+                    }
                     CodegenUtility::GetVariableName(i, data);
                     data += ',';
                 }
