@@ -64,7 +64,7 @@ private:
 
 public:
     ISPCDevice(const luisa::compute::Context &ctx, uint32_t index /* TODO */) noexcept
-        : Device::Interface(ctx), tPool(std::thread::hardware_concurrency()) {}
+        : Device::Interface(ctx), tPool(std::thread::hardware_concurrency() + 1u) {}
     ~ISPCDevice() noexcept override = default;
 };
 

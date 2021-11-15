@@ -35,7 +35,6 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
     Shader *sd = reinterpret_cast<Shader *>(cmd->handle());
     ShaderDispatcher disp{cmd->kernel(), vec, sd};
     cmd->decode(disp);
-    auto szzz = cmd->dispatch_size();
     sd->dispatch(tPool, cmd->dispatch_size(), vec);
     //handles.emplace_back();
 }

@@ -21,18 +21,23 @@ ThreadTaskHandle Shader::dispatch(
     ThreadPool *tPool,
     uint3 sz,
     ArgVector const &vec) const {
-    auto blockCount = func.block_size();
-    auto threadCount = sz / blockCount;
+    auto blockSize = func.block_size();
+    auto blockCount = (sz + blockSize - 1u) / blockSize;
+    auto totalCount = blockCount.x * blockCount.y * blockCount.z;
+    auto sharedCounter = luisa::make_shared<std::atomic_uint>(0u);
     auto handle = tPool->GetParallelTask(
-        [=](size_t i) {
-            uint threadIdxZ = i / (threadCount.y * threadCount.x);
-            i -= threadCount.y * threadCount.x * threadIdxZ;
-            uint threadIdxY = i / threadCount.x;
-            i -= threadIdxY * threadCount.x;
-            uint threadIdxX = i;
-            module(threadCount, make_uint3(threadIdxX, threadIdxY, threadIdxZ), vec.data());
+        [=](size_t) {
+            auto &&counter = *sharedCounter;
+            for (auto i = counter.fetch_add(1u); i < totalCount; i = counter.fetch_add(1u)) {
+                uint blockIdxZ = i / (blockCount.y * blockCount.x);
+                i -= blockCount.y * blockCount.x * blockIdxZ;
+                uint blockIdxY = i / blockCount.x;
+                i -= blockIdxY * blockCount.x;
+                uint blockIdxX = i;
+                module(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), vec.data());
+            }
         },
-        threadCount.x * threadCount.y * threadCount.z,
+        std::thread::hardware_concurrency(),
         true);
     handle.Complete();
     return handle;
