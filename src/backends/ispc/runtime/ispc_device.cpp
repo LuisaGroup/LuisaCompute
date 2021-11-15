@@ -43,8 +43,8 @@ void ISPCDevice::destroy_stream(uint64_t handle) noexcept {
 }
 void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
     auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
-    for (auto &&i : cmd->handles) {
-        i.Complete();
+    for (auto&& i : cmd->handles) {
+        i.first.Complete();
     }
     cmd->handles.clear();
 }

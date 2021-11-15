@@ -39,7 +39,7 @@ ThreadTaskHandle Shader::dispatch(
         },
         std::thread::hardware_concurrency(),
         true);
-    handle.Complete();
+    handle.Execute();
     return handle;
     //exportFunc(sz.x, sz.y, sz.z, (uint64)vec.data());
 }

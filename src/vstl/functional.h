@@ -32,7 +32,6 @@ class function<Ret(TypeArgs...), allocType> {
     IProcessFunctor const *GetPtr() const noexcept {
         return reinterpret_cast<IProcessFunctor const *>(&logicPlaceHolder);
     }
-    using SelfType = function<Ret(TypeArgs...), allocType>;
 
 public:
     operator bool() const noexcept {
@@ -73,18 +72,14 @@ public:
         new (&logicPlaceHolder) FuncPtrLogic();
         reinterpret_cast<size_t &>(placePtr) = reinterpret_cast<size_t>(p);
     }
-    function(const SelfType &f) noexcept
+    function(const function &f) noexcept
         : logicPlaceHolder(f.logicPlaceHolder),
           runFunc(f.runFunc) {
         if (f.placePtr) {
             GetPtr()->CopyConstruct(placePtr, f.placePtr, &funcPtrPlaceHolder, allocHandle);
         }
     }
-    function(SelfType &f) noexcept
-        : function(static_cast<SelfType const &>(f)) {}
-    function(SelfType const &&f) noexcept
-        : function(f) {}
-    function(SelfType &&f) noexcept
+    function(function &&f) noexcept
         : logicPlaceHolder(f.logicPlaceHolder),
           runFunc(f.runFunc) {
         if (f.placePtr) {
@@ -94,6 +89,7 @@ public:
         f.runFunc = nullptr;
     }
     template<typename Functor>
+    requires (std::is_invocable_r_v<Ret, Functor, TypeArgs...> && !std::is_same_v<std::remove_cvref_t<Functor>, function>)
     function(Functor &&f) noexcept {
         using PureType = std::remove_cvref_t<Functor>;
         constexpr bool USE_HEAP = (sizeof(PureType) > PLACEHOLDERSIZE);
@@ -141,7 +137,7 @@ public:
     template<typename Functor>
     void operator=(Functor &&f) noexcept {
         this->~function();
-        new (this) SelfType(std::forward<Functor>(f));
+        new (this) function(std::forward<Functor>(f));
     }
     Ret operator()(TypeArgs... t) const noexcept {
         return runFunc(placePtr, std::forward<TypeArgs>(t)...);
