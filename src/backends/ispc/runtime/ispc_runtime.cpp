@@ -36,7 +36,8 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
     ShaderDispatcher disp{cmd->kernel(), vec, sd};
     cmd->decode(disp);
     auto szzz = cmd->dispatch_size();
-    handles.emplace_back(sd->dispatch(tPool, cmd->dispatch_size(), vec));
+    sd->dispatch(tPool, cmd->dispatch_size(), vec);
+    //handles.emplace_back();
 }
 void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {}

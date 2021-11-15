@@ -37,10 +37,18 @@ public:
     static void ClearStructType();
     static void RegistStructType(Type const *type);
 };
-class StringExprVisitor final : public ExprVisitor {
+class CodegenGlobalData;
+class VisitorBase {
+public:
+    CodegenGlobalData *ptr;
+    VisitorBase(
+        CodegenGlobalData *ptr)
+        : ptr(ptr) {}
+};
+class StringExprVisitor final : public ExprVisitor, public VisitorBase {
 
 public:
-    void visit(const UnaryExpr *expr) override;
+    void visit(const UnaryExpr *expr) override; 
     void visit(const BinaryExpr *expr) override;
     void visit(const MemberExpr *expr) override;
     void visit(const AccessExpr *expr) override;
@@ -49,13 +57,15 @@ public:
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const ConstantExpr *expr) override;
-    StringExprVisitor(luisa::string &str);
+    StringExprVisitor(
+        luisa::string &str,
+        CodegenGlobalData *ptr);
     ~StringExprVisitor();
 
 protected:
     luisa::string &str;
 };
-class StringStateVisitor final : public StmtVisitor {
+class StringStateVisitor final : public StmtVisitor, public VisitorBase {
 public:
     void visit(const BreakStmt *) override;
     void visit(const ContinueStmt *) override;
@@ -71,7 +81,9 @@ public:
     void visit(const ForStmt *) override;
     void visit(const MetaStmt *stmt) override;
     void visit(const CommentStmt *) override;
-    StringStateVisitor(luisa::string &str);
+    StringStateVisitor(
+        luisa::string &str,
+        CodegenGlobalData *ptr);
     ~StringStateVisitor();
     uint64 StmtCount() const { return stmtCount; }
 

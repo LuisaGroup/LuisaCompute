@@ -12,16 +12,13 @@ export void run(
 uniform uint thd_cX,
 uniform uint thd_cY,
 uniform uint thd_cZ,
-uniform uint blk_cX,
-uniform uint blk_cY,
-uniform uint blk_cZ,
 uniform uint thd_idX,
 uniform uint thd_idY,
 uniform uint thd_idZ,
 uniform uint64 arg) {
-const uint3 thd_c = {X,Y,Z};
+const uint3 blk_c = {X,Y,Z};
 uint3 thd_id = {thd_idX, thd_idY, thd_idZ};
-uint3 blk_c = {blk_cX,blk_cY,blk_cZ};
+uint3 thd_c = {thd_cX,thd_cY,thd_cZ};
 uint3 dsp_c = thd_c * blk_c;
 uint3 ldsp_id = thd_id * blk_c;
 )"sv;

@@ -18,12 +18,11 @@ size_t Shader::GetArgIndex(uint varID) const {
     if (!ite) return std::numeric_limits<size_t>::max();
     return ite.Value();
 }
-
 ThreadTaskHandle Shader::dispatch(
     ThreadPool *tPool,
     uint3 sz,
     ArgVector const &vec) const {
-    auto blockCount = uint3(8, 8, 8);
+    auto blockCount = func.block_size();
     auto threadCount = sz / blockCount;
     auto handle = tPool->GetParallelTask(
         [=](size_t i) {
@@ -36,9 +35,6 @@ ThreadTaskHandle Shader::dispatch(
                 threadCount.x,
                 threadCount.y,
                 threadCount.z,
-                blockCount.x,
-                blockCount.y,
-                blockCount.z,
                 threadIdxX,
                 threadIdxY,
                 threadIdxZ,
@@ -46,7 +42,7 @@ ThreadTaskHandle Shader::dispatch(
         },
         threadCount.x * threadCount.y * threadCount.z,
         true);
-    handle.Execute();
+    handle.Complete();
     return handle;
     //exportFunc(sz.x, sz.y, sz.z, (uint64)vec.data());
 }

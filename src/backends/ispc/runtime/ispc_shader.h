@@ -9,9 +9,6 @@ private:
     DynamicModule dllModule;
     Function func;
     using FuncType = void(
-        uint, // thd_cX,
-        uint, //thd_cY,
-        uint, //thd_cZ,
         uint, //blk_cX,
         uint, //blk_cY,
         uint, //blk_cZ,

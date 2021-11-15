@@ -651,6 +651,7 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
 
 void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 blockSize) {
 #include "ispc.inl"
+    CodegenGlobalData globalData;
     auto ExecuteConst = [&](auto &&f) {
         auto consts = func.constants();
         for (auto &&c : consts) {
@@ -705,7 +706,7 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
         }
         //foreach
 
-        StringStateVisitor vis(bodyStr);
+        StringStateVisitor vis(bodyStr, &globalData);
         func.body()->accept(vis);
         //end
         bodyStr << '}' << exportName;
@@ -763,7 +764,7 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
     } else {
         luisa::string ss;
         GetFunctionDecl(func, ss);
-        StringStateVisitor vis(ss);
+        StringStateVisitor vis(ss, &globalData);
         func.body()->accept(vis);
         if (vis.StmtCount() < INLINE_STMT_LIMIT) {
             str << "inline ";

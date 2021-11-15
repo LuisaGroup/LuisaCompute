@@ -3,6 +3,27 @@
 #include "ispc_codegen.h"
 
 namespace lc::ispc {
+struct VariableInfo {
+    size_t startUsingStmt = 0;
+    size_t endUsingStmt = 0;
+    size_t scope = 0;
+    //vstd::vector<vstd::vector<std
+};
+class CodegenGlobalData {
+    /* vstd::HashMap<uint64, VariableInfo> varInfos;
+    size_t stmtIndex = 0;*/
+};
+template<typename T>
+struct VisitStruct {
+    T t;
+    VisitStruct(T t)
+        : t(t) {
+        t->BeforeVisit();
+    }
+    ~VisitStruct() {
+        t->AfterVisit();
+    }
+};
 void StringExprVisitor::visit(const UnaryExpr *expr) {
 
     switch (expr->op()) {
@@ -19,10 +40,10 @@ void StringExprVisitor::visit(const UnaryExpr *expr) {
             str << '~';
             break;
     }
-    StringExprVisitor vis(str);
-    expr->operand()->accept(vis);
+    expr->operand()->accept(*this);
 }
 void StringExprVisitor::visit(const BinaryExpr *expr) {
+
     auto IsMulFuncCall = [&]() -> bool {
         if (expr->op() == BinaryOp::MUL) {
             if ((expr->lhs()->type()->is_matrix() && (!expr->rhs()->type()->is_scalar())) || (expr->rhs()->type()->is_matrix() && (!expr->lhs()->type()->is_scalar()))) {
@@ -101,6 +122,7 @@ void StringExprVisitor::visit(const BinaryExpr *expr) {
     }
 }
 void StringExprVisitor::visit(const MemberExpr *expr) {
+
     expr->self()->accept(*this);
     if (expr->is_swizzle()) {
         char const *xyzw = "xyzw";
@@ -114,6 +136,7 @@ void StringExprVisitor::visit(const MemberExpr *expr) {
     }
 }
 void StringExprVisitor::visit(const AccessExpr *expr) {
+
     expr->range()->accept(*this);
     auto t = expr->range()->type();
     if (t && (t->is_buffer() || t->is_vector()))
@@ -124,6 +147,7 @@ void StringExprVisitor::visit(const AccessExpr *expr) {
     str << ']';
 }
 void StringExprVisitor::visit(const RefExpr *expr) {
+
     Variable v = expr->variable();
     CodegenUtility::RegistStructType(v.type());
     CodegenUtility::GetVariableName(v, str);
@@ -186,10 +210,9 @@ struct PrintValue<Vector<EleType, N>> {
             PureRun(v, varName);
             varName << ')';
         } else {
-            PureRun(v, varName);     
+            PureRun(v, varName);
         }
     }
-
 };
 
 template<uint64 N>
@@ -220,6 +243,7 @@ struct PrintValue<LiteralExpr::MetaValue> {
 };
 
 void StringExprVisitor::visit(const LiteralExpr *expr) {
+
     LiteralExpr::Value const &value = expr->value();
     std::visit([&](auto &&value) -> void {
         using T = std::remove_cvref_t<decltype(value)>;
@@ -229,33 +253,39 @@ void StringExprVisitor::visit(const LiteralExpr *expr) {
                expr->value());
 }
 void StringExprVisitor::visit(const CallExpr *expr) {
+
     CodegenUtility::GetFunctionName(expr, str)(*this);
 }
 void StringExprVisitor::visit(const CastExpr *expr) {
+
     str << '(';
     CodegenUtility::GetTypeName(*expr->type(), str);
     str << ')';
-    StringExprVisitor vis(str);
-    expr->expression()->accept(vis);
+    expr->expression()->accept(*this);
 }
 
 void StringExprVisitor::visit(const ConstantExpr *expr) {
+
     CodegenUtility::GetConstName(expr->data(), str);
 }
-StringExprVisitor::StringExprVisitor(luisa::string &str)
-    : str(str) {
+StringExprVisitor::StringExprVisitor(luisa::string &str,
+                                     CodegenGlobalData *ptr)
+    : str(str), VisitorBase(ptr) {
 }
 StringExprVisitor::~StringExprVisitor() {}
 
 void StringStateVisitor::visit(const BreakStmt *state) {
+
     str << "break;\n";
 }
 void StringStateVisitor::visit(const ContinueStmt *state) {
+
     str << "continue;\n";
 }
 void StringStateVisitor::visit(const ReturnStmt *state) {
+
     if (state->expression()) {
-        StringExprVisitor vis(str);
+        StringExprVisitor vis(str, ptr);
         str << "return ";
         state->expression()->accept(vis);
         str << ";\n";
@@ -264,6 +294,7 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
     }
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
+
     str << "{\n";
     for (auto &&i : state->statements()) {
         i->accept(*this);
@@ -273,9 +304,10 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
 void StringStateVisitor::visit(const CommentStmt *state) {
 }
 void StringStateVisitor::visit(const IfStmt *state) {
+
     stmtCount = std::numeric_limits<uint64>::max();
     str << "if(";
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->condition()->accept(vis);
     str << ")";
     state->true_branch()->accept(*this);
@@ -285,40 +317,46 @@ void StringStateVisitor::visit(const IfStmt *state) {
     }
 }
 void StringStateVisitor::visit(const LoopStmt *state) {
+
     stmtCount = std::numeric_limits<uint64>::max();
     str << "while(1)";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const ExprStmt *state) {
+
     stmtCount++;
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->expression()->accept(vis);
     str << ";\n";
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
-   stmtCount++;
+
+    stmtCount++;
     str << "switch(";
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->expression()->accept(vis);
     str << ")";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
+
     stmtCount++;
     str << "case ";
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->expression()->accept(vis);
     str << ":";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
+
     stmtCount++;
     str << "default:";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const AssignStmt *state) {
+
     stmtCount++;
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->lhs()->accept(vis);
     switch (state->op()) {
         case AssignOp::ASSIGN:
@@ -359,10 +397,11 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
+
     stmtCount = std::numeric_limits<uint64>::max();
     str << "for(";
-    StringExprVisitor vis(str);
-//    state->variable()->accept(vis);
+    StringExprVisitor vis(str, ptr);
+    //    state->variable()->accept(vis);
     str << ';';
     state->condition()->accept(vis);
     str << ';';
@@ -372,10 +411,11 @@ void StringStateVisitor::visit(const ForStmt *state) {
     str << ")";
     state->body()->accept(*this);
 }
-StringStateVisitor::StringStateVisitor(luisa::string &str)
-    : str(str) {
+StringStateVisitor::StringStateVisitor(luisa::string &str, CodegenGlobalData *ptr)
+    : str(str), VisitorBase(ptr) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
+
     str << "{ // begin: " << stmt->info() << "\n";
     for (auto &&v : stmt->variables()) {
         CodegenUtility::GetTypeName(*v.type(), str);
