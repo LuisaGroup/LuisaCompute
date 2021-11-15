@@ -36,32 +36,31 @@ void JITModule::operator()(luisa::uint3 thread_count, luisa::uint3 thread_start,
 
 [[nodiscard]] auto get_target_machine() {
     static std::once_flag flag;
-    static llvm::TargetMachine *machine{nullptr};
     std::call_once(flag, [] {
         llvm::InitializeNativeTarget();
         llvm::InitializeNativeTargetAsmPrinter();
         LLVMLinkInMCJIT();
-        std::string err;
-        auto target_triple = llvm::sys::getDefaultTargetTriple();
-        LUISA_INFO("Target: {}.", target_triple);
-        auto target = llvm::TargetRegistry::lookupTarget(target_triple, err);
-        if (target == nullptr) {
-            LUISA_ERROR_WITH_LOCATION("Failed to get target machine: {}.", err);
-        }
-        machine = target->createTargetMachine(
-            target_triple, "generic", {"+avx2"},
-            {}, {}, {}, llvm::CodeGenOpt::Aggressive, true);
-        if (machine == nullptr) {
-            LUISA_ERROR_WITH_LOCATION("Failed to create target machine.");
-        }
     });
+    std::string err;
+    auto target_triple = llvm::sys::getDefaultTargetTriple();
+    LUISA_INFO("Target: {}.", target_triple);
+    auto target = llvm::TargetRegistry::lookupTarget(target_triple, err);
+    if (target == nullptr) {
+        LUISA_ERROR_WITH_LOCATION("Failed to get target machine: {}.", err);
+    }
+    auto machine = target->createTargetMachine(
+        target_triple, "generic", {"+avx2"},
+        {}, {}, {}, llvm::CodeGenOpt::Aggressive, true);
+    if (machine == nullptr) {
+        LUISA_ERROR_WITH_LOCATION("Failed to create target machine.");
+    }
     return machine;
 }
 
 JITModule JITModule::load(const std::filesystem::path &ir_path) noexcept {
     auto context = luisa::make_unique<llvm::LLVMContext>();
     llvm::SMDiagnostic error;
-    LUISA_INFO("Loading LLVM IR: {}.", ir_path.string());
+    LUISA_INFO("Loading LLVM IR: '{}'.", ir_path.string());
     auto module = llvm::parseIRFile(ir_path.string(), error, *context);
     if (module == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
@@ -69,16 +68,21 @@ JITModule JITModule::load(const std::filesystem::path &ir_path) noexcept {
             error.getMessage().data());
     }
     std::string err;
-    llvm::EngineBuilder engine_builder{std::move(module)};
-    engine_builder.setErrorStr(&err);
-    engine_builder.setOptLevel(llvm::CodeGenOpt::Aggressive);
-    std::unique_ptr<llvm::ExecutionEngine> exec_engine{
-        engine_builder.create(get_target_machine())};
-    if (exec_engine == nullptr) {
+    std::unique_ptr<llvm::ExecutionEngine> engine{
+        llvm::EngineBuilder{std::move(module)}
+            .setErrorStr(&err)
+            .setOptLevel(llvm::CodeGenOpt::Aggressive)
+            .setEngineKind(llvm::EngineKind::JIT)
+            .create(get_target_machine())};
+    engine->DisableGVCompilation(true);
+    engine->DisableLazyCompilation(true);
+    engine->DisableSymbolSearching(true);
+    if (engine == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to create execution engine: {}.", err);
+            "Failed to create execution engine: {}.",
+            err);
     }
-    return {std::move(context), std::move(exec_engine)};
+    return {std::move(context), std::move(engine)};
 }
 
 }// namespace lc::ispc
