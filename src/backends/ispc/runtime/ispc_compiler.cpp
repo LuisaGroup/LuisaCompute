@@ -64,11 +64,15 @@ JITModule Compiler::CompileCode(
     const Context &ctx,
     std::string_view code) const {
     LUISA_VERBOSE_WITH_LOCATION("Generated ISPC source:\n{}", code);
-    auto ispc_exe = "ispc";
+#ifdef LUISA_PLATFORM_WINDOWS
+    auto ispc_exe = (ctx.runtime_directory() / "backends" / "ispc_support" / "ispc.exe").string();
+#else
+    luisa::string ispc_exe = "ispc";
+#endif
     auto include_opt = fmt::format(
         "-I\"{}\"",
         std::filesystem::canonical(
-            ctx.runtime_directory() / "backends" / "ispc_device_include")
+            ctx.runtime_directory() / "backends" / "ispc_support")
             .string());
     std::array ispc_options{
         "-woff",

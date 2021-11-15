@@ -24,7 +24,7 @@ if (LLVM_FOUND)
     add_custom_target(luisa-compute-backend-ispc-copy-include ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${ISPC_DEVICE_INCLUDE_DIR}"
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/ispc_device_include")
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/ispc_support")
     add_dependencies(luisa-compute-backend-ispc luisa-compute-backend-ispc-copy-include)
     foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
         string(TOLOWER ${CONFIG} config_lower)
@@ -32,7 +32,7 @@ if (LLVM_FOUND)
         add_custom_target(luisa-compute-backend-ispc-copy-include-${config_lower} ALL
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${ISPC_DEVICE_INCLUDE_DIR}"
-                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/ispc_device_include")
+                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/ispc_support")
         add_dependencies(luisa-compute-backend-ispc luisa-compute-backend-ispc-copy-include-${config_lower})
     endforeach ()
 
