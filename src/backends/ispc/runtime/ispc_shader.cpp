@@ -20,13 +20,13 @@ size_t Shader::GetArgIndex(uint varID) const {
 ThreadTaskHandle Shader::dispatch(
     ThreadPool *tPool,
     uint3 sz,
-    ArgVector const &vec) const {
+    ArgVector vec) const {
     auto blockSize = func.block_size();
     auto blockCount = (sz + blockSize - 1u) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
     auto sharedCounter = luisa::make_shared<std::atomic_uint>(0u);
     auto handle = tPool->GetParallelTask(
-        [=](size_t) {
+        [=, vec = std::move(vec)](size_t) {
             auto &&counter = *sharedCounter;
             for (auto i = counter.fetch_add(1u); i < totalCount; i = counter.fetch_add(1u)) {
                 uint blockIdxZ = i / (blockCount.y * blockCount.x);

@@ -44,6 +44,6 @@ public:
     ThreadTaskHandle dispatch(
         ThreadPool* tPool,
         uint3 sz,
-        ArgVector const &vec) const;
+        ArgVector vec) const;
 };
 }// namespace lc::ispc
