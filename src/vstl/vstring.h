@@ -64,14 +64,13 @@ inline void to_string(double Val, string &str) noexcept {
     }
     str.append(tempArr, cullSize);
 }
+
 inline string to_string(double Val) noexcept {
     string str;
     to_string(Val, str);
     return str;
 }
-inline string to_string(float Val) noexcept {
-    return to_string((double)Val);
-}
+
 
 namespace detail {
 
@@ -109,8 +108,14 @@ template<typename T>
     return IntegerToString(static_cast<canonical_integer_t<T>>(val));
 }
 
-inline void to_string(float Val, string &str) noexcept {
+inline void to_string(float Val, string& str) noexcept {
     to_string((double)Val, str);
+    str += 'f';
+}
+inline string to_string(float Val) noexcept {
+    string str;
+    to_string(Val, str);
+    return str;
 }
 
 template<typename T>

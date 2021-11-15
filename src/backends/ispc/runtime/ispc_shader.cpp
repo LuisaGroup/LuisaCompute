@@ -42,7 +42,7 @@ ThreadTaskHandle Shader::dispatch(
         },
         threadCount.x * threadCount.y * threadCount.z,
         true);
-    handle.Complete();
+    handle.Execute();
     return handle;
     //exportFunc(sz.x, sz.y, sz.z, (uint64)vec.data());
 }
