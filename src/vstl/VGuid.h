@@ -42,9 +42,9 @@ public:
 	}
 	GuidData const& ToBinary() const { return data; }
 	std::array<uint8_t, sizeof(GuidData)> ToArray() const;
-	std::string ToString(bool upper = true) const;
+	string ToString(bool upper = true) const;
 	void ToString(char* result, bool upper = true) const;
-	std::string ToBase64() const;
+	string ToBase64() const;
 	void ToBase64(char* result) const;
 
 	inline bool operator==(Guid const& d) const {

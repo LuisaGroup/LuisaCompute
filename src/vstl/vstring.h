@@ -10,6 +10,7 @@
 #include <vstl/string_view.h>
 #include <vstl/vector.h>
 namespace vstd {
+using string = luisa::string;
 template<class Elem, class UTy>
 Elem *UIntegral_to_buff(Elem *RNext, UTy UVal) noexcept {// format UVal into buffer *ending at* RNext
     static_assert(std::is_unsigned_v<UTy>, "UTy must be unsigned");
@@ -22,7 +23,7 @@ Elem *UIntegral_to_buff(Elem *RNext, UTy UVal) noexcept {// format UVal into buf
 }
 
 template<class Ty>
-inline void IntegerToString(const Ty Val, std::string &str, bool negative = false) noexcept {// convert Val to std::string
+inline void IntegerToString(const Ty Val, string &str, bool negative = false) noexcept {// convert Val to string
     static_assert(std::is_integral_v<Ty>, "_Ty must be integral");
     using UTy = std::make_unsigned_t<Ty>;
     char Buff[21];// can hold -2^63 and 2^64 - 1, plus NUL
@@ -38,12 +39,12 @@ inline void IntegerToString(const Ty Val, std::string &str, bool negative = fals
     str.append(RNext, Buff_end - RNext);
 }
 template<class Ty>
-inline std::string IntegerToString(const Ty Val) noexcept {// convert Val to std::string
-    std::string s;
+inline string IntegerToString(const Ty Val) noexcept {// convert Val to string
+    string s;
     IntegerToString<Ty>(Val, s);
     return s;
 }
-inline void to_string(double Val, std::string &str) noexcept {
+inline void to_string(double Val, string &str) noexcept {
     int64 v = (int64)Val;
     IntegerToString(v, str, Val < 0);
     Val -= v;
@@ -63,14 +64,13 @@ inline void to_string(double Val, std::string &str) noexcept {
     }
     str.append(tempArr, cullSize);
 }
-inline std::string to_string(double Val) noexcept {
-    std::string str;
+
+inline string to_string(double Val) noexcept {
+    string str;
     to_string(Val, str);
     return str;
 }
-inline std::string to_string(float Val) noexcept {
-    return to_string((double)Val);
-}
+
 
 namespace detail {
 
@@ -108,13 +108,19 @@ template<typename T>
     return IntegerToString(static_cast<canonical_integer_t<T>>(val));
 }
 
-inline void to_string(float Val, std::string &str) noexcept {
+inline void to_string(float Val, string& str) noexcept {
     to_string((double)Val, str);
+    str += 'f';
+}
+inline string to_string(float Val) noexcept {
+    string str;
+    to_string(Val, str);
+    return str;
 }
 
 template<typename T>
     requires std::is_integral_v<T>
-inline void to_string(T Val, std::string &str) noexcept {
+inline void to_string(T Val, string &str) noexcept {
     IntegerToString(static_cast<canonical_integer_t<T>>(Val), str);
 }
 
@@ -122,27 +128,27 @@ inline void to_string(T Val, std::string &str) noexcept {
 
 namespace vstd {
 template<>
-struct hash<std::string> {
-    inline size_t operator()(std::string const &str) const noexcept {
+struct hash<string> {
+    inline size_t operator()(string const &str) const noexcept {
         return Hash::CharArrayHash(str.data(), str.size());
     }
 };
 
 template<>
-struct compare<std::string> {
-    int32 operator()(std::string const &a, std::string const &b) const noexcept {
+struct compare<string> {
+    int32 operator()(string const &a, string const &b) const noexcept {
         if (a.size() == b.size())
             return memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(std::string const &a, const std::string_view &b) const noexcept {
+    int32 operator()(string const &a, const std::string_view &b) const noexcept {
         if (a.size() == b.size())
             return memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(std::string const &a, char const *ptr) const noexcept {
+    int32 operator()(string const &a, char const *ptr) const noexcept {
         size_t sz = strlen(ptr);
         if (a.size() == sz)
             return memcmp(a.data(), ptr, a.size());
@@ -190,7 +196,7 @@ struct compare<std::wstring> {
 
 template<>
 struct compare<std::string_view> {
-    int32 operator()(const std::string_view &a, std::string const &b) const noexcept {
+    int32 operator()(const std::string_view &a, string const &b) const noexcept {
         if (a.size() == b.size())
             return memcmp(a.data(), b.data(), a.size());
         else
@@ -213,7 +219,7 @@ struct compare<std::string_view> {
 
 }// namespace vstd
 template<typename T>
-auto &operator<<(std::string &s, T &&v) noexcept {
+auto &operator<<(vstd::string &s, T &&v) noexcept {
     if constexpr (std::is_same_v<std::remove_cvref_t<T>, char>) {
         s += v;
         return s;

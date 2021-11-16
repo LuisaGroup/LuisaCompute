@@ -13,34 +13,42 @@ class StringExprVisitor;
 class CodegenUtility {
 public:
     static constexpr uint64 INLINE_STMT_LIMIT = 5;
-    static void GetConstName(ConstantData const &data, std::string &str);
-    static void PrintFunction(Function func, std::string &str);
-    static void GetVariableName(Variable const &type, std::string &str);
-    static void GetVariableName(Variable::Tag type, uint id, std::string &str);
-    static void GetVariableName(Type::Tag type, uint id, std::string &str);
-    static void GetTypeName(Type const &type, std::string &str);
-    static void GetBasicTypeName(uint64 typeIndex, std::string &str);
-    static void GetConstantStruct(ConstantData const &data, std::string &str);
+    static void GetConstName(ConstantData const &data, luisa::string &str);
+    static void PrintFunction(Function func, luisa::string &str, uint3 blockSize);
+    static void GetVariableName(Variable const &type, luisa::string &str);
+    static void GetVariableName(Variable::Tag type, uint id, luisa::string &str);
+    static void GetVariableName(Type::Tag type, uint id, luisa::string &str);
+    static void GetTypeName(Type const &type, luisa::string &str);
+    static void GetBasicTypeName(uint64 typeIndex, luisa::string &str);
+    static void GetConstantStruct(ConstantData const &data, luisa::string &str);
     //static void
-    static void GetCustomStruct(Type const &t, std::string_view strName, std::string &str);
-    static void GetArrayStruct(Type const &t, std::string_view name, std::string &str);
-    static void GetConstantData(ConstantData const &data, std::string &str);
+    static void GetCustomStruct(Type const &t, std::string_view strName, luisa::string &str);
+    static void GetArrayStruct(Type const &t, std::string_view name, luisa::string &str);
+    static void GetConstantData(ConstantData const &data, luisa::string &str);
     static size_t GetTypeSize(Type const &t);
     static size_t GetTypeAlign(Type const &t);
-    static std::string GetBasicTypeName(uint64 typeIndex) {
-        std::string s;
+    static luisa::string GetBasicTypeName(uint64 typeIndex) {
+        luisa::string s;
         GetBasicTypeName(typeIndex, s);
         return s;
     }
-    static void GetFunctionDecl(Function func, std::string &str);
-    static vstd::function<void(StringExprVisitor &)> GetFunctionName(CallExpr const *expr, std::string &result);
+    static void GetFunctionDecl(Function func, luisa::string &str);
+    static vstd::function<void(StringExprVisitor &)> GetFunctionName(CallExpr const *expr, luisa::string &result);
     static void ClearStructType();
     static void RegistStructType(Type const *type);
 };
-class StringExprVisitor final : public ExprVisitor {
+class CodegenGlobalData;
+class VisitorBase {
+public:
+    CodegenGlobalData *ptr;
+    VisitorBase(
+        CodegenGlobalData *ptr)
+        : ptr(ptr) {}
+};
+class StringExprVisitor final : public ExprVisitor, public VisitorBase {
 
 public:
-    void visit(const UnaryExpr *expr) override;
+    void visit(const UnaryExpr *expr) override; 
     void visit(const BinaryExpr *expr) override;
     void visit(const MemberExpr *expr) override;
     void visit(const AccessExpr *expr) override;
@@ -49,13 +57,15 @@ public:
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const ConstantExpr *expr) override;
-    StringExprVisitor(std::string &str);
+    StringExprVisitor(
+        luisa::string &str,
+        CodegenGlobalData *ptr);
     ~StringExprVisitor();
 
 protected:
-    std::string &str;
+    luisa::string &str;
 };
-class StringStateVisitor final : public StmtVisitor {
+class StringStateVisitor final : public StmtVisitor, public VisitorBase {
 public:
     void visit(const BreakStmt *) override;
     void visit(const ContinueStmt *) override;
@@ -71,12 +81,14 @@ public:
     void visit(const ForStmt *) override;
     void visit(const MetaStmt *stmt) override;
     void visit(const CommentStmt *) override;
-    StringStateVisitor(std::string &str);
+    StringStateVisitor(
+        luisa::string &str,
+        CodegenGlobalData *ptr);
     ~StringStateVisitor();
     uint64 StmtCount() const { return stmtCount; }
 
 protected:
-    std::string &str;
+    luisa::string &str;
     uint64 stmtCount = 0;
 };
 }// namespace lc::ispc

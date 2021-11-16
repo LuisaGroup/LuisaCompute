@@ -5,7 +5,11 @@ import numpy as np
 
 import taichi as ti
 
+<<<<<<< HEAD
 ti.init(arch=ti.wasm, fast_math=True, advanced_optimization=True)
+=======
+ti.init(arch=ti.cpu, fast_math=True, advanced_optimization=True)
+>>>>>>> 07131e38edadfa6b75248a797c2b4bae2cac56b7
 res = 1280, 720
 color_buffer = ti.Vector.field(3, dtype=ti.f32, shape=res)
 max_ray_depth = 6
@@ -30,7 +34,7 @@ def intersect_light(pos, d):
     if dot > 0 and dist > 0:
         D = dist / dot
         dist_to_center = (light_loc - (pos + D * d)).norm_sqr()
-        if dist_to_center < light_radius**2:
+        if dist_to_center < light_radius ** 2:
             dist_to_light = D
     return dist_to_light
 
@@ -43,7 +47,7 @@ def out_dir(n):
     v = n.cross(u)
     phi = 2 * math.pi * ti.random()
     ay = ti.sqrt(ti.random())
-    ax = ti.sqrt(1 - ay**2)
+    ax = ti.sqrt(1 - ay ** 2)
     return ax * (ti.cos(phi) * u + ti.sin(phi) * v) + ay * n
 
 
@@ -152,21 +156,25 @@ def render():
         color_buffer[u, v] += throughput * hit_light
 
 
+ENABLE_DISPLAY = True
+INTERVAL = 4
+
 if __name__ == "__main__":
-    # gui = ti.GUI('SDF Path Tracer', res)
+    if ENABLE_DISPLAY:
+        gui = ti.GUI('SDF Path Tracer', res)
     render()
     a = color_buffer.to_numpy()
-    total_spp = 16
+    total_spp = 1024
+    t0 = time.time()
     last_t = time.time()
     for i in range(total_spp):
         render()
-        interval = 32
-        # if i % interval == 0 and i > 0:
-        #     print("{:.2f} samples/s".format(interval / (time.time() - last_t)))
-        #     last_t = time.time()
-        #     img = color_buffer.to_numpy() * (1 / (i + 1))
-        #     img = img / img.mean() * 0.24
-        #     gui.set_image(np.sqrt(img))
-        #     gui.show()
+        if ENABLE_DISPLAY and i % INTERVAL == INTERVAL - 1:
+            print("{:.2f} samples/s".format(INTERVAL / (time.time() - last_t)))
+            last_t = time.time()
+            img = color_buffer.to_numpy() * (1 / (i + 1))
+            img = img / img.mean() * 0.24
+            gui.set_image(np.sqrt(img))
+            gui.show()
     a = color_buffer.to_numpy()
-    print("{:.2f} samples/s".format(total_spp / (time.time() - last_t)))
+    print("{:.2f} samples/s".format(total_spp / (time.time() - t0)))

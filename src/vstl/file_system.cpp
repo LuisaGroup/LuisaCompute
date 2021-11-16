@@ -8,14 +8,14 @@
 #include <direct.h>
 #include <fileapi.h>
 namespace vstd {
-bool FileSystem::IsFileExists(std::string const& path) {
+bool FileSystem::IsFileExists(string const& path) {
 	return PathFileExistsA(path.c_str());
 }
 void FileSystem::GetFiles(
-	std::string const& mPath,
-	vstd::function<bool(std::string&&)> const& func,
+	string const& mPath,
+	function<bool(string&&)> const& func,
 	bool recursionFolder) {
-	auto innerFunc = [&](std::string const& path, auto&& innerFunc) -> bool {
+	auto innerFunc = [&](string const& path, auto&& innerFunc) -> bool {
 		uint64 hFile = 0;
 		struct _finddata_t fileinfo;
 		if ((hFile = _findfirst((path + "/*").c_str(), &fileinfo)) != -1) {

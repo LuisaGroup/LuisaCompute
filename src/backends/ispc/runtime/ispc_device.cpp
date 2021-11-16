@@ -43,9 +43,7 @@ void ISPCDevice::destroy_stream(uint64_t handle) noexcept {
 }
 void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
     auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
-    for (auto&& i : cmd->handles) {
-        i.Complete();
-    }
+    for (auto&& i : cmd->handles) { i.Complete(); }
     cmd->handles.clear();
 }
 void ISPCDevice::dispatch(uint64_t stream_handle, CommandList cmdList) noexcept {
@@ -59,14 +57,13 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 
 // kernel
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    std::string binName;
-    {
-        std::string result;
-        CodegenUtility::PrintFunction(kernel, result);
+    auto module = [=] {
+        luisa::string result;
+        CodegenUtility::PrintFunction(kernel, result, kernel.block_size());
         Compiler comp;
-        binName = comp.CompileCode(result);
-    }
-    return reinterpret_cast<uint64>(new Shader(kernel, binName));
+        return comp.CompileCode(context(), result);
+    }();
+    return reinterpret_cast<uint64>(new Shader(kernel, std::move(module)));
 }
 void ISPCDevice::destroy_shader(uint64_t handle) noexcept {
     delete reinterpret_cast<Shader *>(handle);

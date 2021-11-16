@@ -6,7 +6,7 @@ namespace detail {
 
 class MD5_Impl {
 public:
-	/* Construct a MD5_Impl object with a std::string. */
+	/* Construct a MD5_Impl object with a string. */
 	MD5_Impl(std::span<uint8_t const> message, uint8_t* digest);
 
 	/* Generate md5 digest. */
@@ -113,7 +113,7 @@ const char MD5_Impl::HEX_NUMBERS[16] = {
 	'c', 'd', 'e', 'f'};
 
 /**
- * @Construct a MD5_Impl object with a std::string.
+ * @Construct a MD5_Impl object with a string.
  *
  * @param {message} the message will be transformed.
  *
@@ -338,9 +338,9 @@ void MD5_Impl::decode(const uint8_t* input, uint32_t* output, size_t length) {
 }
 
 /**
- * @Convert digest to std::string value.
+ * @Convert digest to string value.
  *
- * @return the hex std::string of digest.
+ * @return the hex string of digest.
  *
  */
 
@@ -366,7 +366,7 @@ void UInt64ToHex(uint64 data, char*& sPtr, bool upper) {
 }
 
 }// namespace detail
-std::array<uint8_t, MD5_SIZE> GetMD5FromString(std::string const& str) {
+std::array<uint8_t, MD5_SIZE> GetMD5FromString(string const& str) {
 	using namespace detail;
 	std::array<uint8_t, MD5_SIZE> arr;
 	MD5_Impl md5({reinterpret_cast<uint8_t const*>(str.data()), str.size()}, arr.data());
@@ -380,7 +380,7 @@ std::array<uint8_t, MD5_SIZE> GetMD5FromArray(std::span<uint8_t> data) {
 	md5.GetDigest();
 	return arr;
 }
-MD5::MD5(std::string const& str)
+MD5::MD5(string const& str)
     : MD5(std::span<uint8_t const>(reinterpret_cast<uint8_t const *>(str.data()), str.size())) {
 }
 MD5::MD5(std::string_view str)
@@ -404,8 +404,8 @@ bool MD5::operator!=(MD5 const& m) const {
 	return data.data0 != m.data.data0
 		   || data.data1 != m.data.data1;
 }
-std::string MD5::ToString(bool upper) const {
-	std::string str;
+string MD5::ToString(bool upper) const {
+	string str;
 	str.resize(sizeof(uint64) * 2 * 2);
 	char* ptr = str.data();
 	detail::UInt64ToHex(data.data0, ptr, upper);

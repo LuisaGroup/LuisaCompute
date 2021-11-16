@@ -28,6 +28,9 @@
 #define LUISA_PLATFORM_WINDOWS
 #elif defined(__unix__) || defined(__unix) || defined(__APPLE__)
 #define LUISA_PLATFORM_UNIX
+#ifdef __APPLE__
+#define LUISA_PLATFORM_APPLE
+#endif
 #endif
 
 #ifdef __cplusplus

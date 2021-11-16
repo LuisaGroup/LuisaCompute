@@ -16,16 +16,16 @@ struct SerDe {
 	}
 };
 template<>
-struct SerDe<std::string> {
-	static std::string Get(std::span<uint8_t const>& sp) {
+struct SerDe<string> {
+	static string Get(std::span<uint8_t const>& sp) {
 		auto strLen = SerDe<uint>::Get(sp);
 		auto ptr = sp.data();
 		sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
-		return std::string(std::string_view(
+		return string(std::string_view(
 			reinterpret_cast<char const*>(ptr),
 			strLen));
 	}
-	static void Set(std::string const& data, vector<uint8_t>& arr) {
+	static void Set(string const& data, vector<uint8_t>& arr) {
 		SerDe<uint>::Set(data.size(), arr);
 		arr.push_back_all(reinterpret_cast<uint8_t const*>(data.data()), data.size());
 	}

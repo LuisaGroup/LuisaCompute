@@ -3,6 +3,27 @@
 #include "ispc_codegen.h"
 
 namespace lc::ispc {
+struct VariableInfo {
+    size_t startUsingStmt = 0;
+    size_t endUsingStmt = 0;
+    size_t scope = 0;
+    //vstd::vector<vstd::vector<std
+};
+class CodegenGlobalData {
+    /* vstd::HashMap<uint64, VariableInfo> varInfos;
+    size_t stmtIndex = 0;*/
+};
+template<typename T>
+struct VisitStruct {
+    T t;
+    VisitStruct(T t)
+        : t(t) {
+        t->BeforeVisit();
+    }
+    ~VisitStruct() {
+        t->AfterVisit();
+    }
+};
 void StringExprVisitor::visit(const UnaryExpr *expr) {
 
     switch (expr->op()) {
@@ -19,10 +40,10 @@ void StringExprVisitor::visit(const UnaryExpr *expr) {
             str << '~';
             break;
     }
-    StringExprVisitor vis(str);
-    expr->operand()->accept(vis);
+    expr->operand()->accept(*this);
 }
 void StringExprVisitor::visit(const BinaryExpr *expr) {
+
     auto IsMulFuncCall = [&]() -> bool {
         if (expr->op() == BinaryOp::MUL) {
             if ((expr->lhs()->type()->is_matrix() && (!expr->rhs()->type()->is_scalar())) || (expr->rhs()->type()->is_matrix() && (!expr->lhs()->type()->is_scalar()))) {
@@ -101,6 +122,7 @@ void StringExprVisitor::visit(const BinaryExpr *expr) {
     }
 }
 void StringExprVisitor::visit(const MemberExpr *expr) {
+
     expr->self()->accept(*this);
     if (expr->is_swizzle()) {
         char const *xyzw = "xyzw";
@@ -114,6 +136,7 @@ void StringExprVisitor::visit(const MemberExpr *expr) {
     }
 }
 void StringExprVisitor::visit(const AccessExpr *expr) {
+
     expr->range()->accept(*this);
     auto t = expr->range()->type();
     if (t && (t->is_buffer() || t->is_vector()))
@@ -124,6 +147,7 @@ void StringExprVisitor::visit(const AccessExpr *expr) {
     str << ']';
 }
 void StringExprVisitor::visit(const RefExpr *expr) {
+
     Variable v = expr->variable();
     CodegenUtility::RegistStructType(v.type());
     CodegenUtility::GetVariableName(v, str);
@@ -132,26 +156,39 @@ template<typename T>
 struct PrintValue;
 template<>
 struct PrintValue<float> {
-    void operator()(float const &v, std::string &str) {
-        vstd::to_string(v, str);
+    void operator()(float const &v, luisa::string &str) {
+        if (std::isnan(v)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
+        }
+        if (std::isinf(v)) {
+            str.append(v < 0.0f ? "(-INFINITY_f)" : "(+INFINITY_f)");
+        } else {
+            auto s = fmt::format("{}", v);
+            str.append(s);
+            if (s.find('.') == std::string_view::npos &&
+                s.find('e') == std::string_view::npos) {
+                str.append(".0");
+            }
+            str.append("f");
+        }
     }
 };
 template<>
 struct PrintValue<int> {
-    void operator()(int const &v, std::string &str) {
+    void operator()(int const &v, luisa::string &str) {
         vstd::to_string(v, str);
     }
 };
 template<>
 struct PrintValue<uint> {
-    void operator()(uint const &v, std::string &str) {
+    void operator()(uint const &v, luisa::string &str) {
         vstd::to_string(v, str);
     }
 };
 
 template<>
 struct PrintValue<bool> {
-    void operator()(bool const &v, std::string &str) {
+    void operator()(bool const &v, luisa::string &str) {
         if (v)
             str << "true";
         else
@@ -161,7 +198,7 @@ struct PrintValue<bool> {
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
-    void PureRun(T const &v, std::string &varName) {
+    void PureRun(T const &v, luisa::string &varName) {
         for (uint64 i = 0; i < N; ++i) {
             vstd::to_string(v[i], varName);
             varName += ',';
@@ -170,7 +207,7 @@ struct PrintValue<Vector<EleType, N>> {
         if (*last == ',')
             varName.erase(last);
     }
-    void operator()(T const &v, std::string &varName) {
+    void operator()(T const &v, luisa::string &varName) {
         if constexpr (N > 1) {
             if constexpr (std::is_same_v<EleType, float>) {
                 varName << "_float";
@@ -186,17 +223,16 @@ struct PrintValue<Vector<EleType, N>> {
             PureRun(v, varName);
             varName << ')';
         } else {
-            PureRun(v, varName);     
+            PureRun(v, varName);
         }
     }
-
 };
 
 template<uint64 N>
 struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
-    void operator()(T const &v, std::string &varName) {
+    void operator()(T const &v, luisa::string &varName) {
         varName << "_float";
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';
@@ -214,12 +250,13 @@ struct PrintValue<Matrix<N>> {
 
 template<>
 struct PrintValue<LiteralExpr::MetaValue> {
-    void operator()(const LiteralExpr::MetaValue &s, std::string &varName) const noexcept {
+    void operator()(const LiteralExpr::MetaValue &s, luisa::string &varName) const noexcept {
         // TODO...
     }
 };
 
 void StringExprVisitor::visit(const LiteralExpr *expr) {
+
     LiteralExpr::Value const &value = expr->value();
     std::visit([&](auto &&value) -> void {
         using T = std::remove_cvref_t<decltype(value)>;
@@ -229,33 +266,39 @@ void StringExprVisitor::visit(const LiteralExpr *expr) {
                expr->value());
 }
 void StringExprVisitor::visit(const CallExpr *expr) {
+
     CodegenUtility::GetFunctionName(expr, str)(*this);
 }
 void StringExprVisitor::visit(const CastExpr *expr) {
+
     str << '(';
     CodegenUtility::GetTypeName(*expr->type(), str);
     str << ')';
-    StringExprVisitor vis(str);
-    expr->expression()->accept(vis);
+    expr->expression()->accept(*this);
 }
 
 void StringExprVisitor::visit(const ConstantExpr *expr) {
+
     CodegenUtility::GetConstName(expr->data(), str);
 }
-StringExprVisitor::StringExprVisitor(std::string &str)
-    : str(str) {
+StringExprVisitor::StringExprVisitor(luisa::string &str,
+                                     CodegenGlobalData *ptr)
+    : str(str), VisitorBase(ptr) {
 }
 StringExprVisitor::~StringExprVisitor() {}
 
 void StringStateVisitor::visit(const BreakStmt *state) {
+
     str << "break;\n";
 }
 void StringStateVisitor::visit(const ContinueStmt *state) {
+
     str << "continue;\n";
 }
 void StringStateVisitor::visit(const ReturnStmt *state) {
+
     if (state->expression()) {
-        StringExprVisitor vis(str);
+        StringExprVisitor vis(str, ptr);
         str << "return ";
         state->expression()->accept(vis);
         str << ";\n";
@@ -264,6 +307,7 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
     }
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
+
     str << "{\n";
     for (auto &&i : state->statements()) {
         i->accept(*this);
@@ -273,53 +317,59 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
 void StringStateVisitor::visit(const CommentStmt *state) {
 }
 void StringStateVisitor::visit(const IfStmt *state) {
+
     stmtCount = std::numeric_limits<uint64>::max();
     str << "if(";
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->condition()->accept(vis);
-    str << "){\n";
+    str << ")";
     state->true_branch()->accept(*this);
-    str << "}else{\n";
-    state->false_branch()->accept(*this);
-    str << "}\n";
+    if (!state->false_branch()->statements().empty()) {
+        str << "else";
+        state->false_branch()->accept(*this);
+    }
 }
 void StringStateVisitor::visit(const LoopStmt *state) {
+
     stmtCount = std::numeric_limits<uint64>::max();
-    str << "while(1){\n";
-    str << "}\n";
+    str << "while(1)";
+    state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const ExprStmt *state) {
+
     stmtCount++;
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->expression()->accept(vis);
+    str << ";\n";
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
-   stmtCount++;
+
+    stmtCount++;
     str << "switch(";
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->expression()->accept(vis);
-    str << "){\n";
+    str << ")";
     state->body()->accept(*this);
-    str << "}\n";
 }
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
+
     stmtCount++;
     str << "case ";
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->expression()->accept(vis);
-    str << ":{\n";
+    str << ":";
     state->body()->accept(*this);
-    str << "}\n";
 }
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
+
     stmtCount++;
-    str << "default:{\n";
+    str << "default:";
     state->body()->accept(*this);
-    str << "}\n";
 }
 void StringStateVisitor::visit(const AssignStmt *state) {
+
     stmtCount++;
-    StringExprVisitor vis(str);
+    StringExprVisitor vis(str, ptr);
     state->lhs()->accept(vis);
     switch (state->op()) {
         case AssignOp::ASSIGN:
@@ -360,22 +410,26 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
+
     stmtCount = std::numeric_limits<uint64>::max();
     str << "for(";
-    StringExprVisitor vis(str);
-    state->variable()->accept(vis);
+    StringExprVisitor vis(str, ptr);
+    //    state->variable()->accept(vis);
     str << ';';
     state->condition()->accept(vis);
     str << ';';
+    state->variable()->accept(vis);
+    str << "+=";
     state->step()->accept(vis);
-    str << "){\n";
-    str << "}\n";
+    str << ")";
+    state->body()->accept(*this);
 }
-StringStateVisitor::StringStateVisitor(std::string &str)
-    : str(str) {
+StringStateVisitor::StringStateVisitor(luisa::string &str, CodegenGlobalData *ptr)
+    : str(str), VisitorBase(ptr) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
-    str << "{\n";
+
+    str << "{ // begin: " << stmt->info() << "\n";
     for (auto &&v : stmt->variables()) {
         CodegenUtility::GetTypeName(*v.type(), str);
         str << ' ';
@@ -383,7 +437,7 @@ void StringStateVisitor::visit(const MetaStmt *stmt) {
         str << ";\n";
     }
     stmt->scope()->accept(*this);
-    str << "}\n";
+    str << "} // end: " << stmt->info() << "\n";
 }
 StringStateVisitor::~StringStateVisitor() = default;
 }// namespace lc::ispc

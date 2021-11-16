@@ -8,10 +8,9 @@ using namespace luisa::compute;
 namespace lc::ispc {
 class CommandExecutor : public CommandVisitor {
 public:
-    Shader::ArgVector vec;
-    ThreadPool* tPool;
+    ThreadPool *tPool;
     vstd::vector<ThreadTaskHandle> handles;
-    CommandExecutor(ThreadPool *tPool) : tPool(tPool){}
+    CommandExecutor(ThreadPool *tPool) : tPool(tPool) {}
     void visit(BufferUploadCommand const *cmd) noexcept override;
     void visit(BufferDownloadCommand const *cmd) noexcept override;
     void visit(BufferCopyCommand const *cmd) noexcept override;

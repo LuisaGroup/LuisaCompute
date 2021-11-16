@@ -94,14 +94,14 @@ Guid::Guid(std::string_view strv) {
             ParseHex(strv, data);
         } break;
         default:
-            VEngine_Log("Wrong guid std::string length!\n");
+            VEngine_Log("Wrong guid string length!\n");
             VENGINE_EXIT;
     }
 }
 
 Guid::Guid(std::span<uint8_t> data) {
     if (data.size() != sizeof(GuidData) * 2) {
-        VEngine_Log("Wrong guid std::string length!\n");
+        VEngine_Log("Wrong guid string length!\n");
         VENGINE_EXIT;
     }
     memcpy(&this->data, data.data(), sizeof(GuidData));
@@ -110,8 +110,8 @@ Guid::Guid(std::array<uint8_t, sizeof(GuidData)> const &data) {
     memcpy(&this->data, data.data(), sizeof(GuidData));
 }
 
-std::string Guid::ToBase64() const {
-    std::string result;
+string Guid::ToBase64() const {
+    string result;
     StringUtil::EncodeToBase64({reinterpret_cast<uint8_t const *>(&data), sizeof(data)}, result);
     result.resize(result.size() - 2);
     return result;
@@ -159,8 +159,8 @@ void toHex(uint64 data, char *&sPtr, bool upper) {
     }
 }
 }// namespace vguid_detail
-std::string Guid::ToString(bool upper) const {
-    std::string s;
+string Guid::ToString(bool upper) const {
+    string s;
     s.resize(sizeof(GuidData) * 2);
     auto sPtr = s.data() + sizeof(GuidData) * 2 - 1;
     vguid_detail::toHex(data.data1, sPtr, upper);

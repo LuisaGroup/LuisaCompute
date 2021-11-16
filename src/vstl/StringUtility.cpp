@@ -20,14 +20,14 @@ inline char mtoupper_value(char c) {
         return c + ('A' - 'a');
     return c;
 }
-void StringUtil::ToLower(std::string &str) {
+void StringUtil::ToLower(string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
         mtolower(c[i]);
     }
 }
-void StringUtil::ToUpper(std::string &str) {
+void StringUtil::ToUpper(string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
@@ -35,8 +35,8 @@ void StringUtil::ToUpper(std::string &str) {
     }
 }
 
-std::string StringUtil::ToLower(std::string_view str) {
-    std::string s;
+string StringUtil::ToLower(std::string_view str) {
+    string s;
     s.resize(str.size());
     for (auto i : range(str.size())) {
         auto &&v = s[i];
@@ -45,8 +45,8 @@ std::string StringUtil::ToLower(std::string_view str) {
     }
     return s;
 }
-std::string StringUtil::ToUpper(std::string_view str) {
-    std::string s;
+string StringUtil::ToUpper(std::string_view str) {
+    string s;
     s.resize(str.size());
     for (auto i : range(str.size())) {
         auto &&v = s[i];
@@ -225,13 +225,13 @@ size_t constexpr encoded_size(size_t n) {
     return 4 * ((n + 2) / 3);
 }
 
-/// Returns max bytes needed to decode a base64 std::string
+/// Returns max bytes needed to decode a base64 string
 size_t constexpr decoded_size(size_t n) {
     return n / 4 * 3;// requires n&3==0, smaller
 }
 
 }// namespace strutil_detail
-void StringUtil::EncodeToBase64(std::span<uint8_t const> binary, std::string &str) {
+void StringUtil::EncodeToBase64(std::span<uint8_t const> binary, string &str) {
     using namespace strutil_detail;
     size_t oriSize = str.size();
     str.resize(oriSize + encoded_size(binary.size()));

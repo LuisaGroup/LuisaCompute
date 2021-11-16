@@ -52,7 +52,6 @@ struct CodegenGlobal {
     }
 };
 static thread_local vstd::optional<CodegenGlobal> opt;
-#include "ispc.inl"
 void CodegenUtility::ClearStructType() {
     opt.New();
     opt->Clear();
@@ -68,7 +67,7 @@ void CodegenUtility::RegistStructType(Type const *type) {
 static bool IsVarWritable(Function func, Variable i) {
     return ((uint)func.variable_usage(i.uid()) & (uint)Usage::WRITE) != 0;
 }
-void CodegenUtility::GetVariableName(Variable::Tag type, uint id, std::string &str) {
+void CodegenUtility::GetVariableName(Variable::Tag type, uint id, luisa::string &str) {
     switch (type) {
         case Variable::Tag::BLOCK_ID:
             str << "blk_id"sv;
@@ -101,7 +100,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, std::string &s
     }
 }
 
-void CodegenUtility::GetVariableName(Type::Tag type, uint id, std::string &str) {
+void CodegenUtility::GetVariableName(Type::Tag type, uint id, luisa::string &str) {
     switch (type) {
         case Type::Tag::BUFFER:
             str << "_b"sv;
@@ -118,15 +117,15 @@ void CodegenUtility::GetVariableName(Type::Tag type, uint id, std::string &str) 
     }
 }
 
-void CodegenUtility::GetVariableName(Variable const &type, std::string &str) {
+void CodegenUtility::GetVariableName(Variable const &type, luisa::string &str) {
     GetVariableName(type.tag(), type.uid(), str);
 }
-void CodegenUtility::GetConstName(ConstantData const &data, std::string &str) {
+void CodegenUtility::GetConstName(ConstantData const &data, luisa::string &str) {
     uint64 constCount = opt->GetConstCount(data.hash());
     str << "c";
     vstd::to_string((constCount), str);
 }
-void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &str) {
+void CodegenUtility::GetConstantStruct(ConstantData const &data, luisa::string &str) {
     uint64 constCount = opt->GetConstCount(data.hash());
     //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
     str << "struct tc";
@@ -143,7 +142,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, std::string &st
     str << "];\n";
     str << "};\n";
 }
-void CodegenUtility::GetCustomStruct(Type const &t, std::string_view strName, std::string &str) {
+void CodegenUtility::GetCustomStruct(Type const &t, std::string_view strName, luisa::string &str) {
     str << "struct " << strName << "{\n";
     uint64 vCount = 0;
     for (auto &&m : t.members()) {
@@ -156,11 +155,11 @@ void CodegenUtility::GetCustomStruct(Type const &t, std::string_view strName, st
     //t.members
     str << "};\n";
 }
-void CodegenUtility::GetConstantData(ConstantData const &data, std::string &str) {
+void CodegenUtility::GetConstantData(ConstantData const &data, luisa::string &str) {
     auto &&view = data.view();
     uint64 constCount = opt->GetConstCount(data.hash());
 
-    std::string name = vstd::to_string((constCount));
+    luisa::string name = vstd::to_string((constCount));
     str << "uniform const tc" << name << " c" << name;
     str << "={{";
     std::visit(
@@ -180,7 +179,7 @@ void CodegenUtility::GetConstantData(ConstantData const &data, std::string &str)
     str << "};\n";
 }
 
-void CodegenUtility::GetArrayStruct(Type const &t, std::string_view name, std::string &str) {
+void CodegenUtility::GetArrayStruct(Type const &t, std::string_view name, luisa::string &str) {
     str << "struct " << name << "{\n";
     GetTypeName(*t.element(), str);
     str << " v[";
@@ -188,7 +187,7 @@ void CodegenUtility::GetArrayStruct(Type const &t, std::string_view name, std::s
     str << "];\n};\n";
 }
 
-void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
+void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
     switch (type.tag()) {
         case Type::Tag::ARRAY:
             str << 'A';
@@ -246,7 +245,7 @@ void CodegenUtility::GetTypeName(Type const &type, std::string &str) {
     }
 }
 
-void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
+void CodegenUtility::GetFunctionDecl(Function func, luisa::string &data) {
 
     if (func.return_type()) {
         CodegenUtility::GetTypeName(*func.return_type(), data);
@@ -264,7 +263,11 @@ void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
                 for (auto &&i : func.arguments()) {
                     RegistStructType(i.type());
                     CodegenUtility::GetTypeName(*i.type(), data);
-                    data += ' ';
+                    if (i.tag() == Variable::Tag::REFERENCE) {
+                        data += "& ";
+                    } else {
+                        data += ' ';
+                    }
                     CodegenUtility::GetVariableName(i, data);
                     data += ',';
                 }
@@ -276,7 +279,7 @@ void CodegenUtility::GetFunctionDecl(Function func, std::string &data) {
             break;
     }
 }
-vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallExpr const *expr, std::string &str) {
+vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallExpr const *expr, luisa::string &str) {
     auto defaultArgs = [&str, expr](StringExprVisitor &vis) {
         str << '(';
         uint64 sz = 0;
@@ -612,6 +615,9 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
         case Type::Tag::ACCEL:
         case Type::Tag::BINDLESS_ARRAY:
             return 8;
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid type: {}.", t.description());
     }
 }
 
@@ -647,7 +653,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
     }
 }
 
-void CodegenUtility::PrintFunction(Function func, std::string &str) {
+void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 blockSize) {
+#include "ispc.inl"
+    CodegenGlobalData globalData;
     auto ExecuteConst = [&](auto &&f) {
         auto consts = func.constants();
         for (auto &&c : consts) {
@@ -655,36 +663,29 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         }
     };
     vstd::HashMap<uint64, void> executedFunc;
-    auto PrintCustom = [&](Function func, std::string &bodyStr, auto &&PrintCustom) -> void {
+    auto PrintCustom = [&](Function func, luisa::string &bodyStr, auto &&PrintCustom) -> void {
         auto callables = func.custom_callables();
         for (auto &&i : callables) {
             Function f = Function(i.get());
             bool needPrint = executedFunc.TryEmplace(f.hash()).second;
             if (needPrint) {
                 PrintCustom(f, bodyStr, PrintCustom);
-                PrintFunction(f, bodyStr);
+                PrintFunction(f, bodyStr, blockSize);
             }
         }
     };
     if (func.tag() == Function::Tag::KERNEL) {
         ClearStructType();
-        str << "#include \"lib.h\"\n";
+        str << "#include <lib.h>\n"
+               "#define INFINITY_f (floatbits(0x7f800000))\n";
         ExecuteConst(GetConstantStruct);
         ExecuteConst(GetConstantData);
-        std::string bodyStr;
-        auto callables = func.custom_callables();
-        for (auto &&i : callables) {
-            Function f = Function(i.get());
-            bool needPrint = executedFunc.TryEmplace(f.hash()).second;
-            if (needPrint) {
-                PrintCustom(f, bodyStr, PrintCustom);
-                PrintFunction(f, bodyStr);
-            }
-        }
+        luisa::string bodyStr;
+        PrintCustom(func, bodyStr, PrintCustom);
         bodyStr << headerName;
         //arguments
-        std::string argName;
-        std::string argType;
+        luisa::string argName;
+        luisa::string argType;
         size_t argOffset = 0;
         size_t collectSize = 0;
         auto printArg = [&](auto &&i) {
@@ -700,7 +701,7 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
                 argOffset += collectSize;
                 collectSize = 0;
             }
-            bodyStr << "uniform " << argType << ' ' << argName << '=' << "*((" << argType << "*)arg);\n";
+            bodyStr << argType << ' ' << argName << '=' << "*((" << argType << "*)arg);\n";
             auto sz = GetTypeSize(*i.type());
             collectSize += sz;
             argOffset += sz;
@@ -710,27 +711,65 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         }
         //foreach
 
-        StringStateVisitor vis(bodyStr);
+        StringStateVisitor vis(bodyStr, &globalData);
         func.body()->accept(vis);
         //end
         bodyStr << '}' << exportName;
+        size_t tailCount = 1;
+        if (blockSize.x <= 1 && blockSize.y <= 1 && blockSize.z <= 1) {
+            bodyStr << zero_blk_id;
+        } else {
+            bodyStr << "foreach(";
+            vstd::string defineStr;
+            auto printStr = [&](char var, char varCount, uint count) {
+                if (count <= 1) {
+                    defineStr << "#define " << var << " 0\n";
+                } else {
+                    bodyStr << var << " = 0 ... " << varCount << ',';
+                }
+            };
+            printStr('x', 'X', blockSize.x);
+            printStr('y', 'Y', blockSize.y);
+            printStr('z', 'Z', blockSize.z);
+            if (*(bodyStr.end() - 1) == ',') {
+                *(bodyStr.end() - 1) = ')';
+            } else {
+                bodyStr << ')';
+            }
+            bodyStr << "{\n"
+                    << defineStr
+                    << blk_id;
+            tailCount++;
+        }
+
+        bodyStr << tail;
+        for (auto i : vstd::range(tailCount)) {
+            bodyStr << '}';
+        }
         for (auto &&i : opt->customStructs) {
 
             if (i.first->is_structure()) {
-                std::string s = "T";
+                luisa::string s = "T";
                 vstd::to_string(i.second, s);
                 GetCustomStruct(*i.first, s, str);
             } else {
-                std::string s = "A";
+                luisa::string s = "A";
                 vstd::to_string(i.second, s);
                 GetArrayStruct(*i.first, s, str);
             }
         }
-        str << bodyStr;
+        str << "\n#define X ";
+        vstd::to_string(blockSize.x, str);
+        str << "\n#define Y ";
+        vstd::to_string(blockSize.y, str);
+        str << "\n#define Z ";
+        vstd::to_string(blockSize.z, str);
+        str << '\n'
+            << bodyStr;
     } else {
-        std::string ss;
+        luisa::string ss;
         GetFunctionDecl(func, ss);
-        StringStateVisitor vis(ss);
+        StringStateVisitor vis(ss, &globalData);
         func.body()->accept(vis);
         if (vis.StmtCount() < INLINE_STMT_LIMIT) {
             str << "inline ";
@@ -738,7 +777,7 @@ void CodegenUtility::PrintFunction(Function func, std::string &str) {
         str << ss;
     }
 }
-void CodegenUtility::GetBasicTypeName(uint64 typeIndex, std::string &str) {
+void CodegenUtility::GetBasicTypeName(uint64 typeIndex, luisa::string &str) {
     // Matrix
     if (typeIndex > 15) {
 

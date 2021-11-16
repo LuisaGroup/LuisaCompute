@@ -7,8 +7,6 @@
 using namespace std::literals;
 
 namespace vstd {
-class string;
-class wstring;
 template<>
 struct hash<std::string_view> {
     inline size_t operator()(const std::string_view &str) const noexcept {

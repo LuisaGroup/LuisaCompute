@@ -38,7 +38,7 @@ struct MultiCompare<T, Args...> {
 	static int32_t Run(
 		T const& a, Args const&... aArgs,
 		T const& b, Args const&... bArgs) {
-		vstd::compare<T> hs;
+		compare<T> hs;
 		auto value = hs(a, b);
 		if (value == 0) {
 			if constexpr (sizeof...(Args) > 0)
@@ -59,7 +59,7 @@ struct TupleCompare<index, std::tuple<T...>> {
 			return 0;
 		} else {
 			using CurType = std::remove_cvref_t<decltype(std::get<index>(std::declval<std::tuple<T...>>()))>;
-			vstd::compare<CurType> hs;
+			compare<CurType> hs;
 			auto value = hs(std::get<index>(a), std::get<index>(b));
 			if (value == 0) {
 				return TupleCompare<index + 1, std::tuple<T...>>::Run(a, b);
