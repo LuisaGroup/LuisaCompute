@@ -59,10 +59,29 @@ static luisa::string CompileCode(std::string_view code) {
 class WinDllExecutable : public IShaderExecutable {
 public:
     DynamicModule dllModule;
+    using FuncType = void(
+        uint, //blk_cX,
+        uint, //blk_cY,
+        uint, //blk_cZ,
+        uint, // thd_idX,
+        uint, //thd_idY,
+        uint, // thd_idZ,
+        uint64// arg
+    );
+    vstd::funcPtr_t<FuncType> exportFunc;
     WinDllExecutable(Function func, std::string_view strv)
         : dllModule(strv) {
+        exportFunc = dllModule.function<FuncType>("run");
     }
-    void Execute(uint3 blockCount, uint3 blockSize, void *args) const override {
+    void Execute(uint3 const &blockCount, uint3 const &blockSize, void *args) const {
+        exportFunc(
+            blockCount.x,
+            blockCount.y,
+            blockCount.z,
+            blockSize.x,
+            blockSize.y,
+            blockSize.z,
+            (uint64)args);
     }
 };
 static IShaderExecutable *GetExecutable(Function func) {
@@ -109,7 +128,11 @@ ThreadTaskHandle Shader::dispatch(
                 uint blockIdxY = i / blockCount.x;
                 i -= blockIdxY * blockCount.x;
                 uint blockIdxX = i;
-                executable->Execute(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), vec.data());
+#ifdef LUISA_PLATFORM_WINDOWS
+                static_cast<WinDllExecutable *>(executable)->Execute(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), vec.data());
+#else
+//LLVM
+#endif
             }
         },
         std::thread::hardware_concurrency(),

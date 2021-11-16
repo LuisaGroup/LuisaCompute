@@ -13,7 +13,7 @@ using namespace luisa::compute;
 class IShaderExecutable : public vstd::IOperatorNewBase {
 public:
     virtual ~IShaderExecutable() = default;
-    virtual void Execute(uint3 blockCount, uint3 blockSize, void * args) const = 0;
+    //virtual void Execute(uint3 blockCount, uint3 blockSize, void * args) const = 0;
 };
 
 class Shader {
