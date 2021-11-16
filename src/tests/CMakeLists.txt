@@ -62,10 +62,12 @@ endif ()
 
 add_subdirectory(network)
 
-find_package(LLVM CONFIG REQUIRED)
-llvm_map_components_to_libnames(
-        LLVM_LIBS
-        core executionengine support mcjit nativecodegen irreader passes analysis)
-add_executable(test_playground test_playground.cpp)
-target_include_directories(test_playground PRIVATE ${LLVM_INCLUDE_DIRS})
-target_link_libraries(test_playground PRIVATE luisa::compute ${LLVM_LIBS})
+find_package(LLVM CONFIG)
+if (LLVM_FOUND)
+    llvm_map_components_to_libnames(
+            LLVM_LIBS
+            core executionengine support mcjit nativecodegen irreader passes analysis)
+    add_executable(test_playground test_playground.cpp)
+    target_include_directories(test_playground PRIVATE ${LLVM_INCLUDE_DIRS})
+    target_link_libraries(test_playground PRIVATE luisa::compute ${LLVM_LIBS})
+endif ()

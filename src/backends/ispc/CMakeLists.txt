@@ -1,8 +1,4 @@
-if (WIN32)
-    find_package(LLVM CONFIG)
-else ()
-    find_package(LLVM CONFIG REQUIRED)
-endif ()
+message(STATUS "Build with ISPC")
 
 ##[[[]]]
 set(ISPC_BACKEND_SOURCES
@@ -36,14 +32,20 @@ foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
     add_dependencies(luisa-compute-backend-ispc luisa-compute-backend-ispc-copy-include-${config_lower})
 endforeach ()
 
+if (WIN32)
+    find_package(LLVM CONFIG)
+else ()
+    find_package(LLVM CONFIG REQUIRED)
+endif ()
+
 if (LLVM_FOUND) # link with llvm for jit
-    message(STATUS "Build with ISPC")
     llvm_map_components_to_libnames(
             LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)
     target_sources(luisa-compute-backend-ispc PRIVATE runtime/ispc_jit_module.cpp)
+    message(STATUS "LLVM: ${LLVM_INCLUDE_DIRS}")
     target_include_directories(luisa-compute-backend-ispc PRIVATE ${LLVM_INCLUDE_DIRS})
     target_link_libraries(luisa-compute-backend-ispc PRIVATE ${LLVM_LIBS})
     target_compile_definitions(luisa-compute-backend-ispc PRIVATE LUISA_COMPUTE_ISPC_LLVM_JIT)
-else() # fallback to DLL
+else () # fallback to DLL
     target_sources(luisa-compute-backend-ispc PRIVATE runtime/ispc_dll_module.cpp)
 endif ()

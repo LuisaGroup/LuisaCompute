@@ -68,6 +68,7 @@ Shader::Shader(
     for (auto o : std::span{ispc_options}.subspan(1u)) {
         ispc_opt_string.append(" ").append(o);
     }
+
     auto object_path = ctx.cache_directory() / fmt::format("{}.{}", name, object_ext);
 
     // compile: write source
@@ -109,7 +110,7 @@ ThreadTaskHandle Shader::dispatch(
     uint3 sz,
     ArgVector vec) const {
     auto blockSize = func.block_size();
-    auto blockCount = (sz + blockSize - 1u) / blockSize;
+    auto blockCount = (sz + blockSize - uint3(1,1,1)) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
     auto sharedCounter = luisa::make_shared<std::atomic_uint>(0u);
     auto handle = tPool->GetParallelTask(

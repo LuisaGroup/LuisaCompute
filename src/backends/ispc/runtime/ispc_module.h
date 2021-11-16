@@ -20,7 +20,10 @@ public:
         uint32_t,// blk_idX
         uint32_t,// blk_idY
         uint32_t,// blk_idZ
-        uint64_t// arg
+        uint32_t,// dsp_cX
+        uint32_t,// dsp_cY
+        uint32_t,// dsp_cZ
+        uint64_t// args
     );
 
 protected:
@@ -29,10 +32,11 @@ protected:
 public:
     explicit Module(function_type *f_ptr = nullptr) noexcept
         : _f_ptr{f_ptr} {}
-    void invoke(uint3 blockCount, uint3 blockIdx, uint3 dispatchSize/* TODO */, const void *args) noexcept {
+    void invoke(uint3 blockCount, uint3 blockIdx, uint3 dispatchSize, const void *args) noexcept {
         _f_ptr(
             blockCount.x, blockCount.y, blockCount.z,
             blockIdx.x, blockIdx.y, blockIdx.z,
+            dispatchSize.x, dispatchSize.y, dispatchSize.z,
             reinterpret_cast<uint64_t>(args));
     }
     virtual ~Module() noexcept = default;

@@ -1,6 +1,5 @@
 #pragma vengine_package ispc_vsproject
 
-#include <core/dynamic_module.h>
 #include <runtime/sampler.h>
 #include <backends/ispc/runtime/ispc_device.h>
 #include <backends/ispc/runtime/ispc_codegen.h>
