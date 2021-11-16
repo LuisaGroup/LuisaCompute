@@ -4,15 +4,13 @@ if (LLVM_FOUND)
 
     ##[[[]]]
     set(ISPC_BACKEND_SOURCES
-            runtime/ispc_codegen.cpp
-            runtime/ispc_codegenutil.cpp
-            runtime/ispc_compiler.cpp
-            runtime/ispc_device.cpp
-            runtime/ispc_runtime.cpp
-            runtime/ispc_shader.cpp
-            runtime/ispc_jit_module.cpp
-            )
-    ##[[[]]]
+        runtime/ispc_codegen.cpp
+        runtime/ispc_codegenutil.cpp
+        runtime/ispc_device.cpp
+        runtime/ispc_runtime.cpp
+        runtime/ispc_shader.cpp
+    )
+##[[[]]]
 
     luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})
     set_target_properties(luisa-compute-backend-ispc PROPERTIES
