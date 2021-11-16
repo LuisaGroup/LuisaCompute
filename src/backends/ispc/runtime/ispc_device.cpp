@@ -1,12 +1,11 @@
 #pragma vengine_package ispc_vsproject
 
-#include <backends/ispc/runtime/ispc_device.h>
-#include <runtime/sampler.h>
-#include "ispc_codegen.h"
-#include "ispc_compiler.h"
-#include "ispc_shader.h"
-#include "ispc_runtime.h"
 #include <core/dynamic_module.h>
+#include <runtime/sampler.h>
+#include <backends/ispc/runtime/ispc_device.h>
+#include <backends/ispc/runtime/ispc_codegen.h>
+#include <backends/ispc/runtime/ispc_shader.h>
+#include <backends/ispc/runtime/ispc_runtime.h>
 
 namespace lc::ispc {
 void *ISPCDevice::native_handle() const noexcept {
@@ -57,13 +56,7 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 
 // kernel
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    auto module = [=] {
-        luisa::string result;
-        CodegenUtility::PrintFunction(kernel, result, kernel.block_size());
-        Compiler comp;
-        return comp.CompileCode(context(), result);
-    }();
-    return reinterpret_cast<uint64>(new Shader(kernel, std::move(module)));
+    return reinterpret_cast<uint64>(new Shader(context(), kernel));
 }
 void ISPCDevice::destroy_shader(uint64_t handle) noexcept {
     delete reinterpret_cast<Shader *>(handle);

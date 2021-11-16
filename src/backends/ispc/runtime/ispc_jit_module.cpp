@@ -22,17 +22,13 @@
 namespace lc::ispc {
 
 JITModule::JITModule(luisa::unique_ptr<llvm::LLVMContext> ctx, std::unique_ptr<llvm::ExecutionEngine> engine) noexcept
-    : _context{std::move(ctx)}, _engine{std::move(engine)} {
-    _run = reinterpret_cast<function_type *>(_engine->getFunctionAddress("run"));
+    : _context{std::move(ctx)},
+      _engine{std::move(engine)} {
+    _f_ptr = reinterpret_cast<function_type *>(
+        _engine->getFunctionAddress("run"));
 }
 
 JITModule::~JITModule() noexcept = default;
-
-void JITModule::invoke(luisa::uint3 thread_count, luisa::uint3 thread_start, const void *args) const noexcept {
-    _run(thread_count.x, thread_count.y, thread_count.z,
-         thread_start.x, thread_start.y, thread_start.z,
-         reinterpret_cast<uint64_t>(args));
-}
 
 [[nodiscard]] auto get_target_machine() {
     static std::once_flag flag;
@@ -57,7 +53,9 @@ void JITModule::invoke(luisa::uint3 thread_count, luisa::uint3 thread_start, con
     return machine;
 }
 
-JITModule JITModule::load(const std::filesystem::path &ir_path) noexcept {
+luisa::unique_ptr<Module> JITModule::load(
+    const Context &ctx, const std::filesystem::path &ir_path) noexcept {
+
     auto context = luisa::make_unique<llvm::LLVMContext>();
     llvm::SMDiagnostic error;
     LUISA_INFO("Loading LLVM IR: '{}'.", ir_path.string());
@@ -82,7 +80,7 @@ JITModule JITModule::load(const std::filesystem::path &ir_path) noexcept {
             "Failed to create execution engine: {}.",
             err);
     }
-    return {std::move(context), std::move(engine)};
+    return luisa::make_unique<JITModule>(JITModule{std::move(context), std::move(engine)});
 }
 
 }// namespace lc::ispc

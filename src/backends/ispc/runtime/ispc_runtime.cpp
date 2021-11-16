@@ -1,6 +1,7 @@
 #pragma vengine_package ispc_vsproject
 
-#include "ispc_runtime.h"
+#include <backends/ispc/runtime/ispc_runtime.h>
+
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
     uint8_t *ptr = reinterpret_cast<uint8_t *>(cmd->handle());

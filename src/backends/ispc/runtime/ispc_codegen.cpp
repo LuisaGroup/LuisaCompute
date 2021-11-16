@@ -1,6 +1,6 @@
 #pragma vengine_package ispc_vsproject
 
-#include "ispc_codegen.h"
+#include <backends/ispc/runtime/ispc_codegen.h>
 
 namespace lc::ispc {
 struct VariableInfo {

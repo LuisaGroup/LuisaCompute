@@ -1,7 +1,8 @@
 #pragma once
+
 #include <vstl/Common.h>
 #include <runtime/command.h>
-#include "ispc_shader.h"
+#include <backends/ispc/runtime/ispc_shader.h>
 
 using namespace luisa;
 using namespace luisa::compute;

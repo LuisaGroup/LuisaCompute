@@ -3,23 +3,24 @@
 #include <vstl/Common.h>
 #include <core/dynamic_module.h>
 #include <vstl/ThreadPool.h>
-#include <backends/ispc/runtime/ispc_jit_module.h>
+#include <ast/function.h>
+#include <runtime/context.h>
+#include <backends/ispc/runtime/ispc_module.h>
 
 namespace lc::ispc {
 
 using namespace luisa;
+using namespace luisa::compute;
 
 class Shader {
 private:
-    JITModule module;
+    luisa::unique_ptr<Module> executable;
     Function func;
     vstd::HashMap<uint, uint> varIdToArg;
 
 public:
     using ArgVector = vstd::vector<uint8_t, VEngine_AllocType::VEngine, true, 32>;
-    Shader(
-        Function func,
-        JITModule module);
+    Shader(const Context &ctx, Function func);
     size_t GetArgIndex(uint varID) const;
     static constexpr size_t CalcAlign(size_t value, size_t align) {
         return (value + (align - 1)) & ~(align - 1);
@@ -42,7 +43,7 @@ public:
         memcpy(vec.data() + sz, ptr, arrSize);
     }
     ThreadTaskHandle dispatch(
-        ThreadPool* tPool,
+        ThreadPool *tPool,
         uint3 sz,
         ArgVector vec) const;
 };
