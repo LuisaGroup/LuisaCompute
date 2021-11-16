@@ -34,7 +34,7 @@ ThreadTaskHandle Shader::dispatch(
                 uint blockIdxY = i / blockCount.x;
                 i -= blockIdxY * blockCount.x;
                 uint blockIdxX = i;
-                module(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), vec.data());
+                module.invoke(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), vec.data());
             }
         },
         std::thread::hardware_concurrency(),

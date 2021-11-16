@@ -5,11 +5,7 @@ import numpy as np
 
 import taichi as ti
 
-<<<<<<< HEAD
-ti.init(arch=ti.wasm, fast_math=True, advanced_optimization=True)
-=======
 ti.init(arch=ti.cpu, fast_math=True, advanced_optimization=True)
->>>>>>> 07131e38edadfa6b75248a797c2b4bae2cac56b7
 res = 1280, 720
 color_buffer = ti.Vector.field(3, dtype=ti.f32, shape=res)
 max_ray_depth = 6

@@ -28,7 +28,7 @@ JITModule::JITModule(luisa::unique_ptr<llvm::LLVMContext> ctx, std::unique_ptr<l
 
 JITModule::~JITModule() noexcept = default;
 
-void JITModule::operator()(luisa::uint3 thread_count, luisa::uint3 thread_start, const void *args) const noexcept {
+void JITModule::invoke(luisa::uint3 thread_count, luisa::uint3 thread_start, const void *args) const noexcept {
     _run(thread_count.x, thread_count.y, thread_count.z,
          thread_start.x, thread_start.y, thread_start.z,
          reinterpret_cast<uint64_t>(args));

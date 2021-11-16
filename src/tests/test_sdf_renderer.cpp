@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-//#define ENABLE_DISPLAY
+#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda", 0);
+    auto device = context.create_device("ispc", 0);
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("ispc", 0u);
 #elif defined(LUISA_BACKEND_DX_ENABLED)

@@ -45,6 +45,7 @@ target_link_libraries(test_ispc_101 PRIVATE luisa::compute)
 
 find_package(OpenCV CONFIG)
 if (OpenCV_FOUND)
+    message(STATUS "OpenCV: ${OpenCV_LIBS}")
     add_executable(test_shader_toy test_shader_toy.cpp)
     target_link_libraries(test_shader_toy PRIVATE luisa::compute ${OpenCV_LIBS})
     add_executable(test_game_of_life test_game_of_life.cpp)

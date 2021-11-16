@@ -42,8 +42,7 @@ public:
     JITModule(JITModule &&) noexcept = default;
     JITModule &operator=(JITModule &&) noexcept = default;
     [[nodiscard]] static JITModule load(const std::filesystem::path &ir_path) noexcept;
-    void operator()(luisa::uint3 thread_count, luisa::uint3 thread_start, const void *args) const noexcept;
+    void invoke(luisa::uint3 thread_count, luisa::uint3 thread_start, const void *args) const noexcept;
 };
-
 
 }

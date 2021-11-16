@@ -27,6 +27,8 @@ $RECYCLE.BIN/
 *.log
 # Windows shortcuts
 *.lnk
+# Windows executables
+*.exe
 
 ### macOS template
 # General

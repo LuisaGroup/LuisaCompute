@@ -22,6 +22,7 @@ set(SPDLOG_NO_EXCEPTIONS ON CACHE BOOL "" FORCE)
 add_subdirectory(spdlog)
 target_compile_definitions(spdlog INTERFACE FMT_CONSTEVAL=inline)
 set_target_properties(spdlog PROPERTIES UNITY_BUILD ON)
+target_compile_definitions(spdlog PUBLIC FMT_EXCEPTIONS=0)
 target_link_libraries(luisa-compute-ext INTERFACE spdlog)
 
 add_library(xxhash INTERFACE)
