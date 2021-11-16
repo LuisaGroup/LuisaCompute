@@ -1,5 +1,5 @@
-find_package(LLVM CONFIG)
-if (LLVM_FOUND)
+#find_package(LLVM CONFIG)
+#if (LLVM_FOUND)
     message(STATUS "Build with ISPC")
 
     ##[[[]]]
@@ -35,8 +35,8 @@ if (LLVM_FOUND)
     endforeach ()
 
     # link with llvm for jit
-    llvm_map_components_to_libnames(
-            LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)
+    #llvm_map_components_to_libnames(
+    #       LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)
     target_include_directories(luisa-compute-backend-ispc PRIVATE ${LLVM_INCLUDE_DIRS})
     target_link_libraries(luisa-compute-backend-ispc PRIVATE ${LLVM_LIBS})
-endif ()
+#endif ()

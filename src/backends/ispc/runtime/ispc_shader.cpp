@@ -56,7 +56,7 @@ static luisa::string CompileCode(std::string_view code) {
     return fileName;
 }
 }// namespace detail
-class WinDllExecutable : public IShaderExecutable {
+class WinDllExecutable : public vstd::IOperatorNewBase {
 public:
     DynamicModule dllModule;
     using FuncType = void(
@@ -66,6 +66,9 @@ public:
         uint, // thd_idX,
         uint, //thd_idY,
         uint, // thd_idZ,
+        uint, //dsp_cX
+        uint, //dsp_cY
+        uint, //dsp_cZ
         uint64// arg
     );
     vstd::funcPtr_t<FuncType> exportFunc;
@@ -73,7 +76,11 @@ public:
         : dllModule(strv) {
         exportFunc = dllModule.function<FuncType>("run");
     }
-    void Execute(uint3 const &blockCount, uint3 const &blockSize, void *args) const {
+    void Execute(
+        uint3 const &blockCount,
+        uint3 const &blockSize,
+        uint3 const &dispatchCount,
+        void *args) const {
         exportFunc(
             blockCount.x,
             blockCount.y,
@@ -81,17 +88,25 @@ public:
             blockSize.x,
             blockSize.y,
             blockSize.z,
+            dispatchCount.x,
+            dispatchCount.y,
+            dispatchCount.z,
             (uint64)args);
     }
 };
-static IShaderExecutable *GetExecutable(Function func) {
+static void *GetExecutable(Function func) {
     luisa::string binName;
     luisa::string result;
     CodegenUtility::PrintFunction(func, result, func.block_size());
     binName = detail::CompileCode(result);
     return new WinDllExecutable(func, binName);
 }
+Shader::~Shader() {
+    delete reinterpret_cast<WinDllExecutable *>(executable);
+}
 #else
+Shader::~Shader() {
+}
 ////////////////////////// TODO: LLVM backend
 #endif
 Shader::Shader(
@@ -115,10 +130,9 @@ ThreadTaskHandle Shader::dispatch(
     uint3 sz,
     ArgVector vec) const {
     auto blockSize = func.block_size();
-    auto blockCount = (sz + blockSize - 1u) / blockSize;
+    auto blockCount = (sz + blockSize - uint3(1,1,1)) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
     auto sharedCounter = luisa::make_shared<std::atomic_uint>(0u);
-    auto executable = this->executable.get();
     auto handle = tPool->GetParallelTask(
         [=, vec = std::move(vec)](size_t) {
             auto &&counter = *sharedCounter;
@@ -129,7 +143,7 @@ ThreadTaskHandle Shader::dispatch(
                 i -= blockIdxY * blockCount.x;
                 uint blockIdxX = i;
 #ifdef LUISA_PLATFORM_WINDOWS
-                static_cast<WinDllExecutable *>(executable)->Execute(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), vec.data());
+                reinterpret_cast<WinDllExecutable *>(executable)->Execute(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), sz, vec.data());
 #else
 //LLVM
 #endif

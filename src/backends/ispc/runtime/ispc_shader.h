@@ -10,15 +10,10 @@ namespace lc::ispc {
 
 using namespace luisa;
 using namespace luisa::compute;
-class IShaderExecutable : public vstd::IOperatorNewBase {
-public:
-    virtual ~IShaderExecutable() = default;
-    //virtual void Execute(uint3 blockCount, uint3 blockSize, void * args) const = 0;
-};
 
 class Shader {
 private:
-    std::unique_ptr<IShaderExecutable> executable;
+    void* executable;
     Function func;
     vstd::HashMap<uint, uint> varIdToArg;
 
@@ -50,5 +45,6 @@ public:
         ThreadPool *tPool,
         uint3 sz,
         ArgVector vec) const;
+    ~Shader();
 };
 }// namespace lc::ispc
