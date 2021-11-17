@@ -33,12 +33,16 @@ foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
 endforeach ()
 
 if (WIN32)
-    find_package(LLVM CONFIG)
+    option(LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT "Enable LLVM JIT for ISPC kernels" ON)
+    if (LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT)
+        find_package(LLVM CONFIG)
+    endif ()
 else ()
     find_package(LLVM CONFIG REQUIRED)
 endif ()
 
 if (LLVM_FOUND) # link with llvm for jit
+    message(STATUS "Use LLVM JIT for ISPC kernels")
     llvm_map_components_to_libnames(
             LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)
     target_sources(luisa-compute-backend-ispc PRIVATE runtime/ispc_jit_module.cpp)
@@ -47,5 +51,6 @@ if (LLVM_FOUND) # link with llvm for jit
     target_link_libraries(luisa-compute-backend-ispc PRIVATE ${LLVM_LIBS})
     target_compile_definitions(luisa-compute-backend-ispc PRIVATE LUISA_COMPUTE_ISPC_LLVM_JIT)
 else () # fallback to DLL
+    message(STATUS "Use runtime DLL loading for ISPC kernels")
     target_sources(luisa-compute-backend-ispc PRIVATE runtime/ispc_dll_module.cpp)
 endif ()
