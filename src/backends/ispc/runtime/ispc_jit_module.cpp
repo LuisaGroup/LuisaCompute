@@ -87,7 +87,7 @@ luisa::unique_ptr<Module> JITModule::load(
     pass_manager_builder.SLPVectorize = true;
     pass_manager_builder.MergeFunctions = true;
     machine->adjustPassManager(pass_manager_builder);
-    module->setDataLayout(machine->createDataLayout());
+//    module->setDataLayout(machine->createDataLayout());
 
     // optimize: function passes
     {
