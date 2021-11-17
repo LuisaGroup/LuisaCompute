@@ -50,13 +50,12 @@ JITModule::~JITModule() noexcept = default;
     options.UnsafeFPMath = true;
     options.NoInfsFPMath = true;
     options.NoNaNsFPMath = true;
-    options.HonorSignDependentRoundingFPMathOption = false;
-    options.NoZerosInBSS = false;
-    options.GuaranteedTailCallOpt = false;
+    options.NoTrappingFPMath = true;
+    options.GuaranteedTailCallOpt = true;
     auto mcpu = llvm::sys::getHostCPUName();
     auto machine = target->createTargetMachine(
         target_triple, mcpu, "+avx2",
-        options, {}, llvm::CodeModel::Kernel,
+        options, {}, {},
         llvm::CodeGenOpt::Aggressive, true);
     if (machine == nullptr) {
         LUISA_ERROR_WITH_LOCATION("Failed to create target machine.");
@@ -88,13 +87,12 @@ luisa::unique_ptr<Module> JITModule::load(
     pass_manager_builder.SLPVectorize = true;
     pass_manager_builder.MergeFunctions = true;
     machine->adjustPassManager(pass_manager_builder);
-//    module->setDataLayout(machine->createDataLayout());
+    module->setDataLayout(machine->createDataLayout());
 
     // optimize: function passes
     {
         llvm::legacy::FunctionPassManager pass_manager{module.get()};
         pass_manager_builder.populateFunctionPassManager(pass_manager);
-        pass_manager.doInitialization();
         pass_manager.add(llvm::createTargetTransformInfoWrapperPass(
             machine->getTargetIRAnalysis()));
         pass_manager_builder.populateFunctionPassManager(pass_manager);
@@ -109,7 +107,7 @@ luisa::unique_ptr<Module> JITModule::load(
     {
         llvm::legacy::PassManager pass_manager;
         pass_manager.add(
-            createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
+            llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
         pass_manager_builder.populateModulePassManager(pass_manager);
         pass_manager.run(*module);
     }
@@ -122,7 +120,6 @@ luisa::unique_ptr<Module> JITModule::load(
             .setOptLevel(llvm::CodeGenOpt::Aggressive)
             .setEngineKind(llvm::EngineKind::JIT)
             .create(machine)};
-    engine->DisableGVCompilation(true);
     engine->DisableLazyCompilation(true);
     engine->DisableSymbolSearching(true);
     if (engine == nullptr) {
