@@ -30,9 +30,9 @@ Shader::Shader(
 
     // compile
 #ifdef LUISA_PLATFORM_WINDOWS
-    auto ispc_exe = (ctx.runtime_directory() / "backends" / "ispc_support" / "ispc.exe").string();
+    auto ispc_exe = ctx.runtime_directory() / "backends" / "ispc_support" / "ispc.exe";
 #else
-    luisa::string ispc_exe = "ispc";
+    auto ispc_exe = ctx.runtime_directory() / "backends" / "ispc_support" / "ispc";
 #endif
 
 #ifdef LUISA_COMPUTE_ISPC_LLVM_JIT
@@ -82,7 +82,10 @@ Shader::Shader(
     // compile: generate object
     auto command = fmt::format(
         R"({} {} "{}" -o "{}")",
-        ispc_exe, ispc_opt_string, source_path.string(), object_path.string());
+        ispc_exe.string(),
+        ispc_opt_string,
+        source_path.string(),
+        object_path.string());
     LUISA_INFO("Compiling ISPC kernel: {}", command);
     if (auto ret = system(command.c_str()); ret != 0) {
         LUISA_ERROR_WITH_LOCATION(
