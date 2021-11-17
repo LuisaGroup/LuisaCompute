@@ -1,3 +1,4 @@
+#pragma vengine_package ispc_vsproject
 //
 // Created by Mike Smith on 2021/11/15.
 //
