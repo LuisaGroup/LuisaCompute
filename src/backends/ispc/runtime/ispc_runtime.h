@@ -4,12 +4,28 @@
 #include <runtime/command.h>
 #include "ispc_shader.h"
 #include <vstl/LockFreeArrayQueue.h>
-
+#include "ispc_event.h"
 using namespace luisa;
 using namespace luisa::compute;
 namespace lc::ispc {
 class CommandExecutor : public CommandVisitor {
 public:
+    struct Signal {
+        Event *evt;
+    };
+    struct Wait {
+        Event *evt;
+    };
+    using HandleType = vstd::variant<
+        ThreadTaskHandle,
+        BufferUploadCommand,
+        BufferDownloadCommand,
+        BufferCopyCommand,
+        Signal,
+        Wait>;
+
+private:
+    size_t outsideTaskCount = 0;
     ThreadPool *tPool;
     std::atomic_size_t taskCount = 0;
     std::atomic_size_t executedTask = 0;
@@ -18,17 +34,20 @@ public:
     std::mutex dispMtx;
     std::condition_variable mainThdCv;
     std::condition_variable dispThdCv;
-    using HandleType = vstd::variant<
-        ThreadTaskHandle,
-        BufferUploadCommand,
-        BufferDownloadCommand,
-        BufferCopyCommand>;
     vstd::LockFreeArrayQueue<HandleType> syncTasks;
+
+public:
+    template <typename T>
+    void AddTask(T&& t) {
+        syncTasks.Push(std::forward<T>(t));
+        outsideTaskCount++;
+    }
     CommandExecutor(ThreadPool *tPool);
     ~CommandExecutor();
+
     void ThreadExecute();
     void WaitThread();
-    void ExecuteDispatch(size_t lastCmdCount);
+    void ExecuteDispatch();
     void visit(BufferUploadCommand const *cmd) noexcept override;
     void visit(BufferDownloadCommand const *cmd) noexcept override;
     void visit(BufferCopyCommand const *cmd) noexcept override;

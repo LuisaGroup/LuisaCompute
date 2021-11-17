@@ -746,7 +746,6 @@ public:
     static constexpr size_t argSize = sizeof...(AA);
 
 private:
-
     template<size_t i, typename T, typename... Args>
     struct TChsStr {
         using TT = typename TChsStr<i - 1, Args...>::TT;
@@ -758,7 +757,6 @@ private:
     };
     template<size_t i, typename... Args>
     using Types = typename TChsStr<i, Args...>::TT;
-
 
     template<typename Ret, typename Func, typename PtrType>
     struct Visitor {
@@ -1053,54 +1051,48 @@ public:
         Visitor<void, Func, void const>::template Visit<0, argSize - 1, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
     }
 
-    template<typename... Funcs>
+    template<typename... Funcs> requires(sizeof...(Funcs) == argSize)
     void multi_visit(Funcs &&...funcs) & {
-        static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return;
         Visitor<void, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
             switcher,
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename... Funcs>
+    template<typename... Funcs> requires(sizeof...(Funcs) == argSize)
     void multi_visit(Funcs &&...funcs) && {
-        static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return;
         Visitor<void, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
             switcher,
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename... Funcs>
+    template<typename... Funcs> requires(sizeof...(Funcs) == argSize)
     void multi_visit(Funcs &&...funcs) const & {
-        static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return;
         Visitor<void, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
             switcher,
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename Ret, typename... Funcs>
+    template<typename Ret, typename... Funcs> requires(sizeof...(Funcs) == argSize)
     std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) & {
-        static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return std::forward<Ret>(r);
         return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
             switcher,
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename Ret, typename... Funcs>
+    template<typename Ret, typename... Funcs> requires(sizeof...(Funcs) == argSize)
     std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) && {
-        static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return std::forward<Ret>(r);
         return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
             switcher,
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename Ret, typename... Funcs>
+    template<typename Ret, typename... Funcs> requires(sizeof...(Funcs) == argSize)
     std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) const & {
-        static_assert(sizeof...(Funcs) == argSize, "Functor size incorrect!");
         if (switcher >= argSize) return std::forward<Ret>(r);
         return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
             switcher,
@@ -1137,10 +1129,9 @@ public:
     }
     template<
         typename T,
-        typename... Arg,
-        std::enable_if_t<
+        typename... Arg> requires(
             detail::Any_v<
-                std::is_constructible_v<AA, T &&, Arg &&...>...>> * = nullptr>
+                std::is_constructible_v<AA, T &&, Arg &&...>...>)
     variant(T &&t, Arg &&...arg) {
         if constexpr (sizeof...(Arg) == 0) {
             switcher = Constructor<AA...>::template CopyOrMoveConst<T>(&placeHolder, 0, std::forward<T>(t));

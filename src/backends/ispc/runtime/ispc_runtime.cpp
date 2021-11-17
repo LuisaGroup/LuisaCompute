@@ -5,13 +5,13 @@
 
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
-    syncTasks.Push(*cmd);
+    AddTask(*cmd);
 }
 void CommandExecutor::visit(BufferDownloadCommand const *cmd) noexcept {
-    syncTasks.Push(*cmd);
+    AddTask(*cmd);
 }
 void CommandExecutor::visit(BufferCopyCommand const *cmd) noexcept {
-    syncTasks.Push(*cmd);
+    AddTask(*cmd);
 }
 struct ShaderDispatcher {
     Function func;
@@ -37,7 +37,7 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
         tPool,
         cmd->dispatch_size(),
         std::move(vec));
-    syncTasks.Push(std::move(handle));
+    AddTask(std::move(handle));
 }
 void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {}
@@ -70,6 +70,14 @@ void CommandExecutor::ThreadExecute() {
                 uint8_t const *src = reinterpret_cast<uint8_t const *>(cmd.src_handle());
                 uint8_t *dst = reinterpret_cast<uint8_t *>(cmd.dst_handle());
                 memcpy(dst + cmd.dst_offset(), src + cmd.src_offset(), cmd.size());
+            },
+            [&](Signal const &cmd) {
+                std::lock_guard lck(cmd.evt->mtx);
+                cmd.evt->targetFence--;
+                cmd.evt->cv.notify_all();
+            },
+            [&](Wait const &cmd) {
+                cmd.evt->Sync();
             });
         executedTask++;
         if (executedTask >= taskCount)
@@ -87,10 +95,13 @@ void CommandExecutor::WaitThread() {
         mainThdCv.wait(lck);
     }
 }
-void CommandExecutor::ExecuteDispatch(size_t lastCmdCount) {
-    std::unique_lock lck(dispMtx);
-    taskCount += lastCmdCount;
-    dispThdCv.notify_all();
+void CommandExecutor::ExecuteDispatch() {
+    {
+        std::unique_lock lck(dispMtx);
+        taskCount += outsideTaskCount;
+        dispThdCv.notify_all();
+    }
+    outsideTaskCount = 0;
 }
 
 CommandExecutor::~CommandExecutor() {
