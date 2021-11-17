@@ -1,0 +1,4 @@
+ispc
+*.exe
+*.lib
+*.dll
