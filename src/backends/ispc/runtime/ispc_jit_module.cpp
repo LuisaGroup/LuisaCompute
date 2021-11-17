@@ -83,9 +83,15 @@ luisa::unique_ptr<Module> JITModule::load(
     pass_manager_builder.OptLevel = llvm::CodeGenOpt::Aggressive;
     pass_manager_builder.Inliner = llvm::createFunctionInliningPass(
         pass_manager_builder.OptLevel, 0, false);
+    pass_manager_builder.LoopsInterleaved = true;
     pass_manager_builder.LoopVectorize = true;
     pass_manager_builder.SLPVectorize = true;
     pass_manager_builder.MergeFunctions = true;
+    pass_manager_builder.EnablePGOCSInstrGen = false;
+    pass_manager_builder.EnablePGOCSInstrUse = false;
+    pass_manager_builder.EnablePGOInstrGen = false;
+    pass_manager_builder.CallGraphProfile = false;
+    pass_manager_builder.PerformThinLTO = true;
     machine->adjustPassManager(pass_manager_builder);
     module->setDataLayout(machine->createDataLayout());
 
@@ -121,7 +127,6 @@ luisa::unique_ptr<Module> JITModule::load(
             .setEngineKind(llvm::EngineKind::JIT)
             .create(machine)};
     engine->DisableLazyCompilation(true);
-    engine->DisableSymbolSearching(true);
     if (engine == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to create execution engine: {}.",

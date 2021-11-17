@@ -771,10 +771,12 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
         GetFunctionDecl(func, ss);
         StringStateVisitor vis(ss, &globalData);
         func.body()->accept(vis);
+#ifndef LUISA_COMPUTE_ISPC_LLVM_JIT
         if (vis.StmtCount() < INLINE_STMT_LIMIT) {
             str << "inline ";
         }
-        str << ss;
+#endif
+        str << "static " << ss;
     }
 }
 void CodegenUtility::GetBasicTypeName(uint64 typeIndex, luisa::string &str) {
