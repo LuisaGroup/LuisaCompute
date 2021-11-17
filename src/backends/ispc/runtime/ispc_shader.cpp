@@ -110,8 +110,7 @@ size_t Shader::GetArgIndex(uint varID) const {
 ThreadTaskHandle Shader::dispatch(
     ThreadPool *tPool,
     uint3 sz,
-    ArgVector vec,
-    bool needSync) const {
+    ArgVector vec) const {
     auto blockSize = func.block_size();
     auto blockCount = (sz + blockSize - 1u) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
@@ -129,7 +128,7 @@ ThreadTaskHandle Shader::dispatch(
             }
         },
         std::thread::hardware_concurrency(),
-        needSync);
+        true);
     return handle;
 }
 }// namespace lc::ispc

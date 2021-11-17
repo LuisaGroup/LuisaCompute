@@ -11,8 +11,6 @@ namespace lc::ispc {
 class CommandExecutor : public CommandVisitor {
 public:
     ThreadPool *tPool;
-    size_t dispatchCount;
-    size_t dispatchId;
     std::atomic_size_t taskCount = 0;
     std::atomic_size_t executedTask = 0;
     bool enabled = true;
@@ -20,13 +18,17 @@ public:
     std::mutex dispMtx;
     std::condition_variable mainThdCv;
     std::condition_variable dispThdCv;
-    vstd::LockFreeArrayQueue<ThreadTaskHandle> syncTasks;
-    vstd::optional<ThreadTaskHandle> lastHandle;
+    using HandleType = vstd::variant<
+        ThreadTaskHandle,
+        BufferUploadCommand,
+        BufferDownloadCommand,
+        BufferCopyCommand>;
+    vstd::LockFreeArrayQueue<HandleType> syncTasks;
     CommandExecutor(ThreadPool *tPool);
     ~CommandExecutor();
     void ThreadExecute();
     void WaitThread();
-    void ExecuteDispatch();
+    void ExecuteDispatch(size_t lastCmdCount);
     void visit(BufferUploadCommand const *cmd) noexcept override;
     void visit(BufferDownloadCommand const *cmd) noexcept override;
     void visit(BufferCopyCommand const *cmd) noexcept override;

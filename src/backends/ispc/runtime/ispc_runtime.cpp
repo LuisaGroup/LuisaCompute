@@ -5,17 +5,13 @@
 
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
-    uint8_t *ptr = reinterpret_cast<uint8_t *>(cmd->handle());
-    memcpy(ptr + cmd->offset(), cmd->data(), cmd->size());
+    syncTasks.Push(*cmd);
 }
 void CommandExecutor::visit(BufferDownloadCommand const *cmd) noexcept {
-    uint8_t const *ptr = reinterpret_cast<uint8_t const *>(cmd->handle());
-    memcpy(cmd->data(), ptr + cmd->offset(), cmd->size());
+    syncTasks.Push(*cmd);
 }
 void CommandExecutor::visit(BufferCopyCommand const *cmd) noexcept {
-    uint8_t const *src = reinterpret_cast<uint8_t const *>(cmd->src_handle());
-    uint8_t *dst = reinterpret_cast<uint8_t *>(cmd->dst_handle());
-    memcpy(dst + cmd->dst_offset(), src + cmd->src_offset(), cmd->size());
+    syncTasks.Push(*cmd);
 }
 struct ShaderDispatcher {
     Function func;
@@ -33,7 +29,6 @@ struct ShaderDispatcher {
     void operator()(uint, ShaderDispatchCommand::AccelArgument const &arg) {}
 };
 void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
-    dispatchId++;
     Shader::ArgVector vec;
     auto sd = reinterpret_cast<Shader *>(cmd->handle());
     ShaderDispatcher disp{cmd->kernel(), vec, sd};
@@ -41,15 +36,8 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
     auto handle = sd->dispatch(
         tPool,
         cmd->dispatch_size(),
-        std::move(vec),
-        dispatchId == dispatchCount);
-    if (lastHandle) {
-        auto &&ll = *lastHandle;
-        handle.AddDepend(*lastHandle);
-        *lastHandle = std::move(handle);
-    } else {
-        lastHandle.New(std::move(handle));
-    }
+        std::move(vec));
+    syncTasks.Push(std::move(handle));
 }
 void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {}
@@ -68,17 +56,29 @@ CommandExecutor::CommandExecutor(ThreadPool *tPool)
       }) {}
 void CommandExecutor::ThreadExecute() {
     while (auto job = syncTasks.Pop()) {
-        job->Complete();
+        job->multi_visit(
+            [&](ThreadTaskHandle const &handle) { handle.Complete(); },
+            [&](BufferUploadCommand const &cmd) {
+                uint8_t *ptr = reinterpret_cast<uint8_t *>(cmd.handle());
+                memcpy(ptr + cmd.offset(), cmd.data(), cmd.size());
+            },
+            [&](BufferDownloadCommand const &cmd) {
+                uint8_t const *ptr = reinterpret_cast<uint8_t const *>(cmd.handle());
+                memcpy(cmd.data(), ptr + cmd.offset(), cmd.size());
+            },
+            [&](BufferCopyCommand const &cmd) {
+                uint8_t const *src = reinterpret_cast<uint8_t const *>(cmd.src_handle());
+                uint8_t *dst = reinterpret_cast<uint8_t *>(cmd.dst_handle());
+                memcpy(dst + cmd.dst_offset(), src + cmd.src_offset(), cmd.size());
+            });
         executedTask++;
+        if (executedTask >= taskCount)
+            break;
     }
-    {
-        std::unique_lock lck(dispMtx);
-        if (executedTask >= taskCount) {
-            mainThdCv.notify_all();
-            dispThdCv.wait(lck);
-        }
-        while (executedTask >= taskCount)
-            dispThdCv.wait(lck);
+    std::unique_lock lck(dispMtx);
+    while (executedTask >= taskCount) {
+        mainThdCv.notify_all();
+        dispThdCv.wait(lck);
     }
 }
 void CommandExecutor::WaitThread() {
@@ -87,9 +87,9 @@ void CommandExecutor::WaitThread() {
         mainThdCv.wait(lck);
     }
 }
-void CommandExecutor::ExecuteDispatch() {
+void CommandExecutor::ExecuteDispatch(size_t lastCmdCount) {
     std::unique_lock lck(dispMtx);
-    taskCount++;
+    taskCount += lastCmdCount;
     dispThdCv.notify_all();
 }
 
