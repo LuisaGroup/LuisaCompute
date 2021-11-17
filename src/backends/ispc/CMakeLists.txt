@@ -17,19 +17,19 @@ set_target_properties(luisa-compute-backend-ispc PROPERTIES
 
 # copy device libs
 set(ISPC_DEVICE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ISPCTest")
-add_custom_target(luisa-compute-backend-ispc-copy-include ALL
+add_custom_target(lc-ispc-copy-support ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${ISPC_DEVICE_INCLUDE_DIR}"
         "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/ispc_support")
-add_dependencies(luisa-compute-backend-ispc luisa-compute-backend-ispc-copy-include)
+add_dependencies(luisa-compute-backend-ispc lc-ispc-copy-support)
 foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
     string(TOLOWER ${CONFIG} config_lower)
     string(TOUPPER ${CONFIG} CONFIG_UPPER)
-    add_custom_target(luisa-compute-backend-ispc-copy-include-${config_lower} ALL
+    add_custom_target(lc-ispc-copy-support-${config_lower} ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${ISPC_DEVICE_INCLUDE_DIR}"
             "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/ispc_support")
-    add_dependencies(luisa-compute-backend-ispc luisa-compute-backend-ispc-copy-include-${config_lower})
+    add_dependencies(luisa-compute-backend-ispc lc-ispc-copy-support-${config_lower})
 endforeach ()
 
 if (WIN32)
