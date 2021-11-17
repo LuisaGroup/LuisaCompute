@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
             auto p0 = vertex_buffer[triangle.i0];
             auto p1 = vertex_buffer[triangle.i1];
             auto p2 = vertex_buffer[triangle.i2];
-            auto p = interpolate(hit, p0, p1, p2);
+            auto p = hit->interpolate(p0, p1, p2);
             auto n = normalize(cross(p1 - p0, p2 - p0));
             auto cos_wi = dot(-direction(ray), n);
             $if(cos_wi < 1e-4f) { $break; };

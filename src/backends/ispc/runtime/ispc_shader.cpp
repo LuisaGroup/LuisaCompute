@@ -12,7 +12,9 @@
 #endif
 
 namespace lc::ispc {
-Shader::~Shader() {}
+
+Shader::~Shader() = default;
+
 Shader::Shader(
     const Context &ctx, Function func)
     : func(func) {
@@ -110,9 +112,9 @@ ThreadTaskHandle Shader::dispatch(
     uint3 sz,
     ArgVector vec) const {
     auto blockSize = func.block_size();
-    auto blockCount = (sz + blockSize - uint3(1, 1, 1)) / blockSize;
+    auto blockCount = (sz + blockSize - 1u) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
-    auto sharedCounter = vstd::MakeObjectPtr(vengine_new<std::atomic_uint, uint>(0), [](void *ptr) { vengine_free(ptr); });
+    auto sharedCounter = luisa::make_shared<std::atomic_uint>(0u);// this combines the allocation of the object and the control block
     auto handle = tPool->GetParallelTask(
         [=, vec = std::move(vec), sharedCounter = std::move(sharedCounter)](size_t) noexcept {
             auto &&counter = *sharedCounter;
