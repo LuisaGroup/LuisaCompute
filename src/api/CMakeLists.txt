@@ -7,7 +7,8 @@ add_library(luisa-compute-api MODULE ${LUISA_COMPUTE_API_SOURCES})
 target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-ast
         luisa-compute-runtime
-        luisa-compute-compile)
+        luisa-compute-compile
+        luisa-compute-backends)
 set_target_properties(luisa-compute-api PROPERTIES UNITY_BUILD ON)
 
 find_package(Python3 COMPONENTS Interpreter)
