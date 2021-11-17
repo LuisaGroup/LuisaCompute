@@ -44,9 +44,19 @@ JITModule::~JITModule() noexcept = default;
     if (target == nullptr) {
         LUISA_ERROR_WITH_LOCATION("Failed to get target machine: {}.", err);
     }
+    llvm::TargetOptions options;
+    options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+    options.UnsafeFPMath = true;
+    options.NoInfsFPMath = true;
+    options.NoNaNsFPMath = true;
+    options.HonorSignDependentRoundingFPMathOption = false;
+    options.NoZerosInBSS = false;
+    options.GuaranteedTailCallOpt = false;
+    auto mcpu = llvm::sys::getHostCPUName();
     auto machine = target->createTargetMachine(
-        target_triple, "generic", {"+avx2"},
-        {}, {}, {}, llvm::CodeGenOpt::Aggressive, true);
+        target_triple, mcpu, "+avx2",
+        options, {}, llvm::CodeModel::Kernel,
+        llvm::CodeGenOpt::Aggressive, true);
     if (machine == nullptr) {
         LUISA_ERROR_WITH_LOCATION("Failed to create target machine.");
     }
@@ -56,6 +66,7 @@ JITModule::~JITModule() noexcept = default;
 luisa::unique_ptr<Module> JITModule::load(
     const Context &ctx, const std::filesystem::path &ir_path) noexcept {
 
+    // load
     auto context = luisa::make_unique<llvm::LLVMContext>();
     llvm::SMDiagnostic error;
     LUISA_INFO("Loading LLVM IR: '{}'.", ir_path.string());
@@ -65,13 +76,51 @@ luisa::unique_ptr<Module> JITModule::load(
             "Failed to load module: {}.",
             error.getMessage().data());
     }
+
+    // optimize: machine
+    auto machine = get_target_machine();
+    llvm::PassManagerBuilder pass_manager_builder;
+    pass_manager_builder.OptLevel = llvm::CodeGenOpt::Aggressive;
+    pass_manager_builder.Inliner = llvm::createFunctionInliningPass(
+        pass_manager_builder.OptLevel, 0, false);
+    pass_manager_builder.LoopVectorize = true;
+    pass_manager_builder.SLPVectorize = true;
+    pass_manager_builder.MergeFunctions = true;
+    machine->adjustPassManager(pass_manager_builder);
+    module->setDataLayout(machine->createDataLayout());
+
+    // optimize: function passes
+    {
+        llvm::legacy::FunctionPassManager pass_manager{module.get()};
+        pass_manager_builder.populateFunctionPassManager(pass_manager);
+        pass_manager.doInitialization();
+        pass_manager.add(llvm::createTargetTransformInfoWrapperPass(
+            machine->getTargetIRAnalysis()));
+        pass_manager_builder.populateFunctionPassManager(pass_manager);
+        pass_manager.doInitialization();
+        for (auto &&f : module->functions()) {
+            pass_manager.run(f);
+        }
+        pass_manager.doFinalization();
+    }
+
+    // optimize: module passes
+    {
+        llvm::legacy::PassManager pass_manager;
+        pass_manager.add(
+            createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
+        pass_manager_builder.populateModulePassManager(pass_manager);
+        pass_manager.run(*module);
+    }
+
+    // jit
     std::string err;
     std::unique_ptr<llvm::ExecutionEngine> engine{
         llvm::EngineBuilder{std::move(module)}
             .setErrorStr(&err)
             .setOptLevel(llvm::CodeGenOpt::Aggressive)
             .setEngineKind(llvm::EngineKind::JIT)
-            .create(get_target_machine())};
+            .create(machine)};
     engine->DisableGVCompilation(true);
     engine->DisableLazyCompilation(true);
     engine->DisableSymbolSearching(true);
@@ -80,7 +129,8 @@ luisa::unique_ptr<Module> JITModule::load(
             "Failed to create execution engine: {}.",
             err);
     }
-    return luisa::make_unique<JITModule>(JITModule{std::move(context), std::move(engine)});
+    return luisa::make_unique<JITModule>(
+        JITModule{std::move(context), std::move(engine)});
 }
 
 }// namespace lc::ispc
