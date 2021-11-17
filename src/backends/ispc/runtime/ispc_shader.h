@@ -3,8 +3,9 @@
 #include <vstl/Common.h>
 #include <core/dynamic_module.h>
 #include <vstl/ThreadPool.h>
-#include <backends/ispc/runtime/ispc_jit_module.h>
 #include <ast/function.h>
+#include <runtime/context.h>
+#include <backends/ispc/runtime/ispc_module.h>
 
 namespace lc::ispc {
 
@@ -12,15 +13,16 @@ using namespace luisa;
 using namespace luisa::compute;
 
 class Shader {
+
 private:
-    void* executable;
+    luisa::unique_ptr<Module> executable;
     Function func;
     vstd::HashMap<uint, uint> varIdToArg;
 
 public:
     using ArgVector = vstd::vector<uint8_t, VEngine_AllocType::VEngine, true, 32>;
-    Shader(Function func);
-    size_t GetArgIndex(uint varID) const;
+    Shader(const Context &ctx, Function func);
+    [[nodiscard]] size_t GetArgIndex(uint varID) const;
     static constexpr size_t CalcAlign(size_t value, size_t align) {
         return (value + (align - 1)) & ~(align - 1);
     }

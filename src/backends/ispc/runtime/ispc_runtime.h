@@ -1,4 +1,5 @@
 #pragma once
+
 #include <vstl/Common.h>
 #include <runtime/command.h>
 #include "ispc_shader.h"

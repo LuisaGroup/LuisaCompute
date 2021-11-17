@@ -2,7 +2,7 @@
 
 #include <backends/ispc/runtime/ispc_codegen.h>
 #include <vstl/StringUtility.h>
-#include "ispc_shader.h"
+#include <backends/ispc/runtime/ispc_shader.h>
 namespace lc::ispc {
 struct CodegenGlobal {
     vstd::HashMap<Type const *, uint64> structTypes;

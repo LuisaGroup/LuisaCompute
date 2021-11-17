@@ -11,12 +11,12 @@ add_subdirectory(ext)
 add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
-if (MSVC)
+if (WIN32)
     target_compile_definitions(luisa-compute-include INTERFACE
-            NOMINMAX
-            _ENABLE_EXTENDED_ALIGNED_STORAGE
-            _CRT_SECURE_NO_WARNINGS
-            _UNICODE)
+            NOMINMAX=1
+            _ENABLE_EXTENDED_ALIGNED_STORAGE=1
+            _CRT_SECURE_NO_WARNINGS=1
+            _UNICODE=1)
 endif ()
 
 if (MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")

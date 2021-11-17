@@ -2,6 +2,7 @@
 
 #include "ispc_runtime.h"
 #include "ispc_codegen.h"
+
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
     uint8_t *ptr = reinterpret_cast<uint8_t *>(cmd->handle());
@@ -76,8 +77,8 @@ void CommandExecutor::ThreadExecute() {
             mainThdCv.notify_all();
             dispThdCv.wait(lck);
         }
-        while (executedTask >= taskCount) 
-        dispThdCv.wait(lck);
+        while (executedTask >= taskCount)
+            dispThdCv.wait(lck);
     }
 }
 void CommandExecutor::WaitThread() {

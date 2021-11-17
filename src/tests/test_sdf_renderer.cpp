@@ -143,6 +143,7 @@ int main(int argc, char *argv[]) {
 
     Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 accum_image, UInt frame_index) noexcept {
         set_block_size(16u, 8u, 1u);
+//        auto bad = def(0.0f);
 
         auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
@@ -193,7 +194,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda", 1);
+    auto device = context.create_device("ispc", 0);
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("ispc", 0u);
 #elif defined(LUISA_BACKEND_DX_ENABLED)

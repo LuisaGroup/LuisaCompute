@@ -1,118 +1,98 @@
 #pragma vengine_package ispc_vsproject
 
-#include "ispc_shader.h"
-#include "ispc_codegen.h"
+#include <backends/ispc/runtime/ispc_shader.h>
+#include <backends/ispc/runtime/ispc_codegen.h>
 #include <vstl/file_system.h>
 #include <vstl/MD5.h>
-namespace lc::ispc {
-////////////////////////// Windows use DLL
-#ifdef LUISA_PLATFORM_WINDOWS
-namespace detail {
-static std::string_view FOLDER_NAME = "backends\\ispc_support\\";
-static void GenerateDll(
-    std::string_view code,
-    luisa::string const &fileName,
-    luisa::string const &libName) {
-    //write text
-    luisa::string textName = fileName + ".txt";
-    {
-        auto f = fopen(textName.c_str(), "wb");
-        if (f) {
-            auto disp = vstd::create_disposer([&] { fclose(f); });
-            fwrite(code.data(), code.size(), 1, f);
-        }
-    }
-    //compile
-    luisa::string compileCmd(detail::FOLDER_NAME);
-    compileCmd << "ispc.exe -O2 "
-               << textName << " -o " << fileName << ".obj -woff";
-    system(compileCmd.c_str());
-    compileCmd.clear();
-    compileCmd << detail::FOLDER_NAME
-               << "link.exe /DLL /NOLOGO /OUT:"sv
-               << libName
-               << " /DYNAMICBASE \""
-               << detail::FOLDER_NAME
-               << "msvcrt.lib\" /NOENTRY /EXPORT:run /NODEFAULTLIB "sv
-               << fileName
-               << ".obj"sv;
-    system(compileCmd.c_str());
-    remove((fileName + ".obj").c_str());
-    //remove((fileName + ".txt").c_str());
-    remove((fileName + ".exp").c_str());
-    remove((fileName + ".lib").c_str());
-    //link
-}
-static luisa::string CompileCode(std::string_view code) {
-    vstd::MD5 md5(code);
-    luisa::string fileName;
-    fileName << detail::FOLDER_NAME << md5.ToString();
-    constexpr size_t MD5_BASE64_STRLEN = 22;
-    fileName.resize(MD5_BASE64_STRLEN + detail::FOLDER_NAME.size());
-    luisa::string dllName = fileName + ".dll";
-    if (!vstd::FileSystem::IsFileExists(dllName)) {
-        GenerateDll(code, fileName, dllName);
-    }
-    return fileName;
-}
-}// namespace detail
-class WinDllExecutable : public vstd::IOperatorNewBase {
-public:
-    DynamicModule dllModule;
-    using FuncType = void(
-        uint, //blk_cX,
-        uint, //blk_cY,
-        uint, //blk_cZ,
-        uint, // thd_idX,
-        uint, //thd_idY,
-        uint, // thd_idZ,
-        uint, //dsp_cX
-        uint, //dsp_cY
-        uint, //dsp_cZ
-        uint64// arg
-    );
-    vstd::funcPtr_t<FuncType> exportFunc;
-    WinDllExecutable(Function func, std::string_view strv)
-        : dllModule(strv) {
-        exportFunc = dllModule.function<FuncType>("run");
-    }
-    void Execute(
-        uint3 const &blockCount,
-        uint3 const &blockSize,
-        uint3 const &dispatchCount,
-        void *args) const {
-        exportFunc(
-            blockCount.x,
-            blockCount.y,
-            blockCount.z,
-            blockSize.x,
-            blockSize.y,
-            blockSize.z,
-            dispatchCount.x,
-            dispatchCount.y,
-            dispatchCount.z,
-            (uint64)args);
-    }
-};
-static void *GetExecutable(Function func) {
-    luisa::string binName;
-    luisa::string result;
-    CodegenUtility::PrintFunction(func, result, func.block_size());
-    binName = detail::CompileCode(result);
-    return new WinDllExecutable(func, binName);
-}
-Shader::~Shader() {
-    delete reinterpret_cast<WinDllExecutable *>(executable);
-}
+
+#ifdef LUISA_COMPUTE_ISPC_LLVM_JIT
+#include <backends/ispc/runtime/ispc_jit_module.h>
 #else
-Shader::~Shader() {
-}
-////////////////////////// TODO: LLVM backend
+#include <backends/ispc/runtime/ispc_dll_module.h>
 #endif
+
+namespace lc::ispc {
+Shader::~Shader() {}
 Shader::Shader(
-    Function func)
-    : func(func),
-      executable(GetExecutable(func)) {
+    const Context &ctx, Function func)
+    : func(func) {
+
+    // generate code
+    luisa::string source;
+    CodegenUtility::PrintFunction(func, source, func.block_size());
+
+    // TODO: cache
+    auto name = fmt::format("func_{:016x}", func.hash());
+    auto cache_dir_str = ctx.cache_directory().string();
+    auto source_path = ctx.cache_directory() / fmt::format("{}.ispc", name);
+
+    // compile
+#ifdef LUISA_PLATFORM_WINDOWS
+    auto ispc_exe = (ctx.runtime_directory() / "backends" / "ispc_support" / "ispc.exe").string();
+#else
+    luisa::string ispc_exe = "ispc";
+#endif
+
+#ifdef LUISA_COMPUTE_ISPC_LLVM_JIT
+    auto emit_opt = "--emit-llvm";
+    auto object_ext = "bc";
+    auto load_module = [&ctx](const std::filesystem::path &obj_path) noexcept {
+        return JITModule::load(ctx, obj_path);
+    };
+#else
+    auto emit_opt = "--emit-obj";
+    auto object_ext = "obj";
+    auto load_module = [&ctx](const std::filesystem::path &obj_path) noexcept {
+        return DLLModule::load(ctx, obj_path);
+    };
+#endif
+
+    // options
+    auto include_opt = fmt::format(
+        "-I\"{}\"",
+        std::filesystem::canonical(
+            ctx.runtime_directory() / "backends" / "ispc_support")
+            .string());
+    std::array ispc_options{
+        "-woff",
+        "-O3",
+        "--math-lib=fast",
+        "--opt=fast-masked-vload",
+        "--opt=fast-math",
+        "--opt=force-aligned-memory",
+        "--cpu=core-avx2",
+        "--enable-llvm-intrinsics",
+        emit_opt,
+        include_opt.c_str()};
+    luisa::string ispc_opt_string{ispc_options.front()};
+    for (auto o : std::span{ispc_options}.subspan(1u)) {
+        ispc_opt_string.append(" ").append(o);
+    }
+
+    auto object_path = ctx.cache_directory() / fmt::format("{}.{}", name, object_ext);
+
+    // compile: write source
+    {
+        std::ofstream src_file{source_path};
+        src_file << source;
+    }
+
+    // compile: generate object
+    auto command = fmt::format(
+        R"({} {} "{}" -o "{}")",
+        ispc_exe, ispc_opt_string, source_path.string(), object_path.string());
+    LUISA_INFO("Compiling ISPC kernel: {}", command);
+    if (auto ret = system(command.c_str()); ret != 0) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to compile ISPC kernel. "
+            "Return code: {}.",
+            ret);
+    }
+
+    // load module
+    executable = load_module(object_path);
+
+    // arguments
     size_t sz = 0;
     for (auto &&i : func.arguments()) {
         varIdToArg.Emplace(i.uid(), sz);
@@ -135,7 +115,7 @@ ThreadTaskHandle Shader::dispatch(
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
     auto sharedCounter = vstd::MakeObjectPtr(vengine_new<std::atomic_uint, uint>(0), [](void *ptr) { vengine_free(ptr); });
     auto handle = tPool->GetParallelTask(
-        [=, vec = std::move(vec), sharedCounter = std::move(sharedCounter)](size_t) {
+        [=, vec = std::move(vec), sharedCounter = std::move(sharedCounter)](size_t) noexcept {
             auto &&counter = *sharedCounter;
             for (auto i = counter.fetch_add(1u); i < totalCount; i = counter.fetch_add(1u)) {
                 uint blockIdxZ = i / (blockCount.y * blockCount.x);
@@ -143,16 +123,11 @@ ThreadTaskHandle Shader::dispatch(
                 uint blockIdxY = i / blockCount.x;
                 i -= blockIdxY * blockCount.x;
                 uint blockIdxX = i;
-#ifdef LUISA_PLATFORM_WINDOWS
-                reinterpret_cast<WinDllExecutable *>(executable)->Execute(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), sz, vec.data());
-#else
-//LLVM
-#endif
+                executable->invoke(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), sz, vec.data());
             }
         },
         std::thread::hardware_concurrency(),
         needSync);
     return handle;
-    //exportFunc(sz.x, sz.y, sz.z, (uint64)vec.data());
 }
 }// namespace lc::ispc
