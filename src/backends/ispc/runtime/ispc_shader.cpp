@@ -128,13 +128,14 @@ size_t Shader::GetArgIndex(uint varID) const {
 ThreadTaskHandle Shader::dispatch(
     ThreadPool *tPool,
     uint3 sz,
-    ArgVector vec) const {
+    ArgVector vec,
+    bool needSync) const {
     auto blockSize = func.block_size();
-    auto blockCount = (sz + blockSize - uint3(1,1,1)) / blockSize;
+    auto blockCount = (sz + blockSize - uint3(1, 1, 1)) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
-    auto sharedCounter = luisa::make_shared<std::atomic_uint>(0u);
+    auto sharedCounter = vstd::MakeObjectPtr(vengine_new<std::atomic_uint, uint>(0), [](void *ptr) { vengine_free(ptr); });
     auto handle = tPool->GetParallelTask(
-        [=, vec = std::move(vec)](size_t) {
+        [=, vec = std::move(vec), sharedCounter = std::move(sharedCounter)](size_t) {
             auto &&counter = *sharedCounter;
             for (auto i = counter.fetch_add(1u); i < totalCount; i = counter.fetch_add(1u)) {
                 uint blockIdxZ = i / (blockCount.y * blockCount.x);
@@ -150,8 +151,7 @@ ThreadTaskHandle Shader::dispatch(
             }
         },
         std::thread::hardware_concurrency(),
-        true);
-    handle.Execute();
+        needSync);
     return handle;
     //exportFunc(sz.x, sz.y, sz.z, (uint64)vec.data());
 }

@@ -32,7 +32,26 @@ void ISPCDevice::destroy_texture(uint64_t handle) noexcept {}
 void *ISPCDevice::texture_native_handle(uint64_t handle) const noexcept {
     return nullptr;
 }
-
+class CommandPreProcessor : public CommandVisitor {
+public:
+    size_t dispatchCount = 0;
+    void visit(BufferUploadCommand const *cmd) noexcept override {}
+    void visit(BufferDownloadCommand const *cmd) noexcept override {}
+    void visit(BufferCopyCommand const *cmd) noexcept override {}
+    void visit(BufferToTextureCopyCommand const *cmd) noexcept override {}
+    void visit(ShaderDispatchCommand const *cmd) noexcept override {
+        dispatchCount++;
+    }
+    void visit(TextureUploadCommand const *cmd) noexcept override {}
+    void visit(TextureDownloadCommand const *cmd) noexcept override {}
+    void visit(TextureCopyCommand const *cmd) noexcept override {}
+    void visit(TextureToBufferCopyCommand const *cmd) noexcept override {}
+    void visit(AccelUpdateCommand const *cmd) noexcept override {}
+    void visit(AccelBuildCommand const *cmd) noexcept override {}
+    void visit(MeshUpdateCommand const *cmd) noexcept override {}
+    void visit(MeshBuildCommand const *cmd) noexcept override {}
+    void visit(BindlessArrayUpdateCommand const *cmd) noexcept override {}
+};
 // stream
 uint64_t ISPCDevice::create_stream() noexcept {
     return reinterpret_cast<uint64>(new CommandExecutor(&tPool));
@@ -42,14 +61,28 @@ void ISPCDevice::destroy_stream(uint64_t handle) noexcept {
 }
 void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
     auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
-    for (auto&& i : cmd->handles) { i.Complete(); }
-    cmd->handles.clear();
+    cmd->WaitThread();
 }
 void ISPCDevice::dispatch(uint64_t stream_handle, CommandList cmdList) noexcept {
+    auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
+    //preprocess
+    CommandPreProcessor proc;
     for (auto &&i : cmdList) {
-        i->accept(*reinterpret_cast<CommandExecutor *>(stream_handle));
+        i->accept(proc);
+    }
+    cmd->dispatchCount = proc.dispatchCount;
+    cmd->dispatchId = 0;
+    for (auto &&i : cmdList) {
+        i->accept(*cmd);
+    }
+    if (cmd->lastHandle) {
+        cmd->syncTasks.Push(std::move(*cmd->lastHandle));
+        cmd->lastHandle->Execute();
+        cmd->lastHandle.Delete();
+        cmd->ExecuteDispatch();
     }
 }
+
 void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
     return (void *)handle;
 }

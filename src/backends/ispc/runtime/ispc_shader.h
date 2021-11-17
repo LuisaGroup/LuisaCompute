@@ -44,7 +44,8 @@ public:
     ThreadTaskHandle dispatch(
         ThreadPool *tPool,
         uint3 sz,
-        ArgVector vec) const;
+        ArgVector vec,
+        bool needSync) const;
     ~Shader();
 };
 }// namespace lc::ispc

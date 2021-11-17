@@ -1,6 +1,7 @@
 #pragma vengine_package ispc_vsproject
 
 #include "ispc_runtime.h"
+#include "ispc_codegen.h"
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
     uint8_t *ptr = reinterpret_cast<uint8_t *>(cmd->handle());
@@ -31,11 +32,23 @@ struct ShaderDispatcher {
     void operator()(uint, ShaderDispatchCommand::AccelArgument const &arg) {}
 };
 void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
+    dispatchId++;
     Shader::ArgVector vec;
     auto sd = reinterpret_cast<Shader *>(cmd->handle());
     ShaderDispatcher disp{cmd->kernel(), vec, sd};
     cmd->decode(disp);
-    handles.emplace_back(sd->dispatch(tPool, cmd->dispatch_size(), std::move(vec)));
+    auto handle = sd->dispatch(
+        tPool,
+        cmd->dispatch_size(),
+        std::move(vec),
+        dispatchId == dispatchCount);
+    if (lastHandle) {
+        auto &&ll = *lastHandle;
+        handle.AddDepend(*lastHandle);
+        *lastHandle = std::move(handle);
+    } else {
+        lastHandle.New(std::move(handle));
+    }
 }
 void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {}
@@ -46,4 +59,47 @@ void CommandExecutor::visit(AccelBuildCommand const *cmd) noexcept {}
 void CommandExecutor::visit(MeshUpdateCommand const *cmd) noexcept {}
 void CommandExecutor::visit(MeshBuildCommand const *cmd) noexcept {}
 void CommandExecutor::visit(BindlessArrayUpdateCommand const *cmd) noexcept {}
+CommandExecutor::CommandExecutor(ThreadPool *tPool)
+    : tPool(tPool),
+      dispatchThread([&] {
+          while (enabled)
+              ThreadExecute();
+      }) {}
+void CommandExecutor::ThreadExecute() {
+    while (auto job = syncTasks.Pop()) {
+        job->Complete();
+        executedTask++;
+    }
+    {
+        std::unique_lock lck(dispMtx);
+        if (executedTask >= taskCount) {
+            mainThdCv.notify_all();
+            dispThdCv.wait(lck);
+        }
+        while (executedTask >= taskCount) 
+        dispThdCv.wait(lck);
+    }
+}
+void CommandExecutor::WaitThread() {
+    std::unique_lock lck(dispMtx);
+    if (executedTask < taskCount) {
+        mainThdCv.wait(lck);
+    }
+}
+void CommandExecutor::ExecuteDispatch() {
+    std::unique_lock lck(dispMtx);
+    taskCount++;
+    dispThdCv.notify_all();
+}
+
+CommandExecutor::~CommandExecutor() {
+    {
+        std::lock_guard lck(dispMtx);
+        enabled = false;
+        executedTask = 0;
+        taskCount = 1;
+        dispThdCv.notify_all();
+    }
+    dispatchThread.join();
+}
 }// namespace lc::ispc

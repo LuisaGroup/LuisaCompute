@@ -198,7 +198,7 @@ void ThreadTaskHandle::TAddDepend(H&& handle) const {
 			VENGINE_EXIT;
 		}
 	};
-	auto executeSelf = [&](vstd::ObjectPtr<TaskData> const& self, auto&& handle) {
+	auto executeSelf = [&](vstd::ObjectPtr<TaskData> const& self) {
 		uint64 v = 0;
 		if (handle.isArray) {
 			for (auto& i : *handle.taskFlags) {
@@ -211,18 +211,14 @@ void ThreadTaskHandle::TAddDepend(H&& handle) const {
 	};
 	if (isArray) {
 		for (auto& i : *taskFlags) {
-			executeSelf(i, handle);
+			executeSelf(i);
 		}
 	} else {
-		executeSelf(*taskFlag, handle);
+		executeSelf(*taskFlag);
 	}
 }
 void ThreadTaskHandle::AddDepend(ThreadTaskHandle const& handle) const {
 	TAddDepend<ThreadTaskHandle const&>(handle);
-}
-
-void ThreadTaskHandle::AddDepend(ThreadTaskHandle&& handle) const {
-	TAddDepend<ThreadTaskHandle>(std::move(handle));
 }
 
 void ThreadTaskHandle::AddDepend(std::span<ThreadTaskHandle const> handles) const {

@@ -676,8 +676,9 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
     };
     if (func.tag() == Function::Tag::KERNEL) {
         ClearStructType();
-        str << "#include <lib.h>\n"
-               "#define INFINITY_f (floatbits(0x7f800000))\n";
+        str << R"(#include "lib.h"
+#define INFINITY_f (floatbits(0x7f800000))
+)"sv;
         ExecuteConst(GetConstantStruct);
         ExecuteConst(GetConstantData);
         luisa::string bodyStr;

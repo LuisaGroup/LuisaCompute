@@ -71,7 +71,6 @@ public:
 	~ThreadTaskHandle();
 	ThreadTaskHandle(ThreadTaskHandle const& v);
 	void AddDepend(ThreadTaskHandle const& handle) const;
-	void AddDepend(ThreadTaskHandle && handle) const;
 	void AddDepend(std::span<ThreadTaskHandle const> handles) const;
 	void AddDepend(std::initializer_list<ThreadTaskHandle const> handles) const {
 		AddDepend(std::span<ThreadTaskHandle const>(handles.begin(), handles.end()));
