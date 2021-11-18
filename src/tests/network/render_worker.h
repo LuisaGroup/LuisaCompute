@@ -21,13 +21,14 @@ class RenderWorker : public std::enable_shared_from_this<RenderWorker> {
 
 public:
     using ConfigHandler = std::function<void(const RenderConfig &)>;
-    using RenderHandler = std::function<std::pair<std::span<const float4>, uint2>(const RenderTile &)>;
+    using RenderHandler = std::function<void(const RenderTile &)>;
 
 private:
     asio::io_context _context;
     asio::ip::tcp::socket _socket;
     asio::system_timer _timer;
     asio::ip::tcp::endpoint _server;
+    std::mutex _sending_queue_mutex;
     std::queue<BinaryBuffer> _sending_queue;
     ConfigHandler _config_handler;
     RenderHandler _render_handler;
@@ -44,6 +45,7 @@ public:
     [[nodiscard]] static std::shared_ptr<RenderWorker> create(const std::string &server_ip, uint16_t server_port) noexcept;
     RenderWorker &set_config_handler(ConfigHandler handler) noexcept;
     RenderWorker &set_render_handler(RenderHandler handler) noexcept;
+    void finish(const RenderTile &tile, std::span<const float4> result, uint2 tile_size) noexcept;
     void run() noexcept;
 };
 

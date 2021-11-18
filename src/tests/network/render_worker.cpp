@@ -63,20 +63,7 @@ void RenderWorker::_receive_render_command(std::shared_ptr<RenderWorker> self, B
             }
             RenderTile tile;
             buffer.read(tile);
-            if (auto [result, size] = self->_render_handler(tile); !result.empty()) {
-                static thread_local std::vector<std::byte> rgbe;
-                rgbe.clear();
-                rgbe.reserve(result.size() * 4u);
-                stbi_write_hdr_to_func(
-                    [](void *context, void *data, int n) noexcept {
-                        auto &&rgbe = *static_cast<std::vector<std::byte> *>(context);
-                        std::copy_n(static_cast<const std::byte *>(data), n, std::back_inserter(rgbe));
-                    },
-                    &rgbe, static_cast<int>(size.x), static_cast<int>(size.y), 4, &result.front().x);
-                buffer.clear();
-                buffer.write(tile).write(rgbe.data(), rgbe.size()).write_size();
-                self->_sending_queue.emplace(std::move(buffer));
-            }
+            self->_render_handler(tile);
             _receive(std::move(self));
         });
 }
@@ -124,21 +111,17 @@ void RenderWorker::run() noexcept {
 }
 
 void RenderWorker::_send(std::shared_ptr<RenderWorker> self) noexcept {
-    if (self->_sending_queue.empty()) {
-        using namespace std::chrono_literals;
-        auto &&timer = self->_timer;
-        timer.expires_after(1ms);
-        timer.async_wait([self = std::move(self)](asio::error_code error) mutable noexcept {
-            if (error) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Error occurred while waiting for timer: {}.",
-                    error.message());
-            }
-            _send(std::move(self));
-        });
-    } else {
+
+    auto item = [self = self.get()]() noexcept -> std::optional<BinaryBuffer> {
+        std::scoped_lock lock{self->_sending_queue_mutex};
+        if (self->_sending_queue.empty()) { return std::nullopt; }
         auto buffer = std::move(self->_sending_queue.front());
         self->_sending_queue.pop();
+        return buffer;
+    }();
+
+    if (item) {
+        auto buffer = std::move(*item);
         auto &&socket = self->_socket;
         auto asio_buffer = buffer.asio_buffer();
         asio::async_write(
@@ -151,7 +134,35 @@ void RenderWorker::_send(std::shared_ptr<RenderWorker> self) noexcept {
                 }
                 _send(std::move(self));
             });
+    } else {
+        using namespace std::chrono_literals;
+        auto &&timer = self->_timer;
+        timer.expires_after(1ms);
+        timer.async_wait([self = std::move(self)](asio::error_code error) mutable noexcept {
+            if (error) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Error occurred while waiting for timer: {}.",
+                    error.message());
+            }
+            _send(std::move(self));
+        });
     }
+}
+
+void RenderWorker::finish(const RenderTile &tile, std::span<const float4> result, uint2 tile_size) noexcept {
+    static thread_local std::vector<std::byte> rgbe;
+    rgbe.clear();
+    rgbe.reserve(result.size() * 4u);
+    stbi_write_hdr_to_func(
+        [](void *context, void *data, int n) noexcept {
+            auto &&rgbe = *static_cast<std::vector<std::byte> *>(context);
+            std::copy_n(static_cast<const std::byte *>(data), n, std::back_inserter(rgbe));
+        },
+        &rgbe, static_cast<int>(tile_size.x), static_cast<int>(tile_size.y), 4, &result.front().x);
+    BinaryBuffer buffer;
+    buffer.write(tile).write(rgbe.data(), rgbe.size()).write_size();
+    std::scoped_lock lock{_sending_queue_mutex};
+    _sending_queue.emplace(std::move(buffer));
 }
 
 RenderWorker::~RenderWorker() noexcept = default;

@@ -49,7 +49,6 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     auto tile_size = make_uint2();
-    std::vector<float4> tile_buffer;
     std::mt19937 random{std::random_device{}()};
     Clock clock;
     auto worker = RenderWorker::create("127.0.0.1", 12345u);
@@ -69,10 +68,11 @@ int main(int argc, char *argv[]) {
             auto r = dist(random);
             auto g = dist(random);
             auto b = dist(random);
+            static thread_local std::vector<float4> tile_buffer;
             tile_buffer.clear();
             tile_buffer.resize(tile_size.x * tile_size.y, make_float4(r, g, b, 1.0f));
             LUISA_INFO("Render: {} ms.", clock.toc());
-            return std::make_pair(std::span{tile_buffer}, tile_size);
+            worker->finish(tile, tile_buffer, tile_size);
         })
         .run();
 
