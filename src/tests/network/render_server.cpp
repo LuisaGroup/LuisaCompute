@@ -110,7 +110,13 @@ void RenderServer::run() noexcept {
     _accept_workers(shared_from_this());
     _accept_clients(shared_from_this());
     LUISA_INFO("RenderServer started.");
-    _context.run();
+    asio::error_code error;
+    _context.run(error);
+    if (error) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Error encountered in RenderServer: {}",
+            error.message());
+    }
 }
 
 RenderServer::~RenderServer() noexcept = default;
