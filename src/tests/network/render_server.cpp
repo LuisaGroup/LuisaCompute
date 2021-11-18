@@ -101,10 +101,10 @@ std::shared_ptr<RenderServer> RenderServer::create(uint16_t worker_port, uint16_
 }
 
 void RenderServer::run() noexcept {
-    _config = std::make_shared<RenderConfig>(
+    _config = std::make_unique<RenderConfig>(
         1u, "test",
         make_uint2(1024u, 1024u),
-        0u, make_uint2(64u, 64u),
+        0u, make_uint2(256u, 256u),
         1u, 3u);
     _accum_buffer.resize(1024u * 1024u);
     _scheduler = std::make_shared<RenderScheduler>(this, 1ms);

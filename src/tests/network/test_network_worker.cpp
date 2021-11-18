@@ -19,6 +19,7 @@
 
 #include <network/binary_buffer.h>
 #include <network/render_tile.h>
+#include <network/render_config.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -51,24 +52,63 @@ int main(int argc, char *argv[]) {
     asio::ip::tcp::socket socket(io_context);
     socket.connect(endpoint);
 
-    std::default_random_engine random{std::random_device{}()};
+    RenderConfig config;
+
+    std::mt19937 random{std::random_device{}()};
     for (;;) {
+        Clock clock;
         BinaryBuffer buffer;
-        buffer.write_skip(sizeof(RenderTile));
+        buffer.write_skip(6);// command
         asio::read(socket, buffer.asio_buffer());
-        RenderTile tile;
-        buffer.read(tile);
-        std::vector<float4> tile_buffer(64u * 64u, make_float4());
-        for (auto &&p : tile_buffer) {
-            std::uniform_real_distribution<float> dist;
-            p.x = dist(random);
-            p.y = dist(random);
-            p.z = dist(random);
-            p.w = 1.0f;
+        auto size = buffer.read_size();
+        auto command = [&buffer] {
+            static thread_local std::array<char, 6> command{};
+            buffer.read(command);
+            return std::string_view{
+                command.data(),
+                command.size()};
+        }();
+        if (command == "CONFIG") {
+            buffer.write_skip(size - 6u);
+            asio::read(socket, buffer.asio_buffer_tail());
+            buffer.read(config);
+            LUISA_INFO(
+                "RenderConfig: scene = {}, render_id = {}, resolution = {}x{}, "
+                "spp = {}, tile_size = {}x{}, tile_spp = {}, max_tiles_in_flight = {}.",
+                config.scene(), config.render_id(), config.resolution().x, config.resolution().y,
+                config.spp(), config.tile_size().x, config.tile_size().y, config.tile_spp(), config.tiles_in_flight());
+        } else if (command == "RENDER") {
+            buffer.write_skip(size - 6u);
+            asio::read(socket, buffer.asio_buffer_tail());
+            LUISA_INFO("Read: {} ms.", clock.toc());
+            RenderTile tile;
+            buffer.read(tile);
+            if (config.render_id() == std::numeric_limits<uint32_t>::max()) {
+                LUISA_ERROR_WITH_LOCATION("Invalid render config.");
+            }
+            if (tile.render_id() == config.render_id()) {
+                auto t0 = clock.toc();
+                std::vector<float4> tile_buffer(config.resolution().x * config.resolution().y, make_float4());
+                std::uniform_real_distribution<float> dist;
+                for (auto &&p : tile_buffer) {
+                    p.x = dist(random);
+                    p.y = dist(random);
+                    p.z = dist(random);
+                    p.w = 1.0f;
+                }
+                LUISA_INFO("Render: {} ms.", clock.toc() - t0);
+                buffer.clear();
+                buffer
+                    .write(tile)
+                    .write(tile_buffer.data(), tile_buffer.size() * sizeof(float4))
+                    .write_size();
+                auto asio_buffer = buffer.asio_buffer();
+                asio::write(socket, asio_buffer);
+            }
+        } else {
+            LUISA_ERROR_WITH_LOCATION("Invalid command: {}.", command);
         }
-        buffer.write(tile_buffer.data(), tile_buffer.size() * sizeof(float4));
-        buffer.write_size();
-        asio::write(socket, buffer.asio_buffer());
+        LUISA_INFO("Time: {} ms.", clock.toc());
     }
 
     //    Context context{argv[0]};

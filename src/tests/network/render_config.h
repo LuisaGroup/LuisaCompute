@@ -28,6 +28,7 @@ private:
     // TODO: camera & other stuff
 
 public:
+    RenderConfig() noexcept = default;
     RenderConfig(uint32_t render_id, std::string_view scene, uint2 resolution, size_t spp, uint2 tile_size, size_t tile_spp, size_t tiles_in_flight) noexcept;
     [[nodiscard]] auto scene() const noexcept { return std::string_view{_scene.data(), _name_length}; }
     [[nodiscard]] auto resolution() const noexcept { return _resolution; }

@@ -24,7 +24,7 @@ private:
     asio::ip::tcp::acceptor _worker_acceptor;
     asio::ip::tcp::acceptor _client_acceptor;
     std::shared_ptr<RenderScheduler> _scheduler;
-    std::shared_ptr<RenderConfig> _config;
+    std::unique_ptr<RenderConfig> _config;
     std::vector<float4> _accum_buffer;
     size_t _frame_count{};
 
@@ -44,7 +44,6 @@ public:
     void accumulate(size_t frame_id, RenderBuffer buffer) noexcept;
     void run() noexcept;
     [[nodiscard]] auto config() const noexcept { return _config.get(); }
-    [[nodiscard]] auto shared_config() const noexcept { return _config; }
 };
 
 }// namespace luisa::compute

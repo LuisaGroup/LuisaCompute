@@ -51,11 +51,18 @@ void RenderScheduler::_dispatch(std::shared_ptr<RenderScheduler> self) noexcept 
                 if (worker_count != 0u) {
                     auto max_tile_count = config->tiles_in_flight();
                     auto start = std::uniform_int_distribution<size_t>{0u, worker_count - 1u}(random);
-                    for (auto i = 0u; i < worker_count; i++) {
-                        auto worker_id = (start + i) % worker_count;
-                        if (auto &&w = *self->_workers[worker_id];
-                            w.working_tile_count() < max_tile_count) {
-                            if (auto tile = self->_next_tile(config)) { w.render(*tile); }
+                    auto any_available = true;
+                    while (any_available) {
+                        any_available = false;
+                        for (auto i = 0u; i < worker_count; i++) {
+                            auto worker_id = (start + i) % worker_count;
+                            if (auto &&w = *self->_workers[worker_id];
+                                w.working_tile_count() < max_tile_count) {
+                                if (auto tile = self->_next_tile(config)) {
+                                    any_available = true;
+                                    w.render(*config, *tile);
+                                }
+                            }
                         }
                     }
                 }

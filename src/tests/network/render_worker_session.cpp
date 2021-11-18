@@ -5,6 +5,7 @@
 #include <network/binary_buffer.h>
 #include <network/render_scheduler.h>
 #include <network/render_worker_session.h>
+#include <network/render_config.h>
 
 namespace luisa::compute {
 
@@ -62,9 +63,29 @@ inline void RenderWorkerSession::_receive_tile(std::shared_ptr<RenderWorkerSessi
         });
 }
 
-void RenderWorkerSession::render(RenderTile tile) noexcept {
+void RenderWorkerSession::render(const RenderConfig &config, RenderTile tile) noexcept {
+    // update config if changed
+    if (config.render_id() != _render_id) {
+        _render_id = config.render_id();
+        BinaryBuffer buffer;
+        std::array command{'C', 'O', 'N', 'F', 'I', 'G'};
+        buffer.write(command).write(config).write_size();
+        auto asio_buffer = buffer.asio_buffer();
+        asio::async_write(
+            _socket, asio_buffer,
+            [self = shared_from_this(), buffer = std::move(buffer)](asio::error_code error, size_t) mutable noexcept {
+                if (error) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Error occurred when sending work in RenderWorkerSession: {}.",
+                        error.message());
+                    self->close();
+                }
+            });
+    }
+    // render
     BinaryBuffer buffer;
-    buffer.write(tile).write_size();
+    std::array command{'R', 'E', 'N', 'D', 'E', 'R'};
+    buffer.write(command).write(tile).write_size();
     _working_tiles.emplace_back(tile);
     auto asio_buffer = buffer.asio_buffer();
     asio::async_write(
