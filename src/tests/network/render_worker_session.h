@@ -30,10 +30,10 @@ private:
     uint32_t _render_id{invalid_render_id};
 
 private:
+    static void _send(std::shared_ptr<RenderWorkerSession> self) noexcept;
     static void _receive(std::shared_ptr<RenderWorkerSession> self) noexcept;
     static void _receive_tile(std::shared_ptr<RenderWorkerSession> self, RenderTile tile, BinaryBuffer buffer) noexcept;
     void _finish_tile(RenderTile tile, std::span<const std::byte> data) noexcept;
-    static void _dispatch(std::shared_ptr<RenderWorkerSession> self) noexcept;
 
 public:
     explicit RenderWorkerSession(RenderScheduler *scheduler) noexcept;

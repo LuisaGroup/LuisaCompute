@@ -110,10 +110,14 @@ void RenderScheduler::recycle(RenderTile tile) noexcept {
 void RenderScheduler::accumulate(RenderTile tile, std::span<const std::byte> data) noexcept {
     if (tile.render_id() != _render_id) { return; }
     if (auto iter = _frames.find(tile.frame_id()); iter != _frames.end()) {
-        if (auto &&f = iter->second; f.accumulate(tile, data) && f.done()) {
-            auto frame = std::move(f);
-            _frames.erase(iter);
-            _server->accumulate(tile.frame_id(), std::move(frame));
+        if (auto &&f = iter->second; f.accumulate(tile, data)) {
+            if (f.done()) {
+                auto frame = std::move(f);
+                _frames.erase(iter);
+                _server->accumulate(tile.frame_id(), std::move(frame));
+            }
+        } else {
+            recycle(tile);
         }
     }
 }

@@ -101,11 +101,11 @@ void RenderWorkerSession::close() noexcept {
 }
 
 void RenderWorkerSession::run() noexcept {
-    _dispatch(shared_from_this());
+    _send(shared_from_this());
     _receive(shared_from_this());
 }
 
-void RenderWorkerSession::_dispatch(std::shared_ptr<RenderWorkerSession> self) noexcept {
+void RenderWorkerSession::_send(std::shared_ptr<RenderWorkerSession> self) noexcept {
     if (auto &&s = *self) {
         if (s._pending_commands.empty()) {
             // check later...
@@ -118,7 +118,7 @@ void RenderWorkerSession::_dispatch(std::shared_ptr<RenderWorkerSession> self) n
                         error.message());
                     self->close();
                 } else {
-                    _dispatch(std::move(self));
+                    _send(std::move(self));
                 }
             });
         } else {
@@ -153,7 +153,7 @@ void RenderWorkerSession::_dispatch(std::shared_ptr<RenderWorkerSession> self) n
                             error.message());
                         self->close();
                     } else {
-                        _dispatch(std::move(self));
+                        _send(std::move(self));
                     }
                 });
         }

@@ -34,17 +34,17 @@ void RenderServer::accumulate(size_t frame_id, RenderBuffer buffer) noexcept {
         [t = 1.0f / static_cast<float>(_frame_count)](auto lhs, auto rhs) noexcept {
             return make_float4(lerp(lhs, rhs, t).xyz(), 1.0f);
         });
-    std::transform(
-        _accum_buffer.cbegin(), _accum_buffer.cend(),
-        reinterpret_cast<std::array<uint8_t, 4u> *>(image.data),
-        [](float4 p) noexcept {
-            auto cvt = [](float x) noexcept {
-                return static_cast<uint8_t>(clamp(x * 255.0f, 0.0f, 255.0f));
-            };
-            return std::array{cvt(p.z), cvt(p.y), cvt(p.x), static_cast<uint8_t>(255u)};
-        });
-    cv::imshow("Display", image);
-    cv::waitKey(1);
+//    std::transform(
+//        _accum_buffer.cbegin(), _accum_buffer.cend(),
+//        reinterpret_cast<std::array<uint8_t, 4u> *>(image.data),
+//        [](float4 p) noexcept {
+//            auto cvt = [](float x) noexcept {
+//                return static_cast<uint8_t>(clamp(x * 255.0f, 0.0f, 255.0f));
+//            };
+//            return std::array{cvt(p.z), cvt(p.y), cvt(p.x), static_cast<uint8_t>(255u)};
+//        });
+//    cv::imshow("Display", image);
+//    cv::waitKey(1);
     // TODO: other encoding?
     //    auto send_buffer = std::make_shared<BinaryBuffer>();
     //    send_buffer->write(_accum_buffer.data(), std::span{_accum_buffer}.size_bytes());
@@ -105,7 +105,7 @@ void RenderServer::run() noexcept {
         1u, "test",
         make_uint2(1024u, 1024u),
         0u, make_uint2(256u, 256u),
-        1u, 3u);
+        1u, 5u);
     _accum_buffer.resize(1024u * 1024u);
     _scheduler = std::make_shared<RenderScheduler>(this, 1ms);
     _scheduler->run();

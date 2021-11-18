@@ -2,6 +2,9 @@
 // Created by Mike Smith on 2021/9/24.
 //
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include <network/render_buffer.h>
 
 namespace luisa::compute {
@@ -34,10 +37,27 @@ bool RenderBuffer::accumulate(RenderTile tile, std::span<const std::byte> tile_b
         return false;
     }
 
+    // convert from rgbe to float4
+    auto width = 0;
+    auto height = 0;
+    auto channels = 0;
+    std::unique_ptr<float4, void (*)(void *)> pixels{
+        reinterpret_cast<float4 *>(
+            stbi_loadf_from_memory(
+                reinterpret_cast<const uint8_t *>(tile_buffer.data()),
+                static_cast<int>(tile_buffer.size_bytes()),
+                &width, &height, &channels, 4)),
+        stbi_image_free};
+    if (width != _tile_size.x || height != _tile_size.y) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Invalid tile: width = {}, height = {}, channels = {}.",
+            width, height, channels);
+        return false;
+    }
     _framebuffer.resize(_frame_size.x * _frame_size.y);
     for (auto y_tile = 0u; y_tile < _tile_size.y && y_tile + tile.offset().y < _frame_size.y; y_tile++) {
         auto p_frame = _framebuffer.data() + (y_tile + tile.offset().y) * _frame_size.x + tile.offset().x;
-        auto p_tile = tile_buffer.data() + y_tile * _tile_size.x * sizeof(pixel_type);
+        auto p_tile = pixels.get() + y_tile * _tile_size.x;
         auto valid_w = std::min(tile.offset().x + _tile_size.x, _frame_size.x) - tile.offset().x;
         std::memcpy(p_frame, p_tile, valid_w * sizeof(pixel_type));
     }
