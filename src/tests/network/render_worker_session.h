@@ -5,6 +5,7 @@
 #pragma once
 
 #include <queue>
+#include <variant>
 #include <asio.hpp>
 
 #include <network/render_tile.h>
@@ -22,21 +23,24 @@ public:
 
 private:
     asio::ip::tcp::socket _socket;
+    asio::system_timer _timer;
     RenderScheduler *_scheduler;
-    std::vector<RenderTile> _working_tiles;
+    std::vector<RenderTile> _rendering_tiles;
+    std::queue<std::variant<RenderConfig, RenderTile>> _pending_commands;
     uint32_t _render_id{invalid_render_id};
 
 private:
     static void _receive(std::shared_ptr<RenderWorkerSession> self) noexcept;
     static void _receive_tile(std::shared_ptr<RenderWorkerSession> self, RenderTile tile, BinaryBuffer buffer) noexcept;
     void _finish_tile(RenderTile tile, std::span<const std::byte> data) noexcept;
+    static void _dispatch(std::shared_ptr<RenderWorkerSession> self) noexcept;
 
 public:
     explicit RenderWorkerSession(RenderScheduler *scheduler) noexcept;
     [[nodiscard]] explicit operator bool() const noexcept { return _socket.is_open(); }
-    [[nodiscard]] auto working_tile_count() const noexcept { return _working_tiles.size(); }
+    [[nodiscard]] auto working_item_count() const noexcept { return _rendering_tiles.size() + _pending_commands.size(); }
     [[nodiscard]] auto &socket() noexcept { return _socket; }
-    void render(const RenderConfig &config, RenderTile tile) noexcept;
+    void dispatch(const RenderConfig &config, RenderTile tile) noexcept;
     void run() noexcept;
     void close() noexcept;
 };
