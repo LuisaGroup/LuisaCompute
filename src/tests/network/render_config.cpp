@@ -8,8 +8,10 @@
 
 namespace luisa::compute {
 
-RenderConfig::RenderConfig(std::string_view scene, uint2 resolution, size_t spp, uint2 tile_size, size_t tile_spp, size_t tiles_in_flight) noexcept
+RenderConfig::RenderConfig(
+    uint32_t render_id, std::string_view scene, uint2 resolution, size_t spp, uint2 tile_size, size_t tile_spp, size_t tiles_in_flight) noexcept
     : _resolution{resolution},
+      _render_id{render_id},
       _spp{static_cast<uint>(spp)},
       _tile_size{tile_size},
       _tile_spp{static_cast<uint>(tile_spp)},

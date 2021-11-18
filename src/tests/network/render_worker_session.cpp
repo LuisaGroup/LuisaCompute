@@ -13,14 +13,6 @@ RenderWorkerSession::RenderWorkerSession(RenderScheduler *scheduler) noexcept
     _receive(shared_from_this());
 }
 
-inline void RenderWorkerSession::_cancel_tile(RenderTile tile) noexcept {
-    if (auto iter = std::find(_working_tiles.begin(), _working_tiles.end(), tile);
-        iter != _working_tiles.end()) {
-        _working_tiles.erase(iter);
-        _scheduler->recycle(tile);
-    }
-}
-
 inline void RenderWorkerSession::_finish_tile(RenderTile tile, std::span<const std::byte> data) noexcept {
     if (auto iter = std::find(_working_tiles.begin(), _working_tiles.end(), tile);
         iter != _working_tiles.end()) {
@@ -38,18 +30,12 @@ inline void RenderWorkerSession::_receive(std::shared_ptr<RenderWorkerSession> s
         asio::async_read(
             asio_socket, asio_buffer,
             [self = std::move(self), buffer = std::move(buffer)](asio::error_code error, size_t) mutable noexcept {
-                if (auto size = buffer.read_size(); error || size < sizeof(RenderTile)) {
+                if (auto size = buffer.read_size();
+                    error || size <= sizeof(RenderTile)) {
                     LUISA_WARNING_WITH_LOCATION(
                         "Error when receiving message in RenderWorkerSession: {}.",
                         error.message());
                     self->close();
-                } else if (size == sizeof(RenderTile)) {// worker failed to render the tile
-                    RenderTile tile;
-                    buffer.read(tile);
-                    LUISA_WARNING_WITH_LOCATION(
-                        "Received zero-sized tile buffer from worker.");
-                    self->_cancel_tile(tile);
-                    _receive(std::move(self));
                 } else {// good tile, receive it
                     RenderTile tile;
                     buffer.read(tile);
@@ -81,6 +67,7 @@ inline void RenderWorkerSession::_receive_tile(std::shared_ptr<RenderWorkerSessi
 void RenderWorkerSession::render(RenderTile tile) noexcept {
     BinaryBuffer buffer;
     buffer.write(tile).write_size();
+    _working_tiles.emplace_back(tile);
     auto asio_buffer = buffer.asio_buffer();
     asio::async_write(
         _socket, asio_buffer,
@@ -90,19 +77,15 @@ void RenderWorkerSession::render(RenderTile tile) noexcept {
                     "Error occurred when sending work in RenderWorkerSession: {}.",
                     error.message());
                 self->close();
-            } else {
-                self->_working_tiles.emplace_back(tile);
             }
         });
 }
 
-void RenderWorkerSession::stop() noexcept {
-    for (auto t : _working_tiles) { _scheduler->recycle(t); }
-    _working_tiles.clear();
-}
-
 void RenderWorkerSession::close() noexcept {
-    stop();
+    for (auto t : _working_tiles) {
+        _scheduler->recycle(t);
+    }
+    _working_tiles.clear();
     asio::error_code error;
     _socket.close(error);
     if (error) {

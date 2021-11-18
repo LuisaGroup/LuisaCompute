@@ -152,7 +152,7 @@ def render():
         color_buffer[u, v] += throughput * hit_light
 
 
-ENABLE_DISPLAY = True
+ENABLE_DISPLAY = True and False
 INTERVAL = 4
 
 if __name__ == "__main__":
@@ -160,7 +160,7 @@ if __name__ == "__main__":
         gui = ti.GUI('SDF Path Tracer', res)
     render()
     a = color_buffer.to_numpy()
-    total_spp = 1024
+    total_spp = 128
     t0 = time.time()
     last_t = time.time()
     for i in range(total_spp):

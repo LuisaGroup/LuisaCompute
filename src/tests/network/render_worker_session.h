@@ -24,7 +24,6 @@ private:
 private:
     static void _receive(std::shared_ptr<RenderWorkerSession> self) noexcept;
     static void _receive_tile(std::shared_ptr<RenderWorkerSession> self, RenderTile tile, BinaryBuffer buffer) noexcept;
-    void _cancel_tile(RenderTile tile) noexcept;
     void _finish_tile(RenderTile tile, std::span<const std::byte> data) noexcept;
 
 public:
@@ -33,7 +32,6 @@ public:
     [[nodiscard]] auto working_tile_count() const noexcept { return _working_tiles.size(); }
     [[nodiscard]] auto &socket() noexcept { return _socket; }
     void render(RenderTile tile) noexcept;
-    void stop() noexcept;
     void close() noexcept;
 };
 

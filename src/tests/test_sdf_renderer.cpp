@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-#define ENABLE_DISPLAY
+//#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
 #ifdef ENABLE_DISPLAY
     static constexpr auto total_spp = 500000u;
 #else
-    static constexpr auto total_spp = 5000u;
+    static constexpr auto total_spp = 1024u;
 #endif
 
     auto t0 = clock.toc();
