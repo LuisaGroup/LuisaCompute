@@ -22,10 +22,7 @@ bool RenderBuffer::accumulate(RenderTile tile, std::span<const std::byte> tile_b
             tile.offset().x, tile.offset().y, _frame_size.x, _frame_size.y);
         return false;
     }
-    if (auto pixel_count = _frame_size.x * _frame_size.y;
-        _framebuffer.size() != pixel_count * sizeof(pixel_type)) {
-        _framebuffer.resize(pixel_count);
-    }
+    _framebuffer.resize(_frame_size.x * _frame_size.y * sizeof(pixel_type));
     for (auto y_tile = 0u; y_tile < _tile_size.y && y_tile + tile.offset().y < _frame_size.y; y_tile++) {
         auto p_frame = _framebuffer.data() + ((y_tile + tile.offset().y) * _frame_size.x + tile.offset().x) * sizeof(pixel_type);
         auto p_tile = tile_buffer.data() + y_tile * _tile_size.x * sizeof(pixel_type);

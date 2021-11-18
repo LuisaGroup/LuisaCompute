@@ -51,16 +51,21 @@ int main(int argc, char *argv[]) {
     asio::ip::tcp::socket socket(io_context);
     socket.connect(endpoint);
 
+    std::default_random_engine random{std::random_device{}()};
     for (;;) {
         BinaryBuffer buffer;
         buffer.write_skip(sizeof(RenderTile));
         asio::read(socket, buffer.asio_buffer());
         RenderTile tile;
         buffer.read(tile);
-        LUISA_INFO(
-            "RenderTile: render_id = {}, frame_id = {}, offset = ({}, {})",
-            tile.render_id(), tile.frame_id(), tile.offset().x, tile.offset().y);
         std::vector<float4> tile_buffer(64u * 64u, make_float4());
+        for (auto &&p : tile_buffer) {
+            std::uniform_real_distribution<float> dist;
+            p.x = dist(random);
+            p.y = dist(random);
+            p.z = dist(random);
+            p.w = 1.0f;
+        }
         buffer.write(tile_buffer.data(), tile_buffer.size() * sizeof(float4));
         buffer.write_size();
         asio::write(socket, buffer.asio_buffer());

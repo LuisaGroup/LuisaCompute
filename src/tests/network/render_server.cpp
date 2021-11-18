@@ -17,39 +17,37 @@ using namespace std::chrono_literals;
 inline RenderServer::RenderServer(uint16_t worker_port, uint16_t client_port) noexcept
     : _context{1u},
       _worker_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), worker_port}},
-      _client_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), client_port}} {
-    LUISA_INFO("RenderServer: worker_port = {}, client_port = {}.", worker_port, client_port)
-    _config = std::make_shared<RenderConfig>(
-        1u, "test",
-        make_uint2(1024u, 1024u),
-        0u, make_uint2(64u, 64u),
-        1u, 3u);
-    _accept_workers(shared_from_this());
-    LUISA_INFO("RenderServer: after _accept_workers.");
-    _accept_clients(shared_from_this());
-    LUISA_INFO("RenderServer: after _accept_clients.");
-    _scheduler = std::make_shared<RenderScheduler>(this, 10ms);
-}
+      _client_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), client_port}} {}
 
 void RenderServer::process(size_t, RenderBuffer buffer) noexcept {
     auto pixels = reinterpret_cast<const float4 *>(buffer.framebuffer().data());
     cv::Mat image{
-        static_cast<int>(_config->resolution().x),
         static_cast<int>(_config->resolution().y),
-        CV_32FC4,
+        static_cast<int>(_config->resolution().x),
+        CV_8UC4,
         cv::Scalar::all(0)};
     std::transform(
         _accum_buffer.cbegin(), _accum_buffer.cend(), pixels,
-        reinterpret_cast<float4 *>(image.data), [t = 1.0f / static_cast<float>(++_frame_count)](auto lhs, auto rhs) noexcept {
-            return make_float4(lerp(lhs, rhs, t).zyx(), 1.0f);
+        _accum_buffer.begin(),
+        [t = 1.0f / static_cast<float>(++_frame_count)](auto lhs, auto rhs) noexcept {
+            return make_float4(lerp(lhs, rhs, t).xyz(), 1.0f);
+        });
+    std::transform(
+        _accum_buffer.cbegin(), _accum_buffer.cend(),
+        reinterpret_cast<std::array<uint8_t, 4u> *>(image.data),
+        [](float4 p) noexcept {
+            auto cvt = [](float x) noexcept {
+                return static_cast<uint8_t>(clamp(x * 255.0f, 0.0f, 255.0f));
+            };
+            return std::array{cvt(p.z), cvt(p.y), cvt(p.x), static_cast<uint8_t>(255u)};
         });
     cv::imshow("Display", image);
     cv::waitKey(1);
     // TODO: other encoding?
-//    auto send_buffer = std::make_shared<BinaryBuffer>();
-//    send_buffer->write(_accum_buffer.data(), std::span{_accum_buffer}.size_bytes());
-//    send_buffer->write_size();
-//    _send_to_clients(std::move(send_buffer));
+    //    auto send_buffer = std::make_shared<BinaryBuffer>();
+    //    send_buffer->write(_accum_buffer.data(), std::span{_accum_buffer}.size_bytes());
+    //    send_buffer->write_size();
+    //    _send_to_clients(std::move(send_buffer));
 }
 
 void RenderServer::_accept_workers(std::shared_ptr<RenderServer> self) noexcept {
@@ -74,7 +72,6 @@ void RenderServer::_accept_workers(std::shared_ptr<RenderServer> self) noexcept 
 }
 
 void RenderServer::_accept_clients(std::shared_ptr<RenderServer> self) noexcept {
-
 }
 
 void RenderServer::_close() noexcept {
@@ -95,11 +92,25 @@ void RenderServer::_close() noexcept {
 }
 
 void RenderServer::_send_to_clients(std::shared_ptr<BinaryBuffer> buffer) noexcept {
-
 }
 
 std::shared_ptr<RenderServer> RenderServer::create(uint16_t worker_port, uint16_t client_port) noexcept {
     return std::make_shared<RenderServer>(worker_port, client_port);
+}
+
+void RenderServer::run() noexcept {
+    _config = std::make_shared<RenderConfig>(
+        1u, "test",
+        make_uint2(1024u, 1024u),
+        0u, make_uint2(64u, 64u),
+        1u, 3u);
+    _accum_buffer.resize(1024u * 1024u);
+    _scheduler = std::make_shared<RenderScheduler>(this, 1ms);
+    _scheduler->run();
+    _accept_workers(shared_from_this());
+    _accept_clients(shared_from_this());
+    LUISA_INFO("RenderServer started.");
+    _context.run();
 }
 
 RenderServer::~RenderServer() noexcept = default;

@@ -32,6 +32,7 @@ public:
     [[nodiscard]] auto working_tile_count() const noexcept { return _working_tiles.size(); }
     [[nodiscard]] auto &socket() noexcept { return _socket; }
     void render(RenderTile tile) noexcept;
+    void run() noexcept;
     void close() noexcept;
 };
 

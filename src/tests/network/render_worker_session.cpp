@@ -9,9 +9,7 @@
 namespace luisa::compute {
 
 RenderWorkerSession::RenderWorkerSession(RenderScheduler *scheduler) noexcept
-    : _socket{scheduler->context()}, _scheduler{scheduler} {
-    _receive(shared_from_this());
-}
+    : _socket{scheduler->context()}, _scheduler{scheduler} {}
 
 inline void RenderWorkerSession::_finish_tile(RenderTile tile, std::span<const std::byte> data) noexcept {
     if (auto iter = std::find(_working_tiles.begin(), _working_tiles.end(), tile);
@@ -93,6 +91,10 @@ void RenderWorkerSession::close() noexcept {
             "Error when closing RenderWorkerSession: {}.",
             error.message());
     }
+}
+
+void RenderWorkerSession::run() noexcept {
+    _receive(shared_from_this());
 }
 
 }// namespace luisa::compute

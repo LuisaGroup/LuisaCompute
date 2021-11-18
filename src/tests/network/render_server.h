@@ -38,14 +38,11 @@ public:
     RenderServer(uint16_t worker_port, uint16_t client_port) noexcept;
     ~RenderServer() noexcept;
     [[nodiscard]] static std::shared_ptr<RenderServer> create(uint16_t worker_port, uint16_t client_port) noexcept;
-    [[nodiscard]] explicit operator bool() const noexcept { return true; }
+    [[nodiscard]] explicit operator bool() const noexcept { return _worker_acceptor.is_open(); }
     [[nodiscard]] auto &context() noexcept { return _context; }
     [[nodiscard]] auto &context() const noexcept { return _context; }
     void process(size_t, RenderBuffer buffer) noexcept;
-    void run() noexcept {
-        LUISA_INFO("RenderServer started.");
-        _context.run();
-    }
+    void run() noexcept;
     [[nodiscard]] auto config() const noexcept { return _config.get(); }
     [[nodiscard]] auto shared_config() const noexcept { return _config; }
 };

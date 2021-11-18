@@ -20,9 +20,7 @@ RenderScheduler::RenderScheduler(
       _timer{server->context()},
       _interval{dispatch_interval},
       _render_id{invalid_render_id},
-      _frame_id{} {
-    _dispatch(shared_from_this());
-}
+      _frame_id{} {}
 
 void RenderScheduler::_dispatch(std::shared_ptr<RenderScheduler> self) noexcept {
     auto &&s = *self;
@@ -41,19 +39,23 @@ void RenderScheduler::_dispatch(std::shared_ptr<RenderScheduler> self) noexcept 
                 if (auto render_id = config->render_id();
                     render_id != self->_render_id) {// config has changed, clean up
                     self->_reset(render_id);
+                    LUISA_INFO(
+                        "RenderConfig: scene = {}, render_id = {}, resolution = {}x{}, "
+                        "spp = {}, tile_size = {}x{}, tile_spp = {}, max_tiles_in_flight = {}.",
+                        config->scene(), render_id, config->resolution().x, config->resolution().y,
+                        config->spp(), config->tile_size().x, config->tile_size().y, config->tile_spp(), config->tiles_in_flight());
                 }
                 // dispatch work
                 static thread_local std::default_random_engine random{std::random_device{}()};
-                if (auto worker_count = self->_workers.size(); worker_count != 0u) {
+                auto worker_count = self->_workers.size();
+                if (worker_count != 0u) {
                     auto max_tile_count = config->tiles_in_flight();
-                    auto start = std::uniform_int_distribution<size_t>{0u, self->_workers.size() - 1u}(random);
+                    auto start = std::uniform_int_distribution<size_t>{0u, worker_count - 1u}(random);
                     for (auto i = 0u; i < worker_count; i++) {
                         auto worker_id = (start + i) % worker_count;
                         if (auto &&w = *self->_workers[worker_id];
                             w.working_tile_count() < max_tile_count) {
-                            if (auto tile = self->_next_tile(config)) {
-                                w.render(*tile);
-                            }
+                            if (auto tile = self->_next_tile(config)) { w.render(*tile); }
                         }
                     }
                 }
@@ -114,15 +116,13 @@ asio::io_context &RenderScheduler::context() const noexcept {
 }
 
 void RenderScheduler::add(std::shared_ptr<RenderWorkerSession> worker) noexcept {
-    if (*worker) {
-        _workers.emplace_back(std::move(worker));
-    }
+    if (*worker) { _workers.emplace_back(std::move(worker))->run(); }
 }
 
 void RenderScheduler::_purge() noexcept {
     _workers.erase(
         std::remove_if(_workers.begin(), _workers.end(), [](auto &&p) noexcept {
-            return static_cast<bool>(*p);
+            return !(*p);
         }),
         _workers.end());
 }
@@ -146,6 +146,11 @@ void RenderScheduler::_reset(uint32_t render_id) noexcept {
     _tiles = {};
     _recycled_tiles = {};
     _frames.clear();
+}
+
+void RenderScheduler::run() noexcept {
+    _dispatch(shared_from_this());
+    LUISA_INFO("RenderScheduler started.");
 }
 
 }// namespace luisa::compute

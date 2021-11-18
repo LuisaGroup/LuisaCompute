@@ -48,6 +48,7 @@ public:
     RenderScheduler(RenderServer *server, interval_type dispatch_interval) noexcept;
     [[nodiscard]] asio::io_context &context() const noexcept;
     void add(std::shared_ptr<RenderWorkerSession> worker) noexcept;
+    void run() noexcept;
     void close() noexcept;
     void recycle(RenderTile tile) noexcept;
     void accumulate(RenderTile tile, std::span<const std::byte> data) noexcept;
