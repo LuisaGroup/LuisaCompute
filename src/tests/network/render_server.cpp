@@ -19,17 +19,19 @@ inline RenderServer::RenderServer(uint16_t worker_port, uint16_t client_port) no
       _worker_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), worker_port}},
       _client_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), client_port}} {}
 
-void RenderServer::process(size_t, RenderBuffer buffer) noexcept {
-    auto pixels = reinterpret_cast<const float4 *>(buffer.framebuffer().data());
+void RenderServer::accumulate(size_t frame_id, RenderBuffer buffer) noexcept {
+    _frame_count++;
+    LUISA_INFO("Accumulating frame #{} (total: {}).", frame_id, _frame_count);
     cv::Mat image{
         static_cast<int>(_config->resolution().y),
         static_cast<int>(_config->resolution().x),
         CV_8UC4,
         cv::Scalar::all(0)};
+    auto pixels = buffer.framebuffer().data();
     std::transform(
         _accum_buffer.cbegin(), _accum_buffer.cend(), pixels,
         _accum_buffer.begin(),
-        [t = 1.0f / static_cast<float>(++_frame_count)](auto lhs, auto rhs) noexcept {
+        [t = 1.0f / static_cast<float>(_frame_count)](auto lhs, auto rhs) noexcept {
             return make_float4(lerp(lhs, rhs, t).xyz(), 1.0f);
         });
     std::transform(

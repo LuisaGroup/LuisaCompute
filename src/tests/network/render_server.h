@@ -41,7 +41,7 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return _worker_acceptor.is_open(); }
     [[nodiscard]] auto &context() noexcept { return _context; }
     [[nodiscard]] auto &context() const noexcept { return _context; }
-    void process(size_t, RenderBuffer buffer) noexcept;
+    void accumulate(size_t frame_id, RenderBuffer buffer) noexcept;
     void run() noexcept;
     [[nodiscard]] auto config() const noexcept { return _config.get(); }
     [[nodiscard]] auto shared_config() const noexcept { return _config; }
