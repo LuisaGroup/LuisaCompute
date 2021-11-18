@@ -88,14 +88,11 @@ int main(int argc, char *argv[]) {
             }
             if (tile.render_id() == config.render_id()) {
                 auto t0 = clock.toc();
-                std::vector<float4> tile_buffer(config.resolution().x * config.resolution().y, make_float4());
                 std::uniform_real_distribution<float> dist;
-                for (auto &&p : tile_buffer) {
-                    p.x = dist(random);
-                    p.y = dist(random);
-                    p.z = dist(random);
-                    p.w = 1.0f;
-                }
+                auto r = dist(random);
+                auto g = dist(random);
+                auto b = dist(random);
+                std::vector<float4> tile_buffer(config.resolution().x * config.resolution().y, make_float4(r, g, b, 1.0f));
                 LUISA_INFO("Render: {} ms.", clock.toc() - t0);
                 buffer.clear();
                 buffer
