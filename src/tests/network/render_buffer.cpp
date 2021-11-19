@@ -17,6 +17,7 @@ RenderBuffer::RenderBuffer(uint2 frame_size, uint2 tile_size) noexcept
     auto tile_count = (_frame_size + tile_size - 1u) / tile_size;
     _total_tiles = tile_count.x * tile_count.y;
     _tile_marks.resize(_total_tiles, false);
+    _framebuffer.resize(_frame_size.x * _frame_size.y);
 }
 
 bool RenderBuffer::accumulate(RenderTile tile, std::span<const std::byte> tile_buffer) noexcept {
@@ -54,7 +55,6 @@ bool RenderBuffer::accumulate(RenderTile tile, std::span<const std::byte> tile_b
             width, height, channels);
         return false;
     }
-    _framebuffer.resize(_frame_size.x * _frame_size.y);
     for (auto y_tile = 0u; y_tile < _tile_size.y && y_tile + tile.offset().y < _frame_size.y; y_tile++) {
         auto p_frame = _framebuffer.data() + (y_tile + tile.offset().y) * _frame_size.x + tile.offset().x;
         auto p_tile = pixels.get() + y_tile * _tile_size.x;

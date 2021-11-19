@@ -203,6 +203,12 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
 uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
+    using namespace std::string_view_literals;
+    static constexpr auto pattern = ".version 7.5"sv;
+    if (auto p = ptx.find(pattern); p != luisa::string::npos) {
+        static constexpr auto replace = ".version 7.3"sv;
+        std::copy(replace.cbegin(), replace.cend(), ptx.begin() + p);
+    }
     auto kernel_name = fmt::format("kernel_{:016X}", kernel.hash());
     LUISA_INFO(
         "Generated PTX for {} in {} ms.",
