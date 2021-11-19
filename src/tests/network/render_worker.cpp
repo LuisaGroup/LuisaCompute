@@ -12,13 +12,13 @@
 
 namespace luisa::compute {
 
-inline RenderWorker::RenderWorker(const std::string &server_ip, uint16_t server_port) noexcept
+inline RenderWorker::RenderWorker(const char *server_ip, uint16_t server_port) noexcept
     : _context{1u},
       _socket{_context},
       _timer{_context},
       _server{asio::ip::address_v4::from_string(server_ip), server_port} {}
 
-std::shared_ptr<RenderWorker> RenderWorker::create(const std::string &server_ip, uint16_t server_port) noexcept {
+std::shared_ptr<RenderWorker> RenderWorker::create(const char *server_ip, uint16_t server_port) noexcept {
     return std::make_shared<RenderWorker>(server_ip, server_port);
 }
 

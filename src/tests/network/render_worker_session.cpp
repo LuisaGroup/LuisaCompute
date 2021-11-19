@@ -98,6 +98,12 @@ void RenderWorkerSession::close() noexcept {
             "Error when closing RenderWorkerSession: {}.",
             error.message());
     }
+    _timer.cancel(error);
+    if (error) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Error when cancelling timer: {}.",
+            error.message());
+    }
 }
 
 void RenderWorkerSession::run() noexcept {
@@ -158,6 +164,10 @@ void RenderWorkerSession::_send(std::shared_ptr<RenderWorkerSession> self) noexc
                 });
         }
     }
+}
+
+RenderWorkerSession::~RenderWorkerSession() noexcept {
+    close();
 }
 
 }// namespace luisa::compute

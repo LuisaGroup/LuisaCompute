@@ -40,7 +40,6 @@ private:
 
 private:
     static void _dispatch(std::shared_ptr<RenderScheduler> self) noexcept;
-    void _purge() noexcept;
     void _reset(uint32_t render_id) noexcept;
     [[nodiscard]] std::optional<RenderTile> _next_tile(const RenderConfig *config) noexcept;
 

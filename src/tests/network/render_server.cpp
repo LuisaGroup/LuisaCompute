@@ -4,8 +4,10 @@
 
 #include <stb/stb_image_write.h>
 
+#include <core/clock.h>
 #include <network/binary_buffer.h>
 #include <network/render_buffer.h>
+#include <network/render_client_session.h>
 #include <network/render_worker_session.h>
 #include <network/render_scheduler.h>
 #include <network/render_server.h>
@@ -16,6 +18,7 @@ using namespace std::chrono_literals;
 
 inline RenderServer::RenderServer(uint16_t worker_port, uint16_t client_port) noexcept
     : _context{1u},
+      _purge_timer{_context},
       _worker_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), worker_port}},
       _client_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), client_port}} {}
 
@@ -62,6 +65,27 @@ void RenderServer::_accept_workers(std::shared_ptr<RenderServer> self) noexcept 
 }
 
 void RenderServer::_accept_clients(std::shared_ptr<RenderServer> self) noexcept {
+    if (auto &&s = *self) {
+        auto client = std::make_shared<RenderClientSession>(&s);
+        auto &&socket = client->socket();
+        LUISA_INFO("Waiting for clients...");
+        s._client_acceptor.async_accept(
+            socket,
+            [self = std::move(self), client = std::move(client)](asio::error_code error) mutable noexcept {
+                if (error) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Error when connecting to client in RenderServer: {}.",
+                        error.message());
+                } else if (auto remote = client->socket().remote_endpoint(error); !error) {
+                    LUISA_INFO(
+                        "Connected to client {}:{}",
+                        remote.address().to_string(), remote.port());
+                    self->_purge();
+                    self->_clients.emplace_back(std::move(client))->run();
+                }
+                _accept_clients(std::move(self));
+            });
+    }
 }
 
 void RenderServer::_close() noexcept {
@@ -81,26 +105,16 @@ void RenderServer::_close() noexcept {
     _scheduler->close();
 }
 
-void RenderServer::_send_to_clients(std::shared_ptr<BinaryBuffer> buffer) noexcept {
-}
-
 std::shared_ptr<RenderServer> RenderServer::create(uint16_t worker_port, uint16_t client_port) noexcept {
     return std::make_shared<RenderServer>(worker_port, client_port);
 }
 
 void RenderServer::run() noexcept {
-    static constexpr auto width = 1280u;
-    static constexpr auto height = 720u;
-    _config = std::make_unique<RenderConfig>(
-        1u, "test",
-        make_uint2(width, height),
-        0u, make_uint2(256u, 256u),
-        1u, 16u);
-    _accum_buffer.resize(width * height);
     _scheduler = std::make_shared<RenderScheduler>(this, 1ms);
     _scheduler->run();
     _accept_workers(shared_from_this());
     _accept_clients(shared_from_this());
+    _purge_clients(shared_from_this());
     LUISA_INFO("RenderServer started.");
     asio::error_code error;
     _context.run(error);
@@ -112,10 +126,13 @@ void RenderServer::run() noexcept {
 }
 
 void RenderServer::set_config(const RenderConfig &config) noexcept {
-    _config = std::make_unique<RenderConfig>(config);
+    _config = std::make_unique<RenderConfig>(
+        ++_render_id, config.scene(), config.resolution(), config.spp(),
+        config.tile_size(), config.tile_spp(), config.tiles_in_flight());
     _frame_count = 0u;
     _sending_buffer = nullptr;
     _sending_frame_count = 0u;
+    _accum_buffer.resize(_config->resolution().x * _config->resolution().y);
 }
 
 std::shared_ptr<BinaryBuffer> RenderServer::sending_buffer() noexcept {
@@ -123,19 +140,45 @@ std::shared_ptr<BinaryBuffer> RenderServer::sending_buffer() noexcept {
     if (_sending_frame_count < _frame_count) {// update sending buffer
         _sending_frame_count = _frame_count;
         _sending_buffer = std::make_shared<BinaryBuffer>();
-        _sending_buffer->write(*_config)
-            .write(_sending_frame_count);
-//        std::transform(
-//            _accum_buffer.cbegin(), _accum_buffer.cend(),
-//            reinterpret_cast<std::array<uint8_t, 4u> *>(image.data),
-//            [](float4 p) noexcept {
-//                auto cvt = [](float x) noexcept {
-//                    return static_cast<uint8_t>(clamp(x * 255.0f, 0.0f, 255.0f));
-//                };
-//                return std::array{cvt(p.z), cvt(p.y), cvt(p.x), static_cast<uint8_t>(255u)};
-//            });
+        _sending_buffer->write(*_config).write(_sending_frame_count);
+        Clock clock;
+        stbi_write_hdr_to_func(
+            [](void *context, void *data, int n) noexcept {
+                static_cast<BinaryBuffer *>(context)->write(data, n);
+            },
+            _sending_buffer.get(),
+            static_cast<int>(_config->resolution().x),
+            static_cast<int>(_config->resolution().y),
+            4, &_accum_buffer.front().x);
+        _sending_buffer->write_size();
     }
     return _sending_buffer;
+}
+
+void RenderServer::_purge_clients(std::shared_ptr<RenderServer> self) noexcept {
+    if (auto &&s = *self) {
+        using namespace std::chrono_literals;
+        s._purge_timer.expires_after(1ms);
+        s._purge_timer.async_wait([self = std::move(self)](asio::error_code error) mutable noexcept {
+            if (error) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Error when performing periodic purging: {}.",
+                    error.message());
+            }
+            self->_purge();
+            _purge_clients(std::move(self));
+        });
+    }
+}
+
+void RenderServer::_purge() noexcept {
+    std::erase_if(_clients, [](auto &&c) noexcept { return !(*c); });
+    if (_clients.empty()) {// no clients, stop rendering...
+        _config = nullptr;
+        _frame_count = 0u;
+        _sending_buffer = nullptr;
+        _sending_frame_count = 0u;
+    }
 }
 
 RenderServer::~RenderServer() noexcept = default;

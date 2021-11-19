@@ -37,6 +37,7 @@ private:
 
 public:
     explicit RenderWorkerSession(RenderScheduler *scheduler) noexcept;
+    ~RenderWorkerSession() noexcept;
     [[nodiscard]] explicit operator bool() const noexcept { return _socket.is_open(); }
     [[nodiscard]] auto working_item_count() const noexcept { return _rendering_tiles.size() + _pending_commands.size(); }
     [[nodiscard]] auto &socket() noexcept { return _socket; }

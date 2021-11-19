@@ -2,24 +2,32 @@
 // Created by Mike Smith on 2021/9/17.
 //
 
-#include <iostream>
-#include <asio.hpp>
+#include <array>
 #include <opencv2/opencv.hpp>
-#include <core/logging.h>
-#include <core/basic_types.h>
+
+#include <network/render_config.h>
+#include <network/render_client.h>
+
+using namespace luisa;
+using namespace luisa::compute;
 
 int main() {
-    asio::io_context io_context;
-    asio::ip::tcp::endpoint endpoint{asio::ip::address_v4::from_string("127.0.0.1"), 13};
-    asio::ip::tcp::socket socket(io_context);
-    socket.connect(endpoint);
-    asio::error_code error;
-    cv::Mat image{512, 512, CV_8UC4, cv::Scalar::all(0)};
-    asio::write(socket, asio::buffer("client"), error);
-    while (!error) {
-        if (asio::read(socket, asio::buffer(image.data, 512u * 512u * 4u), error); !error) {
-            cv::imshow("Display", image);
-            cv::waitKey(1);
-        }
-    }
+
+    auto client = RenderClient::create("127.0.0.1", 23456u);
+    client->set_display_handler([](const RenderConfig &config, size_t frame_count, std::span<float4> pixels) noexcept {
+              LUISA_INFO("Received frame (spp = {}).", frame_count);
+              cv::Mat image{
+                  static_cast<int>(config.resolution().y),
+                  static_cast<int>(config.resolution().x),
+                  CV_32FC4, pixels.data()};
+              cv::cvtColor(image, image, cv::COLOR_RGBA2BGR);
+              auto mean = std::max(cv::mean(cv::mean(image))[0], 1e-3);
+              cv::sqrt(image * (0.24 / mean), image);
+              cv::imshow("Display", image);
+              cv::waitKey(1);
+          })
+        .set_config(RenderConfig{
+            0u, "scene", make_uint2(1280u, 720u), 0u,
+            make_uint2(256u, 256u), 1u, 8u})
+        .run();
 }

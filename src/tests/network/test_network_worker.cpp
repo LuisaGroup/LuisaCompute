@@ -8,15 +8,12 @@
 #include <thread>
 
 #include <asio.hpp>
-#include <opencv2/opencv.hpp>
 
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/event.h>
 #include <dsl/sugar.h>
 
-#include <network/binary_buffer.h>
 #include <network/render_tile.h>
 #include <network/render_config.h>
 #include <network/render_worker.h>
@@ -172,7 +169,7 @@ using namespace luisa::compute;
                 pos = hit_pos + 1e-4f * d;
                 throughput *= c;
             };
-            output_image[global_id] = make_float4(throughput.xyz() * hit_light * 3.0f, 1.0f);
+            output_image[global_id] = make_float4(throughput.xyz() * hit_light, 1.0f);
             seed_image[global_id] = seed;
         };
     };

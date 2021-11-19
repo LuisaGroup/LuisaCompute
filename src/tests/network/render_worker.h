@@ -41,9 +41,9 @@ private:
     static void _receive_render_command(std::shared_ptr<RenderWorker> self, BinaryBuffer buffer) noexcept;
 
 public:
-    RenderWorker(const std::string &server_ip, uint16_t server_port) noexcept;
+    RenderWorker(const char *server_ip, uint16_t server_port) noexcept;
     ~RenderWorker() noexcept;
-    [[nodiscard]] static std::shared_ptr<RenderWorker> create(const std::string &server_ip, uint16_t server_port) noexcept;
+    [[nodiscard]] static std::shared_ptr<RenderWorker> create(const char *server_ip, uint16_t server_port) noexcept;
     RenderWorker &set_config_handler(ConfigHandler handler) noexcept;
     RenderWorker &set_render_handler(RenderHandler handler) noexcept;
     void finish(const RenderTile &tile, std::vector<float4> result, uint2 tile_size) noexcept;
