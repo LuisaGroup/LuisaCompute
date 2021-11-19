@@ -193,7 +193,37 @@ int main(int argc, char *argv[]) {
     std::vector<float4> tile_buffer;
     auto frame_size = make_uint2();
     auto tile_size = make_uint2();
+    auto render_id = std::numeric_limits<uint32_t>::max();
     auto worker = RenderWorker::create("127.0.0.1", 12345u);
+    std::atomic_bool should_stop = false;
+
+    std::queue<RenderTile> tiles;
+    std::mutex mutex;
+    std::future<void> future;
+
+    auto render = [&] {
+        while (!should_stop.load()) {
+            if (auto item = [&]() noexcept -> std::optional<RenderTile> {
+                    std::scoped_lock lock{mutex};
+                    if (tiles.empty()) { return std::nullopt; }
+                    auto tile = tiles.front();
+                    tiles.pop();
+                    return tile;
+                }();
+                item && item->render_id() == render_id) {
+                auto tile = *item;
+                Clock clock;
+                stream << shader(seed_buffer, render_buffer, tile.offset(), frame_size).dispatch(tile_size)
+                       << render_buffer.copy_to(tile_buffer.data())
+                       << synchronize();
+                LUISA_INFO("Render [offset = ({}, {})]: {} ms.", tile.offset().x, tile.offset().y, clock.toc());
+                worker->finish(tile, tile_buffer, tile_size);
+            } else {
+                using namespace std::chrono_literals;
+                std::this_thread::sleep_for(1ms);
+            }
+        }
+    };
 
     Clock clock;
     worker->set_config_handler([&](const RenderConfig &config) noexcept {
@@ -202,27 +232,27 @@ int main(int argc, char *argv[]) {
                   "spp = {}, tile_size = {}x{}, tile_spp = {}, max_tiles_in_flight = {}.",
                   config.scene(), config.render_id(), config.resolution().x, config.resolution().y,
                   config.spp(), config.tile_size().x, config.tile_size().y, config.tile_spp(), config.tiles_in_flight());
+              should_stop = true;
+              if (future.valid()) { future.wait(); }
               frame_size = config.resolution();
               tile_size = config.tile_size();
+              render_id = config.render_id();
               auto tile_pixel_count = tile_size.x * tile_size.y;
               seed_buffer = device.create_buffer<uint>(tile_pixel_count);
               render_buffer = device.create_buffer<float4>(tile_pixel_count);
               tile_buffer.resize(tile_pixel_count);
+              tiles = {};
               // fill seed buffer
               std::mt19937 random{std::random_device{}()};
               std::vector<uint> seeds(tile_pixel_count);
               for (auto &s : seeds) { s = random(); }
               stream << seed_buffer.copy_from(seeds.data());
+              should_stop = false;
+              future = std::async(std::launch::async, render);
           })
         .set_render_handler([&](const RenderTile &tile) noexcept {
-            auto t = clock.toc();
-//            LUISA_INFO("Time: {} ms.", t);
-            clock.tic();
-            stream << shader(seed_buffer, render_buffer, tile.offset(), frame_size).dispatch(tile_size)
-                   << render_buffer.copy_to(tile_buffer.data())
-                   << synchronize();
-//            LUISA_INFO("Render [offset = ({}, {})]: {} ms.", tile.offset().x, tile.offset().y, clock.toc());
-            worker->finish(tile, tile_buffer, tile_size);
+            std::scoped_lock lock{mutex};
+            tiles.emplace(tile);
         })
         .run();
 }

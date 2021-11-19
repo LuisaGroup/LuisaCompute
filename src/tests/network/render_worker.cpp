@@ -5,6 +5,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+#include <core/clock.h>
 #include <network/binary_buffer.h>
 #include <network/render_tile.h>
 #include <network/render_config.h>
@@ -115,8 +116,23 @@ void RenderWorker::_send(std::shared_ptr<RenderWorker> self) noexcept {
     auto item = [self = self.get()]() noexcept -> std::optional<BinaryBuffer> {
         std::scoped_lock lock{self->_sending_queue_mutex};
         if (self->_sending_queue.empty()) { return std::nullopt; }
-        auto buffer = std::move(self->_sending_queue.front());
+        // retrieve
+        auto [result, tile, tile_size] = std::move(self->_sending_queue.front());
         self->_sending_queue.pop();
+        // encode
+        static thread_local std::vector<std::byte> rgbe;
+        rgbe.clear();
+        rgbe.reserve(result.size() * 4u);
+        Clock clock;
+        stbi_write_hdr_to_func(
+            [](void *context, void *data, int n) noexcept {
+                auto &&rgbe = *static_cast<std::vector<std::byte> *>(context);
+                std::copy_n(static_cast<const std::byte *>(data), n, std::back_inserter(rgbe));
+            },
+            &rgbe, static_cast<int>(tile_size.x), static_cast<int>(tile_size.y), 4, &result.front().x);
+        LUISA_INFO("Encode time: {} ms.", clock.toc());
+        BinaryBuffer buffer;
+        buffer.write(tile).write(rgbe.data(), rgbe.size()).write_size();
         return buffer;
     }();
 
@@ -149,20 +165,9 @@ void RenderWorker::_send(std::shared_ptr<RenderWorker> self) noexcept {
     }
 }
 
-void RenderWorker::finish(const RenderTile &tile, std::span<const float4> result, uint2 tile_size) noexcept {
-    static thread_local std::vector<std::byte> rgbe;
-    rgbe.clear();
-    rgbe.reserve(result.size() * 4u);
-    stbi_write_hdr_to_func(
-        [](void *context, void *data, int n) noexcept {
-            auto &&rgbe = *static_cast<std::vector<std::byte> *>(context);
-            std::copy_n(static_cast<const std::byte *>(data), n, std::back_inserter(rgbe));
-        },
-        &rgbe, static_cast<int>(tile_size.x), static_cast<int>(tile_size.y), 4, &result.front().x);
-    BinaryBuffer buffer;
-    buffer.write(tile).write(rgbe.data(), rgbe.size()).write_size();
+void RenderWorker::finish(const RenderTile &tile, std::vector<float4> result, uint2 tile_size) noexcept {
     std::scoped_lock lock{_sending_queue_mutex};
-    _sending_queue.emplace(std::move(buffer));
+    _sending_queue.emplace(std::move(result), tile, tile_size);
 }
 
 RenderWorker::~RenderWorker() noexcept = default;

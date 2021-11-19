@@ -11,6 +11,7 @@
 #include <asio.hpp>
 
 #include <core/basic_types.h>
+#include <network/render_tile.h>
 #include <network/binary_buffer.h>
 
 namespace luisa::compute {
@@ -29,7 +30,7 @@ private:
     asio::system_timer _timer;
     asio::ip::tcp::endpoint _server;
     std::mutex _sending_queue_mutex;
-    std::queue<BinaryBuffer> _sending_queue;
+    std::queue<std::tuple<std::vector<float4>, RenderTile, uint2>> _sending_queue;
     ConfigHandler _config_handler;
     RenderHandler _render_handler;
 
@@ -45,7 +46,7 @@ public:
     [[nodiscard]] static std::shared_ptr<RenderWorker> create(const std::string &server_ip, uint16_t server_port) noexcept;
     RenderWorker &set_config_handler(ConfigHandler handler) noexcept;
     RenderWorker &set_render_handler(RenderHandler handler) noexcept;
-    void finish(const RenderTile &tile, std::span<const float4> result, uint2 tile_size) noexcept;
+    void finish(const RenderTile &tile, std::vector<float4> result, uint2 tile_size) noexcept;
     void run() noexcept;
 };
 

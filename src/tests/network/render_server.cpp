@@ -107,7 +107,7 @@ void RenderServer::run() noexcept {
         1u, "test",
         make_uint2(width, height),
         0u, make_uint2(256u, 256u),
-        1u, 5u);
+        1u, 64u);
     _accum_buffer.resize(width * height);
     _scheduler = std::make_shared<RenderScheduler>(this, 1ms);
     _scheduler->run();
