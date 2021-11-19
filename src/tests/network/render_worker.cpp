@@ -128,7 +128,6 @@ void RenderWorker::_send(std::shared_ptr<RenderWorker> self) noexcept {
             },
             &buffer, static_cast<int>(tile_size.x), static_cast<int>(tile_size.y),
             4, &result.front().x);
-        LUISA_INFO("Encode time: {} ms.", clock.toc());
         buffer.write_size();
         return buffer;
     }();

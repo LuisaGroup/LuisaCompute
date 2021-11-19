@@ -219,7 +219,6 @@ int main(int argc, char *argv[]) {
                 stream << shader(seed_buffer, render_buffer, tile.offset(), frame_size).dispatch(tile_size)
                        << render_buffer.copy_to(tile_buffer.data())
                        << synchronize();
-                LUISA_INFO("Render [offset = ({}, {})]: {} ms.", tile.offset().x, tile.offset().y, clock.toc());
                 worker->finish(tile, tile_buffer, tile_size);
             } else {
                 using namespace std::chrono_literals;
