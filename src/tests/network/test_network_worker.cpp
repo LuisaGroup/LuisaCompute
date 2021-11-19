@@ -182,7 +182,13 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
+#else
+    auto device = context.create_device("ispc");
+#endif
     auto stream = device.create_stream();
     auto shader = create_shader(device);
     Buffer<uint> seed_buffer;
