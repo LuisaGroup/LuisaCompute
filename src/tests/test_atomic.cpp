@@ -12,9 +12,6 @@
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <tests/stb_image_write.h>
-
 using namespace luisa;
 using namespace luisa::compute;
 

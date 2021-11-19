@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/9/24.
 //
 
-#include <opencv2/opencv.hpp>
-
 #include <network/binary_buffer.h>
 #include <network/render_buffer.h>
 #include <network/render_worker_session.h>
@@ -19,37 +17,20 @@ inline RenderServer::RenderServer(uint16_t worker_port, uint16_t client_port) no
       _worker_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), worker_port}},
       _client_acceptor{_context, asio::ip::tcp::endpoint{asio::ip::tcp::v4(), client_port}} {}
 
-void RenderServer::accumulate(size_t frame_id, RenderBuffer buffer) noexcept {
-    _frame_count++;
-    LUISA_INFO("Accumulating frame #{} (total: {}).", frame_id, _frame_count);
-    cv::Mat image{
-        static_cast<int>(_config->resolution().y),
-        static_cast<int>(_config->resolution().x),
-        CV_8UC4,
-        cv::Scalar::all(0)};
+void RenderServer::accumulate(RenderBuffer buffer) noexcept {
+    auto last_frame_count = _frame_count;
+    _frame_count = std::max(
+        _frame_count + _config->tile_spp(),
+        static_cast<size_t>(_config->spp()));
+    LUISA_INFO("Accumulating {}/{}.", _frame_count, _config->spp());
     auto pixels = buffer.framebuffer().data();
+    auto spp = _frame_count - last_frame_count;
     std::transform(
         _accum_buffer.cbegin(), _accum_buffer.cend(), pixels,
         _accum_buffer.begin(),
-        [t = 1.0f / static_cast<float>(_frame_count)](auto lhs, auto rhs) noexcept {
+        [t = static_cast<float>(spp) / static_cast<float>(_frame_count)](auto lhs, auto rhs) noexcept {
             return make_float4(lerp(lhs, rhs, t).xyz(), 1.0f);
         });
-    std::transform(
-        _accum_buffer.cbegin(), _accum_buffer.cend(),
-        reinterpret_cast<std::array<uint8_t, 4u> *>(image.data),
-        [](float4 p) noexcept {
-            auto cvt = [](float x) noexcept {
-                return static_cast<uint8_t>(clamp(x * 255.0f, 0.0f, 255.0f));
-            };
-            return std::array{cvt(p.z), cvt(p.y), cvt(p.x), static_cast<uint8_t>(255u)};
-        });
-    cv::imshow("Display", image);
-    cv::waitKey(1);
-    // TODO: other encoding?
-    //    auto send_buffer = std::make_shared<BinaryBuffer>();
-    //    send_buffer->write(_accum_buffer.data(), std::span{_accum_buffer}.size_bytes());
-    //    send_buffer->write_size();
-    //    _send_to_clients(std::move(send_buffer));
 }
 
 void RenderServer::_accept_workers(std::shared_ptr<RenderServer> self) noexcept {
@@ -121,6 +102,34 @@ void RenderServer::run() noexcept {
             "Error encountered in RenderServer: {}",
             error.message());
     }
+}
+
+void RenderServer::set_config(const RenderConfig &config) noexcept {
+    _config = std::make_unique<RenderConfig>(config);
+    _frame_count = 0u;
+    _sending_buffer = nullptr;
+    _sending_frame_count = 0u;
+}
+
+std::shared_ptr<BinaryBuffer> RenderServer::sending_buffer() noexcept {
+    if (_config == nullptr || _frame_count == 0u) { return nullptr; }
+    if (_sending_frame_count < _frame_count) {// update sending buffer
+        _sending_frame_count = _frame_count;
+        _sending_buffer = std::make_shared<BinaryBuffer>();
+        _sending_buffer->write(*_config)
+            .write(_sending_frame_count);
+        auto offset = _sending_buffer->view().size_bytes();
+//        std::transform(
+//            _accum_buffer.cbegin(), _accum_buffer.cend(),
+//            reinterpret_cast<std::array<uint8_t, 4u> *>(image.data),
+//            [](float4 p) noexcept {
+//                auto cvt = [](float x) noexcept {
+//                    return static_cast<uint8_t>(clamp(x * 255.0f, 0.0f, 255.0f));
+//                };
+//                return std::array{cvt(p.z), cvt(p.y), cvt(p.x), static_cast<uint8_t>(255u)};
+//            });
+    }
+    return _sending_buffer;
 }
 
 RenderServer::~RenderServer() noexcept = default;

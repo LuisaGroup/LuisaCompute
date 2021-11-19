@@ -10,3 +10,6 @@
 [submodule "src/ext/asio"]
 	path = src/ext/asio
 	url = https://github.com/chriskohlhoff/asio.git
+[submodule "src/ext/stb/stb"]
+	path = src/ext/stb/stb
+	url = https://github.com/nothings/stb.git

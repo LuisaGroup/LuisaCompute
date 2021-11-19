@@ -4,6 +4,8 @@
 
 #include <iostream>
 
+#include <stb/stb_image_write.h>
+
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
@@ -12,9 +14,6 @@
 #include <rtx/accel.h>
 #include <tests/fake_device.h>
 #include <tests/cornell_box.h>
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <tests/stb_image_write.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/tiny_obj_loader.h>

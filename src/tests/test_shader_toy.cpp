@@ -3,7 +3,9 @@
 //
 
 #include <iostream>
+
 #include <opencv2/opencv.hpp>
+#include <stb/stb_image_write.h>
 
 #include <runtime/context.h>
 #include <runtime/device.h>
@@ -11,9 +13,6 @@
 #include <runtime/event.h>
 #include <dsl/syntax.h>
 #include <tests/fake_device.h>
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <tests/stb_image_write.h>
 
 using namespace luisa;
 using namespace luisa::compute;

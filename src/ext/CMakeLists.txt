@@ -40,3 +40,6 @@ target_compile_definitions(asio PUBLIC
         ASIO_HAS_STD_INVOKE_RESULT=1
         $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0x0A00>)
 target_link_libraries(luisa-compute-ext INTERFACE asio)
+
+add_subdirectory(stb)
+target_link_libraries(luisa-compute-ext INTERFACE stb)

@@ -2,8 +2,7 @@
 // Created by Mike on 2021/11/19.
 //
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
+#include <stb/stb_image_write.h>
 
 #include <core/clock.h>
 #include <network/binary_buffer.h>

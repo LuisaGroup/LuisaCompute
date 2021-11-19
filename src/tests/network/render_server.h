@@ -16,6 +16,7 @@ class RenderConfig;
 class RenderScheduler;
 class BinaryBuffer;
 class RenderWorkerSession;
+class RenderClientSession;
 
 class RenderServer : public std::enable_shared_from_this<RenderServer> {
 
@@ -27,6 +28,9 @@ private:
     std::unique_ptr<RenderConfig> _config;
     std::vector<float4> _accum_buffer;
     size_t _frame_count{};
+    std::vector<std::shared_ptr<RenderClientSession>> _clients;
+    std::shared_ptr<BinaryBuffer> _sending_buffer;
+    size_t _sending_frame_count{};
 
 private:
     static void _accept_workers(std::shared_ptr<RenderServer> self) noexcept;
@@ -41,9 +45,11 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return _worker_acceptor.is_open(); }
     [[nodiscard]] auto &context() noexcept { return _context; }
     [[nodiscard]] auto &context() const noexcept { return _context; }
-    void accumulate(size_t frame_id, RenderBuffer buffer) noexcept;
+    void accumulate(RenderBuffer buffer) noexcept;
     void run() noexcept;
     [[nodiscard]] auto config() const noexcept { return _config.get(); }
+    void set_config(const RenderConfig &config) noexcept;
+    [[nodiscard]] std::shared_ptr<BinaryBuffer> sending_buffer()noexcept;
 };
 
 }// namespace luisa::compute

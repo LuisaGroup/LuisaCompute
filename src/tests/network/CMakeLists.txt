@@ -7,7 +7,9 @@ if (OpenCV_FOUND)
             render_worker_session.cpp render_worker_session.h
             render_server.cpp render_server.h
             render_config.cpp render_config.h
-            render_worker.cpp render_worker.h)
+            render_worker.cpp render_worker.h
+            render_client.cpp render_client.h
+            render_client_session.cpp render_client_session.h)
     add_library(luisa-compute-network SHARED ${LUISA_COMPUTE_NETWORK_SOURCES})
     target_link_libraries(luisa-compute-network PUBLIC luisa::compute ${OpenCV_LIBS})
     target_include_directories(luisa-compute-network PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")

@@ -2,9 +2,7 @@
 // Created by Mike Smith on 2021/9/24.
 //
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
+#include <stb/stb_image.h>
 #include <network/render_buffer.h>
 
 namespace luisa::compute {

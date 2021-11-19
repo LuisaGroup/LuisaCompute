@@ -114,7 +114,7 @@ void RenderScheduler::accumulate(RenderTile tile, std::span<const std::byte> dat
             if (f.done()) {
                 auto frame = std::move(f);
                 _frames.erase(iter);
-                _server->accumulate(tile.frame_id(), std::move(frame));
+                _server->accumulate(std::move(frame));
             }
         } else {
             recycle(tile);
