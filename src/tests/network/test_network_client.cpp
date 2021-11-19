@@ -28,6 +28,6 @@ int main() {
           })
         .set_config(RenderConfig{
             0u, "scene", make_uint2(1280u, 720u), 0u,
-            make_uint2(256u, 256u), 16u, 8u})
+            make_uint2(256u, 256u), 4u, 8u})
         .run();
 }

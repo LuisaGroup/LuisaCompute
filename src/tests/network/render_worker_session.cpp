@@ -36,7 +36,6 @@ inline void RenderWorkerSession::_receive(std::shared_ptr<RenderWorkerSession> s
                     LUISA_WARNING_WITH_LOCATION(
                         "Error when receiving message in RenderWorkerSession: {}.",
                         error.message());
-                    self->close();
                 } else {// good tile, receive it
                     RenderTile tile;
                     buffer.read(tile);
@@ -57,7 +56,6 @@ inline void RenderWorkerSession::_receive_tile(std::shared_ptr<RenderWorkerSessi
                 LUISA_WARNING_WITH_LOCATION(
                     "Error when receiving result tile in RenderWorkerSession: {}.",
                     error.message());
-                self->close();
             } else {
                 self->_finish_tile(tile, buffer.tail());
                 _receive(std::move(self));
@@ -122,7 +120,6 @@ void RenderWorkerSession::_send(std::shared_ptr<RenderWorkerSession> self) noexc
                     LUISA_WARNING_WITH_LOCATION(
                         "Error occurred while waiting for timer: {}.",
                         error.message());
-                    self->close();
                 } else {
                     _send(std::move(self));
                 }
@@ -157,7 +154,6 @@ void RenderWorkerSession::_send(std::shared_ptr<RenderWorkerSession> self) noexc
                         LUISA_WARNING_WITH_LOCATION(
                             "Error occurred when sending work in RenderWorkerSession: {}.",
                             error.message());
-                        self->close();
                     } else {
                         _send(std::move(self));
                     }
