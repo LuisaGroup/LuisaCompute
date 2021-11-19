@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
     auto frame_size = make_uint2();
     auto tile_size = make_uint2();
     auto render_id = std::numeric_limits<uint32_t>::max();
-    auto worker = RenderWorker::create("166.111.69.34", 12345u);
+    auto worker = RenderWorker::create("127.0.0.1", 12345u);
     std::atomic_bool should_stop = false;
 
     std::queue<RenderTile> tiles;

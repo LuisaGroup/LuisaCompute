@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2021/9/24.
 //
 
+#include <stb/stb_image_write.h>
+
 #include <network/binary_buffer.h>
 #include <network/render_buffer.h>
 #include <network/render_worker_session.h>
@@ -19,10 +21,15 @@ inline RenderServer::RenderServer(uint16_t worker_port, uint16_t client_port) no
 
 void RenderServer::accumulate(RenderBuffer buffer) noexcept {
     auto last_frame_count = _frame_count;
-    _frame_count = std::max(
-        _frame_count + _config->tile_spp(),
-        static_cast<size_t>(_config->spp()));
-    LUISA_INFO("Accumulating {}/{}.", _frame_count, _config->spp());
+    if (_config->spp() == 0u) {
+        _frame_count += _config->tile_spp();
+        LUISA_INFO("Accumulating {}.", _frame_count);
+    } else {
+        _frame_count = std::min(
+            _frame_count + _config->tile_spp(),
+            static_cast<size_t>(_config->spp()));
+        LUISA_INFO("Accumulating {}/{}.", _frame_count, _config->spp());
+    }
     auto pixels = buffer.framebuffer().data();
     auto spp = _frame_count - last_frame_count;
     std::transform(
@@ -118,7 +125,6 @@ std::shared_ptr<BinaryBuffer> RenderServer::sending_buffer() noexcept {
         _sending_buffer = std::make_shared<BinaryBuffer>();
         _sending_buffer->write(*_config)
             .write(_sending_frame_count);
-        auto offset = _sending_buffer->view().size_bytes();
 //        std::transform(
 //            _accum_buffer.cbegin(), _accum_buffer.cend(),
 //            reinterpret_cast<std::array<uint8_t, 4u> *>(image.data),

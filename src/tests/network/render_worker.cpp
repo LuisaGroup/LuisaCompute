@@ -119,19 +119,17 @@ void RenderWorker::_send(std::shared_ptr<RenderWorker> self) noexcept {
         auto [result, tile, tile_size] = std::move(self->_sending_queue.front());
         self->_sending_queue.pop();
         // encode
-        static thread_local std::vector<std::byte> rgbe;
-        rgbe.clear();
-        rgbe.reserve(result.size() * 4u);
+        BinaryBuffer buffer;
+        buffer.write(tile);
         Clock clock;
         stbi_write_hdr_to_func(
             [](void *context, void *data, int n) noexcept {
-                auto &&rgbe = *static_cast<std::vector<std::byte> *>(context);
-                std::copy_n(static_cast<const std::byte *>(data), n, std::back_inserter(rgbe));
+                static_cast<BinaryBuffer *>(context)->write(data, n);
             },
-            &rgbe, static_cast<int>(tile_size.x), static_cast<int>(tile_size.y), 4, &result.front().x);
+            &buffer, static_cast<int>(tile_size.x), static_cast<int>(tile_size.y),
+            4, &result.front().x);
         LUISA_INFO("Encode time: {} ms.", clock.toc());
-        BinaryBuffer buffer;
-        buffer.write(tile).write(rgbe.data(), rgbe.size()).write_size();
+        buffer.write_size();
         return buffer;
     }();
 
