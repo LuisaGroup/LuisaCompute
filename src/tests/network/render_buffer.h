@@ -23,7 +23,6 @@ private:
     size_t _accum_tiles;
     std::vector<float4> _framebuffer;
     std::vector<bool> _tile_marks;
-    // TODO: mark tile
 
 public:
     RenderBuffer(uint2 frame_size, uint2 tile_size) noexcept;

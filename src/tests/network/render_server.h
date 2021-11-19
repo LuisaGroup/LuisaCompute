@@ -9,6 +9,8 @@
 
 #include <asio.hpp>
 
+#include <core/basic_types.h>
+
 namespace luisa::compute {
 
 class RenderBuffer;

@@ -135,7 +135,7 @@ using namespace luisa::compute;
         };
     };
 
-    Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 output_image, UInt2 tile_offset, UInt2 frame_size) noexcept {
+    Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 output_image, UInt2 tile_offset, UInt2 frame_size, UInt sub_frame_index) noexcept {
         set_block_size(16u, 8u, 1u);
 
         auto coord = dispatch_id().xy() + tile_offset;
@@ -169,7 +169,9 @@ using namespace luisa::compute;
                 pos = hit_pos + 1e-4f * d;
                 throughput *= c;
             };
-            output_image[global_id] = make_float4(throughput.xyz() * hit_light, 1.0f);
+            auto color = throughput.xyz() * hit_light;
+            auto old = output_image[global_id].xyz();
+            output_image[global_id] = make_float4(lerp(old, color, 1.0f / cast<float>(sub_frame_index + 1u)), 1.0f);
             seed_image[global_id] = seed;
         };
     };
@@ -197,6 +199,7 @@ int main(int argc, char *argv[]) {
     auto frame_size = make_uint2();
     auto tile_size = make_uint2();
     auto render_id = std::numeric_limits<uint32_t>::max();
+    auto tile_spp = 0u;
     auto worker = RenderWorker::create("127.0.0.1", 12345u);
     std::atomic_bool should_stop = false;
 
@@ -216,9 +219,13 @@ int main(int argc, char *argv[]) {
                 item && item->render_id() == render_id) {
                 auto tile = *item;
                 Clock clock;
-                stream << shader(seed_buffer, render_buffer, tile.offset(), frame_size).dispatch(tile_size)
-                       << render_buffer.copy_to(tile_buffer.data())
-                       << synchronize();
+                auto command_buffer = stream.command_buffer();
+                for (auto i = 0u; i < tile_spp; i++) {
+                    command_buffer << shader(seed_buffer, render_buffer, tile.offset(), frame_size, i).dispatch(tile_size);
+                }
+                command_buffer << render_buffer.copy_to(tile_buffer.data())
+                               << commit();
+                stream << synchronize();
                 worker->finish(tile, tile_buffer, tile_size);
             } else {
                 using namespace std::chrono_literals;
@@ -238,6 +245,7 @@ int main(int argc, char *argv[]) {
               if (future.valid()) { future.wait(); }
               frame_size = config.resolution();
               tile_size = config.tile_size();
+              tile_spp = config.tile_spp();
               render_id = config.render_id();
               auto tile_pixel_count = tile_size.x * tile_size.y;
               seed_buffer = device.create_buffer<uint>(tile_pixel_count);
