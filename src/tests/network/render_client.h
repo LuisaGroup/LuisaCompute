@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <span>
+#include <array>
 
 #include <asio.hpp>
 
@@ -21,10 +22,11 @@ class BinaryBuffer;
 class RenderClient : public std::enable_shared_from_this<RenderClient> {
 
 public:
+    using Pixel = std::array<uint8_t, 3u>;
     using DisplayHandler = std::function<void(
         const RenderConfig & /* config */,
         size_t /* frame_count */,
-        std::span<float4> /* pixels */)>;
+        std::span<Pixel> /* pixels */)>;
 
 private:
     asio::io_context _context;

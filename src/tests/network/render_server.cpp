@@ -141,15 +141,47 @@ std::shared_ptr<BinaryBuffer> RenderServer::sending_buffer() noexcept {
         _sending_frame_count = _frame_count;
         _sending_buffer = std::make_shared<BinaryBuffer>();
         _sending_buffer->write(*_config).write(_sending_frame_count);
+        static thread_local std::vector<std::array<uint8_t, 3u>> ldr;
+        ldr.resize(_config->resolution().x * _config->resolution().y);
+        static constexpr auto pow = [](float3 v, float p) noexcept {
+            return make_float3(
+                std::pow(v.x, p),
+                std::pow(v.y, p),
+                std::pow(v.z, p));
+        };
+        static constexpr auto aces = [](float3 x) noexcept {
+            static constexpr auto a = 2.51f;
+            static constexpr auto b = 0.03f;
+            static constexpr auto c = 2.43f;
+            static constexpr auto d = 0.59f;
+            static constexpr auto e = 0.14f;
+            return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
+        };
+        static constexpr auto linear_to_srgb = [](float4 v) noexcept {
+            auto x = aces(make_float3(v));
+            x = clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                             12.92f * x,
+                             x <= 0.00031308f) *
+                          255.0f,
+                      0.0f, 255.0f);
+            return std::array<uint8_t, 3u>{
+                static_cast<uint8_t>(x.x),
+                static_cast<uint8_t>(x.y),
+                static_cast<uint8_t>(x.z)};
+        };
         Clock clock;
-        stbi_write_hdr_to_func(
+        std::transform(_accum_buffer.cbegin(), _accum_buffer.cend(), ldr.begin(), linear_to_srgb);
+        auto t1 = clock.toc();
+        stbi_write_jpg_to_func(
             [](void *context, void *data, int n) noexcept {
                 static_cast<BinaryBuffer *>(context)->write(data, n);
             },
             _sending_buffer.get(),
             static_cast<int>(_config->resolution().x),
             static_cast<int>(_config->resolution().y),
-            4, &_accum_buffer.front().x);
+            3, ldr.data(), 75);
+        auto t2 = clock.toc();
+        LUISA_INFO("Updated sending buffer in {} ms (sRGB: {} ms, JPEG: {} ms).", t2, t1, t2 - t1);
         _sending_buffer->write_size();
     }
     return _sending_buffer;
@@ -172,6 +204,9 @@ void RenderServer::_purge_clients(std::shared_ptr<RenderServer> self) noexcept {
 }
 
 void RenderServer::_purge() noexcept {
+    for (auto &&c : _clients) {
+        if (!*c) { c->close(); }
+    }
     std::erase_if(_clients, [](auto &&c) noexcept { return !(*c); });
     if (_clients.empty()) {// no clients, stop rendering...
         _config = nullptr;

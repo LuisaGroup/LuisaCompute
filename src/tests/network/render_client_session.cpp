@@ -27,6 +27,7 @@ void RenderClientSession::_send(std::shared_ptr<RenderClientSession> self) noexc
                         LUISA_WARNING_WITH_LOCATION(
                             "Error when sending to client: {}.",
                             error.message());
+                        self->_error_occurred = true;
                     } else {
                         _send(std::move(self));
                     }
@@ -39,6 +40,7 @@ void RenderClientSession::_send(std::shared_ptr<RenderClientSession> self) noexc
                     LUISA_WARNING_WITH_LOCATION(
                         "Error when waiting for timer: {}.",
                         error.message());
+                    self->_error_occurred = true;
                 } else {
                     _send(std::move(self));
                 }
@@ -59,10 +61,12 @@ void RenderClientSession::_receive(std::shared_ptr<RenderClientSession> self) no
                     LUISA_WARNING_WITH_LOCATION(
                         "Error when reading from client: {}.",
                         error.message());
+                    self->_error_occurred = true;
                 } else if (auto size = buffer.read_size(); size != sizeof(RenderConfig)) {
                     LUISA_WARNING_WITH_LOCATION(
                         "Invalid render config size: {} (expected {}).",
                         size, sizeof(RenderConfig));
+                    self->_error_occurred = true;
                 } else {
                     RenderConfig config;
                     buffer.read(config);

@@ -169,7 +169,7 @@ using namespace luisa::compute;
                 pos = hit_pos + 1e-4f * d;
                 throughput *= c;
             };
-            auto color = throughput.xyz() * hit_light;
+            auto color = throughput.xyz() * hit_light * 2.0f;
             auto old = output_image[global_id].xyz();
             output_image[global_id] = make_float4(lerp(old, color, 1.0f / cast<float>(sub_frame_index + 1u)), 1.0f);
             seed_image[global_id] = seed;

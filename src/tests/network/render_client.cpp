@@ -21,17 +21,19 @@ void RenderClient::_receive_frame(std::shared_ptr<RenderClient> self, BinaryBuff
                     "Error when receiving frame: {}.",
                     error.message());
             }
+            auto size_bytes = buffer.tail().size_bytes();
+            LUISA_INFO("frame size in bytes: {}.", size_bytes);
             auto width = 0;
             auto height = 0;
             auto channels = 0;
-            std::unique_ptr<float4, void (*)(void *)> pixels{
-                reinterpret_cast<float4 *>(
-                    stbi_loadf_from_memory(
-                        reinterpret_cast<const uint8_t *>(buffer.tail().data()),
-                        static_cast<int>(buffer.tail().size_bytes()),
-                        &width, &height, &channels, 4)),
+            std::unique_ptr<Pixel, void (*)(void *)> pixels{
+                reinterpret_cast<Pixel *>(
+                    stbi_load_from_memory(
+                        reinterpret_cast<uint8_t *>(buffer.tail().data()),
+                        static_cast<int>(size_bytes),
+                        &width, &height, &channels, 3)),
                 stbi_image_free};
-            if (width != config.resolution().x || height != config.resolution().y) {
+            if (width != config.resolution().x || height != config.resolution().y || channels != 3) {
                 LUISA_ERROR_WITH_LOCATION(
                     "Invalid tile: width = {}, height = {}, channels = {}.",
                     width, height, channels);
