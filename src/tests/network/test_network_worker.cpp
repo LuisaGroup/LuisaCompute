@@ -226,6 +226,7 @@ int main(int argc, char *argv[]) {
                 command_buffer << render_buffer.copy_to(tile_buffer.data())
                                << commit();
                 stream << synchronize();
+                LUISA_INFO("Render: {} ms.", clock.toc());
                 worker->finish(tile, tile_buffer, tile_size);
             } else {
                 using namespace std::chrono_literals;
@@ -234,7 +235,6 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    Clock clock;
     worker->set_config_handler([&](const RenderConfig &config) noexcept {
               LUISA_INFO(
                   "RenderConfig: scene = {}, render_id = {}, resolution = {}x{}, "
