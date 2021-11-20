@@ -6,6 +6,7 @@
 #include <numbers>
 #include <queue>
 #include <thread>
+#include <optional>
 
 #include <asio.hpp>
 
