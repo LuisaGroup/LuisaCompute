@@ -43,3 +43,6 @@ target_link_libraries(luisa-compute-ext INTERFACE asio)
 
 add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext INTERFACE stb)
+
+add_subdirectory(json)
+target_link_libraries(luisa-compute-ext INTERFACE nlohmann_json::nlohmann_json)

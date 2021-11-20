@@ -13,3 +13,6 @@
 [submodule "src/ext/stb/stb"]
 	path = src/ext/stb/stb
 	url = https://github.com/nothings/stb.git
+[submodule "src/ext/json"]
+	path = src/ext/json
+	url = https://github.com/nlohmann/json.git
