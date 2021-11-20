@@ -5,6 +5,7 @@
 #include <opencv2/opencv.hpp>
 
 #include <core/clock.h>
+#include <network/thread_pool.h>
 #include <network/binary_buffer.h>
 #include <network/render_config.h>
 #include <network/render_server.h>
@@ -13,8 +14,9 @@ using namespace luisa;
 using namespace luisa::compute;
 
 int main() {
+    ThreadPool thread_pool;
     auto server = RenderServer::create(12345u, 23456u);
-    server->set_encode_handler([](BinaryBuffer &buffer, const RenderConfig &config, std::span<const float4> accum_buffer) noexcept {
+    server->set_encode_handler([&](BinaryBuffer &buffer, const RenderConfig &config, std::span<const float4> accum_buffer) noexcept {
               static constexpr auto pow = [](float3 v, float p) noexcept {
                   return make_float3(
                       std::pow(v.x, p),
@@ -46,10 +48,12 @@ int main() {
                   static_cast<int>(config.resolution().y),
                   static_cast<int>(config.resolution().x),
                   CV_8UC3, cv::Scalar::all(0)};
-              std::transform(
-                  accum_buffer.begin(), accum_buffer.end(),
-                  reinterpret_cast<std::array<uint8_t, 3u> *>(ldr.data),
-                  linear_to_srgb);
+              auto pixel_count = config.resolution().x * config.resolution().y;
+              thread_pool.dispatch_1d(
+                  pixel_count,
+                  [hdr = accum_buffer.data(), ldr = reinterpret_cast<std::array<uint8_t, 3u> *>(ldr.data)](uint index) noexcept {
+                      ldr[index] = linear_to_srgb(hdr[index]);
+                  });
               auto t1 = clock.toc();
               static thread_local std::vector<uint8_t> jpeg;
               jpeg.clear();

@@ -2,7 +2,9 @@
 // Created by Mike Smith on 2021/11/19.
 //
 
+#include <network/binary_buffer.h>
 #include <network/render_server.h>
+#include <network/render_config.h>
 #include <network/render_client_session.h>
 
 namespace luisa::compute {

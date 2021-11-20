@@ -1,5 +1,6 @@
 set(LUISA_COMPUTE_NETWORK_SOURCES
         binary_buffer.h
+        thread_pool.cpp thread_pool.h
         render_buffer.cpp render_buffer.h
         render_scheduler.cpp render_scheduler.h
         render_tile.h
