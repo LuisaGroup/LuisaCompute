@@ -15,7 +15,7 @@ using namespace luisa;
 using namespace luisa::compute;
 
 int main() {
-    auto client = RenderClient::create("166.111.69.34", 23456u);
+    auto client = RenderClient::create("127.0.0.1", 23456u);
     client->set_display_handler([](const RenderConfig &config, size_t frame_count, std::span<const std::byte> data) noexcept {
               LUISA_INFO("Received frame (spp = {}, size = {}).", frame_count, data.size_bytes());
               int width, height, channels;
@@ -33,6 +33,6 @@ int main() {
           })
         .set_config(RenderConfig{
             0u, "scene", make_uint2(1280u, 720u), 0u,
-            make_uint2(256u, 256u), 32u, 8u})
+            make_uint2(256u, 256u), 8u, 8u})
         .run();
 }

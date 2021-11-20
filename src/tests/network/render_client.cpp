@@ -41,6 +41,14 @@ void RenderClient::_receive(std::shared_ptr<RenderClient> self) noexcept {
             RenderConfig config;
             size_t frame_count;
             buffer.read(config).read(frame_count);
+            {
+                std::scoped_lock lock{self->_mutex};
+                if (auto curr_config = self->_config.get();
+                    curr_config == nullptr || curr_config->render_id() < config.render_id()) {
+                    *curr_config = config;
+                    self->_config_dirty = false;
+                }
+            }
             buffer.write_skip(size - sizeof(RenderConfig) - sizeof(size_t));
             _receive_frame(std::move(self), std::move(buffer), config, frame_count);
         });
@@ -49,8 +57,10 @@ void RenderClient::_receive(std::shared_ptr<RenderClient> self) noexcept {
 void RenderClient::_send(std::shared_ptr<RenderClient> self) noexcept {
     if (auto config = [&s = *self] {
             std::scoped_lock lock{s._mutex};
-            std::unique_ptr<RenderConfig> c;
-            c.swap(s._sending_config);
+            auto c = s._config_dirty ?
+                       std::optional{*s._config} :
+                       std::nullopt;
+            s._config_dirty = false;
             return c;
         }()) {
         BinaryBuffer buffer;
@@ -109,8 +119,12 @@ void RenderClient::run() noexcept {
 
 RenderClient &RenderClient::set_config(const RenderConfig &config) noexcept {
     std::scoped_lock lock{_mutex};
-    _sending_config = std::make_unique<RenderConfig>(config);
+    auto render_id = _config == nullptr ? 0u : _config->render_id() + 1u;
+    _config = std::make_unique<RenderConfig>(
+        render_id, config.scene(), config.resolution(), config.spp(),
+        config.tile_size(), config.tile_spp(), config.tiles_in_flight());
+    _config_dirty = true;
     return *this;
 }
 
-}
+}// namespace luisa::compute

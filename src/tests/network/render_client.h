@@ -33,8 +33,9 @@ private:
     asio::system_timer _timer;
     asio::ip::tcp::endpoint _server;
     DisplayHandler _display;
-    std::unique_ptr<RenderConfig> _sending_config;
     std::mutex _mutex;
+    std::unique_ptr<RenderConfig> _config;
+    bool _config_dirty{false};
 
 private:
     static void _receive(std::shared_ptr<RenderClient> self) noexcept;
