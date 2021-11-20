@@ -16,3 +16,9 @@
 [submodule "src/ext/json"]
 	path = src/ext/json
 	url = https://github.com/nlohmann/json.git
+[submodule "src/ext/glfw"]
+	path = src/ext/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "src/ext/imgui/imgui"]
+	path = src/ext/imgui/imgui
+	url = https://github.com/ocornut/imgui.git
