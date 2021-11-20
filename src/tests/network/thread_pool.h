@@ -9,6 +9,7 @@
 #include <queue>
 #include <memory>
 #include <functional>
+#include <condition_variable>
 
 #include <core/basic_types.h>
 
