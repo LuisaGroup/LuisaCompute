@@ -26,7 +26,7 @@ jobs:
       #          linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LUISA_COMPUTE_ENABLE_LLVM=OFF
           cmake --build build
 
 #  build-macos:
