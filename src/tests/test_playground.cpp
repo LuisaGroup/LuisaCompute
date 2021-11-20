@@ -12,6 +12,5 @@ int main() {
 "test": 1234
 })");
 
-    std::cout << j.count("Hello")
-              << std::endl;
+    std::cout << j.dump(2) << std::endl;
 }

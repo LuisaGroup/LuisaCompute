@@ -2,7 +2,10 @@ cmake_minimum_required(VERSION 3.18...3.20)
 cmake_policy(VERSION 3.18)
 
 cmake_policy(SET CMP0069 NEW)
+cmake_policy(SET CMP0072 NEW)
+
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0072 NEW)
 
 project(LuisaCompute LANGUAGES C CXX VERSION 0.1)
 

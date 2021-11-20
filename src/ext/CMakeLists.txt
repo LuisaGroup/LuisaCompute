@@ -58,6 +58,7 @@ if (NOT GLFW3_FOUND)
     set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
     set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "" FORCE)
     add_subdirectory(glfw)
+    set_target_properties(glfw PROPERTIES UNITY_BUILD ON)
 endif ()
 target_link_libraries(luisa-compute-ext INTERFACE glfw)
 
