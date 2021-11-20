@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/11/19.
 //
 
-#include <stb/stb_image.h>
-
 #include <network/binary_buffer.h>
 #include <network/render_config.h>
 #include <network/render_client.h>
@@ -21,26 +19,7 @@ void RenderClient::_receive_frame(std::shared_ptr<RenderClient> self, BinaryBuff
                     "Error when receiving frame: {}.",
                     error.message());
             }
-            auto size_bytes = buffer.tail().size_bytes();
-            LUISA_INFO("frame size in bytes: {}.", size_bytes);
-            auto width = 0;
-            auto height = 0;
-            auto channels = 0;
-            std::unique_ptr<Pixel, void (*)(void *)> pixels{
-                reinterpret_cast<Pixel *>(
-                    stbi_load_from_memory(
-                        reinterpret_cast<uint8_t *>(buffer.tail().data()),
-                        static_cast<int>(size_bytes),
-                        &width, &height, &channels, 3)),
-                stbi_image_free};
-            if (width != config.resolution().x || height != config.resolution().y || channels != 3) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Invalid tile: width = {}, height = {}, channels = {}.",
-                    width, height, channels);
-            }
-            self->_display(
-                config, frame_count,
-                std::span{pixels.get(), config.resolution().x * config.resolution().y});
+            self->_display(config, frame_count, buffer.tail());
             _receive(std::move(self));
         });
 }

@@ -16,14 +16,13 @@ set_target_properties(luisa-compute-network PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ON)
 
-add_executable(test_network_server test_network_server.cpp)
-target_link_libraries(test_network_server PRIVATE luisa-compute-network)
-
 add_executable(test_network_worker test_network_worker.cpp)
 target_link_libraries(test_network_worker PRIVATE luisa-compute-network)
 
 find_package(OpenCV CONFIG)
 if (OpenCV_FOUND)
+    add_executable(test_network_server test_network_server.cpp)
+    target_link_libraries(test_network_server PRIVATE luisa-compute-network ${OpenCV_LIBS})
     add_executable(test_network_client test_network_client.cpp)
     target_link_libraries(test_network_client PRIVATE luisa-compute-network ${OpenCV_LIBS})
 endif ()

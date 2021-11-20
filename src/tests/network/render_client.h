@@ -22,11 +22,10 @@ class BinaryBuffer;
 class RenderClient : public std::enable_shared_from_this<RenderClient> {
 
 public:
-    using Pixel = std::array<uint8_t, 3u>;
     using DisplayHandler = std::function<void(
         const RenderConfig & /* config */,
         size_t /* frame_count */,
-        std::span<Pixel> /* pixels */)>;
+        std::span<const std::byte> /* data */)>;
 
 private:
     asio::io_context _context;

@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/9/24.
 //
 
-#include <stb/stb_image_write.h>
-
 #include <core/clock.h>
 #include <network/binary_buffer.h>
 #include <network/render_buffer.h>
@@ -141,47 +139,7 @@ std::shared_ptr<BinaryBuffer> RenderServer::sending_buffer() noexcept {
         _sending_frame_count = _frame_count;
         _sending_buffer = std::make_shared<BinaryBuffer>();
         _sending_buffer->write(*_config).write(_sending_frame_count);
-        static thread_local std::vector<std::array<uint8_t, 3u>> ldr;
-        ldr.resize(_config->resolution().x * _config->resolution().y);
-        static constexpr auto pow = [](float3 v, float p) noexcept {
-            return make_float3(
-                std::pow(v.x, p),
-                std::pow(v.y, p),
-                std::pow(v.z, p));
-        };
-        static constexpr auto aces = [](float3 x) noexcept {
-            static constexpr auto a = 2.51f;
-            static constexpr auto b = 0.03f;
-            static constexpr auto c = 2.43f;
-            static constexpr auto d = 0.59f;
-            static constexpr auto e = 0.14f;
-            return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
-        };
-        static constexpr auto linear_to_srgb = [](float4 v) noexcept {
-            auto x = aces(make_float3(v));
-            x = clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
-                             12.92f * x,
-                             x <= 0.00031308f) *
-                          255.0f,
-                      0.0f, 255.0f);
-            return std::array<uint8_t, 3u>{
-                static_cast<uint8_t>(x.x),
-                static_cast<uint8_t>(x.y),
-                static_cast<uint8_t>(x.z)};
-        };
-        Clock clock;
-        std::transform(_accum_buffer.cbegin(), _accum_buffer.cend(), ldr.begin(), linear_to_srgb);
-        auto t1 = clock.toc();
-        stbi_write_jpg_to_func(
-            [](void *context, void *data, int n) noexcept {
-                static_cast<BinaryBuffer *>(context)->write(data, n);
-            },
-            _sending_buffer.get(),
-            static_cast<int>(_config->resolution().x),
-            static_cast<int>(_config->resolution().y),
-            3, ldr.data(), 75);
-        auto t2 = clock.toc();
-        LUISA_INFO("Updated sending buffer in {} ms (sRGB: {} ms, JPEG: {} ms).", t2, t1, t2 - t1);
+        _encode(*_sending_buffer, *_config, _accum_buffer);
         _sending_buffer->write_size();
     }
     return _sending_buffer;
@@ -214,6 +172,11 @@ void RenderServer::_purge() noexcept {
         _sending_buffer = nullptr;
         _sending_frame_count = 0u;
     }
+}
+
+RenderServer &RenderServer::set_encode_handler(RenderServer::EncodeHander encode) noexcept {
+    _encode = std::move(encode);
+    return *this;
 }
 
 RenderServer::~RenderServer() noexcept = default;
