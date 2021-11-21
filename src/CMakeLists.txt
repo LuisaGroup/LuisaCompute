@@ -38,6 +38,7 @@ add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
 add_subdirectory(api)
+add_subdirectory(serde)
 add_subdirectory(backends)
 
 add_library(luisa-compute INTERFACE)
@@ -51,6 +52,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-runtime
         luisa-compute-dsl
         luisa-compute-rtx
+        luisa-compute-serde
         luisa-compute-backends)
 
 add_dependencies(luisa-compute luisa-compute-api)

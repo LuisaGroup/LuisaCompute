@@ -148,26 +148,7 @@ public:
         }
     }
 };
-template<class Func>
-class LazyEval {
-private:
-    Func func;
 
-public:
-    LazyEval(Func &&func)
-        : func(std::move(func)) {}
-    LazyEval(Func const &func)
-        : func(func) {
-    }
-    operator std::invoke_result_t<Func>() const {
-        return func();
-    }
-};
-
-template<class Func>
-LazyEval<std::remove_cvref_t<Func>> MakeLazyEval(Func &&func) {
-    return std::forward<Func>(func);
-}
 
 template<typename T>
 decltype(auto) MakeRunnable(T &&functor) {

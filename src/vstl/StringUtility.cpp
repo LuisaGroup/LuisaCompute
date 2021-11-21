@@ -27,6 +27,15 @@ void StringUtil::ToLower(string &str) {
         mtolower(c[i]);
     }
 }
+int64 StringUtil::GetFirstIndexOf(std::string_view str, char sign) {
+    int64 count = str.length();
+    for (int64 i = 0; i < count; ++i) {
+        if (sign == str[i]) {
+            return i;
+        }
+    }
+    return -1;
+}
 void StringUtil::ToUpper(string &str) {
     char *c = str.data();
     const uint size = str.length();

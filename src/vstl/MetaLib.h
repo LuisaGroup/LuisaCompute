@@ -611,6 +611,21 @@ public:
     }
 };
 template<typename T>
+    requires(!std::is_reference_v<T>)
+struct MoveIterator {
+    T *t;
+    MoveIterator(T &&t) : t(&t) {}
+    MoveIterator(T &t) : t(&t) {}
+    MoveIterator(MoveIterator &&) = delete;
+    MoveIterator(MoveIterator const &) = delete;
+    decltype(auto) begin() {
+        return std::move(*t).begin();
+    }
+    decltype(auto) end() {
+        return std::move(*t).end();
+    }
+};
+template<typename T>
 struct ptr_range {
 public:
     struct rangeIte {
@@ -737,7 +752,28 @@ struct PackedFunctors {
     }
 };
 }// namespace detail
+class Evaluable {};
+template<class Func>
+class LazyEval : public Evaluable {
+private:
+    Func func;
 
+public:
+    using EvalType = decltype(std::declval<Func>()());
+    LazyEval(Func &&func)
+        : func(std::move(func)) {}
+    LazyEval(LazyEval const &) = delete;
+    LazyEval(LazyEval &&v)
+        : func(std::move(v.func)) {}
+    operator decltype(auto)() {
+        return func();
+    }
+};
+
+template<class Func>
+LazyEval<Func> MakeLazyEval(Func &&func) {
+    return std::forward<Func>(func);
+}
 template<typename... Args>
 static constexpr bool AlwaysFalse = false;
 template<typename... AA>
@@ -1051,7 +1087,8 @@ public:
         Visitor<void, Func, void const>::template Visit<0, argSize - 1, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
     }
 
-    template<typename... Funcs> requires(sizeof...(Funcs) == argSize)
+    template<typename... Funcs>
+        requires(sizeof...(Funcs) == argSize)
     void multi_visit(Funcs &&...funcs) & {
         if (switcher >= argSize) return;
         Visitor<void, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
@@ -1059,7 +1096,8 @@ public:
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename... Funcs> requires(sizeof...(Funcs) == argSize)
+    template<typename... Funcs>
+        requires(sizeof...(Funcs) == argSize)
     void multi_visit(Funcs &&...funcs) && {
         if (switcher >= argSize) return;
         Visitor<void, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
@@ -1067,7 +1105,8 @@ public:
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename... Funcs> requires(sizeof...(Funcs) == argSize)
+    template<typename... Funcs>
+        requires(sizeof...(Funcs) == argSize)
     void multi_visit(Funcs &&...funcs) const & {
         if (switcher >= argSize) return;
         Visitor<void, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
@@ -1075,45 +1114,99 @@ public:
             GetPlaceHolder(),
             detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
-    template<typename Ret, typename... Funcs> requires(sizeof...(Funcs) == argSize)
-    std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) & {
-        if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
-            switcher,
-            GetPlaceHolder(),
-            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+    template<typename Ret, typename... Funcs>
+        requires(sizeof...(Funcs) == argSize)
+    decltype(auto) multi_visit_or(Ret &&r, Funcs &&...funcs) & {
+        using RetType = std::remove_cvref_t<Ret>;
+        if constexpr (std::is_base_of_v<Evaluable, RetType>) {
+            using EvalType = typename RetType::EvalType;
+            if (switcher >= argSize) return EvalType{std::forward<Ret>(r)};
+            return Visitor<EvalType, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
+                switcher,
+                GetPlaceHolder(),
+                detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+        } else {
+            if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
+            return Visitor<Ret, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA &...>(
+                switcher,
+                GetPlaceHolder(),
+                detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+        }
     }
-    template<typename Ret, typename... Funcs> requires(sizeof...(Funcs) == argSize)
-    std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) && {
-        if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
-            switcher,
-            GetPlaceHolder(),
-            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+    template<typename Ret, typename... Funcs>
+        requires(sizeof...(Funcs) == argSize)
+    decltype(auto) multi_visit_or(Ret &&r, Funcs &&...funcs) && {
+        using RetType = std::remove_cvref_t<Ret>;
+        if constexpr (std::is_base_of_v<Evaluable, RetType>) {
+            using EvalType = typename RetType::EvalType;
+            if (switcher >= argSize) return EvalType{std::forward<Ret>(r)};
+            return Visitor<EvalType, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
+                switcher,
+                GetPlaceHolder(),
+                detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+        } else {
+            if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
+            return Visitor<Ret, detail::PackedFunctors<Funcs...>, void>::template MultiVisit<0, argSize - 1, AA...>(
+                switcher,
+                GetPlaceHolder(),
+                detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+        }
     }
-    template<typename Ret, typename... Funcs> requires(sizeof...(Funcs) == argSize)
-    std::remove_cvref_t<Ret> multi_visit_or(Ret &&r, Funcs &&...funcs) const & {
-        if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
-            switcher,
-            GetPlaceHolder(),
-            detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+    template<typename Ret, typename... Funcs>
+        requires(sizeof...(Funcs) == argSize)
+    decltype(auto) multi_visit_or(Ret &&r, Funcs &&...funcs) const & {
+        using RetType = std::remove_cvref_t<Ret>;
+        if constexpr (std::is_base_of_v<Evaluable, RetType>) {
+            using EvalType = typename RetType::EvalType;
+            if (switcher >= argSize) return EvalType{std::forward<Ret>(r)};
+            return Visitor<EvalType, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
+                switcher,
+                GetPlaceHolder(),
+                detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+        } else {
+            if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
+            return Visitor<Ret, detail::PackedFunctors<Funcs...>, void const>::template MultiVisit<0, argSize - 1, AA const &...>(
+                switcher,
+                GetPlaceHolder(),
+                detail::PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
+        }
     }
 
     template<typename Ret, typename Func>
-    std::remove_cvref_t<Ret> visit_or(Ret &&r, Func &&func) & {
-        if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, Func, void>::template Visit<0, argSize - 1, AA &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+    decltype(auto) visit_or(Ret &&r, Func &&func) & {
+        using RetType = std::remove_cvref_t<Ret>;
+        if constexpr (std::is_base_of_v<Evaluable, RetType>) {
+            using EvalType = typename RetType::EvalType;
+            if (switcher >= argSize) return EvalType{std::forward<Ret>(r)};
+            return Visitor<EvalType, Func, void>::template Visit<0, argSize - 1, AA &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        } else {
+            if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
+            return Visitor<Ret, Func, void>::template Visit<0, argSize - 1, AA &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        }
     }
     template<typename Ret, typename Func>
-    std::remove_cvref_t<Ret> visit_or(Ret &&r, Func &&func) && {
-        if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, Func, void>::template Visit<0, argSize - 1, AA...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+    decltype(auto) visit_or(Ret &&r, Func &&func) && {
+        using RetType = std::remove_cvref_t<Ret>;
+        if constexpr (std::is_base_of_v<Evaluable, RetType>) {
+            using EvalType = typename RetType::EvalType;
+            if (switcher >= argSize) return EvalType{std::forward<Ret>(r)};
+            return Visitor<EvalType, Func, void>::template Visit<0, argSize - 1, AA...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        } else {
+            if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
+            return Visitor<Ret, Func, void>::template Visit<0, argSize - 1, AA...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        }
     }
     template<typename Ret, typename Func>
-    std::remove_cvref_t<Ret> visit_or(Ret &&r, Func &&func) const & {
-        if (switcher >= argSize) return std::forward<Ret>(r);
-        return Visitor<std::remove_cvref_t<Ret>, Func, void const>::template Visit<0, argSize - 1, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+    decltype(auto) visit_or(Ret &&r, Func &&func) const & {
+        using RetType = std::remove_cvref_t<Ret>;
+        if constexpr (std::is_base_of_v<Evaluable, RetType>) {
+            using EvalType = typename RetType::EvalType;
+            if (switcher >= argSize) return EvalType{std::forward<Ret>(r)};
+            return Visitor<EvalType, Func, void const>::template Visit<0, argSize - 1, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        } else {
+            if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
+            return Visitor<Ret, Func, void const>::template Visit<0, argSize - 1, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        }
     }
     void dispose() {
         if constexpr (detail::Any_v<!std::is_trivially_destructible_v<AA>...>) {
@@ -1129,7 +1222,8 @@ public:
     }
     template<
         typename T,
-        typename... Arg> requires(
+        typename... Arg>
+        requires(
             detail::Any_v<
                 std::is_constructible_v<AA, T &&, Arg &&...>...>)
     variant(T &&t, Arg &&...arg) {

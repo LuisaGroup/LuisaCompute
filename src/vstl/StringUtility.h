@@ -50,6 +50,7 @@ public:
     static StrvIEnumerator<std::string_view, StrVSplitIterator> Split(std::string_view str, std::string_view sign) {
         return StrvIEnumerator<std::string_view, StrVSplitIterator>{str.data(), str.data() + str.size(), sign};
     }
+    static int64 GetFirstIndexOf(std::string_view str, char sign);
 
     static variant<int64, double> StringToNumber(std::string_view numStr);
     static void ToLower(string &str);

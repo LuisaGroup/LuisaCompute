@@ -8,6 +8,7 @@ set(LUISA_COMPUTE_UTIL_SOURCES
         ThreadPool.cpp
         ThreadTaskHandle.cpp
         file_system.cpp
+        BinaryReader.cpp
         vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})

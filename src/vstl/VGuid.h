@@ -88,15 +88,28 @@ struct compare<Guid> {
 		return 0;
 	}
 };
-
 template<>
-struct SerDe<Guid> {
-	using Value = Guid;
-	static Value Get(std::span<uint8_t const>& sp) {
-		return SerDe<Guid::GuidData>::Get(sp);
-	}
-	static void Set(Value const& data, vector<uint8_t>& arr) {
-		SerDe<Guid::GuidData>::Set(data.ToBinary(), arr);
-	}
+struct SerDe<Guid::GuidData, true> {
+    using Value = Guid::GuidData;
+    static Value Get(std::span<uint8_t const> &sp) {
+        return Value{
+            SerDe<uint64, true>::Get(sp),
+            SerDe<uint64, true>::Get(sp)};
+    }
+    static void Set(Value const &data, vector<uint8_t> &arr) {
+        SerDe<uint64, true>::Set(data.data0, arr);
+        SerDe<uint64, true>::Set(data.data1, arr);
+    }
+};
+
+template<bool reverseBytes>
+struct SerDe<Guid, reverseBytes> {
+    using Value = Guid;
+    static Value Get(std::span<uint8_t const> &sp) {
+        return SerDe<Guid::GuidData, reverseBytes>::Get(sp);
+    }
+    static void Set(Value const &data, vector<uint8_t> &arr) {
+        SerDe<Guid::GuidData, reverseBytes>::Set(data.ToBinary(), arr);
+    }
 };
 }// namespace vstd
