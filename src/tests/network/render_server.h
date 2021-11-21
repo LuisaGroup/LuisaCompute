@@ -6,6 +6,8 @@
 
 #include <memory>
 #include <vector>
+#include <span>
+#include <functional>
 
 #include <asio.hpp>
 
@@ -22,6 +24,9 @@ class RenderClientSession;
 
 class RenderServer : public std::enable_shared_from_this<RenderServer> {
 
+public:
+    using EncodeHander = std::function<void(BinaryBuffer &buffer, const RenderConfig &, std::span<const float4>)>;
+
 private:
     asio::io_context _context;
     asio::system_timer _purge_timer;
@@ -35,6 +40,7 @@ private:
     std::vector<std::shared_ptr<RenderClientSession>> _clients;
     std::shared_ptr<BinaryBuffer> _sending_buffer;
     size_t _sending_frame_count{};
+    EncodeHander _encode;
 
 private:
     static void _accept_workers(std::shared_ptr<RenderServer> self) noexcept;
@@ -55,6 +61,7 @@ public:
     [[nodiscard]] auto frame_count() const noexcept { return _frame_count; }
     [[nodiscard]] auto config() const noexcept { return _config.get(); }
     void set_config(const RenderConfig &config) noexcept;
+    RenderServer &set_encode_handler(EncodeHander encode) noexcept;
     [[nodiscard]] std::shared_ptr<BinaryBuffer> sending_buffer()noexcept;
 };
 

@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/11/19.
 //
 
-#include <stb/stb_image.h>
-
 #include <network/binary_buffer.h>
 #include <network/render_config.h>
 #include <network/render_client.h>
@@ -21,24 +19,7 @@ void RenderClient::_receive_frame(std::shared_ptr<RenderClient> self, BinaryBuff
                     "Error when receiving frame: {}.",
                     error.message());
             }
-            auto width = 0;
-            auto height = 0;
-            auto channels = 0;
-            std::unique_ptr<float4, void (*)(void *)> pixels{
-                reinterpret_cast<float4 *>(
-                    stbi_loadf_from_memory(
-                        reinterpret_cast<const uint8_t *>(buffer.tail().data()),
-                        static_cast<int>(buffer.tail().size_bytes()),
-                        &width, &height, &channels, 4)),
-                stbi_image_free};
-            if (width != config.resolution().x || height != config.resolution().y) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Invalid tile: width = {}, height = {}, channels = {}.",
-                    width, height, channels);
-            }
-            self->_display(
-                config, frame_count,
-                std::span{pixels.get(), config.resolution().x * config.resolution().y});
+            self->_display(config, frame_count, buffer.tail());
             _receive(std::move(self));
         });
 }
@@ -60,6 +41,14 @@ void RenderClient::_receive(std::shared_ptr<RenderClient> self) noexcept {
             RenderConfig config;
             size_t frame_count;
             buffer.read(config).read(frame_count);
+            {
+                std::scoped_lock lock{self->_mutex};
+                if (auto curr_config = self->_config.get();
+                    curr_config == nullptr || curr_config->render_id() < config.render_id()) {
+                    *curr_config = config;
+                    self->_config_dirty = false;
+                }
+            }
             buffer.write_skip(size - sizeof(RenderConfig) - sizeof(size_t));
             _receive_frame(std::move(self), std::move(buffer), config, frame_count);
         });
@@ -68,8 +57,10 @@ void RenderClient::_receive(std::shared_ptr<RenderClient> self) noexcept {
 void RenderClient::_send(std::shared_ptr<RenderClient> self) noexcept {
     if (auto config = [&s = *self] {
             std::scoped_lock lock{s._mutex};
-            std::unique_ptr<RenderConfig> c;
-            c.swap(s._sending_config);
+            auto c = s._config_dirty ?
+                       std::optional{*s._config} :
+                       std::nullopt;
+            s._config_dirty = false;
             return c;
         }()) {
         BinaryBuffer buffer;
@@ -128,8 +119,12 @@ void RenderClient::run() noexcept {
 
 RenderClient &RenderClient::set_config(const RenderConfig &config) noexcept {
     std::scoped_lock lock{_mutex};
-    _sending_config = std::make_unique<RenderConfig>(config);
+    auto render_id = _config == nullptr ? 0u : _config->render_id() + 1u;
+    _config = std::make_unique<RenderConfig>(
+        render_id, config.scene(), config.resolution(), config.spp(),
+        config.tile_size(), config.tile_spp(), config.tiles_in_flight());
+    _config_dirty = true;
     return *this;
 }
 
-}
+}// namespace luisa::compute

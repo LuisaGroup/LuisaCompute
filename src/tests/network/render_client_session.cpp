@@ -2,7 +2,9 @@
 // Created by Mike Smith on 2021/11/19.
 //
 
+#include <network/binary_buffer.h>
 #include <network/render_server.h>
+#include <network/render_config.h>
 #include <network/render_client_session.h>
 
 namespace luisa::compute {
@@ -27,6 +29,7 @@ void RenderClientSession::_send(std::shared_ptr<RenderClientSession> self) noexc
                         LUISA_WARNING_WITH_LOCATION(
                             "Error when sending to client: {}.",
                             error.message());
+                        self->_error_occurred = true;
                     } else {
                         _send(std::move(self));
                     }
@@ -39,6 +42,7 @@ void RenderClientSession::_send(std::shared_ptr<RenderClientSession> self) noexc
                     LUISA_WARNING_WITH_LOCATION(
                         "Error when waiting for timer: {}.",
                         error.message());
+                    self->_error_occurred = true;
                 } else {
                     _send(std::move(self));
                 }
@@ -59,14 +63,21 @@ void RenderClientSession::_receive(std::shared_ptr<RenderClientSession> self) no
                     LUISA_WARNING_WITH_LOCATION(
                         "Error when reading from client: {}.",
                         error.message());
+                    self->_error_occurred = true;
                 } else if (auto size = buffer.read_size(); size != sizeof(RenderConfig)) {
                     LUISA_WARNING_WITH_LOCATION(
                         "Invalid render config size: {} (expected {}).",
                         size, sizeof(RenderConfig));
+                    self->_error_occurred = true;
                 } else {
                     RenderConfig config;
                     buffer.read(config);
-                    self->_server->set_config(config);
+                    if (auto server_config = self->_server->config();
+                        config.render_id() == 0u ||
+                        server_config == nullptr ||
+                        server_config->render_id() < config.render_id()) {
+                        self->_server->set_config(config);
+                    }
                     _receive(std::move(self));
                 }
             });

@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/9/24.
 //
 
-#include <stb/stb_image_write.h>
-
 #include <core/clock.h>
 #include <network/binary_buffer.h>
 #include <network/render_buffer.h>
@@ -141,15 +139,7 @@ std::shared_ptr<BinaryBuffer> RenderServer::sending_buffer() noexcept {
         _sending_frame_count = _frame_count;
         _sending_buffer = std::make_shared<BinaryBuffer>();
         _sending_buffer->write(*_config).write(_sending_frame_count);
-        Clock clock;
-        stbi_write_hdr_to_func(
-            [](void *context, void *data, int n) noexcept {
-                static_cast<BinaryBuffer *>(context)->write(data, n);
-            },
-            _sending_buffer.get(),
-            static_cast<int>(_config->resolution().x),
-            static_cast<int>(_config->resolution().y),
-            4, &_accum_buffer.front().x);
+        _encode(*_sending_buffer, *_config, _accum_buffer);
         _sending_buffer->write_size();
     }
     return _sending_buffer;
@@ -172,6 +162,9 @@ void RenderServer::_purge_clients(std::shared_ptr<RenderServer> self) noexcept {
 }
 
 void RenderServer::_purge() noexcept {
+    for (auto &&c : _clients) {
+        if (!*c) { c->close(); }
+    }
     std::erase_if(_clients, [](auto &&c) noexcept { return !(*c); });
     if (_clients.empty()) {// no clients, stop rendering...
         _config = nullptr;
@@ -179,6 +172,11 @@ void RenderServer::_purge() noexcept {
         _sending_buffer = nullptr;
         _sending_frame_count = 0u;
     }
+}
+
+RenderServer &RenderServer::set_encode_handler(RenderServer::EncodeHander encode) noexcept {
+    _encode = std::move(encode);
+    return *this;
 }
 
 RenderServer::~RenderServer() noexcept = default;

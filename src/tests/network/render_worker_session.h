@@ -28,6 +28,7 @@ private:
     std::vector<RenderTile> _rendering_tiles;
     std::queue<std::variant<RenderConfig, RenderTile>> _pending_commands;
     uint32_t _render_id{invalid_render_id};
+    bool _error_occurred{false};
 
 private:
     static void _send(std::shared_ptr<RenderWorkerSession> self) noexcept;
@@ -38,7 +39,7 @@ private:
 public:
     explicit RenderWorkerSession(RenderScheduler *scheduler) noexcept;
     ~RenderWorkerSession() noexcept;
-    [[nodiscard]] explicit operator bool() const noexcept { return _socket.is_open(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return !_error_occurred && _socket.is_open(); }
     [[nodiscard]] auto working_item_count() const noexcept { return _rendering_tiles.size() + _pending_commands.size(); }
     [[nodiscard]] auto &socket() noexcept { return _socket; }
     void dispatch(const RenderConfig &config, RenderTile tile) noexcept;
@@ -46,4 +47,4 @@ public:
     void close() noexcept;
 };
 
-}
+}// namespace luisa::compute

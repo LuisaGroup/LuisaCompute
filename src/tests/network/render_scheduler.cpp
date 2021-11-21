@@ -31,6 +31,9 @@ void RenderScheduler::_dispatch(std::shared_ptr<RenderScheduler> self) noexcept 
                 "Error when executing dispatch timer in RenderScheduler: {}.",
                 error.message());
         } else {
+            for (auto &&w : self->_workers) {
+                if (!*w) { w->close(); }
+            }
             std::erase_if(self->_workers, [](auto &&w) noexcept { return !(*w); });
             if (auto config = self->_server->config();
                 config == nullptr) {// no valid config, not rendering
@@ -127,7 +130,7 @@ asio::io_context &RenderScheduler::context() const noexcept {
 }
 
 void RenderScheduler::add(std::shared_ptr<RenderWorkerSession> worker) noexcept {
-    if (*worker) { _workers.emplace_back(std::move(worker))->run(); }
+    _workers.emplace_back(std::move(worker))->run();
 }
 
 void RenderScheduler::close() noexcept {

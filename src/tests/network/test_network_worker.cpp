@@ -6,6 +6,7 @@
 #include <numbers>
 #include <queue>
 #include <thread>
+#include <optional>
 
 #include <asio.hpp>
 
@@ -169,7 +170,7 @@ using namespace luisa::compute;
                 pos = hit_pos + 1e-4f * d;
                 throughput *= c;
             };
-            auto color = throughput.xyz() * hit_light;
+            auto color = throughput.xyz() * hit_light * 2.0f;
             auto old = output_image[global_id].xyz();
             output_image[global_id] = make_float4(lerp(old, color, 1.0f / cast<float>(sub_frame_index + 1u)), 1.0f);
             seed_image[global_id] = seed;
@@ -226,6 +227,7 @@ int main(int argc, char *argv[]) {
                 command_buffer << render_buffer.copy_to(tile_buffer.data())
                                << commit();
                 stream << synchronize();
+                LUISA_INFO("Render: {} ms.", clock.toc());
                 worker->finish(tile, tile_buffer, tile_size);
             } else {
                 using namespace std::chrono_literals;
@@ -234,7 +236,6 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    Clock clock;
     worker->set_config_handler([&](const RenderConfig &config) noexcept {
               LUISA_INFO(
                   "RenderConfig: scene = {}, render_id = {}, resolution = {}x{}, "

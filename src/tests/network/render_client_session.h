@@ -19,6 +19,7 @@ private:
     asio::system_timer _timer;
     uint32_t _last_render_id{std::numeric_limits<uint32_t>::max()};
     uint32_t _last_frame_count{};
+    bool _error_occurred = false;
 
 private:
     static void _send(std::shared_ptr<RenderClientSession> self) noexcept;
@@ -28,9 +29,9 @@ public:
     explicit RenderClientSession(RenderServer *server) noexcept;
     ~RenderClientSession() noexcept;
     [[nodiscard]] auto &socket() noexcept { return _socket; }
+    [[nodiscard]] explicit operator bool() const noexcept { return !_error_occurred && _socket.is_open(); }
     void run() noexcept;
-    [[nodiscard]] explicit operator bool() const noexcept { return _socket.is_open(); }
     void close() noexcept;
 };
 
-}
+}// namespace luisa::compute
