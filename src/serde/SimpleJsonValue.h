@@ -111,28 +111,10 @@ struct SimpleJsonKey {
 struct SimpleJsonKeyHash {
     template<typename T>
     size_t operator()(T const &key) const {
-        vstd::hash<T> hs;
-        return hs(key);
-    }
-    template<typename T>
-    size_t operator()(SimpleJsonKey const &key) const {
         if constexpr (std::is_same_v<std::remove_cvref_t<T>, SimpleJsonKey>)
             return key.GetHashCode();
         else {
-            auto getHash = [](auto &&v) {
-                vstd::hash<std::remove_cvref_t<decltype(v)>> h;
-                return h(v);
-            };
-            switch (key.GetType()) {
-                case Key::IndexOf<int64>:
-                    return getHash(*reinterpret_cast<int64 const *>(key.GetPlaceHolder()));
-
-                case Key::IndexOf<vstd::Guid>:
-                    return getHash(*reinterpret_cast<vstd::Guid const *>(key.GetPlaceHolder()));
-
-                case Key::IndexOf<std::string_view>:
-                    return getHash(*reinterpret_cast<std::string_view const *>(key.GetPlaceHolder()));
-            }
+            return vstd::hash<T>()(key);
         }
     }
 };
