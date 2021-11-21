@@ -52,7 +52,6 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-runtime
         luisa-compute-dsl
         luisa-compute-rtx
-        luisa-compute-serde
         luisa-compute-backends)
 
 add_dependencies(luisa-compute luisa-compute-api)
