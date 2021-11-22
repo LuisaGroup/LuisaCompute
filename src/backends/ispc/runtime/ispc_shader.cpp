@@ -117,20 +117,16 @@ ThreadTaskHandle Shader::dispatch(
     auto blockSize = func.block_size();
     auto blockCount = (sz + blockSize - 1u) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
-    auto sharedCounter = luisa::make_shared<std::atomic_uint>(0u);// this combines the allocation of the object and the control block
     auto handle = tPool->GetParallelTask(
-        [=, vec = std::move(vec), sharedCounter = std::move(sharedCounter)](size_t) noexcept {
-            auto &&counter = *sharedCounter;
-            for (auto i = counter.fetch_add(1u); i < totalCount; i = counter.fetch_add(1u)) {
-                uint blockIdxZ = i / (blockCount.y * blockCount.x);
-                i -= blockCount.y * blockCount.x * blockIdxZ;
-                uint blockIdxY = i / blockCount.x;
-                i -= blockIdxY * blockCount.x;
-                uint blockIdxX = i;
-                executable->invoke(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), sz, vec.data());
-            }
+        [=, vec = std::move(vec)](size_t i) noexcept {
+            uint blockIdxZ = i / (blockCount.y * blockCount.x);
+            i -= blockCount.y * blockCount.x * blockIdxZ;
+            uint blockIdxY = i / blockCount.x;
+            i -= blockIdxY * blockCount.x;
+            uint blockIdxX = i;
+            executable->invoke(blockCount, make_uint3(blockIdxX, blockIdxY, blockIdxZ), sz, vec.data());
         },
-        std::thread::hardware_concurrency(),
+        totalCount,
         true);
     return handle;
 }

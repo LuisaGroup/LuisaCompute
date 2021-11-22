@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <cassert>
+#include <condition_variable>
 #include <vstl/Log.h>
 #include <vstl/spin_mutex.h>
 #include <vstl/unique_ptr.h>
