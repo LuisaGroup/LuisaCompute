@@ -38,7 +38,7 @@ void ThreadTaskHandle::TaskData::ReleaseThreadLocker() {
 ThreadTaskHandle::ThreadTaskHandle(
 	ThreadPool* pool, bool waitable) : pool(pool) {
 	isArray = false;
-	auto ptr = MakeObjectPtr(
+	auto ptr = vstd::MakeObjectPtr(
 		new TaskData(waitable));
 	taskFlag.New(std::move(ptr));
 }
@@ -46,7 +46,7 @@ ThreadTaskHandle::ThreadTaskHandle(
 	ThreadPool* pool,
 	vstd::function<void()>&& func, bool waitable) : pool(pool) {
 	isArray = false;
-	auto ptr = MakeObjectPtr(new TaskData(std::move(func), waitable));
+	auto ptr = vstd::MakeObjectPtr(new TaskData(std::move(func), waitable));
 	taskFlag.New(std::move(ptr));
 }
 
@@ -55,31 +55,46 @@ ThreadTaskHandle::ThreadTaskHandle(
 	vstd::function<void(size_t)>&& func,
 	size_t parallelCount,
 	size_t threadCount, bool waitable) : pool(tPool) {
-    if (threadCount > tPool->workerThreadCount) threadCount = tPool->workerThreadCount;
+    auto Min = [](auto &&a, auto &&b) {
+        if (a < b) return a;
+        return b;
+    };
+	threadCount = Min(threadCount, tPool->workerThreadCount);
+	threadCount = Min(threadCount, parallelCount);
 	isArray = true;
 	taskFlags.New();
 	auto&& tasks = *taskFlags;
-	size_t eachJobCount = parallelCount / threadCount;
-	tasks.reserve(eachJobCount + 1);
-
-	auto AddTask = [&](size_t beg, size_t ed) {
-		tasks.emplace_back(MakeObjectPtr(
+	tasks.reserve(threadCount + 1);
+	
+	auto taskCounter = tPool->counters.New_Lock(tPool->counterMtx, threadCount);
+	for (size_t v = 0; v < threadCount - 1; ++v) {
+		tasks.emplace_back(vstd::MakeObjectPtr(
 			new TaskData(
 				[=]() {
-					for (auto c : vstd::range(beg, ed)) {
-						func(c);
+					auto i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
+					while (i < parallelCount) {
+						func(i);
+						i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
+					}
+					if (taskCounter->finishedCount.fetch_sub(1, std::memory_order_relaxed) == 1) {
+						tPool->counters.Delete_Lock(tPool->counterMtx, taskCounter);
 					}
 				},
 				waitable)));
-	};
-	for (size_t i = 0; i < threadCount; ++i) {
-		AddTask(i * eachJobCount, (i + 1) * eachJobCount);
 	}
-	size_t full = eachJobCount * threadCount;
-	size_t lefted = parallelCount - full;
-	if (lefted > 0) {
-		AddTask(full, parallelCount);
-	}
+	tasks.emplace_back(vstd::MakeObjectPtr(
+		new TaskData(
+			[=, func = std::move(func)]() {
+				auto i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
+				while (i < parallelCount) {
+					func(i);
+					i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
+				}
+				if (taskCounter->finishedCount.fetch_sub(1, std::memory_order_relaxed) == 1) {
+					tPool->counters.Delete_Lock(tPool->counterMtx, taskCounter);
+				}
+			},
+			waitable)));
 }
 
 ThreadTaskHandle::ThreadTaskHandle(
@@ -88,14 +103,19 @@ ThreadTaskHandle::ThreadTaskHandle(
 	size_t parallelCount,
 	size_t threadCount,
 	bool waitable) : pool(tPool) {
-    if (threadCount > tPool->workerThreadCount) threadCount = tPool->workerThreadCount;
+    auto Min = [](auto &&a, auto &&b) {
+        if (a < b) return a;
+        return b;
+    };
+	threadCount = Min(threadCount, tPool->workerThreadCount);
+	threadCount = Min(threadCount, parallelCount);
 	isArray = true;
 	taskFlags.New();
 	auto&& tasks = *taskFlags;
 	size_t eachJobCount = parallelCount / threadCount;
-	tasks.reserve(eachJobCount + 1);
+	tasks.reserve(threadCount + 1);
 	auto AddTask = [&](size_t beg, size_t ed) {
-		tasks.emplace_back(MakeObjectPtr(
+		tasks.emplace_back(vstd::MakeObjectPtr(
 			new TaskData(
 				[=]() {
 					func(beg, ed);
@@ -198,7 +218,7 @@ void ThreadTaskHandle::TAddDepend(H&& handle) const {
 			VENGINE_EXIT;
 		}
 	};
-	auto executeSelf = [&](vstd::ObjectPtr<TaskData> const& self) {
+	auto executeSelf = [&](vstd::ObjectPtr<TaskData> const& self, auto&& handle) {
 		uint64 v = 0;
 		if (handle.isArray) {
 			for (auto& i : *handle.taskFlags) {
@@ -211,10 +231,10 @@ void ThreadTaskHandle::TAddDepend(H&& handle) const {
 	};
 	if (isArray) {
 		for (auto& i : *taskFlags) {
-			executeSelf(i);
+			executeSelf(i, handle);
 		}
 	} else {
-		executeSelf(*taskFlag);
+		executeSelf(*taskFlag, handle);
 	}
 }
 void ThreadTaskHandle::AddDepend(ThreadTaskHandle const& handle) const {

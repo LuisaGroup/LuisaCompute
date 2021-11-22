@@ -5,8 +5,13 @@ bool ThreadPool::IsWorkerThread() {
 	return vengineTpool_isWorkerThread;
 }
 
-ThreadPool::ThreadPool(size_t workerThreadCount) {
-    if (workerThreadCount < 1) workerThreadCount = 1;
+ThreadPool::ThreadPool(size_t workerThreadCount)
+	: counters(32) {
+    auto Max = []<typename T>(T const& a, T const&b) {
+        if (a > b) return a;
+        return b;
+    };
+	workerThreadCount = Max.operator()<size_t>(workerThreadCount, 1);
 	this->workerThreadCount = workerThreadCount;
 	enabled.test_and_set(std::memory_order_release);
 	threads.reserve(workerThreadCount);

@@ -1,12 +1,10 @@
 #pragma once
-#include <span>
-#include <atomic>
-#include <condition_variable>
 #include <vstl/Common.h>
 #include <vstl/functional.h>
 #include <vstl/ObjectPtr.h>
+#include <span>
 class ThreadPool;
-class ThreadTaskHandle {
+class VENGINE_DLL_COMMON ThreadTaskHandle {
 	friend class ThreadPool;
 
 public:
@@ -18,7 +16,8 @@ public:
 	};
 
 private:
-	struct TaskData : public vstd::IOperatorNewBase {
+
+	struct VENGINE_DLL_COMMON TaskData : public vstd::IOperatorNewBase {
 		std::atomic_uint8_t state;
 		vstd::function<void()> func;
 		//ThreadPool Set
@@ -64,7 +63,7 @@ private:
 		size_t parallelCount,
 		size_t threadCount,
 		bool waitable);
-	template <typename H>
+	template<typename H>
 	void TAddDepend(H&&) const;
 
 public:
