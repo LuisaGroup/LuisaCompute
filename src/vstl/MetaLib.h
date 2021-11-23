@@ -952,6 +952,7 @@ public:
     }
 
     template<size_t i>
+        requires(i <= argSize) 
     decltype(auto) get() & {
 #ifdef DEBUG
         if (i != switcher) {
@@ -962,6 +963,7 @@ public:
         return Constructor<AA...>::template Get<i>(&placeHolder);
     }
     template<size_t i>
+        requires(i <= argSize) 
     decltype(auto) get() && {
 #ifdef DEBUG
         if (i != switcher) {
@@ -972,6 +974,7 @@ public:
         return std::move(Constructor<AA...>::template Get<i>(&placeHolder));
     }
     template<size_t i>
+        requires(i <= argSize) 
     decltype(auto) get() const & {
 #ifdef DEBUG
         if (i != switcher) {
@@ -983,6 +986,7 @@ public:
     }
 
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     T const *try_get() const & {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
@@ -993,6 +997,7 @@ public:
     }
 
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     T *try_get() & {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
@@ -1002,6 +1007,7 @@ public:
         return &Constructor<AA...>::template Get<tarIdx>(&placeHolder);
     }
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     optional<T> try_get() && {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
@@ -1011,6 +1017,7 @@ public:
         return optional<T>(std::move(Constructor<AA...>::template Get<tarIdx>(&placeHolder)));
     }
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     T get_or(T &&value) const & {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
@@ -1020,6 +1027,7 @@ public:
         return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
     }
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     T get_or(T &&value) && {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
@@ -1029,6 +1037,7 @@ public:
         return std::move(Constructor<AA...>::template Get<tarIdx>(&placeHolder));
     }
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     T const &force_get() const & {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
@@ -1042,6 +1051,7 @@ public:
     }
 
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     T &force_get() & {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
@@ -1054,6 +1064,7 @@ public:
         return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
     }
     template<typename T>
+        requires((IndexOf<T>) < argSize)
     T &&force_get() && {
         static constexpr auto tarIdx = IndexOf<T>;
         static_assert(tarIdx < argSize, "Illegal target type!");
