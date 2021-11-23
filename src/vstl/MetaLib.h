@@ -854,55 +854,48 @@ private:
         }
     };
     template<typename... Args>
-    struct Constructor {
-        template<typename A>
-        static size_t CopyOrMoveConst(void *, size_t idx, A &&) {
-            return idx;
-        }
-        template<typename... A>
-        static size_t AnyConst(void *, size_t idx, A &&...) {
-            static_assert(AlwaysFalse<A...>, "Illegal Constructor!");
-            return idx;
-        }
-    };
-    template<typename B, typename... Args>
-    struct Constructor<B, Args...> {
-        template<typename A>
-        static size_t CopyOrMoveConst(void *ptr, size_t idx, A &&a) {
-            if constexpr (std::is_same_v<std::remove_cvref_t<B>, std::remove_cvref_t<A>>) {
-                new (ptr) B(std::forward<A>(a));
-                return idx;
-            } else {
-                return Constructor<Args...>::template CopyOrMoveConst<A>(ptr, idx + 1, std::forward<A>(a));
-            }
-        }
-        template<typename... A>
-        static size_t AnyConst(void *ptr, size_t idx, A &&...a) {
-            if constexpr (std::is_constructible_v<B, A &&...>) {
-                new (ptr) B(std::forward<A>(a)...);
-                return idx;
-            } else {
-                return Constructor<Args...>::template AnyConst<A...>(ptr, idx + 1, std::forward<A>(a)...);
-            }
-        }
+	struct Constructor;
+	template<typename B, typename... Args>
+	struct Constructor<B, Args...> {
+		template<typename A>
+		static size_t CopyOrMoveConst(void* ptr, size_t idx, A&& a) {
+			if constexpr (std::is_same_v<std::remove_cvref_t<B>, std::remove_cvref_t<A>>) {
+				new (ptr) B(std::forward<A>(a));
+				return idx;
+			} else if constexpr (sizeof...(Args) == 0) {
+				return idx + 1;
+			} else {
+				return Constructor<Args...>::template CopyOrMoveConst<A>(ptr, idx + 1, std::forward<A>(a));
+			}
+		}
+		template<typename... A>
+		static size_t AnyConst(void* ptr, size_t idx, A&&... a) {
+			if constexpr (std::is_constructible_v<B, A&&...>) {
+				new (ptr) B(std::forward<A>(a)...);
+				return idx;
+			} else {
+				return Constructor<Args...>::template AnyConst<A...>(ptr, idx + 1, std::forward<A>(a)...);
+			}
+		}
 
-        template<size_t v>
-        static decltype(auto) Get(void *ptr) {
-            if constexpr (v == 0) {
-                return get_lvalue(*reinterpret_cast<B *>(ptr));
-            } else {
-                return Constructor<Args...>::template Get<v - 1>(ptr);
-            }
-        }
-        template<size_t v>
-        static decltype(auto) Get(void const *ptr) {
-            if constexpr (v == 0) {
-                return get_lvalue(*reinterpret_cast<B const *>(ptr));
-            } else {
-                return get_lvalue(Constructor<Args...>::template Get<v - 1>(ptr));
-            }
-        }
-    };
+		template<size_t v>
+		static decltype(auto) Get(void* ptr) {
+			if constexpr (v == 0) {
+				return get_lvalue(*reinterpret_cast<B*>(ptr));
+			} else {
+				return Constructor<Args...>::template Get<v - 1>(ptr);
+			}
+		}
+		template<size_t v>
+		static decltype(auto) Get(void const* ptr) {
+			if constexpr (v == 0) {
+				return get_lvalue(*reinterpret_cast<B const*>(ptr));
+			} else {
+				return get_lvalue(Constructor<Args...>::template Get<v - 1>(ptr));
+			}
+		}
+	};
+	using DefaultCtor = Constructor<AA...>;
 
     std::aligned_storage_t<(detail::max_size<sizeof(AA)...>::value), (detail::max_size<alignof(AA)...>::value)> placeHolder;
     size_t switcher = 0;
@@ -960,7 +953,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return Constructor<AA...>::template Get<i>(&placeHolder);
+        return DefaultCtor::template Get<i>(&placeHolder);
     }
     template<size_t i>
         requires(i <= argSize) 
@@ -971,7 +964,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return std::move(Constructor<AA...>::template Get<i>(&placeHolder));
+        return std::move(DefaultCtor::template Get<i>(&placeHolder));
     }
     template<size_t i>
         requires(i <= argSize) 
@@ -982,7 +975,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return Constructor<AA...>::template Get<i>(&placeHolder);
+        return DefaultCtor::template Get<i>(&placeHolder);
     }
 
     template<typename T>
@@ -993,7 +986,7 @@ public:
         if (tarIdx != switcher) {
             return nullptr;
         }
-        return &Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+        return &DefaultCtor::template Get<tarIdx>(&placeHolder);
     }
 
     template<typename T>
@@ -1004,7 +997,7 @@ public:
         if (tarIdx != switcher) {
             return nullptr;
         }
-        return &Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+        return &DefaultCtor::template Get<tarIdx>(&placeHolder);
     }
     template<typename T>
         requires((IndexOf<T>) < argSize)
@@ -1014,7 +1007,7 @@ public:
         if (tarIdx != switcher) {
             return {};
         }
-        return optional<T>(std::move(Constructor<AA...>::template Get<tarIdx>(&placeHolder)));
+        return optional<T>(std::move(DefaultCtor::template Get<tarIdx>(&placeHolder)));
     }
     template<typename T>
         requires((IndexOf<T>) < argSize)
@@ -1024,7 +1017,7 @@ public:
         if (tarIdx != switcher) {
             return std::forward<T>(value);
         }
-        return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+        return DefaultCtor::template Get<tarIdx>(&placeHolder);
     }
     template<typename T>
         requires((IndexOf<T>) < argSize)
@@ -1034,7 +1027,7 @@ public:
         if (tarIdx != switcher) {
             return std::forward<T>(value);
         }
-        return std::move(Constructor<AA...>::template Get<tarIdx>(&placeHolder));
+        return std::move(DefaultCtor::template Get<tarIdx>(&placeHolder));
     }
     template<typename T>
         requires((IndexOf<T>) < argSize)
@@ -1047,7 +1040,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+        return DefaultCtor::template Get<tarIdx>(&placeHolder);
     }
 
     template<typename T>
@@ -1061,7 +1054,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return Constructor<AA...>::template Get<tarIdx>(&placeHolder);
+        return DefaultCtor::template Get<tarIdx>(&placeHolder);
     }
     template<typename T>
         requires((IndexOf<T>) < argSize)
@@ -1074,7 +1067,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return std::move(Constructor<AA...>::template Get<tarIdx>(&placeHolder));
+        return std::move(DefaultCtor::template Get<tarIdx>(&placeHolder));
     }
     template<typename Arg>
     variant &operator=(Arg &&arg) {
@@ -1239,10 +1232,10 @@ public:
                 std::is_constructible_v<AA, T &&, Arg &&...>...>)
     variant(T &&t, Arg &&...arg) {
         if constexpr (sizeof...(Arg) == 0) {
-            switcher = Constructor<AA...>::template CopyOrMoveConst<T>(&placeHolder, 0, std::forward<T>(t));
+            switcher = DefaultCtor::template CopyOrMoveConst<T>(&placeHolder, 0, std::forward<T>(t));
             if (switcher < argSize) return;
         }
-        switcher = Constructor<AA...>::template AnyConst<T, Arg...>(&placeHolder, 0, std::forward<T>(t), std::forward<Arg>(arg)...);
+        switcher = DefaultCtor::template AnyConst<T, Arg...>(&placeHolder, 0, std::forward<T>(t), std::forward<Arg>(arg)...);
     }
 
     variant(variant const &v)
