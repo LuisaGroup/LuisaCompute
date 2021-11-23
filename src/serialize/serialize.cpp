@@ -1,8 +1,9 @@
+#pragma vengine_package serialize
 #include <serialize/serialize.h>
 namespace luisa::compute {
 vstd::unique_ptr<toolhub::db::IJsonDict> AstSerializer::Serialize(Type const &t, toolhub::db::IJsonDatabase *db) {
     auto r = db->CreateDict();
-    r->Set("hash", t.hash());
+    r->Set("hash", t._hash);
     r->Set("size", t.size());
     r->Set("align", t.alignment());
     r->Set("tag", static_cast<int64>(t.tag()));
@@ -28,9 +29,9 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(TypeData const &t, IJsonDat
     auto members = db->CreateArray();
     members->Reserve(t.members.size());
     for (auto &&i : t.members) {
-        members->Add(i->hash());
+        members->Add(i->_hash);
     }
-    data->Set("members", members);
+    data->Set("members", std::move(members));
     return data;
 }
 void AstSerializer::DeSerialize(TypeData &d, IJsonDict *dict) {
@@ -50,8 +51,8 @@ void AstSerializer::DeSerialize(TypeData &d, IJsonDict *dict) {
 
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Expression const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
-    r->Set("hash", t.hash());
-    r->Set("type", t.type()->hash());
+    r->Set("hash", t._hash);
+    r->Set("type", t.type()->_hash);
     r->Set("tag", static_cast<int64>(t.tag()));
     r->Set("usage", static_cast<int64>(t.usage()));
     return r;
@@ -65,7 +66,7 @@ void AstSerializer::DeSerialize(Expression &t, IJsonDict *r, SerializeVisitor co
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(UnaryExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
-    r->Set("operand", t.operand()->hash());
+    r->Set("operand", t.operand()->_hash);
     r->Set("op", static_cast<int64>(t.op()));
     return r;
 }
@@ -75,13 +76,13 @@ void AstSerializer::DeSerialize(UnaryExpr &t, IJsonDict *r, SerializeVisitor con
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
     t._op = static_cast<UnaryOp>(r->Get("op").get_or(0ll));
-    t._operand = evt.getExpr(r->Get("operand").get_or(0ll));
+    t._operand = evt.GetExpr(r->Get("operand").get_or(0ll));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(BinaryExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
-    r->Set("lhs", t.lhs()->hash());
-    r->Set("rhs", t.rhs()->hash());
+    r->Set("lhs", t.lhs()->_hash);
+    r->Set("rhs", t.rhs()->_hash);
     r->Set("op", static_cast<int64>(t.op()));
     return r;
 }
@@ -90,15 +91,15 @@ void AstSerializer::DeSerialize(BinaryExpr &t, IJsonDict *r, SerializeVisitor co
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    t._lhs = evt.getExpr(r->Get("lhs").get_or(0ll));
-    t._rhs = evt.getExpr(r->Get("rhs").get_or(0ll));
+    t._lhs = evt.GetExpr(r->Get("lhs").get_or(0ll));
+    t._rhs = evt.GetExpr(r->Get("rhs").get_or(0ll));
     t._op = static_cast<BinaryOp>(r->Get("op").get_or(0ll));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(AccessExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
-    r->Set("range", t.range()->hash());
-    r->Set("index", t.index()->hash());
+    r->Set("range", t.range()->_hash);
+    r->Set("index", t.index()->_hash);
     return r;
 }
 void AstSerializer::DeSerialize(AccessExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
@@ -106,13 +107,13 @@ void AstSerializer::DeSerialize(AccessExpr &t, IJsonDict *r, SerializeVisitor co
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    t._range = evt.getExpr(r->Get("range").get_or(0ll));
-    t._index = evt.getExpr(r->Get("index").get_or(0ll));
+    t._range = evt.GetExpr(r->Get("range").get_or(0ll));
+    t._index = evt.GetExpr(r->Get("index").get_or(0ll));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(MemberExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
-    r->Set("self", t.self()->hash());
+    r->Set("self", t.self()->_hash);
     r->Set("member", t._member);
     return r;
 }
@@ -121,7 +122,7 @@ void AstSerializer::DeSerialize(MemberExpr &t, IJsonDict *r, SerializeVisitor co
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    t._self = evt.getExpr(r->Get("self").get_or(0ll));
+    t._self = evt.GetExpr(r->Get("self").get_or(0ll));
     t._member = r->Get("member").get_or(0ll);
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr const &t, IJsonDatabase *db) {
@@ -142,7 +143,7 @@ void AstSerializer::DeSerialize(LiteralExpr &t, IJsonDict *r, SerializeVisitor c
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Variable const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
-    r->Set("type", t.type()->hash());
+    r->Set("type", t.type()->_hash);
     r->Set("uid", t.uid());
     r->Set("tag", static_cast<int64>(t.tag()));
     return r;
@@ -173,7 +174,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantData const &t, IJso
     auto r = db->CreateDict();
     auto &&view = t.view();
     r->Set("view_type", view.index());
-    r->Set("hash", t.hash());
+    r->Set("hash", t._hash);
     struct SerValueVisitor {
         IJsonDatabase *db;
         IJsonArray &r;
@@ -291,7 +292,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
         switch (type) {
             case 0: {
                 size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.allocate(sz);
+                bool *ptr = (bool *)evt.Allocate(sz);
                 t._view = std::span<bool const>(ptr, sz);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(false);
@@ -300,25 +301,25 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 1: {
                 size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.allocate(sz);
+                float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float const>(ptr, sz);
-                for (auto&& i : arr) {
+                for (auto &&i : arr) {
                     *ptr = i.get_or(0.0);
                     ptr++;
                 }
             } break;
             case 2: {
                 size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.allocate(sz);
+                int *ptr = (int *)evt.Allocate(sz);
                 t._view = std::span<int const>(ptr, sz);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
                     ptr++;
                 }
-            }break;
+            } break;
             case 3: {
                 size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.allocate(sz);
+                uint *ptr = (uint *)evt.Allocate(sz);
                 t._view = std::span<uint const>(ptr, sz);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
@@ -327,8 +328,8 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 4: {
                 size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.allocate(sz);
-                t._view = std::span<bool2 const>((bool2*)ptr, sz / 2);
+                bool *ptr = (bool *)evt.Allocate(sz);
+                t._view = std::span<bool2 const>((bool2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(false);
                     ptr++;
@@ -336,8 +337,8 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 5: {
                 size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.allocate(sz);
-                t._view = std::span<float2 const>((float2*)ptr, sz / 2);
+                float *ptr = (float *)evt.Allocate(sz);
+                t._view = std::span<float2 const>((float2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0.0);
                     ptr++;
@@ -345,8 +346,8 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 6: {
                 size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.allocate(sz);
-                t._view = std::span<int2 const>((int2*)ptr, sz / 2);
+                int *ptr = (int *)evt.Allocate(sz);
+                t._view = std::span<int2 const>((int2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
                     ptr++;
@@ -354,8 +355,8 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 7: {
                 size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.allocate(sz);
-                t._view = std::span<uint2 const>((uint2*)ptr, sz/2);
+                uint *ptr = (uint *)evt.Allocate(sz);
+                t._view = std::span<uint2 const>((uint2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
                     ptr++;
@@ -363,8 +364,8 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 8: {
                 size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.allocate(sz);
-                t._view = std::span<bool3 const>((bool3 *)ptr, sz/3);
+                bool *ptr = (bool *)evt.Allocate(sz);
+                t._view = std::span<bool3 const>((bool3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(false);
                     ptr++;
@@ -372,7 +373,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 9: {
                 size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.allocate(sz);
+                float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float3 const>((float3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0.0);
@@ -381,7 +382,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 10: {
                 size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.allocate(sz);
+                int *ptr = (int *)evt.Allocate(sz);
                 t._view = std::span<int3 const>((int3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
@@ -390,7 +391,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 11: {
                 size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.allocate(sz);
+                uint *ptr = (uint *)evt.Allocate(sz);
                 t._view = std::span<uint3 const>((uint3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
@@ -399,7 +400,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 12: {
                 size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.allocate(sz);
+                bool *ptr = (bool *)evt.Allocate(sz);
                 t._view = std::span<bool4 const>((bool4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(false);
@@ -408,7 +409,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 13: {
                 size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.allocate(sz);
+                float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float4 const>((float4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0.0);
@@ -417,7 +418,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 14: {
                 size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.allocate(sz);
+                int *ptr = (int *)evt.Allocate(sz);
                 t._view = std::span<int4 const>((int4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
@@ -426,7 +427,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 15: {
                 size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.allocate(sz);
+                uint *ptr = (uint *)evt.Allocate(sz);
                 t._view = std::span<uint4 const>((uint4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0ll);
@@ -435,7 +436,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 16: {
                 size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.allocate(sz);
+                float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float2x2 const>((float2x2 *)ptr, sz / sizeof(float2x2));
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0.0);
@@ -444,7 +445,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 17: {
                 size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.allocate(sz);
+                float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float3x3 const>((float3x3 *)ptr, sz / sizeof(float3x3));
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0.0);
@@ -453,7 +454,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
             } break;
             case 18: {
                 size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.allocate(sz);
+                float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float4x4 const>((float4x4 *)ptr, sz / sizeof(float4x4));
                 for (auto &&i : arr) {
                     *ptr = i.get_or(0.0);
@@ -468,71 +469,71 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
     struct SerValueVisitor {
         IJsonDatabase *db;
         IJsonDict *r;
-        void operator()(bool a) const {
+        void operator()(bool const &a) const {
             r->Set("value", a);
         }
-        void operator()(int a) const {
+        void operator()(int const &a) const {
             r->Set("value", int64(a));
         }
-        void operator()(uint a) const {
+        void operator()(uint const &a) const {
             r->Set("value", int64(a));
         }
-        void operator()(float a) const {
+        void operator()(float const &a) const {
             r->Set("value", double(a));
         }
-        void operator()(bool2 a) const {
+        void operator()(bool2 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (a.x);
             (*arr) << (a.y);
             r->Set("value", std::move(arr));
         }
-        void operator()(int2 a) const {
+        void operator()(int2 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (int64(a.x));
             (*arr) << (int64(a.y));
             r->Set("value", std::move(arr));
         }
-        void operator()(uint2 a) const {
+        void operator()(uint2 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (int64(a.x));
             (*arr) << (int64(a.y));
             r->Set("value", std::move(arr));
         }
-        void operator()(float2 a) const {
+        void operator()(float2 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (float(a.x));
             (*arr) << (float(a.y));
             r->Set("value", std::move(arr));
         }
-        void operator()(bool3 a) const {
+        void operator()(bool3 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (a.x);
             (*arr) << (a.y);
             (*arr) << (a.z);
             r->Set("value", std::move(arr));
         }
-        void operator()(int3 a) const {
+        void operator()(int3 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (int64(a.x));
             (*arr) << (int64(a.y));
             (*arr) << (int64(a.z));
             r->Set("value", std::move(arr));
         }
-        void operator()(uint3 a) const {
+        void operator()(uint3 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (int64(a.x));
             (*arr) << (int64(a.y));
             (*arr) << (int64(a.z));
             r->Set("value", std::move(arr));
         }
-        void operator()(float3 a) const {
+        void operator()(float3 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (float(a.x));
             (*arr) << (float(a.y));
             (*arr) << (float(a.z));
             r->Set("value", std::move(arr));
         }
-        void operator()(bool4 a) const {
+        void operator()(bool4 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (a.x);
             (*arr) << (a.y);
@@ -540,7 +541,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
             (*arr) << (a.w);
             r->Set("value", std::move(arr));
         }
-        void operator()(int4 a) const {
+        void operator()(int4 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (int64(a.x));
             (*arr) << (int64(a.y));
@@ -548,7 +549,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
             (*arr) << (int64(a.w));
             r->Set("value", std::move(arr));
         }
-        void operator()(uint4 a) const {
+        void operator()(uint4 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (int64(a.x));
             (*arr) << (int64(a.y));
@@ -556,7 +557,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
             (*arr) << (int64(a.w));
             r->Set("value", std::move(arr));
         }
-        void operator()(float4 a) const {
+        void operator()(float4 const &a) const {
             auto arr = db->CreateArray();
             (*arr) << (float(a.x));
             (*arr) << (float(a.y));
@@ -564,7 +565,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
             (*arr) << (float(a.w));
             r->Set("value", std::move(arr));
         }
-        void operator()(float2x2 a) const {
+        void operator()(float2x2 const &a) const {
             auto arr = db->CreateArray();
             auto set = [&](auto &&c) {
                 (*arr) << (float(c.x));
@@ -575,7 +576,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
             }
             r->Set("value", std::move(arr));
         }
-        void operator()(float3x3 a) const {
+        void operator()(float3x3 const &a) const {
             auto arr = db->CreateArray();
             auto set = [&](auto &&c) {
                 (*arr) << (float(c.x));
@@ -587,7 +588,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
             }
             r->Set("value", std::move(arr));
         }
-        void operator()(float4x4 a) const {
+        void operator()(float4x4 const &a) const {
             auto arr = db->CreateArray();
             auto set = [&](auto &&c) {
                 (*arr) << (float(c.x));
@@ -600,11 +601,18 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
             }
             r->Set("value", std::move(arr));
         }
+        void operator()(LiteralExpr::MetaValue const &a) const {
+            auto dict = db->CreateDict();
+            dict->Set("type", a.type()->_hash);
+            dict->Set("expr", a.expr());
+            r->Set("value", std::move(dict));
+        }
     };
 
     SerValueVisitor v{db, r.get()};
     std::visit(v, t);
     r->Set("value_type", t.index());
+    return r;
 }
 void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
     auto type = r->Get("value_type").try_get<int64>();
@@ -760,8 +768,65 @@ void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
             }
             t = v;
         } break;
+        case 19: {
+            auto dict = r->Get("value").get_or<IJsonDict *>(nullptr);
+            if (!dict) break;
+            t = LiteralExpr::MetaValue(
+                Type::get_type(dict->Get("type").get_or<int64>(0)),
+                luisa::string(dict->Get("expr").get_or<std::string_view>(""sv)));
+        } break;
     }
 }
-vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantExpr const &t, IJsonDatabase *db) {}
-void AstSerializer::DeSerialize(ConstantExpr &t, IJsonDict *r) {}
+vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantExpr const &t, IJsonDatabase *db) {
+    auto r = db->CreateDict();
+    r->Set("data"sv, Serialize(t._data, db));
+    r->Set("expr"sv, Serialize(static_cast<Expression const &>(t), db));
+    return r;
+}
+void AstSerializer::DeSerialize(ConstantExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
+    auto expr = r->Get("expr").get_or<IJsonDict *>(nullptr);
+    auto data = r->Get("data").get_or<IJsonDict *>(nullptr);
+    if (!expr || !data) return;
+    DeSerialize(static_cast<Expression &>(t), expr, evt);
+    DeSerialize(t._data, expr, evt);
+}
+vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CallExpr const &t, IJsonDatabase *db) {
+    auto r = db->CreateDict();
+    r->Set("expr"sv, Serialize(static_cast<Expression const &>(t), db));
+    if (t._op == CallOp::CUSTOM) {
+        r->Set("custom", t._custom.hash());
+    } else {
+        r->Set("op", (int64)t._op);
+    }
+    return r;
+}
+void AstSerializer::DeSerialize(CallExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
+    auto expr = r->Get("expr").get_or<IJsonDict *>(nullptr);
+    if (!expr) return;
+    DeSerialize(static_cast<Expression &>(t), expr, evt);
+    auto customHash = r->Get("custom"sv).try_get<int64>();
+    if (customHash) {
+        t._custom = evt.GetFunction(*customHash);
+        t._op = CallOp::CUSTOM;
+    }
+    // Call OP
+    else {
+        t._op = (CallOp)r->Get("op").get_or<int64>(0);
+    }
+}
+vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CastExpr const &t, IJsonDatabase *db) {
+    auto r = db->CreateDict();
+    r->Set("expr"sv, Serialize(static_cast<Expression const &>(t), db));
+    r->Set("src"sv, t._source->_hash);
+    r->Set("op"sv, (int64)t._op);
+    return r;
+}
+void AstSerializer::DeSerialize(CastExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
+    auto expr = r->Get("expr"sv).get_or<IJsonDict *>(nullptr);
+    auto src = r->Get("src"sv).try_get<int64>();
+    if (!expr || !src) return;
+    DeSerialize(static_cast<Expression &>(t), expr, evt);
+    t._source = evt.GetExpr(src);
+    t._op = (CastOp)r->Get("op"sv).get_or<int64>(0);
+}
 }// namespace luisa::compute

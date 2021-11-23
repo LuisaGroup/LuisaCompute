@@ -7,9 +7,11 @@ using IJsonDict = toolhub::db::IJsonDict;
 using IJsonArray = toolhub::db::IJsonArray;
 using IJsonDatabase = toolhub::db::IJsonDatabase;
 using SerHash = uint64;
-struct SerializeVisitor {
-    vstd::function<Expression const *(SerHash)> getExpr;
-    vstd::function<void *(size_t)> allocate;
+class SerializeVisitor {
+public:
+    virtual Expression const *GetExpr(SerHash) const = 0;
+    virtual void *Allocate(size_t) const = 0;
+    virtual Function GetFunction(SerHash) const = 0;
 };
 class AstSerializer {
 public:
@@ -38,6 +40,10 @@ public:
     static vstd::unique_ptr<IJsonDict> Serialize(LiteralExpr::Value const &t, IJsonDatabase *db);
     static void DeSerialize(LiteralExpr::Value &t, IJsonDict *dict);
     static vstd::unique_ptr<IJsonDict> Serialize(ConstantExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(ConstantExpr &t, IJsonDict *dict);
+    static void DeSerialize(ConstantExpr &t, IJsonDict *dict, SerializeVisitor const &evt);
+    static vstd::unique_ptr<IJsonDict> Serialize(CallExpr const &t, IJsonDatabase *db);
+    static void DeSerialize(CallExpr &t, IJsonDict *dict, SerializeVisitor const &evt);
+    static vstd::unique_ptr<IJsonDict> Serialize(CastExpr const &t, IJsonDatabase *db);
+    static void DeSerialize(CastExpr &t, IJsonDict *dict, SerializeVisitor const &evt);
 };
 }// namespace luisa::compute
