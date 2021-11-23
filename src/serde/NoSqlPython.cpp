@@ -77,11 +77,11 @@ static vstd::vector<CompareFlag> compFlagStack;
 		[](auto&& v) { return 0; });
 }
  void pynosql_get_str_key(SearchResultHandle* handle, char* ptr) {
-	auto&& str = handle->idx->first.force_get<vstd::string>();
+	auto&& str = handle->idx->first.template force_get<vstd::string>();
 	memcpy(ptr, str.data(), str.size());
 }
  void pynosql_get_guid_key(SearchResultHandle* handle, vstd::Guid::GuidData* ptr) {
-	*ptr = handle->idx->first.force_get<vstd::Guid>().ToBinary();
+	*ptr = handle->idx->first.template force_get<vstd::Guid>().ToBinary();
 }
  uint8_t pynosql_get_value_type(SearchResultHandle* handle) {
 	return handle->idx->second.GetType();
@@ -107,11 +107,11 @@ static vstd::vector<CompareFlag> compFlagStack;
 		[](auto&&) { return 0; });
 }
  void pynosql_get_str(SearchResultHandle* handle, char* ptr) {
-	auto&& str = handle->idx->second.force_get<vstd::string>();
+	auto&& str = handle->idx->second.template force_get<vstd::string>();
 	memcpy(ptr, str.data(), str.size());
 }
  void pynosql_get_guid(SearchResultHandle* handle, vstd::Guid::GuidData* ptr) {
-	*ptr = handle->idx->second.force_get<vstd::Guid>().ToBinary();
+	*ptr = handle->idx->second.template force_get<vstd::Guid>().ToBinary();
 }
  void pynosql_begin_map(SearchResultHandle* handle) {
 	handle->mapPtr = handle->results.begin();

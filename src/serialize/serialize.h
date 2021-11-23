@@ -1,6 +1,6 @@
 #pragma once
 #include <ast/type.h>
-#include <serialize/IJsonObject.h>
+#include <serde/IJsonObject.h>
 #include <ast/expression.h>
 namespace luisa::compute {
 using IJsonDict = toolhub::db::IJsonDict;
@@ -13,8 +13,10 @@ public:
     virtual void *Allocate(size_t) const = 0;
     virtual Function GetFunction(SerHash) const = 0;
 };
+
 class AstSerializer {
 public:
+    //Expr
     static vstd::unique_ptr<IJsonDict> Serialize(Type const &t, IJsonDatabase *db);
     static void DeSerialize(Type &t, IJsonDict *dict);
     static vstd::unique_ptr<IJsonDict> Serialize(TypeData const &t, IJsonDatabase *db);
@@ -45,5 +47,14 @@ public:
     static void DeSerialize(CallExpr &t, IJsonDict *dict, SerializeVisitor const &evt);
     static vstd::unique_ptr<IJsonDict> Serialize(CastExpr const &t, IJsonDatabase *db);
     static void DeSerialize(CastExpr &t, IJsonDict *dict, SerializeVisitor const &evt);
+    struct DeserElement {
+        IJsonDict *dict;
+        SerializeVisitor const &evt;
+        Expression const *next();
+    };
+    static DeserElement DeserExpr(
+        IJsonDict *dict,
+        SerializeVisitor const &evt);
+    //Stmt
 };
 }// namespace luisa::compute

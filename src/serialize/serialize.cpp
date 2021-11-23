@@ -35,15 +35,15 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(TypeData const &t, IJsonDat
     return data;
 }
 void AstSerializer::DeSerialize(TypeData &d, IJsonDict *dict) {
-    auto descOpt = dict->Get("description").try_get<std::string_view>();
+    auto descOpt = dict->Get("description").template try_get<std::string_view>();
     if (descOpt) {
         d.description = luisa::string(descOpt->data(), descOpt->size());
     }
-    auto memberArr = dict->Get("members").try_get<IJsonArray *>();
+    auto memberArr = dict->Get("members").template try_get<IJsonArray *>();
     if (memberArr) {
         d.members.reserve((*memberArr)->Length());
         for (auto &&i : (**memberArr)) {
-            auto it = i.try_get<int64>();
+            auto it = i.template try_get<int64>();
             d.members.push_back(it ? Type::get_type(*it) : nullptr);
         }
     }
@@ -58,85 +58,90 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Expression const &t, IJsonD
     return r;
 }
 void AstSerializer::DeSerialize(Expression &t, IJsonDict *r, SerializeVisitor const &evt) {
-    t._hash = r->Get("hash").get_or(0ll);
-    t._type = Type::get_type(r->Get("type").get_or(0ll));
-    t._tag = static_cast<Expression::Tag>(r->Get("tag").get_or(0ll));
-    t._usage = static_cast<Usage>(r->Get("usage").get_or(0ll));
+    t._hash = r->Get("hash").template get_or<int64>(0);
+    t._type = Type::get_type(r->Get("type").template get_or<int64>(0));
+    t._tag = static_cast<Expression::Tag>(r->Get("tag").template get_or<int64>(0));
+    t._usage = static_cast<Usage>(r->Get("usage").template get_or<int64>(0));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(UnaryExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
+    r->Set("typename", "UnaryExpr");
     r->Set("operand", t.operand()->_hash);
     r->Set("op", static_cast<int64>(t.op()));
     return r;
 }
 void AstSerializer::DeSerialize(UnaryExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto exprD = r->Get("expr").try_get<IJsonDict *>();
+    auto exprD = r->Get("expr").template try_get<IJsonDict *>();
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    t._op = static_cast<UnaryOp>(r->Get("op").get_or(0ll));
-    t._operand = evt.GetExpr(r->Get("operand").get_or(0ll));
+    t._op = static_cast<UnaryOp>(r->Get("op").template get_or<int64>(0));
+    t._operand = evt.GetExpr(r->Get("operand").template get_or<int64>(0));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(BinaryExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
+    r->Set("typename", "BinaryExpr");
     r->Set("lhs", t.lhs()->_hash);
     r->Set("rhs", t.rhs()->_hash);
     r->Set("op", static_cast<int64>(t.op()));
     return r;
 }
 void AstSerializer::DeSerialize(BinaryExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto exprD = r->Get("expr").try_get<IJsonDict *>();
+    auto exprD = r->Get("expr").template try_get<IJsonDict *>();
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    t._lhs = evt.GetExpr(r->Get("lhs").get_or(0ll));
-    t._rhs = evt.GetExpr(r->Get("rhs").get_or(0ll));
-    t._op = static_cast<BinaryOp>(r->Get("op").get_or(0ll));
+    t._lhs = evt.GetExpr(r->Get("lhs").template get_or<int64>(0));
+    t._rhs = evt.GetExpr(r->Get("rhs").template get_or<int64>(0));
+    t._op = static_cast<BinaryOp>(r->Get("op").template get_or<int64>(0));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(AccessExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
+    r->Set("typename", "AccessExpr");
     r->Set("range", t.range()->_hash);
     r->Set("index", t.index()->_hash);
     return r;
 }
 void AstSerializer::DeSerialize(AccessExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto exprD = r->Get("expr").try_get<IJsonDict *>();
+    auto exprD = r->Get("expr").template try_get<IJsonDict *>();
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    t._range = evt.GetExpr(r->Get("range").get_or(0ll));
-    t._index = evt.GetExpr(r->Get("index").get_or(0ll));
+    t._range = evt.GetExpr(r->Get("range").template get_or<int64>(0));
+    t._index = evt.GetExpr(r->Get("index").template get_or<int64>(0));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(MemberExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
+    r->Set("typename", "MemberExpr");
     r->Set("self", t.self()->_hash);
     r->Set("member", t._member);
     return r;
 }
 void AstSerializer::DeSerialize(MemberExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto exprD = r->Get("expr").try_get<IJsonDict *>();
+    auto exprD = r->Get("expr").template try_get<IJsonDict *>();
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    t._self = evt.GetExpr(r->Get("self").get_or(0ll));
-    t._member = r->Get("member").get_or(0ll);
+    t._self = evt.GetExpr(r->Get("self").template get_or<int64>(0));
+    t._member = r->Get("member").template get_or<int64>(0);
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
+    r->Set("typename", "LiteralExpr");
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
     r->Set("value", Serialize(t._value, db));
     return r;
 }
 void AstSerializer::DeSerialize(LiteralExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto exprD = r->Get("expr").try_get<IJsonDict *>();
+    auto exprD = r->Get("expr").template try_get<IJsonDict *>();
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    auto value = r->Get("value").try_get<IJsonDict *>();
+    auto value = r->Get("value").template try_get<IJsonDict *>();
     if (value) {
         DeSerialize(t._value, *value);
     }
@@ -149,22 +154,23 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Variable const &t, IJsonDat
     return r;
 }
 void AstSerializer::DeSerialize(Variable &t, IJsonDict *r) {
-    t._type = Type::get_type(r->Get("type").get_or(0ll));
-    t._tag = static_cast<Variable::Tag>(r->Get("tag").get_or(0ll));
-    t._uid = r->Get("uid").get_or(0ll);
+    t._type = Type::get_type(r->Get("type").template get_or<int64>(0));
+    t._tag = static_cast<Variable::Tag>(r->Get("tag").template get_or<int64>(0));
+    t._uid = r->Get("uid").template get_or<int64>(0);
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(RefExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
+    r->Set("typename", "RefExpr");
     r->Set("expr", Serialize(static_cast<Expression const &>(t), db));
     r->Set("variable", Serialize(t._variable, db));
     return r;
 }
 void AstSerializer::DeSerialize(RefExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto exprD = r->Get("expr").try_get<IJsonDict *>();
+    auto exprD = r->Get("expr").template try_get<IJsonDict *>();
     if (exprD) {
         DeSerialize(static_cast<Expression &>(t), *exprD, evt);
     }
-    auto dd = r->Get("variable").try_get<IJsonDict *>();
+    auto dd = r->Get("variable").template try_get<IJsonDict *>();
     if (dd) {
         DeSerialize(t._variable, *dd);
     }
@@ -284,9 +290,9 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantData const &t, IJso
     return r;
 }
 void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor const &evt) {
-    t._hash = r->Get("hash").get_or(0ll);
-    auto arrOpt = r->Get("values").try_get<IJsonArray *>();
-    auto type = r->Get("view_type").get_or(std::numeric_limits<int64>::max());
+    t._hash = r->Get("hash").template get_or<int64>(0);
+    auto arrOpt = r->Get("values").template try_get<IJsonArray *>();
+    auto type = r->Get("view_type").template get_or(std::numeric_limits<int64>::max());
     if (arrOpt) {
         auto &&arr = **arrOpt;
         switch (type) {
@@ -295,7 +301,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 bool *ptr = (bool *)evt.Allocate(sz);
                 t._view = std::span<bool const>(ptr, sz);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(false);
+                    *ptr = i.template get_or(false);
                     ptr++;
                 }
             } break;
@@ -304,7 +310,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float const>(ptr, sz);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0.0);
+                    *ptr = i.template get_or<double>(0);
                     ptr++;
                 }
             } break;
@@ -313,7 +319,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 int *ptr = (int *)evt.Allocate(sz);
                 t._view = std::span<int const>(ptr, sz);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -322,7 +328,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 uint *ptr = (uint *)evt.Allocate(sz);
                 t._view = std::span<uint const>(ptr, sz);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -331,7 +337,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 bool *ptr = (bool *)evt.Allocate(sz);
                 t._view = std::span<bool2 const>((bool2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(false);
+                    *ptr = i.template get_or(false);
                     ptr++;
                 }
             } break;
@@ -340,7 +346,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float2 const>((float2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0.0);
+                    *ptr = i.template get_or<double>(0);
                     ptr++;
                 }
             } break;
@@ -349,7 +355,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 int *ptr = (int *)evt.Allocate(sz);
                 t._view = std::span<int2 const>((int2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -358,7 +364,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 uint *ptr = (uint *)evt.Allocate(sz);
                 t._view = std::span<uint2 const>((uint2 *)ptr, sz / 2);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -367,7 +373,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 bool *ptr = (bool *)evt.Allocate(sz);
                 t._view = std::span<bool3 const>((bool3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(false);
+                    *ptr = i.template get_or(false);
                     ptr++;
                 }
             } break;
@@ -376,7 +382,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float3 const>((float3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0.0);
+                    *ptr = i.template get_or<double>(0);
                     ptr++;
                 }
             } break;
@@ -385,7 +391,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 int *ptr = (int *)evt.Allocate(sz);
                 t._view = std::span<int3 const>((int3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -394,7 +400,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 uint *ptr = (uint *)evt.Allocate(sz);
                 t._view = std::span<uint3 const>((uint3 *)ptr, sz / 3);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -403,7 +409,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 bool *ptr = (bool *)evt.Allocate(sz);
                 t._view = std::span<bool4 const>((bool4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(false);
+                    *ptr = i.template get_or(false);
                     ptr++;
                 }
             } break;
@@ -412,7 +418,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float4 const>((float4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0.0);
+                    *ptr = i.template get_or<double>(0);
                     ptr++;
                 }
             } break;
@@ -421,7 +427,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 int *ptr = (int *)evt.Allocate(sz);
                 t._view = std::span<int4 const>((int4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -430,7 +436,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 uint *ptr = (uint *)evt.Allocate(sz);
                 t._view = std::span<uint4 const>((uint4 *)ptr, sz / 4);
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0ll);
+                    *ptr = i.template get_or<int64>(0);
                     ptr++;
                 }
             } break;
@@ -439,7 +445,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float2x2 const>((float2x2 *)ptr, sz / sizeof(float2x2));
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0.0);
+                    *ptr = i.template get_or<double>(0);
                     ptr++;
                 }
             } break;
@@ -448,7 +454,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float3x3 const>((float3x3 *)ptr, sz / sizeof(float3x3));
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0.0);
+                    *ptr = i.template get_or<double>(0);
                     ptr++;
                 }
             } break;
@@ -457,7 +463,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, SerializeVisitor 
                 float *ptr = (float *)evt.Allocate(sz);
                 t._view = std::span<float4x4 const>((float4x4 *)ptr, sz / sizeof(float4x4));
                 for (auto &&i : arr) {
-                    *ptr = i.get_or(0.0);
+                    *ptr = i.template get_or<double>(0);
                     ptr++;
                 }
             } break;
@@ -615,128 +621,128 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
     return r;
 }
 void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
-    auto type = r->Get("value_type").try_get<int64>();
+    auto type = r->Get("value_type").template try_get<int64>();
     if (!type) return;
     size_t ofst = 0;
 
     auto getFloat = [&](auto &&arr) {
-        auto flt = arr->Get(ofst).get_or(0.0);
+        auto flt = arr->Get(ofst).template get_or<double>(0.0);
         ofst++;
         return flt;
     };
     switch (*type) {
         case 0:
-            t = r->Get("value").get_or(false);
+            t = r->Get("value").template get_or(false);
             break;
         case 1:
-            t = static_cast<float>(r->Get("value").get_or(0.0));
+            t = static_cast<float>(r->Get("value").template get_or<double>(0));
             break;
         case 2:
-            t = static_cast<int>(r->Get("value").get_or(0ll));
+            t = static_cast<int>(r->Get("value").template get_or<int64>(0));
             break;
         case 3:
-            t = static_cast<uint>(r->Get("value").get_or(0ll));
+            t = static_cast<uint>(r->Get("value").template get_or<int64>(0));
             break;
         case 4: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = bool2(
-                (*arr)->Get(0).get_or(false),
-                (*arr)->Get(1).get_or(false));
+                (*arr)->Get(0).template get_or(false),
+                (*arr)->Get(1).template get_or(false));
         } break;
         case 5: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = float2(
-                (*arr)->Get(0).get_or(0.0),
-                (*arr)->Get(1).get_or(0.0));
+                (*arr)->Get(0).template get_or<double>(0),
+                (*arr)->Get(1).template get_or<double>(0));
         } break;
         case 6: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = int2(
-                (*arr)->Get(0).get_or(0ll),
-                (*arr)->Get(1).get_or(0ll));
+                (*arr)->Get(0).template get_or<int64>(0),
+                (*arr)->Get(1).template get_or<int64>(0));
         } break;
         case 7: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = uint2(
-                (*arr)->Get(0).get_or(0ll),
-                (*arr)->Get(1).get_or(0ll));
+                (*arr)->Get(0).template get_or<int64>(0),
+                (*arr)->Get(1).template get_or<int64>(0));
         } break;
         case 8: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = bool3(
-                (*arr)->Get(0).get_or(false),
-                (*arr)->Get(1).get_or(false),
-                (*arr)->Get(2).get_or(false));
+                (*arr)->Get(0).template get_or(false),
+                (*arr)->Get(1).template get_or(false),
+                (*arr)->Get(2).template get_or(false));
         } break;
         case 9: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = float3(
-                (*arr)->Get(0).get_or(0.0),
-                (*arr)->Get(1).get_or(0.0),
-                (*arr)->Get(2).get_or(0.0));
+                (*arr)->Get(0).template get_or<double>(0),
+                (*arr)->Get(1).template get_or<double>(0),
+                (*arr)->Get(2).template get_or<double>(0));
         } break;
         case 10: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = int3(
-                (*arr)->Get(0).get_or(0ll),
-                (*arr)->Get(1).get_or(0ll),
-                (*arr)->Get(2).get_or(0ll));
+                (*arr)->Get(0).template get_or<int64>(0),
+                (*arr)->Get(1).template get_or<int64>(0),
+                (*arr)->Get(2).template get_or<int64>(0));
         } break;
         case 11: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = uint3(
-                (*arr)->Get(0).get_or(0ll),
-                (*arr)->Get(1).get_or(0ll),
-                (*arr)->Get(2).get_or(0ll));
+                (*arr)->Get(0).template get_or<int64>(0),
+                (*arr)->Get(1).template get_or<int64>(0),
+                (*arr)->Get(2).template get_or<int64>(0));
         }
 
         break;
         case 12: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = bool4(
-                (*arr)->Get(0).get_or(false),
-                (*arr)->Get(1).get_or(false),
-                (*arr)->Get(2).get_or(false),
-                (*arr)->Get(3).get_or(false));
+                (*arr)->Get(0).template get_or(false),
+                (*arr)->Get(1).template get_or(false),
+                (*arr)->Get(2).template get_or(false),
+                (*arr)->Get(3).template get_or(false));
         } break;
         case 13: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = float4(
-                (*arr)->Get(0).get_or(0.0),
-                (*arr)->Get(1).get_or(0.0),
-                (*arr)->Get(2).get_or(0.0),
-                (*arr)->Get(3).get_or(0.0));
+                (*arr)->Get(0).template get_or<double>(0),
+                (*arr)->Get(1).template get_or<double>(0),
+                (*arr)->Get(2).template get_or<double>(0),
+                (*arr)->Get(3).template get_or<double>(0));
         } break;
         case 14: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = int4(
-                (*arr)->Get(0).get_or(0ll),
-                (*arr)->Get(1).get_or(0ll),
-                (*arr)->Get(2).get_or(0ll),
-                (*arr)->Get(3).get_or(0ll));
+                (*arr)->Get(0).template get_or<int64>(0),
+                (*arr)->Get(1).template get_or<int64>(0),
+                (*arr)->Get(2).template get_or<int64>(0),
+                (*arr)->Get(3).template get_or<int64>(0));
         } break;
         case 15: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             t = uint4(
-                (*arr)->Get(0).get_or(0ll),
-                (*arr)->Get(1).get_or(0ll),
-                (*arr)->Get(2).get_or(0ll),
-                (*arr)->Get(3).get_or(0ll));
+                (*arr)->Get(0).template get_or<int64>(0),
+                (*arr)->Get(1).template get_or<int64>(0),
+                (*arr)->Get(2).template get_or<int64>(0),
+                (*arr)->Get(3).template get_or<int64>(0));
         } break;
         case 16: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             float2x2 v;
             for (auto &&i : v.cols) {
@@ -746,7 +752,7 @@ void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
             t = v;
         } break;
         case 17: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             float3x3 v;
             for (auto &&i : v.cols) {
@@ -757,7 +763,7 @@ void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
             t = v;
         } break;
         case 18: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
+            auto arr = r->Get("value").template try_get<IJsonArray *>();
             if (!arr) break;
             float4x4 v;
             for (auto &&i : v.cols) {
@@ -769,29 +775,31 @@ void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
             t = v;
         } break;
         case 19: {
-            auto dict = r->Get("value").get_or<IJsonDict *>(nullptr);
+            auto dict = r->Get("value").template get_or<IJsonDict *>(nullptr);
             if (!dict) break;
             t = LiteralExpr::MetaValue(
-                Type::get_type(dict->Get("type").get_or<int64>(0)),
-                luisa::string(dict->Get("expr").get_or<std::string_view>(""sv)));
+                Type::get_type(dict->Get("type").template get_or<int64>(0)),
+                luisa::string(dict->Get("expr").template get_or<std::string_view>(""sv)));
         } break;
     }
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
+    r->Set("typename", "ConstantExpr");
     r->Set("data"sv, Serialize(t._data, db));
     r->Set("expr"sv, Serialize(static_cast<Expression const &>(t), db));
     return r;
 }
 void AstSerializer::DeSerialize(ConstantExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto expr = r->Get("expr").get_or<IJsonDict *>(nullptr);
-    auto data = r->Get("data").get_or<IJsonDict *>(nullptr);
+    auto expr = r->Get("expr").template get_or<IJsonDict *>(nullptr);
+    auto data = r->Get("data").template get_or<IJsonDict *>(nullptr);
     if (!expr || !data) return;
     DeSerialize(static_cast<Expression &>(t), expr, evt);
     DeSerialize(t._data, expr, evt);
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CallExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
+    r->Set("typename", "CallExpr");
     r->Set("expr"sv, Serialize(static_cast<Expression const &>(t), db));
     if (t._op == CallOp::CUSTOM) {
         r->Set("custom", t._custom.hash());
@@ -801,32 +809,43 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CallExpr const &t, IJsonDat
     return r;
 }
 void AstSerializer::DeSerialize(CallExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto expr = r->Get("expr").get_or<IJsonDict *>(nullptr);
+    auto expr = r->Get("expr").template get_or<IJsonDict *>(nullptr);
     if (!expr) return;
     DeSerialize(static_cast<Expression &>(t), expr, evt);
-    auto customHash = r->Get("custom"sv).try_get<int64>();
+    auto customHash = r->Get("custom"sv).template try_get<int64>();
     if (customHash) {
         t._custom = evt.GetFunction(*customHash);
         t._op = CallOp::CUSTOM;
     }
     // Call OP
     else {
-        t._op = (CallOp)r->Get("op").get_or<int64>(0);
+        t._op = (CallOp)r->Get("op").template get_or<int64>(0);
     }
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CastExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
+    r->Set("typename", "CastExpr");
     r->Set("expr"sv, Serialize(static_cast<Expression const &>(t), db));
     r->Set("src"sv, t._source->_hash);
     r->Set("op"sv, (int64)t._op);
     return r;
 }
 void AstSerializer::DeSerialize(CastExpr &t, IJsonDict *r, SerializeVisitor const &evt) {
-    auto expr = r->Get("expr"sv).get_or<IJsonDict *>(nullptr);
-    auto src = r->Get("src"sv).try_get<int64>();
+    auto expr = r->Get("expr"sv).template get_or<IJsonDict *>(nullptr);
+    auto src = r->Get("src"sv).template try_get<int64>();
     if (!expr || !src) return;
     DeSerialize(static_cast<Expression &>(t), expr, evt);
     t._source = evt.GetExpr(src);
-    t._op = (CastOp)r->Get("op"sv).get_or<int64>(0);
+    t._op = (CastOp)r->Get("op"sv).template get_or<int64>(0);
 }
+AstSerializer::DeserElement AstSerializer::DeserExpr(
+    IJsonDict *dict,
+    SerializeVisitor const &evt) {
+    return {dict, evt};
+}
+Expression const* AstSerializer::DeserElement::next() {
+    //TODO
+    return nullptr;
+}
+
 }// namespace luisa::compute

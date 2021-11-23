@@ -100,25 +100,25 @@ void SimpleJsonLoader::Serialize(SimpleJsonVariant const& v, vstd::vector<uint8_
 	data.push_back(v.value.index());
 	switch (v.value.index()) {
 		case WriteJsonVariant::IndexOf<int64>:
-			PushDataToVector(v.value.force_get<int64>(), data);
+			PushDataToVector(v.value.template force_get<int64>(), data);
 			break;
 		case WriteJsonVariant::IndexOf<double>:
-			PushDataToVector(v.value.force_get<double>(), data);
+			PushDataToVector(v.value.template force_get<double>(), data);
 			break;
 		case WriteJsonVariant::IndexOf<vstd::string>:
-			PushDataToVector(v.value.force_get<vstd::string>(), data);
+			PushDataToVector(v.value.template force_get<vstd::string>(), data);
 			break;
 		case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
-			static_cast<SimpleJsonValueDict*>(v.value.force_get<vstd::unique_ptr<IJsonDict>>().get())->M_GetSerData(data);
+			static_cast<SimpleJsonValueDict*>(v.value.template force_get<vstd::unique_ptr<IJsonDict>>().get())->M_GetSerData(data);
 			break;
 		case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
-			static_cast<SimpleJsonValueArray*>(v.value.force_get<vstd::unique_ptr<IJsonArray>>().get())->M_GetSerData(data);
+			static_cast<SimpleJsonValueArray*>(v.value.template force_get<vstd::unique_ptr<IJsonArray>>().get())->M_GetSerData(data);
 			break;
 		case WriteJsonVariant::IndexOf<vstd::Guid>:
-			PushDataToVector(v.value.force_get<vstd::Guid>(), data);
+			PushDataToVector(v.value.template force_get<vstd::Guid>(), data);
 			break;
 		case WriteJsonVariant::IndexOf<bool>:
-			PushDataToVector(v.value.force_get<bool>(), data);
+			PushDataToVector(v.value.template force_get<bool>(), data);
 			break;
 	}
 }
@@ -126,19 +126,19 @@ ReadJsonVariant SimpleJsonVariant::GetVariant() const {
 
 	switch (value.index()) {
 		case WriteJsonVariant::IndexOf<int64>:
-			return value.force_get<int64>();
+			return value.template force_get<int64>();
 		case WriteJsonVariant::IndexOf<double>:
-			return value.force_get<double>();
+			return value.template force_get<double>();
 		case WriteJsonVariant::IndexOf<vstd::string>:
-			return value.force_get<vstd::string>();
+			return value.template force_get<vstd::string>();
 		case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
-			return value.force_get<vstd::unique_ptr<IJsonDict>>().get();
+			return value.template force_get<vstd::unique_ptr<IJsonDict>>().get();
 		case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
-			return value.force_get<vstd::unique_ptr<IJsonArray>>().get();
+			return value.template force_get<vstd::unique_ptr<IJsonArray>>().get();
 		case WriteJsonVariant::IndexOf<vstd::Guid>:
-			return value.force_get<vstd::Guid>();
+			return value.template force_get<vstd::Guid>();
 		case WriteJsonVariant::IndexOf<bool>:
-			return value.force_get<bool>();
+			return value.template force_get<bool>();
 		default:
 			return {nullptr};
 	}
