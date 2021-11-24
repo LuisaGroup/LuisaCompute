@@ -10,10 +10,11 @@
 #include <ast/expression.h>
 
 namespace luisa::compute {
-
+class AstSerializer;
 struct StmtVisitor;
 
 class Statement : public concepts::Noncopyable {
+    friend class AstSerializer;
 
 public:
     enum struct Tag : uint32_t {
@@ -87,6 +88,7 @@ struct StmtVisitor {
     void accept(StmtVisitor &visitor) const override { visitor.visit(this); }
 
 class BreakStmt final : public Statement {
+    friend class AstSerializer;
 
 private:
     uint64_t _compute_hash() const noexcept override {
@@ -99,6 +101,7 @@ public:
 };
 
 class ContinueStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     uint64_t _compute_hash() const noexcept override {
@@ -111,6 +114,7 @@ public:
 };
 
 class ReturnStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     const Expression *_expr;
@@ -130,6 +134,7 @@ public:
 };
 
 class ScopeStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     vector<const Statement *> _statements;
@@ -149,6 +154,7 @@ public:
 };
 
 class AssignStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     const Expression *_lhs;
@@ -176,6 +182,7 @@ public:
 };
 
 class IfStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     const Expression *_condition;
@@ -205,6 +212,7 @@ public:
 };
 
 class LoopStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     ScopeStmt _body;
@@ -222,6 +230,7 @@ public:
 };
 
 class ExprStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     const Expression *_expr;
@@ -241,6 +250,7 @@ public:
 };
 
 class SwitchStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     const Expression *_expr;
@@ -264,6 +274,7 @@ public:
 };
 
 class SwitchCaseStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     const Expression *_expr;
@@ -287,6 +298,7 @@ public:
 };
 
 class SwitchDefaultStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     ScopeStmt _body;
@@ -304,6 +316,7 @@ public:
 };
 
 class ForStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     const Expression *_var;
@@ -335,6 +348,7 @@ public:
 };
 
 class CommentStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     luisa::string _comment;
@@ -353,6 +367,7 @@ public:
 };
 
 class MetaStmt : public Statement {
+    friend class AstSerializer;
 
 private:
     luisa::string _info;

@@ -307,7 +307,17 @@ struct HashValue {
         return h(t);
     }
 };
+namespace detail {
+template<typename T, typename... Args>
+struct MapConstructible {
+    static constexpr bool value = std::is_constructible_v<T, Args...>;
+};
 
+template<typename... Args>
+struct MapConstructible<void, Args...> {
+    static constexpr bool value = (sizeof...(Args) == 0);
+};
+};// namespace detail
 template<typename K, typename V, typename Hash = HashValue, typename Compare = compare<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap : public IOperatorNewBase {
 public:
@@ -503,6 +513,7 @@ public:
     HashMap() noexcept : HashMap(16) {}
     ///////////////////////
     template<typename Key, typename... ARGS>
+        requires(std::is_constructible_v<K, Key &&> &&detail::MapConstructible<V, ARGS &&...>::value)
     Index ForceEmplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -520,6 +531,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
+        requires(std::is_constructible_v<K, Key &&> &&detail::MapConstructible<V, ARGS &&...>::value)
     Index Emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -537,6 +549,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
+        requires(std::is_constructible_v<K, Key &&> &&detail::MapConstructible<V, ARGS &&...>::value)
     std::pair<Index, bool> TryEmplace(Key &&key, ARGS &&...args) {
         TryResize();
 

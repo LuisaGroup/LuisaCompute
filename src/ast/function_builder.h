@@ -21,12 +21,14 @@ namespace luisa::compute {
 
 class Statement;
 class Expression;
+class FuncSerializer;
 
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
 
 class FunctionBuilder : public std::enable_shared_from_this<FunctionBuilder> {
+    friend class FuncSerializer;
 
 private:
     class ScopeGuard {

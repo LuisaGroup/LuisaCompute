@@ -1,6 +1,7 @@
 ##[[[]]]
     set(LUISA_COMPUTE_SERIALIZE_SOURCES
-        serialize.cpp
+        astserializer.cpp
+        funcserializer.cpp
     )
 ##[[[]]]
 add_library(luisa-compute-serialize SHARED ${LUISA_COMPUTE_SERIALIZE_SOURCES})

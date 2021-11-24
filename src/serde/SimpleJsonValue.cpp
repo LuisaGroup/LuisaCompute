@@ -185,17 +185,17 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::string &str
     };
     switch (v.value.GetType()) {
         case WriteJsonVariant::IndexOf<int64>:
-            func(v.value.template force_get<int64>());
+            func(v.value.force_get<int64>());
             break;
         case WriteJsonVariant::IndexOf<double>:
-            func(v.value.template force_get<double>());
+            func(v.value.force_get<double>());
             break;
         case WriteJsonVariant::IndexOf<vstd::string>:
             [&](vstd::string const &s) {
                 //str.append(valueLayer, '\t');
                 auto &&ss = str;
                 PrintString(s, str);
-            }(v.value.template force_get<vstd::string>());
+            }(v.value.force_get<vstd::string>());
             break;
         case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
             [&](vstd::unique_ptr<IJsonDict> const &ptr) {
@@ -203,7 +203,7 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::string &str
                     str << '\n';
                 auto &&ss = str;
                 static_cast<Dict *>(ptr.get())->M_Print(str);
-            }(v.value.template force_get<vstd::unique_ptr<IJsonDict>>());
+            }(v.value.force_get<vstd::unique_ptr<IJsonDict>>());
             break;
         case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
             [&](vstd::unique_ptr<IJsonArray> const &ptr) {
@@ -212,7 +212,7 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::string &str
                     str << '\n';
                 auto &&ss = str;
                 static_cast<Array *>(ptr.get())->M_Print(str);
-            }(v.value.template force_get<vstd::unique_ptr<IJsonArray>>());
+            }(v.value.force_get<vstd::unique_ptr<IJsonArray>>());
             break;
         case WriteJsonVariant::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
@@ -221,10 +221,10 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::string &str
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.template force_get<vstd::Guid>());
+            }(v.value.force_get<vstd::Guid>());
             break;
         case WriteJsonVariant::IndexOf<bool>:
-            if (v.value.template force_get<bool>())
+            if (v.value.force_get<bool>())
                 str += "true";
             else
                 str += "false";
@@ -241,25 +241,25 @@ static void CompressPrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::str
     };
     switch (v.value.GetType()) {
         case WriteJsonVariant::IndexOf<int64>:
-            func(v.value.template force_get<int64>());
+            func(v.value.force_get<int64>());
             break;
         case WriteJsonVariant::IndexOf<double>:
-            func(v.value.template force_get<double>());
+            func(v.value.force_get<double>());
             break;
         case WriteJsonVariant::IndexOf<vstd::string>:
             [&](vstd::string const &s) {
                 PrintString(s, str);
-            }(v.value.template force_get<vstd::string>());
+            }(v.value.force_get<vstd::string>());
             break;
         case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
             [&](vstd::unique_ptr<IJsonDict> const &ptr) {
                 static_cast<Dict *>(ptr.get())->M_Print_Compress(str);
-            }(v.value.template force_get<vstd::unique_ptr<IJsonDict>>());
+            }(v.value.force_get<vstd::unique_ptr<IJsonDict>>());
             break;
         case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
             [&](vstd::unique_ptr<IJsonArray> const &ptr) {
                 static_cast<Array *>(ptr.get())->M_Print_Compress(str);
-            }(v.value.template force_get<vstd::unique_ptr<IJsonArray>>());
+            }(v.value.force_get<vstd::unique_ptr<IJsonArray>>());
             break;
         case WriteJsonVariant::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
@@ -267,10 +267,10 @@ static void CompressPrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::str
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.template force_get<vstd::Guid>());
+            }(v.value.force_get<vstd::Guid>());
             break;
         case WriteJsonVariant::IndexOf<bool>:
-            if (v.value.template force_get<bool>())
+            if (v.value.force_get<bool>())
                 str += "true";
             else
                 str += "false";
@@ -287,35 +287,35 @@ static void PrintSimpleJsonVariantYaml(SimpleJsonVariant const &v, vstd::string 
     };
     switch (v.value.GetType()) {
         case WriteJsonVariant::IndexOf<int64>:
-            func(v.value.template force_get<int64>());
+            func(v.value.force_get<int64>());
             break;
         case WriteJsonVariant::IndexOf<double>:
-            func(v.value.template force_get<double>());
+            func(v.value.force_get<double>());
             break;
         case WriteJsonVariant::IndexOf<vstd::string>:
             [&](vstd::string const &s) {
                 PrintString(s, str);
-            }(v.value.template force_get<vstd::string>());
+            }(v.value.force_get<vstd::string>());
             break;
         case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
             [&](vstd::unique_ptr<IJsonDict> const &ptr) {
                 static_cast<Dict *>(ptr.get())->PrintYaml(str, space + 2);
-            }(v.value.template force_get<vstd::unique_ptr<IJsonDict>>());
+            }(v.value.force_get<vstd::unique_ptr<IJsonDict>>());
             break;
         case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
             [&](vstd::unique_ptr<IJsonArray> const &ptr) {
                 static_cast<Array *>(ptr.get())->PrintYaml(str, space + 2);
-            }(v.value.template force_get<vstd::unique_ptr<IJsonArray>>());
+            }(v.value.force_get<vstd::unique_ptr<IJsonArray>>());
             break;
         case WriteJsonVariant::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.template force_get<vstd::Guid>());
+            }(v.value.force_get<vstd::Guid>());
             break;
         case WriteJsonVariant::IndexOf<bool>:
-            if (v.value.template force_get<bool>())
+            if (v.value.force_get<bool>())
                 str += "true";
             else
                 str += "false";
@@ -332,10 +332,10 @@ static void PrintKeyVariant(SimpleJsonKey const &v, vstd::string &str) {
     };
     switch (v.value.GetType()) {
         case SimpleJsonKey::ValueType::IndexOf<int64>:
-            vstd::to_string(v.value.template force_get<int64>(), str);
+            vstd::to_string(v.value.force_get<int64>(), str);
             break;
         case SimpleJsonKey::ValueType::IndexOf<vstd::string>:
-            PrintString(v.value.template force_get<vstd::string>(), str);
+            PrintString(v.value.force_get<vstd::string>(), str);
             break;
         case SimpleJsonKey::ValueType::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
@@ -343,7 +343,7 @@ static void PrintKeyVariant(SimpleJsonKey const &v, vstd::string &str) {
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.template force_get<vstd::Guid>());
+            }(v.value.force_get<vstd::Guid>());
             break;
     }
 }
@@ -425,7 +425,8 @@ static void CompressPrintArray(Vector const &arr, vstd::string &str) {
     }
 }
 //////////////////////////  Single Thread
-SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db) {
+SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db) 
+: vars(4) {
     this->db = db;
 }
 SimpleJsonValueDict::~SimpleJsonValueDict() {
@@ -510,7 +511,7 @@ void SimpleJsonValueDict::LoadFromSer(std::span<uint8_t const> &sp) {
 
         auto value = SimpleJsonLoader::DeSerialize(sp, db);
         if (key.GetType() == 1) {
-            auto &&s = key.template force_get<vstd::string>();
+            auto &&s = key.force_get<vstd::string>();
             int x = 0;
         }
         vars.Emplace(std::move(key), std::move(value));
@@ -826,7 +827,7 @@ void SimpleJsonValueDict::PrintYaml(vstd::string &str, size_t space) const {
                 continue;
             }
             Yaml_AddSpace<false>(str, space);
-            str << kv.first.value.template force_get<vstd::string>() << ": ";
+            str << kv.first.value.force_get<vstd::string>() << ": ";
             YamlPrintValue_Value(str, kv.second.value, space + 2);
             sz++;
             if (sz != vars.size())
@@ -837,7 +838,7 @@ void SimpleJsonValueDict::PrintYaml(vstd::string &str, size_t space) const {
 void SimpleJsonValueDict::PrintYaml(vstd::string &str, SimpleJsonKey::ValueType const &key, size_t space) const {
     if (key.IsTypeOf<vstd::string>()) {
         if (!str.empty() && *(str.end() - 1) != '\n') str << '\n';
-        auto &&keyStr = key.template force_get<vstd::string>();
+        auto &&keyStr = key.force_get<vstd::string>();
         auto idx = vstd::StringUtil::GetFirstIndexOf(keyStr, '|');
         if (idx == -1) {
             str << keyStr << ": ";
@@ -858,7 +859,7 @@ void SimpleJsonValueDict::PrintYaml(vstd::string &str) const {
         if (!kv.first.value.IsTypeOf<vstd::string>()) {
             continue;
         }
-        str << kv.first.value.template force_get<vstd::string>() << ": ";
+        str << kv.first.value.force_get<vstd::string>() << ": ";
         YamlPrintValue(str, kv.second.value);
         sz++;
         if (sz != vars.size() - 1)

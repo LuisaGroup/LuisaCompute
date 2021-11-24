@@ -327,7 +327,7 @@ class CallExpr final : public Expression {
     friend class AstSerializer;
 
 public:
-    using ArgumentList = std::vector<const Expression *>;
+    using ArgumentList = luisa::vector<const Expression *>;
 
 private:
     ArgumentList _arguments;
