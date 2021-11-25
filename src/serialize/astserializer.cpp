@@ -872,7 +872,10 @@ bool ExecuteFromStmtTag(Statement::Tag tag, Func &&func) {
         case Statement::Tag::META:
             func.template operator()<MetaStmt>();
             break;
+        default:
+            return false;
     }
+    return true;
 }
 Expression *AstSerializer::GenExpr(IJsonDict *dict, DeserVisitor &evt) {
     Expression *t;
@@ -1051,7 +1054,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ForStmt const &s, IJsonData
 }
 void AstSerializer::DeSerialize(ForStmt &s, IJsonDict *r, DeserVisitor const &evt) {
     auto set = [&](auto name, auto &&ref) {
-        auto h = r->Get(name).try_get<int64>();
+        auto h = r->Get(name).template try_get<int64>();
         if (!h) return;
         ref = evt.GetExpr(*h);
     };

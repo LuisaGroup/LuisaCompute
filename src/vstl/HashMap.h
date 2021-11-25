@@ -513,7 +513,7 @@ public:
     HashMap() noexcept : HashMap(16) {}
     ///////////////////////
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> &&detail::MapConstructible<V, ARGS &&...>::value)
+        requires(std::is_constructible_v<K, Key&&> && detail::MapConstructible<V, ARGS &&...>::value)
     Index ForceEmplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -531,7 +531,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> &&detail::MapConstructible<V, ARGS &&...>::value)
+        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS &&...>::value)
     Index Emplace(Key &&key, ARGS &&...args) {
         TryResize();
 

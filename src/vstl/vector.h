@@ -237,6 +237,7 @@ public:
         mSize += count;
     }
     template<typename Func>
+        requires(std::is_invocable_v<Func, T &>)
     void compact(Func &&f) {
         T *curPtr = begin();
         T *lastPtr;
@@ -320,6 +321,7 @@ public:
     }
 
     template<typename... Args>
+        requires(std::is_constructible_v<T, Args...>)
     T &emplace_back(Args &&...args) noexcept {
         if (mSize >= mCapacity) {
             size_t newCapacity = GetNewVectorSize(mCapacity);

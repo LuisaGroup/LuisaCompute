@@ -28,7 +28,7 @@ class FuncSerializer;
 namespace luisa::compute::detail {
 
 class FunctionBuilder : public std::enable_shared_from_this<FunctionBuilder> {
-    friend class FuncSerializer;
+    friend class luisa::compute::FuncSerializer;
 
 private:
     class ScopeGuard {

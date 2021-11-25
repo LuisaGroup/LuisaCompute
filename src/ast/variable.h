@@ -50,6 +50,7 @@ private:
         : _type{type}, _uid{uid}, _tag{tag} {}
 
 public:
+    Variable() {}
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
