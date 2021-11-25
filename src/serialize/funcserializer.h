@@ -13,4 +13,17 @@ public:
     static vstd::unique_ptr<IJsonArray> SerKernel(Function func, IJsonDatabase *db);
     static Function DeserKernel(IJsonArray *arr);
 };
+class ISerializer {
+public:
+    virtual vstd::unique_ptr<IJsonArray> SerKernel(Function func, IJsonDatabase *db) const = 0;
+    virtual Function DeserKernel(IJsonArray *arr) const = 0;
+};
+#ifdef LUISA_SERIALIZE_PROJECT
+extern "C" ISerializer const *Serialize_GetFactory();
+class Serializer_Impl : public ISerializer{
+public:
+    vstd::unique_ptr<IJsonArray> SerKernel(Function func, IJsonDatabase *db) const override;
+    Function DeserKernel(IJsonArray *arr) const override;
+};
+#endif
 }// namespace luisa::compute

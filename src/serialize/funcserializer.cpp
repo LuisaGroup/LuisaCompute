@@ -1,4 +1,5 @@
 #pragma vengine_package serialize
+#include <serialize/config.h>
 #include <serialize/serialize.h>
 #include <serialize/funcserializer.h>
 namespace luisa::compute {
@@ -178,5 +179,16 @@ Function FuncSerializer::DeserKernel(IJsonArray *arr) {
             map);
     }
     return Function(bd);
+}
+vstd::unique_ptr<IJsonArray> Serializer_Impl::SerKernel(Function func, IJsonDatabase *db) const {
+    return FuncSerializer::SerKernel(func, db);
+}
+Function Serializer_Impl::DeserKernel(IJsonArray *arr) const {
+    return FuncSerializer::DeserKernel(arr);
+}
+vstd::optional<Serializer_Impl> serializer;
+extern "C" ISerializer const *Serialize_GetFactory() {
+    serializer.New();
+    return serializer;
 }
 }// namespace luisa::compute

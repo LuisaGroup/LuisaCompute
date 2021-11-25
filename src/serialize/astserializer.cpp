@@ -1,4 +1,5 @@
 #pragma vengine_package serialize
+#include <serialize/config.h>
 #include <serialize/serialize.h>
 namespace luisa::compute {
 vstd::unique_ptr<toolhub::db::IJsonDict> AstSerializer::Serialize(Type const &t, toolhub::db::IJsonDatabase *db) {
