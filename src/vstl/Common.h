@@ -2,7 +2,6 @@
 
 #include <vstl/config.h>
 #include <memory>
-//#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdlib>

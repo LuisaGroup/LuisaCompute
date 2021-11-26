@@ -7,7 +7,6 @@ set(LUISA_COMPUTE_UTIL_SOURCES
         VGuid.cpp
         ThreadPool.cpp
         ThreadTaskHandle.cpp
-        file_system.cpp
         BinaryReader.cpp
         vstl.cpp)
 

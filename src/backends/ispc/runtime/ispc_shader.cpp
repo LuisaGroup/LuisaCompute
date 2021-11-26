@@ -2,7 +2,6 @@
 
 #include <backends/ispc/runtime/ispc_shader.h>
 #include <backends/ispc/runtime/ispc_codegen.h>
-#include <vstl/file_system.h>
 #include <vstl/MD5.h>
 
 #ifdef LUISA_COMPUTE_ISPC_LLVM_JIT
