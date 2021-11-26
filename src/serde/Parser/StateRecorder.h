@@ -1,6 +1,8 @@
 #pragma once
+
+#include <bitset>
 #include <vstl/Common.h>
-#include <vstl/BitArray.h>
+
 namespace toolhub::db::parser {
 template<typename T>
 struct StateRecorder {
@@ -22,7 +24,7 @@ struct StateRecorder {
 
 template<>
 struct StateRecorder<bool> {
-	using ArrayType = vstd::StaticBitArray<std::numeric_limits<char>::max() + 1>;
+	using ArrayType = std::bitset<std::numeric_limits<char>::max() + 1>;
 	ArrayType states;
 	template<typename Func>
 	StateRecorder(

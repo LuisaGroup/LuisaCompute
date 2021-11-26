@@ -56,7 +56,7 @@ struct StateRecorders {
         }
     }
     using BoolArrayType = typename StateRecorder<bool>::ArrayType;
-    static void InitKeywordState(BoolArrayType const &ptr) {
+    static void InitKeywordState(BoolArrayType &ptr) {
         for (auto i : vstd::range(48, 58)) {
             ptr[i] = true;
         }
@@ -72,7 +72,7 @@ struct StateRecorders {
         : outsideStates(InitOutSideState),
           keywordStates(InitKeywordState),
           guidCheck(
-              [&](BoolArrayType const &ptr) {
+              [&](BoolArrayType &ptr) {
                   std::string_view sv =
                       "ABCDEFGHIJKLMNOP"
                       "QRSTUVWXYZabcdef"
@@ -83,14 +83,14 @@ struct StateRecorders {
                   }
               }),
           numCheck(
-              [&](BoolArrayType const &ptr) {
+              [&](BoolArrayType &ptr) {
                   std::string_view sv = "0123456789.eE-+"sv;
                   for (auto i : sv) {
                       ptr[i] = true;
                   }
               }),
           spaces(
-              [&](BoolArrayType const &ptr) {
+              [&](BoolArrayType &ptr) {
                   ptr[' '] = true;
                   ptr['\t'] = true;
                   ptr['\r'] = true;
