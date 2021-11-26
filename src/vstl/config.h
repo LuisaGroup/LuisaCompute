@@ -9,6 +9,12 @@
 #define VSTL_UNICODE
 #endif
 
+#ifdef _WIN32
+#define VSTL_EXPORT_C extern "C" _declspec(dllexport)
+#else
+#define VSTL_EXPORT_C extern "C"
+#endif
+
 #if (defined(DEBUG) || defined(_DEBUG) || !defined(NDEBUG)) && !defined(VSTL_DEBUG)
 #define VSTL_DEBUG
 #endif

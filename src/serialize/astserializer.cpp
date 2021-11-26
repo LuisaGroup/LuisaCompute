@@ -14,7 +14,7 @@ vstd::unique_ptr<toolhub::db::IJsonDict> AstSerializer::Serialize(Type const &t,
 }
 void AstSerializer::DeSerialize(Type &t, IJsonDict *dict) {
     auto getOr = [&](auto &&opt) {
-        return dict->Get(opt).get_or<int64>(0);
+        return dict->Get(opt).template get_or<int64>(0);
     };
     t._hash = getOr("hash");
     t._size = getOr("size");
@@ -53,7 +53,8 @@ void AstSerializer::DeSerialize(TypeData &d, IJsonDict *dict) {
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Expression const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("hash", t._hash);
-    r->Set("type", t.type()->_hash);
+    if (t.type())
+        r->Set("type", t.type()->_hash);
     r->Set("tag", static_cast<int64>(t.tag()));
     r->Set("usage", static_cast<int64>(t.usage()));
     return r;
@@ -119,13 +120,18 @@ void AstSerializer::DeSerialize(LiteralExpr &t, IJsonDict *r, DeserVisitor const
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Variable const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
-    r->Set("type", t.type()->_hash);
+    if (t.type())
+        r->Set("type", t.type()->_hash);
     r->Set("uid", t.uid());
     r->Set("tag", static_cast<int64>(t.tag()));
     return r;
 }
 void AstSerializer::DeSerialize(Variable &t, IJsonDict *r) {
-    t._type = Type::get_type(r->Get("type").get_or<int64>(0));
+    auto type = r->Get("type").try_get<int64>();
+    if (type)
+        t._type = Type::get_type(*type);
+    else
+        t._type = nullptr;
     t._tag = static_cast<Variable::Tag>(r->Get("tag").get_or<int64>(0));
     t._uid = r->Get("uid").get_or<int64>(0);
 }
@@ -575,7 +581,8 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t
         }
         void operator()(LiteralExpr::MetaValue const &a) const {
             auto dict = db->CreateDict();
-            dict->Set("type", a.type()->_hash);
+            if (a.type())
+                dict->Set("type", a.type()->_hash);
             dict->Set("expr", a.expr());
             r->Set("value", std::move(dict));
         }
@@ -743,8 +750,9 @@ void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
         case 19: {
             auto dict = r->Get("value").get_or<IJsonDict *>(nullptr);
             if (!dict) break;
+            auto type = dict->Get("type").try_get<int64>();
             t = LiteralExpr::MetaValue(
-                Type::get_type(dict->Get("type").get_or<int64>(0)),
+                type ? Type::get_type(*type) : nullptr,
                 luisa::string(dict->Get("expr").get_or<std::string_view>(""sv)));
         } break;
     }
@@ -889,7 +897,8 @@ Expression *AstSerializer::GenExpr(IJsonDict *dict, DeserVisitor &evt) {
         t = f;
         t->_hash = r->Get("hash").get_or<int64>(0);
         t->_hash_computed = true;
-        t->_type = Type::get_type(r->Get("type").get_or<int64>(0));
+        auto type = r->Get("type").try_get<int64>();
+        t->_type = type ? Type::get_type(*type) : nullptr;
         t->_usage = static_cast<Usage>(r->Get("usage").get_or<int64>(0));
         t->_tag = static_cast<Expression::Tag>(*tag);
     };
@@ -1055,7 +1064,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ForStmt const &s, IJsonData
 }
 void AstSerializer::DeSerialize(ForStmt &s, IJsonDict *r, DeserVisitor const &evt) {
     auto set = [&](auto name, auto &&ref) {
-        auto h = r->Get(name).try_get<int64>();
+        auto h = r->Get(name).template try_get<int64>();
         if (!h) return;
         ref = evt.GetExpr(*h);
     };

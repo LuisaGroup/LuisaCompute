@@ -38,6 +38,7 @@ vstd::unique_ptr<IJsonDict> FuncSerializer::GetBuilderSerFunc(detail::FunctionBu
         callablesArr->Add(i->_hash);
     }
     for (auto &&i : b->_used_builtin_callables) {
+        std::cout << "callables\n";
         builtInCallArr->Add(static_cast<int64>(i));
     }
     *blkSize << b->_block_size.x << b->_block_size.y << b->_block_size.z;
@@ -155,6 +156,7 @@ vstd::unique_ptr<IJsonArray> FuncSerializer::SerKernel(Function f, IJsonDatabase
     func(func, f);
     arr->Reserve(checkMap.size());
     for (auto &&i : checkMap) {
+        std::cout << "checked\n";
         arr->Add(GetBuilderSerFunc(f.builder(), db));
     }
     return arr;
@@ -187,7 +189,7 @@ Function Serializer_Impl::DeserKernel(IJsonArray *arr) const {
     return FuncSerializer::DeserKernel(arr);
 }
 vstd::optional<Serializer_Impl> serializer;
-extern "C" ISerializer const *Serialize_GetFactory() {
+VSTL_EXPORT_C ISerializer const *Serialize_GetFactory() {
     serializer.New();
     return serializer;
 }

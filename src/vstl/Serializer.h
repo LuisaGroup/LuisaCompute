@@ -71,9 +71,7 @@ struct SerDe<vstd::string, reverseBytes> {
         auto strLen = SerDe<uint, reverseBytes>::Get(sp);
         auto ptr = sp.data();
         sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
-        return vstd::string(std::string_view(
-            reinterpret_cast<char const *>(ptr),
-            strLen));
+        return vstd::string(reinterpret_cast<char const *>(ptr), strLen);
     }
     static void Set(vstd::string const &data, vector<uint8_t> &arr) {
         SerDe<uint, reverseBytes>::Set(data.size(), arr);

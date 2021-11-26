@@ -94,7 +94,7 @@ IJsonDatabase* Database_Impl::CreateDatabase(
 
 
 static vstd::optional<Database_Impl> database_Impl;
-extern "C" toolhub::db::Database const *Database_GetFactory() {
+VSTL_EXPORT_C toolhub::db::Database const *Database_GetFactory() {
 	database_Impl.New();
 	return database_Impl;
 }

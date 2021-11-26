@@ -8,8 +8,9 @@ public:
 	virtual IJsonDatabase* CreateDatabase(
 		vstd::function<void*(size_t)> const& allocFunc) const = 0;
 };
+// Entry:
+// Database const *Database_GetFactory();
 #ifdef VENGINE_DATABASE_PROJECT
-extern "C" Database const *Database_GetFactory();
 class Database_Impl final : public Database {
 public:
 	IJsonDatabase* CreateDatabase() const override;
