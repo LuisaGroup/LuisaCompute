@@ -13,4 +13,5 @@ YamlParser.cpp
 add_library(luisa-compute-serde MODULE ${LUISA_COMPUTE_SERDE})
 target_link_libraries(luisa-compute-serde PRIVATE luisa-compute-core luisa-compute-vstl)
 set_target_properties(luisa-compute-serde PROPERTIES
+        MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         UNITY_BUILD ON)

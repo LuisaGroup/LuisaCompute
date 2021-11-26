@@ -9,7 +9,10 @@ target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-runtime
         luisa-compute-compile
         luisa-compute-backends)
-set_target_properties(luisa-compute-api PROPERTIES UNITY_BUILD ON)
+add_dependencies(luisa-compute-api luisa-compute-serialize)
+set_target_properties(luisa-compute-api PROPERTIES
+        MSVC_RUNTIME_LIBRARY MultiThreadedDLL
+        UNITY_BUILD ON)
 
 find_package(Python3 COMPONENTS Interpreter)
 if (Python3_Interpreter_FOUND AND Python3_VERSION VERSION_GREATER_EQUAL 3.6)

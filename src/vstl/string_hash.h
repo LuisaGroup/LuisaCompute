@@ -62,13 +62,5 @@ struct hash<wchar_t[i]> {
         return Hash::CharArrayHash(reinterpret_cast<char const *>(ptr), (i - 1) * 2);
     }
 };
-inline std::ostream &operator<<(std::ostream &out, const std::string_view &obj) noexcept {
-    if (!obj.data()) return out;
-    auto end = obj.data() + obj.size();
-    for (auto i = obj.data(); i < end; ++i) {
-        out << *i;
-    }
-    return out;
-}
 
 }// namespace vstd

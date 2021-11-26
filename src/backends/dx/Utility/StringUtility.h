@@ -3,7 +3,7 @@
 #include <fstream>
 #include <vstl/vstring.h>
 #include <vstl/MetaLib.h>
-#include <vstl/string_view.h>
+#include <vstl/string_hash.h>
 typedef unsigned int uint;
 enum class CharCutState : uint8_t
 {

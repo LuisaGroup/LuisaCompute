@@ -3,7 +3,7 @@
 #include <fstream>
 #include <vstl/vstring.h>
 #include <vstl/Memory.h>
-#include <vstl/string_view.h>
+#include <vstl/string_hash.h>
 #include <span>
 namespace vstd {
 

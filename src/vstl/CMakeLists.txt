@@ -14,6 +14,7 @@ add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
 target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core)
 set_target_properties(luisa-compute-vstl PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
+        MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         UNITY_BUILD ON)
 
 if (WIN32)

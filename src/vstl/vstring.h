@@ -7,7 +7,7 @@
 #include <vstl/Hash.h>
 #include <vstl/Memory.h>
 #include <vstl/Compare.h>
-#include <vstl/string_view.h>
+#include <vstl/string_hash.h>
 #include <vstl/vector.h>
 namespace vstd {
 using string = luisa::string;
