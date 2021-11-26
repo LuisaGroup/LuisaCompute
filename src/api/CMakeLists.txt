@@ -11,7 +11,6 @@ target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-backends)
 add_dependencies(luisa-compute-api luisa-compute-serialize)
 set_target_properties(luisa-compute-api PROPERTIES
-        MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         UNITY_BUILD ON)
 
 find_package(Python3 COMPONENTS Interpreter)

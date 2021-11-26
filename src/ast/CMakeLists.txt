@@ -15,5 +15,4 @@ add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-vstl luisa-compute-meta)
 set_target_properties(luisa-compute-ast PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
-        MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         UNITY_BUILD ON)

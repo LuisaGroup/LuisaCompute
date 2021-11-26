@@ -30,7 +30,6 @@ target_link_libraries(luisa-compute-core PUBLIC
         $<$<PLATFORM_ID:Windows>:dbghelp>)
 set_target_properties(luisa-compute-core PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
-        MSVC_RUNTIME_LIBRARY MultiThreadedDLL
         UNITY_BUILD ON)
 
 if (LUISA_COMPUTE_ENABLE_MIMALLOC)
