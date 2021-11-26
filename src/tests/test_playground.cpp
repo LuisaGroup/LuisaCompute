@@ -3,14 +3,21 @@
 //
 
 #include <iostream>
-#include <nlohmann/json.hpp>
+
+#include <ast/op.h>
+#include <core/logging.h>
 
 int main() {
 
-    auto j = nlohmann::json::parse(R"({
-"Hello": "World",
-"test": 1234
-})");
+    using namespace luisa;
+    using namespace luisa::compute;
 
-    std::cout << j.dump(2) << std::endl;
+    CallOpSet ops;
+    ops.mark(CallOp::BINDLESS_BUFFER_READ);
+    ops.mark(CallOp::SELECT);
+    ops.mark(CallOp::ACOS);
+
+    for (auto iter = ops.begin(); iter != ops.end(); iter++) {
+        LUISA_INFO("Op: {}", to_underlying(*iter));
+    }
 }

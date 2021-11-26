@@ -846,7 +846,7 @@ void SimpleJsonValueDict::PrintYaml(vstd::string &str, SimpleJsonKey::ValueType 
             str << "--- "
                 << std::string_view(keyStr.data(), idx)
                 << "\n"
-                << std::string_view(keyStr.data() + idx + 1, keyStr.data() + keyStr.size())
+                << std::string_view(keyStr.data() + idx + 1, keyStr.size() - idx - 1)
                 << ": ";
         }
         PrintYaml(str, space + 2);

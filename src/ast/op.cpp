@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/8/6.
 //
 
+#include <core/logging.h>
 #include <ast/op.h>
 
 namespace luisa::compute {
@@ -17,7 +18,14 @@ CallOp CallOpSet::Iterator::operator*() const noexcept {
 }
 
 CallOpSet::Iterator &CallOpSet::Iterator::operator++() noexcept {
-    while (_index != call_op_count && !_set.test(static_cast<CallOp>(_index))) { _index++; }
+    if (_index == call_op_count) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Walking past the end of CallOpSet.");
+    }
+    _index++;
+    while (_index != call_op_count && !_set.test(static_cast<CallOp>(_index))) {
+        _index++;
+    }
     return (*this);
 }
 
@@ -31,4 +39,4 @@ bool CallOpSet::Iterator::operator==(CallOpSet::Iterator::End) const noexcept {
     return _index == call_op_count;
 }
 
-}
+}// namespace luisa::compute

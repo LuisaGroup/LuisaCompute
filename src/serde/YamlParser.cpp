@@ -98,7 +98,7 @@ public:
 			if (spaceCount <= currLineSpace)
 				return value;
 			jumpLine++;
-			value << ' ' << std::string_view(ptr, nextPtr);
+			value << ' ' << std::string_view(ptr, nextPtr - ptr);
 			ptr = nextPtr;
 		}
 	}
@@ -106,11 +106,11 @@ public:
 		char const* start = ptr;
 		while (ptr != end) {
 			if (recorders.endOfValueKey[*ptr]) {
-				return std::string_view(start, ptr);
+				return std::string_view(start, ptr - start);
 			}
 			++ptr;
 		}
-		return std::string_view(start, end);
+		return std::string_view(start, end - start);
 	}
 
 	char const* GetNextNewLine(char const*& ptr, char const* end) {
@@ -239,7 +239,7 @@ public:
 					++ptr;
 					ptr = GetNextChar(ptr, end);
 					if (ptr != nullptr) {
-						lastLineComment = std::string_view(ptr, end);
+						lastLineComment = std::string_view(ptr, end - ptr);
 					}
 					return true;
 				}

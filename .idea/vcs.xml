@@ -3,6 +3,9 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/ext/asio" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/glfw" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/imgui/imgui" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/src/ext/json" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/ext/mimalloc" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/ext/spdlog" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/src/ext/stb/stb" vcs="Git" />

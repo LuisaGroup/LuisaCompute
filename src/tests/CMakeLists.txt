@@ -60,8 +60,6 @@ if (OpenCV_FOUND)
     target_link_libraries(test_sdf_renderer_multidev PRIVATE luisa::compute ${OpenCV_LIBS})
 endif ()
 
-add_subdirectory(network)
-
 find_package(LLVM CONFIG)
 if (LLVM_FOUND)
     llvm_map_components_to_libnames(
