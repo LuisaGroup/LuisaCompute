@@ -16,7 +16,6 @@ function(luisa_compute_add_backend name)
     foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
         string(TOUPPER ${CONFIG} CONFIG)
         set_target_properties(luisa-compute-backend-${name} PROPERTIES
-                MSVC_RUNTIME_LIBRARY MultiThreadedDLL
                 LIBRARY_OUTPUT_DIRECTORY_${CONFIG} "${CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG}}/backends"
                 RUNTIME_OUTPUT_DIRECTORY_${CONFIG} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG}}/backends"
                 UNITY_BUILD ON

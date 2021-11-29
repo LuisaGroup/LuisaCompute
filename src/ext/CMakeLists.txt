@@ -17,6 +17,7 @@ if (LUISA_COMPUTE_ENABLE_MIMALLOC)
     set_target_properties(mimalloc-static PROPERTIES UNITY_BUILD ON)
 endif ()
 
+set(FMT_OS OFF CACHE BOOL "" FORCE)
 add_subdirectory(fmt)
 target_compile_definitions(fmt-header-only INTERFACE FMT_CONSTEVAL=constexpr FMT_EXCEPTIONS=0)
 target_link_libraries(luisa-compute-ext INTERFACE fmt::fmt-header-only)

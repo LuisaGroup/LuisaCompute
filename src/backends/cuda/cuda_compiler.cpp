@@ -46,7 +46,8 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     auto ptx_file_name = fmt::format(
         "func_{:016x}.lib_{:016x}.opt_{:016x}.ptx",
         function.hash(), library_hash, opt_hash);
-    auto ptx_file_path = ctx.cache_directory() / ptx_file_name;
+    auto &&cache_dir = ctx.cache_directory();
+    auto ptx_file_path = cache_dir / ptx_file_name;
 
     // try disk cache
     if (std::ifstream ptx_file{ptx_file_path}; ptx_file.is_open()) {
