@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string_view>
+#include <iostream>
 
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
@@ -17,14 +18,30 @@
 
 namespace luisa {
 
-template<typename... Args>
-inline void log_verbose(Args &&...args) noexcept { spdlog::debug(std::forward<Args>(args)...); }
+namespace detail {
+void log_to_default_logger(spdlog::level::level_enum level, std::string_view message) noexcept;
+}
 
 template<typename... Args>
-inline void log_info(Args &&...args) noexcept { spdlog::info(std::forward<Args>(args)...); }
+inline void log_verbose(Args &&...args) noexcept {
+    detail::log_to_default_logger(
+        spdlog::level::debug,
+        fmt::format(std::forward<Args>(args)...));
+}
 
 template<typename... Args>
-inline void log_warning(Args &&...args) noexcept { spdlog::warn(std::forward<Args>(args)...); }
+inline void log_info(Args &&...args) noexcept {
+    detail::log_to_default_logger(
+        spdlog::level::info,
+        fmt::format(std::forward<Args>(args)...));
+}
+
+template<typename... Args>
+inline void log_warning(Args &&...args) noexcept {
+    detail::log_to_default_logger(
+        spdlog::level::warn,
+        fmt::format(std::forward<Args>(args)...));
+}
 
 template<typename... Args>
 [[noreturn]] LUISA_FORCE_INLINE void log_error(Args &&...args) noexcept {
@@ -37,7 +54,7 @@ template<typename... Args>
             FMT_STRING("\n    {:>2} [0x{:012x}]: {} :: {} + {}"sv),
             i, t.address, t.module, t.symbol, t.offset));
     }
-    spdlog::error("{}", error_message);
+    detail::log_to_default_logger(spdlog::level::err, error_message);
     std::abort();
 }
 
