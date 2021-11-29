@@ -21,10 +21,8 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device("cuda");
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_ISPC_ENABLED)
-    auto device = context.create_device("ispc");
 #else
-#error No backend available
+    auto device = context.create_device("ispc");
 #endif
 
     Callable palette = [](Float d) noexcept {

@@ -199,8 +199,6 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device("cuda", 0);
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal", 0u);
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
 #else
     auto device = FakeDevice::create(context);
 #endif
