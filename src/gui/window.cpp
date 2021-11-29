@@ -131,7 +131,7 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
         LUISA_ERROR_WITH_LOCATION("Failed to create GLFW window: {}.", error);
     }
     glfwMakeContextCurrent(_handle);
-    glfwSwapInterval(1);// disable vsync
+    glfwSwapInterval(0);// disable vsync
 
     if (!gladLoadGL()) { LUISA_ERROR_WITH_LOCATION("Failed to initialize GLAD."); }
 
