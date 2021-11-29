@@ -5,6 +5,7 @@ else ()
 endif ()
 mark_as_advanced(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT)
 option(LUISA_COMPUTE_ENABLE_MIMALLOC "Enable mimalloc" ${LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT})
+option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" OFF)
 
 add_subdirectory(ext)
 
