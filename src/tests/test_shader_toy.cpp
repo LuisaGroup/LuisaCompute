@@ -3,34 +3,28 @@
 //
 
 #include <iostream>
-
-#include <opencv2/opencv.hpp>
-#include <stb/stb_image_write.h>
-
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/syntax.h>
-#include <tests/fake_device.h>
+#include <gui/window.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
-
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda", 1);
+    auto device = context.create_device("cuda");
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
+#elif defined(LUISA_BACKEND_ISPC_ENABLED)
+    auto device = context.create_device("ispc");
 #else
-    auto device = FakeDevice::create(context);
+#error No backend available
 #endif
 
     Callable palette = [](Float d) noexcept {
@@ -100,32 +94,25 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 1024u;
     static constexpr auto height = 1024u;
-    static constexpr auto fps = 24.0f;
-    static constexpr auto frame_time = 1.0f / fps;
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    cv::Mat host_image{cv::Size{width, height}, CV_8UC4, cv::Scalar::all(0)};
-
-    cv::VideoWriter video{"demo.mp4", cv::VideoWriter::fourcc('m', 'p', '4', 'v'), 24.0f, {width, height}};
-    if (!video.isOpened()) { LUISA_WARNING("Failed to open video stream"); }
+    std::vector<std::array<uint8_t, 4u>> host_image(width * height);
 
     auto stream = device.create_stream();
     stream << clear(device_image).dispatch(width, height);
 
-    auto i = 0u;
-    auto time = 0.0f;
-    constexpr auto max_time = 60.0f;
-    cv::Mat frame;
-    while (time < max_time) {
-        Clock clock;
+    Window window{"Display", make_uint2(width, height)};
+    window.set_key_callback([&](int key, int action) noexcept {
+        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
+            window.set_should_close();
+        }
+    });
+
+    Clock clock;
+    window.run([&]{
+        auto time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)
-               << device_image.copy_to(host_image.data)
+               << device_image.copy_to(host_image.data())
                << synchronize();
-        LUISA_INFO("Frame #{} ({}%): {} ms", i++, (time + frame_time) / max_time * 100.0f, clock.toc());
-        cv::cvtColor(host_image, frame, cv::COLOR_BGRA2BGR);
-        video.write(frame);
-        cv::imshow("Display", frame);
-        cv::waitKey(1);
-        time += frame_time;
-    }
-    video.release();
+        window.set_background(host_image.data(), make_uint2(width, height));
+    });
 }
