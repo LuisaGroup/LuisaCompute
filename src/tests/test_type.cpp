@@ -56,7 +56,7 @@ struct Test {
 using namespace luisa;
 using namespace luisa::compute;
 
-struct alignas(32) AA {
+struct alignas(16) AA {
     float4 x;
     float ba[16];
     float a;
