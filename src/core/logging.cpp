@@ -9,24 +9,24 @@
 namespace luisa {
 
 namespace detail {
-
-[[nodiscard]] static spdlog::logger *default_logger() noexcept {
+[[nodiscard]] spdlog::logger &default_logger() noexcept {
     static auto logger = [] {
         auto sink = luisa::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        return spdlog::logger{"LuisaCompute", sink};
+        spdlog::logger l{"LuisaCompute", sink};
+#ifndef NDEBUG
+        l.set_level(spdlog::level::debug);
+#else
+        l.set_level(spdlog::level::info);
+#endif
+        return l;
     }();
-    return &logger;
+    return logger;
+}
 }
 
-void log_to_default_logger(spdlog::level::level_enum level, std::string_view message) noexcept {
-    default_logger()->log(level, "{}",  message);
-}
-
-}
-
-void log_level_verbose() noexcept { detail::default_logger()->set_level(spdlog::level::debug); }
-void log_level_info() noexcept { detail::default_logger()->set_level(spdlog::level::info); }
-void log_level_warning() noexcept { detail::default_logger()->set_level(spdlog::level::warn); }
-void log_level_error() noexcept { detail::default_logger()->set_level(spdlog::level::err); }
+void log_level_verbose() noexcept { detail::default_logger().set_level(spdlog::level::debug); }
+void log_level_info() noexcept { detail::default_logger().set_level(spdlog::level::info); }
+void log_level_warning() noexcept { detail::default_logger().set_level(spdlog::level::warn); }
+void log_level_error() noexcept { detail::default_logger().set_level(spdlog::level::err); }
 
 }// namespace luisa
