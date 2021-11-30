@@ -77,10 +77,14 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 #define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
 
-#define LUISA_MAKE_COMMAND_COMMON(Cmd)    \
-    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd)
+#define LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd) \
+    [[nodiscard]] Command *clone() const noexcept override { return Cmd::create(*this); }
+
+#define LUISA_MAKE_COMMAND_COMMON(Cmd)     \
+    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)  \
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)  \
+    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)
 
 class Command {
 
@@ -97,12 +101,13 @@ protected:
 
 public:
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
+    [[nodiscard]] virtual Command *clone() const noexcept = 0;
     [[nodiscard]] auto next() const noexcept { return _next(); }
     auto set_next(Command *cmd) noexcept { return _set_next(cmd); }
     void recycle();
 };
 
-class BufferUploadCommand : public Command {
+class BufferUploadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -123,7 +128,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferUploadCommand)
 };
 
-class BufferDownloadCommand : public Command {
+class BufferDownloadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -144,7 +149,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferDownloadCommand)
 };
 
-class BufferCopyCommand : public Command {
+class BufferCopyCommand final : public Command {
 
 private:
     uint64_t _src_handle;
@@ -168,7 +173,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferCopyCommand)
 };
 
-class BufferToTextureCopyCommand : public Command {
+class BufferToTextureCopyCommand final : public Command {
 
 private:
     uint64_t _buffer_handle;
@@ -197,7 +202,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferToTextureCopyCommand)
 };
 
-class TextureToBufferCopyCommand : public Command {
+class TextureToBufferCopyCommand final : public Command {
 
 private:
     uint64_t _buffer_handle;
@@ -226,7 +231,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureToBufferCopyCommand)
 };
 
-class TextureCopyCommand : public Command {
+class TextureCopyCommand final : public Command {
 
 private:
     uint64_t _src_handle;
@@ -260,7 +265,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureCopyCommand)
 };
 
-class TextureUploadCommand : public Command {
+class TextureUploadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -289,7 +294,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand)
 };
 
-class TextureDownloadCommand : public Command {
+class TextureDownloadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -322,7 +327,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class ShaderDispatchCommand : public Command {
+class ShaderDispatchCommand final : public Command {
 
 public:
     struct alignas(16) Argument {
@@ -479,7 +484,7 @@ enum struct AccelBuildHint {
     FAST_REBUILD// optimize for frequent rebuild, maybe without compaction
 };
 
-class MeshBuildCommand : public Command {
+class MeshBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -491,7 +496,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
-class MeshUpdateCommand : public Command {
+class MeshUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -502,7 +507,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
 };
 
-class AccelBuildCommand : public Command {
+class AccelBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -524,7 +529,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
 
-class AccelUpdateCommand : public Command {
+class AccelUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -544,7 +549,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 
-class BindlessArrayUpdateCommand : public Command {
+class BindlessArrayUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -563,6 +568,7 @@ public:
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE
 #undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
 #undef LUISA_MAKE_COMMAND_COMMON_RECYCLE
+#undef LUISA_MAKE_COMMAND_COMMON_CLONE
 #undef LUISA_MAKE_COMMAND_COMMON
 
 }// namespace luisa::compute
