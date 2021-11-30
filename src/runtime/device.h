@@ -115,7 +115,7 @@ public:
     };
 
     using Deleter = void(Interface *);
-    using Creator = Interface *(const Context &ctx, uint32_t index);
+    using Creator = Interface *(const Context & /* context */, std::string_view /* properties */);
     using Handle = std::shared_ptr<Interface>;
 
 private:
@@ -133,10 +133,10 @@ public:
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
-    [[nodiscard]] Stream create_stream() noexcept;               // see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;                 // see definition in runtime/event.cpp
-    [[nodiscard]] Mesh create_mesh() noexcept;                   // see definition in rtx/mesh.cpp
-    [[nodiscard]] Accel create_accel() noexcept;                 // see definition in rtx/accel.cpp
+    [[nodiscard]] Stream create_stream() noexcept;                                    // see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;                                      // see definition in runtime/event.cpp
+    [[nodiscard]] Mesh create_mesh() noexcept;                                        // see definition in rtx/mesh.cpp
+    [[nodiscard]] Accel create_accel() noexcept;                                      // see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.cpp
 
     template<typename T>

@@ -37,9 +37,9 @@ char *luisa_compute_context_cache_directory(void *ctx) LUISA_NOEXCEPT {
     return path_to_c_str(static_cast<RC<Context> *>(ctx)->object()->cache_directory());
 }
 
-void *luisa_compute_device_create(void *ctx, const char *name, uint32_t index) LUISA_NOEXCEPT {
+void *luisa_compute_device_create(void *ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
     return RC<Device>::create(
-        static_cast<RC<Context> *>(ctx)->retain()->create_device(name, index));
+        static_cast<RC<Context> *>(ctx)->retain()->create_device(name, properties));
 }
 
 void luisa_compute_device_destroy(void *ctx, void *device) LUISA_NOEXCEPT {

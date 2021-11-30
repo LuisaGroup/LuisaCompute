@@ -5,6 +5,8 @@
 #include <cstring>
 #include <fstream>
 
+#include <nlohmann/json.hpp>
+
 #include <runtime/sampler.h>
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_device.h>
@@ -385,8 +387,8 @@ std::string_view CUDADevice::Handle::name() const noexcept {
 
 }// namespace luisa::compute::cuda
 
-LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
-    return new luisa::compute::cuda::CUDADevice{ctx, id};
+LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, std::string_view properties) noexcept {
+    return new luisa::compute::cuda::CUDADevice{ctx, 0};// TODO: decode properties
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {

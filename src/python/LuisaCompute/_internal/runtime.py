@@ -43,11 +43,11 @@ def context_cache_directory(ctx):
 
 
 dll.luisa_compute_device_create.restype = c_void_p
-dll.luisa_compute_device_create.argtypes = [c_void_p, c_char_p, c_uint32]
+dll.luisa_compute_device_create.argtypes = [c_void_p, c_char_p, c_char_p]
 
 
-def device_create(ctx, name, index):
-    return dll.luisa_compute_device_create(ctx, name.encode(), index)
+def device_create(ctx, name, properties):
+    return dll.luisa_compute_device_create(ctx, name.encode(), properties.encode())
 
 
 dll.luisa_compute_device_destroy.restype = None

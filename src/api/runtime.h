@@ -13,7 +13,7 @@ LUISA_EXPORT_API void luisa_compute_context_destroy(void *ctx) LUISA_NOEXCEPT;
 LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(void *ctx) LUISA_NOEXCEPT;
 LUISA_EXPORT_API char *luisa_compute_context_cache_directory(void *ctx) LUISA_NOEXCEPT;
 
-LUISA_EXPORT_API void *luisa_compute_device_create(void *ctx, const char *name, uint32_t index) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void *luisa_compute_device_create(void *ctx, const char *name, const char *properties) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_device_destroy(void *ctx, void *device) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API uint64_t luisa_compute_buffer_create(void *device, size_t size) LUISA_NOEXCEPT;

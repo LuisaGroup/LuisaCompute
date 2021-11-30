@@ -129,8 +129,8 @@ bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) n
 
 }// namespace lc::ispc
 
-LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
-    return luisa::new_with_allocator<lc::ispc::ISPCDevice>(ctx, id);
+LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, std::string_view properties) noexcept {
+    return luisa::new_with_allocator<lc::ispc::ISPCDevice>(ctx, 0);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {

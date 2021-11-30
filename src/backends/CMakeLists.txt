@@ -35,10 +35,6 @@ if (LUISA_COMPUTE_ENABLE_DX)
     # add_subdirectory(dx)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_LLVM)
-    # add_subdirectory(llvm)
-endif ()
-
 if (LUISA_COMPUTE_ENABLE_METAL)
     add_subdirectory(metal)
 endif ()
