@@ -23,7 +23,7 @@ int main() {
 
     auto json = nlohmann::json::parse("{}");
     LUISA_INFO("Index: {}", json.value("index", 0));
-    for (auto iter = ops.begin(); iter != ops.end(); iter++) {
-        LUISA_INFO("Op: {}", to_underlying(*iter));
+    for (auto op : ops) {
+        LUISA_INFO("Op: {}", to_underlying(op));
     }
 }

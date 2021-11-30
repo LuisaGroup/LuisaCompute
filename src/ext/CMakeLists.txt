@@ -51,6 +51,8 @@ target_link_libraries(luisa-compute-ext INTERFACE asio)
 add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext INTERFACE stb)
 
+set(JSON_MultipleHeaders ON CACHE BOOL "" FORCE)
+set(JSON_SystemInclude ON CACHE BOOL "" FORCE)
 add_subdirectory(json)
 target_link_libraries(luisa-compute-ext INTERFACE nlohmann_json::nlohmann_json)
 
