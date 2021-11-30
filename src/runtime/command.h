@@ -84,37 +84,8 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 
 class Command {
 
-public:
-    struct Binding {
-
-        enum struct Tag : uint32_t {
-            NONE,
-            BUFFER,
-            TEXTURE,
-            BINDLESS_ARRAY,
-            ACCEL
-        };
-
-        uint64_t handle{0u};
-        Tag tag{Tag::NONE};
-        Usage usage{Usage::NONE};
-
-        constexpr Binding(uint64_t handle, Tag tag, Usage usage) noexcept
-            : handle{handle}, tag{tag}, usage{usage} {}
-    };
-
 private:
-    std::vector<Binding> _resource_slots{};
     Command *_next_command{nullptr};
-
-protected:
-    void _use_resource(uint64_t handle, Binding::Tag tag, Usage usage) noexcept;
-    void _buffer_read_only(uint64_t handle) noexcept;
-    void _buffer_write_only(uint64_t handle) noexcept;
-    void _buffer_read_write(uint64_t handle) noexcept;
-    void _texture_read_only(uint64_t handle) noexcept;
-    void _texture_write_only(uint64_t handle) noexcept;
-    void _texture_read_write(uint64_t handle) noexcept;
 
 private:
     [[nodiscard]] auto _next() const noexcept { return _next_command; }
@@ -125,7 +96,6 @@ protected:
     ~Command() noexcept = default;
 
 public:
-    [[nodiscard]] std::span<const Binding> resources() const noexcept;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     [[nodiscard]] auto next() const noexcept { return _next(); }
     auto set_next(Command *cmd) noexcept { return _set_next(cmd); }
@@ -145,7 +115,7 @@ public:
         : _handle{handle},
           _offset{offset_bytes},
           _size{size_bytes},
-          _data{data} { _buffer_write_only(_handle); }
+          _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -166,7 +136,7 @@ public:
         : _handle{handle},
           _offset{offset_bytes},
           _size{size_bytes},
-          _data{data} { _buffer_read_only(_handle); }
+          _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -189,10 +159,7 @@ public:
           _dst_handle{dst},
           _src_offset{src_offset},
           _dst_offset{dst_offset},
-          _size{size} {
-        _buffer_read_only(_src_handle);
-        _buffer_write_only(_dst_handle);
-    }
+          _size{size} {}
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
@@ -219,10 +186,7 @@ public:
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
           _texture_offset{offset.x, offset.y, offset.z},
-          _texture_size{size.x, size.y, size.z} {
-        _buffer_read_only(_buffer_handle);
-        _texture_write_only(_texture_handle);
-    }
+          _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
@@ -251,10 +215,7 @@ public:
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
           _texture_offset{offset.x, offset.y, offset.z},
-          _texture_size{size.x, size.y, size.z} {
-        _texture_read_only(_texture_handle);
-        _buffer_write_only(_buffer_handle);
-    }
+          _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
@@ -288,10 +249,7 @@ public:
           _src_offset{src_offset.x, src_offset.y, src_offset.z},
           _dst_offset{dst_offset.x, dst_offset.y, dst_offset.z},
           _size{size.x, size.y, size.z},
-          _src_level{src_level}, _dst_level{dst_level} {
-        _texture_read_only(_src_handle);
-        _texture_write_only(_dst_handle);
-    }
+          _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return uint3(_src_offset[0], _src_offset[1], _src_offset[2]); }
@@ -321,7 +279,7 @@ public:
           _level{level},
           _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
-          _data{data} { _texture_write_only(_handle); }
+          _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
@@ -350,7 +308,7 @@ public:
           _level{level},
           _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
-          _data{data} { _texture_read_only(_handle); }
+          _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }

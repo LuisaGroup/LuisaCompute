@@ -36,6 +36,7 @@ private:
     Command *_head{nullptr};
     Command *_tail{nullptr};
 
+private:
     void _recycle() noexcept;
 
 public:

@@ -7,67 +7,7 @@
 
 namespace luisa::compute {
 
-std::span<const Command::Binding> Command::resources() const noexcept {
-    return _resource_slots;
-}
-
-inline void Command::_use_resource(
-    uint64_t handle, Command::Binding::Tag tag, Usage usage) noexcept {
-
-    if (auto iter = std::find_if(
-            _resource_slots.cbegin(),
-            _resource_slots.cend(),
-            [handle, tag, usage](auto b) noexcept {
-                return b.tag == tag && b.handle == handle;
-            });
-        iter == _resource_slots.cend()) [[likely]] {
-        _resource_slots.emplace_back(handle, tag, usage);
-    } else [[unlikely]] {
-        if ((to_underlying(iter->usage) & to_underlying(Usage::WRITE)) != 0u ||
-            (to_underlying(usage) & to_underlying(Usage::WRITE)) != 0u) {
-            auto t = [tag] {
-                using namespace std::string_view_literals;
-                switch (tag) {
-                    case Binding::Tag::BUFFER: return "buffer"sv;
-                    case Binding::Tag::TEXTURE: return "texture"sv;
-                    case Binding::Tag::BINDLESS_ARRAY: return "bindless array"sv;
-                    case Binding::Tag::ACCEL: return "accel"sv;
-                    default: return "unknown"sv;
-                }
-            }();
-            LUISA_WARNING_WITH_LOCATION(
-                "Aliasing in {} with handle {}.",
-                t, handle);
-        }
-    }
-}
-
-void Command::_buffer_read_only(uint64_t handle) noexcept {
-    _use_resource(handle, Binding::Tag::BUFFER, Usage::READ);
-}
-
-void Command::_buffer_write_only(uint64_t handle) noexcept {
-    _use_resource(handle, Binding::Tag::BUFFER, Usage::WRITE);
-}
-
-void Command::_buffer_read_write(uint64_t handle) noexcept {
-    _use_resource(handle, Binding::Tag::BUFFER, Usage::READ_WRITE);
-}
-
-void Command::_texture_read_only(uint64_t handle) noexcept {
-    _use_resource(handle, Binding::Tag::TEXTURE, Usage::READ);
-}
-
-void Command::_texture_write_only(uint64_t handle) noexcept {
-    _use_resource(handle, Binding::Tag::TEXTURE, Usage::WRITE);
-}
-
-void Command::_texture_read_write(uint64_t handle) noexcept {
-    _use_resource(handle, Binding::Tag::TEXTURE, Usage::READ_WRITE);
-}
-
 void Command::recycle() {
-    _resource_slots.clear();
     _recycle();
 }
 
@@ -88,7 +28,6 @@ void ShaderDispatchCommand::encode_buffer(
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(BufferArgument));
-    _use_resource(handle, Binding::Tag::BUFFER, usage);
     _argument_buffer_size += sizeof(BufferArgument);
     _argument_count++;
 }
@@ -110,7 +49,6 @@ void ShaderDispatchCommand::encode_texture(
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(TextureArgument));
-    _use_resource(handle, Binding::Tag::TEXTURE, usage);
     _argument_buffer_size += sizeof(TextureArgument);
     _argument_count++;
 }
@@ -161,7 +99,6 @@ void ShaderDispatchCommand::encode_bindless_array(uint32_t variable_uid, uint64_
     std::memcpy(
         _argument_buffer.data() + _argument_buffer_size,
         &argument, sizeof(BindlessArrayArgument));
-    _use_resource(handle, Binding::Tag::BINDLESS_ARRAY, Usage::READ);
     _argument_buffer_size += sizeof(BindlessArrayArgument);
     _argument_count++;
 }
@@ -176,7 +113,6 @@ void ShaderDispatchCommand::encode_accel(uint32_t variable_uid, uint64_t handle)
     }
     AccelArgument argument{variable_uid, handle};
     std::memcpy(_argument_buffer.data() + _argument_buffer_size, &argument, size);
-    _use_resource(handle, Binding::Tag::ACCEL, Usage::READ);
     _argument_buffer_size += size;
     _argument_count++;
 }
