@@ -34,9 +34,6 @@ target_link_libraries(test_rtx PRIVATE luisa::compute)
 add_executable(test_path_tracing test_path_tracing.cpp)
 target_link_libraries(test_path_tracing PRIVATE luisa::compute)
 
-add_executable(test_pt_match test_pt_match.cpp)
-target_link_libraries(test_pt_match PRIVATE luisa::compute)
-
 add_executable(test_wavefront_pt test_wavefront_pt.cpp)
 target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
 
@@ -55,8 +52,6 @@ if (OpenCV_FOUND)
     target_link_libraries(test_game_of_life PRIVATE luisa::compute ${OpenCV_LIBS})
     add_executable(test_path_tracing_display test_path_tracing_display.cpp)
     target_link_libraries(test_path_tracing_display PRIVATE luisa::compute ${OpenCV_LIBS})
-    add_executable(test_pt_match_display test_pt_match_display.cpp)
-    target_link_libraries(test_pt_match_display PRIVATE luisa::compute ${OpenCV_LIBS})
     add_executable(test_sdf_renderer test_sdf_renderer.cpp)
     target_link_libraries(test_sdf_renderer PRIVATE luisa::compute ${OpenCV_LIBS})
     add_executable(test_sdf_renderer_multidev test_sdf_renderer_multidev.cpp)

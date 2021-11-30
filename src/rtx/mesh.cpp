@@ -6,15 +6,12 @@
 
 namespace luisa::compute {
 
-Mesh Device::create_mesh() noexcept { return _create<Mesh>(); }
-
 Command *Mesh::update() noexcept {
-    if (!_built) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Mesh #{} is not built when updating.",
-            handle());
-    }
     return MeshUpdateCommand::create(handle());
+}
+
+Command *Mesh::build() noexcept {
+    return MeshBuildCommand::create(handle());
 }
 
 }// namespace luisa::compute

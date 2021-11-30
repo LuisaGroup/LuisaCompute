@@ -58,8 +58,12 @@ private:
     void synchronize_event(uint64_t handle) noexcept override;
 
     // accel
-    uint64_t create_mesh() noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
+
+public:
+    uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept override;
+
+private:
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
 

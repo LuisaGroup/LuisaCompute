@@ -90,14 +90,14 @@ int main(int argc, char *argv[]) {
         LUISA_INFO(
             "Processing shape '{}' at index {} with {} triangle(s).",
             shape.name, index, triangle_count);
-        auto &&mesh = meshes.emplace_back(device.create_mesh());
         std::vector<uint> indices;
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
         auto triangle_buffer = device.create_buffer<Triangle>(triangle_count);
+        auto &&mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer);
+               << mesh.build();
     }
     stream << heap.update();
 

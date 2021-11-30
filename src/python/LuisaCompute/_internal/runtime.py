@@ -187,11 +187,11 @@ def event_synchronize(device, handle):
 
 
 dll.luisa_compute_mesh_create.restype = c_uint64
-dll.luisa_compute_mesh_create.argtypes = [c_void_p]
+dll.luisa_compute_mesh_create.argtypes = [c_void_p, c_uint64, c_size_t, c_size_t, c_size_t, c_uint64, c_size_t, c_size_t, c_uint32]
 
 
-def mesh_create(device):
-    return dll.luisa_compute_mesh_create(device)
+def mesh_create(device, v_buffer, v_offset, v_stride, v_count, t_buffer, t_offset, t_count, hint):
+    return dll.luisa_compute_mesh_create(device, v_buffer, v_offset, v_stride, v_count, t_buffer, t_offset, t_count, hint)
 
 
 dll.luisa_compute_mesh_destroy.restype = None
@@ -363,11 +363,11 @@ def command_dispatch_shader_encode_accel(cmd, vid, accel):
 
 
 dll.luisa_compute_command_build_mesh.restype = c_void_p
-dll.luisa_compute_command_build_mesh.argtypes = [c_uint64, c_uint32, c_uint64, c_size_t, c_size_t, c_size_t, c_uint64, c_size_t, c_size_t]
+dll.luisa_compute_command_build_mesh.argtypes = [c_uint64]
 
 
-def command_build_mesh(handle, hint, v_buffer, v_offset, v_stride, v_count, t_buffer, t_offset, t_count):
-    return dll.luisa_compute_command_build_mesh(handle, hint, v_buffer, v_offset, v_stride, v_count, t_buffer, t_offset, t_count)
+def command_build_mesh(handle):
+    return dll.luisa_compute_command_build_mesh(handle)
 
 
 dll.luisa_compute_command_update_mesh.restype = c_void_p

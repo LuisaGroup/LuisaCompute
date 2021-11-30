@@ -31,6 +31,7 @@ private:
 protected:
     void _destroy() noexcept;
     Resource(Device::Interface *device, Tag tag, uint64_t handle) noexcept;
+    void _set_handle(uint64_t h) noexcept { _handle = h; }
 
 public:
     virtual ~Resource() noexcept { _destroy(); }

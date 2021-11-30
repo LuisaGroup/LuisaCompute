@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(3u);
     auto triangle_buffer = device.create_buffer<Triangle>(1u);
-    auto mesh = device.create_mesh();
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     auto accel = device.create_accel();
     std::vector instances{mesh.handle(), mesh.handle()};
     std::vector transforms{scaling(1.5f),
@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
                                rotation(float3(0.0f, 0.0f, 1.0f), 0.5f)};
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data())
-           << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer)
+           << mesh.build()
            << accel.build(AccelBuildHint::FAST_TRACE, instances, transforms)
            << synchronize();
     auto raytracing_shader = device.compile(raytracing_kernel);

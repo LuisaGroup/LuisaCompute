@@ -78,7 +78,7 @@ public:
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
-    uint64_t create_mesh() noexcept override;
+    uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint)  noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel() noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;

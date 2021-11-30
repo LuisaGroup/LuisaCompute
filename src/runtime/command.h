@@ -483,31 +483,11 @@ class MeshBuildCommand : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildHint _hint;
-    uint64_t _vertex_buffer_handle;
-    size_t _vertex_buffer_offset;
-    size_t _vertex_stride;
-    size_t _vertex_count;
-    uint64_t _triangle_buffer_handle;
-    size_t _triangle_buffer_offset;
-    size_t _triangle_count;
 
 public:
-    MeshBuildCommand(uint64_t handle, AccelBuildHint hint,
-                     uint64_t v_handle, size_t v_offset, size_t v_stride, size_t v_count,
-                     uint64_t t_handle, size_t t_offset, size_t t_count) noexcept
-        : _handle{handle}, _hint{hint},
-          _vertex_buffer_handle{v_handle}, _vertex_buffer_offset{v_offset}, _vertex_stride{v_stride}, _vertex_count{v_count},
-          _triangle_buffer_handle{t_handle}, _triangle_buffer_offset{t_offset}, _triangle_count{t_count} {}
+    MeshBuildCommand(uint64_t handle) noexcept
+        : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto vertex_buffer_handle() const noexcept { return _vertex_buffer_handle; }
-    [[nodiscard]] auto vertex_buffer_offset() const noexcept { return _vertex_buffer_offset; }
-    [[nodiscard]] auto vertex_stride() const noexcept { return _vertex_stride; }
-    [[nodiscard]] auto vertex_count() const noexcept { return _vertex_count; }
-    [[nodiscard]] auto triangle_buffer_handle() const noexcept { return _triangle_buffer_handle; }
-    [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
-    [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
-    [[nodiscard]] auto hint() const noexcept { return _hint; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
