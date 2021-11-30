@@ -18,7 +18,7 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install cmake
           sudo apt-get -y install gcc-11 g++-11 build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
-      #          sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+          sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
       #      - name: "Setup CUDA"
       #        uses: Jimver/cuda-toolkit@v0.2.4
       #        with:
@@ -26,23 +26,23 @@ jobs:
       #          linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LUISA_COMPUTE_ENABLE_LLVM=OFF -D LUISA_COMPUTE_ENABLE_ISPC=OFF
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LUISA_COMPUTE_ENABLE_LLVM=OFF -D LUISA_COMPUTE_ENABLE_ISPC=ON
           cmake --build build
 
-#  build-macos:
-#    runs-on: macos-latest
-#    steps:
-#      - uses: actions/checkout@v2
-#        with:
-#          submodules: recursive
-#      - name: "Install Dependencies"
-#        run: |
-#          brew install cmake ninja opencv llvm sccache
-#      - name: "Configure and Build"
-#        run: |
-#          export PATH=$PATH:/usr/local/opt/llvm/bin
-#          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++ -D LUISA_COMPUTE_ENABLE_LLVM=OFF
-#          cmake --build build
+  #  build-macos:
+  #    runs-on: macos-latest
+  #    steps:
+  #      - uses: actions/checkout@v2
+  #        with:
+  #          submodules: recursive
+  #      - name: "Install Dependencies"
+  #        run: |
+  #          brew install cmake ninja opencv llvm sccache
+  #      - name: "Configure and Build"
+  #        run: |
+  #          export PATH=$PATH:/usr/local/opt/llvm/bin
+  #          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++ -D LUISA_COMPUTE_ENABLE_LLVM=OFF
+  #          cmake --build build
 
   build-windows:
     runs-on: windows-latest
