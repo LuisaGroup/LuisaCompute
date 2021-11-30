@@ -13,6 +13,7 @@ if (WIN32)
             _ENABLE_EXTENDED_ALIGNED_STORAGE=1
             _CRT_SECURE_NO_WARNINGS=1
             _UNICODE=1)
+    set(CMAKE_SHARED_MODULE_PREFIX "") # for MinGW/Cygwin etc.
 endif ()
 
 add_subdirectory(ext)
