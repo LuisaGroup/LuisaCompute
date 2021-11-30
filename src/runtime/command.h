@@ -77,8 +77,10 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 #define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
 
-#define LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd) \
-    [[nodiscard]] Command *clone() const noexcept override { return Cmd::create(*this); }
+#define LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)                 \
+    [[nodiscard]] Command *clone() const noexcept override { \
+        return Cmd::create(*this)->_set_next(nullptr);       \
+    }
 
 #define LUISA_MAKE_COMMAND_COMMON(Cmd)     \
     LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)  \
@@ -91,12 +93,10 @@ class Command {
 private:
     Command *_next_command{nullptr};
 
-private:
+protected:
     [[nodiscard]] auto _next() const noexcept { return _next_command; }
     Command *_set_next(Command *cmd) noexcept { return cmd == nullptr ? this : (_next_command = cmd); }
     virtual void _recycle() noexcept = 0;
-
-protected:
     ~Command() noexcept = default;
 
 public:
