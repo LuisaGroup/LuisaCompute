@@ -8,13 +8,60 @@
 
 namespace luisa::compute {
 
+class CmdVisitor : public CommandVisitor {
+
+
+
+public:
+    // Buffer : resource
+    void visit(const BufferUploadCommand *command) noexcept override {
+    }
+    void visit(const BufferDownloadCommand *command) noexcept override {
+    }
+    void visit(const BufferCopyCommand *command) noexcept override {
+    }
+    void visit(const BufferToTextureCopyCommand *command) noexcept override {
+    }
+    // Shader : function, read/write multi resources
+    void visit(const ShaderDispatchCommand *command) noexcept override {
+    }
+    // Texture : resource
+    void visit(const TextureUploadCommand *command) noexcept override {
+    }
+    void visit(const TextureDownloadCommand *command) noexcept override {
+    }
+    void visit(const TextureCopyCommand *command) noexcept override {
+    }
+    void visit(const TextureToBufferCopyCommand *command) noexcept override {
+    }
+    // Accel : ray tracing resource, ignored
+    void visit(const AccelUpdateCommand *command) noexcept override {
+    }
+    void visit(const AccelBuildCommand *command) noexcept override {
+    }
+    // Mesh : ray tracing resource, ignored
+    void visit(const MeshUpdateCommand *command) noexcept override {
+    }
+    void visit(const MeshBuildCommand *command) noexcept override {
+    }
+    // BindlessArray : read multi resources
+    void visit(const BindlessArrayUpdateCommand *command) noexcept override {
+    }
+};
+
 Stream Device::create_stream() noexcept {
     return _create<Stream>();
 }
 
-void Stream::_dispatch(CommandList command_buffer) noexcept {
+void Stream::_dispatch(CommandList commands) noexcept {
+
+    CmdVisitor visitor;
+    for (auto cmd : commands) {
+        cmd->accept(visitor);
+    }
     // TODO: reorder commands and separate them into command lists without hazards inside...
-    device()->dispatch(handle(), std::move(command_buffer));
+
+    device()->dispatch(handle(), std::move(commands));
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
