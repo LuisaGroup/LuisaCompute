@@ -1,7 +1,8 @@
 if (LUISA_COMPUTE_ENABLE_GUI)
     set(LUISA_COMPUTE_GUI_SOURCES
             imgui_impl_glfw.cpp imgui_impl_glfw.h
-            window.cpp window.h)
+            window.cpp window.h
+            framerate.cpp framerate.h)
     add_library(luisa-compute-gui SHARED ${LUISA_COMPUTE_GUI_SOURCES})
     target_link_libraries(luisa-compute-gui PUBLIC luisa-compute-core luisa-compute-ext)
     target_compile_definitions(luisa-compute-gui PUBLIC LUISA_GUI_ENABLED=1)

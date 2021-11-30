@@ -9,6 +9,7 @@
 #include <runtime/event.h>
 #include <dsl/syntax.h>
 #include <gui/window.h>
+#include <gui/framerate.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -106,11 +107,17 @@ int main(int argc, char *argv[]) {
     });
 
     Clock clock;
+    Framerate framerate{32};
     window.run([&]{
+        framerate.record();
         auto time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)
                << device_image.copy_to(host_image.data())
                << synchronize();
         window.set_background(host_image.data(), make_uint2(width, height));
+
+        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Text("FPS: %.1f", framerate.report());
+        ImGui::End();
     });
 }
