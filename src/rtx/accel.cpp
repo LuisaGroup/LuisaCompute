@@ -49,7 +49,7 @@ Accel &Accel::emplace_back(const Mesh &mesh, float4x4 transform) noexcept {
             "Accel #{} is not allowed.",
             handle());
     }
-    device()->emplace_mesh_in_accel(handle(), mesh.handle(), transform);
+    device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform);
     _size++;
     return *this;
 }
@@ -60,7 +60,7 @@ Accel &Accel::set_transform(size_t index, float4x4 transform) noexcept {
             "Invalid index {} in accel #{}.",
             index, handle());
     }
-    device()->update_transform_in_accel(handle(), index, transform);
+    device()->set_instance_transform_in_accel(handle(), index, transform);
     return *this;
 }
 

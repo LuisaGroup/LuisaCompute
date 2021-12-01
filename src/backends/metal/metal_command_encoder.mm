@@ -306,8 +306,11 @@ MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noex
 
 void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
     auto array = to_bindless_array(command->handle());
-    auto offset_bytes = MetalBindlessArray::slot_size * command->offset();
-    auto size_bytes = MetalBindlessArray::slot_size * command->count();
+    auto dirty_range = array->dirty_range();
+    array->clear_dirty_range();
+    if (dirty_range.empty()) { return; }
+    auto offset_bytes = MetalBindlessArray::slot_size * dirty_range.offset();
+    auto size_bytes = MetalBindlessArray::slot_size * dirty_range.size();
     auto temp_buffer = _upload(static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temp_buffer.handle()
@@ -322,21 +325,13 @@ void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexc
 
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
     auto accel = to_accel(command->handle());
-    _command_buffer = accel->update(
-        _stream,
-        _command_buffer,
-        command->updated_transforms(),
-        command->first_instance_to_update());
+    _command_buffer = accel->update(_stream, _command_buffer);
 }
 
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = to_accel(command->handle());
     _command_buffer = accel->build(
-        _stream,
-        _command_buffer, command->hint(),
-        command->instance_mesh_handles(),
-        command->instance_transforms(),
-        _device->compacted_size_buffer_pool());
+        _stream, _command_buffer, _device->compacted_size_buffer_pool());
 }
 
 void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
@@ -346,14 +341,8 @@ void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = to_mesh(command->handle());
-    auto v_buffer = to_buffer(command->vertex_buffer_handle());
-    auto t_buffer = to_buffer(command->triangle_buffer_handle());
     _command_buffer = mesh->build(
-        _stream,
-        _command_buffer, command->hint(),
-        v_buffer, command->vertex_buffer_offset(), command->vertex_stride(),
-        t_buffer, command->triangle_buffer_offset(), command->triangle_count(),
-        _device->compacted_size_buffer_pool());
+        _stream, _command_buffer, _device->compacted_size_buffer_pool());
 }
 
 #else

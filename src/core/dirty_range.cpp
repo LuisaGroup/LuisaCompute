@@ -13,7 +13,7 @@ void DirtyRange::clear() noexcept {
 }
 
 void DirtyRange::mark(size_t index) noexcept {
-    if (_size == 0u) {
+    if (empty()) {
         _offset = index;
         _size = 1u;
     } else {

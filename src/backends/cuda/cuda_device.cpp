@@ -347,11 +347,11 @@ void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     });
 }
 
-void CUDADevice::emplace_mesh_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept {
+void CUDADevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept {
     // TODO
 }
 
-void CUDADevice::update_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
+void CUDADevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
     // TODO
 }
 

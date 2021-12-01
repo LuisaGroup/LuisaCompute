@@ -81,8 +81,8 @@ public:
     uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint)  noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel(AccelBuildHint hint) noexcept override;
-    void emplace_mesh_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept override;
-    void update_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
+    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept override;
+    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
     uint64_t create_bindless_array(size_t size) noexcept override;

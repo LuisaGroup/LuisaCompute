@@ -8,13 +8,9 @@
 
 namespace luisa::compute::metal {
 
-id<MTLCommandBuffer> MetalMesh::build(
-    MetalStream *stream,
-    id<MTLCommandBuffer> command_buffer,
-    AccelBuildHint hint,
+MetalMesh::MetalMesh(
     id<MTLBuffer> v_buffer, size_t v_offset, size_t v_stride,
-    id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count,
-    MetalSharedBufferPool *pool) noexcept {
+    id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
 
     auto mesh_desc = [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
     mesh_desc.vertexBuffer = v_buffer;
@@ -25,27 +21,34 @@ id<MTLCommandBuffer> MetalMesh::build(
     mesh_desc.indexType = MTLIndexTypeUInt32;
     mesh_desc.triangleCount = t_count;
     mesh_desc.opaque = YES;
-    auto descriptor = [MTLPrimitiveAccelerationStructureDescriptor descriptor];
-    descriptor.geometryDescriptors = @[mesh_desc];
-    _descriptor = descriptor;
+    _descriptor = [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+    _descriptor.geometryDescriptors = @[mesh_desc];
     switch (hint) {
         case AccelBuildHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
         case AccelBuildHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;
         case AccelBuildHint::FAST_REBUILD: _descriptor.usage = MTLAccelerationStructureUsagePreferFastBuild; break;
     }
+}
+
+id<MTLCommandBuffer> MetalMesh::build(
+    MetalStream *stream,
+    id<MTLCommandBuffer> command_buffer,
+    MetalSharedBufferPool *pool) noexcept {
+
     auto device = command_buffer.device;
     auto sizes = [device accelerationStructureSizesWithDescriptor:_descriptor];
-    _update_scratch_size = sizes.refitScratchBufferSize;
+    _update_buffer_size = sizes.refitScratchBufferSize;
     _handle = [device newAccelerationStructureWithSize:sizes.accelerationStructureSize];
     auto scratch_buffer = [device newBufferWithLength:sizes.buildScratchBufferSize
-                                               options:MTLResourceStorageModePrivate
-                                                       | MTLResourceHazardTrackingModeUntracked];
+                                              options:MTLResourceStorageModePrivate |
+                                                      MTLResourceHazardTrackingModeUntracked];
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
     [command_encoder buildAccelerationStructure:_handle
                                      descriptor:_descriptor
                                   scratchBuffer:scratch_buffer
                             scratchBufferOffset:0u];
-    if (hint != AccelBuildHint::FAST_REBUILD) {
+
+    if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
         auto compacted_size_buffer = pool->allocate();
         [command_encoder writeCompactedAccelerationStructureSize:_handle
                                                         toBuffer:compacted_size_buffer.handle()
@@ -55,8 +58,7 @@ id<MTLCommandBuffer> MetalMesh::build(
         auto p_compacted_size = &compacted_size;
         [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
           *p_compacted_size = *reinterpret_cast<const uint *>(
-              static_cast<const std::byte *>(compacted_size_buffer.handle().contents)
-              + compacted_size_buffer.offset());
+              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset());
           pool->recycle(compacted_size_buffer);
         }];
         stream->dispatch(command_buffer);
@@ -77,9 +79,9 @@ id<MTLCommandBuffer> MetalMesh::update(
     id<MTLCommandBuffer> command_buffer) {
 
     auto device = command_buffer.device;
-    if (_update_buffer == nullptr || _update_buffer.length < _update_scratch_size) {
-        _update_buffer = [device newBufferWithLength:_update_scratch_size
-                                              options:MTLResourceStorageModePrivate];
+    if (_update_buffer == nullptr || _update_buffer.length < _update_buffer_size) {
+        _update_buffer = [device newBufferWithLength:_update_buffer_size
+                                             options:MTLResourceStorageModePrivate];
     }
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
     [command_encoder refitAccelerationStructure:_handle
