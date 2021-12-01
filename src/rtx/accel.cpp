@@ -24,7 +24,7 @@ Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
     : Resource{device, Tag::ACCEL, device->create_accel(hint)} {}
 
 Command *Accel::update() noexcept {
-    if (!_built) [[unlikely]] {
+    if (_requires_rebuild) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Accel #{} requires rebuild rather than update. "
             "Automatically replacing with AccelBuildCommand.",
@@ -43,13 +43,10 @@ Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
 }
 
 Accel &Accel::emplace_back(const Mesh &mesh, float4x4 transform) noexcept {
-    if (_built) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Adding instance to already built "
-            "Accel #{} is not allowed.",
-            handle());
-    }
+    _set_requires_rebuild();
     device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform);
+    mesh._register(this);
+    _meshes.emplace(&mesh);
     _size++;
     return *this;
 }
@@ -65,8 +62,12 @@ Accel &Accel::set_transform(size_t index, float4x4 transform) noexcept {
 }
 
 Command *Accel::build() noexcept {
-    _built = true;
+    _requires_rebuild = false;
     return AccelBuildCommand::create(handle());
+}
+
+Accel::~Accel() noexcept {
+    for (auto m : _meshes) { m->_remove(this); }
 }
 
 }// namespace luisa::compute

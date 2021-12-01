@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/basic_types.h>
+#include <core/allocator.h>
 
 #include <rtx/ray.h>
 #include <rtx/hit.h>
@@ -15,12 +16,15 @@ namespace luisa::compute {
 class Accel : public Resource {
 
 private:
+    luisa::unordered_set<const Mesh *> _meshes;
     size_t _size{};
-    bool _built{false};
+    bool _requires_rebuild{true};
 
 private:
     friend class Device;
+    friend class Mesh;
     explicit Accel(Device::Interface *device, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;
+    void _set_requires_rebuild() noexcept { _requires_rebuild = true; }
 
 public:
     Accel() noexcept = default;
@@ -34,6 +38,7 @@ public:
     // shader functions
     [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
     [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
+    ~Accel() noexcept override;
 };
 
 template<>

@@ -104,8 +104,8 @@ int main(int argc, char *argv[]) {
                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data())
-           << mesh.build()
-           << accel.build()
+           << mesh.update()
+           << accel.update()
            << synchronize();
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto colorspace_shader = device.compile(colorspace_kernel);
@@ -128,6 +128,12 @@ int main(int argc, char *argv[]) {
                << mesh.update()
                << accel.update()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
+        if (i == 511u) {
+            accel.emplace_back(
+                mesh,
+                translation(make_float3(0.0f, 0.0f, 0.1f)) *
+                    rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f)));
+        }
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)
            << ldr_image.copy_to(pixels.data())

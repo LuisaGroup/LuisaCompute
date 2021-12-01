@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/allocator.h>
 #include <runtime/device.h>
 #include <runtime/buffer.h>
 #include <dsl/syntax.h>
@@ -16,11 +17,19 @@ struct Triangle {
     uint i2;
 };
 
+class Accel;
+
 class Mesh : public Resource {
 
 private:
+    mutable luisa::unordered_set<Accel *> _observers;
     bool _requires_rebuild{true};
+
+private:
     friend class Device;
+    friend class Accel;
+    void _register(Accel *accel) const noexcept;
+    void _remove(Accel *accel) const noexcept;
 
 private:
     template<typename VBuffer, typename TBuffer>

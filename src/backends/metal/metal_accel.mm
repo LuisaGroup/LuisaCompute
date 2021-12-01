@@ -119,6 +119,8 @@ id<MTLCommandBuffer> MetalAccel::build(
                                      toAccelerationStructure:_handle];
     }
     [command_encoder endEncoding];
+
+    _dirty_range.clear();
     return command_buffer;
 }
 
@@ -167,6 +169,8 @@ id<MTLCommandBuffer> MetalAccel::update(
                                   scratchBuffer:_update_buffer
                             scratchBufferOffset:0u];
     [command_encoder endEncoding];
+
+    _dirty_range.clear();
     return command_buffer;
 }
 
