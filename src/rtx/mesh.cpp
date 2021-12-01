@@ -36,10 +36,8 @@ void Mesh::_remove(Accel *accel) const noexcept {
 
 void Mesh::_destroy() noexcept {
     if (*this) {
-        if (!_observers.empty()) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Mesh #{} being destructed has non-empty observers.",
-                _handle);
+        for (auto o : _observers) {
+            o->_remove(this);
         }
         _device->destroy_mesh(_handle);
     }
