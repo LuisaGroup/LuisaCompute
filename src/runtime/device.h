@@ -81,8 +81,8 @@ public:
         virtual void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept = 0;
         virtual void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
         virtual void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
-        virtual bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept = 0;
-        virtual bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept = 0;
+        virtual bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept = 0;
+        virtual bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept = 0;
         virtual void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
@@ -110,7 +110,11 @@ public:
             uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
             uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept = 0;
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
+
         [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
+        virtual void emplace_mesh_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept = 0;
+        virtual void update_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept = 0;
+        [[nodiscard]] virtual bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
 
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
@@ -135,13 +139,15 @@ public:
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
-    [[nodiscard]] Stream create_stream() noexcept;                                    // see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;                                      // see definition in runtime/event.cpp
+    [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;  // see definition in runtime/event.cpp
 
     template<typename VBuffer, typename TBuffer>
-    [[nodiscard]] Mesh create_mesh(VBuffer &&vertices, TBuffer &&triangles, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept; // see definition in rtx/mesh.h
-    [[nodiscard]] Accel create_accel(AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;                                      // see definition in rtx/accel.cpp
-    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.cpp
+    [[nodiscard]] Mesh create_mesh(
+        VBuffer &&vertices, TBuffer &&triangles,
+        AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
+    [[nodiscard]] Accel create_accel(AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
+    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {

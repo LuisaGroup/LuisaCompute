@@ -513,8 +513,7 @@ private:
     uint64_t _handle;
 
 public:
-    AccelBuildCommand(uint64_t handle) noexcept
-        : _handle{handle} {}
+    explicit AccelBuildCommand(uint64_t handle) noexcept : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
@@ -523,15 +522,10 @@ class AccelUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
-    size_t _offset;
-    size_t _count;
 
 public:
-    AccelUpdateCommand(uint64_t handle, size_t offset, size_t count) noexcept
-        : _handle{handle}, _offset{offset}, _count{count} {}
+    explicit AccelUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
-    [[nodiscard]] auto count() const noexcept { return _count; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 
@@ -539,15 +533,10 @@ class BindlessArrayUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
-    size_t _offset;
-    size_t _count;
 
 public:
-    BindlessArrayUpdateCommand(uint64_t handle, size_t offset, size_t count) noexcept
-        : _handle{handle}, _offset{offset}, _count{count} {}
+    explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
-    [[nodiscard]] auto count() const noexcept { return _count; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand)
 };
 

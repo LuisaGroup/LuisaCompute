@@ -104,17 +104,12 @@ int main(int argc, char *argv[]) {
     }
     stream << heap.update();
 
-    std::vector<uint64_t> instances;
-    std::vector<float4x4> transforms;
-    for (auto &&m : meshes) {
-        instances.emplace_back(m.handle());
-        transforms.emplace_back(make_float4x4(1.0f));
-    }
     auto accel = device.create_accel();
-    stream << accel.build(AccelBuildHint::FAST_TRACE, instances, transforms);
+    for (auto &&m : meshes) { accel.emplace_back(m, make_float4x4(1.0f)); }
+    stream << accel.build();
 
     std::vector<Material> materials;
-    materials.reserve(instances.size());
+    materials.reserve(accel.size());
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// floor
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// ceiling
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall

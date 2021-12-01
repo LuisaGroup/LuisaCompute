@@ -250,10 +250,12 @@ void CUDACommandEncoder::visit(const MeshBuildCommand *command) noexcept {
 
 void CUDACommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
     auto array = reinterpret_cast<CUDABindlessArray *>(command->handle());
-    auto size_bytes = sizeof(CUDABindlessArray::Item) * command->count();
-    auto offset_bytes = sizeof(CUDABindlessArray::Item) * command->offset();
+    auto dirty_range = array->dirty_range();
+    array->clear_dirty_range();
+    auto size_bytes = sizeof(CUDABindlessArray::Item) * dirty_range.size();
+    auto offset_bytes = sizeof(CUDABindlessArray::Item) * dirty_range.offset();
     with_upload_buffer(size_bytes, [&](std::span<std::byte> upload_buffer) noexcept {
-        std::memcpy(upload_buffer.data(), array->slots().data() + command->offset(), size_bytes);
+        std::memcpy(upload_buffer.data(), array->slots().data() + dirty_range.offset(), size_bytes);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(array->handle() + offset_bytes, upload_buffer.data(), size_bytes, _stream->handle()));
     });
 }

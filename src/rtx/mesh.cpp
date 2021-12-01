@@ -7,7 +7,7 @@
 namespace luisa::compute {
 
 Command *Mesh::update() noexcept {
-    if (_requires_rebuild) {
+    if (_requires_rebuild) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Mesh #{} requires rebuild rather than update. "
             "Automatically replacing with MeshRebuildCommand.",

@@ -8,6 +8,7 @@
 
 #include <core/spin_mutex.h>
 #include <core/allocator.h>
+#include <core/dirty_range.h>
 #include <runtime/sampler.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
@@ -32,6 +33,7 @@ public:
 
 private:
     CUdeviceptr _handle;
+    DirtyRange _dirty_range;
     luisa::vector<Item> _slots;
     luisa::unordered_map<uint64_t, size_t> _buffers;
     luisa::unordered_map<uint64_t, size_t> _arrays;
@@ -58,6 +60,8 @@ public:
     void remove_tex3d(size_t index) noexcept;
     [[nodiscard]] bool has_buffer(CUdeviceptr buffer) const noexcept;
     [[nodiscard]] bool has_array(CUDAMipmapArray *array) const noexcept;
+    void clear_dirty_range() noexcept { _dirty_range.clear(); }
+    [[nodiscard]] auto dirty_range() const noexcept { return _dirty_range; }
 };
 
 }// namespace luisa::compute::cuda

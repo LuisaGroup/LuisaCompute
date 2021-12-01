@@ -275,7 +275,7 @@ uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_st
 void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
 }
 
-uint64_t CUDADevice::create_accel() noexcept {
+uint64_t CUDADevice::create_accel(AccelBuildHint hint) noexcept {
     return 0;
 }
 
@@ -317,13 +317,13 @@ void CUDADevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, u
     });
 }
 
-bool CUDADevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+bool CUDADevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), handle] {
         return array->has_buffer(handle);
     });
 }
 
-bool CUDADevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+bool CUDADevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), tex = reinterpret_cast<CUDAMipmapArray *>(handle)] {
         return array->has_array(tex);
     });
@@ -345,6 +345,19 @@ void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index] {
         array->remove_tex3d(index);
     });
+}
+
+void CUDADevice::emplace_mesh_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept {
+    // TODO
+}
+
+void CUDADevice::update_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
+    // TODO
+}
+
+bool CUDADevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
+    // TODO
+    return false;
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {

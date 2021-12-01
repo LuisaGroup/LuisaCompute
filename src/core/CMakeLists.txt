@@ -17,7 +17,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         rc.h
         pool.h
         constants.h
-        lru_cache.h)
+        lru_cache.h
+        dirty_range.h dirty_range.cpp)
 
 find_package(Threads REQUIRED)
 

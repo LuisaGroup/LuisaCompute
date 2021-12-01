@@ -530,6 +530,8 @@ template<typename Scalar, typename... T>
 
 inline namespace dsl {// to avoid conflicts
 
+using namespace luisa;
+
 #define LUISA_MAKE_VECTOR(type)                                  \
     template<typename S>                                         \
         requires is_dsl_v<S> && is_same_expr_v<S, type>          \
@@ -707,146 +709,161 @@ LUISA_MAKE_VECTOR(float)
 #undef LUISA_MAKE_VECTOR
 
 // make float2x2
-[[nodiscard]] inline auto make_float2x2(Expr<float> s) noexcept {
+template<typename S>
+    requires is_dsl_v<S> && is_floating_point_expr_v<S>
+[[nodiscard]] inline auto make_float2x2(S &&s) noexcept {
     return def<float2x2>(
         detail::FunctionBuilder::current()->call(
-            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {s.expression()}));
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
+            {LUISA_EXPR(s)}));
 }
 
+template<typename M00, typename M01, typename M10, typename M11>
+    requires any_dsl_v<M00, M01, M10, M11> &&
+        is_floating_point_expr_v<M00> &&
+        is_floating_point_expr_v<M01> &&
+        is_floating_point_expr_v<M10> &&
+        is_floating_point_expr_v<M11>
 [[nodiscard]] inline auto make_float2x2(
-    Expr<float> m00, Expr<float> m01,
-    Expr<float> m10, Expr<float> m11) noexcept {
+    M00 &&m00, M01 &&m01,
+    M10 &&m10, M11 &&m11) noexcept {
     return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
-            {m00.expression(), m01.expression(),
-             m10.expression(), m11.expression()}));
+            {LUISA_EXPR(m00), LUISA_EXPR(m01),
+             LUISA_EXPR(m10), LUISA_EXPR(m11)}));
 }
 
-[[nodiscard]] inline auto make_float2x2(Expr<float2> c0, Expr<float2> c1) noexcept {
+template<typename C0, typename C1>
+    requires any_dsl_v<C0, C1> &&
+        is_same_expr_v<C0, float2> &&
+        is_same_expr_v<C1, float2>
+[[nodiscard]] inline auto make_float2x2(
+    C0 &&c0, C1 &&c1) noexcept {
     return def<float2x2>(
         detail::FunctionBuilder::current()->call(
             Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
-            {c0.expression(), c1.expression()}));
+            {LUISA_EXPR(c0), LUISA_EXPR(c1)}));
 }
 
-[[nodiscard]] inline auto make_float2x2(Expr<float2x2> m) noexcept {
+template<typename M>
+    requires is_dsl_v<M> && is_matrix_expr_v<M>
+[[nodiscard]] inline auto make_float2x2(M &&m) noexcept {
     return def<float2x2>(
         detail::FunctionBuilder::current()->call(
-            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()}));
-}
-
-[[nodiscard]] inline auto make_float2x2(Expr<float3x3> m) noexcept {
-    return def<float2x2>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()}));
-}
-
-[[nodiscard]] inline auto make_float2x2(Expr<float4x4> m) noexcept {
-    return def<float2x2>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2, {m.expression()}));
+            Type::of<float2x2>(), CallOp::MAKE_FLOAT2X2,
+            {LUISA_EXPR(m)}));
 }
 
 // make float3x3
-[[nodiscard]] inline auto make_float3x3(Expr<float> s) noexcept {
-    return def<float3x3>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3, {s.expression()}));
-}
-
-[[nodiscard]] inline auto make_float3x3(Expr<float3> c0, Expr<float3> c1, Expr<float3> c2) noexcept {
+template<typename S>
+    requires is_dsl_v<S> && is_same_expr_v<S, float>
+[[nodiscard]] inline auto make_float3x3(S &&s) noexcept {
     return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
-            {c0.expression(), c1.expression(), c2.expression()}));
+            {LUISA_EXPR(s)}));
 }
 
+template<typename C0, typename C1, typename C2>
+    requires any_dsl_v<C0, C1, C2> &&
+        is_same_expr_v<C0, float3> &&
+        is_same_expr_v<C1, float3> &&
+        is_same_expr_v<C2, float3>
+[[nodiscard]] inline auto make_float3x3(C0 &&c0, C1 &&c1, C2 &&c2) noexcept {
+    return def<float3x3>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
+            {LUISA_EXPR(c0), LUISA_EXPR(c1), LUISA_EXPR(c2)}));
+}
+
+template<typename M00, typename M01, typename M02,
+         typename M10, typename M11, typename M12,
+         typename M20, typename M21, typename M22>
+    requires any_dsl_v<M00, M01, M02, M10, M11, M12, M20, M21, M22> &&
+        is_same_expr_v<M00, float> && is_same_expr_v<M01, float> && is_same_expr_v<M02, float> &&
+        is_same_expr_v<M10, float> && is_same_expr_v<M11, float> && is_same_expr_v<M12, float> &&
+        is_same_expr_v<M20, float> && is_same_expr_v<M21, float> && is_same_expr_v<M22, float>
 [[nodiscard]] inline auto make_float3x3(
-    Expr<float> m00, Expr<float> m01, Expr<float> m02,
-    Expr<float> m10, Expr<float> m11, Expr<float> m12,
-    Expr<float> m20, Expr<float> m21, Expr<float> m22) noexcept {
+    M00 &&m00, M01 &&m01, M02 &&m02,
+    M10 &&m10, M11 &&m11, M12 &&m12,
+    M20 &&m20, M21 &&m21, M22 &&m22) noexcept {
     return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
-            {m00.expression(), m01.expression(), m02.expression(),
-             m10.expression(), m11.expression(), m12.expression(),
-             m20.expression(), m21.expression(), m22.expression()}));
+            {LUISA_EXPR(m00), LUISA_EXPR(m01), LUISA_EXPR(m02),
+             LUISA_EXPR(m10), LUISA_EXPR(m11), LUISA_EXPR(m12),
+             LUISA_EXPR(m20), LUISA_EXPR(m21), LUISA_EXPR(m22)}));
 }
 
-[[nodiscard]] inline auto make_float3x3(Expr<float2x2> m) noexcept {
+template<typename M>
+    requires is_dsl_v<M> && is_matrix_expr_v<M>
+[[nodiscard]] inline auto make_float3x3(M &&m) noexcept {
     return def<float3x3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
-            {m.expression()}));
-}
-
-[[nodiscard]] inline auto make_float3x3(Expr<float3x3> m) noexcept {
-    return def<float3x3>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
-            {m.expression()}));
-}
-
-[[nodiscard]] inline auto make_float3x3(Expr<float4x4> m) noexcept {
-    return def<float3x3>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
-            {m.expression()}));
+            {LUISA_EXPR(m)}));
 }
 
 // make float4x4
-[[nodiscard]] inline auto make_float4x4(Expr<float> s) noexcept {
+template<typename S>
+    requires is_dsl_v<S> && is_same_expr_v<S, float>
+[[nodiscard]] inline auto make_float4x4(S &&s) noexcept {
     return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
-            {s.expression()}));
+            {LUISA_EXPR(s)}));
 }
 
+template<typename C0, typename C1, typename C2, typename C3>
+    requires any_dsl_v<C0, C1, C2, C3> &&
+        is_same_expr_v<C0, float4> &&
+        is_same_expr_v<C1, float4> &&
+        is_same_expr_v<C2, float4> &&
+        is_same_expr_v<C3, float4>
 [[nodiscard]] inline auto make_float4x4(
-    Expr<float4> c0,
-    Expr<float4> c1,
-    Expr<float4> c2,
-    Expr<float4> c3) noexcept {
+    C0 &&c0, C1 &&c1, C2 &&c2, C3 &&c3) noexcept {
     return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
-            {c0.expression(), c1.expression(), c2.expression(), c3.expression()}));
+            {LUISA_EXPR(c0), LUISA_EXPR(c1), LUISA_EXPR(c2), LUISA_EXPR(c3)}));
 }
 
+template<
+    typename M00, typename M01, typename M02, typename M03,
+    typename M10, typename M11, typename M12, typename M13,
+    typename M20, typename M21, typename M22, typename M23,
+    typename M30, typename M31, typename M32, typename M33>
+    requires any_dsl_v<
+        M00, M01, M02, M03,
+        M10, M11, M12, M13,
+        M20, M21, M22, M23,
+        M30, M31, M32, M33> &&
+        is_same_expr_v<M00, float> && is_same_expr_v<M01, float> && is_same_expr_v<M02, float> && is_same_expr_v<M03, float> &&
+        is_same_expr_v<M10, float> && is_same_expr_v<M11, float> && is_same_expr_v<M12, float> && is_same_expr_v<M13, float> &&
+        is_same_expr_v<M20, float> && is_same_expr_v<M21, float> && is_same_expr_v<M22, float> && is_same_expr_v<M23, float> &&
+        is_same_expr_v<M30, float> && is_same_expr_v<M31, float> && is_same_expr_v<M32, float> && is_same_expr_v<M33, float>
 [[nodiscard]] inline auto make_float4x4(
-    Expr<float> m00, Expr<float> m01, Expr<float> m02, Expr<float> m03,
-    Expr<float> m10, Expr<float> m11, Expr<float> m12, Expr<float> m13,
-    Expr<float> m20, Expr<float> m21, Expr<float> m22, Expr<float> m23,
-    Expr<float> m30, Expr<float> m31, Expr<float> m32, Expr<float> m33) noexcept {
+    M00 &&m00, M01 &&m01, M02 &&m02, M03 &&m03,
+    M10 &&m10, M11 &&m11, M12 &&m12, M13 &&m13,
+    M20 &&m20, M21 &&m21, M22 &&m22, M23 &&m23,
+    M30 &&m30, M31 &&m31, M32 &&m32, M33 &&m33) noexcept {
     return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
-            {m00.expression(), m01.expression(), m02.expression(), m03.expression(),
-             m10.expression(), m11.expression(), m12.expression(), m13.expression(),
-             m20.expression(), m21.expression(), m22.expression(), m23.expression(),
-             m30.expression(), m31.expression(), m32.expression(), m33.expression()}));
+            {LUISA_EXPR(m00), LUISA_EXPR(m01), LUISA_EXPR(m02), LUISA_EXPR(m03),
+             LUISA_EXPR(m10), LUISA_EXPR(m11), LUISA_EXPR(m12), LUISA_EXPR(m13),
+             LUISA_EXPR(m20), LUISA_EXPR(m21), LUISA_EXPR(m22), LUISA_EXPR(m23),
+             LUISA_EXPR(m30), LUISA_EXPR(m31), LUISA_EXPR(m32), LUISA_EXPR(m33)}));
 }
 
-[[nodiscard]] inline auto make_float4x4(Expr<float2x2> m) noexcept {
+template<typename M>
+    requires is_dsl_v<M> && is_matrix_expr_v<M>
+[[nodiscard]] inline auto make_float4x4(M &&m) noexcept {
     return def<float4x4>(
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
-            {m.expression()}));
-}
-
-[[nodiscard]] inline auto make_float4x4(Expr<float3x3> m) noexcept {
-    return def<float4x4>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
-            {m.expression()}));
-}
-
-[[nodiscard]] inline auto make_float4x4(Expr<float4x4> m) noexcept {
-    return def<float4x4>(
-        detail::FunctionBuilder::current()->call(
-            Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
-            {m.expression()}));
+            {LUISA_EXPR(m)}));
 }
 
 template<typename Tx>
@@ -1280,11 +1297,13 @@ template<typename X>
     return copysign(1.0f, std::forward<X>(x));
 }
 
-[[nodiscard]] inline auto cross(Expr<float3> x, Expr<float3> y) noexcept {
+template<typename X, typename Y>
+    requires any_dsl_v<X, Y> && is_same_expr_v<X, Y, float3>
+[[nodiscard]] inline auto cross(X &&x, Y &&y) noexcept {
     return def<float3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3>(), CallOp::CROSS,
-            {x.expression(), y.expression()}));
+            {LUISA_EXPR(x), LUISA_EXPR(y)}));
 }
 
 template<typename X, typename Y>
@@ -1332,11 +1351,13 @@ template<typename T>
     return detail::make_vector_call<float>(CallOp::NORMALIZE, std::forward<T>(x));
 }
 
-[[nodiscard]] inline auto faceforward(Expr<float3> n, Expr<float3> i, Expr<float3> n_ref) noexcept {
+template<typename N, typename I, typename NRef>
+    requires any_dsl_v<N, I, NRef> && is_same_expr_v<N, I, NRef, float3>
+[[nodiscard]] inline auto faceforward(N &&n, I &&i, NRef &&n_ref) noexcept {
     return def<float3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3>(), CallOp::FACEFORWARD,
-            {n.expression(), i.expression(), n_ref.expression()}));
+            {LUISA_EXPR(n), LUISA_EXPR(i), LUISA_EXPR(n_ref)}));
 }
 
 template<typename Tm>

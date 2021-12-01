@@ -18,16 +18,18 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 
 }// namespace detail
 
-Accel Device::create_accel() noexcept { return _create<Accel>(); }
+Accel Device::create_accel(AccelBuildHint hint) noexcept { return _create<Accel>(hint); }
 
 Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
     : Resource{device, Tag::ACCEL, device->create_accel(hint)} {}
 
 Command *Accel::update() noexcept {
     if (!_built) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Geometry #{} is not built when updating.",
+        LUISA_WARNING_WITH_LOCATION(
+            "Accel #{} requires rebuild rather than update. "
+            "Automatically replacing with AccelBuildCommand.",
             handle());
+        return build();
     }
     return AccelUpdateCommand::create(handle());
 }
@@ -40,35 +42,31 @@ Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
     return Expr<Accel>{*this}.trace_any(ray);
 }
 
-Command* Accel::build() noexcept{
-    _requires_rebuild = false;
-    _dirty_begin = 0u;
-    _dirty_count = 0u;
-return AccelBuildCommand::create(handle());
-}
-
-Command *Accel::update(
-    size_t first,
-    size_t count,
-    const float4x4 *transforms) noexcept {
-
-    if (!_built) [[unlikely]] {
+Accel &Accel::emplace_back(const Mesh &mesh, float4x4 transform) noexcept {
+    if (_built) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Geometry #{} is not built when updating.",
+            "Adding instance to already built "
+            "Accel #{} is not allowed.",
             handle());
     }
-    return AccelUpdateCommand::create(
-        handle(),
-        std::span{transforms, count},
-        first);
+    device()->emplace_mesh_in_accel(handle(), mesh.handle(), transform);
+    _size++;
+    return *this;
 }
 
-Command *Accel::build(
-    AccelBuildHint mode,
-    std::span<const uint64_t> mesh_handles,
-    std::span<const float4x4> transforms) noexcept {
+Accel &Accel::set_transform(size_t index, float4x4 transform) noexcept {
+    if (index >= _size) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid index {} in accel #{}.",
+            index, handle());
+    }
+    device()->update_transform_in_accel(handle(), index, transform);
+    return *this;
+}
+
+Command *Accel::build() noexcept {
     _built = true;
-    return AccelBuildCommand::create(handle(), mode, mesh_handles, transforms);
+    return AccelBuildCommand::create(handle());
 }
 
 }// namespace luisa::compute

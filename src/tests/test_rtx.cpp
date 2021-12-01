@@ -96,20 +96,18 @@ int main(int argc, char *argv[]) {
         auto ldr = linear_to_srgb(hdr);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
-
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(3u);
     auto triangle_buffer = device.create_buffer<Triangle>(1u);
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     auto accel = device.create_accel();
-    std::vector instances{mesh.handle(), mesh.handle()};
-    std::vector transforms{scaling(1.5f),
-                           translation(float3(-0.25f, 0.0f, 0.1f)) *
-                               rotation(float3(0.0f, 0.0f, 1.0f), 0.5f)};
+    accel.emplace_back(mesh, scaling(1.5f))
+        .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
+                                rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data())
            << mesh.build()
-           << accel.build(AccelBuildHint::FAST_TRACE, instances, transforms)
+           << accel.build()
            << synchronize();
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto colorspace_shader = device.compile(colorspace_kernel);
@@ -126,11 +124,11 @@ int main(int argc, char *argv[]) {
     for (auto i = 0u; i < spp; i++) {
         auto t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;
-        transforms[1] = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
-                        rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
+        accel.set_transform(1u, translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
+                                    rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f));
         stream << vertex_buffer.copy_from(vertices.data())
                << mesh.update()
-               << accel.update(1u, 1u, &transforms[1])
+               << accel.update()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)

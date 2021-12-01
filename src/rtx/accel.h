@@ -16,9 +16,7 @@ class Accel : public Resource {
 
 private:
     size_t _size{};
-    size_t _dirty_begin{};
-    size_t _dirty_count{};
-    bool _requires_rebuild{true};
+    bool _built{false};
 
 private:
     friend class Device;
@@ -27,8 +25,9 @@ private:
 public:
     Accel() noexcept = default;
     using Resource::operator bool;
-    size_t emplace(const Mesh &mesh, float4x4 transform = make_float4x4(1.0f)) noexcept;
-    void set_transform(size_t index, float4x4 transform) noexcept;
+    [[nodiscard]] auto size() const noexcept { return _size; }
+    Accel &emplace_back(const Mesh &mesh, float4x4 transform = luisa::make_float4x4(1.0f)) noexcept;
+    Accel &set_transform(size_t index, float4x4 transform) noexcept;
     [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] Command *build() noexcept;
 
