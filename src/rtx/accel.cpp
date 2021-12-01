@@ -21,17 +21,20 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 Accel Device::create_accel(AccelBuildHint hint) noexcept { return _create<Accel>(hint); }
 
 Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
-    : Resource{device, Tag::ACCEL, device->create_accel(hint)} {}
+    : _device{device->shared_from_this()},
+      _handle{device->create_accel(hint)} {}
+
+Accel::~Accel() noexcept { _destroy(); }
 
 Command *Accel::update() noexcept {
     if (_requires_rebuild) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Accel #{} requires rebuild rather than update. "
             "Automatically replacing with AccelBuildCommand.",
-            handle());
+            _handle);
         return build();
     }
-    return AccelUpdateCommand::create(handle());
+    return AccelUpdateCommand::create(_handle);
 }
 
 Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
@@ -44,7 +47,7 @@ Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
 
 Accel &Accel::emplace_back(const Mesh &mesh, float4x4 transform) noexcept {
     _set_requires_rebuild();
-    device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform);
+    device()->emplace_back_instance_in_accel(_handle, mesh._handle, transform);
     mesh._register(this);
     _meshes.emplace(&mesh);
     _size++;
@@ -55,19 +58,61 @@ Accel &Accel::set_transform(size_t index, float4x4 transform) noexcept {
     if (index >= _size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
-            index, handle());
+            index, _handle);
     }
-    device()->set_instance_transform_in_accel(handle(), index, transform);
+    device()->set_instance_transform_in_accel(_handle, index, transform);
     return *this;
 }
 
 Command *Accel::build() noexcept {
     _requires_rebuild = false;
-    return AccelBuildCommand::create(handle());
+    return AccelBuildCommand::create(_handle);
 }
 
-Accel::~Accel() noexcept {
-    for (auto m : _meshes) { m->_remove(this); }
+void Accel::_set_requires_rebuild() noexcept {
+    _requires_rebuild = true;
+}
+
+void Accel::_replace(const Mesh *prev, const Mesh *curr) noexcept {
+    _meshes.erase(prev);
+    _meshes.emplace(curr);
+}
+
+void Accel::_destroy() noexcept {
+    if (*this) {
+        for (auto m : _meshes) {
+            m->_remove(this);
+        }
+        _device->destroy_accel(_handle);
+    }
+}
+
+Accel::Accel(Accel &&another) noexcept
+    : _device{std::move(another._device)},
+      _handle{another._handle},
+      _meshes{std::move(another._meshes)},
+      _size{another._size},
+      _requires_rebuild{another._requires_rebuild} {
+    for (auto m : _meshes) {
+        m->_remove(&another);
+        m->_register(this);
+    }
+}
+
+Accel &Accel::operator=(Accel &&rhs) noexcept {
+    if (this != &rhs) {
+        _destroy();
+        _device = std::move(rhs._device);
+        _handle = rhs._handle;
+        _meshes = std::move(rhs._meshes);
+        _size = rhs._size;
+        _requires_rebuild = rhs._requires_rebuild;
+        for (auto m : _meshes) {
+            m->_remove(&rhs);
+            m->_register(this);
+        }
+    }
+    return *this;
 }
 
 }// namespace luisa::compute

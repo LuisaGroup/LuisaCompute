@@ -19,9 +19,11 @@ struct Triangle {
 
 class Accel;
 
-class Mesh : public Resource {
+class Mesh {
 
 private:
+    Device::Handle _device;
+    uint64_t _handle{0u};
     mutable luisa::unordered_set<Accel *> _observers;
     bool _requires_rebuild{true};
 
@@ -30,6 +32,7 @@ private:
     friend class Accel;
     void _register(Accel *accel) const noexcept;
     void _remove(Accel *accel) const noexcept;
+    void _destroy() noexcept;
 
 private:
     template<typename VBuffer, typename TBuffer>
@@ -38,7 +41,7 @@ private:
             std::same_as<buffer_element_t<TBuffer>, Triangle>
     explicit Mesh(Device::Interface *device, VBuffer &&vertex_buffer, TBuffer &&triangle_buffer,
                   AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept
-        : Resource{device, Tag::MESH, 0u} {
+        : _device{device->shared_from_this()} {
         BufferView vertices{std::forward<VBuffer>(vertex_buffer)};
         BufferView triangles{std::forward<TBuffer>(triangle_buffer)};
         using vertex_type = buffer_element_t<VBuffer>;
@@ -49,16 +52,23 @@ private:
         auto triangle_buffer_handle = triangles.handle();
         auto triangle_buffer_offset = triangles.offset_bytes();
         auto triangle_count = triangles.size();
-        _set_handle(device->create_mesh(
+        _handle = device->create_mesh(
             vertex_buffer_handle, vertex_buffer_offset, vertex_stride, vertex_count,
-            triangle_buffer_handle, triangle_buffer_offset, triangle_count, hint));
+            triangle_buffer_handle, triangle_buffer_offset, triangle_count, hint);
     }
 
 public:
     Mesh() noexcept = default;
-    using Resource::operator bool;
+    ~Mesh() noexcept;
+    Mesh(Mesh &&another) noexcept;
+    Mesh(const Mesh &) noexcept = delete;
+    Mesh &operator=(Mesh &&rhs) noexcept;
+    Mesh &operator=(const Mesh &) noexcept = delete;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto device() const noexcept { return _device.get(); }
     [[nodiscard]] Command *build() noexcept;
     [[nodiscard]] Command *update() noexcept;
+    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };
 
 template<typename VBuffer, typename TBuffer>
