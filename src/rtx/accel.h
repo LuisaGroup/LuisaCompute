@@ -28,6 +28,7 @@ private:
     explicit Accel(Device::Interface *device, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;
     void _set_requires_rebuild() noexcept;
     void _replace(const Mesh *prev, const Mesh *curr) noexcept;
+    void _remove(const Mesh *m) noexcept;
     void _destroy() noexcept;
 
 public:
