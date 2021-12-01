@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/basic_types.h>
+
 #include <rtx/ray.h>
 #include <rtx/hit.h>
 #include <rtx/mesh.h>
@@ -14,26 +15,22 @@ namespace luisa::compute {
 class Accel : public Resource {
 
 private:
-    bool _built{false};
+    size_t _size{};
+    size_t _dirty_begin{};
+    size_t _dirty_count{};
+    bool _requires_rebuild{true};
 
 private:
     friend class Device;
-    explicit Accel(Device::Interface *device) noexcept;
+    explicit Accel(Device::Interface *device, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;
 
 public:
     Accel() noexcept = default;
     using Resource::operator bool;
-
-    // TODO: modify these interfaces as done in BindlessArray
-    [[nodiscard]] Command *update(
-        size_t first,
-        size_t count,
-        const float4x4 *transforms) noexcept;
+    size_t emplace(const Mesh &mesh, float4x4 transform = make_float4x4(1.0f)) noexcept;
+    void set_transform(size_t index, float4x4 transform) noexcept;
     [[nodiscard]] Command *update() noexcept;
-    [[nodiscard]] Command *build(
-        AccelBuildHint mode,
-        std::span<const uint64_t> mesh_handles,
-        std::span<const float4x4> transforms) noexcept;
+    [[nodiscard]] Command *build() noexcept;
 
     // shader functions
     [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;

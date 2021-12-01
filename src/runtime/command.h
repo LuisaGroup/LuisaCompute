@@ -511,21 +511,11 @@ class AccelBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildHint _hint;
-    std::span<const uint64_t> _instance_mesh_handles;
-    std::span<const float4x4> _instance_transforms;
 
 public:
-    AccelBuildCommand(uint64_t handle, AccelBuildHint hint,
-                      std::span<const uint64_t> instance_mesh_handles,
-                      std::span<const float4x4> instance_transforms) noexcept
-        : _handle{handle}, _hint{hint},
-          _instance_mesh_handles{instance_mesh_handles},
-          _instance_transforms{instance_transforms} {}
+    AccelBuildCommand(uint64_t handle) noexcept
+        : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto hint() const noexcept { return _hint; }
-    [[nodiscard]] auto instance_mesh_handles() const noexcept { return _instance_mesh_handles; }
-    [[nodiscard]] auto instance_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
 
@@ -533,19 +523,15 @@ class AccelUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
-    size_t _first_instance{0u};
-    std::span<const float4x4> _instance_transforms;
+    size_t _offset;
+    size_t _count;
 
 public:
-    explicit AccelUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
-    AccelUpdateCommand(uint64_t handle, std::span<const float4x4> instance_transforms, size_t first) noexcept
-        : _handle{handle},
-          _first_instance{first},
-          _instance_transforms{instance_transforms} {}
+    AccelUpdateCommand(uint64_t handle, size_t offset, size_t count) noexcept
+        : _handle{handle}, _offset{offset}, _count{count} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto should_update_transforms() const noexcept { return !_instance_transforms.empty(); }
-    [[nodiscard]] auto first_instance_to_update() const noexcept { return _first_instance; }
-    [[nodiscard]] auto updated_transforms() const noexcept { return _instance_transforms; }
+    [[nodiscard]] auto offset() const noexcept { return _offset; }
+    [[nodiscard]] auto count() const noexcept { return _count; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 

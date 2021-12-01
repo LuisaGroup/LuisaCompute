@@ -110,7 +110,7 @@ public:
             uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
             uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept = 0;
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
-        [[nodiscard]] virtual uint64_t create_accel() noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
 
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
@@ -140,7 +140,7 @@ public:
 
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices, TBuffer &&triangles, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept; // see definition in rtx/mesh.h
-    [[nodiscard]] Accel create_accel() noexcept;                                      // see definition in rtx/accel.cpp
+    [[nodiscard]] Accel create_accel(AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;                                      // see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.cpp
 
     template<typename T>

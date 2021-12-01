@@ -530,82 +530,175 @@ template<typename Scalar, typename... T>
 
 inline namespace dsl {// to avoid conflicts
 
-#define LUISA_MAKE_VECTOR(type)                                                                \
-    [[nodiscard]] inline auto make_##type##2(Expr<type> s) noexcept {                          \
-        return detail::make_vector2(s);                                                        \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##2(Expr<type> x, Expr<type> y) noexcept {            \
-        return detail::make_vector2(x, y);                                                     \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##2(Expr<Vector<type, 3>> v) noexcept {               \
-        return detail::make_vector2<type>(v);                                                  \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##2(Expr<Vector<type, 4>> v) noexcept {               \
-        return detail::make_vector2<type>(v);                                                  \
-    }                                                                                          \
-    template<typename Tv>                                                                      \
-        requires is_dsl_v<Tv> && is_vector2_expr_v<Tv>                                         \
-    [[nodiscard]] inline auto make_##type##2(Tv && v) noexcept {                               \
-        return detail::make_vector2<type>(std::forward<Tv>(v));                                \
-    }                                                                                          \
-                                                                                               \
-    [[nodiscard]] inline auto make_##type##3(                                                  \
-        Expr<type> x, Expr<type> y, Expr<type> z) noexcept {                                   \
-        return detail::make_vector3(x, y, z);                                                  \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##3(Expr<type> s) noexcept {                          \
-        return detail::make_vector3(s);                                                        \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##3(Expr<Vector<type, 2>> v, Expr<type> z) noexcept { \
-        return detail::make_vector3(v, z);                                                     \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##3(Expr<type> x, Expr<Vector<type, 2>> v) noexcept { \
-        return detail::make_vector3(x, v);                                                     \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##3(Expr<Vector<type, 4>> v) noexcept {               \
-        return detail::make_vector3<type>(v);                                                  \
-    }                                                                                          \
-    template<typename Tv>                                                                      \
-        requires is_dsl_v<Tv> && is_vector3_expr_v<Tv>                                         \
-    [[nodiscard]] inline auto make_##type##3(Tv && v) noexcept {                               \
-        return detail::make_vector3<type>(std::forward<Tv>(v));                                \
-    }                                                                                          \
-                                                                                               \
-    [[nodiscard]] inline auto make_##type##4(Expr<type> s) noexcept {                          \
-        return detail::make_vector4(s);                                                        \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##4(                                                  \
-        Expr<type> x, Expr<type> y, Expr<type> z, Expr<type> w) noexcept {                     \
-        return detail::make_vector4(x, y, z, w);                                               \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##4(                                                  \
-        Expr<Vector<type, 2>> v, Expr<type> z, Expr<type> w) noexcept {                        \
-        return detail::make_vector4(v, z, w);                                                  \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##4(                                                  \
-        Expr<type> x, Expr<Vector<type, 2>> yz, Expr<type> w) noexcept {                       \
-        return detail::make_vector4(x, yz, w);                                                 \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##4(                                                  \
-        Expr<type> x, Expr<type> y, Expr<Vector<type, 2>> zw) noexcept {                       \
-        return detail::make_vector4(x, y, zw);                                                 \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##4(                                                  \
-        Expr<Vector<type, 2>> xy, Expr<Vector<type, 2>> zw) noexcept {                         \
-        return detail::make_vector4(xy, zw);                                                   \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##4(                                                  \
-        Expr<Vector<type, 3>> xyz, Expr<type> w) noexcept {                                    \
-        return detail::make_vector4(xyz, w);                                                   \
-    }                                                                                          \
-    [[nodiscard]] inline auto make_##type##4(                                                  \
-        Expr<type> x, Expr<Vector<type, 3>> yzw) noexcept {                                    \
-        return detail::make_vector4(x, yzw);                                                   \
-    }                                                                                          \
-    template<typename Tv>                                                                      \
-        requires is_dsl_v<Tv> && is_vector4_expr_v<Tv>                                         \
-    [[nodiscard]] inline auto make_##type##4(Tv && v) noexcept {                               \
-        return detail::make_vector4<type>(std::forward<Tv>(v));                                \
+#define LUISA_MAKE_VECTOR(type)                                  \
+    template<typename S>                                         \
+        requires is_dsl_v<S> && is_same_expr_v<S, type>          \
+    [[nodiscard]] inline auto make_##type##2(S && s) noexcept {  \
+        return detail::make_vector2(std::forward<S>(s));         \
+    }                                                            \
+    template<typename X, typename Y>                             \
+        requires any_dsl_v<X, Y> &&                              \
+            is_same_expr_v<X, type> &&                           \
+            is_same_expr_v<Y, type>                              \
+    [[nodiscard]] inline auto make_##type##2(                    \
+        X && x, Y && y) noexcept {                               \
+        return detail::make_vector2(                             \
+            std::forward<X>(x),                                  \
+            std::forward<Y>(y));                                 \
+    }                                                            \
+    template<typename V>                                         \
+        requires is_dsl_v<V> && is_same_expr_v<V, type##3>       \
+    [[nodiscard]] inline auto make_##type##2(V && v) noexcept {  \
+        return detail::make_vector2<type>(std::forward<V>(v));   \
+    }                                                            \
+    template<typename V>                                         \
+        requires is_dsl_v<V> && is_same_expr_v<V, type##4>       \
+    [[nodiscard]] inline auto make_##type##2(V && v) noexcept {  \
+        return detail::make_vector2<type>(std::forward<V>(v));   \
+    }                                                            \
+    template<typename Tv>                                        \
+        requires is_dsl_v<Tv> && is_vector2_expr_v<Tv>           \
+    [[nodiscard]] inline auto make_##type##2(Tv && v) noexcept { \
+        return detail::make_vector2<type>(std::forward<Tv>(v));  \
+    }                                                            \
+                                                                 \
+    template<typename X, typename Y, typename Z>                 \
+        requires any_dsl_v<X, Y, Z> &&                           \
+            is_same_expr_v<X, type> &&                           \
+            is_same_expr_v<Y, type> &&                           \
+            is_same_expr_v<Z, type>                              \
+    [[nodiscard]] inline auto make_##type##3(                    \
+        X && x, Y && y, Z && z) noexcept {                       \
+        return detail::make_vector3(                             \
+            std::forward<X>(x),                                  \
+            std::forward<Y>(y),                                  \
+            std::forward<Z>(z));                                 \
+    }                                                            \
+    template<typename S>                                         \
+        requires is_dsl_v<S> && is_same_expr_v<S, type>          \
+    [[nodiscard]] inline auto make_##type##3(S && s) noexcept {  \
+        return detail::make_vector3(std::forward<S>(s));         \
+    }                                                            \
+    template<typename V, typename Z>                             \
+        requires any_dsl_v<V, Z> &&                              \
+            is_same_expr_v<V, type##2> &&                        \
+            is_same_expr_v<Z, type>                              \
+    [[nodiscard]] inline auto make_##type##3(                    \
+        V && v, Z && z) noexcept {                               \
+        return detail::make_vector3(                             \
+            std::forward<V>(v),                                  \
+            std::forward<Z>(z));                                 \
+    }                                                            \
+    template<typename X, typename V>                             \
+        requires any_dsl_v<X, V> &&                              \
+            is_same_expr_v<X, type> &&                           \
+            is_same_expr_v<V, type##2>                           \
+    [[nodiscard]] inline auto make_##type##3(                    \
+        X && x, V && v) noexcept {                               \
+        return detail::make_vector3(                             \
+            std::forward<X>(x),                                  \
+            std::forward<V>(v));                                 \
+    }                                                            \
+    template<typename V>                                         \
+        requires is_dsl_v<V> && is_same_expr_v<V, type##4>       \
+    [[nodiscard]] inline auto make_##type##3(V && v) noexcept {  \
+        return detail::make_vector3<type>(std::forward<V>(v));   \
+    }                                                            \
+    template<typename Tv>                                        \
+        requires is_dsl_v<Tv> && is_vector3_expr_v<Tv>           \
+    [[nodiscard]] inline auto make_##type##3(Tv && v) noexcept { \
+        return detail::make_vector3<type>(std::forward<Tv>(v));  \
+    }                                                            \
+                                                                 \
+    template<typename S>                                         \
+        requires is_dsl_v<S> && is_same_expr_v<S, type>          \
+    [[nodiscard]] inline auto make_##type##4(S && s) noexcept {  \
+        return detail::make_vector4(std::forward<S>(s));         \
+    }                                                            \
+    template<typename X, typename Y, typename Z, typename W>     \
+        requires any_dsl_v<X, Y, Z, W> &&                        \
+            is_same_expr_v<X, type> &&                           \
+            is_same_expr_v<Y, type> &&                           \
+            is_same_expr_v<Z, type> &&                           \
+            is_same_expr_v<W, type>                              \
+    [[nodiscard]] inline auto make_##type##4(                    \
+        X && x, Y && y, X && z, W && w) noexcept {               \
+        return detail::make_vector4(                             \
+            std::forward<X>(x),                                  \
+            std::forward<Y>(y),                                  \
+            std::forward<Z>(z),                                  \
+            std::forward<W>(w));                                 \
+    }                                                            \
+    template<typename V, typename Z, typename W>                 \
+        requires any_dsl_v<V, Z, W> &&                           \
+            is_same_expr_v<V, type##2> &&                        \
+            is_same_expr_v<Z, type> &&                           \
+            is_same_expr_v<W, type>                              \
+    [[nodiscard]] inline auto make_##type##4(                    \
+        V && v, Z && z, W && w) noexcept {                       \
+        return detail::make_vector4(                             \
+            std::forward<V>(v),                                  \
+            std::forward<Z>(z),                                  \
+            std::forward<W>(w));                                 \
+    }                                                            \
+    template<typename X, typename YZ, typename W>                \
+        requires any_dsl_v<X, YZ, W> &&                          \
+            is_same_expr_v<X, type> &&                           \
+            is_same_expr_v<YZ, type##2> &&                       \
+            is_same_expr_v<W, type>                              \
+    [[nodiscard]] inline auto make_##type##4(                    \
+        X && x, YZ && yz, W && w) noexcept {                     \
+        return detail::make_vector4(                             \
+            std::forward<X>(x),                                  \
+            std::forward<YZ>(yz),                                \
+            std::forward<W>(w));                                 \
+    }                                                            \
+    template<typename X, typename Y, typename ZW>                \
+        requires any_dsl_v<X, Y, ZW> &&                          \
+            is_same_expr_v<X, type> &&                           \
+            is_same_expr_v<Y, type> &&                           \
+            is_same_expr_v<ZW, type##2>                          \
+    [[nodiscard]] inline auto make_##type##4(                    \
+        X && x, Y && y, ZW && zw) noexcept {                     \
+        return detail::make_vector4(                             \
+            std::forward<X>(x),                                  \
+            std::forward<Y>(y),                                  \
+            std::forward<ZW>(zw));                               \
+    }                                                            \
+    template<typename XY, typename ZW>                           \
+        requires any_dsl_v<XY, ZW> &&                            \
+            is_same_expr_v<XY, type##2> &&                       \
+            is_same_expr_v<ZW, type##2>                          \
+    [[nodiscard]] inline auto make_##type##4(                    \
+        XY && xy, ZW && zw) noexcept {                           \
+        return detail::make_vector4(                             \
+            std::forward<XY>(xy),                                \
+            std::forward<ZW>(zw));                               \
+    }                                                            \
+    template<typename XYZ, typename W>                           \
+        requires any_dsl_v<XYZ, W> &&                            \
+            is_same_expr_v<XYZ, type##3> &&                      \
+            is_same_expr_v<W, type>                              \
+    [[nodiscard]] inline auto make_##type##4(                    \
+        XYZ && xyz, W && w) noexcept {                           \
+        return detail::make_vector4(                             \
+            std::forward<XYZ>(xyz),                              \
+            std::forward<W>(w));                                 \
+    }                                                            \
+    template<typename X, typename YZW>                           \
+        requires any_dsl_v<X, YZW> &&                            \
+            is_same_expr_v<X, type> &&                           \
+            is_same_expr_v<YZW, type##3>                         \
+    [[nodiscard]] inline auto make_##type##4(                    \
+        X && x, YZW && yzw) noexcept {                           \
+        return detail::make_vector4(                             \
+            std::forward<X>(x),                                  \
+            std::forward<YZW>(yzw));                             \
+    }                                                            \
+    template<typename Tv>                                        \
+        requires is_dsl_v<Tv> && is_vector4_expr_v<Tv>           \
+    [[nodiscard]] inline auto make_##type##4(Tv && v) noexcept { \
+        return detail::make_vector4<type>(std::forward<Tv>(v));  \
     }
 LUISA_MAKE_VECTOR(bool)
 LUISA_MAKE_VECTOR(int)

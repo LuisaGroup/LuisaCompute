@@ -19,8 +19,10 @@ struct Triangle {
 class Mesh : public Resource {
 
 private:
+    bool _requires_rebuild{true};
     friend class Device;
 
+private:
     template<typename VBuffer, typename TBuffer>
         requires is_buffer_or_view_v<VBuffer> &&
             is_buffer_or_view_v<TBuffer> &&
@@ -30,9 +32,10 @@ private:
         : Resource{device, Tag::MESH, 0u} {
         BufferView vertices{std::forward<VBuffer>(vertex_buffer)};
         BufferView triangles{std::forward<TBuffer>(triangle_buffer)};
+        using vertex_type = buffer_element_t<VBuffer>;
         auto vertex_buffer_handle = vertices.handle();
         auto vertex_buffer_offset = vertices.offset_bytes();
-        auto vertex_stride = sizeof(buffer_element_t<VBuffer>);
+        auto vertex_stride = sizeof(vertex_type);
         auto vertex_count = vertices.size();
         auto triangle_buffer_handle = triangles.handle();
         auto triangle_buffer_offset = triangles.offset_bytes();

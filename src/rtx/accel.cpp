@@ -20,8 +20,8 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 
 Accel Device::create_accel() noexcept { return _create<Accel>(); }
 
-Accel::Accel(Device::Interface *device) noexcept
-    : Resource{device, Tag::ACCEL, device->create_accel()} {}
+Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
+    : Resource{device, Tag::ACCEL, device->create_accel(hint)} {}
 
 Command *Accel::update() noexcept {
     if (!_built) [[unlikely]] {
@@ -38,6 +38,13 @@ Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
 
 Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
     return Expr<Accel>{*this}.trace_any(ray);
+}
+
+Command* Accel::build() noexcept{
+    _requires_rebuild = false;
+    _dirty_begin = 0u;
+    _dirty_count = 0u;
+return AccelBuildCommand::create(handle());
 }
 
 Command *Accel::update(
