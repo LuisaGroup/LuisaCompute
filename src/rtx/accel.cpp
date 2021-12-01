@@ -115,4 +115,8 @@ Accel &Accel::operator=(Accel &&rhs) noexcept {
     return *this;
 }
 
+void Accel::_remove(const Mesh *m) noexcept {
+    _meshes.erase(m);
+}
+
 }// namespace luisa::compute

@@ -97,8 +97,8 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(3u);
     auto triangle_buffer = device.create_buffer<Triangle>(1u);
-    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     auto accel = device.create_accel();
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     accel.emplace_back(mesh, scaling(1.5f))
         .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
