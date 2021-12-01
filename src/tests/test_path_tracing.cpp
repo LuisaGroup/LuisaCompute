@@ -39,12 +39,10 @@ LUISA_STRUCT(Onb, tangent, binormal, normal){
 
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
-
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
+    auto device = context.create_device("metal", {{"index", 1}});
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else

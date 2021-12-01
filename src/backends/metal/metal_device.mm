@@ -426,7 +426,9 @@ bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) 
 }
 
 LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, std::string_view properties) noexcept {
-    return luisa::new_with_allocator<luisa::compute::metal::MetalDevice>(ctx, 0);
+    auto p = nlohmann::json::parse(properties);
+    auto index = p.value("index", 0);
+    return luisa::new_with_allocator<luisa::compute::metal::MetalDevice>(ctx, index);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {

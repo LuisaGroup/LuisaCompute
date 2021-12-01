@@ -20,12 +20,10 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
-
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
+    auto device = context.create_device("metal", {{"index", 1}});
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
@@ -120,7 +118,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 1u;
+    static constexpr auto spp = 1024u;
     for (auto i = 0u; i < spp; i++) {
         auto t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;
