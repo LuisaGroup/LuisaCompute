@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cuda.h>
+#include <optix.h>
 
 #include <runtime/device.h>
 #include <backends/cuda/cuda_error.h>
@@ -41,6 +42,7 @@ public:
     private:
         CUcontext _context{nullptr};
         CUdevice _device{0};
+        OptixDeviceContext _optix_context{nullptr};
         uint32_t _compute_capability{};
 
     public:
@@ -53,6 +55,7 @@ public:
         [[nodiscard]] std::string_view name() const noexcept;
         [[nodiscard]] auto device() const noexcept { return _device; }
         [[nodiscard]] auto context() const noexcept { return _context; }
+        [[nodiscard]] auto optix_context() const noexcept { return _optix_context; }
         [[nodiscard]] auto compute_capability() const noexcept { return _compute_capability; }
     };
 

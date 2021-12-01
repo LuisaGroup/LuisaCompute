@@ -9,15 +9,18 @@
 
 namespace luisa::compute::cuda {
 
+class CUDADevice;
 class CUDAStream;
 
 class CUDACommandEncoder : public CommandVisitor {
 
 private:
+    CUDADevice *_device;
     CUDAStream *_stream;
 
 public:
-    explicit CUDACommandEncoder(CUDAStream *stream) noexcept : _stream{stream} {}
+    explicit CUDACommandEncoder(CUDADevice *device, CUDAStream *stream) noexcept
+        : _device{device}, _stream{stream} {}
     void visit(const BufferUploadCommand *command) noexcept override;
     void visit(const BufferDownloadCommand *command) noexcept override;
     void visit(const BufferCopyCommand *command) noexcept override;

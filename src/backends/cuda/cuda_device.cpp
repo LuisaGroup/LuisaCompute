@@ -7,9 +7,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include <optix_stubs.h>
+#include <optix_function_table_definition.h>
+
 #include <runtime/sampler.h>
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_mesh.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/cuda_bindless_array.h>
@@ -194,8 +198,8 @@ void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
 }
 
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
-    with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle), cmd_list = std::move(list)] {
-        CUDACommandEncoder encoder{stream};
+    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), cmd_list = std::move(list)] {
+        CUDACommandEncoder encoder{this, stream};
         for (auto cmd : cmd_list) {
             cmd->accept(encoder);
         }
@@ -269,10 +273,18 @@ void CUDADevice::synchronize_event(uint64_t handle) noexcept {
 }
 
 uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
-    return 0;
+    return with_handle([=] {
+        auto mesh = new_with_allocator<CUDAMesh>(
+            v_buffer + v_offset, v_stride, v_count,
+            t_buffer + t_offset, t_count, hint);
+        return reinterpret_cast<uint64_t>(mesh);
+    });
 }
 
 void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
+    with_handle([mesh = reinterpret_cast<CUDAMesh *>(handle)] {
+        delete_with_allocator(mesh);
+    });
 }
 
 uint64_t CUDADevice::create_accel(AccelBuildHint hint) noexcept {
@@ -361,8 +373,15 @@ bool CUDADevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexc
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {
+
+    // global init
     static std::once_flag flag;
-    std::call_once(flag, [] { LUISA_CHECK_CUDA(cuInit(0)); });
+    std::call_once(flag, [] {
+        LUISA_CHECK_CUDA(cuInit(0));
+        LUISA_CHECK_OPTIX(optixInit());
+    });
+
+    // cuda
     auto device_count = 0;
     LUISA_CHECK_CUDA(cuDeviceGetCount(&device_count));
     if (device_count == 0) {
@@ -384,9 +403,23 @@ CUDADevice::Handle::Handle(uint index) noexcept {
         index, name(), compute_cap_major, compute_cap_minor);
     _compute_capability = 10u * compute_cap_major + compute_cap_minor;
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
+
+    // optix
+    OptixDeviceContextOptions optix_options{};
+    optix_options.logCallbackLevel = 4;
+    optix_options.logCallbackFunction = [](uint32_t level, const char *tag, const char *message, void *) noexcept {
+        auto log = fmt::format("Logs from OptiX ({}): {}.", tag, message);
+        if (level >= 4) {
+            LUISA_INFO("{}", log);
+        } else [[unlikely]] {
+            LUISA_WARNING("{}", log);
+        }
+    };
+    LUISA_CHECK_OPTIX(optixDeviceContextCreate(_context, &optix_options, &_optix_context));
 }
 
 CUDADevice::Handle::~Handle() noexcept {
+    LUISA_CHECK_OPTIX(optixDeviceContextDestroy(_optix_context));
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
     LUISA_INFO("Destroyed CUDA device: {}.", name());
 }
