@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18...3.20)
+cmake_minimum_required(VERSION 3.18...3.21)
 cmake_policy(VERSION 3.18)
 
 cmake_policy(SET CMP0069 NEW)
@@ -8,7 +8,7 @@ cmake_policy(SET CMP0091 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0072 NEW)
 
-project(LuisaCompute LANGUAGES C CXX VERSION 0.1)
+project(LuisaCompute LANGUAGES C CXX VERSION 0.2)
 
 if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")

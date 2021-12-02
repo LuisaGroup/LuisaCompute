@@ -28,7 +28,7 @@ uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     LUISA_VERBOSE_WITH_LOCATION(
         "Created buffer with size {} in {} ms.",
         size_bytes, clock.toc());
-return reinterpret_cast<uint64_t>((__bridge_retained void *)buffer);
+    return reinterpret_cast<uint64_t>((__bridge_retained void *)buffer);
 }
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
@@ -264,6 +264,16 @@ void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Destroyed mesh #{}.", handle);
 }
 
+uint64_t MetalDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
+    return reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer()));
+}
+
+uint64_t MetalDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
+    return reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer()));
+}
+
 uint64_t MetalDevice::create_accel(AccelBuildHint hint) noexcept {
     check_raytracing_supported();
     Clock clock;
@@ -332,6 +342,14 @@ bool MetalDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noex
 }
 
 bool MetalDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+uint64_t MetalDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+uint64_t MetalDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
     LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
 }
 
