@@ -385,6 +385,14 @@ bool CUDADevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept 
     return reinterpret_cast<CUDAAccel *>(accel)->uses_resource(mesh);
 }
 
+uint64_t CUDADevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    return reinterpret_cast<CUDAMesh *>(mesh_handle)->vertex_buffer_handle();
+}
+
+uint64_t CUDADevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    return reinterpret_cast<CUDAMesh *>(mesh_handle)->triangle_buffer_handle();
+}
+
 CUDADevice::Handle::Handle(uint index) noexcept {
 
     // global init

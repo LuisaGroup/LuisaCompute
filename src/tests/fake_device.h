@@ -53,6 +53,8 @@ public:
     void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override {}
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override { return false; }
     bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override { return false; }
+    uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override { return 0; }
+    uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override { return 0; }
     [[nodiscard]] static auto create(const Context &ctx) noexcept {
         auto deleter = [](Device::Interface *d) { delete d; };
         return Device{Device::Handle{new FakeDevice{ctx}, deleter}};
