@@ -12,10 +12,12 @@
 namespace luisa::compute::cuda {
 
 CUDAMesh::CUDAMesh(
-    CUdeviceptr v_buffer, size_t v_stride, size_t v_count,
-    CUdeviceptr t_buffer, size_t t_count, AccelBuildHint hint) noexcept
-    : _vertex_buffer{v_buffer}, _vertex_stride{v_stride}, _vertex_count{v_count},
-      _triangle_buffer{t_buffer}, _triangle_count{t_count}, _build_hint{hint} {}
+    CUdeviceptr v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
+    CUdeviceptr t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept
+    : _vertex_buffer_origin{v_buffer}, _vertex_buffer{v_buffer + v_offset},
+      _vertex_stride{v_stride}, _vertex_count{v_count},
+      _triangle_buffer_origin{t_buffer}, _triangle_buffer{t_buffer + t_offset},
+      _triangle_count{t_count}, _build_hint{hint} {}
 
 void CUDAMesh::_initialize_build_parameters(OptixBuildInput *build_input, OptixAccelBuildOptions *build_options) const noexcept {
     static auto geometry_flag = static_cast<uint32_t>(OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT);

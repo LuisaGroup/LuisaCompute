@@ -14,6 +14,7 @@
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_mesh.h>
+#include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/cuda_bindless_array.h>
@@ -275,8 +276,8 @@ void CUDADevice::synchronize_event(uint64_t handle) noexcept {
 uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
     return with_handle([=] {
         auto mesh = new_with_allocator<CUDAMesh>(
-            v_buffer + v_offset, v_stride, v_count,
-            t_buffer + t_offset, t_count, hint);
+            v_buffer, v_offset, v_stride, v_count,
+            t_buffer, t_offset, t_count, hint);
         return reinterpret_cast<uint64_t>(mesh);
     });
 }
@@ -288,10 +289,16 @@ void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
 }
 
 uint64_t CUDADevice::create_accel(AccelBuildHint hint) noexcept {
-    return 0;
+    return with_handle([=] {
+        auto accel = new_with_allocator<CUDAAccel>(hint);
+        return reinterpret_cast<uint64_t>(accel);
+    });
 }
 
 void CUDADevice::destroy_accel(uint64_t handle) noexcept {
+    with_handle([accel = reinterpret_cast<CUDAAccel *>(handle)] {
+        delete_with_allocator(accel);
+    });
 }
 
 CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
@@ -359,17 +366,19 @@ void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     });
 }
 
-void CUDADevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept {
-    // TODO
+void CUDADevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    auto mesh = reinterpret_cast<CUDAMesh *>(mesh_handle);
+    accel->add_instance(mesh, transform);
 }
 
-void CUDADevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
-    // TODO
+void CUDADevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    accel->set_transform(index, transform);
 }
 
 bool CUDADevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    // TODO
-    return false;
+    return reinterpret_cast<CUDAAccel *>(accel)->uses_buffer(buffer);
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {

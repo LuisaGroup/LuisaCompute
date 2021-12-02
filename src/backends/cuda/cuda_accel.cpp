@@ -21,4 +21,35 @@ CUDAAccel::~CUDAAccel() noexcept {
     LUISA_CHECK_CUDA(cuEventDestroy(_update_event));
 }
 
+void CUDAAccel::add_instance(CUDAMesh *mesh, float4x4 transform) noexcept {
+    _instance_meshes.emplace_back(mesh);
+    _instance_transforms.emplace_back(transform);
+}
+
+void CUDAAccel::set_transform(size_t index, float4x4 transform) noexcept {
+    _instance_transforms[index] = transform;
+    _dirty_range.mark(index);
+}
+
+bool CUDAAccel::uses_buffer(CUdeviceptr handle) const noexcept {
+    return std::binary_search(
+        _resource_buffers.cbegin(),
+        _resource_buffers.cend(),
+        handle);
+}
+
+void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
+    // TODO...
+    _dirty_range.clear();
+}
+
+void CUDAAccel::update(CUDADevice *device, CUDAStream *stream) noexcept {
+
+    if (!_dirty_range.empty()) {
+        auto dirty_update_buffer_size = _dirty_range.size();
+
+        _dirty_range.clear();
+    }
+}
+
 }
