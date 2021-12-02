@@ -302,7 +302,8 @@ void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexc
     if (dirty_range.empty()) { return; }
     auto offset_bytes = MetalBindlessArray::slot_size * dirty_range.offset();
     auto size_bytes = MetalBindlessArray::slot_size * dirty_range.size();
-    auto temp_buffer = _upload(static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
+    auto temp_buffer = _upload(
+        static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temp_buffer.handle()
                     sourceOffset:temp_buffer.offset()
