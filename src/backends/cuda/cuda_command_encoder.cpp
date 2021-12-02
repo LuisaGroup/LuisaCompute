@@ -49,7 +49,9 @@ void CUDACommandEncoder::visit(const BufferUploadCommand *command) noexcept {
     auto size = command->size();
     with_upload_buffer(size, [&](CUDARingBuffer::View upload_buffer) noexcept {
         std::memcpy(upload_buffer.address(), data, size);
-        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(buffer, upload_buffer.address(), size, _stream->handle()));
+        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
+            buffer, upload_buffer.address(),
+            size, _stream->handle()));
     });
 }
 
