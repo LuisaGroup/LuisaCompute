@@ -15,15 +15,18 @@ private:
     id<MTLBuffer> _handle;
     uint32_t _offset;
     uint32_t _size;
+    bool _is_pooled;
 
 public:
-    MetalBufferView(id<MTLBuffer> handle, size_t offset, size_t size) noexcept
+    MetalBufferView(id<MTLBuffer> handle, size_t offset, size_t size, bool is_pooled = true) noexcept
         : _handle{handle},
           _offset{static_cast<uint32_t>(offset)},
-          _size{static_cast<uint32_t>(size)} {}
+          _size{static_cast<uint32_t>(size)},
+          _is_pooled{is_pooled} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto is_pooled() const noexcept { return _is_pooled; }
 };
 
 }// namespace luisa::compute::metal

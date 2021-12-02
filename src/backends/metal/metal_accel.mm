@@ -17,25 +17,28 @@ MetalAccel::MetalAccel(AccelBuildHint hint) noexcept {
 }
 
 id<MTLCommandBuffer> MetalAccel::build(
-    MetalStream *stream,
-    id<MTLCommandBuffer> command_buffer,
-    MetalSharedBufferPool *pool) noexcept {
+    MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept {
 
     // build instance buffer
     auto device = [command_buffer device];
     auto instance_buffer_size = _instance_meshes.size() * sizeof(MTLAccelerationStructureInstanceDescriptor);
     if (_instance_buffer == nullptr || _instance_buffer.length < instance_buffer_size) {
         _instance_buffer = [device newBufferWithLength:instance_buffer_size
-                                               options:MTLResourceStorageModePrivate |
-                                                       MTLResourceHazardTrackingModeUntracked];
-        _instance_buffer_host = [device newBufferWithLength:instance_buffer_size
-                                                    options:MTLResourceStorageModeShared |
-                                                            MTLResourceHazardTrackingModeUntracked |
-                                                            MTLResourceOptionCPUCacheModeWriteCombined];
-    } else if (id<MTLCommandBuffer> last = _instance_buffer_copy_command) {
-        [last waitUntilCompleted];
+                                               options:MTLResourceStorageModePrivate];
     }
-    auto instances = static_cast<MTLAccelerationStructureInstanceDescriptor *>(_instance_buffer_host.contents);
+    _dirty_range.clear();
+
+    auto pool = &stream->upload_ring_buffer();
+    auto instance_buffer = pool->allocate(instance_buffer_size);
+    if (instance_buffer.is_pooled()) {
+        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          pool->recycle(instance_buffer);
+        }];
+    }
+
+    auto instances = reinterpret_cast<MTLAccelerationStructureInstanceDescriptor *>(
+        static_cast<std::byte *>([instance_buffer.handle() contents]) +
+        instance_buffer.offset());
     for (auto i = 0u; i < _instance_meshes.size(); i++) {
         instances[i].mask = 0xffffffffu;
         instances[i].accelerationStructureIndex = i;
@@ -47,17 +50,12 @@ id<MTLCommandBuffer> MetalAccel::build(
         }
     }
     auto blit_encoder = [command_buffer blitCommandEncoder];
-    [blit_encoder copyFromBuffer:_instance_buffer_host
-                    sourceOffset:0u
+    [blit_encoder copyFromBuffer:instance_buffer.handle()
+                    sourceOffset:instance_buffer.offset()
                         toBuffer:_instance_buffer
                destinationOffset:0u
                             size:instance_buffer_size];
     [blit_encoder endEncoding];
-    _instance_buffer_copy_command = command_buffer;
-
-    // to avoid dead locks
-    stream->dispatch(command_buffer);
-    command_buffer = stream->command_buffer();
 
     // build accel and (possibly) compact
     _resources.clear();
@@ -96,21 +94,21 @@ id<MTLCommandBuffer> MetalAccel::build(
                                   scratchBuffer:scratch_buffer
                             scratchBufferOffset:0u];
     if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
-        auto compacted_size_buffer = pool->allocate();
+
+        auto pool = &stream->download_ring_buffer();
+        auto compacted_size_buffer = pool->allocate(sizeof(uint));
         [command_encoder writeCompactedAccelerationStructureSize:_handle
                                                         toBuffer:compacted_size_buffer.handle()
                                                           offset:compacted_size_buffer.offset()];
         [command_encoder endEncoding];
-        auto compacted_size = 0u;
-        auto p_compacted_size = &compacted_size;
-        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          *p_compacted_size = *reinterpret_cast<const uint *>(
-              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset());
-          pool->recycle(compacted_size_buffer);
-        }];
-
         stream->dispatch(command_buffer);
         [command_buffer waitUntilCompleted];
+
+        auto compacted_size = *reinterpret_cast<const uint *>(
+            static_cast<const std::byte *>(compacted_size_buffer.handle().contents) +
+            compacted_size_buffer.offset());
+        pool->recycle(compacted_size_buffer);
+
         auto accel_before_compaction = _handle;
         _handle = [device newAccelerationStructureWithSize:compacted_size];
         command_buffer = stream->command_buffer();
@@ -119,8 +117,6 @@ id<MTLCommandBuffer> MetalAccel::build(
                                      toAccelerationStructure:_handle];
     }
     [command_encoder endEncoding];
-
-    _dirty_range.clear();
     return command_buffer;
 }
 
@@ -129,31 +125,40 @@ id<MTLCommandBuffer> MetalAccel::update(
     id<MTLCommandBuffer> command_buffer) noexcept {
 
     if (!_dirty_range.empty()) {// some instances have been updated...
-        // wait for last copy
-        if (id<MTLCommandBuffer> last = _instance_buffer_copy_command) {
-            [last waitUntilCompleted];
-        }
+
         using Instance = MTLAccelerationStructureInstanceDescriptor;
-        auto instances = static_cast<Instance *>(_instance_buffer_host.contents);
+        auto dirty_instance_buffer_size = _dirty_range.size() * sizeof(Instance);
+
+        auto pool = &stream->upload_ring_buffer();
+        auto dirty_instance_buffer = pool->allocate(dirty_instance_buffer_size);
+        if (dirty_instance_buffer.is_pooled()) {
+            [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+              pool->recycle(dirty_instance_buffer);
+            }];
+        }
+
+        auto instances = reinterpret_cast<Instance *>(
+            static_cast<std::byte *>([dirty_instance_buffer.handle() contents]) +
+            dirty_instance_buffer.offset());
         for (auto i = 0u; i < _dirty_range.size(); i++) {
             auto index = i + _dirty_range.offset();
+            instances[i].mask = 0xffffffffu;
+            instances[i].accelerationStructureIndex = index;
+            instances[i].intersectionFunctionTableOffset = 0u;
+            instances[i].options = MTLAccelerationStructureInstanceOptionOpaque;
             auto t = _instance_transforms[index];
             for (auto c = 0; c < 4; c++) {
-                instances[index].transformationMatrix[c] = {t[c].x, t[c].y, t[c].z};
+                instances[i].transformationMatrix[c] = {t[c].x, t[c].y, t[c].z};
             }
         }
         auto blit_encoder = [command_buffer blitCommandEncoder];
-        [blit_encoder copyFromBuffer:_instance_buffer_host
-                        sourceOffset:_dirty_range.offset() * sizeof(Instance)
+        [blit_encoder copyFromBuffer:dirty_instance_buffer.handle()
+                        sourceOffset:dirty_instance_buffer.offset()
                             toBuffer:_instance_buffer
                    destinationOffset:_dirty_range.offset() * sizeof(Instance)
-                                size:_dirty_range.size() * sizeof(Instance)];
+                                size:dirty_instance_buffer_size];
         [blit_encoder endEncoding];
-        _instance_buffer_copy_command = command_buffer;
-
-        // commit the command buffer and start a new one to avoid dead locks
-        stream->dispatch(command_buffer);
-        command_buffer = stream->command_buffer();
+        _dirty_range.clear();
     }
 
     // update accel
@@ -169,8 +174,6 @@ id<MTLCommandBuffer> MetalAccel::update(
                                   scratchBuffer:_update_buffer
                             scratchBufferOffset:0u];
     [command_encoder endEncoding];
-
-    _dirty_range.clear();
     return command_buffer;
 }
 
