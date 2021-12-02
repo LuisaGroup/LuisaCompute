@@ -24,7 +24,7 @@ private:
     OptixTraversableHandle _handle{};
     luisa::vector<CUDAMesh *> _instance_meshes;
     luisa::vector<float4x4> _instance_transforms;
-    luisa::unordered_set<CUdeviceptr> _resource_buffers;
+    luisa::unordered_set<uint64_t> _resources;
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};
@@ -45,7 +45,7 @@ public:
 
     void build(CUDADevice *device, CUDAStream *stream) noexcept;
     void update(CUDADevice *device, CUDAStream *stream) noexcept;
-    [[nodiscard]] bool uses_buffer(CUdeviceptr handle) const noexcept;
+    [[nodiscard]] bool uses_resource(uint64_t handle) const noexcept;
 };
 
 }

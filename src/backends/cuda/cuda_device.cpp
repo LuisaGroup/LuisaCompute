@@ -378,7 +378,11 @@ void CUDADevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t i
 }
 
 bool CUDADevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    return reinterpret_cast<CUDAAccel *>(accel)->uses_buffer(buffer);
+    return reinterpret_cast<CUDAAccel *>(accel)->uses_resource(buffer);
+}
+
+bool CUDADevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
+    return reinterpret_cast<CUDAAccel *>(accel)->uses_resource(mesh);
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {
