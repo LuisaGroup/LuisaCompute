@@ -144,6 +144,12 @@ bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexc
 bool ISPCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
     return false;
 }
+uint64_t ISPCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    return 0;
+}
+uint64_t ISPCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    return 0;
+}
 
 }// namespace lc::ispc
 
