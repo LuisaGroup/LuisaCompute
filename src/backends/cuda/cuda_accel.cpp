@@ -22,8 +22,9 @@ CUDAAccel::~CUDAAccel() noexcept {
 void CUDAAccel::add_instance(CUDAMesh *mesh, float4x4 transform) noexcept {
     _instance_meshes.emplace_back(mesh);
     _instance_transforms.emplace_back(transform);
-    _resource_buffers.emplace(mesh->vertex_buffer_handle());
-    _resource_buffers.emplace(mesh->triangle_buffer_handle());
+    _resources.emplace(mesh->vertex_buffer_handle());
+    _resources.emplace(mesh->triangle_buffer_handle());
+    _resources.emplace(reinterpret_cast<uint64_t>(mesh));
 }
 
 void CUDAAccel::set_transform(size_t index, float4x4 transform) noexcept {
@@ -31,8 +32,8 @@ void CUDAAccel::set_transform(size_t index, float4x4 transform) noexcept {
     _dirty_range.mark(index);
 }
 
-bool CUDAAccel::uses_buffer(CUdeviceptr handle) const noexcept {
-    return _resource_buffers.contains(handle);
+bool CUDAAccel::uses_resource(uint64_t handle) const noexcept {
+    return _resources.contains(handle);
 }
 
 [[nodiscard]] inline auto make_optix_instance(

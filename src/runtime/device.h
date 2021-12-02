@@ -115,6 +115,7 @@ public:
         virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept = 0;
         virtual void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept = 0;
         [[nodiscard]] virtual bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept = 0;
+        [[nodiscard]] virtual bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
 
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }

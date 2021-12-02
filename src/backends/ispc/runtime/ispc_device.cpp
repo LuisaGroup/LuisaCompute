@@ -141,6 +141,10 @@ bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexc
     return false;
 }
 
+bool ISPCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
+    return false;
+}
+
 }// namespace lc::ispc
 
 LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, std::string_view properties) noexcept {
