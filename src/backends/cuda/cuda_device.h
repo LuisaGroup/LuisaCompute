@@ -14,7 +14,7 @@
 
 namespace luisa::compute::cuda {
 
-class CUDADevice : public Device::Interface {
+class CUDADevice final : public Device::Interface {
 
     class ContextGuard {
 
