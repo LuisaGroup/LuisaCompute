@@ -14,10 +14,17 @@ CUDARingBuffer::CUDARingBuffer(size_t size, bool write_combined) noexcept
       _write_combined{write_combined} {}
 
 CUDARingBuffer::~CUDARingBuffer() noexcept {
-    LUISA_CHECK_CUDA(cuMemFreeHost(_memory));
+    LUISA_CHECK_CUDA(cuMemFreeHost(reinterpret_cast<void *>(_memory)));
 }
 
-std::span<std::byte> CUDARingBuffer::allocate(size_t size) noexcept {
+CUDARingBuffer::View CUDARingBuffer::allocate(size_t size) noexcept {
+
+    auto allocate_ad_hoc = [size, this] {
+        void *buffer{nullptr};
+        auto flags = _write_combined ? CU_MEMHOSTALLOC_WRITECOMBINED : 0;
+        LUISA_CHECK_CUDA(cuMemHostAlloc(&buffer, size, flags));
+        return View{static_cast<std::byte *>(buffer), size, false};
+    };
 
     // simple check
     if (size > _size) {
@@ -25,7 +32,7 @@ std::span<std::byte> CUDARingBuffer::allocate(size_t size) noexcept {
             "Failed to allocate {} bytes from "
             "the ring memory with size {}.",
             size, _size);
-        return {};
+        return allocate_ad_hoc();
     }
     size = (size + alignment - 1u) / alignment * alignment;
 
@@ -52,23 +59,25 @@ std::span<std::byte> CUDARingBuffer::allocate(size_t size) noexcept {
             "Failed to allocate {} bytes from ring "
             "memory with begin {} and end {}.",
             size, _free_begin, _free_end);
-        return {};
+        return allocate_ad_hoc();
     }
     _alloc_count++;
     _free_begin = (offset + size) & (_size - 1u);
-    return {memory + offset, size};
+    return {memory + offset, size, true};
 }
 
-void CUDARingBuffer::recycle(std::span<std::byte> view) noexcept {
-    if (_free_end + view.size() > _size) { _free_end = 0u; }
-    if (view.data() != _memory + _free_end) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid ring buffer item offset {} "
-            "for recycling (expected {}).",
-            view.data() - _memory, _free_end);
+void CUDARingBuffer::recycle(View view) noexcept {
+    if (view.is_pooled()) {
+        if (_free_end + view.size() > _size) { _free_end = 0u; }
+        if (view.address() != _memory + _free_end) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid ring buffer item offset {} "
+                "for recycling (expected {}).",
+                view.address() - _memory, _free_end);
+        }
+        _free_end = (view.address() - _memory + view.size()) & (_size - 1u);
+        _alloc_count--;
     }
-    _free_end = (view.data() - _memory + view.size()) & (_size - 1u);
-    _alloc_count--;
 }
 
 }// namespace luisa::compute::cuda
