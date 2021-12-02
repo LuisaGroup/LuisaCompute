@@ -291,8 +291,12 @@ void MetalDevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t 
 
 bool MetalDevice::is_buffer_in_accel(uint64_t accel_handle, uint64_t buffer_handle) const noexcept {
     auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    auto buffer = (__bridge id<MTLBuffer>)(reinterpret_cast<void *>(buffer_handle));
-    return accel->uses_resource(buffer);
+    return accel->uses_resource(buffer_handle);
+}
+
+bool MetalDevice::is_mesh_in_accel(uint64_t accel_handle, uint64_t mesh_handle) const noexcept {
+    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
+    return accel->uses_resource(mesh_handle);
 }
 
 #else
@@ -324,6 +328,10 @@ void MetalDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, 
 }
 
 bool MetalDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
+    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
+}
+
+bool MetalDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
     LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
 }
 

@@ -29,6 +29,7 @@ private:
     luisa::vector<MetalMesh *> _instance_meshes;
     luisa::vector<float4x4> _instance_transforms;
     luisa::vector<id<MTLResource>> _resources;// sorted
+    luisa::unordered_set<uint64_t> _resource_handles;
     DirtyRange _dirty_range;
 
 public:
@@ -44,10 +45,7 @@ public:
 
     void add_instance(MetalMesh *mesh, float4x4 transform) noexcept;
     void set_transform(size_t index, float4x4 transform) noexcept;
-    [[nodiscard]] bool uses_resource(id<MTLResource> resource) const noexcept;
-
-    [[nodiscard]] auto dirty_range() const noexcept { return _dirty_range; }
-    void clear_dirty_range() noexcept { _dirty_range.clear(); }
+    [[nodiscard]] bool uses_resource(uint64_t resource) const noexcept;
 };
 
 }// namespace luisa::compute::metal
