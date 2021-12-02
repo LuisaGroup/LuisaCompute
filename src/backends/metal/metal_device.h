@@ -36,16 +36,11 @@ private:
     id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    luisa::unique_ptr<MetalSharedBufferPool> _compacted_size_buffer_pool{nullptr};
-#endif
-
 public:
     explicit MetalDevice(const Context &ctx, uint32_t index) noexcept;
     ~MetalDevice() noexcept override;
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalSharedBufferPool *compacted_size_buffer_pool() const noexcept;
     void check_raytracing_supported() const noexcept;
 
 public:

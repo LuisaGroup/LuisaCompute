@@ -30,10 +30,7 @@ MetalMesh::MetalMesh(
     }
 }
 
-id<MTLCommandBuffer> MetalMesh::build(
-    MetalStream *stream,
-    id<MTLCommandBuffer> command_buffer,
-    MetalSharedBufferPool *pool) noexcept {
+id<MTLCommandBuffer> MetalMesh::build(MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept {
 
     auto device = command_buffer.device;
     auto sizes = [device accelerationStructureSizesWithDescriptor:_descriptor];
@@ -49,20 +46,19 @@ id<MTLCommandBuffer> MetalMesh::build(
                             scratchBufferOffset:0u];
 
     if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
-        auto compacted_size_buffer = pool->allocate();
+        auto pool = &stream->download_ring_buffer();
+        auto compacted_size_buffer = pool->allocate(sizeof(uint));
         [command_encoder writeCompactedAccelerationStructureSize:_handle
                                                         toBuffer:compacted_size_buffer.handle()
                                                           offset:compacted_size_buffer.offset()];
         [command_encoder endEncoding];
-        auto compacted_size = 0u;
-        auto p_compacted_size = &compacted_size;
-        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          *p_compacted_size = *reinterpret_cast<const uint *>(
-              static_cast<const std::byte *>(compacted_size_buffer.handle().contents) + compacted_size_buffer.offset());
-          pool->recycle(compacted_size_buffer);
-        }];
         stream->dispatch(command_buffer);
         [command_buffer waitUntilCompleted];
+        auto compacted_size = *reinterpret_cast<const uint *>(
+            static_cast<const std::byte *>(compacted_size_buffer.handle().contents) +
+            compacted_size_buffer.offset());
+        pool->recycle(compacted_size_buffer);
+
         auto accel_before_compaction = _handle;
         _handle = [device newAccelerationStructureWithSize:compacted_size];
         command_buffer = stream->command_buffer();
@@ -76,7 +72,7 @@ id<MTLCommandBuffer> MetalMesh::build(
 
 id<MTLCommandBuffer> MetalMesh::update(
     MetalStream *,
-    id<MTLCommandBuffer> command_buffer) {
+    id<MTLCommandBuffer> command_buffer) noexcept {
 
     auto device = command_buffer.device;
     if (_update_buffer == nullptr || _update_buffer.length < _update_buffer_size) {

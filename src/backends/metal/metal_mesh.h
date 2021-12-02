@@ -25,12 +25,9 @@ public:
               id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] id<MTLCommandBuffer> build(
-        MetalStream *stream,
-        id<MTLCommandBuffer> command_buffer,
-        MetalSharedBufferPool *pool) noexcept;
+        MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
     [[nodiscard]] id<MTLCommandBuffer> update(
-        MetalStream *stream,
-        id<MTLCommandBuffer> command_buffer);
+        MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
     [[nodiscard]] auto descriptor() const noexcept { return _descriptor; }
     [[nodiscard]] id<MTLBuffer> vertex_buffer() const noexcept;
     [[nodiscard]] id<MTLBuffer> triangle_buffer() const noexcept;
