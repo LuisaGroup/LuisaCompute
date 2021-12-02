@@ -22,9 +22,9 @@ class CUDAAccel {
 
 private:
     OptixTraversableHandle _handle{};
-    std::vector<CUDAMesh *> _instance_meshes;
-    std::vector<float4x4> _instance_transforms;
-    std::vector<CUdeviceptr> _resource_buffers;
+    luisa::vector<CUDAMesh *> _instance_meshes;
+    luisa::vector<float4x4> _instance_transforms;
+    luisa::unordered_set<CUdeviceptr> _resource_buffers;
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};
