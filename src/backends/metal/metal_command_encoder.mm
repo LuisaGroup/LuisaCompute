@@ -278,28 +278,19 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) noexcept {
     auto rb = &_stream->upload_ring_buffer();
     auto buffer = rb->allocate(size);
-    if (buffer.handle() == nullptr) {
-        auto options = MTLResourceStorageModeShared | MTLResourceCPUCacheModeWriteCombined | MTLResourceHazardTrackingModeUntracked;
-        auto handle = [_device->handle() newBufferWithBytes:host_ptr length:size options:options];
-        return {handle, 0u, size};
-    }
     std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
-    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { rb->recycle(buffer); }];
+    if (buffer.is_pooled()) {
+        [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { rb->recycle(buffer); }];
+    }
     return buffer;
 }
 
 MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noexcept {
     auto rb = &_stream->download_ring_buffer();
     auto buffer = rb->allocate(size);
-    if (buffer.handle() == nullptr) {
-        auto options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
-        auto handle = [_device->handle() newBufferWithLength:size options:options];
-        [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { std::memcpy(host_ptr, handle.contents, size); }];
-        return {handle, 0u, size};
-    }
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
       std::memcpy(host_ptr, static_cast<const std::byte *>(buffer.handle().contents) + buffer.offset(), size);
-      rb->recycle(buffer);
+      if (buffer.is_pooled()) { rb->recycle(buffer); }
     }];
     return buffer;
 }
@@ -330,8 +321,7 @@ void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = to_accel(command->handle());
-    _command_buffer = accel->build(
-        _stream, _command_buffer, _device->compacted_size_buffer_pool());
+    _command_buffer = accel->build(_stream, _command_buffer);
 }
 
 void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
@@ -341,8 +331,7 @@ void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = to_mesh(command->handle());
-    _command_buffer = mesh->build(
-        _stream, _command_buffer, _device->compacted_size_buffer_pool());
+    _command_buffer = mesh->build(_stream, _command_buffer);
 }
 
 #else
