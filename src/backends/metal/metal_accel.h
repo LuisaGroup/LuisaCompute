@@ -23,9 +23,7 @@ class MetalAccel {
 private:
     id<MTLAccelerationStructure> _handle{nullptr};
     id<MTLBuffer> _instance_buffer{nullptr};
-    id<MTLBuffer> _instance_buffer_host{nullptr};
     id<MTLBuffer> _update_buffer{nullptr};
-    __weak id<MTLCommandBuffer> _instance_buffer_copy_command{nullptr};
     MTLInstanceAccelerationStructureDescriptor *_descriptor{nullptr};
     size_t _update_scratch_size{};
     luisa::vector<MetalMesh *> _instance_meshes;
@@ -37,13 +35,9 @@ public:
     explicit MetalAccel(AccelBuildHint hint) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] id<MTLCommandBuffer> build(
-        MetalStream *stream,
-        id<MTLCommandBuffer> command_buffer,
-        MetalSharedBufferPool *pool) noexcept;
+        MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
     [[nodiscard]] id<MTLCommandBuffer> update(
-        MetalStream *stream,
-        id<MTLCommandBuffer> command_buffer) noexcept;
-    [[nodiscard]] auto instance_buffer_host() const noexcept { return _instance_buffer_host; }
+        MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
     [[nodiscard]] auto descriptor() const noexcept { return _descriptor; }
     [[nodiscard]] auto resources() noexcept { return std::span{_resources}; }

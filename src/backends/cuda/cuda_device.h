@@ -41,8 +41,8 @@ public:
 
     private:
         CUcontext _context{nullptr};
-        CUdevice _device{0};
         OptixDeviceContext _optix_context{nullptr};
+        CUdevice _device{0};
         uint32_t _compute_capability{};
 
     public:

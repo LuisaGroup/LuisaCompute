@@ -78,10 +78,6 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
     _compiler = luisa::make_unique<MetalCompiler>(this);
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    _compacted_size_buffer_pool = luisa::make_unique<MetalSharedBufferPool>(_handle, sizeof(uint), 4096u / sizeof(uint), false);
-#endif
-
     // initialize bindless array encoder
     static constexpr auto src = @"#include <metal_stdlib>\n"
                                  "struct alignas(16) BindlessItem {\n"
@@ -359,12 +355,6 @@ void MetalDevice::destroy_shader(uint64_t handle) noexcept {
     // nothing happens, the MetalCompiler class will manage all
     LUISA_VERBOSE_WITH_LOCATION("Destroyed shader #{}.", handle);
 }
-
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-MetalSharedBufferPool *MetalDevice::compacted_size_buffer_pool() const noexcept {
-    return _compacted_size_buffer_pool.get();
-}
-#endif
 
 void MetalDevice::check_raytracing_supported() const noexcept {
     if (!_handle.supportsRaytracing) {
