@@ -55,11 +55,15 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
     build_options.operation = OPTIX_BUILD_OPERATION_BUILD;
 
     auto optix_context = device->handle().optix_context();
+
+    Clock clock;
     OptixAccelBufferSizes sizes;
     LUISA_CHECK_OPTIX(optixAccelComputeMemoryUsage(
         optix_context, &build_options, &build_input, 1u, &sizes));
     LUISA_INFO(
-        "Mesh memory usage: temp = {}, temp_update = {}, output = {}.",
+        "Computed mesh memory usage in {} ms: "
+        "temp = {}, temp_update = {}, output = {}.",
+        clock.toc(),
         sizes.tempSizeInBytes, sizes.tempUpdateSizeInBytes, sizes.outputSizeInBytes);
     if (_update_buffer_size < sizes.tempUpdateSizeInBytes) {
         LUISA_CHECK_CUDA(cuMemFree(_update_buffer));
