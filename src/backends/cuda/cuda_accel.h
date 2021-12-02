@@ -42,9 +42,9 @@ public:
     ~CUDAAccel() noexcept;
     void add_instance(CUDAMesh *mesh, float4x4 transform) noexcept;
     void set_transform(size_t index, float4x4 transform) noexcept;
-
     void build(CUDADevice *device, CUDAStream *stream) noexcept;
     void update(CUDADevice *device, CUDAStream *stream) noexcept;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] bool uses_resource(uint64_t handle) const noexcept;
 };
 
