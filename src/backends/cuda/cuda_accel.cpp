@@ -22,6 +22,8 @@ CUDAAccel::~CUDAAccel() noexcept {
 void CUDAAccel::add_instance(CUDAMesh *mesh, float4x4 transform) noexcept {
     _instance_meshes.emplace_back(mesh);
     _instance_transforms.emplace_back(transform);
+    _resource_buffers.emplace(mesh->vertex_buffer_handle());
+    _resource_buffers.emplace(mesh->triangle_buffer_handle());
 }
 
 void CUDAAccel::set_transform(size_t index, float4x4 transform) noexcept {
@@ -30,10 +32,7 @@ void CUDAAccel::set_transform(size_t index, float4x4 transform) noexcept {
 }
 
 bool CUDAAccel::uses_buffer(CUdeviceptr handle) const noexcept {
-    return std::binary_search(
-        _resource_buffers.cbegin(),
-        _resource_buffers.cend(),
-        handle);
+    return _resource_buffers.contains(handle);
 }
 
 [[nodiscard]] inline auto make_optix_instance(
@@ -95,16 +94,12 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
         _instance_buffer_size = round_up(instance_buffer_size, 16u * sizeof(OptixInstance));
         LUISA_CHECK_CUDA(cuMemAlloc(&_instance_buffer, _instance_buffer_size));
     }
-    _resource_buffers.clear();
     auto instance_buffer = stream->upload_pool().allocate(instance_buffer_size);
     auto instances = reinterpret_cast<OptixInstance *>(instance_buffer.address());
     for (auto i = 0u; i < _instance_meshes.size(); i++) {
-        auto mesh = _instance_meshes[i];
         instances[i] = make_optix_instance(
-            i, mesh->handle(),
+            i, _instance_meshes[i]->handle(),
             _instance_transforms[i]);
-        _resource_buffers.emplace_back(mesh->vertex_buffer_handle());
-        _resource_buffers.emplace_back(mesh->triangle_buffer_handle());
     }
     LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
         _instance_buffer, instance_buffer.address(),
@@ -115,10 +110,6 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
             ctx->recycle();
         },
         CUDARingBuffer::RecycleContext::create(instance_buffer, &stream->upload_pool())));
-    std::sort(_resource_buffers.begin(), _resource_buffers.end());
-    _resource_buffers.erase(
-        std::unique(_resource_buffers.begin(), _resource_buffers.end()),
-        _resource_buffers.end());
 
     // build IAS
     auto build_input = _make_build_input();
