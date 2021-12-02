@@ -32,13 +32,14 @@ private:
     AccelBuildHint _build_hint;
 
 private:
-    void _initialize_build_parameters(OptixBuildInput *build_input, OptixAccelBuildOptions *build_options) const noexcept;
+    [[nodiscard]] OptixBuildInput _make_build_input() const noexcept;
 
 public:
     CUDAMesh(CUdeviceptr v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
              CUdeviceptr t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept;
     void build(CUDADevice *device, CUDAStream *stream) noexcept;
     void update(CUDADevice *device, CUDAStream *stream) noexcept;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto vertex_buffer_handle() const noexcept { return _vertex_buffer_origin; }
     [[nodiscard]] auto triangle_buffer_handle() const noexcept { return _triangle_buffer_origin; }
     ~CUDAMesh() noexcept;

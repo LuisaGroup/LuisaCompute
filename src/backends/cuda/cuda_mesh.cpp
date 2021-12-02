@@ -19,49 +19,54 @@ CUDAMesh::CUDAMesh(
       _triangle_buffer_origin{t_buffer}, _triangle_buffer{t_buffer + t_offset},
       _triangle_count{t_count}, _build_hint{hint} {}
 
-void CUDAMesh::_initialize_build_parameters(OptixBuildInput *build_input, OptixAccelBuildOptions *build_options) const noexcept {
+inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
+    OptixBuildInput build_input{};
     static auto geometry_flag = static_cast<uint32_t>(OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT);
-    build_input->type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
-    build_input->triangleArray.flags = &geometry_flag;
-    build_input->triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
-    build_input->triangleArray.vertexBuffers = &_vertex_buffer;
-    build_input->triangleArray.vertexStrideInBytes = _vertex_stride;
-    build_input->triangleArray.numVertices = _vertex_count;
-    build_input->triangleArray.indexBuffer = _triangle_buffer;
-    build_input->triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
-    build_input->triangleArray.indexStrideInBytes = sizeof(Triangle);
-    build_input->triangleArray.numIndexTriplets = _triangle_count;
-    build_input->triangleArray.numSbtRecords = 1u;
-    switch (_build_hint) {
+    build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+    build_input.triangleArray.flags = &geometry_flag;
+    build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+    build_input.triangleArray.vertexBuffers = &_vertex_buffer;
+    build_input.triangleArray.vertexStrideInBytes = _vertex_stride;
+    build_input.triangleArray.numVertices = _vertex_count;
+    build_input.triangleArray.indexBuffer = _triangle_buffer;
+    build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+    build_input.triangleArray.indexStrideInBytes = sizeof(Triangle);
+    build_input.triangleArray.numIndexTriplets = _triangle_count;
+    build_input.triangleArray.numSbtRecords = 1u;
+    return build_input;
+}
+
+[[nodiscard]] inline auto make_build_options(AccelBuildHint hint, OptixBuildOperation op) noexcept {
+    OptixAccelBuildOptions build_options{};
+    build_options.operation = op;
+    switch (hint) {
         case AccelBuildHint::FAST_TRACE:
-            build_options->buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION |
-                                        OPTIX_BUILD_FLAG_ALLOW_UPDATE |
-                                        OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
+            build_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION |
+                                       OPTIX_BUILD_FLAG_ALLOW_UPDATE |
+                                       OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
             break;
         case AccelBuildHint::FAST_UPDATE:
-            build_options->buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION |
-                                        OPTIX_BUILD_FLAG_ALLOW_UPDATE;
+            build_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION |
+                                       OPTIX_BUILD_FLAG_ALLOW_UPDATE;
             break;
         case AccelBuildHint::FAST_REBUILD:
-            build_options->buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE |
-                                        OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
+            build_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE |
+                                       OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
             break;
     }
+    return build_options;
 }
 
 void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
 
-    OptixBuildInput build_input{};
-    OptixAccelBuildOptions build_options{};
-    _initialize_build_parameters(&build_input, &build_options);
-    build_options.operation = OPTIX_BUILD_OPERATION_BUILD;
-
-    auto optix_context = device->handle().optix_context();
+    auto build_input = _make_build_input();
+    auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_BUILD);
 
     Clock clock;
     OptixAccelBufferSizes sizes;
     LUISA_CHECK_OPTIX(optixAccelComputeMemoryUsage(
-        optix_context, &build_options, &build_input, 1u, &sizes));
+        device->handle().optix_context(), &build_options,
+        &build_input, 1u, &sizes));
     LUISA_INFO(
         "Computed mesh memory usage in {} ms: "
         "temp = {}, temp_update = {}, output = {}.",
@@ -73,7 +78,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         _update_buffer_size = sizes.tempUpdateSizeInBytes;
     }
 
-    auto align = [](size_t x) noexcept -> size_t {
+    static constexpr auto align = [](size_t x) noexcept -> size_t {
         static constexpr auto alignment = OPTIX_ACCEL_BUFFER_BYTE_ALIGNMENT;
         return (x + alignment - 1u) / alignment * alignment;
     };
@@ -87,7 +92,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         }
         auto temp_buffer = _buffer + temp_buffer_offset;
         LUISA_CHECK_OPTIX(optixAccelBuild(
-            optix_context, stream->handle(),
+            device->handle().optix_context(), stream->handle(),
             &build_options, &build_input, 1,
             temp_buffer, sizes.tempSizeInBytes,
             _buffer, sizes.outputSizeInBytes,
@@ -109,7 +114,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         emit_desc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
         emit_desc.result = compacted_size_buffer;
         LUISA_CHECK_OPTIX(optixAccelBuild(
-            optix_context, stream->handle(),
+            device->handle().optix_context(), stream->handle(),
             &build_options, &build_input, 1,
             temp_buffer, sizes.tempSizeInBytes,
             output_buffer, sizes.outputSizeInBytes,
@@ -126,7 +131,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
             LUISA_CHECK_CUDA(cuMemAlloc(&_buffer, _buffer_size));
         }
         LUISA_CHECK_OPTIX(optixAccelCompact(
-            optix_context, stream->handle(),
+            device->handle().optix_context(), stream->handle(),
             _handle, _buffer, _buffer_size, &_handle));
         LUISA_CHECK_CUDA(cuMemFree(build_buffer));
     }
@@ -135,16 +140,14 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
 void CUDAMesh::update(CUDADevice *device, CUDAStream *stream) noexcept {
 
     if (_update_buffer == 0u) {
-        LUISA_CHECK_CUDA(cuMemAlloc(&_update_buffer, _update_buffer_size));
+        LUISA_CHECK_CUDA(cuMemAlloc(
+            &_update_buffer, _update_buffer_size));
     }
-    OptixBuildInput build_input{};
-    OptixAccelBuildOptions build_options{};
-    _initialize_build_parameters(&build_input, &build_options);
-    build_options.operation = OPTIX_BUILD_OPERATION_UPDATE;
 
-    auto optix_context = device->handle().optix_context();
+    auto build_input = _make_build_input();
+    auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_UPDATE);
     LUISA_CHECK_OPTIX(optixAccelBuild(
-        optix_context, stream->handle(),
+        device->handle().optix_context(), stream->handle(),
         &build_options, &build_input, 1u,
         _update_buffer, _update_buffer_size,
         _buffer, _buffer_size,
