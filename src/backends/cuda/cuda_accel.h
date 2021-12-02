@@ -26,13 +26,16 @@ private:
     std::vector<float4x4> _instance_transforms;
     std::vector<CUdeviceptr> _resource_buffers;
     CUdeviceptr _instance_buffer{};
+    size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};
     size_t _bvh_buffer_size{};
     CUdeviceptr _update_buffer{};
     size_t _update_buffer_size{};
-    CUevent _update_event{};
     DirtyRange _dirty_range{};
     AccelBuildHint _build_hint;
+
+private:
+    [[nodiscard]] OptixBuildInput _make_build_input() const noexcept;
 
 public:
     explicit CUDAAccel(AccelBuildHint hint) noexcept;

@@ -7,6 +7,7 @@
 #include <span>
 #include <cuda.h>
 
+#include <core/pool.h>
 #include <core/spin_mutex.h>
 #include <core/mathematics.h>
 #include <backends/cuda/cuda_error.h>
@@ -38,6 +39,18 @@ public:
         [[nodiscard]] auto is_pooled() const noexcept {
             return static_cast<bool>(_is_pooled_and_size >> is_pooled_shift);
         }
+    };
+
+    class RecycleContext {
+
+    private:
+        View _buffer;
+        CUDARingBuffer *_pool;
+
+    public:
+        RecycleContext(View buffer, CUDARingBuffer *pool) noexcept;
+        [[nodiscard]] static RecycleContext *create(View buffer, CUDARingBuffer *pool) noexcept;
+        void recycle() noexcept;
     };
 
 private:

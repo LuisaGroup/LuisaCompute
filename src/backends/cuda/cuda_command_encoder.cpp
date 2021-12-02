@@ -14,33 +14,16 @@
 
 namespace luisa::compute::cuda {
 
-struct RingBufferRecycleContext {
-    CUDARingBuffer::View buffer;
-    CUDAStream *stream{nullptr};
-    RingBufferRecycleContext(CUDARingBuffer::View b, CUDAStream *s) noexcept
-        : buffer{b}, stream{s} {}
-};
-
-[[nodiscard]] decltype(auto) ring_buffer_recycle_context_pool() noexcept {
-    static Pool<RingBufferRecycleContext> pool;
-    return (pool);
-}
-
 template<typename F>
 inline void CUDACommandEncoder::with_upload_buffer(size_t size, F &&f) noexcept {
     auto upload_buffer = _stream->upload_pool().allocate(size);
     f(upload_buffer);
     LUISA_CHECK_CUDA(cuLaunchHostFunc(
         _stream->handle(), [](void *user_data) noexcept {
-            auto context = static_cast<RingBufferRecycleContext *>(user_data);
-            if (context->buffer.is_pooled()) {// pooled memory
-                context->stream->upload_pool().recycle(context->buffer);
-            } else {// temporary memory
-                LUISA_CHECK_CUDA(cuMemFreeHost(context->buffer.address()));
-            }
-            ring_buffer_recycle_context_pool().recycle(context);
+            auto context = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
+            context->recycle();
         },
-        ring_buffer_recycle_context_pool().create(upload_buffer, _stream)));
+        CUDARingBuffer::RecycleContext::create(upload_buffer, &_stream->upload_pool())));
 }
 
 void CUDACommandEncoder::visit(const BufferUploadCommand *command) noexcept {

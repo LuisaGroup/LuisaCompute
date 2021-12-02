@@ -77,7 +77,27 @@ void CUDARingBuffer::recycle(View view) noexcept {
         }
         _free_end = (view.address() - _memory + view.size()) & (_size - 1u);
         _alloc_count--;
+    } else {
+        LUISA_CHECK_CUDA(cuMemFreeHost(view.address()));
     }
+}
+
+[[nodiscard]] auto &ring_buffer_recycle_context_pool() noexcept {
+    static Pool<CUDARingBuffer::RecycleContext> pool;
+    return pool;
+}
+
+inline CUDARingBuffer::RecycleContext::RecycleContext(CUDARingBuffer::View buffer, CUDARingBuffer *pool) noexcept
+    : _buffer{buffer}, _pool{pool} {}
+
+void CUDARingBuffer::RecycleContext::recycle() noexcept {
+    _pool->recycle(_buffer);
+    ring_buffer_recycle_context_pool().recycle(this);
+}
+
+CUDARingBuffer::RecycleContext *CUDARingBuffer::RecycleContext::create(
+    CUDARingBuffer::View buffer, CUDARingBuffer *pool) noexcept {
+    return ring_buffer_recycle_context_pool().create(buffer, pool);
 }
 
 }// namespace luisa::compute::cuda
