@@ -465,11 +465,11 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     }
 
     // ray tracing kernels use __constant__ args
-    if (f.raytracing()) {
+    if (f.tag() == Function::Tag::KERNEL && f.raytracing()) {
         _scratch << "struct alignas(16) Params {";
         for (auto arg : f.arguments()) {
-            _scratch << "\n  ";
-            _emit_variable_decl(arg);
+            _scratch << "\n  alignas(16) ";
+            _emit_variable_decl(arg, true);
             _scratch << "{};";
         }
         _scratch << "\n};\n\nextern \"C\" "
@@ -493,7 +493,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     _scratch << "(";
-    if (f.raytracing()) {
+    if (f.tag() == Function::Tag::KERNEL && f.raytracing()) {
         _scratch << ") {"
                  // block size
                  << "\n  constexpr auto bs = lc_make_uint3("
@@ -648,7 +648,7 @@ void CUDACodegen::_emit_type_name(const Type *type) noexcept {
     }
 }
 
-void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
+void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
     auto usage = _function.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
@@ -659,34 +659,31 @@ void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::REFERENCE:
-            if (readonly) { _scratch << "const "; }
+            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " &";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:
-            if (readonly) { _scratch << "const "; }
+            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type()->element());
             _scratch << " *__restrict__ ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "const ";
-            _scratch << "LCSurface ";
+            _scratch << "const LCSurface ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
-            if (readonly) { _scratch << "const "; }
-            _scratch << "LCBindlessItem *";
+            _scratch << "const LCBindlessItem *";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::ACCEL:// TODO
-            if (readonly) { _scratch << "const "; }
-            _scratch << "LCAccel ";
+        case Variable::Tag::ACCEL:
+            _scratch << "const LCAccel ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:
-            if (readonly) { _scratch << "const "; }
+            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);

@@ -16,7 +16,8 @@ if (CUDAToolkit_FOUND)
             cuda_codegen.cpp cuda_codegen.h
             cuda_compiler.cpp cuda_compiler.h
             cuda_accel.cpp cuda_accel.h
-            cuda_mesh.cpp cuda_mesh.h)
+            cuda_mesh.cpp cuda_mesh.h
+            cuda_shader.cpp cuda_shader.h)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cuda_driver CUDA::nvrtc)
