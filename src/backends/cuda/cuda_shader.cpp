@@ -128,7 +128,7 @@ public:
         ptr += std::string_view{pattern}.size();
         char *end = nullptr;
         _argument_buffer_size = strtoull(ptr, &end, 10);
-        if (_argument_buffer_size == 0u || errno != 0) [[unlikely]] {
+        if (_argument_buffer_size == 0u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Failed to parse argument buffer size for {}.",
                 entry);
