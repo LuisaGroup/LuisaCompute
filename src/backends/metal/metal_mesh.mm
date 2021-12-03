@@ -4,7 +4,6 @@
 
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_mesh.h>
-#import <backends/metal/metal_shared_buffer_pool.h>
 
 namespace luisa::compute::metal {
 

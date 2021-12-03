@@ -280,7 +280,9 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
     auto buffer = rb->allocate(size);
     std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
     if (buffer.is_pooled()) {
-        [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { rb->recycle(buffer); }];
+        [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          rb->recycle(buffer);
+        }];
     }
     return buffer;
 }

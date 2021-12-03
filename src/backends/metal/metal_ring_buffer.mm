@@ -18,6 +18,8 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
         return MetalBufferView{buffer, static_cast<size_t>(0u), size, true};
     };
 
+    std::scoped_lock lock{_mutex};
+
     // simple check
     if (size > _size) {
         LUISA_WARNING_WITH_LOCATION(
@@ -61,6 +63,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
 
 void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
     if (view.is_pooled()) {
+        std::scoped_lock lock{_mutex};
         if (_free_end + view.size() > _size) { _free_end = 0u; }
         if (view.offset() != _free_end) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(

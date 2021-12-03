@@ -26,6 +26,8 @@ CUDARingBuffer::View CUDARingBuffer::allocate(size_t size) noexcept {
         return View{static_cast<std::byte *>(buffer), size, false};
     };
 
+    std::scoped_lock lock{_mutex};
+
     // simple check
     if (size > _size) {
         LUISA_WARNING_WITH_LOCATION(
@@ -68,6 +70,7 @@ CUDARingBuffer::View CUDARingBuffer::allocate(size_t size) noexcept {
 
 void CUDARingBuffer::recycle(View view) noexcept {
     if (view.is_pooled()) {
+        std::scoped_lock lock{_mutex};
         if (_free_end + view.size() > _size) { _free_end = 0u; }
         if (view.address() != _memory + _free_end) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(

@@ -16,7 +16,6 @@ namespace luisa::compute::metal {
 
 class MetalDevice;
 class MetalStream;
-class MetalSharedBufferPool;
 
 class MetalAccel {
 
