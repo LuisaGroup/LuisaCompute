@@ -20,7 +20,6 @@
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
 #import <backends/metal/metal_bindless_array.h>
-#import <backends/metal/metal_shared_buffer_pool.h>
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
 #import <backends/metal/metal_mesh.h>

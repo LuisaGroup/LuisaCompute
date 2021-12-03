@@ -10,7 +10,6 @@
 namespace luisa::compute::metal {
 
 class MetalStream;
-class MetalSharedBufferPool;
 
 class MetalMesh {
 
