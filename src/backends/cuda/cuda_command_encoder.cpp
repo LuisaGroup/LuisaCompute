@@ -102,11 +102,13 @@ void CUDACommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             std::memcpy(ptr, &surface, sizeof(CUDASurface));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
             auto ptr = allocate_argument(sizeof(CUdeviceptr));
-            auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle);
-            auto desc_buffer = array->handle();
-            std::memcpy(ptr, &desc_buffer, sizeof(CUdeviceptr));
+            auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle)->handle();
+            std::memcpy(ptr, &array, sizeof(CUdeviceptr));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-            // TODO...
+            auto ptr = allocate_argument(sizeof(OptixTraversableHandle));
+            auto accel = reinterpret_cast<CUDAAccel *>(argument.handle)->handle();
+            std::memcpy(ptr, &accel, sizeof(OptixTraversableHandle));
+            // TODO: should use optix to launch
         } else {// uniform
             static_assert(std::same_as<T, std::span<const std::byte>>);
             auto ptr = allocate_argument(argument.size_bytes());
