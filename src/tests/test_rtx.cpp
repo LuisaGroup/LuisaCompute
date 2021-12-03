@@ -83,7 +83,16 @@ int main(int argc, char *argv[]) {
             constexpr auto red = float3(1.0f, 0.0f, 0.0f);
             constexpr auto green = float3(0.0f, 1.0f, 0.0f);
             constexpr auto blue = float3(0.0f, 0.0f, 1.0f);
-            color = interpolate(hit, red, green, blue);
+            $if (hit.inst == 0u) {
+                color = red;
+            } $elif (hit.inst == 1u) {
+                color = green;
+            } $elif (hit.inst == 2u) {
+                color = blue;
+            } $else {
+                color = make_float3();
+            };
+//            color = interpolate(hit, red, green, blue);
         };
         auto old = image.read(coord).xyz();
         auto t = 1.0f / (frame_index + 1.0f);

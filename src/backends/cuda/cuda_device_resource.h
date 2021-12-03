@@ -785,7 +785,7 @@ template<lc_uint reg_count, lc_uint flags>
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(0u), "l"(accel), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
-          "f"(t_max), "f"(0.0f), "r"(0xffu), "r"(flags), "r"(0u), "r"(1u),
+          "f"(t_max), "f"(0.0f), "r"(0xffu), "r"(flags), "r"(0u), "r"(0u),
           "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(p4), "r"(p5), "r"(p6),
           "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
           "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
