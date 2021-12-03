@@ -32,24 +32,18 @@ static_assert(sizeof(LCSurface) == 16);
 
 template<typename A, typename B>
 struct lc_is_same {
-    static constexpr auto value = false;
+    [[nodiscard]] static constexpr auto value() noexcept { return false; };
 };
 
 template<typename A>
 struct lc_is_same<A, A> {
-    static constexpr auto value = true;
+    [[nodiscard]] static constexpr auto value() noexcept { return true; };
 };
-
-template<typename A, typename B>
-constexpr auto lc_is_same_v = lc_is_same<A, B>::value;
 
 template<typename...>
 struct lc_always_false {
-    static constexpr auto value = false;
+    [[nodiscard]] static constexpr auto value() noexcept { return false; };
 };
-
-template<typename... T>
-constexpr auto lc_always_false_v = lc_always_false<T...>::value;
 
 using lc_half = unsigned short;
 
@@ -72,13 +66,13 @@ public:
 
 template<typename P>
 [[nodiscard]] __device__ inline auto lc_texel_to_float(P x) noexcept {
-    if constexpr (lc_is_same_v<P, char>) {
+    if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<unsigned char>(x) * (1.0f / 255.0f);
-    } else if constexpr (lc_is_same_v<P, short>) {
+    } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<unsigned short>(x) * (1.0f / 65535.0f);
-    } else if constexpr (lc_is_same_v<P, lc_half>) {
+    } else if constexpr (lc_is_same<P, lc_half>::value()) {
         return lc_half_to_float(x);
-    } else if constexpr (lc_is_same_v<P, lc_float>) {
+    } else if constexpr (lc_is_same<P, lc_float>::value()) {
         return x;
     }
     return 0.0f;
@@ -86,11 +80,11 @@ template<typename P>
 
 template<typename P>
 [[nodiscard]] __device__ inline auto lc_texel_to_int(P x) noexcept {
-    if constexpr (lc_is_same_v<P, char>) {
+    if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<lc_int>(x);
-    } else if constexpr (lc_is_same_v<P, short>) {
+    } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<lc_int>(x);
-    } else if constexpr (lc_is_same_v<P, lc_int>) {
+    } else if constexpr (lc_is_same<P, lc_int>::value()) {
         return x;
     }
     return 0;
@@ -98,11 +92,11 @@ template<typename P>
 
 template<typename P>
 [[nodiscard]] __device__ inline auto lc_texel_to_uint(P x) noexcept {
-    if constexpr (lc_is_same_v<P, char>) {
+    if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<lc_uint>(static_cast<unsigned char>(x));
-    } else if constexpr (lc_is_same_v<P, short>) {
+    } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<lc_uint>(static_cast<unsigned short>(x));
-    } else if constexpr (lc_is_same_v<P, lc_int>) {
+    } else if constexpr (lc_is_same<P, lc_int>::value()) {
         return static_cast<lc_uint>(x);
     }
     return 0u;
@@ -110,26 +104,26 @@ template<typename P>
 
 template<typename T, typename P>
 [[nodiscard]] __device__ inline auto lc_texel_read_convert(P p) noexcept {
-    if constexpr (lc_is_same_v<T, lc_float>) {
+    if constexpr (lc_is_same<T, lc_float>::value()) {
         return lc_texel_to_float<P>(p);
-    } else if constexpr (lc_is_same_v<T, lc_int>) {
+    } else if constexpr (lc_is_same<T, lc_int>::value()) {
         return lc_texel_to_int<P>(p);
-    } else if constexpr (lc_is_same_v<T, lc_uint>) {
+    } else if constexpr (lc_is_same<T, lc_uint>::value()) {
         return lc_texel_to_uint<P>(p);
     } else {
-        static_assert(lc_always_false_v<T, P>);
+        static_assert(lc_always_false<T, P>::value());
     }
 }
 
 template<typename P>
 [[nodiscard]] __device__ inline auto lc_float_to_texel(lc_float x) noexcept {
-    if constexpr (lc_is_same_v<P, char>) {
+    if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<char>(static_cast<unsigned char>(lc_round(lc_saturate(x) * 255.0f)));
-    } else if constexpr (lc_is_same_v<P, short>) {
+    } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<short>(static_cast<unsigned short>(lc_round(lc_saturate(x) * 65535.0f)));
-    } else if constexpr (lc_is_same_v<P, lc_half>) {
+    } else if constexpr (lc_is_same<P, lc_half>::value()) {
         return lc_float_to_half(x);
-    } else if constexpr (lc_is_same_v<P, lc_float>) {
+    } else if constexpr (lc_is_same<P, lc_float>::value()) {
         return x;
     }
     return P{};
@@ -137,11 +131,11 @@ template<typename P>
 
 template<typename P>
 [[nodiscard]] __device__ inline auto lc_int_to_texel(int x) noexcept {
-    if constexpr (lc_is_same_v<P, char>) {
+    if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<char>(x);
-    } else if constexpr (lc_is_same_v<P, short>) {
+    } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<short>(x);
-    } else if constexpr (lc_is_same_v<P, lc_int>) {
+    } else if constexpr (lc_is_same<P, lc_int>::value()) {
         return x;
     }
     return P{};
@@ -149,11 +143,11 @@ template<typename P>
 
 template<typename P>
 [[nodiscard]] __device__ inline auto lc_uint_to_texel(P x) noexcept {
-    if constexpr (lc_is_same_v<P, char>) {
+    if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<char>(static_cast<unsigned char>(x));
-    } else if constexpr (lc_is_same_v<P, short>) {
+    } else if constexpr (lc_is_same<P, short>::value()) {
         return static_cast<short>(static_cast<unsigned short>(x));
-    } else if constexpr (lc_is_same_v<P, lc_int>) {
+    } else if constexpr (lc_is_same<P, lc_int>::value()) {
         return static_cast<lc_int>(x);
     }
     return P{};
@@ -161,14 +155,14 @@ template<typename P>
 
 template<typename P, typename T>
 [[nodiscard]] __device__ inline auto lc_texel_write_convert(T t) noexcept {
-    if constexpr (lc_is_same_v<T, lc_float>) {
+    if constexpr (lc_is_same<T, lc_float>::value()) {
         return lc_float_to_texel<P>(t);
-    } else if constexpr (lc_is_same_v<T, lc_int>) {
+    } else if constexpr (lc_is_same<T, lc_int>::value()) {
         return lc_int_to_texel<P>(t);
-    } else if constexpr (lc_is_same_v<T, lc_uint>) {
+    } else if constexpr (lc_is_same<T, lc_uint>::value()) {
         return lc_uint_to_texel<P>(t);
     } else {
-        static_assert(lc_always_false_v<T, P>);
+        static_assert(lc_always_false<T, P>::value());
     }
 }
 
