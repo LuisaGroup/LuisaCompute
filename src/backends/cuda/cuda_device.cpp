@@ -420,7 +420,7 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     OptixDeviceContextOptions optix_options{};
     optix_options.logCallbackLevel = 4;
     optix_options.logCallbackFunction = [](uint32_t level, const char *tag, const char *message, void *) noexcept {
-        auto log = fmt::format("Logs from OptiX ({}): {}.", tag, message);
+        auto log = fmt::format("Logs from OptiX ({}): {}", tag, message);
         if (level >= 4) {
             LUISA_INFO("{}", log);
         } else [[unlikely]] {
