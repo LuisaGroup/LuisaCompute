@@ -133,7 +133,7 @@ int main(int argc, char *argv[]) {
         if (i == 511u) {
             accel.emplace_back(
                 mesh,
-                translation(make_float3(0.0f, 0.0f, 0.1f)) *
+                translation(make_float3(0.0f, 0.0f, 0.3f)) *
                     rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f)));
         }
     }
