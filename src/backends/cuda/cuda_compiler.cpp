@@ -27,11 +27,12 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
                ver_major * 1000 + ver_minor * 10));
 
     auto sm_option = fmt::format("-arch=compute_{}", sm);
+    auto rt_option = fmt::format("-DLC_RAYTRACING_KERNEL={}", function.raytracing());
     std::array options{
         sm_option.c_str(),
+        rt_option.c_str(),
         "--std=c++17",
         "--use_fast_math",
-//        "--fmad=false",
         "-default-device",
         "-restrict",
         "-include=device_math.h",

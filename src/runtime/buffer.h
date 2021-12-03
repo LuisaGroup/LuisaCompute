@@ -34,8 +34,8 @@ private:
     friend class Device;
     Buffer(Device::Interface *device, size_t size) noexcept
         : Resource{
-            device, Tag::BUFFER,
-            device->create_buffer(size * sizeof(T))},
+              device, Tag::BUFFER,
+              device->create_buffer(size * sizeof(T))},
           _size{size} {}
 
 public:
@@ -150,31 +150,19 @@ BufferView(BufferView<T>) -> BufferView<T>;
 
 #undef LUISA_CHECK_BUFFER_ELEMENT_TYPE
 
-template<typename T>
-struct is_buffer : std::false_type {};
-
-template<typename T>
-struct is_buffer<Buffer<T>> : std::true_type {};
-
-template<typename T>
-struct is_buffer_view : std::false_type {};
-
-template<typename T>
-struct is_buffer_view<BufferView<T>> : std::true_type {};
-
-template<typename T>
-using is_buffer_or_view = std::disjunction<is_buffer<T>, is_buffer_view<T>>;
-
-template<typename T>
-constexpr auto is_buffer_v = is_buffer<T>::value;
-
-template<typename T>
-constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
-
-template<typename T>
-constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::value;
-
 namespace detail {
+
+template<typename T>
+struct is_buffer_impl : std::false_type {};
+
+template<typename T>
+struct is_buffer_impl<Buffer<T>> : std::true_type {};
+
+template<typename T>
+struct is_buffer_view_impl : std::false_type {};
+
+template<typename T>
+struct is_buffer_view_impl<BufferView<T>> : std::true_type {};
 
 template<typename T>
 struct buffer_element_impl {
@@ -191,10 +179,28 @@ struct buffer_element_impl<BufferView<T>> {
     using type = T;
 };
 
-}
+}// namespace detail
 
 template<typename T>
-using buffer_element = detail::buffer_element_impl<T>;
+using is_buffer = detail::is_buffer_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using is_buffer_view = detail::is_buffer_view_impl<std::remove_cvref_t<T>>;
+
+template<typename T>
+using is_buffer_or_view = std::disjunction<is_buffer<T>, is_buffer_view<T>>;
+
+template<typename T>
+constexpr auto is_buffer_v = is_buffer<T>::value;
+
+template<typename T>
+constexpr auto is_buffer_view_v = is_buffer_view<T>::value;
+
+template<typename T>
+constexpr auto is_buffer_or_view_v = is_buffer_or_view<T>::value;
+
+template<typename T>
+using buffer_element = detail::buffer_element_impl<std::remove_cvref_t<T>>;
 
 template<typename T>
 using buffer_element_t = typename buffer_element<T>::type;

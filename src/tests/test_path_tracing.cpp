@@ -43,8 +43,10 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
+    auto device = context.create_device("metal", {{"index", 1}});
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
@@ -90,28 +92,23 @@ int main(int argc, char *argv[]) {
         LUISA_INFO(
             "Processing shape '{}' at index {} with {} triangle(s).",
             shape.name, index, triangle_count);
-        auto &&mesh = meshes.emplace_back(device.create_mesh());
         std::vector<uint> indices;
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
         auto triangle_buffer = device.create_buffer<Triangle>(triangle_count);
+        auto &&mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer);
+               << mesh.build();
     }
     stream << heap.update();
 
-    std::vector<uint64_t> instances;
-    std::vector<float4x4> transforms;
-    for (auto &&m : meshes) {
-        instances.emplace_back(m.handle());
-        transforms.emplace_back(make_float4x4(1.0f));
-    }
     auto accel = device.create_accel();
-    stream << accel.build(AccelBuildHint::FAST_TRACE, instances, transforms);
+    for (auto &&m : meshes) { accel.emplace_back(m, make_float4x4(1.0f)); }
+    stream << accel.build();
 
     std::vector<Material> materials;
-    materials.reserve(instances.size());
+    materials.reserve(accel.size());
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// floor
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// ceiling
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall

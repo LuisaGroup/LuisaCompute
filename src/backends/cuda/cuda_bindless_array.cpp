@@ -84,11 +84,11 @@ bool CUDABindlessArray::has_array(CUDAMipmapArray *array) const noexcept {
 }
 
 void CUDABindlessArray::remove_buffer(size_t index) noexcept {
-    auto buffer = _slots[index].buffer;
-    if (buffer != 0u) [[likely]] {
+    if (auto buffer = _slots[index].buffer) [[likely]] {
         _release_buffer(_slots[index].origin);
         _slots[index].buffer = 0u;
         _slots[index].origin = 0u;
+        _dirty_range.mark(index);
     }
 }
 
@@ -99,6 +99,7 @@ void CUDABindlessArray::remove_tex2d(size_t index) noexcept {
         _release_array(iter->second);
         _tex_to_array.erase(iter);
         _slots[index].tex2d = 0u;
+        _dirty_range.mark(index);
     }
 }
 
@@ -109,6 +110,7 @@ void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
         _release_array(iter->second);
         _tex_to_array.erase(iter);
         _slots[index].tex3d = 0u;
+        _dirty_range.mark(index);
     }
 }
 
@@ -118,6 +120,7 @@ void CUDABindlessArray::emplace_buffer(size_t index, CUdeviceptr buffer, size_t 
     }
     _slots[index].buffer = buffer + offset;
     _slots[index].origin = buffer;
+    _dirty_range.mark(index);
     _retain_buffer(buffer);
 }
 
@@ -141,6 +144,7 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
     _slots[index].tex2d = texture;
     _slots[index].size2d = array->size().xy();
     _tex_to_array.emplace(texture, array);
+    _dirty_range.mark(index);
     _retain_array(array);
 }
 
@@ -168,6 +172,7 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
         static_cast<unsigned short>(s.y),
         static_cast<unsigned short>(s.z)};
     _tex_to_array.emplace(texture, array);
+    _dirty_range.mark(index);
     _retain_array(array);
 }
 

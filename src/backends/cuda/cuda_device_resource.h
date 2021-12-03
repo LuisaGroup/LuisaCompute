@@ -61,7 +61,11 @@ private:
 
 public:
     template<typename... Elem>
-    __device__ explicit constexpr lc_array(Elem... elem) noexcept: _data{elem...} {}
+    __device__ constexpr lc_array(Elem... elem) noexcept: _data{elem...} {}
+    __device__ constexpr lc_array(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array(const lc_array &) noexcept = default;
+    __device__ constexpr lc_array &operator=(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array &operator=(const lc_array &) noexcept = default;
     [[nodiscard]] __device__ T &operator[](size_t i) noexcept { return _data[i]; }
     [[nodiscard]] __device__ T operator[](size_t i) const noexcept { return _data[i]; }
 };
@@ -697,3 +701,125 @@ template<typename T>
     auto pp = (lc_make_float3(p) + lc_make_float3(0.5f)) / lc_make_float3(s);
     return lc_bindless_texture_sample3d_level(array, index, pp, static_cast<float>(level));
 }
+
+struct alignas(16) LCRay {
+    lc_array<float, 3> m0;// origin
+    float m1;             // t_min
+    lc_array<float, 3> m2;// direction
+    float m3;             // t_max
+};
+
+struct alignas(16) LCHit {
+    lc_uint m0;  // instance index
+    lc_uint m1;  // primitive index
+    lc_float2 m2;// barycentric coordinates
+    LCHit() noexcept : m0{~0u}, m1{~0u}, m2{0.0f, 0.0f} {}
+    LCHit(lc_uint inst, lc_uint prim, lc_float2 bary) noexcept
+        : m0{inst}, m1{prim}, m2{bary} {}
+};
+
+#if LC_RAYTRACING_KERNEL
+
+using LCAccel = unsigned long long;
+
+template<lc_uint i>
+inline void lc_set_payload(lc_uint x) noexcept {
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"(i), "r"(x) : );
+}
+
+[[nodiscard]] inline auto lc_get_primitive_index() noexcept {
+    lc_uint u0;
+    asm( "call (%0), _optix_read_primitive_idx, ();" : "=r"(u0) : );
+    return u0;
+}
+
+[[nodiscard]] inline auto lc_get_instance_index() noexcept {
+    lc_uint u0;
+    asm( "call (%0), _optix_read_instance_idx, ();" : "=r"(u0) : );
+    return u0;
+}
+
+[[nodiscard]] inline auto lc_get_bary_coords() noexcept {
+    float f0, f1;
+    asm( "call (%0, %1), _optix_get_triangle_barycentrics, ();" : "=f"(f0), "=f"(f1) : );
+    return lc_make_float2(f0, f1);
+}
+
+[[nodiscard]] inline auto lc_is_tracing_any_hit() noexcept {
+    lc_uint r0;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"(r0) : "r"(0) : );
+    return r0 == 0u;
+}
+
+extern "C" __global__ void __closesthit__ch() {
+    if (lc_is_tracing_any_hit()) {
+        lc_set_payload<0u>(1u);
+    } else {
+        auto inst = lc_get_instance_index();
+        auto prim = lc_get_primitive_index();
+        auto bary = lc_get_bary_coords();
+        lc_set_payload<0u>(inst);
+        lc_set_payload<1u>(prim);
+        lc_set_payload<2u>(__float_as_uint(bary.x));
+        lc_set_payload<3u>(__float_as_uint(bary.y));
+    }
+}
+
+template<lc_uint reg_count, lc_uint flags>
+[[nodiscard]] inline auto lc_trace_impl(
+    LCAccel accel, LCRay ray,
+    lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3) noexcept {
+    auto ox = ray.m0[0];
+    auto oy = ray.m0[1];
+    auto oz = ray.m0[2];
+    auto dx = ray.m2[0];
+    auto dy = ray.m2[1];
+    auto dz = ray.m2[2];
+    auto t_min = ray.m1;
+    auto t_max = ray.m3;
+    unsigned int p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23, p24, p25,
+        p26, p27, p28, p29, p30, p31;
+    asm volatile(
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3), "=r"(p4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
+          "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
+          "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
+          "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
+        : "r"(0u), "l"(accel), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
+          "f"(t_max), "f"(0.0f), "r"(0xffu), "r"(flags), "r"(0u), "r"(1u),
+          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(p4), "r"(p5), "r"(p6),
+          "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
+          "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
+          "r"(p25), "r"(p26), "r"(p27), "r"(p28), "r"(p29), "r"(p30), "r"(p31)
+        : );
+    (void)p4, (void)p5, (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11, (void)p12, (void)p13, (void)p14,
+        (void)p15, (void)p16, (void)p17, (void)p18, (void)p19, (void)p20, (void)p21, (void)p22, (void)p23, (void)p24,
+        (void)p25, (void)p26, (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
+}
+
+[[nodiscard]] inline auto lc_trace_closest(LCAccel accel, LCRay ray) noexcept {
+    constexpr auto flags = 1u;// disable any hit
+    auto r0 = ~0u;// also indicates trace_closest
+    auto r1 = 0u;
+    auto r2 = 0u;
+    auto r3 = 0u;
+    lc_trace_impl<4u, flags>(accel, ray, r0, r1, r2, r3);
+    return LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
+}
+
+[[nodiscard]] inline auto lc_trace_any(LCAccel accel, LCRay ray) noexcept {
+    constexpr auto flags = 1u | 4u;// disable any hit and terminate on first hit
+    auto r0 = 0u;// also indicates trace_any
+    auto r1 = 0u;
+    auto r2 = 0u;
+    auto r3 = 0u;
+    lc_trace_impl<1u, flags>(accel, ray, r0, r1, r2, r3);
+    return static_cast<bool>(r0);
+}
+
+#endif

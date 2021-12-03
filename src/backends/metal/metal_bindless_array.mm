@@ -25,6 +25,7 @@ void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, si
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) { _resources.erase(p); }
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setBuffer:buffer offset:offset atIndex:0u];
+    _dirty_range.mark(index);
     _retain(buffer);
 }
 
@@ -35,6 +36,7 @@ void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sa
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:3u];
     std::memcpy([_encoder constantDataAtIndex:1u], &sampler_code, sizeof(sampler));
+    _dirty_range.mark(index);
     _retain(texture);
 }
 
@@ -45,6 +47,7 @@ void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sa
     [_encoder setArgumentBuffer:_buffer offset:slot_size * index];
     [_encoder setTexture:texture atIndex:4u];
     std::memcpy([_encoder constantDataAtIndex:2u], &sampler_code, sizeof(sampler));
+    _dirty_range.mark(index);
     _retain(texture);
 }
 
@@ -52,6 +55,7 @@ void MetalBindlessArray::remove_buffer(size_t index) noexcept {
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) {
         _release(p.handle);
         p.handle = nullptr;
+        _dirty_range.mark(index);
     }
 }
 
@@ -59,6 +63,7 @@ void MetalBindlessArray::remove_tex2d(size_t index) noexcept {
     if (auto &&p = _tex2d_slots[index]; p.handle != nullptr) {
         _release(p.handle);
         p.handle = nullptr;
+        _dirty_range.mark(index);
     }
 }
 
@@ -66,6 +71,7 @@ void MetalBindlessArray::remove_tex3d(size_t index) noexcept {
     if (auto &&p = _tex3d_slots[index]; p.handle != nullptr) {
         _release(p.handle);
         p.handle = nullptr;
+        _dirty_range.mark(index);
     }
 }
 

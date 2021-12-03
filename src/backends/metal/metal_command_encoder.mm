@@ -278,37 +278,34 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) noexcept {
     auto rb = &_stream->upload_ring_buffer();
     auto buffer = rb->allocate(size);
-    if (buffer.handle() == nullptr) {
-        auto options = MTLResourceStorageModeShared | MTLResourceCPUCacheModeWriteCombined | MTLResourceHazardTrackingModeUntracked;
-        auto handle = [_device->handle() newBufferWithBytes:host_ptr length:size options:options];
-        return {handle, 0u, size};
-    }
     std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
-    [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { rb->recycle(buffer); }];
+    if (buffer.is_pooled()) {
+        [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          rb->recycle(buffer);
+        }];
+    }
     return buffer;
 }
 
 MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noexcept {
     auto rb = &_stream->download_ring_buffer();
     auto buffer = rb->allocate(size);
-    if (buffer.handle() == nullptr) {
-        auto options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
-        auto handle = [_device->handle() newBufferWithLength:size options:options];
-        [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) { std::memcpy(host_ptr, handle.contents, size); }];
-        return {handle, 0u, size};
-    }
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
       std::memcpy(host_ptr, static_cast<const std::byte *>(buffer.handle().contents) + buffer.offset(), size);
-      rb->recycle(buffer);
+      if (buffer.is_pooled()) { rb->recycle(buffer); }
     }];
     return buffer;
 }
 
 void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
     auto array = to_bindless_array(command->handle());
-    auto offset_bytes = MetalBindlessArray::slot_size * command->offset();
-    auto size_bytes = MetalBindlessArray::slot_size * command->count();
-    auto temp_buffer = _upload(static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
+    auto dirty_range = array->dirty_range();
+    array->clear_dirty_range();
+    if (dirty_range.empty()) { return; }
+    auto offset_bytes = MetalBindlessArray::slot_size * dirty_range.offset();
+    auto size_bytes = MetalBindlessArray::slot_size * dirty_range.size();
+    auto temp_buffer = _upload(
+        static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:temp_buffer.handle()
                     sourceOffset:temp_buffer.offset()
@@ -322,21 +319,12 @@ void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexc
 
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
     auto accel = to_accel(command->handle());
-    _command_buffer = accel->update(
-        _stream,
-        _command_buffer,
-        command->updated_transforms(),
-        command->first_instance_to_update());
+    _command_buffer = accel->update(_stream, _command_buffer);
 }
 
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = to_accel(command->handle());
-    _command_buffer = accel->build(
-        _stream,
-        _command_buffer, command->hint(),
-        command->instance_mesh_handles(),
-        command->instance_transforms(),
-        _device->compacted_size_buffer_pool());
+    _command_buffer = accel->build(_stream, _command_buffer);
 }
 
 void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
@@ -346,14 +334,7 @@ void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = to_mesh(command->handle());
-    auto v_buffer = to_buffer(command->vertex_buffer_handle());
-    auto t_buffer = to_buffer(command->triangle_buffer_handle());
-    _command_buffer = mesh->build(
-        _stream,
-        _command_buffer, command->hint(),
-        v_buffer, command->vertex_buffer_offset(), command->vertex_stride(),
-        t_buffer, command->triangle_buffer_offset(), command->triangle_count(),
-        _device->compacted_size_buffer_pool());
+    _command_buffer = mesh->build(_stream, _command_buffer);
 }
 
 #else

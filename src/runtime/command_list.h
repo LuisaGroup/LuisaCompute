@@ -15,10 +15,10 @@ public:
     class Iterator {
 
     private:
-        Command *_command{nullptr};
+        const Command *_command{nullptr};
 
     public:
-        explicit Iterator(Command *cmd) noexcept : _command{cmd} {}
+        explicit Iterator(const Command *cmd) noexcept : _command{cmd} {}
         decltype(auto) operator++() noexcept {
             _command = _command->next();
             return (*this);
