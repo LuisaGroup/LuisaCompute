@@ -822,4 +822,20 @@ template<lc_uint reg_count, lc_uint flags>
     return static_cast<bool>(r0);
 }
 
+[[nodiscard]] inline auto lc_rtx_dispatch_id() noexcept {
+    lc_uint u0, u1, u2;
+    asm( "call (%0), _optix_get_launch_index_x, ();" : "=r"(u0) : );
+    asm( "call (%0), _optix_get_launch_index_y, ();" : "=r"(u1) : );
+    asm( "call (%0), _optix_get_launch_index_z, ();" : "=r"(u2) : );
+    return lc_make_uint3(u0, u1, u2);
+}
+
+[[nodiscard]] inline auto lc_rtx_dispatch_size() noexcept {
+    lc_uint u0, u1, u2;
+    asm( "call (%0), _optix_get_launch_dimension_x, ();" : "=r"(u0) : );
+    asm( "call (%0), _optix_get_launch_dimension_y, ();" : "=r"(u1) : );
+    asm( "call (%0), _optix_get_launch_dimension_z, ();" : "=r"(u2) : );
+    return lc_make_uint3(u0, u1, u2);
+}
+
 #endif
