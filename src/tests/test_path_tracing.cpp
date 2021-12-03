@@ -39,6 +39,8 @@ LUISA_STRUCT(Onb, tangent, binormal, normal){
 
 int main(int argc, char *argv[]) {
 
+    log_level_verbose();
+
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
