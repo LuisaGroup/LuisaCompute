@@ -135,7 +135,7 @@ public:
         }
         LUISA_VERBOSE_WITH_LOCATION(
             "Argument buffer size for {}: {}.",
-            _argument_buffer_size, entry);
+            entry, _argument_buffer_size);
         auto sbt_buffer_offset = (_argument_buffer_size + OPTIX_SBT_RECORD_ALIGNMENT - 1u) /
                                  OPTIX_SBT_RECORD_ALIGNMENT *
                                  OPTIX_SBT_RECORD_ALIGNMENT;
