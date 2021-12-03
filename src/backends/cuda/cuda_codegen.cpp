@@ -344,7 +344,7 @@ void CUDACodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "reinterpret_cast<";
+            _scratch << "reinterpret_cast<const ";
             _emit_type_name(expr->type());
             _scratch << " &>(";
             break;
@@ -538,8 +538,13 @@ void CUDACodegen::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
+static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+
 void CUDACodegen::visit(const Type *type) noexcept {
-    if (type->is_structure()) {
+    if (type->is_structure() &&
+        type->description() != ray_type_desc &&
+        type->description() != hit_type_desc) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -576,7 +581,13 @@ void CUDACodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::STRUCTURE:
-            _scratch << "S" << hash_to_string(type->hash());
+            if (auto desc = type->description(); desc == ray_type_desc) {
+                _scratch << "LCRay";
+            } else if (desc == hit_type_desc) {
+                _scratch << "LCHit";
+            } else {
+                _scratch << "S" << hash_to_string(type->hash());
+            }
             break;
         default: break;
     }
@@ -616,7 +627,7 @@ void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
             break;
         case Variable::Tag::ACCEL:// TODO
             if (readonly) { _scratch << "const "; }
-            _scratch << "accel ";
+            _scratch << "LCAccel ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:

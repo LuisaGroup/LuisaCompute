@@ -61,7 +61,11 @@ private:
 
 public:
     template<typename... Elem>
-    __device__ explicit constexpr lc_array(Elem... elem) noexcept: _data{elem...} {}
+    __device__ constexpr lc_array(Elem... elem) noexcept: _data{elem...} {}
+    __device__ constexpr lc_array(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array(const lc_array &) noexcept = default;
+    __device__ constexpr lc_array &operator=(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array &operator=(const lc_array &) noexcept = default;
     [[nodiscard]] __device__ T &operator[](size_t i) noexcept { return _data[i]; }
     [[nodiscard]] __device__ T operator[](size_t i) const noexcept { return _data[i]; }
 };
@@ -696,4 +700,30 @@ template<typename T>
     auto s = lc_bindless_texture_size3d_level(array, index, level);
     auto pp = (lc_make_float3(p) + lc_make_float3(0.5f)) / lc_make_float3(s);
     return lc_bindless_texture_sample3d_level(array, index, pp, static_cast<float>(level));
+}
+
+struct alignas(16) LCRay {
+    lc_array<float, 3> m0;// origin
+    float m1;             // t_min
+    lc_array<float, 3> m2;// direction
+    float m3;             // t_max
+};
+
+struct alignas(16) LCHit {
+    lc_uint m0;  // instance index
+    lc_uint m1;  // primitive index
+    lc_float2 m2;// barycentric coordinates
+    LCHit() noexcept : m0{~0u}, m1{~0u}, m2{0.0f, 0.0f} {}
+    LCHit(lc_uint inst, lc_uint prim, lc_float2 bary) noexcept
+        : m0{inst}, m1{prim}, m2{bary} {}
+};
+
+using LCAccel = unsigned long long;
+
+[[nodiscard]] inline auto lc_trace_closest(LCAccel, LCRay ray) noexcept {
+    return LCHit{};
+}
+
+[[nodiscard]] inline auto lc_trace_any(LCAccel, LCRay ray) noexcept {
+    return false;
 }
