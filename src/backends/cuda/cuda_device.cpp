@@ -20,6 +20,7 @@
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_shader.h>
 
 namespace luisa::compute::cuda {
 
@@ -210,25 +211,21 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
 uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
-    auto kernel_name = fmt::format("kernel_{:016X}", kernel.hash());
+    auto entry = kernel.raytracing() ?
+        fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
+        fmt::format("kernel_{:016X}", kernel.hash());
     LUISA_INFO(
         "Generated PTX for {} in {} ms.",
-        kernel_name, clock.toc());
+        entry, clock.toc());
     return with_handle([&] {
-        CUmodule module{nullptr};
-        CUfunction function{nullptr};
-        LUISA_CHECK_CUDA(cuModuleLoadData(&module, ptx.data()));
-        LUISA_CHECK_CUDA(cuModuleGetFunction(&function, module, kernel_name.c_str()));
-        return reinterpret_cast<uint64_t>(function);
+        auto shader = CUDAShader::create(this, ptx.c_str(), ptx.size(), entry.c_str(), kernel.raytracing());
+        return reinterpret_cast<uint64_t>(shader);
     });
 }
 
 void CUDADevice::destroy_shader(uint64_t handle) noexcept {
-    auto function = reinterpret_cast<CUfunction>(handle);
-    CUmodule module;
-    with_handle([&] {
-        LUISA_CHECK_CUDA(cuFuncGetModule(&module, function));
-        LUISA_CHECK_CUDA(cuModuleUnload(module));
+    with_handle([shader = reinterpret_cast<CUDAShader *>(handle)] {
+        CUDAShader::destroy(shader);
     });
 }
 

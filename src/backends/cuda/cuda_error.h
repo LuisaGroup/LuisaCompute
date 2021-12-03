@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <string_view>
+
 #include <cuda.h>
 #include <nvrtc.h>
 #include <optix.h>
@@ -35,5 +37,19 @@
                 "{}: {}.",                                      \
                 optixGetErrorName(error),                       \
                 optixGetErrorString(error));                    \
+        }                                                       \
+    }()
+
+#define LUISA_CHECK_OPTIX_WITH_LOG(log, log_size, ...)          \
+    [&] {                                                       \
+        log_size = sizeof(log);                                 \
+        if (auto error = __VA_ARGS__; error != OPTIX_SUCCESS) { \
+            using namespace std::string_view_literals;          \
+            LUISA_ERROR_WITH_LOCATION(                          \
+                "{}: {}\n{}{}",                                 \
+                optixGetErrorName(error),                       \
+                optixGetErrorString(error),                     \
+                log,                                            \
+                log_size > sizeof(log) ? " ..."sv : ""sv);      \
         }                                                       \
     }()
