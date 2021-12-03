@@ -20,9 +20,7 @@ CUDARingBuffer::~CUDARingBuffer() noexcept {
 CUDARingBuffer::View CUDARingBuffer::allocate(size_t size) noexcept {
 
     auto allocate_ad_hoc = [size, this] {
-        void *buffer{nullptr};
-        auto flags = _write_combined ? CU_MEMHOSTALLOC_WRITECOMBINED : 0;
-        LUISA_CHECK_CUDA(cuMemHostAlloc(&buffer, size, flags));
+        auto buffer = luisa::detail::allocator_allocate(size, 16u);
         return View{static_cast<std::byte *>(buffer), size, false};
     };
 
@@ -81,7 +79,7 @@ void CUDARingBuffer::recycle(View view) noexcept {
         _free_end = (view.address() - _memory + view.size()) & (_size - 1u);
         _alloc_count--;
     } else {
-        LUISA_CHECK_CUDA(cuMemFreeHost(view.address()));
+        luisa::detail::allocator_deallocate(view.address(), 16u);
     }
 }
 
