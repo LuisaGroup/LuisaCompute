@@ -464,11 +464,23 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         _scratch << "\n";
     }
 
+    // ray tracing kernels use __constant__ args
+    if (f.raytracing()) {
+        _scratch << "struct alignas(16) Params {";
+        for (auto arg : f.arguments()) {
+            _scratch << "\n  ";
+            _emit_variable_decl(arg);
+            _scratch << "{};";
+        }
+        _scratch << "\n};\n\nextern \"C\" "
+                    "{ __constant__ Params params; }\n\n";
+    }
+
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "extern \"C\" __global__ void /* __launch_bounds__("
-                 << f.block_size().x * f.block_size().y * f.block_size().z
-                 << ") */ kernel_" << hash_to_string(f.hash());
+        _scratch << "extern \"C\" __global__ void "
+                 << (f.raytracing() ? "__raygen__rg_" : "kernel_")
+                 << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "inline __device__ ";
         if (f.return_type() != nullptr) {
@@ -481,34 +493,77 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     _scratch << "(";
-    auto any_arg = false;
-    for (auto arg : f.arguments()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(arg);
-        _scratch << ",";
-        any_arg = true;
-    }
-    if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "\n    const lc_uint3 ls) {";// launch size
+    if (f.raytracing()) {
+        _scratch << ") {"
+                 // block size
+                 << "\n  constexpr auto bs = lc_make_uint3("
+                 << f.block_size().x << ", "
+                 << f.block_size().y << ", "
+                 << f.block_size().z << ");"
+                 // launch size
+                 << "\n  const auto ls = lc_rtx_dispatch_size();"
+                 // dispatch id
+                 << "\n  const auto did = lc_rtx_dispatch_id();";
+        for (auto builtin : f.builtin_variables()) {
+            switch (builtin.tag()) {
+                case Variable::Tag::THREAD_ID:
+                    _scratch << "\n  const auto tid = lc_make_uint3("
+                                "did.x % bs.x, "
+                                "did.y % bs.y, "
+                                "did.z % bs.z);";
+                    break;
+                case Variable::Tag::BLOCK_ID:
+                    _scratch << "\n  const auto bid = lc_make_uint3("
+                                "did.x / bs.x, "
+                                "did.y / bs.y, "
+                                "did.z / bs.z);";
+                    break;
+                default: break;
+            }
+        }
+        for (auto arg : f.arguments()) {
+            _scratch << "\n  ";
+            if (auto usage = f.variable_usage(arg.uid());
+                usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                _scratch << "auto ";
+            } else {
+                _scratch << "const auto &";
+            }
+            _emit_variable_name(arg);
+            _scratch << " = params.";
+            _emit_variable_name(arg);
+            _scratch << ";";
+        }
     } else {
-        if (any_arg) { _scratch.pop_back(); }
-        _scratch << ") noexcept {";
-    }
-    for (auto builtin : f.builtin_variables()) {
-        switch (builtin.tag()) {
-            case Variable::Tag::THREAD_ID:
-                _scratch << "\n  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
-                break;
-            case Variable::Tag::BLOCK_ID:
-                _scratch << "\n  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
-                break;
-            case Variable::Tag::DISPATCH_ID:
-                _scratch << "\n  const auto did = lc_make_uint3("
-                         << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
-                         << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
-                         << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
-                break;
-            default: break;
+        auto any_arg = false;
+        for (auto arg : f.arguments()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(arg);
+            _scratch << ",";
+            any_arg = true;
+        }
+        if (f.tag() == Function::Tag::KERNEL) {
+            _scratch << "\n    const lc_uint3 ls) {";// launch size
+        } else {
+            if (any_arg) { _scratch.pop_back(); }
+            _scratch << ") noexcept {";
+        }
+        for (auto builtin : f.builtin_variables()) {
+            switch (builtin.tag()) {
+                case Variable::Tag::THREAD_ID:
+                    _scratch << "\n  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
+                    break;
+                case Variable::Tag::BLOCK_ID:
+                    _scratch << "\n  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
+                    break;
+                case Variable::Tag::DISPATCH_ID:
+                    _scratch << "\n  const auto did = lc_make_uint3("
+                             << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
+                             << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
+                             << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
+                    break;
+                default: break;
+            }
         }
     }
     _indent = 1;
