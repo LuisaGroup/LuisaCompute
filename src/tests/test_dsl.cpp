@@ -94,9 +94,7 @@ int main(int argc, char *argv[]) {
 
         if_(v_int == v_int, [] {
             Var a = 0.0f;
-        }).elif (1 + 2 == v_int, [] {
-              Var b = 1.0f;
-          }).else_([] {
+        }).else_([] {
             Var c = 2.0f;
         });
 
