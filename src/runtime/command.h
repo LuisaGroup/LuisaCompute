@@ -77,32 +77,37 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
 #define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
 
-#define LUISA_MAKE_COMMAND_COMMON(Cmd)    \
-    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd)
+#define LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)                 \
+    [[nodiscard]] Command *clone() const noexcept override { \
+        return Cmd::create(*this)->_set_next(nullptr);       \
+    }
+
+#define LUISA_MAKE_COMMAND_COMMON(Cmd)     \
+    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)  \
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)  \
+    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)
 
 class Command {
 
 private:
     Command *_next_command{nullptr};
 
-private:
+protected:
     [[nodiscard]] auto _next() const noexcept { return _next_command; }
     Command *_set_next(Command *cmd) noexcept { return cmd == nullptr ? this : (_next_command = cmd); }
     virtual void _recycle() noexcept = 0;
-
-protected:
     ~Command() noexcept = default;
 
 public:
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
+    [[nodiscard]] virtual Command *clone() const noexcept = 0;
     [[nodiscard]] auto next() const noexcept { return _next(); }
     auto set_next(Command *cmd) noexcept { return _set_next(cmd); }
     void recycle();
 };
 
-class BufferUploadCommand : public Command {
+class BufferUploadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -123,7 +128,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferUploadCommand)
 };
 
-class BufferDownloadCommand : public Command {
+class BufferDownloadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -144,7 +149,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferDownloadCommand)
 };
 
-class BufferCopyCommand : public Command {
+class BufferCopyCommand final : public Command {
 
 private:
     uint64_t _src_handle;
@@ -168,7 +173,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferCopyCommand)
 };
 
-class BufferToTextureCopyCommand : public Command {
+class BufferToTextureCopyCommand final : public Command {
 
 private:
     uint64_t _buffer_handle;
@@ -197,7 +202,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BufferToTextureCopyCommand)
 };
 
-class TextureToBufferCopyCommand : public Command {
+class TextureToBufferCopyCommand final : public Command {
 
 private:
     uint64_t _buffer_handle;
@@ -226,7 +231,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureToBufferCopyCommand)
 };
 
-class TextureCopyCommand : public Command {
+class TextureCopyCommand final : public Command {
 
 private:
     uint64_t _src_handle;
@@ -260,7 +265,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureCopyCommand)
 };
 
-class TextureUploadCommand : public Command {
+class TextureUploadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -289,7 +294,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand)
 };
 
-class TextureDownloadCommand : public Command {
+class TextureDownloadCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -322,7 +327,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class ShaderDispatchCommand : public Command {
+class ShaderDispatchCommand final : public Command {
 
 public:
     struct alignas(16) Argument {
@@ -479,39 +484,19 @@ enum struct AccelBuildHint {
     FAST_REBUILD// optimize for frequent rebuild, maybe without compaction
 };
 
-class MeshBuildCommand : public Command {
+class MeshBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildHint _hint;
-    uint64_t _vertex_buffer_handle;
-    size_t _vertex_buffer_offset;
-    size_t _vertex_stride;
-    size_t _vertex_count;
-    uint64_t _triangle_buffer_handle;
-    size_t _triangle_buffer_offset;
-    size_t _triangle_count;
 
 public:
-    MeshBuildCommand(uint64_t handle, AccelBuildHint hint,
-                     uint64_t v_handle, size_t v_offset, size_t v_stride, size_t v_count,
-                     uint64_t t_handle, size_t t_offset, size_t t_count) noexcept
-        : _handle{handle}, _hint{hint},
-          _vertex_buffer_handle{v_handle}, _vertex_buffer_offset{v_offset}, _vertex_stride{v_stride}, _vertex_count{v_count},
-          _triangle_buffer_handle{t_handle}, _triangle_buffer_offset{t_offset}, _triangle_count{t_count} {}
+    MeshBuildCommand(uint64_t handle) noexcept
+        : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto vertex_buffer_handle() const noexcept { return _vertex_buffer_handle; }
-    [[nodiscard]] auto vertex_buffer_offset() const noexcept { return _vertex_buffer_offset; }
-    [[nodiscard]] auto vertex_stride() const noexcept { return _vertex_stride; }
-    [[nodiscard]] auto vertex_count() const noexcept { return _vertex_count; }
-    [[nodiscard]] auto triangle_buffer_handle() const noexcept { return _triangle_buffer_handle; }
-    [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
-    [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
-    [[nodiscard]] auto hint() const noexcept { return _hint; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
-class MeshUpdateCommand : public Command {
+class MeshUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
@@ -522,67 +507,43 @@ public:
     LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
 };
 
-class AccelBuildCommand : public Command {
+class AccelBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
-    AccelBuildHint _hint;
-    std::span<const uint64_t> _instance_mesh_handles;
-    std::span<const float4x4> _instance_transforms;
 
 public:
-    AccelBuildCommand(uint64_t handle, AccelBuildHint hint,
-                      std::span<const uint64_t> instance_mesh_handles,
-                      std::span<const float4x4> instance_transforms) noexcept
-        : _handle{handle}, _hint{hint},
-          _instance_mesh_handles{instance_mesh_handles},
-          _instance_transforms{instance_transforms} {}
+    explicit AccelBuildCommand(uint64_t handle) noexcept : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto hint() const noexcept { return _hint; }
-    [[nodiscard]] auto instance_mesh_handles() const noexcept { return _instance_mesh_handles; }
-    [[nodiscard]] auto instance_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
 
-class AccelUpdateCommand : public Command {
+class AccelUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
-    size_t _first_instance{0u};
-    std::span<const float4x4> _instance_transforms;
 
 public:
     explicit AccelUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
-    AccelUpdateCommand(uint64_t handle, std::span<const float4x4> instance_transforms, size_t first) noexcept
-        : _handle{handle},
-          _first_instance{first},
-          _instance_transforms{instance_transforms} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto should_update_transforms() const noexcept { return !_instance_transforms.empty(); }
-    [[nodiscard]] auto first_instance_to_update() const noexcept { return _first_instance; }
-    [[nodiscard]] auto updated_transforms() const noexcept { return _instance_transforms; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 
-class BindlessArrayUpdateCommand : public Command {
+class BindlessArrayUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
-    size_t _offset;
-    size_t _count;
 
 public:
-    BindlessArrayUpdateCommand(uint64_t handle, size_t offset, size_t count) noexcept
-        : _handle{handle}, _offset{offset}, _count{count} {}
+    explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
-    [[nodiscard]] auto count() const noexcept { return _count; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand)
 };
 
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE
 #undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
 #undef LUISA_MAKE_COMMAND_COMMON_RECYCLE
+#undef LUISA_MAKE_COMMAND_COMMON_CLONE
 #undef LUISA_MAKE_COMMAND_COMMON
 
 bool CommandMustAfter(BufferDownloadCommand *a, BufferDownloadCommand *b);

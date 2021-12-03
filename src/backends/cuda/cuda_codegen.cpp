@@ -234,9 +234,7 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "lc_determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
         case CallOp::INVERSE: _scratch << "lc_inverse"; break;
-        case CallOp::SYNCHRONIZE_BLOCK:
-            _scratch << "__syncthreads";
-            break;
+        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "__syncthreads"; break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomicExch";
             is_atomic = true;
@@ -311,18 +309,11 @@ void CUDACodegen::visit(const CallExpr *expr) {
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
-        case CallOp::MAKE_FLOAT2X2:
-            _scratch << "lc_make_float2x2";
-            break;
-        case CallOp::MAKE_FLOAT3X3:
-            _scratch << "lc_make_float3x3";
-            break;
-        case CallOp::MAKE_FLOAT4X4:
-            _scratch << "lc_make_float4x4";
-            break;
-            // TODO: RTX functions
-        case CallOp::TRACE_CLOSEST: break;
-        case CallOp::TRACE_ANY: break;
+        case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
+        case CallOp::TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
+        case CallOp::TRACE_ANY: _scratch << "lc_trace_any"; break;
     }
     _scratch << "(";
     auto args = expr->arguments();
@@ -353,7 +344,7 @@ void CUDACodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "reinterpret_cast<";
+            _scratch << "reinterpret_cast<const ";
             _emit_type_name(expr->type());
             _scratch << " &>(";
             break;
@@ -547,8 +538,13 @@ void CUDACodegen::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
+static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+
 void CUDACodegen::visit(const Type *type) noexcept {
-    if (type->is_structure()) {
+    if (type->is_structure() &&
+        type->description() != ray_type_desc &&
+        type->description() != hit_type_desc) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -585,7 +581,13 @@ void CUDACodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::STRUCTURE:
-            _scratch << "S" << hash_to_string(type->hash());
+            if (auto desc = type->description(); desc == ray_type_desc) {
+                _scratch << "LCRay";
+            } else if (desc == hit_type_desc) {
+                _scratch << "LCHit";
+            } else {
+                _scratch << "S" << hash_to_string(type->hash());
+            }
             break;
         default: break;
     }
@@ -625,7 +627,7 @@ void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
             break;
         case Variable::Tag::ACCEL:// TODO
             if (readonly) { _scratch << "const "; }
-            _scratch << "accel ";
+            _scratch << "LCAccel ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:

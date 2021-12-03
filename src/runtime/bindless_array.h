@@ -27,8 +27,6 @@ class BindlessArray final : public Resource {
 
 private:
     size_t _size{0u};
-    size_t _dirty_begin{};
-    size_t _dirty_count{};
 
 private:
     friend class Device;
@@ -37,7 +35,6 @@ private:
     void _emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
     void _emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept;
     void _emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept;
-    void _mark_dirty(size_t index) noexcept;
 
 public:
     BindlessArray() noexcept = default;

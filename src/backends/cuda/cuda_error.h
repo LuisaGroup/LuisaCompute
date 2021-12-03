@@ -6,6 +6,7 @@
 
 #include <cuda.h>
 #include <nvrtc.h>
+#include <optix.h>
 
 #include <core/logging.h>
 
@@ -25,4 +26,14 @@
                 "NVRTC error: {}.",                       \
                 nvrtcGetErrorString(ec));                 \
         }                                                 \
+    }()
+
+#define LUISA_CHECK_OPTIX(...)                                  \
+    [&] {                                                       \
+        if (auto error = __VA_ARGS__; error != OPTIX_SUCCESS) { \
+            LUISA_ERROR_WITH_LOCATION(                          \
+                "{}: {}.",                                      \
+                optixGetErrorName(error),                       \
+                optixGetErrorString(error));                    \
+        }                                                       \
     }()

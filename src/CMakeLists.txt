@@ -13,6 +13,10 @@ if (WIN32)
             _ENABLE_EXTENDED_ALIGNED_STORAGE=1
             _CRT_SECURE_NO_WARNINGS=1
             _UNICODE=1)
+    set(CMAKE_SHARED_MODULE_PREFIX "") # for MinGW/Cygwin etc.
+    if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        add_compile_options(/MP)
+    endif ()
 endif ()
 
 add_subdirectory(ext)
@@ -21,9 +25,9 @@ add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
-if (MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(luisa-compute-include INTERFACE
-            /wd4068 # Maxwell loves custom pragma
+            /wd4068 # Maxwell loves custom pragmas
             /wd5105 # winbase.h: macro expansion producing 'defined' has undefined behavior
             /Zc:preprocessor)
 endif ()

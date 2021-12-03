@@ -25,8 +25,6 @@ using namespace luisa::compute;
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
-
     static constexpr auto max_ray_depth = 6;
     static constexpr auto eps = 1e-4f;
     static constexpr auto inf = 1e10f;
@@ -193,10 +191,10 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-#if defined(LUISA_BACKEND_ISPC_ENABLED)
-    auto device = context.create_device("ispc");
-#elif defined(LUISA_BACKEND_CUDA_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
     auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_ISPC_ENABLED)
+    auto device = context.create_device("ispc");
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #else

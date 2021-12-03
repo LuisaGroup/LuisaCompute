@@ -10,10 +10,11 @@
 #include <runtime/event.h>
 #include <dsl/sugar.h>
 #include <rtx/accel.h>
+#include <gui/window.h>
+#include <gui/framerate.h>
 #include <tests/fake_device.h>
 #include <tests/cornell_box.h>
-
-#include <opencv2/opencv.hpp>
+#include <stb/stb_image_write.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/tiny_obj_loader.h>
@@ -42,12 +43,10 @@ LUISA_STRUCT(Onb, tangent, binormal, normal){
 
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
-
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
+    auto device = context.create_device("metal", {{"index", 1}});
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
@@ -93,28 +92,23 @@ int main(int argc, char *argv[]) {
         LUISA_INFO(
             "Processing shape '{}' at index {} with {} triangle(s).",
             shape.name, index, triangle_count);
-        auto &&mesh = meshes.emplace_back(device.create_mesh());
         std::vector<uint> indices;
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
         auto triangle_buffer = device.create_buffer<Triangle>(triangle_count);
+        auto &&mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
-               << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer);
+               << mesh.build();
     }
     stream << heap.update();
 
-    std::vector<uint64_t> instances;
-    std::vector<float4x4> transforms;
-    for (auto &&m : meshes) {
-        instances.emplace_back(m.handle());
-        transforms.emplace_back(make_float4x4(1.0f));
-    }
     auto accel = device.create_accel();
-    stream << accel.build(AccelBuildHint::FAST_TRACE, instances, transforms);
+    for (auto &&m : meshes) { accel.emplace_back(m, make_float4x4(1.0f)); }
+    stream << accel.build();
 
     std::vector<Material> materials;
-    materials.reserve(instances.size());
+    materials.reserve(accel.size());
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// floor
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// ceiling
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall
@@ -294,7 +288,7 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
-        auto ldr = linear_to_srgb(aces_tonemapping(hdr.zyx() * scale));
+        auto ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -310,51 +304,36 @@ int main(int argc, char *argv[]) {
     auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, tile_size);
-    cv::Mat cv_accum{tile_size.y, tile_size.x, CV_8UC4, cv::Scalar::all(0.0)};
-    cv::Mat cv_curr{tile_size.y, tile_size.x, CV_8UC4, cv::Scalar::all(0.0)};
-    cv::Mat cv_display{resolution.y, resolution.x, CV_8UC4, cv::Scalar::all(0.0)};
+    std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
 
     Clock clock;
-    clock.tic();
-    auto tile_offset = make_uint2(0u);
-    auto reset = [&] {
-        stream << clear_shader(accum_image).dispatch(tile_size)
-               << make_sampler_shader(state_image, tile_offset).dispatch(tile_size);
-    };
+    stream << clear_shader(accum_image).dispatch(resolution)
+           << make_sampler_shader(state_image, make_uint2()).dispatch(resolution);
 
-    reset();
-    for (auto d = 0u;; d++) {
+    Framerate framerate;
+    Window window{"Display", resolution};
+    window.set_key_callback([&](int key, int action) noexcept {
+        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
+            window.set_should_close();
+        }
+    });
+    window.run([&] {
         auto command_buffer = stream.command_buffer();
         static constexpr auto spp_per_dispatch = 1u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(framebuffer, state_image, accel, tile_offset, resolution).dispatch(tile_size)
-                           << accumulate_shader(accum_image, framebuffer).dispatch(tile_size);
+            command_buffer << raytracing_shader(framebuffer, state_image, accel, make_uint2(), resolution).dispatch(resolution)
+                           << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
         }
-        command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(tile_size)
-                       //                       << ldr_image.copy_to(cv_curr.data)
-                       << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(tile_size)
-                       << ldr_image.copy_to(cv_accum.data)
+        command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
+                       << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
+                       << ldr_image.copy_to(host_image.data())
                        << commit();
         stream << synchronize();
-        cv_accum.copyTo(cv_display(cv::Rect{static_cast<int>(tile_offset.x), static_cast<int>(tile_offset.y), tile_size.x, tile_size.y}));
-        //        cv::imshow("Current", cv_curr);
-        cv::imshow("Display", cv_display);
-        if (auto key = cv::waitKey(1); key == 'q') {
-            break;
-        } else if (key == 'w') {
-            tile_offset.y = std::max(tile_offset.y, tile_size.y) - tile_size.y;
-            reset();
-        } else if (key == 'a') {
-            tile_offset.x = std::max(tile_offset.x, tile_size.x) - tile_size.x;
-            reset();
-        } else if (key == 's') {
-            tile_offset.y = std::min(tile_offset.y + tile_size.y + tile_size.y, resolution.y) - tile_size.y;
-            reset();
-        } else if (key == 'd') {
-            tile_offset.x = std::min(tile_offset.x + tile_size.x + tile_size.x, resolution.x) - tile_size.x;
-            reset();
-        }
-        LUISA_INFO("Progress: {}spp | {}s", (d + 1u) * spp_per_dispatch, clock.toc() * 1e-3f);
-    }
-    cv::imwrite("test_path_tracing.png", cv_accum);
+        window.set_background(host_image.data(), resolution);
+        framerate.record(spp_per_dispatch);
+        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Text("FPS: %.1f", framerate.report());
+        ImGui::End();
+    });
+    stbi_write_png("test_path_tracing_display.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
