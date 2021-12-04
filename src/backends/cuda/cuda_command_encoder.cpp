@@ -19,7 +19,8 @@ template<typename F>
 inline void CUDACommandEncoder::with_upload_buffer(size_t size, F &&f) noexcept {
     auto upload_buffer = _stream->upload_pool().allocate(size);
     f(upload_buffer);
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(
+    auto data = reinterpret_cast<CUDABindlessArray::Item *>(upload_buffer.address());
+        LUISA_CHECK_CUDA(cuLaunchHostFunc(
         _stream->handle(), [](void *user_data) noexcept {
             auto context = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
             context->recycle();
