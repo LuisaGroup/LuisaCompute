@@ -624,7 +624,7 @@ using namespace luisa;
             is_same_expr_v<Z, type> &&                           \
             is_same_expr_v<W, type>                              \
     [[nodiscard]] inline auto make_##type##4(                    \
-        X && x, Y && y, X && z, W && w) noexcept {               \
+        X && x, Y && y, Z && z, W && w) noexcept {               \
         return detail::make_vector4(                             \
             std::forward<X>(x),                                  \
             std::forward<Y>(y),                                  \
