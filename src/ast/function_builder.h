@@ -124,6 +124,7 @@ private:
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
+    bool _using_shared_storage{false};
     bool _raytracing{false};
 
 protected:
