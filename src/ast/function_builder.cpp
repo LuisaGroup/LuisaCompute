@@ -36,6 +36,14 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
             "Custom callables may not have builtin, "
             "shared or captured variables.");
     }
+    if (f->_raytracing &&
+        (f->_using_shared_storage ||
+         f->_used_builtin_callables.test(
+             CallOp::SYNCHRONIZE_BLOCK))) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Ray tracing kernels are not allowed to "
+            "use shared storage or call synchronize_block().");
+    }
 
     // emplace captured resources
     for (auto b : f->_captured_buffers) { f->_arguments.emplace_back(b.variable); }
@@ -139,6 +147,7 @@ const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
             "Empty meta stack when adding shared variable.");
     }
     _meta_stack.back()->add(sv);
+    _using_shared_storage = true;
     return _ref(sv);
 }
 
@@ -425,10 +434,11 @@ void FunctionBuilder::push_meta(MetaStmt *meta) noexcept {
 }
 
 void FunctionBuilder::pop_meta(const MetaStmt *meta) noexcept {
-    pop_scope(meta->scope());
-    if (_meta_stack.empty() ||
-        (meta != nullptr && _meta_stack.back() != meta)) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Invalid meta stack pop.");
+    if (meta != nullptr) {// checks required
+        pop_scope(meta->scope());
+        if (_meta_stack.empty() || _meta_stack.back() != meta) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Invalid meta stack pop.");
+        }
     }
     _meta_stack.pop_back();
 }
