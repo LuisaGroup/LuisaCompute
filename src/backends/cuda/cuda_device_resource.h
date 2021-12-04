@@ -739,27 +739,21 @@ inline void lc_set_payload(lc_uint x) noexcept {
     return lc_make_float2(f0, f1);
 }
 
-[[nodiscard]] inline auto lc_is_tracing_any_hit() noexcept {
-    lc_uint r0;
-    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"(r0) : "r"(0) : );
-    return r0 == 0u;
+extern "C" __global__ void __closesthit__trace_any() {
+    lc_set_payload<0u>(1u);
 }
 
-extern "C" __global__ void __closesthit__ch() {
-    if (lc_is_tracing_any_hit()) {
-        lc_set_payload<0u>(1u);
-    } else {
-        auto inst = lc_get_instance_index();
-        auto prim = lc_get_primitive_index();
-        auto bary = lc_get_bary_coords();
-        lc_set_payload<0u>(inst);
-        lc_set_payload<1u>(prim);
-        lc_set_payload<2u>(__float_as_uint(bary.x));
-        lc_set_payload<3u>(__float_as_uint(bary.y));
-    }
+extern "C" __global__ void __closesthit__trace_closest() {
+    auto inst = lc_get_instance_index();
+    auto prim = lc_get_primitive_index();
+    auto bary = lc_get_bary_coords();
+    lc_set_payload<0u>(inst);
+    lc_set_payload<1u>(prim);
+    lc_set_payload<2u>(__float_as_uint(bary.x));
+    lc_set_payload<3u>(__float_as_uint(bary.y));
 }
 
-template<lc_uint reg_count, lc_uint flags>
+template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 [[nodiscard]] inline auto lc_trace_impl(
     LCAccel accel, LCRay ray,
     lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3) noexcept {
@@ -785,7 +779,7 @@ template<lc_uint reg_count, lc_uint flags>
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(0u), "l"(accel), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
-          "f"(t_max), "f"(0.0f), "r"(0xffu), "r"(flags), "r"(0u), "r"(0u),
+          "f"(t_max), "f"(0.0f), "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u),
           "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(p4), "r"(p5), "r"(p6),
           "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
           "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
@@ -798,21 +792,21 @@ template<lc_uint reg_count, lc_uint flags>
 
 [[nodiscard]] inline auto lc_trace_closest(LCAccel accel, LCRay ray) noexcept {
     constexpr auto flags = 1u;// disable any hit
-    auto r0 = ~0u;// also indicates trace_closest
+    auto r0 = ~0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
-    lc_trace_impl<4u, flags>(accel, ray, r0, r1, r2, r3);
+    lc_trace_impl<0u, 4u, flags>(accel, ray, r0, r1, r2, r3);
     return LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
 }
 
 [[nodiscard]] inline auto lc_trace_any(LCAccel accel, LCRay ray) noexcept {
     constexpr auto flags = 1u | 4u;// disable any hit and terminate on first hit
-    auto r0 = 0u;// also indicates trace_any
+    auto r0 = 0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
-    lc_trace_impl<1u, flags>(accel, ray, r0, r1, r2, r3);
+    lc_trace_impl<1u, 1u, flags>(accel, ray, r0, r1, r2, r3);
     return static_cast<bool>(r0);
 }
 

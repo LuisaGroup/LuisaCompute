@@ -109,7 +109,8 @@ private:
     size_t _argument_buffer_size{};
     OptixModule _module{};
     OptixProgramGroup _program_group_rg{};
-    OptixProgramGroup _program_group_ch{};
+    OptixProgramGroup _program_group_ch_closest{};
+    OptixProgramGroup _program_group_ch_any{};
     OptixProgramGroup _program_group_miss{};
     OptixPipeline _pipeline{};
     mutable OptixShaderBindingTable _sbt{};
@@ -139,7 +140,7 @@ public:
         auto sbt_buffer_offset = (_argument_buffer_size + OPTIX_SBT_RECORD_ALIGNMENT - 1u) /
                                  OPTIX_SBT_RECORD_ALIGNMENT *
                                  OPTIX_SBT_RECORD_ALIGNMENT;
-        auto argument_and_sbt_buffer_size = sbt_buffer_offset + 3u * sizeof(SBTRecord);
+        auto argument_and_sbt_buffer_size = sbt_buffer_offset + sizeof(SBTRecord) * 4u;
         LUISA_CHECK_CUDA(cuMemAlloc(
             &_argument_and_sbt_buffer, argument_and_sbt_buffer_size));
 
@@ -181,17 +182,28 @@ public:
                 &program_group_desc_rg, 1u,
                 &program_group_options,
                 log, &log_size, &_program_group_rg));
-        OptixProgramGroupDesc program_group_desc_ch{};
-        program_group_desc_ch.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-        program_group_desc_ch.hitgroup.moduleCH = _module;
-        program_group_desc_ch.hitgroup.entryFunctionNameCH = "__closesthit__ch";
+        OptixProgramGroupDesc program_group_desc_ch_closest{};
+        program_group_desc_ch_closest.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+        program_group_desc_ch_closest.hitgroup.moduleCH = _module;
+        program_group_desc_ch_closest.hitgroup.entryFunctionNameCH = "__closesthit__trace_closest";
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
             optixProgramGroupCreate(
                 device->handle().optix_context(),
-                &program_group_desc_ch, 1u,
+                &program_group_desc_ch_closest, 1u,
                 &program_group_options,
-                log, &log_size, &_program_group_ch));
+                log, &log_size, &_program_group_ch_closest));
+        OptixProgramGroupDesc program_group_desc_ch_any{};
+        program_group_desc_ch_any.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+        program_group_desc_ch_any.hitgroup.moduleCH = _module;
+        program_group_desc_ch_any.hitgroup.entryFunctionNameCH = "__closesthit__trace_any";
+        LUISA_CHECK_OPTIX_WITH_LOG(
+            log, log_size,
+            optixProgramGroupCreate(
+                device->handle().optix_context(),
+                &program_group_desc_ch_any, 1u,
+                &program_group_options,
+                log, &log_size, &_program_group_ch_any));
         OptixProgramGroupDesc program_group_desc_miss{};
         program_group_desc_miss.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
 
@@ -204,7 +216,7 @@ public:
                 log, &log_size, &_program_group_miss));
 
         // create pipeline
-        OptixProgramGroup program_groups[]{_program_group_rg, _program_group_ch};
+        OptixProgramGroup program_groups[]{_program_group_rg, _program_group_ch_closest, _program_group_ch_any};
         OptixPipelineLinkOptions pipeline_link_options{};
 #ifndef NDEBUG
         pipeline_link_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_FULL;
@@ -246,7 +258,8 @@ public:
         LUISA_CHECK_CUDA(cuMemFree(_argument_and_sbt_buffer));
         LUISA_CHECK_OPTIX(optixPipelineDestroy(_pipeline));
         LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_rg));
-        LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_ch));
+        LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_ch_any));
+        LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_ch_closest));
         LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_miss));
         LUISA_CHECK_OPTIX(optixModuleDestroy(_module));
     }
@@ -258,11 +271,12 @@ public:
                                      OPTIX_SBT_RECORD_ALIGNMENT *
                                      OPTIX_SBT_RECORD_ALIGNMENT;
             auto sbt_buffer = _argument_and_sbt_buffer + sbt_buffer_offset;
-            auto sbt_record_buffer = stream->upload_pool().allocate(sizeof(SBTRecord) * 3u);
+            auto sbt_record_buffer = stream->upload_pool().allocate(sizeof(SBTRecord) * 4u);
             auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer.address());
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
-            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch, &sbt_records[1]));
-            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_miss, &sbt_records[2]));
+            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
+            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_any, &sbt_records[2]));
+            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 sbt_buffer, sbt_record_buffer.address(),
                 sbt_record_buffer.size(), stream->handle()));
@@ -278,9 +292,9 @@ public:
                     &stream->upload_pool())));
             _sbt.raygenRecord = sbt_buffer;
             _sbt.hitgroupRecordBase = sbt_buffer + sizeof(SBTRecord);
-            _sbt.hitgroupRecordCount = 1u;
+            _sbt.hitgroupRecordCount = 2u;
             _sbt.hitgroupRecordStrideInBytes = sizeof(SBTRecord);
-            _sbt.missRecordBase = sbt_buffer + sizeof(SBTRecord) * 2u;
+            _sbt.missRecordBase = sbt_buffer + sizeof(SBTRecord) * 3u;
             _sbt.missRecordCount = 1u;
             _sbt.missRecordStrideInBytes = sizeof(SBTRecord);
         }
