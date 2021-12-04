@@ -322,7 +322,7 @@ int main(int argc, char *argv[]) {
     });
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 32u;
+        static constexpr auto spp_per_dispatch = 64u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, state_image, accel, make_uint2(), resolution).dispatch(resolution)
                            << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
