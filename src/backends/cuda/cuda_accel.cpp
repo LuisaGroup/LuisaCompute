@@ -2,6 +2,8 @@
 // Created by Mike on 2021/12/2.
 //
 
+#include <optix_stubs.h>
+
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_device.h>
