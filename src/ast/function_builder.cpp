@@ -41,7 +41,7 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
          f->_used_builtin_callables.test(
              CallOp::SYNCHRONIZE_BLOCK))) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Ray tracing kernels are not allowed to "
+            "Raytracing functions are not allowed to "
             "use shared storage or call synchronize_block().");
     }
 
