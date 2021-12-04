@@ -612,7 +612,7 @@ static_assert(sizeof(LCBindlessItem) == 48);
 
 template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(const LCBindlessItem *array, lc_uint index, lc_uint i) noexcept {
-    auto buffer = reinterpret_cast<const T *>(array[index].buffer);
+    auto buffer = static_cast<const T *>(array[index].buffer);
     return buffer[i];
 }
 
