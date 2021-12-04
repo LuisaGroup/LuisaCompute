@@ -147,13 +147,8 @@ public:
         // create module
         OptixModuleCompileOptions module_compile_options{};
         module_compile_options.maxRegisterCount = OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
-#ifndef NDEBUG
-        module_compile_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_FULL;
-        module_compile_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_LEVEL_0;
-#else
         module_compile_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
         module_compile_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_LEVEL_3;
-#endif
         OptixPipelineCompileOptions pipeline_compile_options{};
         pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
         pipeline_compile_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
@@ -218,11 +213,7 @@ public:
         // create pipeline
         OptixProgramGroup program_groups[]{_program_group_rg, _program_group_ch_closest, _program_group_ch_any};
         OptixPipelineLinkOptions pipeline_link_options{};
-#ifndef NDEBUG
-        pipeline_link_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_FULL;
-#else
         pipeline_link_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
-#endif
         pipeline_link_options.maxTraceDepth = 1u;
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
