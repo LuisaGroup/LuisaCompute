@@ -88,7 +88,7 @@ private:
     }
 
 private:
-    MetaStmt *_meta;
+    MetaStmt *_meta{};
 
 public:
     template<typename... S>
