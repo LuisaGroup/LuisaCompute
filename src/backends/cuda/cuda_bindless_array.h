@@ -21,20 +21,25 @@ class CUDAStream;
 class CUDABindlessArray {
 
 public:
-    struct alignas(16) Item {
-        CUdeviceptr buffer{};
-        CUdeviceptr origin{};
-        CUtexObject tex2d{};
-        uint2 size2d{};
-        CUtexObject tex3d{};
-        std::array<uint16_t, 3> size3d{};
+    struct SlotSOA {
+        CUdeviceptr _buffer_slots;
+        CUdeviceptr _tex2d_slots;
+        CUdeviceptr _tex3d_slots;
+        CUdeviceptr _tex2d_sizes;
+        CUdeviceptr _tex3d_sizes;
     };
-    static_assert(sizeof(Item) == 48);
 
 private:
-    CUdeviceptr _handle;
-    DirtyRange _dirty_range;
-    luisa::vector<Item> _slots;
+    SlotSOA _handle{};
+    mutable DirtyRange _buffer_dirty_range;
+    mutable DirtyRange _tex2d_dirty_range;
+    mutable DirtyRange _tex3d_dirty_range;
+    luisa::vector<CUdeviceptr> _buffer_handles;
+    luisa::vector<CUdeviceptr> _buffer_slots;
+    luisa::vector<CUtexObject> _tex2d_slots;
+    luisa::vector<CUtexObject> _tex3d_slots;
+    luisa::vector<std::array<uint16_t, 2u>> _tex2d_sizes;
+    luisa::vector<std::array<uint16_t, 4u>> _tex3d_sizes;
     luisa::unordered_map<uint64_t, size_t> _buffers;
     luisa::unordered_map<uint64_t, size_t> _arrays;
     luisa::unordered_map<CUtexObject, CUDAMipmapArray *> _tex_to_array;
@@ -48,10 +53,9 @@ public:
     void _release_array(CUDAMipmapArray *array) noexcept { _release(_arrays, reinterpret_cast<uint64_t>(array)); }
 
 public:
-    CUDABindlessArray(CUdeviceptr handle, size_t capacity) noexcept;
+    explicit CUDABindlessArray(size_t capacity) noexcept;
     ~CUDABindlessArray() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto slots() const noexcept { return std::span{_slots}; }
     void emplace_buffer(size_t index, CUdeviceptr buffer, size_t offset) noexcept;
     void emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
     void emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
@@ -60,8 +64,7 @@ public:
     void remove_tex3d(size_t index) noexcept;
     [[nodiscard]] bool has_buffer(CUdeviceptr buffer) const noexcept;
     [[nodiscard]] bool has_array(CUDAMipmapArray *array) const noexcept;
-    void clear_dirty_range() noexcept { _dirty_range.clear(); }
-    [[nodiscard]] auto dirty_range() const noexcept { return _dirty_range; }
+    void upload(CUDAStream *stream) const noexcept;
 };
 
 }// namespace luisa::compute::cuda
