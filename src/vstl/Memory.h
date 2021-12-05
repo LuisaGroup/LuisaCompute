@@ -54,7 +54,7 @@ class IOperatorNewBase {
 public:
     DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
 };
-class ISelfPtr : public IOperatorNewBase {
+class ISelfPtr {
 public:
     virtual ~ISelfPtr() = default;
     virtual void *SelfPtr() = 0;

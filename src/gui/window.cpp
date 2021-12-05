@@ -246,8 +246,7 @@ void Window::_end_frame() noexcept {
             static_cast<float>(_texture->size().x),
             static_cast<float>(_texture->size().y)};
         ImGui::GetBackgroundDrawList()->AddImage(
-            reinterpret_cast<ImTextureID>(_texture->handle()),
-            {}, background_size);
+            _texture->handle(), {}, background_size);
     }
     // rendering
     ImGui::Render();
