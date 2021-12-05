@@ -367,7 +367,7 @@ public:
 namespace detail {
 
 template<typename R, typename... Args>
-struct function_signature {};
+using function_signature = R(Args...);
 
 template<typename>
 struct canonical_signature;
@@ -404,70 +404,75 @@ using canonical_signature_t = typename canonical_signature<T>::type;
 
 // TODO: clangd has trouble with MSVC regarding the deduction guides of std::function
 template<typename T>
-struct function {
-    using type = typename function<
+struct dsl_function {
+    using type = typename dsl_function<
         canonical_signature_t<
             std::remove_cvref_t<T>>>::type;
 };
 
 template<typename... Args>
-struct function<function_signature<void, Args...>> {
-    using type = void(definition_to_prototype_t<Args>...);
+struct dsl_function<function_signature<void, Args...>> {
+    using type = function_signature<
+        void,
+        definition_to_prototype_t<Args>...>;
 };
 
 template<typename Ret, typename... Args>
-struct function<function_signature<Ret, Args...>> {
-    using type = expr_value_t<Ret>(
-        definition_to_prototype_t<Args>...);
+struct dsl_function<function_signature<Ret, Args...>> {
+    using type = function_signature<
+        expr_value_t<Ret>,
+        definition_to_prototype_t<Args>...>;
 };
 
 template<typename... Ret, typename... Args>
-struct function<function_signature<std::tuple<Ret...>, Args...>> {
-    using type = std::tuple<expr_value_t<Ret>...>(
-        definition_to_prototype_t<Args>...);
+struct dsl_function<function_signature<std::tuple<Ret...>, Args...>> {
+    using type = function_signature<
+        std::tuple<expr_value_t<Ret>...>,
+        definition_to_prototype_t<Args>...>;
 };
 
 template<typename RA, typename RB, typename... Args>
-struct function<function_signature<std::pair<RA, RB>, Args...>> {
-    using type = std::tuple<expr_value_t<RA>, expr_value_t<RB>>(
-        definition_to_prototype_t<Args>...);
+struct dsl_function<function_signature<std::pair<RA, RB>, Args...>> {
+    using type = function_signature<
+        std::tuple<expr_value_t<RA>, expr_value_t<RB>>,
+        definition_to_prototype_t<Args>...>;
 };
 
 template<typename T>
-struct function<Kernel1D<T>> {
+struct dsl_function<Kernel1D<T>> {
     using type = T;
 };
 
 template<typename T>
-struct function<Kernel2D<T>> {
+struct dsl_function<Kernel2D<T>> {
     using type = T;
 };
 
 template<typename T>
-struct function<Kernel3D<T>> {
+struct dsl_function<Kernel3D<T>> {
     using type = T;
 };
 
 template<typename T>
-struct function<Callable<T>> {
+struct dsl_function<Callable<T>> {
     using type = T;
 };
 
 template<typename T>
-using function_t = typename function<T>::type;
+using dsl_function_t = typename dsl_function<T>::type;
 
 }// namespace detail
 
 template<typename T>
-Kernel1D(T &&) -> Kernel1D<detail::function_t<std::remove_cvref_t<T>>>;
+Kernel1D(T &&) -> Kernel1D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel2D(T &&) -> Kernel2D<detail::function_t<std::remove_cvref_t<T>>>;
+Kernel2D(T &&) -> Kernel2D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel3D(T &&) -> Kernel3D<detail::function_t<std::remove_cvref_t<T>>>;
+Kernel3D(T &&) -> Kernel3D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Callable(T &&) -> Callable<detail::function_t<std::remove_cvref_t<T>>>;
+Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute
