@@ -20,7 +20,6 @@ void Stream::_dispatch(CommandList commands) noexcept {
     for (auto command : commands) {
         command->accept(visitor);
     }
-    // TODO : CommandList may recycle space automatically, we should avoid crash
     auto commandLists = visitor.getCommandLists();
     for (auto &commandList : commandLists)
         device()->dispatch(handle(), std::move(commandList));

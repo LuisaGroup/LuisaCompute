@@ -546,6 +546,4 @@ public:
 #undef LUISA_MAKE_COMMAND_COMMON_CLONE
 #undef LUISA_MAKE_COMMAND_COMMON
 
-bool CommandMustAfter(BufferDownloadCommand *a, BufferDownloadCommand *b);
-
 }// namespace luisa::compute

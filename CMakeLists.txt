@@ -11,7 +11,8 @@ set(CMAKE_POLICY_DEFAULT_CMP0072 NEW)
 project(LuisaCompute LANGUAGES C CXX VERSION 0.2)
 
 if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
+    message(STATUS "sizeof(void *) = ${CMAKE_SIZEOF_VOID_P}")
+    #message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
 endif ()
 
 if (NOT DEFINED LUISA_COMPUTE_MASTER_PROJECT)
