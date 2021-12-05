@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <vector>
 #include <memory>
 #include <mutex>
@@ -259,15 +260,30 @@ public:
 template<typename S, typename M, typename O>
 constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
 
+template<typename T>
+constexpr auto pointer_to_number(T *p) noexcept {
+    return static_cast<size_t>(p - static_cast<T *>(nullptr));
+}
+
 }// namespace detail
 
 }// namespace luisa::compute
 
 // struct
-#define LUISA_STRUCTURE_MAP_MEMBER_TO_DESC(m) TypeDesc<std::remove_cvref_t<decltype(std::declval<this_type>().m)>>::description()
-#define LUISA_STRUCTURE_MAP_MEMBER_TO_FMT(m) ",{}"
-#define LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE(m) std::remove_cvref_t<decltype(std::declval<this_type>().m)>
-#define LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET(m) offsetof(this_type, m)
+#define LUISA_STRUCTURE_MAP_MEMBER_TO_DESC(m) \
+    TypeDesc<std::remove_cvref_t<decltype(std::declval<this_type>().m)>>::description()
+#define LUISA_STRUCTURE_MAP_MEMBER_TO_FMT(m) \
+    ",{}"
+#define LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE(m) \
+    std::remove_cvref_t<decltype(std::declval<this_type>().m)>
+
+#ifdef _MSC_VER // force the built-in offsetof(), otherwise clangd would complain that it's not constant
+#define LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET(m) \
+    __builtin_offsetof(this_type, m)
+#else
+#define LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET(m) \
+    offsetof(this_type, m)
+#endif
 
 #define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...) \
     namespace luisa::compute {                                \

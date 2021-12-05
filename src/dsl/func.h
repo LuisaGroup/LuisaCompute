@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include <functional>
 
 #include <core/allocator.h>
