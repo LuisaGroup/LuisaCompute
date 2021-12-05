@@ -675,7 +675,7 @@ void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
-            _scratch << "const LCBindlessItem *";
+            _scratch << "const LCBindlessArray ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:

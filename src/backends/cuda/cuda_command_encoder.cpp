@@ -19,8 +19,7 @@ template<typename F>
 inline void CUDACommandEncoder::with_upload_buffer(size_t size, F &&f) noexcept {
     auto upload_buffer = _stream->upload_pool().allocate(size);
     f(upload_buffer);
-    auto data = reinterpret_cast<CUDABindlessArray::Item *>(upload_buffer.address());
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
+    LUISA_CHECK_CUDA(cuLaunchHostFunc(
         _stream->handle(), [](void *user_data) noexcept {
             auto context = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
             context->recycle();
@@ -191,17 +190,8 @@ void CUDACommandEncoder::visit(const MeshBuildCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
-    auto array = reinterpret_cast<CUDABindlessArray *>(command->handle());
-    auto dirty_range = array->dirty_range();
-    array->clear_dirty_range();
-    auto size_bytes = sizeof(CUDABindlessArray::Item) * dirty_range.size();
-    auto offset_bytes = sizeof(CUDABindlessArray::Item) * dirty_range.offset();
-    with_upload_buffer(size_bytes, [&](CUDARingBuffer::View upload_buffer) noexcept {
-        std::memcpy(upload_buffer.address(), array->slots().data() + dirty_range.offset(), size_bytes);
-        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            array->handle() + offset_bytes, upload_buffer.address(),
-            size_bytes, _stream->handle()));
-    });
+    auto bindless_array = reinterpret_cast<CUDABindlessArray *>(command->handle());
+    bindless_array->upload(_stream);
 }
 
 }// namespace luisa::compute::cuda

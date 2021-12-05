@@ -84,43 +84,40 @@ bool CUDABindlessArray::has_array(CUDAMipmapArray *array) const noexcept {
 }
 
 void CUDABindlessArray::remove_buffer(size_t index) noexcept {
-    if (auto buffer = _slots[index].buffer) [[likely]] {
-        _release_buffer(_slots[index].origin);
-        _slots[index].buffer = 0u;
-        _slots[index].origin = 0u;
-        _dirty_range.mark(index);
+    if (auto buffer = _buffer_slots[index]) [[likely]] {
+        _release_buffer(_buffer_handles[index]);
+        _buffer_slots[index] = 0u;
+        _buffer_handles[index] = 0u;
     }
 }
 
 void CUDABindlessArray::remove_tex2d(size_t index) noexcept {
-    if (auto tex = _slots[index].tex2d) [[likely]] {
+    if (auto tex = _tex2d_slots[index]) [[likely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
         auto iter = _tex_to_array.find(tex);
         _release_array(iter->second);
         _tex_to_array.erase(iter);
-        _slots[index].tex2d = 0u;
-        _dirty_range.mark(index);
+        _tex2d_slots[index] = 0u;
     }
 }
 
 void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
-    if (auto tex = _slots[index].tex3d) [[likely]] {
+    if (auto tex = _tex3d_slots[index]) [[likely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
         auto iter = _tex_to_array.find(tex);
         _release_array(iter->second);
         _tex_to_array.erase(iter);
-        _slots[index].tex3d = 0u;
-        _dirty_range.mark(index);
+        _tex3d_slots[index] = 0u;
     }
 }
 
 void CUDABindlessArray::emplace_buffer(size_t index, CUdeviceptr buffer, size_t offset) noexcept {
-    if (auto o = _slots[index].origin) [[unlikely]] {
+    if (auto o = _buffer_handles[index]) [[unlikely]] {
         _release_buffer(o);
     }
-    _slots[index].buffer = buffer + offset;
-    _slots[index].origin = buffer;
-    _dirty_range.mark(index);
+    _buffer_handles[index] = buffer;
+    _buffer_slots[index] = buffer + offset;
+    _buffer_dirty_range.mark(index);
     _retain_buffer(buffer);
 }
 
@@ -136,15 +133,18 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
     auto tex_desc = cuda_texture_descriptor(sampler);
     CUtexObject texture;
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
-    if (auto t = _slots[index].tex2d) [[unlikely]] {
+    if (auto t = _tex2d_slots[index]) [[unlikely]] {
+        LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
         auto iter = _tex_to_array.find(t);
         _release_array(iter->second);
         _tex_to_array.erase(iter);
     }
-    _slots[index].tex2d = texture;
-    _slots[index].size2d = array->size().xy();
+    _tex2d_slots[index] = texture;
+    _tex2d_sizes[index] = {
+        static_cast<unsigned short>(array->size().x),
+        static_cast<unsigned short>(array->size().y)};
     _tex_to_array.emplace(texture, array);
-    _dirty_range.mark(index);
+    _tex2d_dirty_range.mark(index);
     _retain_array(array);
 }
 
@@ -160,19 +160,21 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
     auto tex_desc = cuda_texture_descriptor(sampler);
     CUtexObject texture;
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
-    if (auto t = _slots[index].tex3d; t != 0u) [[unlikely]] {
+    if (auto t = _tex3d_slots[index]) [[unlikely]] {
+        LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
         auto iter = _tex_to_array.find(t);
         _release_array(iter->second);
         _tex_to_array.erase(iter);
     }
     auto s = array->size();
-    _slots[index].tex3d = texture;
-    _slots[index].size3d = {
+    _tex3d_slots[index] = texture;
+    _tex3d_sizes[index] = {
         static_cast<unsigned short>(s.x),
         static_cast<unsigned short>(s.y),
-        static_cast<unsigned short>(s.z)};
+        static_cast<unsigned short>(s.z),
+        0u};
     _tex_to_array.emplace(texture, array);
-    _dirty_range.mark(index);
+    _tex3d_dirty_range.mark(index);
     _retain_array(array);
 }
 
@@ -180,10 +182,66 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
     for (auto item : _tex_to_array) {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(item.first));
     }
-    LUISA_CHECK_CUDA(cuMemFree(_handle));
+    LUISA_CHECK_CUDA(cuMemFree(_handle._buffer_slots));
 }
 
-CUDABindlessArray::CUDABindlessArray(CUdeviceptr handle, size_t capacity) noexcept
-    : _handle{handle}, _slots(capacity, Item{}) {}
+CUDABindlessArray::CUDABindlessArray(size_t capacity) noexcept
+    : _buffer_handles(capacity, 0u),
+      _buffer_slots(capacity, 0u),
+      _tex2d_slots(capacity, 0u),
+      _tex3d_slots(capacity, 0u),
+      _tex2d_sizes(capacity, std::array<uint16_t, 2u>{}),
+      _tex3d_sizes(capacity, std::array<uint16_t, 4u>{}) {
+
+    constexpr auto align = [](size_t x) noexcept -> size_t {
+        static constexpr auto alignment = 16u;
+        return (x + alignment - 1u) / alignment * alignment;
+    };
+
+    auto buffer_slots_offset = align(0u);
+    auto tex2d_slots_offset = align(buffer_slots_offset + sizeof(CUdeviceptr) * capacity);
+    auto tex3d_slots_offset = align(tex2d_slots_offset + sizeof(CUtexObject) * capacity);
+    auto tex2d_sizes_offset = align(tex3d_slots_offset + sizeof(CUtexObject) * capacity);
+    auto tex3d_sizes_offset = align(tex2d_sizes_offset + sizeof(std::array<uint16_t, 2u>) * capacity);
+    auto buffer_size = align(tex3d_sizes_offset + sizeof(std::array<uint16_t, 4u>) * capacity);
+
+    CUdeviceptr buffer;
+    LUISA_CHECK_CUDA(cuMemAlloc(&buffer, buffer_size));
+    _handle._buffer_slots = buffer + buffer_slots_offset;
+    _handle._tex2d_slots = buffer + tex2d_slots_offset;
+    _handle._tex3d_slots = buffer + tex3d_slots_offset;
+    _handle._tex2d_sizes = buffer + tex2d_sizes_offset;
+    _handle._tex3d_sizes = buffer + tex3d_sizes_offset;
+}
+
+void CUDABindlessArray::upload(CUDAStream *stream) const noexcept {
+
+    auto do_upload = [stream]<typename T>(CUdeviceptr device_buffer, const T *host_buffer, DirtyRange range) noexcept {
+        if (!range.empty()) {
+            auto size_bytes = sizeof(T) * range.size();
+            auto upload_buffer = stream->upload_pool().allocate(size_bytes);
+            std::memcpy(upload_buffer.address(), host_buffer + range.offset(), size_bytes);
+            LUISA_CHECK_CUDA(cuMemcpyHtoD(
+                device_buffer + sizeof(T) * range.offset(),
+                upload_buffer.address(), size_bytes));
+            LUISA_CHECK_CUDA(cuLaunchHostFunc(
+                stream->handle(),
+                [](void *user_data) noexcept {
+                    auto context = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
+                    context->recycle();
+                },
+                CUDARingBuffer::RecycleContext::create(
+                    upload_buffer, &stream->upload_pool())));
+        }
+    };
+    do_upload(_handle._buffer_slots, _buffer_slots.data(), _buffer_dirty_range);
+    do_upload(_handle._tex2d_slots, _tex2d_slots.data(), _tex2d_dirty_range);
+    do_upload(_handle._tex2d_sizes, _tex2d_sizes.data(), _tex2d_dirty_range);
+    do_upload(_handle._tex3d_slots, _tex3d_slots.data(), _tex3d_dirty_range);
+    do_upload(_handle._tex3d_sizes, _tex3d_sizes.data(), _tex3d_dirty_range);
+    _buffer_dirty_range.clear();
+    _tex2d_dirty_range.clear();
+    _tex3d_dirty_range.clear();
+}
 
 }// namespace luisa::compute::cuda

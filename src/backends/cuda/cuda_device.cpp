@@ -297,9 +297,7 @@ CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
 
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
-        CUdeviceptr desc_array = 0u;
-        LUISA_CHECK_CUDA(cuMemAlloc(&desc_array, size * sizeof(CUDABindlessArray::Item)));
-        return reinterpret_cast<uint64_t>(new_with_allocator<CUDABindlessArray>(desc_array, size));
+        return reinterpret_cast<uint64_t>(new_with_allocator<CUDABindlessArray>(size));
     });
 }
 

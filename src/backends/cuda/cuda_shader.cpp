@@ -63,9 +63,9 @@ public:
                 auto ptr = allocate_argument(sizeof(CUDASurface));
                 std::memcpy(ptr, &surface, sizeof(CUDASurface));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                auto ptr = allocate_argument(sizeof(CUdeviceptr));
+                auto ptr = allocate_argument(sizeof(CUDABindlessArray::SlotSOA));
                 auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle)->handle();
-                std::memcpy(ptr, &array, sizeof(CUdeviceptr));
+                std::memcpy(ptr, &array, sizeof(CUDABindlessArray::SlotSOA));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
                 LUISA_ERROR_WITH_LOCATION(
                     "Acceleration arguments are not allowed in native CUDA kernels.");
@@ -316,9 +316,9 @@ public:
                 auto ptr = allocate_argument(sizeof(CUDASurface));
                 std::memcpy(ptr, &surface, sizeof(CUDASurface));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                auto ptr = allocate_argument(sizeof(CUdeviceptr));
+                auto ptr = allocate_argument(sizeof(CUDABindlessArray::SlotSOA));
                 auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle)->handle();
-                std::memcpy(ptr, &array, sizeof(CUdeviceptr));
+                std::memcpy(ptr, &array, sizeof(CUDABindlessArray::SlotSOA));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
                 auto ptr = allocate_argument(sizeof(OptixTraversableHandle));
                 auto accel = reinterpret_cast<CUDAAccel *>(argument.handle)->handle();
