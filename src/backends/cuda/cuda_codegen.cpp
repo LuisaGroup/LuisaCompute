@@ -469,7 +469,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         _scratch << "struct alignas(16) Params {";
         for (auto arg : f.arguments()) {
             _scratch << "\n  alignas(16) ";
-            _emit_variable_decl(arg, true);
+            _emit_variable_decl(arg, !arg.type()->is_buffer());
             _scratch << "{};";
         }
         _scratch << "\n};\n\nextern \"C\" "
