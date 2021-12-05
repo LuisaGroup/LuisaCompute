@@ -140,10 +140,10 @@ int main(int argc, char *argv[]) {
         return v0;
     };
 
-    Kernel2D make_sampler_kernel = [&](ImageUInt state_image, UInt2 offset) noexcept {
-        auto p = dispatch_id().xy() + offset;
+    Kernel2D make_sampler_kernel = [&](BufferUInt seed_buffer) noexcept {
+        auto p = dispatch_id().xy();
         auto state = tea(p.x, p.y);
-        state_image.write(dispatch_id().xy(), make_uint4(state));
+        seed_buffer[p.y * dispatch_size_x() + p.x] = state;
     };
 
     Callable lcg = [](UInt &state) noexcept {
@@ -180,11 +180,12 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt state_image, AccelVar accel, UInt2 tile_offset, UInt2 resolution) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, BufferUInt seed_buffer, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(8u, 8u, 1u);
-        auto coord = dispatch_id().xy() + tile_offset;
+        auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
-        auto state = state_image.read(dispatch_id().xy()).x;
+        auto global_id = dispatch_y() * dispatch_size_x() + dispatch_x();
+        auto state = seed_buffer[global_id];
         auto rx = lcg(state);
         auto ry = lcg(state);
         auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
@@ -262,7 +263,7 @@ int main(int argc, char *argv[]) {
             $if(r >= q) { $break; };
             beta *= 1.0f / q;
         }
-        state_image.write(dispatch_id().xy(), make_uint4(state));
+        seed_buffer[global_id] = state;
         $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
@@ -302,16 +303,15 @@ int main(int argc, char *argv[]) {
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
     static constexpr auto resolution = make_uint2(1024u);
-    static constexpr auto tile_size = make_uint2(1024u);
-    auto state_image = device.create_image<uint>(PixelStorage::INT1, tile_size);
-    auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
-    auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, tile_size);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, tile_size);
+    auto seed_buffer = device.create_buffer<uint>(resolution.x * resolution.y);
+    auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
 
     Clock clock;
     stream << clear_shader(accum_image).dispatch(resolution)
-           << make_sampler_shader(state_image, make_uint2()).dispatch(resolution);
+           << make_sampler_shader(seed_buffer).dispatch(resolution);
 
     Framerate framerate;
     Window window{"Display", resolution};
@@ -325,7 +325,7 @@ int main(int argc, char *argv[]) {
         auto command_buffer = stream.command_buffer();
         static constexpr auto spp_per_dispatch = 64u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(framebuffer, state_image, accel, make_uint2(), resolution).dispatch(resolution)
+            command_buffer << raytracing_shader(framebuffer, seed_buffer, accel, resolution).dispatch(resolution)
                            << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
         }
         command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
