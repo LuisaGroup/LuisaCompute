@@ -199,7 +199,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        for (auto depth : range(5u)) {
+        for (auto depth : range(10u)) {
 
             // trace
             auto hit = accel.trace_closest(ray);
@@ -320,6 +320,7 @@ int main(int argc, char *argv[]) {
             window.set_should_close();
         }
     });
+    auto frame_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
         static constexpr auto spp_per_dispatch = 64u;
@@ -334,9 +335,11 @@ int main(int argc, char *argv[]) {
         stream << synchronize();
         window.set_background(host_image.data(), resolution);
         framerate.record(spp_per_dispatch);
+        frame_count += spp_per_dispatch;
         ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Text("Frames: %u", frame_count);
         ImGui::Text("FPS: %.1f", framerate.report());
         ImGui::End();
     });
-    stbi_write_png("test_path_tracing_display.png", resolution.x, resolution.y, 4, host_image.data(), 0);
+    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
