@@ -3,7 +3,7 @@
 #include <vstl/vstring.h>
 #include <vstl/Memory.h>
 #include <Common/Log.h>
-class LUISA_DLL DynamicDLL final : public vstd::IOperatorNewBase {
+class LUISA_DLL DynamicDLL final {
 	size_t inst;
 	template<typename T>
 	struct IsFuncPtr {
