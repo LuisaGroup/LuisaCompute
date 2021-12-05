@@ -10,7 +10,7 @@ class ExecuteNode {
 	friend class ExecuteNode;
 
 private:
-	struct Value : public IOperatorNewBase {
+	struct Value {
 		StackObject<Ret> data;
 		spin_mutex mtx;
 		function<void(Value*)> nextFunc;

@@ -21,7 +21,7 @@ struct vector_stack_obj<T, 0> {
 };
 }// namespace detail
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool forceTrivial = false, size_t stackCount = 0>
-class vector : public IOperatorNewBase {
+class vector {
 private:
     //	template<bool v>
     //	struct EraseLastType;
