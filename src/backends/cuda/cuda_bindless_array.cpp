@@ -215,30 +215,43 @@ CUDABindlessArray::CUDABindlessArray(size_t capacity) noexcept
 }
 
 void CUDABindlessArray::upload(CUDAStream *stream) const noexcept {
-
-    auto do_upload = [stream]<typename T>(CUdeviceptr device_buffer, const T *host_buffer, DirtyRange range) noexcept {
-        if (!range.empty()) {
-            auto size_bytes = sizeof(T) * range.size();
-            auto upload_buffer = stream->upload_pool().allocate(size_bytes);
-            std::memcpy(upload_buffer.address(), host_buffer + range.offset(), size_bytes);
-            LUISA_CHECK_CUDA(cuMemcpyHtoD(
-                device_buffer + sizeof(T) * range.offset(),
-                upload_buffer.address(), size_bytes));
-            LUISA_CHECK_CUDA(cuLaunchHostFunc(
-                stream->handle(),
-                [](void *user_data) noexcept {
-                    auto context = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
-                    context->recycle();
-                },
-                CUDARingBuffer::RecycleContext::create(
-                    upload_buffer, &stream->upload_pool())));
-        }
+    constexpr auto align = [](size_t x) noexcept -> size_t {
+        static constexpr auto alignment = 16u;
+        return (x + alignment - 1u) / alignment * alignment;
     };
-    do_upload(_handle._buffer_slots, _buffer_slots.data(), _buffer_dirty_range);
-    do_upload(_handle._tex2d_slots, _tex2d_slots.data(), _tex2d_dirty_range);
-    do_upload(_handle._tex2d_sizes, _tex2d_sizes.data(), _tex2d_dirty_range);
-    do_upload(_handle._tex3d_slots, _tex3d_slots.data(), _tex3d_dirty_range);
-    do_upload(_handle._tex3d_sizes, _tex3d_sizes.data(), _tex3d_dirty_range);
+    auto buffer_slots_upload_offset = align(0u);
+    auto tex2d_slots_upload_offset = align(buffer_slots_upload_offset + sizeof(CUdeviceptr) * _buffer_dirty_range.size());
+    auto tex3d_slots_upload_offset = align(tex2d_slots_upload_offset + sizeof(CUtexObject) * _tex2d_dirty_range.size());
+    auto tex2d_sizes_upload_offset = align(tex3d_slots_upload_offset + sizeof(CUtexObject) * _tex3d_dirty_range.size());
+    auto tex3d_sizes_upload_offset = align(tex2d_sizes_upload_offset + sizeof(std::array<uint16_t, 2u>) * _tex2d_dirty_range.size());
+    auto upload_buffer_size = align(tex3d_sizes_upload_offset + sizeof(std::array<uint16_t, 4u>) * _tex3d_dirty_range.size());
+    if (upload_buffer_size != 0u) {
+        auto upload_buffer = stream->upload_pool().allocate(upload_buffer_size);
+        constexpr auto do_upload = []<typename T>(
+                                       CUdeviceptr device_buffer, const T *host_buffer,
+                                       std::byte *upload_buffer, DirtyRange range) noexcept {
+            if (!range.empty()) {
+                auto size_bytes = sizeof(T) * range.size();
+                std::memcpy(upload_buffer, host_buffer + range.offset(), size_bytes);
+                LUISA_CHECK_CUDA(cuMemcpyHtoD(
+                    device_buffer + sizeof(T) * range.offset(),
+                    upload_buffer, size_bytes));
+            }
+        };
+        do_upload(_handle._buffer_slots, _buffer_slots.data(), upload_buffer.address() + buffer_slots_upload_offset, _buffer_dirty_range);
+        do_upload(_handle._tex2d_slots, _tex2d_slots.data(), upload_buffer.address() + tex2d_slots_upload_offset, _tex2d_dirty_range);
+        do_upload(_handle._tex3d_slots, _tex3d_slots.data(), upload_buffer.address() + tex3d_slots_upload_offset, _tex3d_dirty_range);
+        do_upload(_handle._tex2d_sizes, _tex2d_sizes.data(), upload_buffer.address() + tex2d_sizes_upload_offset, _tex2d_dirty_range);
+        do_upload(_handle._tex3d_sizes, _tex3d_sizes.data(), upload_buffer.address() + tex3d_sizes_upload_offset, _tex3d_dirty_range);
+        LUISA_CHECK_CUDA(cuLaunchHostFunc(
+            stream->handle(),
+            [](void *user_data) noexcept {
+                auto context = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
+                context->recycle();
+            },
+            CUDARingBuffer::RecycleContext::create(
+                upload_buffer, &stream->upload_pool())));
+    }
     _buffer_dirty_range.clear();
     _tex2d_dirty_range.clear();
     _tex3d_dirty_range.clear();
