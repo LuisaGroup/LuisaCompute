@@ -58,67 +58,49 @@ namespace luisa::compute::cuda {
     return texture_desc;
 }
 
-void CUDABindlessArray::_retain(luisa::unordered_map<uint64_t, size_t> &resources, uint64_t r) noexcept {
-    if (auto iter = resources.try_emplace(r, 1u); !iter.second) {
-        iter.first->second++;
-    }
+bool CUDABindlessArray::uses_buffer(uint64_t handle) const noexcept {
+    return _resource_tracker.uses_buffer(handle);
 }
 
-void CUDABindlessArray::_release(luisa::unordered_map<uint64_t, size_t> &resources, uint64_t r) noexcept {
-    if (auto iter = resources.find(r); iter == resources.end()) [[unlikely]] {
-        LUISA_WARNING_WITH_LOCATION(
-            "Removing non-existent resource in bindless array");
-    } else {
-        if (--iter->second == 0u) {
-            resources.erase(iter);
-        }
-    }
-}
-
-bool CUDABindlessArray::has_buffer(CUdeviceptr buffer) const noexcept {
-    return _buffers.contains(buffer);
-}
-
-bool CUDABindlessArray::has_array(CUDAMipmapArray *array) const noexcept {
-    return _arrays.contains(reinterpret_cast<uint64_t>(array));
+bool CUDABindlessArray::uses_texture(uint64_t handle) const noexcept {
+    return _resource_tracker.uses_texture(handle);
 }
 
 void CUDABindlessArray::remove_buffer(size_t index) noexcept {
     if (auto buffer = _buffer_slots[index]) [[likely]] {
-        _release_buffer(_buffer_handles[index]);
+        _resource_tracker.release_buffer(_buffer_resources[index]);
         _buffer_slots[index] = 0u;
-        _buffer_handles[index] = 0u;
+        _buffer_resources[index] = 0u;
     }
 }
 
 void CUDABindlessArray::remove_tex2d(size_t index) noexcept {
     if (auto tex = _tex2d_slots[index]) [[likely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
-        auto iter = _tex_to_array.find(tex);
-        _release_array(iter->second);
-        _tex_to_array.erase(iter);
+        auto iter = _texture_resources.find(tex);
+        _resource_tracker.release_texture(iter->second);
         _tex2d_slots[index] = 0u;
+        _texture_resources.erase(iter);
     }
 }
 
 void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
     if (auto tex = _tex3d_slots[index]) [[likely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
-        auto iter = _tex_to_array.find(tex);
-        _release_array(iter->second);
-        _tex_to_array.erase(iter);
+        auto iter = _texture_resources.find(tex);
+        _resource_tracker.release_texture(iter->second);
         _tex3d_slots[index] = 0u;
+        _texture_resources.erase(iter);
     }
 }
 
 void CUDABindlessArray::emplace_buffer(size_t index, CUdeviceptr buffer, size_t offset) noexcept {
-    if (auto o = _buffer_handles[index]) [[unlikely]] {
-        _release_buffer(o);
+    if (auto o = _buffer_resources[index]) {
+        _resource_tracker.release_buffer(o);
     }
-    _buffer_handles[index] = buffer;
     _buffer_slots[index] = buffer + offset;
     _buffer_dirty_range.mark(index);
-    _retain_buffer(buffer);
+    _resource_tracker.retain_buffer(buffer);
 }
 
 void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
@@ -135,17 +117,18 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
     if (auto t = _tex2d_slots[index]) [[unlikely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
-        auto iter = _tex_to_array.find(t);
-        _release_array(iter->second);
-        _tex_to_array.erase(iter);
+        auto iter = _texture_resources.find(t);
+        _resource_tracker.release_texture(iter->second);
+        _texture_resources.erase(iter);
     }
     _tex2d_slots[index] = texture;
     _tex2d_sizes[index] = {
         static_cast<unsigned short>(array->size().x),
         static_cast<unsigned short>(array->size().y)};
-    _tex_to_array.emplace(texture, array);
     _tex2d_dirty_range.mark(index);
-    _retain_array(array);
+    auto resource = reinterpret_cast<uint64_t>(array);
+    _texture_resources.emplace(texture, resource);
+    _resource_tracker.retain_texture(resource);
 }
 
 void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
@@ -162,9 +145,9 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
     LUISA_CHECK_CUDA(cuTexObjectCreate(&texture, &res_desc, &tex_desc, nullptr));
     if (auto t = _tex3d_slots[index]) [[unlikely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
-        auto iter = _tex_to_array.find(t);
-        _release_array(iter->second);
-        _tex_to_array.erase(iter);
+        auto iter = _texture_resources.find(t);
+        _resource_tracker.release_texture(iter->second);
+        _texture_resources.erase(iter);
     }
     auto s = array->size();
     _tex3d_slots[index] = texture;
@@ -173,25 +156,26 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
         static_cast<unsigned short>(s.y),
         static_cast<unsigned short>(s.z),
         0u};
-    _tex_to_array.emplace(texture, array);
     _tex3d_dirty_range.mark(index);
-    _retain_array(array);
+    auto resource = reinterpret_cast<uint64_t>(array);
+    _texture_resources.emplace(texture, resource);
+    _resource_tracker.retain_texture(resource);
 }
 
 CUDABindlessArray::~CUDABindlessArray() noexcept {
-    for (auto item : _tex_to_array) {
+    for (auto item : _texture_resources) {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(item.first));
     }
     LUISA_CHECK_CUDA(cuMemFree(_handle._buffer_slots));
 }
 
 CUDABindlessArray::CUDABindlessArray(size_t capacity) noexcept
-    : _buffer_handles(capacity, 0u),
-      _buffer_slots(capacity, 0u),
+    : _buffer_slots(capacity, 0u),
       _tex2d_slots(capacity, 0u),
       _tex3d_slots(capacity, 0u),
       _tex2d_sizes(capacity, std::array<uint16_t, 2u>{}),
-      _tex3d_sizes(capacity, std::array<uint16_t, 4u>{}) {
+      _tex3d_sizes(capacity, std::array<uint16_t, 4u>{}),
+      _buffer_resources(capacity, 0u) {
 
     constexpr auto align = [](size_t x) noexcept -> size_t {
         static constexpr auto alignment = 16u;
@@ -214,7 +198,7 @@ CUDABindlessArray::CUDABindlessArray(size_t capacity) noexcept
     _handle._tex3d_sizes = buffer + tex3d_sizes_offset;
 }
 
-void CUDABindlessArray::upload(CUDAStream *stream) const noexcept {
+void CUDABindlessArray::upload(CUDAStream *stream) noexcept {
     constexpr auto align = [](size_t x) noexcept -> size_t {
         static constexpr auto alignment = 16u;
         return (x + alignment - 1u) / alignment * alignment;
@@ -255,6 +239,7 @@ void CUDABindlessArray::upload(CUDAStream *stream) const noexcept {
     _buffer_dirty_range.clear();
     _tex2d_dirty_range.clear();
     _tex3d_dirty_range.clear();
+    _resource_tracker.commit();
 }
 
 }// namespace luisa::compute::cuda
