@@ -327,13 +327,13 @@ void CUDADevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, u
 
 bool CUDADevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), handle] {
-        return array->has_buffer(handle);
+        return array->uses_buffer(handle);
     });
 }
 
 bool CUDADevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), tex = reinterpret_cast<CUDAMipmapArray *>(handle)] {
-        return array->has_array(tex);
+    return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), handle] {
+        return array->uses_texture(handle);
     });
 }
 
