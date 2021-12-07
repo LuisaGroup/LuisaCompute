@@ -322,6 +322,8 @@ CMakeSettings.json
 
 **/__pycache__/**
 
+.vscode/
+
 #white list
 !src/backends/dx/VEngineCompiler/*.*
 !src/backends/dx/VEngineCompiler/CompilerToolkit/*.*

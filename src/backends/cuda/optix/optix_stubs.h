@@ -210,7 +210,7 @@ inline OptixResult optixInitWithHandle( void** handlePtr )
     if( !*handlePtr )
         return OPTIX_ERROR_LIBRARY_NOT_FOUND;
 
-    void* symbol = GetProcAddress( (HMODULE)*handlePtr, "optixQueryFunctionTable" );
+    void* symbol = (void*)GetProcAddress( (HMODULE)*handlePtr, "optixQueryFunctionTable" );
     if( !symbol )
         return OPTIX_ERROR_ENTRY_SYMBOL_NOT_FOUND;
 #else
