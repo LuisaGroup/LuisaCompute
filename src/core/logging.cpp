@@ -12,7 +12,7 @@ namespace detail {
 [[nodiscard]] spdlog::logger &default_logger() noexcept {
     static auto logger = [] {
         auto sink = luisa::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        spdlog::logger l{"LuisaCompute", sink};
+        spdlog::logger l{"console", sink};
 #ifndef NDEBUG
         l.set_level(spdlog::level::debug);
 #else
