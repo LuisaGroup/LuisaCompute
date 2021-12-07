@@ -75,15 +75,18 @@ int main(int argc, char *argv[]) {
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, AccelVar accel, UInt frame_index) noexcept {
         auto coord = dispatch_id().xy();
-        auto p = (make_float2(coord) + rand(frame_index, coord)) / make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
-        auto ray = make_ray(make_float3(p * make_float2(1.0f, -1.0f), 1.0f), make_float3(0.0f, 0.0f, -1.0f));
-        auto hit = accel.trace_closest(ray);
+        auto p = (make_float2(coord) + rand(frame_index, coord)) /
+                     make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
         auto color = def<float3>(0.3f, 0.5f, 0.7f);
-        $if(!miss(hit)) {
+        auto ray = make_ray(
+            make_float3(p * make_float2(1.0f, -1.0f), 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f));
+        auto hit = accel.trace_closest(ray);
+        $if(!hit->miss()) {
             constexpr auto red = float3(1.0f, 0.0f, 0.0f);
             constexpr auto green = float3(0.0f, 1.0f, 0.0f);
             constexpr auto blue = float3(0.0f, 0.0f, 1.0f);
-            color = interpolate(hit, red, green, blue);
+            color = hit->interpolate(red, green, blue);
         };
         auto old = image.read(coord).xyz();
         auto t = 1.0f / (frame_index + 1.0f);
@@ -99,16 +102,16 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(3u);
     auto triangle_buffer = device.create_buffer<Triangle>(1u);
+    stream << vertex_buffer.copy_from(vertices.data())
+           << triangle_buffer.copy_from(indices.data());
+
     auto accel = device.create_accel();
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     accel.emplace_back(mesh, scaling(1.5f))
         .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
-    stream << vertex_buffer.copy_from(vertices.data())
-           << triangle_buffer.copy_from(indices.data())
-           << mesh.update()
-           << accel.update()
-           << synchronize();
+    stream << mesh.build() << accel.build();
+
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto colorspace_shader = device.compile(colorspace_kernel);
 
