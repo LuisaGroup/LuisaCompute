@@ -46,7 +46,7 @@ add_subdirectory(serde)
 add_subdirectory(gui)
 add_subdirectory(backends)
 
-add_library(luisa-compute INTERFACE)
+add_library(luisa-compute INTERFACE compute.h)
 target_link_libraries(luisa-compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl
