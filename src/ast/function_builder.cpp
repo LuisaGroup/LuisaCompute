@@ -414,23 +414,24 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::sp
             "Calling non-callable function in device code.");
     }
     auto f = custom.builder();
-    CallExpr::ArgumentList call_args(f->arguments().size(), nullptr);
+    CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
-        call_args[i] = std::visit([&]<typename T>(T binding) noexcept -> const Expression * {
-            if constexpr (std::is_same_v<T, BufferBinding>) {
-                return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes);
-            } else if constexpr (std::is_same_v<T, TextureBinding>) {
-                return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
-            } else if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
-                return bindless_array_binding(binding.handle);
-            } else if constexpr (std::is_same_v<T, AccelBinding>) {
-                return accel_binding(binding.handle);
-            } else {
-                return *(in_iter++);
-            }
-        },
-                                  _argument_bindings[i]);
+        call_args[i] = std::visit(
+            [&]<typename T>(T binding) noexcept -> const Expression * {
+                if constexpr (std::is_same_v<T, BufferBinding>) {
+                    return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes);
+                } else if constexpr (std::is_same_v<T, TextureBinding>) {
+                    return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
+                } else if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
+                    return bindless_array_binding(binding.handle);
+                } else if constexpr (std::is_same_v<T, AccelBinding>) {
+                    return accel_binding(binding.handle);
+                } else {
+                    return *(in_iter++);
+                }
+            },
+            f->_argument_bindings[i]);
     }
     if (in_iter != args.end()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(

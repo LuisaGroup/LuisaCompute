@@ -43,8 +43,8 @@ int main(int argc, char *argv[]) {
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
-    Callable add_mul = [](Var<int> a, Var<int> b) noexcept {
-        return compose(a + b, a * b);
+    Callable add_mul = [&](Var<int> a, Var<int> b) noexcept {
+        return compose(cast<int>(float_buffer[a + b]), a * b);
     };
 
     Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
