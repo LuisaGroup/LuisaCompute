@@ -81,12 +81,4 @@ template<typename T>
     return Hash64{seed}(std::forward<T>(v));
 }
 
-template<typename T>
-struct transparent_hash {
-    using is_transparent = void;// to enable heterogeneous lookup
-    [[nodiscard]] auto operator()(const T &data) noexcept {
-        return Hash64{}(data);
-    }
-};
-
 }// namespace luisa
