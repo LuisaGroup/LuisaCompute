@@ -12,7 +12,7 @@ std::span<const Variable> Function::builtin_variables() const noexcept {
     return _builder->builtin_variables();
 }
 
-std::span<const Function::ConstantBinding> Function::constants() const noexcept {
+std::span<const Function::Constant> Function::constants() const noexcept {
     return _builder->constants();
 }
 

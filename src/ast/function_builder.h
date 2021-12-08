@@ -57,51 +57,56 @@ private:
 
 public:
     using Tag = Function::Tag;
-    using ConstantBinding = Function::ConstantBinding;
+    using Constant = Function::Constant;
 
     struct BufferBinding {
-        Variable variable;
         uint64_t handle;
         size_t offset_bytes;
+        BufferBinding(uint64_t handle, size_t offset_bytes) noexcept
+            : handle{handle}, offset_bytes{offset_bytes} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
-            return hash64(offset_bytes, hash64(handle, hash64(variable.hash(), hash64("__hash_buffer_binding"))));
+            return hash64(offset_bytes, hash64(handle, hash64("__hash_buffer_binding")));
         }
     };
 
     struct TextureBinding {
-        Variable variable;
         uint64_t handle;
         uint32_t level;
-        TextureBinding(Variable v, uint64_t handle, uint32_t level) noexcept
-            : variable{v}, handle{handle}, level{level} {}
+        TextureBinding(uint64_t handle, uint32_t level) noexcept
+            : handle{handle}, level{level} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
-            return hash64(level, hash64(handle, hash64(variable.hash(), hash64("__hash_texture_binding"))));
+            return hash64(level, hash64(handle, hash64("__hash_texture_binding")));
         }
     };
 
     struct BindlessArrayBinding {
-        Variable variable;
         uint64_t handle;
-        BindlessArrayBinding(Variable v, uint64_t handle) noexcept
-            : variable{v}, handle{handle} {}
+        explicit BindlessArrayBinding(uint64_t handle) noexcept
+            : handle{handle} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
-            return hash64(handle, hash64(variable.hash(), hash64("__hash_bindless_array_binding")));
+            return hash64(handle, hash64("__hash_bindless_array_binding"));
         }
     };
 
     struct AccelBinding {
-        Variable variable;
         uint64_t handle;
-        AccelBinding(Variable v, uint64_t handle) noexcept
-            : variable{v}, handle{handle} {}
+        explicit AccelBinding(uint64_t handle) noexcept
+            : handle{handle} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
-            return hash64(handle, hash64(variable.hash(), hash64("__hash_accel_binding")));
+            return hash64(handle, hash64("__hash_accel_binding"));
         }
     };
+
+    using Binding = std::variant<
+        std::monostate,// not bound
+        BufferBinding,
+        TextureBinding,
+        BindlessArrayBinding,
+        AccelBinding>;
 
 private:
     MetaStmt _body;
@@ -111,12 +116,9 @@ private:
     luisa::vector<MetaStmt *> _meta_stack;
     luisa::vector<ScopeStmt *> _scope_stack;
     luisa::vector<Variable> _builtin_variables;
-    luisa::vector<ConstantBinding> _captured_constants;
-    luisa::vector<BufferBinding> _captured_buffers;
-    luisa::vector<TextureBinding> _captured_textures;
-    luisa::vector<BindlessArrayBinding> _captured_bindless_arrays;
-    luisa::vector<AccelBinding> _captured_accels;
+    luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
+    luisa::vector<Binding> _argument_bindings;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
@@ -175,14 +177,11 @@ public:
     [[nodiscard]] static FunctionBuilder *current() noexcept;
 
     // interfaces for class Function
-    [[nodiscard]] auto builtin_variables() const noexcept { return std::span{_builtin_variables.data(), _builtin_variables.size()}; }
-    [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants.data(), _captured_constants.size()}; }
-    [[nodiscard]] auto captured_buffers() const noexcept { return std::span{_captured_buffers.data(), _captured_buffers.size()}; }
-    [[nodiscard]] auto captured_textures() const noexcept { return std::span{_captured_textures.data(), _captured_textures.size()}; }
-    [[nodiscard]] auto captured_bindless_arrays() const noexcept { return std::span{_captured_bindless_arrays.data(), _captured_bindless_arrays.size()}; }
-    [[nodiscard]] auto captured_accels() const noexcept { return std::span{_captured_accels.data(), _captured_accels.size()}; }
-    [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments.data(), _arguments.size()}; }
-    [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
+    [[nodiscard]] auto builtin_variables() const noexcept { return std::span{_builtin_variables}; }
+    [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants}; }
+    [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments}; }
+    [[nodiscard]] auto argument_bindings() const noexcept { return std::span{_argument_bindings}; }
+    [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() noexcept { return &_body; }

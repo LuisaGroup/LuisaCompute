@@ -28,13 +28,11 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function on stack top.");
     }
     if (f->tag() == Function::Tag::CALLABLE &&
-        !(f->builtin_variables().empty() &&
-          f->captured_buffers().empty() &&
-          f->captured_textures().empty() &&
-          f->captured_bindless_arrays().empty())) [[unlikely]] {
+        !f->builtin_variables().empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Custom callables may not have builtin, "
-            "shared or captured variables.");
+            "Custom callables may not use builtin "
+            "variables. Pass them as arguments "
+            "if you want to use their values.");
     }
     if (f->_raytracing &&
         (f->_using_shared_storage ||
@@ -44,12 +42,11 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
             "Raytracing functions are not allowed to "
             "use shared storage or call synchronize_block().");
     }
-
-    // emplace captured resources
-    for (auto b : f->_captured_buffers) { f->_arguments.emplace_back(b.variable); }
-    for (auto b : f->_captured_textures) { f->_arguments.emplace_back(b.variable); }
-    for (auto b : f->_captured_bindless_arrays) { f->_arguments.emplace_back(b.variable); }
-    for (auto b : f->_captured_accels) { f->_arguments.emplace_back(b.variable); }
+    if (f->_arguments.size() != f->_argument_bindings.size()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Arguments and their bindings have different sizes ({} and {}).",
+            f->_arguments.size(), f->_argument_bindings.size());
+    }
 
     // hash
     f->_compute_hash();
@@ -178,29 +175,37 @@ const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
 const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     _arguments.emplace_back(v);
+    _argument_bindings.emplace_back();
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::buffer(const Type *type) noexcept {
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _arguments.emplace_back(v);
+    _argument_bindings.emplace_back();
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
-    if (auto iter = std::find_if(
-            _captured_buffers.cbegin(),
-            _captured_buffers.cend(),
-            [handle, type, offset_bytes](auto &&binding) {
-                return *binding.variable.type() == *type &&
-                       binding.handle == handle &&
-                       binding.offset_bytes == offset_bytes;
-            });
-        iter != _captured_buffers.cend()) {
-        return _ref(iter->variable);
+    // find if already bound
+    for (auto i = 0u; i < _arguments.size(); i++) {
+        if (std::visit(
+                [&]<typename T>(T binding) noexcept {
+                    if constexpr (std::is_same_v<T, BufferBinding>) {
+                        return *_arguments[i].type() == *type &&
+                               binding.handle == handle &&
+                               binding.offset_bytes == offset_bytes;
+                    } else {
+                        return false;
+                    }
+                },
+                _argument_bindings[i])) {
+            return _ref(_arguments[i]);
+        }
     }
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
-    _captured_buffers.emplace_back(BufferBinding{v, handle, offset_bytes});
+    _arguments.emplace_back(v);
+    _argument_bindings.emplace_back(BufferBinding{handle, offset_bytes});
     return _ref(v);
 }
 
@@ -234,7 +239,7 @@ const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
 
 const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData data) noexcept {
     if (!type->is_array()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
-    _captured_constants.emplace_back(ConstantBinding{type, data});
+    _captured_constants.emplace_back(Constant{type, data});
     return _create_expression<ConstantExpr>(type, data);
 }
 
@@ -266,23 +271,29 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
     _arguments.emplace_back(v);
+    _argument_bindings.emplace_back();
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handle, uint32_t level) noexcept {
-    if (auto iter = std::find_if(
-            _captured_textures.cbegin(),
-            _captured_textures.cend(),
-            [handle, level, type](auto &&binding) {
-                return *binding.variable.type() == *type &&
-                       binding.handle == handle &&
-                       binding.level == level;
-            });
-        iter != _captured_textures.cend()) {
-        return _ref(iter->variable);
+    for (auto i = 0u; i < _arguments.size(); i++) {
+        if (std::visit(
+                [&]<typename T>(T binding) noexcept {
+                    if constexpr (std::is_same_v<T, TextureBinding>) {
+                        return *_arguments[i].type() == *type &&
+                               binding.handle == handle &&
+                               binding.level == level;
+                    } else {
+                        return false;
+                    }
+                },
+                _argument_bindings[i])) {
+            return _ref(_arguments[i]);
+        }
     }
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
-    _captured_textures.emplace_back(TextureBinding{v, handle, level});
+    _arguments.emplace_back(v);
+    _argument_bindings.emplace_back(TextureBinding{handle, level});
     return _ref(v);
 }
 
@@ -328,35 +339,50 @@ void FunctionBuilder::_compute_hash() noexcept {// FIXME: seems not good
 }
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
-    if (auto iter = std::find_if(
-            _captured_bindless_arrays.cbegin(),
-            _captured_bindless_arrays.cend(),
-            [handle](auto &&binding) { return binding.handle == handle; });
-        iter != _captured_bindless_arrays.cend()) {
-        return _ref(iter->variable);
+    for (auto i = 0u; i < _arguments.size(); i++) {
+        if (std::visit(
+                [&]<typename T>(T binding) noexcept {
+                    if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
+                        return binding.handle == handle;
+                    } else {
+                        return false;
+                    }
+                },
+                _argument_bindings[i])) {
+            return _ref(_arguments[i]);
+        }
     }
     Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
-    _captured_bindless_arrays.emplace_back(BindlessArrayBinding{v, handle});
+    _arguments.emplace_back(v);
+    _argument_bindings.emplace_back(BindlessArrayBinding{handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::bindless_array() noexcept {
     Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
     _arguments.emplace_back(v);
+    _argument_bindings.emplace_back();
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
     _raytracing = true;
-    if (auto iter = std::find_if(
-            _captured_accels.cbegin(),
-            _captured_accels.cend(),
-            [handle](auto &&binding) { return binding.handle == handle; });
-        iter != _captured_accels.cend()) {
-        return _ref(iter->variable);
+    for (auto i = 0u; i < _arguments.size(); i++) {
+        if (std::visit(
+                [&]<typename T>(T binding) noexcept {
+                    if constexpr (std::is_same_v<T, AccelBinding>) {
+                        return binding.handle == handle;
+                    } else {
+                        return false;
+                    }
+                },
+                _argument_bindings[i])) {
+            return _ref(_arguments[i]);
+        }
     }
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
-    _captured_accels.emplace_back(AccelBinding{v, handle});
+    _arguments.emplace_back(v);
+    _argument_bindings.emplace_back(AccelBinding{handle});
     return _ref(v);
 }
 
@@ -364,6 +390,7 @@ const RefExpr *FunctionBuilder::accel() noexcept {
     _raytracing = true;
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
+    _argument_bindings.emplace_back();
     return _ref(v);
 }
 
@@ -386,11 +413,31 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::sp
         LUISA_ERROR_WITH_LOCATION(
             "Calling non-callable function in device code.");
     }
-    auto expr = _create_expression<CallExpr>(
-        type, custom,
-        CallExpr::ArgumentList{
-            args.begin(),
-            args.end()});
+    auto f = custom.builder();
+    CallExpr::ArgumentList call_args(f->arguments().size(), nullptr);
+    auto in_iter = args.begin();
+    for (auto i = 0u; i < f->_arguments.size(); i++) {
+        call_args[i] = std::visit([&]<typename T>(T binding) noexcept -> const Expression * {
+            if constexpr (std::is_same_v<T, BufferBinding>) {
+                return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes);
+            } else if constexpr (std::is_same_v<T, TextureBinding>) {
+                return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
+            } else if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
+                return bindless_array_binding(binding.handle);
+            } else if constexpr (std::is_same_v<T, AccelBinding>) {
+                return accel_binding(binding.handle);
+            } else {
+                return *(in_iter++);
+            }
+        },
+                                  _argument_bindings[i]);
+    }
+    if (in_iter != args.end()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid call arguments for custom callable #{}.",
+            custom.hash());
+    }
+    auto expr = _create_expression<CallExpr>(type, custom, std::move(call_args));
     if (auto iter = std::find_if(
             _used_custom_callables.cbegin(),
             _used_custom_callables.cend(),
@@ -412,6 +459,7 @@ void FunctionBuilder::call(Function custom, std::span<const Expression *const> a
 const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {
     Variable v{type, Variable::Tag::REFERENCE, _next_variable_uid()};
     _arguments.emplace_back(v);
+    _argument_bindings.emplace_back();
     return _ref(v);
 }
 

@@ -32,7 +32,7 @@ public:
         // TODO: Ray-tracing functions, e.g. custom intersectors...
     };
 
-    struct ConstantBinding {
+    struct Constant {
         const Type *type{nullptr};
         ConstantData data;
         [[nodiscard]] auto hash() const noexcept {
@@ -51,7 +51,7 @@ public:
     Function() noexcept = default;
     explicit Function(const detail::FunctionBuilder *builder) noexcept : _builder{builder} {}
     [[nodiscard]] std::span<const Variable> builtin_variables() const noexcept;
-    [[nodiscard]] std::span<const ConstantBinding> constants() const noexcept;
+    [[nodiscard]] std::span<const Constant> constants() const noexcept;
     [[nodiscard]] std::span<const Variable> arguments() const noexcept;
     [[nodiscard]] std::span<const luisa::shared_ptr<const detail::FunctionBuilder>> custom_callables() const noexcept;
     [[nodiscard]] CallOpSet builtin_callables() const noexcept;

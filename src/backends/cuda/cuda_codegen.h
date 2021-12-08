@@ -51,7 +51,7 @@ private:
     virtual void _emit_variable_name(Variable v) noexcept;
     virtual void _emit_indent() noexcept;
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
-    virtual void _emit_constant(Function::ConstantBinding c) noexcept;
+    virtual void _emit_constant(Function::Constant c) noexcept;
     virtual void _emit_variable_declarations(const MetaStmt *meta) noexcept;
 
 public:
