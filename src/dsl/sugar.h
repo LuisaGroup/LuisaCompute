@@ -4,6 +4,8 @@
 
 #pragma once
 
+#ifndef LUISA_COMPUTE_DESUGAR
+
 #include <dsl/syntax.h>
 
 #define $ ::luisa::compute::Var
@@ -91,3 +93,5 @@
 #define $debug(...)                                       \
     $comment_with_location(LUISA_STRINGIFY(__VA_ARGS__)); \
     __VA_ARGS__
+
+#endif
