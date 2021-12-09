@@ -16,15 +16,25 @@ Stream Device::create_stream() noexcept {
 
 void Stream::_dispatch(CommandList commands) noexcept {
     // TODO: reorder commands and separate them into command lists without hazards inside...
-    CommandReorderVisitor visitor(device());
+    size_t size = 0;
+    for (auto command : commands)
+        ++size;
+    CommandReorderVisitor visitor(device(), size);
     for (auto command : commands) {
         command->accept(visitor);
     }
     auto commandLists = visitor.getCommandLists();
-    for (auto &commandList : commandLists)
+    for (auto &commandList : commandLists) {
         device()->dispatch(handle(), std::move(commandList));
+    }
 
     //    device()->dispatch(handle(), std::move(commands));
+
+    //    for (auto command : commands) {
+    //        CommandList commandList;
+    //        commandList.append(command->clone());
+    //        device()->dispatch(handle(), std::move(commandList));
+    //    }
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {

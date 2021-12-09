@@ -60,7 +60,9 @@ class CommandReorderVisitor : public CommandVisitor {
         void operator()(uint32_t vid, ShaderDispatchCommand::BindlessArrayArgument argument);
         void operator()(uint32_t vid, ShaderDispatchCommand::AccelArgument argument);
         template<typename UnknownArgument>
-        void operator()(uint32_t vid, UnknownArgument argument);
+        void operator()(uint32_t vid, UnknownArgument argument) {
+            // include UniformArgument
+        }
     };
 
 private:
@@ -74,7 +76,7 @@ private:
     void processNewCommandRelation(CommandRelation *commandRelation) noexcept;
 
 public:
-    explicit CommandReorderVisitor(Device::Interface *device);
+    explicit CommandReorderVisitor(Device::Interface *device, size_t size);
 
     [[nodiscard]] std::vector<CommandList> getCommandLists() noexcept;
 

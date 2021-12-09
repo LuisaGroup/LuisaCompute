@@ -41,11 +41,6 @@ void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vi
                       kernel->variable_usage(vid), CommandType::ACCEL});
 }
 
-template<typename UnknownArgument>
-void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vid,
-                                                                     UnknownArgument argument) {
-}
-
 bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB) {
 
     // no Usage::NONE by default
@@ -350,8 +345,9 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
     processNewCommandRelation(commandRelation);
 }
 
-CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device) {
+CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device, size_t size) {
     this->device = device;
+    this->_commandRelationData.reserve(size);
 }
 
 }// namespace luisa::compute
