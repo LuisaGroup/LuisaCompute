@@ -455,16 +455,16 @@ public:
                     break;
                 }
                 case Argument::Tag::BINDLESS_ARRAY: {
-                    BindlessArrayArgument arg;
-                    std::memcpy(&arg, p, sizeof(BindlessArrayArgument));
-                    visit(argument.variable_uid, arg);
+                    BindlessArrayArgument bindless_array_argument;
+                    std::memcpy(&bindless_array_argument, p, sizeof(BindlessArrayArgument));
+                    visit(argument.variable_uid, bindless_array_argument);
                     p += sizeof(BindlessArrayArgument);
                     break;
                 }
                 case Argument::Tag::ACCEL: {
-                    AccelArgument arg;
-                    std::memcpy(&arg, p, sizeof(AccelArgument));
-                    visit(argument.variable_uid, arg);
+                    AccelArgument accel_argument;
+                    std::memcpy(&accel_argument, p, sizeof(AccelArgument));
+                    visit(argument.variable_uid, accel_argument);
                     p += sizeof(AccelArgument);
                     break;
                 }
