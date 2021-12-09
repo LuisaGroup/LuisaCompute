@@ -13,12 +13,12 @@ namespace luisa::compute {
 
 class CommandReorderVisitor : public CommandVisitor {
     enum struct CommandType : uint32_t {
-        BUFFER = 1u,
-        TEXTURE = 2u,
-        MESH = 3u,
-        ACCEL = 4u,
-        SHADER = 5u,
-        BINDLESS_ARRAY = 6u,
+        BUFFER = 0x1u,
+        TEXTURE = 0x2u,
+        MESH = 0x4u,
+        ACCEL = 0x8u,
+        SHADER = 0x10u,
+        BINDLESS_ARRAY = 0x20u,
     };
 
     struct CommandSource {
@@ -49,15 +49,18 @@ class CommandReorderVisitor : public CommandVisitor {
     };
 
 private:
+    Device::Interface *device;
     std::vector<CommandRelation *> _head, _tail;
     std::vector<CommandRelation> _commandRelationData;
 
 private:
-    static inline bool Overlap(const CommandSource &sourceA, const CommandSource &sourceB);
+    inline bool Overlap(CommandSource sourceA, CommandSource sourceB);
 
     void processNewCommandRelation(CommandRelation *commandRelation) noexcept;
 
 public:
+    explicit CommandReorderVisitor(Device::Interface *device);
+
     [[nodiscard]] std::vector<CommandList> getCommandLists() noexcept;
 
     // Buffer : resource
@@ -78,11 +81,11 @@ public:
     // BindlessArray : read multi resources
     void visit(const BindlessArrayUpdateCommand *command) noexcept override;
 
-    // Accel : ray tracing resource, ignored
+    // Accel : conclude meshes and their buffer
     void visit(const AccelUpdateCommand *command) noexcept override;
     void visit(const AccelBuildCommand *command) noexcept override;
 
-    // Mesh : ray tracing resource, ignored
+    // Mesh : conclude vertex and triangle buffers
     void visit(const MeshUpdateCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
 };
