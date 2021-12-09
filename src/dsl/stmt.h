@@ -31,24 +31,25 @@ public:
         return *this;
     }
 
-    template<typename Body>
-    [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
-        return FunctionBuilder::current()->with(
-                   _stmt->false_branch(),
-                   [condition] {
-                       return IfStmtBuilder{condition};
-                   }) %
-               std::forward<Body>(body);
-    }
+//    template<typename Body>
+//    [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
+//        return FunctionBuilder::current()->with(
+//                   _stmt->false_branch(),
+//                   [condition] {
+//                       return IfStmtBuilder{condition};
+//                   }) %
+//               std::forward<Body>(body);
+//    }
 
     template<typename False>
     void operator/(False &&f) &&noexcept {
         IfStmtBuilder{*this}.else_(std::forward<False>(f));
     }
 
-    [[nodiscard]] auto operator/(Expr<bool> elif_cond) &&noexcept {
-        return FunctionBuilder::current()->with(_stmt->false_branch(), [elif_cond] {
-            return IfStmtBuilder{elif_cond};
+    template<typename LazyElIfCond>
+    [[nodiscard]] auto operator*(LazyElIfCond &&elif_cond) &&noexcept {
+        return FunctionBuilder::current()->with(_stmt->false_branch(), [&elif_cond] {
+            return IfStmtBuilder{elif_cond()};
         });
     }
 };
@@ -87,7 +88,7 @@ private:
     }
 
 private:
-    MetaStmt *_meta;
+    MetaStmt *_meta{};
 
 public:
     template<typename... S>

@@ -21,7 +21,7 @@ CUDAMesh::CUDAMesh(
 
 inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
     OptixBuildInput build_input{};
-    static auto geometry_flag = static_cast<uint32_t>(OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT);
+    static const auto geometry_flag = static_cast<uint32_t>(OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT);
     build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
     build_input.triangleArray.flags = &geometry_flag;
     build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;

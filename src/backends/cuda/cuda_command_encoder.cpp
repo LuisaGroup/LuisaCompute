@@ -7,6 +7,7 @@
 #include <backends/cuda/cuda_mesh.h>
 #include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_shader.h>
 #include <backends/cuda/cuda_ring_buffer.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_bindless_array.h>
@@ -74,62 +75,7 @@ void CUDACommandEncoder::visit(const BufferToTextureCopyCommand *command) noexce
 }
 
 void CUDACommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
-    auto kernel = reinterpret_cast<CUfunction>(command->handle());
-    auto launch_size = command->dispatch_size();
-    auto block_size = command->kernel().block_size();
-    auto blocks = (launch_size + block_size - 1u) / block_size;
-    static thread_local std::array<std::byte, 4096u> argument_buffer;
-    static thread_local std::vector<void *> arguments;
-    auto argument_buffer_offset = static_cast<size_t>(0u);
-    auto allocate_argument = [&](size_t bytes) noexcept {
-        static constexpr auto alignment = 16u;
-        auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
-        argument_buffer_offset = offset + bytes;
-        return arguments.emplace_back(argument_buffer.data() + offset);
-    };
-    arguments.clear();
-    arguments.reserve(32u);
-    command->decode([&](auto, auto argument) noexcept -> void {
-        using T = decltype(argument);
-        if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
-            auto ptr = allocate_argument(sizeof(CUdeviceptr));
-            auto buffer = argument.handle + argument.offset;
-            std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
-        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-            auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
-            auto surface = mipmap_array->surface(argument.level);
-            auto ptr = allocate_argument(sizeof(CUDASurface));
-            std::memcpy(ptr, &surface, sizeof(CUDASurface));
-        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-            auto ptr = allocate_argument(sizeof(CUdeviceptr));
-            auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle)->handle();
-            std::memcpy(ptr, &array, sizeof(CUdeviceptr));
-        } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-            auto ptr = allocate_argument(sizeof(OptixTraversableHandle));
-            auto accel = reinterpret_cast<CUDAAccel *>(argument.handle)->handle();
-            std::memcpy(ptr, &accel, sizeof(OptixTraversableHandle));
-            // TODO: should use optix to launch
-        } else {// uniform
-            static_assert(std::same_as<T, std::span<const std::byte>>);
-            auto ptr = allocate_argument(argument.size_bytes());
-            std::memcpy(ptr, argument.data(), argument.size_bytes());
-        }
-    });
-    // the last one is always the launch size
-    auto ptr = allocate_argument(sizeof(luisa::uint3));
-    std::memcpy(ptr, &launch_size, sizeof(luisa::uint3));
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Dispatching shader #{} with {} argument(s) "
-        "in ({}, {}, {}) blocks of size ({}, {}, {}).",
-        command->handle(), arguments.size(),
-        blocks.x, blocks.y, blocks.z,
-        block_size.x, block_size.y, block_size.z);
-    LUISA_CHECK_CUDA(cuLaunchKernel(
-        kernel,
-        blocks.x, blocks.y, blocks.z,
-        block_size.x, block_size.y, block_size.z,
-        0u, _stream->handle(),
-        arguments.data(), nullptr));
+    reinterpret_cast<CUDAShader *>(command->handle())->launch(_stream, command);
 }
 
 void CUDACommandEncoder::visit(const TextureUploadCommand *command) noexcept {
@@ -244,17 +190,8 @@ void CUDACommandEncoder::visit(const MeshBuildCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
-    auto array = reinterpret_cast<CUDABindlessArray *>(command->handle());
-    auto dirty_range = array->dirty_range();
-    array->clear_dirty_range();
-    auto size_bytes = sizeof(CUDABindlessArray::Item) * dirty_range.size();
-    auto offset_bytes = sizeof(CUDABindlessArray::Item) * dirty_range.offset();
-    with_upload_buffer(size_bytes, [&](CUDARingBuffer::View upload_buffer) noexcept {
-        std::memcpy(upload_buffer.address(), array->slots().data() + dirty_range.offset(), size_bytes);
-        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            array->handle() + offset_bytes, upload_buffer.address(),
-            size_bytes, _stream->handle()));
-    });
+    auto bindless_array = reinterpret_cast<CUDABindlessArray *>(command->handle());
+    bindless_array->upload(_stream);
 }
 
 }// namespace luisa::compute::cuda

@@ -26,10 +26,10 @@ function(luisa_compute_add_backend name)
 endfunction()
 
 option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" OFF)
-option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" OFF)
 option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" ON)
+option(LUISA_COMPUTE_ENABLE_REMOTE "Enable remote backend" ON)
 
 if (LUISA_COMPUTE_ENABLE_DX)
     # add_subdirectory(dx)
@@ -45,4 +45,8 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
     add_subdirectory(ispc)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_REMOTE)
+    add_subdirectory(remote)
 endif ()

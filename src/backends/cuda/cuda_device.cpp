@@ -20,6 +20,7 @@
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_shader.h>
 
 namespace luisa::compute::cuda {
 
@@ -210,31 +211,21 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
 uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
-    using namespace std::string_view_literals;
-    static constexpr auto pattern = ".version 7.5"sv;
-    if (auto p = ptx.find(pattern); p != luisa::string::npos) {
-        static constexpr auto replace = ".version 7.3"sv;
-        std::copy(replace.cbegin(), replace.cend(), ptx.begin() + p);
-    }
-    auto kernel_name = fmt::format("kernel_{:016X}", kernel.hash());
+    auto entry = kernel.raytracing() ?
+        fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
+        fmt::format("kernel_{:016X}", kernel.hash());
     LUISA_INFO(
         "Generated PTX for {} in {} ms.",
-        kernel_name, clock.toc());
+        entry, clock.toc());
     return with_handle([&] {
-        CUmodule module{nullptr};
-        CUfunction function{nullptr};
-        LUISA_CHECK_CUDA(cuModuleLoadData(&module, ptx.data()));
-        LUISA_CHECK_CUDA(cuModuleGetFunction(&function, module, kernel_name.c_str()));
-        return reinterpret_cast<uint64_t>(function);
+        auto shader = CUDAShader::create(this, ptx.c_str(), ptx.size(), entry.c_str(), kernel.raytracing());
+        return reinterpret_cast<uint64_t>(shader);
     });
 }
 
 void CUDADevice::destroy_shader(uint64_t handle) noexcept {
-    auto function = reinterpret_cast<CUfunction>(handle);
-    CUmodule module;
-    with_handle([&] {
-        LUISA_CHECK_CUDA(cuFuncGetModule(&module, function));
-        LUISA_CHECK_CUDA(cuModuleUnload(module));
+    with_handle([shader = reinterpret_cast<CUDAShader *>(handle)] {
+        CUDAShader::destroy(shader);
     });
 }
 
@@ -306,9 +297,7 @@ CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
 
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
-        CUdeviceptr desc_array = 0u;
-        LUISA_CHECK_CUDA(cuMemAlloc(&desc_array, size * sizeof(CUDABindlessArray::Item)));
-        return reinterpret_cast<uint64_t>(new_with_allocator<CUDABindlessArray>(desc_array, size));
+        return reinterpret_cast<uint64_t>(new_with_allocator<CUDABindlessArray>(size));
     });
 }
 
@@ -338,13 +327,13 @@ void CUDADevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, u
 
 bool CUDADevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), handle] {
-        return array->has_buffer(handle);
+        return array->uses_buffer(handle);
     });
 }
 
 bool CUDADevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), tex = reinterpret_cast<CUDAMipmapArray *>(handle)] {
-        return array->has_array(tex);
+    return with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), handle] {
+        return array->uses_texture(handle);
     });
 }
 
@@ -429,7 +418,7 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     OptixDeviceContextOptions optix_options{};
     optix_options.logCallbackLevel = 4;
     optix_options.logCallbackFunction = [](uint32_t level, const char *tag, const char *message, void *) noexcept {
-        auto log = fmt::format("Logs from OptiX ({}): {}.", tag, message);
+        auto log = fmt::format("Logs from OptiX ({}): {}", tag, message);
         if (level >= 4) {
             LUISA_INFO("{}", log);
         } else [[unlikely]] {
@@ -455,9 +444,10 @@ std::string_view CUDADevice::Handle::name() const noexcept {
 }// namespace luisa::compute::cuda
 
 LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, std::string_view properties) noexcept {
-    return new luisa::compute::cuda::CUDADevice{ctx, 0};// TODO: decode properties
+    auto prop_json = nlohmann::json::parse(properties);
+    return luisa::new_with_allocator<luisa::compute::cuda::CUDADevice>(ctx, prop_json.value("index", 0));// TODO: decode properties
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {
-    delete device;
+    luisa::delete_with_allocator(device);
 }

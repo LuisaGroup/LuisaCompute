@@ -387,12 +387,12 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     stmt->true_branch()->accept(*this);
     if (auto fb = stmt->false_branch(); !fb->statements().empty()) {
         _scratch << " else ";
-        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
-            fb->statements().size() == 1u && elif != nullptr) {
-            elif->accept(*this);
-        } else {
+//        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
+//            fb->statements().size() == 1u && elif != nullptr) {
+//            elif->accept(*this);
+//        } else {
             fb->accept(*this);
-        }
+//        }
     }
 }
 

@@ -52,6 +52,9 @@ if (LLVM_FOUND) # link with llvm for jit
     target_include_directories(luisa-compute-backend-ispc PRIVATE ${LLVM_INCLUDE_DIRS})
     target_link_libraries(luisa-compute-backend-ispc PRIVATE ${LLVM_LIBS})
     target_compile_definitions(luisa-compute-backend-ispc PRIVATE LUISA_COMPUTE_ISPC_LLVM_JIT)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        target_compile_options(luisa-compute-backend-ispc PRIVATE /wd4624 /wd4996) # do not complain about LLVM
+    endif ()
 else () # fallback to DLL
     message(STATUS "Use runtime DLL loading for ISPC kernels")
     target_sources(luisa-compute-backend-ispc PRIVATE runtime/ispc_dll_module.cpp)

@@ -14,7 +14,9 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         shader.h
         sampler.h
         resource.cpp resource.h
-        mipmap.h CommandReorderVisitor.h CommandReorderVisitor.cpp)
+        mipmap.h
+        CommandReorderVisitor.h CommandReorderVisitor.cpp
+        resource_tracker.cpp resource_tracker.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast)

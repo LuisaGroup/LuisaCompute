@@ -17,7 +17,7 @@ public:
 
 private:
 
-	struct VENGINE_DLL_COMMON TaskData : public vstd::IOperatorNewBase {
+	struct VENGINE_DLL_COMMON TaskData {
 		std::atomic_uint8_t state;
 		vstd::function<void()> func;
 		//ThreadPool Set

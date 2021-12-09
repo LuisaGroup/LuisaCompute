@@ -31,9 +31,6 @@ target_link_libraries(test_bindless PRIVATE luisa::compute)
 add_executable(test_rtx test_rtx.cpp)
 target_link_libraries(test_rtx PRIVATE luisa::compute)
 
-add_executable(test_path_tracing test_path_tracing.cpp)
-target_link_libraries(test_path_tracing PRIVATE luisa::compute)
-
 add_executable(test_wavefront_pt test_wavefront_pt.cpp)
 target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
 
@@ -43,8 +40,8 @@ target_link_libraries(test_ispc_101 PRIVATE luisa::compute)
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_executable(test_shader_toy test_shader_toy.cpp)
     target_link_libraries(test_shader_toy PRIVATE luisa::compute)
-    add_executable(test_path_tracing_display test_path_tracing_display.cpp)
-    target_link_libraries(test_path_tracing_display PRIVATE luisa::compute)
+    add_executable(test_path_tracing test_path_tracing.cpp)
+    target_link_libraries(test_path_tracing PRIVATE luisa::compute)
 endif ()
 
 find_package(OpenCV CONFIG)
