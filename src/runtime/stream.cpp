@@ -16,7 +16,7 @@ Stream Device::create_stream() noexcept {
 
 void Stream::_dispatch(CommandList commands) noexcept {
     // TODO: reorder commands and separate them into command lists without hazards inside...
-    CommandReorderVisitor visitor;
+    CommandReorderVisitor visitor(device());
     for (auto command : commands) {
         command->accept(visitor);
     }
