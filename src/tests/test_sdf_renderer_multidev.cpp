@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
 
     Callable ray_march = [&sdf](Float3 p, Float3 d) noexcept {
         auto dist = def(0.0f);
-        $for(j) : $range(100) {
+        $for(j, 100) {
             auto s = sdf(p + dist * d);
             $if(s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
@@ -162,7 +162,7 @@ int main(int argc, char *argv[]) {
         d = normalize(d);
         auto throughput = def<float3>(1.0f, 1.0f, 1.0f);
         auto hit_light = def(0.0f);
-        $for(depth) : $range(max_ray_depth) {
+        $for(depth, max_ray_depth) {
             auto closest = def(0.0f);
             auto normal = def<float3>();
             auto c = def<float3>();
