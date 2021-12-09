@@ -445,7 +445,8 @@ std::string_view CUDADevice::Handle::name() const noexcept {
 
 LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, std::string_view properties) noexcept {
     auto prop_json = nlohmann::json::parse(properties);
-    return luisa::new_with_allocator<luisa::compute::cuda::CUDADevice>(ctx, prop_json.value("index", 0));// TODO: decode properties
+    return luisa::new_with_allocator<luisa::compute::cuda::CUDADevice>(
+        ctx, prop_json.value("index", 0));// TODO: decode properties
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {

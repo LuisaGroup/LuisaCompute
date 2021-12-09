@@ -22,7 +22,7 @@ void CommandList::append(Command *cmd) noexcept {
         }
         if (_head == nullptr) { _head = cmd; }
         if (_tail != nullptr) { _tail->set_next(cmd); }
-        _tail = cmd;
+        for (_tail = cmd; _tail->next() != nullptr; _tail = _tail->next()) {}
     }
 }
 
