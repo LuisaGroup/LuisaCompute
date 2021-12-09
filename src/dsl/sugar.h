@@ -66,7 +66,7 @@
 
 #define $if(...) ::luisa::compute::detail::IfStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $else / [&]() noexcept
-#define $elif(...) * ([&]{ return __VA_ARGS__; }) % [&]() noexcept
+#define $elif(...) *([&] { return __VA_ARGS__; }) % [&]() noexcept
 #define $meta(...) ::luisa::compute::detail::MetaStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $loop ::luisa::compute::detail::LoopStmtBuilder{} % [&]() noexcept
 #define $while(...) ::luisa::compute::detail::LoopStmtBuilder{} / [&]() noexcept { \
@@ -79,19 +79,13 @@
 #define $case(...) ::luisa::compute::detail::SwitchCaseStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $default ::luisa::compute::detail::SwitchDefaultStmtBuilder{} % [&]() noexcept
 
-#define $for(...) \
-    for (auto __VA_ARGS__
-
-#define $range(...)                           \
-   ::luisa::compute::dsl::range(__VA_ARGS__)) \
-::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
+#define $for(x, ...)                                    \
+    for (auto x : ::luisa::compute::range(__VA_ARGS__)) \
+    ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
 
 #define $comment(...) \
     ::luisa::compute::comment(__VA_ARGS__)
 #define $comment_with_location(...) \
     $comment(fmt::format(FMT_STRING("{} [{}:{}]"), std::string_view{__VA_ARGS__}, __FILE__, __LINE__))
-#define $debug(...)                                       \
-    $comment_with_location(LUISA_STRINGIFY(__VA_ARGS__)); \
-    __VA_ARGS__
 
 #endif
