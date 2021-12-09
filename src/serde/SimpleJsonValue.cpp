@@ -7,7 +7,7 @@
 #include <vstl/StringUtility.h>
 namespace toolhub::db {
 //Bind Python Object
-class DictIEnumerator : public vstd::IEnumerable<JsonKeyPair>, public vstd::IOperatorNewBase {
+class DictIEnumerator : public vstd::IEnumerable<JsonKeyPair> {
 public:
     KVMap::Iterator ite;
     KVMap::Iterator end;
@@ -29,7 +29,7 @@ public:
         ++ite;
     };
 };
-class ArrayIEnumerator : public vstd::IEnumerable<ReadJsonVariant>, public vstd::IOperatorNewBase {
+class ArrayIEnumerator : public vstd::IEnumerable<ReadJsonVariant> {
 public:
     SimpleJsonVariant *ite;
     SimpleJsonVariant *end;
@@ -52,7 +52,7 @@ public:
     }
 };
 template<typename Func>
-class MoveDictIEnumerator : public vstd::IEnumerable<MoveJsonKeyPair>, public vstd::IOperatorNewBase, public vstd::disposer<Func> {
+class MoveDictIEnumerator : public vstd::IEnumerable<MoveJsonKeyPair>, public vstd::disposer<Func> {
 public:
     KVMap::Iterator ite;
     KVMap::Iterator end;
@@ -78,7 +78,7 @@ public:
     };
 };
 template<typename Func>
-class MoveArrayIEnumerator : public vstd::IEnumerable<WriteJsonVariant>, public vstd::IOperatorNewBase, public vstd::disposer<Func> {
+class MoveArrayIEnumerator : public vstd::IEnumerable<WriteJsonVariant>, public vstd::disposer<Func> {
 public:
     SimpleJsonVariant *ite;
     SimpleJsonVariant *end;

@@ -246,7 +246,7 @@ struct lc_float{i}x{i} {{
                     file=file)
                 for n in range(2, 5):
                     print(
-                        f"[[nodiscard]] __device__ inline auto lc_{name}({', '.join(f'lc_{t}{n} {a}' for a in args)}) noexcept {{ return lc_make_{t}{n}({', '.join(call(i) for i in range(n))}); }}",
+                        f"[[nodiscard]] __device__ inline auto lc_{name}({', '.join(f'lc_{t}{n} {a}' for a in args)}) noexcept {{ return lc_make_{t if name not in ['isnan', 'isinf'] else 'bool'}{n}({', '.join(call(i) for i in range(n))}); }}",
                         file=file)
             print(file=file)
 

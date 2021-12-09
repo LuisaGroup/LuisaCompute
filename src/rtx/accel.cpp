@@ -11,6 +11,13 @@ namespace luisa::compute {
 namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
+    _encode_pending_bindings();
+    if (auto t = _kernel.arguments()[_argument_index].type();
+        !t->is_accel()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Expected {} but got accel for argument {}.",
+            t->description(), _argument_index);
+    }
     auto v = _kernel.arguments()[_argument_index++].uid();
     _dispatch_command()->encode_accel(v, accel.handle());
     return *this;

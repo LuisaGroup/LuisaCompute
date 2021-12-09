@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <cstddef>
+
 #include <dsl/var.h>
 #include <dsl/func.h>
 #include <runtime/shader.h>

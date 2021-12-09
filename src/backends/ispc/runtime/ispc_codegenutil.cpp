@@ -651,6 +651,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
         case Type::Tag::BINDLESS_ARRAY:
             return 8;
     }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid type: {}.",
+        t.description());
 }
 
 void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 blockSize) {

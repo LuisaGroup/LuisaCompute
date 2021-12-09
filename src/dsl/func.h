@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <functional>
+#include <type_traits>
 
 #include <core/allocator.h>
 #include <runtime/command.h>
@@ -125,10 +125,10 @@ template<typename VarTuple, typename TagTuple, typename T>
 
 template<typename... T, typename A>
 [[nodiscard]] inline auto tuple_append(std::tuple<T...> tuple, A &&arg) noexcept {
-        auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA &&arg, std::index_sequence<i...>) noexcept {
-            return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
-        };
-        return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
+    auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA && arg, std::index_sequence<i...>) noexcept {
+        return std::make_tuple(std::move(std::get<i>(tuple))..., std::forward<AA>(arg));
+    };
+    return append(std::move(tuple), std::forward<A>(arg), std::index_sequence_for<T...>{});
 }
 
 template<typename NextVar, typename... OtherVars, typename NextTag, typename... OtherTags, typename... T>
@@ -195,10 +195,10 @@ private:
 public:
     template<typename Def>
         requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
-            std::negation_v<is_kernel<std::remove_cvref_t<Def>>> &&
-            std::is_invocable_r_v<void, Def, detail::prototype_to_creation_t<Args>...>
+            std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
             Kernel(Def &&def)
     noexcept {
+        static_assert(std::is_invocable_r_v<void, Def, detail::prototype_to_creation_t<Args>...>);
         _builder = detail::FunctionBuilder::define_kernel([&def] {
             detail::FunctionBuilder::current()->set_block_size(detail::kernel_default_block_size<N>());
             []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
@@ -207,9 +207,9 @@ public:
                 using tag_tuple = std::tuple<detail::prototype_to_creation_tag_t<Args>...>;
                 auto args = detail::create_argument_definitions<var_tuple, tag_tuple>(std::tuple<>{});
                 static_assert(std::tuple_size_v<decltype(args)> == sizeof...(Args));
-                return std::invoke(std::forward<decltype(def)>(def),
-                                   static_cast<detail::prototype_to_creation_t<
-                                       std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
+                std::invoke(std::forward<decltype(def)>(def),
+                            static_cast<detail::prototype_to_creation_t<
+                                std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
             }
             (std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
@@ -325,15 +325,13 @@ private:
     std::shared_ptr<const detail::FunctionBuilder> _builder;
 
 public:
-    template<typename Def,
-             std::enable_if_t<
-                 std::conjunction_v<
-                     std::negation<is_callable<std::remove_cvref_t<Def>>>,
-                     std::negation<is_kernel<std::remove_cvref_t<Def>>>,
-                     std::is_invocable<Def, detail::prototype_to_creation_t<Args>...>>,
-                 int> = 0>
-    Callable(Def &&f) noexcept
+    template<typename Def>
+        requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
+            std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
+            Callable(Def &&f)
+    noexcept
         : _builder{detail::FunctionBuilder::define_callable([&f] {
+              static_assert(std::is_invocable_v<Def, detail::prototype_to_creation_t<Args>...>);
               auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
                   using arg_tuple = std::tuple<Args...>;
                   using var_tuple = std::tuple<Var<std::remove_cvref_t<Args>>...>;
@@ -368,78 +366,113 @@ public:
 
 namespace detail {
 
-template<typename T>
-struct function {
-    using type = typename function<
-        decltype(std::function{std::declval<T>()})>::type;
+template<typename R, typename... Args>
+using function_signature = R(Args...);
+
+template<typename>
+struct canonical_signature;
+
+template<typename Ret, typename... Args>
+struct canonical_signature<Ret(Args...)> {
+    using type = function_signature<Ret, Args...>;
 };
 
-template<typename R, typename... A>
-using function_signature_t = R(A...);
+template<typename Ret, typename... Args>
+struct canonical_signature<Ret (*)(Args...)>
+    : canonical_signature<Ret(Args...)> {};
+
+template<typename F>
+struct canonical_signature
+    : canonical_signature<decltype(&F::operator())> {};
+
+#define LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(...)               \
+    template<typename Ret, typename Cls, typename... Args>        \
+    struct canonical_signature<Ret (Cls::*)(Args...) __VA_ARGS__> \
+        : canonical_signature<Ret(Args...)> {};
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE()
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(const)
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(volatile)
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(const volatile)
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(noexcept)
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(const noexcept)
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(volatile noexcept)
+LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(const volatile noexcept)
+#undef LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE
+
+template<typename T>
+using canonical_signature_t = typename canonical_signature<T>::type;
+
+// TODO: clangd has trouble with MSVC regarding the deduction guides of std::function
+template<typename T>
+struct dsl_function {
+    using type = typename dsl_function<
+        canonical_signature_t<
+            std::remove_cvref_t<T>>>::type;
+};
 
 template<typename... Args>
-struct function<std::function<void(Args...)>> {
-    using type = function_signature_t<
+struct dsl_function<function_signature<void, Args...>> {
+    using type = function_signature<
         void,
         definition_to_prototype_t<Args>...>;
 };
 
 template<typename Ret, typename... Args>
-struct function<std::function<Ret(Args...)>> {
-    using type = function_signature_t<
+struct dsl_function<function_signature<Ret, Args...>> {
+    using type = function_signature<
         expr_value_t<Ret>,
         definition_to_prototype_t<Args>...>;
 };
 
 template<typename... Ret, typename... Args>
-struct function<std::function<std::tuple<Ret...>(Args...)>> {
-    using type = function_signature_t<
+struct dsl_function<function_signature<std::tuple<Ret...>, Args...>> {
+    using type = function_signature<
         std::tuple<expr_value_t<Ret>...>,
         definition_to_prototype_t<Args>...>;
 };
 
 template<typename RA, typename RB, typename... Args>
-struct function<std::function<std::pair<RA, RB>(Args...)>> {
-    using type = function_signature_t<
+struct dsl_function<function_signature<std::pair<RA, RB>, Args...>> {
+    using type = function_signature<
         std::tuple<expr_value_t<RA>, expr_value_t<RB>>,
         definition_to_prototype_t<Args>...>;
 };
 
 template<typename T>
-struct function<Kernel1D<T>> {
+struct dsl_function<Kernel1D<T>> {
     using type = T;
 };
 
 template<typename T>
-struct function<Kernel2D<T>> {
+struct dsl_function<Kernel2D<T>> {
     using type = T;
 };
 
 template<typename T>
-struct function<Kernel3D<T>> {
+struct dsl_function<Kernel3D<T>> {
     using type = T;
 };
 
 template<typename T>
-struct function<Callable<T>> {
+struct dsl_function<Callable<T>> {
     using type = T;
 };
 
 template<typename T>
-using function_t = typename function<T>::type;
+using dsl_function_t = typename dsl_function<T>::type;
 
 }// namespace detail
 
 template<typename T>
-Kernel1D(T &&) -> Kernel1D<detail::function_t<std::remove_cvref_t<T>>>;
+Kernel1D(T &&) -> Kernel1D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel2D(T &&) -> Kernel2D<detail::function_t<std::remove_cvref_t<T>>>;
+Kernel2D(T &&) -> Kernel2D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Kernel3D(T &&) -> Kernel3D<detail::function_t<std::remove_cvref_t<T>>>;
+Kernel3D(T &&) -> Kernel3D<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 template<typename T>
-Callable(T &&) -> Callable<detail::function_t<std::remove_cvref_t<T>>>;
+Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute

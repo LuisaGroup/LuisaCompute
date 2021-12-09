@@ -19,12 +19,16 @@ endif ()
 
 set(FMT_OS OFF CACHE BOOL "" FORCE)
 add_subdirectory(fmt)
-target_compile_definitions(fmt-header-only INTERFACE FMT_CONSTEVAL=constexpr FMT_EXCEPTIONS=0)
+target_compile_definitions(fmt-header-only INTERFACE
+        FMT_CONSTEVAL=constexpr
+        FMT_EXCEPTIONS=0
+        FMT_HEADER_ONLY=1
+        FMT_USE_NOEXCEPT=1)
 target_link_libraries(luisa-compute-ext INTERFACE fmt::fmt-header-only)
 
 set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
-set(SPDLOG_NO_EXCEPTIONS ON CACHE BOOL "" FORCE)
+set(SPDLOG_NO_EXCEPTIONS OFF CACHE BOOL "" FORCE)
 set(SPDLOG_NO_THREAD_ID ON CACHE BOOL "" FORCE)
 set(SPDLOG_FMT_EXTERNAL_HO ON CACHE BOOL "" FORCE)
 set(SPDLOG_DISABLE_DEFAULT_LOGGER ON CACHE BOOL "" FORCE)

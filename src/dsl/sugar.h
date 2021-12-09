@@ -4,6 +4,8 @@
 
 #pragma once
 
+#ifndef LUISA_COMPUTE_DESUGAR
+
 #include <dsl/syntax.h>
 
 #define $ ::luisa::compute::Var
@@ -64,7 +66,7 @@
 
 #define $if(...) ::luisa::compute::detail::IfStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $else / [&]() noexcept
-#define $elif(...) / ::luisa::compute::Expr{__VA_ARGS__} % [&]() noexcept
+#define $elif(...) * ([&]{ return __VA_ARGS__; }) % [&]() noexcept
 #define $meta(...) ::luisa::compute::detail::MetaStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $loop ::luisa::compute::detail::LoopStmtBuilder{} % [&]() noexcept
 #define $while(...) ::luisa::compute::detail::LoopStmtBuilder{} / [&]() noexcept { \
@@ -91,3 +93,5 @@
 #define $debug(...)                                       \
     $comment_with_location(LUISA_STRINGIFY(__VA_ARGS__)); \
     __VA_ARGS__
+
+#endif

@@ -123,7 +123,7 @@ void FuncSerializer::GetBuilderDeserFunc(IJsonDict *dict, detail::FunctionBuilde
     }
     fb->_captured_constants.reserve(consts->Length());
     for (auto &&i : *consts) {
-        Function::ConstantBinding &cb = fb->_captured_constants.emplace_back();
+        Function::Constant &cb = fb->_captured_constants.emplace_back();
         auto d = i.get_or<IJsonDict *>(nullptr);
         if (!d) continue;
         auto typeHash = d->Get("type").try_get<int64>();

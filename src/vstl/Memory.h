@@ -50,11 +50,12 @@ inline void vengine_delete(T *ptr) noexcept {
     }
 
 namespace vstd {
-class IOperatorNewBase {
-public:
-    DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-};
-class ISelfPtr : public IOperatorNewBase {
+// Not correctly implemented and could lead to memory leaks
+// class IOperatorNewBase {
+// public:
+//     DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+// };
+class ISelfPtr {
 public:
     virtual ~ISelfPtr() = default;
     virtual void *SelfPtr() = 0;

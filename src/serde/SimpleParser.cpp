@@ -103,7 +103,7 @@ struct StateRecorders {
 
 static vstd::spin_mutex recorderIsInited;
 static vstd::optional<StateRecorders> recorders;
-class SimpleJsonParser : public vstd::IOperatorNewBase {
+class SimpleJsonParser {
 
 public:
     struct Field {
