@@ -23,6 +23,8 @@ void Stream::_dispatch(CommandList commands) noexcept {
     auto commandLists = visitor.getCommandLists();
     for (auto &commandList : commandLists)
         device()->dispatch(handle(), std::move(commandList));
+
+    //    device()->dispatch(handle(), std::move(commands));
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {

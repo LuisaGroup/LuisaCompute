@@ -8,6 +8,7 @@
 #include <runtime/device.h>
 #include <vector>
 #include <unordered_set>
+#include <core/hash.h>
 
 namespace luisa::compute {
 
@@ -32,21 +33,19 @@ class CommandReorderVisitor : public CommandVisitor {
                    size == b.size && usage == b.usage &&
                    type == b.type;
         }
-    };
-    struct HashCommandSource {
-        size_t operator()(const CommandSource &source) const {
-            return ((source.handle << 57) | (source.handle >> 7)) ^
-                   ((source.offset << 43) | (source.offset >> 11)) ^
-                   ((source.size << 31) | (source.size >> 33)) ^
-                   ((uint32_t(source.usage) << 19) | (uint32_t(source.usage) >> 13)) ^
-                   ((uint32_t(source.type) << 11) | (uint32_t(source.type) >> 21));
+        inline auto hash() const {
+            return ((handle << 57) | (handle >> 7)) ^
+                   ((offset << 43) | (offset >> 11)) ^
+                   ((size << 31) | (size >> 33)) ^
+                   ((uint32_t(usage) << 19) | (uint32_t(usage) >> 13)) ^
+                   ((uint32_t(type) << 11) | (uint32_t(type) >> 21));
         }
     };
 
     struct CommandRelation {
         Command *command;
         std::vector<CommandRelation *> prev, next;
-        std::unordered_set<CommandSource, HashCommandSource> sourceSet;
+        std::unordered_set<CommandSource, Hash64> sourceSet;
     };
 
     class ShaderDispatchCommandVisitor {
