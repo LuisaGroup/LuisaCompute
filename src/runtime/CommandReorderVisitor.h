@@ -26,12 +26,27 @@ class CommandReorderVisitor : public CommandVisitor {
         size_t offset, size;
         Usage usage;
         CommandType type;
+
+        bool operator==(const CommandSource &b) const {
+            return handle == b.handle && offset == b.offset &&
+                   size == b.size && usage == b.usage &&
+                   type == b.type;
+        }
+    };
+    struct HashCommandSource {
+        size_t operator()(const CommandSource &source) const {
+            return ((source.handle << 57) | (source.handle >> 7)) ^
+                   ((source.offset << 43) | (source.offset >> 11)) ^
+                   ((source.size << 31) | (source.size >> 33)) ^
+                   ((uint32_t(source.usage) << 19) | (uint32_t(source.usage) >> 13)) ^
+                   ((uint32_t(source.type) << 11) | (uint32_t(source.type) >> 21));
+        }
     };
 
     struct CommandRelation {
         Command *command;
         std::vector<CommandRelation *> prev, next;
-        std::unordered_set<CommandSource> sourceSet;
+        std::unordered_set<CommandSource, HashCommandSource> sourceSet;
     };
 
     class ShaderDispatchCommandVisitor {
@@ -45,7 +60,8 @@ class CommandReorderVisitor : public CommandVisitor {
         void operator()(uint32_t vid, ShaderDispatchCommand::TextureArgument argument);
         void operator()(uint32_t vid, ShaderDispatchCommand::BindlessArrayArgument argument);
         void operator()(uint32_t vid, ShaderDispatchCommand::AccelArgument argument);
-        void operator()(uint32_t vid, ShaderDispatchCommand::UniformArgument argument);
+        template<typename UnknownArgument>
+        void operator()(uint32_t vid, UnknownArgument argument);
     };
 
 private:

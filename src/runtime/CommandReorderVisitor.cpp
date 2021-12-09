@@ -41,8 +41,9 @@ void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vi
                       kernel->variable_usage(vid), CommandType::ACCEL});
 }
 
+template<typename UnknownArgument>
 void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vid,
-                                                                     ShaderDispatchCommand::UniformArgument argument) {
+                                                                     UnknownArgument argument) {
 }
 
 bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB) {
