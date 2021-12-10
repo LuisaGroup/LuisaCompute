@@ -11,6 +11,7 @@
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_heap.h>
 
 namespace luisa::compute::cuda {
 
@@ -61,11 +62,13 @@ public:
 
 private:
     Handle _handle;
+    luisa::unique_ptr<CUDAHeap> _heap;
 
 public:
     CUDADevice(const Context &ctx, uint device_id) noexcept;
     ~CUDADevice() noexcept override = default;
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
+    [[nodiscard]] auto &heap() noexcept { return *_heap; }
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept override;

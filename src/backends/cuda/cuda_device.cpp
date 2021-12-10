@@ -212,8 +212,8 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
     auto entry = kernel.raytracing() ?
-        fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
-        fmt::format("kernel_{:016X}", kernel.hash());
+                     fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
+                     fmt::format("kernel_{:016X}", kernel.hash());
     LUISA_INFO(
         "Generated PTX for {} in {} ms.",
         entry, clock.toc());
@@ -293,7 +293,9 @@ void CUDADevice::destroy_accel(uint64_t handle) noexcept {
 }
 
 CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
-    : Device::Interface{ctx}, _handle{device_id} {}
+    : Device::Interface{ctx},
+      _handle{device_id},
+      _heap{luisa::make_unique<CUDAHeap>()} {}
 
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
