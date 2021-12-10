@@ -107,7 +107,9 @@ int main(int argc, char *argv[]) {
     stream << heap.update();
 
     auto accel = device.create_accel();
-    for (auto &&m : meshes) { accel.emplace_back(m, make_float4x4(1.0f)); }
+    for (auto &&m : meshes) {
+        accel.emplace_back(m, make_float4x4(1.0f));
+    }
     stream << accel.build();
 
     std::vector<Material> materials;
