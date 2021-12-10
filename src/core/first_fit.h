@@ -40,7 +40,7 @@ private:
     void _destroy() noexcept;
 
 public:
-    explicit FirstFit(size_t size, size_t alignment = 64u) noexcept;
+    explicit FirstFit(size_t size, size_t alignment) noexcept;
     ~FirstFit() noexcept;
     FirstFit(FirstFit &&) noexcept;
     FirstFit(const FirstFit &) noexcept = delete;
