@@ -2,54 +2,6 @@
 #include <serialize/config.h>
 #include <serialize/serialize.h>
 namespace luisa::compute {
-vstd::unique_ptr<toolhub::db::IJsonDict> AstSerializer::Serialize(Type const &t, toolhub::db::IJsonDatabase *db) {
-    auto r = db->CreateDict();
-    r->Set("hash", t._hash);
-    r->Set("size", t.size());
-    r->Set("align", t.alignment());
-    r->Set("tag", static_cast<int64>(t.tag()));
-    r->Set("index", t._index);
-    r->Set("dim", t.dimension());
-    return r;
-}
-void AstSerializer::DeSerialize(Type &t, IJsonDict *dict) {
-    auto getOr = [&](auto &&opt) {
-        return dict->Get(opt).template get_or<int64>(0);
-    };
-    t._hash = getOr("hash");
-    t._size = getOr("size");
-    t._index = getOr("index");
-    t._alignment = getOr("alignment");
-    t._dimension = getOr("dimension");
-    t._tag = static_cast<Type::Tag>(getOr("tag"));
-}
-
-vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(TypeData const &t, IJsonDatabase *db) {
-    auto data = db->CreateDict();
-    data->Set("description", std::string_view(t.description.data(), t.description.size()));
-    auto members = db->CreateArray();
-    members->Reserve(t.members.size());
-    for (auto &&i : t.members) {
-        members->Add(i->_hash);
-    }
-    data->Set("members", std::move(members));
-    return data;
-}
-void AstSerializer::DeSerialize(TypeData &d, IJsonDict *dict) {
-    auto descOpt = dict->Get("description").try_get<std::string_view>();
-    if (descOpt) {
-        d.description = luisa::string(descOpt->data(), descOpt->size());
-    }
-    auto memberArr = dict->Get("members").try_get<IJsonArray *>();
-    if (memberArr) {
-        d.members.reserve((*memberArr)->Length());
-        for (auto &&i : (**memberArr)) {
-            auto it = i.try_get<int64>();
-            d.members.push_back(it ? Type::get_type(*it) : nullptr);
-        }
-    }
-}
-
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Expression const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("hash", t._hash);

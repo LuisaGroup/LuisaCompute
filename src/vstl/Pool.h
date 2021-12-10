@@ -18,8 +18,8 @@ class Pool;
 template<typename T, VEngine_AllocType allocType>
 class Pool<T, allocType, true> : public IOperatorNewBase {
 private:
-	ArrayList<T*, allocType> allPtrs;
-	ArrayList<void*, allocType> allocatedPtrs;
+	vector<T*, allocType> allPtrs;
+    vector<void *, allocType> allocatedPtrs;
 	size_t capacity;
 	VAllocHandle<allocType> allocHandle;
 	void* PoolMalloc(size_t size) {
@@ -118,8 +118,8 @@ private:
 		Storage<T, 1> t;
 		size_t index = std::numeric_limits<size_t>::max();
 	};
-	ArrayList<T*, allocType> allPtrs;
-	ArrayList<void*, allocType> allocatedPtrs;
+    vector<T *, allocType> allPtrs;
+    vector<void *, allocType> allocatedPtrs;
 	vector<TypeCollector*, allocType> allocatedObjects;
 	size_t capacity;
 	VAllocHandle<allocType> allocHandle;
@@ -362,12 +362,12 @@ public:
 template<typename T>
 class JobPool : public IOperatorNewBase {
 private:
-	ArrayList<T*> allocatedPool;
-	ArrayList<T*> list[2];
+	vector<T*> allocatedPool;
+	vector<T*> list[2];
 	spin_mutex mtx;
 	bool switcher = false;
 	uint32_t capacity;
-	void ReserveList(ArrayList<T*>& vec) {
+	void ReserveList(vector<T*>& vec) {
 		T* t = new T[capacity];
 		allocatedPool.push_back(t);
 		vec.resize(capacity);
@@ -390,7 +390,7 @@ public:
 	}
 
 	T* New() {
-		ArrayList<T*>& lst = list[switcher];
+		vector<T*>& lst = list[switcher];
 		if (lst.empty()) ReserveList(lst);
 		T* value = lst.erase_last();
 		value->Reset();
@@ -398,7 +398,7 @@ public:
 	}
 
 	void Delete(T* value) {
-		ArrayList<T*>& lst = list[!switcher];
+		vector<T*>& lst = list[!switcher];
 		value->Dispose();
 		std::lock_guard<spin_mutex> lck(mtx);
 		lst.push_back(value);
