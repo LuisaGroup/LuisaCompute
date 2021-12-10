@@ -398,6 +398,13 @@ uint64_t CUDADevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const n
     return reinterpret_cast<CUDAMesh *>(mesh_handle)->triangle_buffer_handle();
 }
 
+CUDADevice::~CUDADevice() noexcept {
+    with_handle([this] {
+        LUISA_CHECK_CUDA(cuCtxSynchronize());
+        _heap.reset();
+    });
+}
+
 CUDADevice::Handle::Handle(uint index) noexcept {
 
     // global init
