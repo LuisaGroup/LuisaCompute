@@ -68,7 +68,7 @@ public:
     CUDADevice(const Context &ctx, uint device_id) noexcept;
     ~CUDADevice() noexcept override = default;
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
-    [[nodiscard]] auto &heap() noexcept { return *_heap; }
+    [[nodiscard]] auto heap() noexcept { return _heap.get(); }
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     uint64_t create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept override;

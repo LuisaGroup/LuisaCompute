@@ -15,6 +15,7 @@
 namespace luisa::compute::cuda {
 
 class CUDAMesh;
+class CUDAHeap;
 class CUDADevice;
 class CUDAStream;
 
@@ -29,10 +30,11 @@ private:
     size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};
     size_t _bvh_buffer_size{};
-    CUdeviceptr _update_buffer{};
     size_t _update_buffer_size{};
     DirtyRange _dirty_range{};
     AccelBuildHint _build_hint;
+    CUDAHeap *_heap{nullptr};
+
 
 private:
     [[nodiscard]] OptixBuildInput _make_build_input() const noexcept;
