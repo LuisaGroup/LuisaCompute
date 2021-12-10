@@ -124,8 +124,8 @@ void FirstFit::free(FirstFit::Node *node) noexcept {
         }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid node for first-fit free list "
-            "(offset = {}, size = {}).",
-            node->_offset, node->_size);
+            "(offset = {}, size = {}). Free list dump: {}.",
+            node->_offset, node->_size, dump_free_list());
     }
 }
 

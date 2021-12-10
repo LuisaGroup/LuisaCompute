@@ -355,10 +355,26 @@ void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     });
 }
 
-void CUDADevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform) noexcept {
+void CUDADevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
     auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
     auto mesh = reinterpret_cast<CUDAMesh *>(mesh_handle);
-    accel->add_instance(mesh, transform);
+    accel->add_instance(mesh, transform, visible);
+}
+
+void CUDADevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    accel->pop_instance();
+}
+
+void CUDADevice::set_instance_in_accel(uint64_t accel_handle, size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    auto mesh = reinterpret_cast<CUDAMesh *>(mesh_handle);
+    accel->set_instance(index, mesh, transform, visible);
+}
+
+void CUDADevice::set_instance_visibility_in_accel(uint64_t accel_handle, size_t index, bool visible) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    accel->set_visibility(index, visible);
 }
 
 void CUDADevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {

@@ -52,7 +52,8 @@ private:
     spin_mutex _mutex;
 
 public:
-    CUDAHeap() noexcept;
+    CUDAHeap() noexcept =default;
+    ~CUDAHeap() noexcept;
     CUDAHeap(CUDAHeap &&) noexcept = delete;
     CUDAHeap(const CUDAHeap &) noexcept = delete;
     CUDAHeap &operator=(CUDAHeap &&) noexcept = delete;
