@@ -22,9 +22,6 @@ namespace detail {
 
 }
 
-CUDAHeap::CUDAHeap() noexcept {
-}
-
 uint64_t CUDAHeap::allocate(size_t size) noexcept {
     static thread_local luisa::vector<CUdeviceptr> buffers_to_free;
     {
@@ -36,7 +33,7 @@ uint64_t CUDAHeap::allocate(size_t size) noexcept {
         LUISA_CHECK_CUDA(cuMemFree(b));
     }
     if (size > small_buffer_size_threshold) {
-        // free native buffers
+        // allocate native buffers
         auto buffer = 0ull;
         LUISA_CHECK_CUDA(cuMemAlloc(&buffer, size));
         return buffer;
@@ -52,6 +49,8 @@ uint64_t CUDAHeap::allocate(size_t size) noexcept {
             auto index = _last_tried_list < _lists.size() ?
                              _last_tried_list :
                              _last_tried_list - _lists.size();
+            auto list = _lists[index].get();
+            auto dump = list->dump_free_list();
             if (auto node = _lists[index]->allocate(size)) {
                 buffer->node = node;
                 buffer->list = _lists[index].get();
@@ -92,7 +91,17 @@ void CUDAHeap::free(uint64_t handle) noexcept {
 
 CUdeviceptr CUDAHeap::buffer_address(uint64_t handle) noexcept {
     return detail::is_small_buffer_handle(handle) ?
-        reinterpret_cast<SmallBuffer *>(handle & ~1ull)->address : handle;
+               reinterpret_cast<SmallBuffer *>(handle & ~1ull)->address :
+               handle;
+}
+
+CUDAHeap::~CUDAHeap() noexcept {
+    for (auto b : _native_buffers_to_free) {
+        LUISA_CHECK_CUDA(cuMemFree(b));
+    }
+    for (auto b : _pool_buffers) {
+        LUISA_CHECK_CUDA(cuMemFree(b));
+    }
 }
 
 CUDAHeap::BufferFreeContext *CUDAHeap::BufferFreeContext::create(CUDAHeap *heap, uint64_t buffer) noexcept {

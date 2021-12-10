@@ -22,12 +22,33 @@ CUDAAccel::~CUDAAccel() noexcept {
     }
 }
 
-void CUDAAccel::add_instance(CUDAMesh *mesh, float4x4 transform) noexcept {
+void CUDAAccel::add_instance(CUDAMesh *mesh, float4x4 transform, bool visible) noexcept {
     _instance_meshes.emplace_back(mesh);
     _instance_transforms.emplace_back(transform);
+    _instance_visibilities.emplace_back(visible);
     _resources.emplace(mesh->vertex_buffer_handle());
     _resources.emplace(mesh->triangle_buffer_handle());
     _resources.emplace(reinterpret_cast<uint64_t>(mesh));
+}
+
+void CUDAAccel::set_instance(size_t index, CUDAMesh *mesh, float4x4 transform, bool visible) noexcept {
+    _instance_meshes[index] = mesh;
+    _instance_transforms[index] = transform;
+    _instance_visibilities[index] = visible;
+    _resources.emplace(mesh->vertex_buffer_handle());
+    _resources.emplace(mesh->triangle_buffer_handle());
+    _resources.emplace(reinterpret_cast<uint64_t>(mesh));
+}
+
+void CUDAAccel::set_visibility(size_t index, bool visible) noexcept {
+    _instance_visibilities[index] = visible;
+    _dirty_range.mark(index);
+}
+
+void CUDAAccel::pop_instance() noexcept {
+    _instance_meshes.pop_back();
+    _instance_transforms.pop_back();
+    _instance_visibilities.pop_back();
 }
 
 void CUDAAccel::set_transform(size_t index, float4x4 transform) noexcept {
@@ -41,7 +62,7 @@ bool CUDAAccel::uses_resource(uint64_t handle) const noexcept {
 
 [[nodiscard]] inline auto make_optix_instance(
     size_t index, OptixTraversableHandle handle,
-    float4x4 transform) noexcept {
+    float4x4 transform, bool visible) noexcept {
     OptixInstance instance{};
     instance.transform[0] = transform[0].x;
     instance.transform[1] = transform[1].x;
@@ -57,7 +78,7 @@ bool CUDAAccel::uses_resource(uint64_t handle) const noexcept {
     instance.transform[11] = transform[3].z;
     instance.instanceId = static_cast<uint32_t>(index);
     instance.sbtOffset = 0u;
-    instance.visibilityMask = 0xffu;
+    instance.visibilityMask = visible ? 0xffu : 0x00u;
     instance.flags = OPTIX_INSTANCE_FLAG_DISABLE_ANYHIT;
     instance.traversableHandle = handle;
     return instance;
@@ -104,7 +125,8 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
     for (auto i = 0u; i < _instance_meshes.size(); i++) {
         instances[i] = make_optix_instance(
             i, _instance_meshes[i]->handle(),
-            _instance_transforms[i]);
+            _instance_transforms[i],
+            _instance_visibilities[i]);
     }
     LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
         CUDAHeap::buffer_address(_instance_buffer),
@@ -213,7 +235,8 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream) noexcept {
             auto index = i + _dirty_range.offset();
             instances[i] = make_optix_instance(
                 index, _instance_meshes[index]->handle(),
-                _instance_transforms[index]);
+                _instance_transforms[index],
+                _instance_visibilities[index]);
         }
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             CUDAHeap::buffer_address(_instance_buffer) +
