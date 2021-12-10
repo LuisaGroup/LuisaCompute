@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <ast/op.h>
 #include <core/logging.h>
+#include <core/first_fit.h>
 
 int main() {
 
@@ -26,4 +27,23 @@ int main() {
     for (auto op : ops) {
         LUISA_INFO("Op: {}", to_underlying(op));
     }
+
+    FirstFit ff{1024u, 16u};
+    LUISA_INFO("free_list = {}.", ff.dump_free_list());
+    auto n0 = ff.allocate(13);
+    LUISA_INFO("n0 = [{}, {}), free_list = {}.", n0->offset(), n0->offset() + n0->size(), ff.dump_free_list());
+    auto n1 = ff.allocate(256u);
+    LUISA_INFO("n1 = [{}, {}), free_list = {}.", n1->offset(), n1->offset() + n1->size(), ff.dump_free_list());
+    auto n2 = ff.allocate(32u);
+    LUISA_INFO("n2 = [{}, {}), free_list = {}.", n2->offset(), n2->offset() + n2->size(), ff.dump_free_list());
+    auto n3 = ff.allocate(64u);
+    LUISA_INFO("n3 = [{}, {}), free_list = {}.", n3->offset(), n3->offset() + n3->size(), ff.dump_free_list());
+    ff.free(n1);
+    LUISA_INFO("free_list = {}.", ff.dump_free_list());
+    ff.free(n0);
+    LUISA_INFO("free_list = {}.", ff.dump_free_list());
+    ff.free(n3);
+    LUISA_INFO("free_list = {}.", ff.dump_free_list());
+    ff.free(n2);
+    LUISA_INFO("free_list = {}.", ff.dump_free_list());
 }
