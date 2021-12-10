@@ -25,16 +25,14 @@
 namespace luisa::compute::cuda {
 
 uint64_t CUDADevice::create_buffer(size_t size_bytes) noexcept {
-    return with_handle([size = size_bytes] {
-        CUdeviceptr ptr = 0ul;
-        LUISA_CHECK_CUDA(cuMemAlloc(&ptr, size));
-        return ptr;
+    return with_handle([size = size_bytes, this] {
+        return _heap->allocate(size);
     });
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
-    with_handle([buffer = handle] {
-        LUISA_CHECK_CUDA(cuMemFree(buffer));
+    with_handle([buffer = handle, this] {
+        _heap->free(buffer);
     });
 }
 

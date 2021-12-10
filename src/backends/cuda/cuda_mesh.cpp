@@ -14,9 +14,11 @@ namespace luisa::compute::cuda {
 CUDAMesh::CUDAMesh(
     CUdeviceptr v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
     CUdeviceptr t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept
-    : _vertex_buffer_origin{v_buffer}, _vertex_buffer{v_buffer + v_offset},
+    : _vertex_buffer_handle{v_buffer},
+      _vertex_buffer{CUDAHeap::buffer_address(v_buffer) + v_offset},
       _vertex_stride{v_stride}, _vertex_count{v_count},
-      _triangle_buffer_origin{t_buffer}, _triangle_buffer{t_buffer + t_offset},
+      _triangle_buffer_handle{t_buffer},
+      _triangle_buffer{CUDAHeap::buffer_address(t_buffer) + t_offset},
       _triangle_count{t_count}, _build_hint{hint} {}
 
 inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
@@ -72,43 +74,41 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         "temp = {}, temp_update = {}, output = {}.",
         clock.toc(),
         sizes.tempSizeInBytes, sizes.tempUpdateSizeInBytes, sizes.outputSizeInBytes);
-    if (_update_buffer_size < sizes.tempUpdateSizeInBytes) {
-        LUISA_CHECK_CUDA(cuMemFree(_update_buffer));
-        _update_buffer = 0u;
-        _update_buffer_size = sizes.tempUpdateSizeInBytes;
-    }
-
+    _update_buffer_size = sizes.tempUpdateSizeInBytes;
     static constexpr auto align = [](size_t x) noexcept -> size_t {
         static constexpr auto alignment = OPTIX_ACCEL_BUFFER_BYTE_ALIGNMENT;
         return (x + alignment - 1u) / alignment * alignment;
     };
+    _heap = device->heap();
     if (_build_hint == AccelBuildHint::FAST_REBUILD) {// no compaction
-        auto temp_buffer_offset = align(sizes.outputSizeInBytes);
-        auto build_buffer_size = align(temp_buffer_offset + sizes.tempSizeInBytes);
-        if (_buffer == 0u || _buffer_size < build_buffer_size) {
-            LUISA_CHECK_CUDA(cuMemFree(_buffer));
-            LUISA_CHECK_CUDA(cuMemAlloc(&_buffer, build_buffer_size));
-            _buffer_size = build_buffer_size;
+        if (_bvh_buffer_size < sizes.outputSizeInBytes) {
+            _heap->free(_bvh_buffer_handle);
+            _bvh_buffer_handle = _heap->allocate(sizes.outputSizeInBytes);
+            _bvh_buffer_size = sizes.outputSizeInBytes;
         }
-        auto temp_buffer = _buffer + temp_buffer_offset;
+        auto temp_buffer = _heap->allocate(sizes.tempSizeInBytes);
         LUISA_CHECK_OPTIX(optixAccelBuild(
             device->handle().optix_context(), stream->handle(),
             &build_options, &build_input, 1,
-            temp_buffer, sizes.tempSizeInBytes,
-            _buffer, sizes.outputSizeInBytes,
+            CUDAHeap::buffer_address(temp_buffer), sizes.tempSizeInBytes,
+            CUDAHeap::buffer_address(_bvh_buffer_handle),
+            _bvh_buffer_size,
             &_handle, nullptr, 0u));
+        LUISA_CHECK_CUDA(cuLaunchHostFunc(
+            stream->handle(), [](void *p) noexcept {
+                static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
+            }, CUDAHeap::BufferFreeContext::create(_heap, temp_buffer)));
     } else {// with compaction
-
         auto temp_buffer_offset = align(0u);
         auto output_buffer_offset = align(temp_buffer_offset + sizes.tempSizeInBytes);
         auto compacted_size_buffer_offset = align(output_buffer_offset + sizes.outputSizeInBytes);
         auto build_buffer_size = compacted_size_buffer_offset + sizeof(size_t);
+        auto build_buffer = _heap->allocate(build_buffer_size);
+        auto build_buffer_address = CUDAHeap::buffer_address(build_buffer);
 
-        CUdeviceptr build_buffer;
-        LUISA_CHECK_CUDA(cuMemAlloc(&build_buffer, build_buffer_size));
-        auto compacted_size_buffer = build_buffer + compacted_size_buffer_offset;
-        auto temp_buffer = build_buffer + temp_buffer_offset;
-        auto output_buffer = build_buffer + output_buffer_offset;
+        auto compacted_size_buffer = build_buffer_address + compacted_size_buffer_offset;
+        auto temp_buffer = build_buffer_address + temp_buffer_offset;
+        auto output_buffer = build_buffer_address + output_buffer_offset;
 
         OptixAccelEmitDesc emit_desc{};
         emit_desc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
@@ -124,39 +124,45 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle()));
         LUISA_INFO("Compacted size: {}.", compacted_size);
 
-        // do compaction...
-        if (_buffer == 0u || _buffer_size < compacted_size) {
-            LUISA_CHECK_CUDA(cuMemFree(_buffer));
-            _buffer_size = compacted_size;
-            LUISA_CHECK_CUDA(cuMemAlloc(&_buffer, _buffer_size));
+        if (_bvh_buffer_size < compacted_size) {
+            _heap->free(_bvh_buffer_handle);
+            _bvh_buffer_size = compacted_size;
+            _bvh_buffer_handle = _heap->allocate(_bvh_buffer_size);
         }
         LUISA_CHECK_OPTIX(optixAccelCompact(
-            device->handle().optix_context(), stream->handle(),
-            _handle, _buffer, _buffer_size, &_handle));
-        LUISA_CHECK_CUDA(cuMemFree(build_buffer));
+            device->handle().optix_context(),
+            stream->handle(), _handle,
+            CUDAHeap::buffer_address(_bvh_buffer_handle),
+            _bvh_buffer_size, &_handle));
+        LUISA_CHECK_CUDA(cuLaunchHostFunc(
+            stream->handle(), [](void *p) noexcept {
+                static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
+            }, CUDAHeap::BufferFreeContext::create(_heap, build_buffer)));
     }
 }
 
 void CUDAMesh::update(CUDADevice *device, CUDAStream *stream) noexcept {
-
-    if (_update_buffer == 0u) {
-        LUISA_CHECK_CUDA(cuMemAlloc(
-            &_update_buffer, _update_buffer_size));
-    }
-
     auto build_input = _make_build_input();
     auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_UPDATE);
+    auto update_buffer = _heap->allocate(_update_buffer_size);
     LUISA_CHECK_OPTIX(optixAccelBuild(
         device->handle().optix_context(), stream->handle(),
         &build_options, &build_input, 1u,
-        _update_buffer, _update_buffer_size,
-        _buffer, _buffer_size,
+        CUDAHeap::buffer_address(update_buffer),
+        _update_buffer_size,
+        CUDAHeap::buffer_address(_bvh_buffer_handle),
+        _bvh_buffer_size,
         &_handle, nullptr, 0u));
+    LUISA_CHECK_CUDA(cuLaunchHostFunc(
+        stream->handle(), [](void *p) noexcept {
+            static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
+        }, CUDAHeap::BufferFreeContext::create(_heap, update_buffer)));
 }
 
 CUDAMesh::~CUDAMesh() noexcept {
-    LUISA_CHECK_CUDA(cuMemFree(_buffer));
-    LUISA_CHECK_CUDA(cuMemFree(_update_buffer));
+    if (_heap != nullptr) {
+        _heap->free(_bvh_buffer_handle);
+    }
 }
 
 }// namespace luisa::compute::cuda

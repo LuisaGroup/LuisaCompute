@@ -24,8 +24,23 @@ public:
         Pool<SmallBuffer> *pool{nullptr};
     };
 
+    class BufferFreeContext {
+
+    private:
+        CUDAHeap *_heap{nullptr};
+        uint64_t _buffer{};
+
+    private:
+        BufferFreeContext(CUDAHeap *heap, uint64_t buffer) noexcept
+            : _heap{heap}, _buffer{buffer} {}
+
+    public:
+        [[nodiscard]] static BufferFreeContext *create(CUDAHeap *heap, uint64_t buffer) noexcept;
+        void recycle() noexcept;
+    };
+
 public:
-    static constexpr auto small_buffer_alignment = 64u;
+    static constexpr auto small_buffer_alignment = 256u;
     static constexpr auto small_buffer_pool_size = 64_mb;
     static constexpr auto small_buffer_size_threshold = 4_mb;
 

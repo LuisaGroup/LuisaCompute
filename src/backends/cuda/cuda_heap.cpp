@@ -10,9 +10,16 @@
 namespace luisa::compute::cuda {
 
 namespace detail {
+
 [[nodiscard]] inline constexpr auto is_small_buffer_handle(uint64_t handle) noexcept {
     return static_cast<bool>(handle & 1u);
 }
+
+[[nodiscard]] static auto &buffer_free_context_pool() noexcept {
+    static Pool<CUDAHeap::BufferFreeContext> pool;
+    return pool;
+}
+
 }
 
 CUDAHeap::CUDAHeap() noexcept {
@@ -67,23 +74,34 @@ uint64_t CUDAHeap::allocate(size_t size) noexcept {
 }
 
 void CUDAHeap::free(uint64_t handle) noexcept {
-    if (detail::is_small_buffer_handle(handle)) {
-        auto buffer = reinterpret_cast<SmallBuffer *>(handle & ~1ull);
-        auto list = buffer->list;
-        auto node = buffer->node;
-        auto pool = buffer->pool;
-        pool->recycle(buffer);
-        std::scoped_lock lock{_mutex};
-        list->free(node);
-    } else {
-        std::scoped_lock lock{_mutex};
-        _native_buffers_to_free.emplace_back(handle);
+    if (handle != 0u) {
+        if (detail::is_small_buffer_handle(handle)) {
+            auto buffer = reinterpret_cast<SmallBuffer *>(handle & ~1ull);
+            auto list = buffer->list;
+            auto node = buffer->node;
+            auto pool = buffer->pool;
+            pool->recycle(buffer);
+            std::scoped_lock lock{_mutex};
+            list->free(node);
+        } else {
+            std::scoped_lock lock{_mutex};
+            _native_buffers_to_free.emplace_back(handle);
+        }
     }
 }
 
 CUdeviceptr CUDAHeap::buffer_address(uint64_t handle) noexcept {
     return detail::is_small_buffer_handle(handle) ?
         reinterpret_cast<SmallBuffer *>(handle & ~1ull)->address : handle;
+}
+
+CUDAHeap::BufferFreeContext *CUDAHeap::BufferFreeContext::create(CUDAHeap *heap, uint64_t buffer) noexcept {
+    return detail::buffer_free_context_pool().create(BufferFreeContext{heap, buffer});
+}
+
+void CUDAHeap::BufferFreeContext::recycle() noexcept {
+    _heap->free(_buffer);
+    detail::buffer_free_context_pool().recycle(this);
 }
 
 }
