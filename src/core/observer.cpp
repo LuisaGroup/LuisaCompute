@@ -14,9 +14,10 @@ void Subject::_add(Observer *observer) noexcept {
     }
 }
 
-void Subject::_remove(const Observer *observer) noexcept {
+void Subject::_remove(Observer *observer) noexcept {
     std::scoped_lock lock{_mutex};
-    if (auto iter = _observers.find(observer); iter != _observers.end()) {
+    if (auto iter = _observers.find(observer);
+        iter != _observers.end()) {
         if (--iter->second == 0) {
             _observers.erase(iter);
         }
