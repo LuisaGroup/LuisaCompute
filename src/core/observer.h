@@ -37,7 +37,7 @@ public:
     struct PointerHash {
         using is_transparent = void;
         template<typename T>
-        [[nodiscard]] auto operator()(const T *p) const noexcept {
+        [[nodiscard]] auto operator()(T *p) const noexcept {
             return hash64(reinterpret_cast<uint64_t>(p));
         }
     };
