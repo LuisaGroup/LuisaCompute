@@ -29,7 +29,7 @@ Accel Device::create_accel(AccelBuildHint hint) noexcept { return _create<Accel>
 
 Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(hint)},
-      _rebuild_observer{luisa::make_shared<RebuildObserver>()} {}
+      _rebuild_observer{luisa::make_unique<RebuildObserver>()} {}
 
 Command *Accel::update() noexcept {
     if (_rebuild_observer->requires_rebuild()) [[unlikely]] {
@@ -53,7 +53,7 @@ Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
 Accel &Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool vis) noexcept {
     _rebuild_observer->notify();
     device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform, vis);
-    _mesh_subjects.emplace_back(mesh.subject())->add(_rebuild_observer);
+    _rebuild_observer->emplace_back(mesh.shared_subject());
     return *this;
 }
 
@@ -74,8 +74,7 @@ Command *Accel::build() noexcept {
 
 Accel &Accel::pop_back() noexcept {
     _rebuild_observer->notify();
-    _mesh_subjects.back()->remove(_rebuild_observer.get());
-    _mesh_subjects.pop_back();
+    _rebuild_observer->pop_back();
     device()->pop_back_instance_from_accel(handle());
     return *this;
 }
@@ -87,9 +86,7 @@ Accel &Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visib
             index, handle());
     }
     _rebuild_observer->notify();
-    _mesh_subjects[index]->remove(_rebuild_observer.get());
-    _mesh_subjects[index] = mesh.subject();
-    mesh.subject()->add(_rebuild_observer);
+    _rebuild_observer->set(index, mesh.shared_subject());
     device()->set_instance_in_accel(handle(), index, mesh.handle(), transform, visible);
     return *this;
 }
