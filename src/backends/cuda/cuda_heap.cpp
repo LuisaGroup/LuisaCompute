@@ -20,7 +20,7 @@ namespace detail {
     return pool;
 }
 
-}
+}// namespace detail
 
 uint64_t CUDAHeap::allocate(size_t size) noexcept {
     static thread_local luisa::vector<CUdeviceptr> buffers_to_free;
@@ -105,7 +105,10 @@ CUDAHeap::~CUDAHeap() noexcept {
 }
 
 CUDAHeap::BufferFreeContext *CUDAHeap::BufferFreeContext::create(CUDAHeap *heap, uint64_t buffer) noexcept {
-    return detail::buffer_free_context_pool().create(BufferFreeContext{heap, buffer});
+    return buffer == 0u ?
+               nullptr :
+               detail::buffer_free_context_pool().create(
+                   BufferFreeContext{heap, buffer});
 }
 
 void CUDAHeap::BufferFreeContext::recycle() noexcept {
@@ -113,4 +116,4 @@ void CUDAHeap::BufferFreeContext::recycle() noexcept {
     detail::buffer_free_context_pool().recycle(this);
 }
 
-}
+}// namespace luisa::compute::cuda
