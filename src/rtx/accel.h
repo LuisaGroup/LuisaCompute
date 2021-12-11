@@ -30,8 +30,7 @@ public:
     };
 
 private:
-    luisa::shared_ptr<RebuildObserver> _rebuild_observer;
-    luisa::vector<Subject *> _mesh_subjects;
+    luisa::unique_ptr<RebuildObserver> _rebuild_observer;
 
 private:
     friend class Device;
@@ -41,7 +40,7 @@ private:
 public:
     Accel() noexcept = default;
     using Resource::operator bool;
-    [[nodiscard]] auto size() const noexcept { return _mesh_subjects.size(); }
+    [[nodiscard]] auto size() const noexcept { return _rebuild_observer->size(); }
     Accel &emplace_back(const Mesh &mesh, float4x4 transform = luisa::make_float4x4(1.0f), bool visible = true) noexcept;
     Accel &set(size_t index, const Mesh &mesh, float4x4 transform = luisa::make_float4x4(1.0f), bool visible = true) noexcept;
     Accel &pop_back() noexcept;
