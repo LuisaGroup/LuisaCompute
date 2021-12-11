@@ -26,7 +26,7 @@ if __name__ == "__main__":
     if "LUISA_COMPUTE_BACKEND" in environ:
         device = lc.Device(environ["LUISA_COMPUTE_BACKEND"])
     else:
-        device = lc.Device("cuda", 0)
+        device = lc.Device("cuda", index=0)
     buffer = device.create_buffer(lc.float4, 4096)
     image = device.create_image(lc.PIXEL_FORMAT_RGBA32F, 256)
     exit()

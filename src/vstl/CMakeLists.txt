@@ -26,4 +26,3 @@ else ()
     target_include_directories(luisa-compute-vstl PUBLIC "${LibUUID_INCLUDE_DIR}")
     target_link_libraries(luisa-compute-vstl PUBLIC "${LibUUID_LIBRARY}")
 endif ()
-

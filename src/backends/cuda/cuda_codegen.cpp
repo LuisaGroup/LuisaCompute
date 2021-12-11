@@ -234,9 +234,7 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "lc_determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
         case CallOp::INVERSE: _scratch << "lc_inverse"; break;
-        case CallOp::SYNCHRONIZE_BLOCK:
-            _scratch << "__syncthreads";
-            break;
+        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "__syncthreads"; break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomicExch";
             is_atomic = true;
@@ -311,18 +309,11 @@ void CUDACodegen::visit(const CallExpr *expr) {
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
             LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
 #undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
-        case CallOp::MAKE_FLOAT2X2:
-            _scratch << "lc_make_float2x2";
-            break;
-        case CallOp::MAKE_FLOAT3X3:
-            _scratch << "lc_make_float3x3";
-            break;
-        case CallOp::MAKE_FLOAT4X4:
-            _scratch << "lc_make_float4x4";
-            break;
-            // TODO: RTX functions
-        case CallOp::TRACE_CLOSEST: break;
-        case CallOp::TRACE_ANY: break;
+        case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
+        case CallOp::TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
+        case CallOp::TRACE_ANY: _scratch << "lc_trace_any"; break;
     }
     _scratch << "(";
     auto args = expr->arguments();
@@ -353,7 +344,7 @@ void CUDACodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "reinterpret_cast<";
+            _scratch << "reinterpret_cast<const ";
             _emit_type_name(expr->type());
             _scratch << " &>(";
             break;
@@ -473,11 +464,23 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         _scratch << "\n";
     }
 
+    // ray tracing kernels use __constant__ args
+    if (f.tag() == Function::Tag::KERNEL && f.raytracing()) {
+        _scratch << "struct alignas(16) Params {";
+        for (auto arg : f.arguments()) {
+            _scratch << "\n  alignas(16) ";
+            _emit_variable_decl(arg, !arg.type()->is_buffer());
+            _scratch << "{};";
+        }
+        _scratch << "\n};\n\nextern \"C\" "
+                    "{ __constant__ Params params; }\n\n";
+    }
+
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "extern \"C\" __global__ void /* __launch_bounds__("
-                 << f.block_size().x * f.block_size().y * f.block_size().z
-                 << ") */ kernel_" << hash_to_string(f.hash());
+        _scratch << "extern \"C\" __global__ void "
+                 << (f.raytracing() ? "__raygen__rg_" : "kernel_")
+                 << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "inline __device__ ";
         if (f.return_type() != nullptr) {
@@ -490,34 +493,77 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     _scratch << "(";
-    auto any_arg = false;
-    for (auto arg : f.arguments()) {
-        _scratch << "\n    ";
-        _emit_variable_decl(arg);
-        _scratch << ",";
-        any_arg = true;
-    }
-    if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "\n    const lc_uint3 ls) {";// launch size
+    if (f.tag() == Function::Tag::KERNEL && f.raytracing()) {
+        _scratch << ") {"
+                 // block size
+                 << "\n  constexpr auto bs = lc_make_uint3("
+                 << f.block_size().x << ", "
+                 << f.block_size().y << ", "
+                 << f.block_size().z << ");"
+                 // launch size
+                 << "\n  const auto ls = lc_rtx_dispatch_size();"
+                 // dispatch id
+                 << "\n  const auto did = lc_rtx_dispatch_id();";
+        for (auto builtin : f.builtin_variables()) {
+            switch (builtin.tag()) {
+                case Variable::Tag::THREAD_ID:
+                    _scratch << "\n  const auto tid = lc_make_uint3("
+                                "did.x % bs.x, "
+                                "did.y % bs.y, "
+                                "did.z % bs.z);";
+                    break;
+                case Variable::Tag::BLOCK_ID:
+                    _scratch << "\n  const auto bid = lc_make_uint3("
+                                "did.x / bs.x, "
+                                "did.y / bs.y, "
+                                "did.z / bs.z);";
+                    break;
+                default: break;
+            }
+        }
+        for (auto arg : f.arguments()) {
+            _scratch << "\n  ";
+            if (auto usage = f.variable_usage(arg.uid());
+                usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                _scratch << "auto ";
+            } else {
+                _scratch << "const auto &";
+            }
+            _emit_variable_name(arg);
+            _scratch << " = params.";
+            _emit_variable_name(arg);
+            _scratch << ";";
+        }
     } else {
-        if (any_arg) { _scratch.pop_back(); }
-        _scratch << ") noexcept {";
-    }
-    for (auto builtin : f.builtin_variables()) {
-        switch (builtin.tag()) {
-            case Variable::Tag::THREAD_ID:
-                _scratch << "\n  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
-                break;
-            case Variable::Tag::BLOCK_ID:
-                _scratch << "\n  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
-                break;
-            case Variable::Tag::DISPATCH_ID:
-                _scratch << "\n  const auto did = lc_make_uint3("
-                         << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
-                         << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
-                         << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
-                break;
-            default: break;
+        auto any_arg = false;
+        for (auto arg : f.arguments()) {
+            _scratch << "\n    ";
+            _emit_variable_decl(arg);
+            _scratch << ",";
+            any_arg = true;
+        }
+        if (f.tag() == Function::Tag::KERNEL) {
+            _scratch << "\n    const lc_uint3 ls) {";// launch size
+        } else {
+            if (any_arg) { _scratch.pop_back(); }
+            _scratch << ") noexcept {";
+        }
+        for (auto builtin : f.builtin_variables()) {
+            switch (builtin.tag()) {
+                case Variable::Tag::THREAD_ID:
+                    _scratch << "\n  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
+                    break;
+                case Variable::Tag::BLOCK_ID:
+                    _scratch << "\n  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
+                    break;
+                case Variable::Tag::DISPATCH_ID:
+                    _scratch << "\n  const auto did = lc_make_uint3("
+                             << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
+                             << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
+                             << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
+                    break;
+                default: break;
+            }
         }
     }
     _indent = 1;
@@ -547,8 +593,13 @@ void CUDACodegen::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
+static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+
 void CUDACodegen::visit(const Type *type) noexcept {
-    if (type->is_structure()) {
+    if (type->is_structure() &&
+        type->description() != ray_type_desc &&
+        type->description() != hit_type_desc) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -585,13 +636,19 @@ void CUDACodegen::_emit_type_name(const Type *type) noexcept {
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::STRUCTURE:
-            _scratch << "S" << hash_to_string(type->hash());
+            if (auto desc = type->description(); desc == ray_type_desc) {
+                _scratch << "LCRay";
+            } else if (desc == hit_type_desc) {
+                _scratch << "LCHit";
+            } else {
+                _scratch << "S" << hash_to_string(type->hash());
+            }
             break;
         default: break;
     }
 }
 
-void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
+void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
     auto usage = _function.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
@@ -602,34 +659,31 @@ void CUDACodegen::_emit_variable_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::REFERENCE:
-            if (readonly) { _scratch << "const "; }
+            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " &";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:
-            if (readonly) { _scratch << "const "; }
+            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type()->element());
             _scratch << " *__restrict__ ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "const ";
-            _scratch << "LCSurface ";
+            _scratch << "const LCSurface ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
-            if (readonly) { _scratch << "const "; }
-            _scratch << "LCBindlessItem *";
+            _scratch << "const LCBindlessArray ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::ACCEL:// TODO
-            if (readonly) { _scratch << "const "; }
-            _scratch << "accel ";
+        case Variable::Tag::ACCEL:
+            _scratch << "const LCAccel ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:
-            if (readonly) { _scratch << "const "; }
+            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
@@ -657,7 +711,7 @@ void CUDACodegen::_emit_statements(std::span<const Statement *const> stmts) noex
     }
 }
 
-void CUDACodegen::_emit_constant(Function::ConstantBinding c) noexcept {
+void CUDACodegen::_emit_constant(Function::Constant c) noexcept {
 
     if (std::find(_generated_constants.cbegin(),
                   _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }

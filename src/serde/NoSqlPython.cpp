@@ -11,7 +11,7 @@
 namespace toolhub::db::py {
  Database const* Database_GetFactory();
 
-class SearchResultHandle : public vstd::IOperatorNewBase {
+class SearchResultHandle {
 public:
 	using ExternMap = INoSqlDatabase::Table;
 	vstd::vector<ExternMap> results;

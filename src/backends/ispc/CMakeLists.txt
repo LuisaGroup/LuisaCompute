@@ -17,11 +17,13 @@ set_target_properties(luisa-compute-backend-ispc PROPERTIES
 
 # copy device libs
 set(ISPC_DEVICE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ISPCTest")
-add_custom_target(lc-ispc-copy-support ALL
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${ISPC_DEVICE_INCLUDE_DIR}"
-        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/ispc_support")
-add_dependencies(luisa-compute-backend-ispc lc-ispc-copy-support)
+if (CMAKE_BUILD_TYPE)
+    add_custom_target(lc-ispc-copy-support ALL
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${ISPC_DEVICE_INCLUDE_DIR}"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/ispc_support")
+    add_dependencies(luisa-compute-backend-ispc lc-ispc-copy-support)
+endif ()
 foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
     string(TOLOWER ${CONFIG} config_lower)
     string(TOUPPER ${CONFIG} CONFIG_UPPER)
@@ -50,6 +52,9 @@ if (LLVM_FOUND) # link with llvm for jit
     target_include_directories(luisa-compute-backend-ispc PRIVATE ${LLVM_INCLUDE_DIRS})
     target_link_libraries(luisa-compute-backend-ispc PRIVATE ${LLVM_LIBS})
     target_compile_definitions(luisa-compute-backend-ispc PRIVATE LUISA_COMPUTE_ISPC_LLVM_JIT)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        target_compile_options(luisa-compute-backend-ispc PRIVATE /wd4624 /wd4996) # do not complain about LLVM
+    endif ()
 else () # fallback to DLL
     message(STATUS "Use runtime DLL loading for ISPC kernels")
     target_sources(luisa-compute-backend-ispc PRIVATE runtime/ispc_dll_module.cpp)

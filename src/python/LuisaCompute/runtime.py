@@ -415,11 +415,12 @@ class Device:
     _context = None
     _device_stack = []
 
-    def __init__(self, name: str, index: int = None):
+    def __init__(self, name: str, **kwargs):
         if Device._context is None:
             Device._context = Context()
-        index = 0 if index is None else max(index, 0)
-        self._as_parameter_ = device_create(Device._context, name, index)
+        properties = "{\n  " + ",\n  ".join(f"{repr(k)}: {repr(v)}" for k, v in kwargs) + "\n}"
+        log_verbose(f"Properties: {properties}")
+        self._as_parameter_ = device_create(Device._context, name, properties)
         self._default_stream = None
 
     def __del__(self):

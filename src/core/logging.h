@@ -5,8 +5,9 @@
 #pragma once
 
 #include <string_view>
+#include <iostream>
 
-#include <spdlog/fmt/fmt.h>
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <core/platform.h>
 #include <core/allocator.h>
@@ -17,14 +18,24 @@
 
 namespace luisa {
 
-template<typename... Args>
-inline void log_verbose(Args &&...args) noexcept { spdlog::debug(std::forward<Args>(args)...); }
+namespace detail {
+[[nodiscard]] spdlog::logger &default_logger() noexcept;
+}
 
 template<typename... Args>
-inline void log_info(Args &&...args) noexcept { spdlog::info(std::forward<Args>(args)...); }
+inline void log_verbose(Args &&...args) noexcept {
+    detail::default_logger().debug(std::forward<Args>(args)...);
+}
 
 template<typename... Args>
-inline void log_warning(Args &&...args) noexcept { spdlog::warn(std::forward<Args>(args)...); }
+inline void log_info(Args &&...args) noexcept {
+    detail::default_logger().info(std::forward<Args>(args)...);
+}
+
+template<typename... Args>
+inline void log_warning(Args &&...args) noexcept {
+    detail::default_logger().warn(std::forward<Args>(args)...);
+}
 
 template<typename... Args>
 [[noreturn]] LUISA_FORCE_INLINE void log_error(Args &&...args) noexcept {
@@ -37,7 +48,7 @@ template<typename... Args>
             FMT_STRING("\n    {:>2} [0x{:012x}]: {} :: {} + {}"sv),
             i, t.address, t.module, t.symbol, t.offset));
     }
-    spdlog::error("{}", error_message);
+    detail::default_logger().error("{}", error_message);
     std::abort();
 }
 
@@ -48,25 +59,20 @@ void log_level_error() noexcept;
 
 }// namespace luisa
 
-#ifndef NDEBUG
 #define LUISA_VERBOSE(fmt, ...) \
-    ::luisa::log_verbose(FMT_STRING(std::string_view{fmt}), ##__VA_ARGS__)
-#else
-#define LUISA_VERBOSE(...)
-#endif
-
+    ::luisa::log_verbose(FMT_STRING(fmt) __VA_OPT__(, ) __VA_ARGS__)
 #define LUISA_INFO(fmt, ...) \
     ::luisa::log_info(FMT_STRING(fmt) __VA_OPT__(, ) __VA_ARGS__)
 #define LUISA_WARNING(fmt, ...) \
-    ::luisa::log_warning(FMT_STRING(fmt), ##__VA_ARGS__)
+    ::luisa::log_warning(FMT_STRING(fmt) __VA_OPT__(, ) __VA_ARGS__)
 #define LUISA_ERROR(fmt, ...) \
-    ::luisa::log_error(FMT_STRING(fmt), ##__VA_ARGS__)
+    ::luisa::log_error(FMT_STRING(fmt) __VA_OPT__(, ) __VA_ARGS__)
 
 #define LUISA_VERBOSE_WITH_LOCATION(fmt, ...) \
-    LUISA_VERBOSE(fmt " [{}:{}]", ##__VA_ARGS__, __FILE__, __LINE__)
+    LUISA_VERBOSE(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)
 #define LUISA_INFO_WITH_LOCATION(fmt, ...) \
-    LUISA_INFO(fmt " [{}:{}]", ##__VA_ARGS__, __FILE__, __LINE__)
+    LUISA_INFO(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)
 #define LUISA_WARNING_WITH_LOCATION(fmt, ...) \
-    LUISA_WARNING(fmt " [{}:{}]", ##__VA_ARGS__, __FILE__, __LINE__)
+    LUISA_WARNING(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)
 #define LUISA_ERROR_WITH_LOCATION(fmt, ...) \
-    LUISA_ERROR(fmt " [{}:{}]", ##__VA_ARGS__, __FILE__, __LINE__)
+    LUISA_ERROR(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)

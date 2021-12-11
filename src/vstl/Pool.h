@@ -16,7 +16,7 @@ template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, b
 class Pool;
 
 template<typename T, VEngine_AllocType allocType>
-class Pool<T, allocType, true> : public IOperatorNewBase {
+class Pool<T, allocType, true> {
 private:
 	vector<T*, allocType> allPtrs;
     vector<void *, allocType> allocatedPtrs;
@@ -112,7 +112,7 @@ public:
 };
 
 template<typename T, VEngine_AllocType allocType>
-class Pool<T, allocType, false> : public IOperatorNewBase {
+class Pool<T, allocType, false> {
 private:
 	struct TypeCollector {
 		Storage<T, 1> t;
@@ -280,7 +280,7 @@ public:
 };
 
 template<typename T>
-class ConcurrentPool : public IOperatorNewBase {
+class ConcurrentPool {
 private:
 	typedef Storage<T, 1> StorageT;
 	struct Array {
@@ -360,7 +360,7 @@ public:
 };
 
 template<typename T>
-class JobPool : public IOperatorNewBase {
+class JobPool {
 private:
 	vector<T*> allocatedPool;
 	vector<T*> list[2];

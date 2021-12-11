@@ -9,6 +9,7 @@
 
 #import <core/spin_mutex.h>
 #import <core/allocator.h>
+#import <core/dirty_range.h>
 #import <runtime/bindless_array.h>
 #import <backends/metal/metal_ring_buffer.h>
 
@@ -32,6 +33,7 @@ public:
 private:
     id<MTLBuffer> _buffer{nullptr};
     id<MTLBuffer> _device_buffer{nullptr};
+    DirtyRange _dirty_range;
     id<MTLArgumentEncoder> _encoder{nullptr};
     luisa::map<MetalBindlessResource, size_t /* count */> _resources;
     luisa::vector<MetalBindlessResource> _buffer_slots;
@@ -54,6 +56,9 @@ public:
     [[nodiscard]] bool has_texture(uint64_t handle) const noexcept;
     [[nodiscard]] auto desc_buffer() const noexcept { return _device_buffer; }
     [[nodiscard]] auto desc_buffer_host() const noexcept { return _buffer; }
+
+    [[nodiscard]] auto dirty_range() const noexcept { return _dirty_range; }
+    void clear_dirty_range() noexcept { _dirty_range.clear(); }
 
     template<typename F>
     decltype(auto) traverse(F &&f) const noexcept {

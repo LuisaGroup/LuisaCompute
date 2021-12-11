@@ -43,8 +43,8 @@ int main(int argc, char *argv[]) {
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
-    Callable add_mul = [](Var<int> a, Var<int> b) noexcept {
-        return compose(a + b, a * b);
+    Callable add_mul = [&](Var<int> a, Var<int> b) noexcept {
+        return compose(cast<int>(float_buffer[a + b]), a * b);
     };
 
     Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
@@ -94,9 +94,7 @@ int main(int argc, char *argv[]) {
 
         if_(v_int == v_int, [] {
             Var a = 0.0f;
-        }).elif (1 + 2 == v_int, [] {
-              Var b = 1.0f;
-          }).else_([] {
+        }).else_([] {
             Var c = 2.0f;
         });
 
@@ -128,8 +126,10 @@ int main(int argc, char *argv[]) {
 
     auto kernel = device.compile(kernel_def);
     auto command = kernel(float_buffer, 12u).dispatch(1024u);
-    auto launch_command = static_cast<ShaderDispatchCommand *>(command);
+    auto launch_command = static_cast<ShaderDispatchCommand *>(command->clone());
     LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
+    command->recycle();
+    launch_command->recycle();
 
     clock.tic();
     Codegen::Scratch scratch;

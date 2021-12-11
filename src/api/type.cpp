@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/10/18.
 //
 
+#include <ast/type.h>
 #include <api/type.h>
 
 using namespace luisa::compute;

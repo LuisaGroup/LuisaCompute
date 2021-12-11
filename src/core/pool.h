@@ -5,6 +5,9 @@
 #pragma once
 
 #include <array>
+#include <mutex>
+
+#include <core/logging.h>
 #include <core/spin_mutex.h>
 #include <core/allocator.h>
 

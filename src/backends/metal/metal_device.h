@@ -20,7 +20,6 @@
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
 #import <backends/metal/metal_bindless_array.h>
-#import <backends/metal/metal_shared_buffer_pool.h>
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
 #import <backends/metal/metal_mesh.h>
@@ -36,16 +35,11 @@ private:
     id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    luisa::unique_ptr<MetalSharedBufferPool> _compacted_size_buffer_pool{nullptr};
-#endif
-
 public:
     explicit MetalDevice(const Context &ctx, uint32_t index) noexcept;
     ~MetalDevice() noexcept override;
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
-    [[nodiscard]] MetalSharedBufferPool *compacted_size_buffer_pool() const noexcept;
     void check_raytracing_supported() const noexcept;
 
 public:
@@ -65,9 +59,13 @@ public:
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void destroy_event(uint64_t handle) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
-    uint64_t create_mesh() noexcept override;
+    uint64_t create_mesh(
+        uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
+        uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
-    uint64_t create_accel() noexcept override;
+    uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
+    uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
+    uint64_t create_accel(AccelBuildHint hint) noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
     uint64_t create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
@@ -81,9 +79,13 @@ public:
     void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
-    bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
-    bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept override;
+    bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
+    bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
+    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept override;
+    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
+    bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
+    bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
 };
 
 }// namespace luisa::compute::metal

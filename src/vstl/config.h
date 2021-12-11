@@ -9,7 +9,7 @@
 #define VSTL_UNICODE
 #endif
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 #define VSTL_EXPORT_C extern "C" _declspec(dllexport)
 #else
 #define VSTL_EXPORT_C extern "C"
