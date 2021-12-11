@@ -82,7 +82,9 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
     _heap = device->heap();
     if (_build_hint == AccelBuildHint::FAST_REBUILD) {// no compaction
         if (_bvh_buffer_size < sizes.outputSizeInBytes) {
-            _heap->free(_bvh_buffer_handle);
+            stream->emplace_callback(
+                      CUDAHeap::BufferFreeContext::create(
+                          _heap, _bvh_buffer_handle));
             _bvh_buffer_handle = _heap->allocate(sizes.outputSizeInBytes);
             _bvh_buffer_size = sizes.outputSizeInBytes;
         }
@@ -94,10 +96,9 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
             CUDAHeap::buffer_address(_bvh_buffer_handle),
             _bvh_buffer_size,
             &_handle, nullptr, 0u));
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(), [](void *p) noexcept {
-                static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
-            }, CUDAHeap::BufferFreeContext::create(_heap, temp_buffer)));
+        stream->emplace_callback(
+            CUDAHeap::BufferFreeContext::create(
+                _heap, temp_buffer));
     } else {// with compaction
         auto temp_buffer_offset = align(0u);
         auto output_buffer_offset = align(temp_buffer_offset + sizes.tempSizeInBytes);
@@ -125,7 +126,9 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         LUISA_INFO("Compacted size: {}.", compacted_size);
 
         if (_bvh_buffer_size < compacted_size) {
-            _heap->free(_bvh_buffer_handle);
+            stream->emplace_callback(
+                CUDAHeap::BufferFreeContext::create(
+                    _heap, _bvh_buffer_handle));
             _bvh_buffer_size = compacted_size;
             _bvh_buffer_handle = _heap->allocate(_bvh_buffer_size);
         }
@@ -134,10 +137,9 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
             stream->handle(), _handle,
             CUDAHeap::buffer_address(_bvh_buffer_handle),
             _bvh_buffer_size, &_handle));
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(), [](void *p) noexcept {
-                static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
-            }, CUDAHeap::BufferFreeContext::create(_heap, build_buffer)));
+        stream->emplace_callback(
+            CUDAHeap::BufferFreeContext::create(
+                _heap, build_buffer));
     }
 }
 
@@ -153,10 +155,9 @@ void CUDAMesh::update(CUDADevice *device, CUDAStream *stream) noexcept {
         CUDAHeap::buffer_address(_bvh_buffer_handle),
         _bvh_buffer_size,
         &_handle, nullptr, 0u));
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(
-        stream->handle(), [](void *p) noexcept {
-            static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
-        }, CUDAHeap::BufferFreeContext::create(_heap, update_buffer)));
+    stream->emplace_callback(
+        CUDAHeap::BufferFreeContext::create(
+            _heap, update_buffer));
 }
 
 CUDAMesh::~CUDAMesh() noexcept {

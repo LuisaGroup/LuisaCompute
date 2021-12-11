@@ -11,6 +11,8 @@
 #include <string>
 #include <map>
 #include <set>
+#include <deque>
+#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -97,6 +99,12 @@ using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
 
 template<typename T>
 using vector = std::vector<T, allocator<T>>;
+
+template<typename T>
+using deque = std::deque<T, allocator<T>>;
+
+template<typename T>
+using queue = std::queue<T, deque<T>>;
 
 template<typename Key, typename Value, typename Pred = std::less<>>
 using map = std::map<Key, Value, Pred, allocator<std::pair<const Key, Value>>>;

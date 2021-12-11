@@ -11,6 +11,7 @@
 #include <core/first_fit.h>
 #include <core/pool.h>
 #include <core/basic_types.h>
+#include <backends/cuda/cuda_callback_context.h>
 
 namespace luisa::compute::cuda {
 
@@ -24,7 +25,7 @@ public:
         Pool<SmallBuffer> *pool{nullptr};
     };
 
-    class BufferFreeContext {
+    class BufferFreeContext : public CUDACallbackContext {
 
     private:
         CUDAHeap *_heap{nullptr};
@@ -36,7 +37,7 @@ public:
 
     public:
         [[nodiscard]] static BufferFreeContext *create(CUDAHeap *heap, uint64_t buffer) noexcept;
-        void recycle() noexcept;
+        void recycle() noexcept override;
     };
 
 public:
