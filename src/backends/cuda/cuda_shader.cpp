@@ -55,7 +55,7 @@ public:
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
-                auto buffer = argument.handle + argument.offset;
+                auto buffer = CUDAHeap::buffer_address(argument.handle) + argument.offset;
                 std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                 auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
@@ -308,7 +308,7 @@ public:
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
-                auto buffer = argument.handle + argument.offset;
+                auto buffer = CUDAHeap::buffer_address(argument.handle) + argument.offset;
                 std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                 auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);

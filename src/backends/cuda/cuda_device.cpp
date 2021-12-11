@@ -25,16 +25,14 @@
 namespace luisa::compute::cuda {
 
 uint64_t CUDADevice::create_buffer(size_t size_bytes) noexcept {
-    return with_handle([size = size_bytes] {
-        CUdeviceptr ptr = 0ul;
-        LUISA_CHECK_CUDA(cuMemAlloc(&ptr, size));
-        return ptr;
+    return with_handle([size = size_bytes, this] {
+        return _heap->allocate(size);
     });
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
-    with_handle([buffer = handle] {
-        LUISA_CHECK_CUDA(cuMemFree(buffer));
+    with_handle([buffer = handle, this] {
+        _heap->free(buffer);
     });
 }
 
@@ -212,8 +210,8 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
     auto entry = kernel.raytracing() ?
-        fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
-        fmt::format("kernel_{:016X}", kernel.hash());
+                     fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
+                     fmt::format("kernel_{:016X}", kernel.hash());
     LUISA_INFO(
         "Generated PTX for {} in {} ms.",
         entry, clock.toc());
@@ -293,7 +291,9 @@ void CUDADevice::destroy_accel(uint64_t handle) noexcept {
 }
 
 CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
-    : Device::Interface{ctx}, _handle{device_id} {}
+    : Device::Interface{ctx},
+      _handle{device_id},
+      _heap{luisa::make_unique<CUDAHeap>()} {}
 
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
@@ -355,10 +355,26 @@ void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     });
 }
 
-void CUDADevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform) noexcept {
+void CUDADevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
     auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
     auto mesh = reinterpret_cast<CUDAMesh *>(mesh_handle);
-    accel->add_instance(mesh, transform);
+    accel->add_instance(mesh, transform, visible);
+}
+
+void CUDADevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    accel->pop_instance();
+}
+
+void CUDADevice::set_instance_in_accel(uint64_t accel_handle, size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    auto mesh = reinterpret_cast<CUDAMesh *>(mesh_handle);
+    accel->set_instance(index, mesh, transform, visible);
+}
+
+void CUDADevice::set_instance_visibility_in_accel(uint64_t accel_handle, size_t index, bool visible) noexcept {
+    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
+    accel->set_visibility(index, visible);
 }
 
 void CUDADevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {

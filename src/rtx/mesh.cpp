@@ -12,61 +12,16 @@ Command *Mesh::update() noexcept {
         LUISA_WARNING_WITH_LOCATION(
             "Mesh #{} requires rebuild rather than update. "
             "Automatically replacing with MeshRebuildCommand.",
-            _handle);
+            handle());
         return build();
     }
-    return MeshUpdateCommand::create(_handle);
+    return MeshUpdateCommand::create(handle());
 }
 
 Command *Mesh::build() noexcept {
-    for (auto &&o : _observers) {
-        o->_set_requires_rebuild();
-    }
+    _subject->notify_all();
     _requires_rebuild = false;
-    return MeshBuildCommand::create(_handle);
-}
-
-void Mesh::_register(Accel *accel) const noexcept {
-    _observers.emplace(accel);
-}
-
-void Mesh::_remove(Accel *accel) const noexcept {
-    _observers.erase(accel);
-}
-
-void Mesh::_destroy() noexcept {
-    if (*this) {
-        for (auto o : _observers) {
-            o->_remove(this);
-        }
-        _device->destroy_mesh(_handle);
-    }
-}
-
-Mesh::~Mesh() noexcept { _destroy(); }
-
-Mesh::Mesh(Mesh &&another) noexcept
-    : _device{std::move(another._device)},
-      _handle{another._handle},
-      _observers{std::move(another._observers)},
-      _requires_rebuild{another._requires_rebuild} {
-    for (auto o : _observers) {
-        o->_replace(&another, this);
-    }
-}
-
-Mesh &Mesh::operator=(Mesh &&rhs) noexcept {
-    if (this != &rhs) [[likely]] {
-        _destroy();
-        _device = std::move(rhs._device);
-        _handle = rhs._handle;
-        _observers = std::move(rhs._observers);
-        _requires_rebuild = rhs._requires_rebuild;
-        for (auto o : _observers) {
-            o->_replace(&rhs, this);
-        }
-    }
-    return *this;
+    return MeshBuildCommand::create(handle());
 }
 
 }// namespace luisa::compute

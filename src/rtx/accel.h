@@ -6,6 +6,7 @@
 
 #include <core/basic_types.h>
 #include <core/allocator.h>
+#include <core/observer.h>
 
 #include <rtx/ray.h>
 #include <rtx/hit.h>
@@ -13,36 +14,38 @@
 
 namespace luisa::compute {
 
-class Accel final {
+class Accel final : public Resource {
+
+public:
+    class RebuildObserver : public Observer {
+
+    private:
+        bool _requires_rebuild{true};
+
+    public:
+        RebuildObserver() noexcept = default;
+        void clear() noexcept { _requires_rebuild = false; }
+        void notify() noexcept override { _requires_rebuild = true; }
+        [[nodiscard]] auto requires_rebuild() const noexcept { return _requires_rebuild; }
+    };
 
 private:
-    Device::Handle _device;
-    uint64_t _handle{};
-    luisa::unordered_set<const Mesh *> _meshes;
-    size_t _size{};
-    bool _requires_rebuild{true};
+    luisa::shared_ptr<RebuildObserver> _rebuild_observer;
+    luisa::vector<Subject *> _mesh_subjects;
 
 private:
     friend class Device;
     friend class Mesh;
     explicit Accel(Device::Interface *device, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;
-    void _set_requires_rebuild() noexcept;
-    void _replace(const Mesh *prev, const Mesh *curr) noexcept;
-    void _remove(const Mesh *m) noexcept;
-    void _destroy() noexcept;
 
 public:
     Accel() noexcept = default;
-    ~Accel() noexcept;
-    Accel(Accel &&another) noexcept;
-    Accel(const Accel &) noexcept = delete;
-    Accel &operator=(Accel &&rhs) noexcept;
-    Accel &operator=(const Accel &) noexcept = delete;
-    [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
-    [[nodiscard]] auto device() const noexcept { return _device.get(); }
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    Accel &emplace_back(const Mesh &mesh, float4x4 transform = luisa::make_float4x4(1.0f)) noexcept;
+    using Resource::operator bool;
+    [[nodiscard]] auto size() const noexcept { return _mesh_subjects.size(); }
+    Accel &emplace_back(const Mesh &mesh, float4x4 transform = luisa::make_float4x4(1.0f), bool visible = true) noexcept;
+    Accel &set(size_t index, const Mesh &mesh, float4x4 transform = luisa::make_float4x4(1.0f), bool visible = true) noexcept;
+    Accel &pop_back() noexcept;
+    Accel &set_visibility(size_t index, bool visible) noexcept;
     Accel &set_transform(size_t index, float4x4 transform) noexcept;
     [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] Command *build() noexcept;
