@@ -67,8 +67,8 @@ bool CUDABindlessArray::uses_texture(uint64_t handle) const noexcept {
 }
 
 void CUDABindlessArray::remove_buffer(size_t index) noexcept {
-    if (auto buffer = _buffer_slots[index]) [[likely]] {
-        _resource_tracker.release_buffer(_buffer_resources[index]);
+    if (auto r = _buffer_resources[index]) [[likely]] {
+        _resource_tracker.release_buffer(r);
         _buffer_slots[index] = 0u;
         _buffer_resources[index] = 0u;
     }
@@ -94,11 +94,12 @@ void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
     }
 }
 
-void CUDABindlessArray::emplace_buffer(size_t index, CUdeviceptr buffer, size_t offset) noexcept {
+void CUDABindlessArray::emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept {
     if (auto o = _buffer_resources[index]) {
         _resource_tracker.release_buffer(o);
     }
-    _buffer_slots[index] = buffer + offset;
+    _buffer_slots[index] = CUDAHeap::buffer_address(buffer) + offset;
+    _buffer_resources[index] = buffer;
     _buffer_dirty_range.mark(index);
     _resource_tracker.retain_buffer(buffer);
 }

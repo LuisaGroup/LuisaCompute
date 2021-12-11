@@ -112,8 +112,11 @@ public:
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
         [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
-        virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept = 0;
+        virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept = 0;
+        virtual void pop_back_instance_from_accel(uint64_t accel) noexcept = 0;
+        virtual void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept = 0;
         virtual void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept = 0;
+        virtual void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept = 0;
         [[nodiscard]] virtual bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept = 0;
         [[nodiscard]] virtual bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept = 0;
         [[nodiscard]] virtual uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;

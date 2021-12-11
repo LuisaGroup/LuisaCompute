@@ -13,23 +13,24 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 class CUDAStream;
+class CUDAHeap;
 
 class CUDAMesh {
 
 private:
     OptixTraversableHandle _handle{};
-    CUdeviceptr _buffer{};
-    size_t _buffer_size{};
-    CUdeviceptr _update_buffer{};
+    uint64_t _bvh_buffer_handle{};
+    size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
-    CUdeviceptr _vertex_buffer_origin{};
+    uint64_t _vertex_buffer_handle{};
     CUdeviceptr _vertex_buffer;
     size_t _vertex_stride;
     size_t _vertex_count;
-    CUdeviceptr _triangle_buffer_origin{};
+    uint64_t _triangle_buffer_handle{};
     CUdeviceptr _triangle_buffer;
     size_t _triangle_count;
     AccelBuildHint _build_hint;
+    CUDAHeap *_heap{nullptr};
 
 private:
     [[nodiscard]] OptixBuildInput _make_build_input() const noexcept;
@@ -40,8 +41,8 @@ public:
     void build(CUDADevice *device, CUDAStream *stream) noexcept;
     void update(CUDADevice *device, CUDAStream *stream) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto vertex_buffer_handle() const noexcept { return _vertex_buffer_origin; }
-    [[nodiscard]] auto triangle_buffer_handle() const noexcept { return _triangle_buffer_origin; }
+    [[nodiscard]] auto vertex_buffer_handle() const noexcept { return _vertex_buffer_handle; }
+    [[nodiscard]] auto triangle_buffer_handle() const noexcept { return _triangle_buffer_handle; }
     ~CUDAMesh() noexcept;
 };
 
