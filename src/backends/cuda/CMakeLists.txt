@@ -14,10 +14,16 @@ if (CUDAToolkit_FOUND)
             cuda_device_math_embedded.inl.h
             cuda_device_resource_embedded.inl.h
             cuda_codegen.cpp cuda_codegen.h
-            cuda_compiler.cpp cuda_compiler.h)
+            cuda_compiler.cpp cuda_compiler.h
+            cuda_accel.cpp cuda_accel.h
+            cuda_mesh.cpp cuda_mesh.h
+            cuda_shader.cpp cuda_shader.h)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cuda_driver CUDA::nvrtc)
-    target_compile_definitions(luisa-compute-backend-cuda PUBLIC LUISA_BACKEND_CUDA_ENABLED=1)
+    if(WIN32)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE cfgmgr32)
+    endif()
+    target_include_directories(luisa-compute-backend-cuda PRIVATE optix)
     set_target_properties(luisa-compute-backend-cuda PROPERTIES UNITY_BUILD OFF)
 endif ()

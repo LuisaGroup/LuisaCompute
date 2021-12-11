@@ -37,9 +37,9 @@ char *luisa_compute_context_cache_directory(void *ctx) LUISA_NOEXCEPT {
     return path_to_c_str(static_cast<RC<Context> *>(ctx)->object()->cache_directory());
 }
 
-void *luisa_compute_device_create(void *ctx, const char *name, uint32_t index) LUISA_NOEXCEPT {
+void *luisa_compute_device_create(void *ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
     return RC<Device>::create(
-        static_cast<RC<Context> *>(ctx)->retain()->create_device(name, index));
+        static_cast<RC<Context> *>(ctx)->retain()->create_device(name, properties));
 }
 
 void luisa_compute_device_destroy(void *ctx, void *device) LUISA_NOEXCEPT {
@@ -132,9 +132,13 @@ void luisa_compute_event_synchronize(void *device, uint64_t handle) LUISA_NOEXCE
     d->object()->impl()->synchronize_event(handle);
 }
 
-uint64_t luisa_compute_mesh_create(void *device) LUISA_NOEXCEPT {
+uint64_t luisa_compute_mesh_create(
+    void *device, uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
+    uint64_t t_buffer, size_t t_offset, size_t t_count, uint32_t hint) LUISA_NOEXCEPT {
     auto d = static_cast<RC<Device> *>(device);
-    return d->retain()->impl()->create_mesh();
+    return d->retain()->impl()->create_mesh(
+        v_buffer, v_offset, v_stride, v_count,
+        t_buffer, t_offset, t_count, static_cast<AccelBuildHint>(hint));
 }
 
 void luisa_compute_mesh_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
@@ -143,9 +147,9 @@ void luisa_compute_mesh_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
     d->release();
 }
 
-uint64_t luisa_compute_accel_create(void *device) LUISA_NOEXCEPT {
+uint64_t luisa_compute_accel_create(void *device, uint32_t hint) LUISA_NOEXCEPT {
     auto d = static_cast<RC<Device> *>(device);
-    return d->retain()->impl()->create_accel();
+    return d->retain()->impl()->create_accel(static_cast<AccelBuildHint>(hint));
 }
 
 void luisa_compute_accel_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
@@ -267,37 +271,20 @@ void luisa_compute_command_dispatch_shader_encode_accel(void *cmd, uint32_t vid,
     static_cast<ShaderDispatchCommand *>(cmd)->encode_accel(vid, accel);
 }
 
-void *luisa_compute_command_build_mesh(
-    uint64_t handle, uint32_t hint,
-    uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-    uint64_t t_buffer, size_t t_offset, size_t t_count) LUISA_NOEXCEPT {
-    return MeshBuildCommand::create(
-        handle, static_cast<AccelBuildHint>(hint),
-        v_buffer, v_offset, v_stride, v_count,
-        t_buffer, t_offset, t_count);
+void *luisa_compute_command_build_mesh(uint64_t handle) LUISA_NOEXCEPT {
+    return MeshBuildCommand::create(handle);
 }
 
 void *luisa_compute_command_update_mesh(uint64_t handle) LUISA_NOEXCEPT {
     return MeshUpdateCommand::create(handle);
 }
 
-void *luisa_compute_command_build_accel(
-    uint64_t handle, uint32_t hint,
-    const void *instance_mesh_handles,
-    const void *instance_transforms,
-    size_t instance_count) LUISA_NOEXCEPT {
-    return AccelBuildCommand::create(
-        handle, static_cast<AccelBuildHint>(hint),
-        std::span{static_cast<const uint64_t *>(instance_mesh_handles), instance_count},
-        std::span{static_cast<const float4x4 *>(instance_transforms), instance_count});
+void *luisa_compute_command_build_accel(uint64_t handle) LUISA_NOEXCEPT {
+    return AccelBuildCommand::create(handle);
 }
 
-void *luisa_compute_command_update_accel(uint64_t handle, const void *transforms, size_t offset, size_t count) LUISA_NOEXCEPT {
-    if (transforms == nullptr) {
-        return AccelUpdateCommand::create(handle);
-    }
-    std::span s{static_cast<const float4x4 *>(transforms) + offset, count};
-    return AccelUpdateCommand::create(handle, s, offset);
+void *luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
+    return AccelUpdateCommand::create(handle);
 }
 
 uint32_t luisa_compute_pixel_format_to_storage(uint32_t format) LUISA_NOEXCEPT {

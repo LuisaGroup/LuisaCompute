@@ -108,9 +108,7 @@ int main(int argc, char *argv[]) {
 
             if_(1 + 1 == 2, [] {
                 Var a = 0.0f;
-            }).elif (1 + 2 == 3, [] {
-                  Var b = 1.0f;
-              }).else_([] {
+            }).else_([] {
                 Var c = 2.0f;
             });
 

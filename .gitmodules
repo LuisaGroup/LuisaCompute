@@ -22,3 +22,6 @@
 [submodule "src/ext/imgui/imgui"]
 	path = src/ext/imgui/imgui
 	url = https://github.com/ocornut/imgui.git
+[submodule "src/ext/fmt"]
+	path = src/ext/fmt
+	url = https://github.com/fmtlib/fmt.git

@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
 
     Callable ray_march = [&sdf](Float3 p, Float3 d) noexcept {
         auto dist = def(0.0f);
-        $for(j) : $range(100) {
+        $for(j, 100) {
             auto s = sdf(p + dist * d);
             $if(s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
@@ -162,7 +162,7 @@ int main(int argc, char *argv[]) {
         d = normalize(d);
         auto throughput = def<float3>(1.0f, 1.0f, 1.0f);
         auto hit_light = def(0.0f);
-        $for(depth) : $range(max_ray_depth) {
+        $for(depth, max_ray_depth) {
             auto closest = def(0.0f);
             auto normal = def<float3>();
             auto c = def<float3>();
@@ -186,14 +186,14 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device_upper = context.create_device("cuda", 0u);
-    auto device_lower = context.create_device("cuda", 1u);
+    auto device_upper = context.create_device("cuda");
+    auto device_lower = context.create_device("cuda");
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device_upper = context.create_device("metal", 0u);
-    auto device_lower = context.create_device("metal", 1u);
+    auto device_upper = context.create_device("metal");
+    auto device_lower = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device_upper = context.create_device("dx", 0u);
-    auto device_lower = context.create_device("dx", 1u);
+    auto device_upper = context.create_device("dx");
+    auto device_lower = context.create_device("dx");
 #else
     auto device_upper = FakeDevice::create(context);
     auto device_lower = FakeDevice::create(context);

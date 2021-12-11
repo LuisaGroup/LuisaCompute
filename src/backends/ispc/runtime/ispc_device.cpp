@@ -99,9 +99,11 @@ void ISPCDevice::synchronize_event(uint64_t handle) noexcept {
 }
 
 // accel
-uint64_t ISPCDevice::create_mesh() noexcept { return 0; }
+uint64_t ISPCDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+    return 0;
+}
 void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {}
-uint64_t ISPCDevice::create_accel() noexcept { return 0; }
+uint64_t ISPCDevice::create_accel(AccelBuildHint hint) noexcept { return 0; }
 void ISPCDevice::destroy_accel(uint64_t handle) noexcept {}
 uint64_t ISPCDevice::create_bindless_array(size_t size) noexcept {
     return 0;
@@ -120,17 +122,39 @@ void ISPCDevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) no
 }
 void ISPCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
 }
-bool ISPCDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+bool ISPCDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return false;
 }
-bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) noexcept {
+bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return false;
+}
+
+void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept {
+
+}
+
+void ISPCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
+
+}
+
+bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
+    return false;
+}
+
+bool ISPCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
+    return false;
+}
+uint64_t ISPCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    return 0;
+}
+uint64_t ISPCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
+    return 0;
 }
 
 }// namespace lc::ispc
 
-LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, uint32_t id) noexcept {
-    return luisa::new_with_allocator<lc::ispc::ISPCDevice>(ctx, id);
+LUISA_EXPORT_API luisa::compute::Device::Interface *create(const luisa::compute::Context &ctx, std::string_view properties) noexcept {
+    return luisa::new_with_allocator<lc::ispc::ISPCDevice>(ctx, 0);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::Device::Interface *device) noexcept {

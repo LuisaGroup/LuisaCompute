@@ -14,7 +14,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_command_encoder.mm metal_command_encoder.h
             metal_compiler.mm metal_compiler.h
             metal_codegen.mm metal_codegen.h
-            metal_shared_buffer_pool.mm metal_shared_buffer_pool.h
             metal_event.h
             metal_stream.h metal_stream.mm
             metal_buffer_view.h

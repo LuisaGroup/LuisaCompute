@@ -11,13 +11,22 @@ namespace luisa::compute::metal {
 
 MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
 
+    auto allocate_ad_hoc = [this, size] {
+        auto options = MTLResourceStorageModeShared | MTLResourceHazardTrackingModeUntracked;
+        if (_optimize_write) { options |= MTLResourceCPUCacheModeWriteCombined; }
+        auto buffer = [_device newBufferWithLength:size options:options];
+        return MetalBufferView{buffer, static_cast<size_t>(0u), size, true};
+    };
+
+    std::scoped_lock lock{_mutex};
+
     // simple check
     if (size > _size) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to allocate {} bytes from "
             "the ring buffer with size {}.",
             size, _size);
-        return {nullptr, 0u, 0u};
+        return allocate_ad_hoc();
     }
     size = (size + alignment - 1u) / alignment * alignment;
 
@@ -45,7 +54,7 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
             "Failed to allocate {} bytes from ring "
             "buffer with begin {} and end {}.",
             size, _free_begin, _free_end);
-        return {nullptr, 0u, 0u};
+        return allocate_ad_hoc();
     }
     _alloc_count++;
     _free_begin = (offset + size) & (_size - 1u);
@@ -53,15 +62,18 @@ MetalBufferView MetalRingBuffer::allocate(size_t size) noexcept {
 }
 
 void MetalRingBuffer::recycle(const MetalBufferView &view) noexcept {
-    if (_free_end + view.size() > _size) { _free_end = 0u; }
-    if (view.offset() != _free_end) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid ring buffer item offset {} "
-            "for recycling (expected {}).",
-            view.offset(), _free_end);
+    if (view.is_pooled()) {
+        std::scoped_lock lock{_mutex};
+        if (_free_end + view.size() > _size) { _free_end = 0u; }
+        if (view.offset() != _free_end) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid ring buffer item offset {} "
+                "for recycling (expected {}).",
+                view.offset(), _free_end);
+        }
+        _free_end = (view.offset() + view.size()) & (_size - 1u);
+        _alloc_count--;
     }
-    _free_end = (view.offset() + view.size()) & (_size - 1u);
-    _alloc_count--;
 }
 
 }

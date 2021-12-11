@@ -45,13 +45,13 @@ private:
 
 private:
     virtual void _emit_type_decl() noexcept;
-    virtual void _emit_variable_decl(Variable v) noexcept;
+    virtual void _emit_variable_decl(Variable v, bool force_const = false) noexcept;
     virtual void _emit_type_name(const Type *type) noexcept;
     virtual void _emit_function(Function f) noexcept;
     virtual void _emit_variable_name(Variable v) noexcept;
     virtual void _emit_indent() noexcept;
     virtual void _emit_statements(std::span<const Statement *const> stmts) noexcept;
-    virtual void _emit_constant(Function::ConstantBinding c) noexcept;
+    virtual void _emit_constant(Function::Constant c) noexcept;
     virtual void _emit_variable_declarations(const MetaStmt *meta) noexcept;
 
 public:

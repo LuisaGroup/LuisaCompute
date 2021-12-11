@@ -20,12 +20,12 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
-    log_level_verbose();
-
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal", 1u);
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_METAL_ENABLED)
+    auto device = context.create_device("metal", {{"index", 1}});
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
@@ -75,15 +75,18 @@ int main(int argc, char *argv[]) {
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, AccelVar accel, UInt frame_index) noexcept {
         auto coord = dispatch_id().xy();
-        auto p = (make_float2(coord) + rand(frame_index, coord)) / make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
-        auto ray = make_ray(make_float3(p * make_float2(1.0f, -1.0f), 1.0f), make_float3(0.0f, 0.0f, -1.0f));
-        auto hit = accel.trace_closest(ray);
+        auto p = (make_float2(coord) + rand(frame_index, coord)) /
+                     make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
         auto color = def<float3>(0.3f, 0.5f, 0.7f);
-        $if(!miss(hit)) {
+        auto ray = make_ray(
+            make_float3(p * make_float2(1.0f, -1.0f), 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f));
+        auto hit = accel.trace_closest(ray);
+        $if(!hit->miss()) {
             constexpr auto red = float3(1.0f, 0.0f, 0.0f);
             constexpr auto green = float3(0.0f, 1.0f, 0.0f);
             constexpr auto blue = float3(0.0f, 0.0f, 1.0f);
-            color = interpolate(hit, red, green, blue);
+            color = hit->interpolate(red, green, blue);
         };
         auto old = image.read(coord).xyz();
         auto t = 1.0f / (frame_index + 1.0f);
@@ -96,21 +99,19 @@ int main(int argc, char *argv[]) {
         auto ldr = linear_to_srgb(hdr);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
-
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(3u);
     auto triangle_buffer = device.create_buffer<Triangle>(1u);
-    auto mesh = device.create_mesh();
-    auto accel = device.create_accel();
-    std::vector instances{mesh.handle(), mesh.handle()};
-    std::vector transforms{scaling(1.5f),
-                           translation(float3(-0.25f, 0.0f, 0.1f)) *
-                               rotation(float3(0.0f, 0.0f, 1.0f), 0.5f)};
     stream << vertex_buffer.copy_from(vertices.data())
-           << triangle_buffer.copy_from(indices.data())
-           << mesh.build(AccelBuildHint::FAST_TRACE, vertex_buffer, triangle_buffer)
-           << accel.build(AccelBuildHint::FAST_TRACE, instances, transforms)
-           << synchronize();
+           << triangle_buffer.copy_from(indices.data());
+
+    auto accel = device.create_accel();
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    accel.emplace_back(mesh, scaling(1.5f))
+        .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
+                                rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
+    stream << mesh.build() << accel.build();
+
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto colorspace_shader = device.compile(colorspace_kernel);
 
@@ -122,16 +123,22 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 1u;
+    static constexpr auto spp = 1024u;
     for (auto i = 0u; i < spp; i++) {
         auto t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;
-        transforms[1] = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
-                        rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
+        accel.set_transform(1u, translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
+                                    rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f));
         stream << vertex_buffer.copy_from(vertices.data())
                << mesh.update()
-               << accel.update(1u, 1u, &transforms[1])
+               << accel.update()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
+        if (i == 511u) {
+            accel.emplace_back(
+                mesh,
+                translation(make_float3(0.0f, 0.0f, 0.3f)) *
+                    rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f)));
+        }
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)
            << ldr_image.copy_to(pixels.data())

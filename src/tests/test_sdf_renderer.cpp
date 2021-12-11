@@ -17,15 +17,13 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-//#define ENABLE_DISPLAY
+#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
 
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 int main(int argc, char *argv[]) {
-
-    log_level_verbose();
 
     static constexpr auto max_ray_depth = 6;
     static constexpr auto eps = 1e-4f;
@@ -107,7 +105,7 @@ int main(int argc, char *argv[]) {
 
     Callable ray_march = [&sdf](Float3 p, Float3 d) noexcept {
         auto dist = def(0.0f);
-        $for(j) : $range(100) {
+        $for(j, 100) {
             auto s = sdf(p + dist * d);
             $if(s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
@@ -169,7 +167,7 @@ int main(int argc, char *argv[]) {
         d = normalize(d);
         auto throughput = def<float3>(1.0f, 1.0f, 1.0f);
         auto hit_light = def(0.0f);
-        $for(depth) : $range(max_ray_depth) {
+        $for(depth, max_ray_depth) {
             auto closest = def(0.0f);
             auto normal = def<float3>();
             auto c = def<float3>();
@@ -193,14 +191,12 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-#if defined(LUISA_BACKEND_ISPC_ENABLED)
+#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    auto device = context.create_device("cuda");
+#elif defined(LUISA_BACKEND_ISPC_ENABLED)
     auto device = context.create_device("ispc");
-#elif defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda", 0);
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal", 0u);
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
+    auto device = context.create_device("metal");
 #else
     auto device = FakeDevice::create(context);
 #endif
