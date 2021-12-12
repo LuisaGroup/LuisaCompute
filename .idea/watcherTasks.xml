@@ -1,25 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ProjectTasksOptions">
-    <TaskOptions isEnabled="true">
-      <option name="arguments" value="-i $FileName$ --style=file" />
-      <option name="checkSyntaxErrors" value="true" />
-      <option name="description" />
-      <option name="exitCodeBehavior" value="ERROR" />
-      <option name="fileExtension" value="cpp" />
-      <option name="immediateSync" value="false" />
-      <option name="name" value="Clang-Format" />
-      <option name="output" value="$FileName$" />
-      <option name="outputFilters">
-        <array />
-      </option>
-      <option name="outputFromStdout" value="false" />
-      <option name="program" value="$PROJECT_DIR$/../../../../Software/Tool/VisualStudio/IDE/VC/Tools/Llvm/x64/bin/clang-format" />
-      <option name="runOnExternalChanges" value="true" />
-      <option name="scopeName" value="Open Files" />
-      <option name="trackOnlyRoot" value="false" />
-      <option name="workingDir" value="$FileDir$" />
-      <envs />
-    </TaskOptions>
+    <enabled-global>
+      <option value="Clang-Format" />
+    </enabled-global>
   </component>
 </project>

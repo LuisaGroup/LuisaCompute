@@ -1,5 +1,5 @@
 //
-// Created by 12437 on 2021/12/7.
+// Created by ChenXin on 2021/12/7.
 //
 
 #include <runtime/CommandReorderVisitor.h>
@@ -151,6 +151,7 @@ std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
         ans.push_back(std::move(commandList));
         _head.erase(_head.begin(), _head.begin() + index);
     }
+    LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
     return ans;
 }
 

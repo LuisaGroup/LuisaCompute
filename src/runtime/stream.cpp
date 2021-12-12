@@ -15,7 +15,6 @@ Stream Device::create_stream() noexcept {
 }
 
 void Stream::_dispatch(CommandList commands) noexcept {
-    // TODO: reorder commands and separate them into command lists without hazards inside...
     size_t size = 0;
     for (auto command : commands)
         ++size;
@@ -29,12 +28,6 @@ void Stream::_dispatch(CommandList commands) noexcept {
     }
 
     //    device()->dispatch(handle(), std::move(commands));
-
-    //    for (auto command : commands) {
-    //        CommandList commandList;
-    //        commandList.append(command->clone());
-    //        device()->dispatch(handle(), std::move(commandList));
-    //    }
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
