@@ -15,11 +15,10 @@ Stream Device::create_stream() noexcept {
 }
 
 void Stream::_dispatch(CommandList commands) noexcept {
-    size_t size = 0;
-    for (auto command : commands)
-        ++size;
+    auto commandVec = commands.remove_all();
+    size_t size = commandVec.size();
     CommandReorderVisitor visitor(device(), size);
-    for (auto command : commands) {
+    for (auto command : commandVec) {
         command->accept(visitor);
     }
     auto commandLists = visitor.getCommandLists();

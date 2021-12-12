@@ -5,6 +5,8 @@
 #include <cstring>
 #include <fstream>
 #include <omp.h>
+#include <future>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -204,23 +206,30 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), cmd_list = std::move(list)] {
         CUDACommandEncoder encoder{this, stream};
 
+        static std::vector<std::future<void>> futures;
+        Clock clock;
+        for (auto &fut : futures)
+            fut.wait();
+        futures.clear();
+
         //        // run in order
         //        for (auto cmd : cmd_list) {
         //            cmd->accept(encoder);
         //        }
 
         // run out of order
-        std::vector<Command *> commandVec;
-        for (auto iter : cmd_list)
-            commandVec.push_back(iter->clone());
+        auto commandVec = cmd_list.get_all();
         auto size = commandVec.size();
 #pragma omp parallel for schedule(dynamic)
         for (auto i = 0; i < size; ++i) {
-            commandVec[i]->accept(encoder);
-            //            LUISA_VERBOSE_WITH_LOCATION(
-            //                "Thread : {}",
-            //                omp_get_thread_num());
+            futures.push_back(std::async([&commandVec, i, &encoder]() {
+                commandVec[i]->accept(encoder);
+            }));
         }
+
+        LUISA_INFO(
+            "Accept command in {} ms.",
+            clock.toc());
     });
 }
 
