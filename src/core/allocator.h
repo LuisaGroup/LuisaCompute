@@ -32,7 +32,7 @@ struct allocator {
     using value_type = T;
     constexpr allocator() noexcept = default;
     template<typename U>
-    constexpr explicit allocator(allocator<U>) noexcept {}
+    constexpr allocator(allocator<U>) noexcept {}
     [[nodiscard]] auto allocate(std::size_t n) const noexcept {
         return static_cast<T *>(detail::allocator_allocate(sizeof(T) * n, alignof(T)));
     }
