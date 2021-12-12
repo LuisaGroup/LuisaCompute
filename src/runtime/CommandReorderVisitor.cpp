@@ -135,7 +135,7 @@ std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
         // get all heads
         for (size_t i = 0; i < index; ++i) {
             auto commandRelation = _head[i];
-            commandList.append(commandRelation->command->clone());
+            commandList.append(commandRelation->command);
             // prepare next loop
             for (auto nextCommandRelation : commandRelation->next) {
                 nextCommandRelation->prev.erase(
@@ -151,6 +151,10 @@ std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
         ans.push_back(std::move(commandList));
         _head.erase(_head.begin(), _head.begin() + index);
     }
+    // _head has been cleared
+    _tail.clear();
+    _commandRelationData.clear();
+
     LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
     return ans;
 }

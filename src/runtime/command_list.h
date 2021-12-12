@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <functional>
 #include <runtime/command.h>
 
@@ -49,6 +51,8 @@ public:
     [[nodiscard]] auto begin() const noexcept { return Iterator{_head}; }
     [[nodiscard]] auto end() const noexcept { return Iterator{nullptr}; }
     [[nodiscard]] auto empty() const noexcept { return _head == nullptr; }
+    [[nodiscard]] auto remove_all() noexcept;
+    [[nodiscard]] std::vector<Command *> get_all() const noexcept;
 };
 
 }// namespace luisa::compute
