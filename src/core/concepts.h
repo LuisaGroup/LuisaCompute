@@ -8,6 +8,7 @@
 #include <atomic>
 #include <concepts>
 #include <type_traits>
+#include <string_view>
 
 #include <core/macro.h>
 #include <core/basic_types.h>

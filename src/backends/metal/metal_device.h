@@ -41,6 +41,7 @@ public:
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     void check_raytracing_supported() const noexcept;
+    [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
@@ -81,11 +82,13 @@ public:
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
-    [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
-    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept override;
+    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
     void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
     bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
+    void pop_back_instance_from_accel(uint64_t accel) noexcept override;
+    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
+    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
 };
 
 }// namespace luisa::compute::metal

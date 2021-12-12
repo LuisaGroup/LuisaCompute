@@ -288,15 +288,31 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Destroyed accel #{}.", handle);
 }
 
-void MetalDevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform) noexcept {
+void MetalDevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
     auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
     auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    accel->add_instance(mesh, transform);
+    accel->add_instance(mesh, transform, visible);
 }
 
 void MetalDevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {
     auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
     accel->set_transform(index, transform);
+}
+
+void MetalDevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
+    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
+    accel->pop_instance();
+}
+
+void MetalDevice::set_instance_in_accel(uint64_t accel_handle, size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
+    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
+    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
+    accel->set_instance(index, mesh, transform, visible);
+}
+
+void MetalDevice::set_instance_visibility_in_accel(uint64_t accel_handle, size_t index, bool visible) noexcept {
+    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
+    accel->set_visibility(index, visible);
 }
 
 bool MetalDevice::is_buffer_in_accel(uint64_t accel_handle, uint64_t buffer_handle) const noexcept {
