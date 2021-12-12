@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <omp.h>
 
 #include <nlohmann/json.hpp>
 
@@ -202,8 +203,23 @@ void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), cmd_list = std::move(list)] {
         CUDACommandEncoder encoder{this, stream};
-        for (auto cmd : cmd_list) {
-            cmd->accept(encoder);
+
+        //        // run in order
+        //        for (auto cmd : cmd_list) {
+        //            cmd->accept(encoder);
+        //        }
+
+        // run out of order
+        std::vector<Command *> commandVec;
+        for (auto iter : cmd_list)
+            commandVec.push_back(iter->clone());
+        auto size = commandVec.size();
+#pragma omp parallel for schedule(dynamic)
+        for (auto i = 0; i < size; ++i) {
+            commandVec[i]->accept(encoder);
+            //            LUISA_VERBOSE_WITH_LOCATION(
+            //                "Thread : {}",
+            //                omp_get_thread_num());
         }
     });
 }
@@ -212,8 +228,9 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
     auto entry = kernel.raytracing() ?
-        fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
-        fmt::format("kernel_{:016X}", kernel.hash());
+                     fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
+                     fmt::format("kernel_{:016X}", kernel.hash());
+
     LUISA_INFO(
         "Generated PTX for {} in {} ms.",
         entry, clock.toc());
@@ -383,7 +400,6 @@ uint64_t CUDADevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const n
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {
-
     // global init
     static std::once_flag flag;
     std::call_once(flag, [] {
