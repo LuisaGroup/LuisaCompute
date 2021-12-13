@@ -34,7 +34,7 @@ class GLFWContext {
 public:
     GLFWContext() noexcept {
         glfwSetErrorCallback([](int error, const char *message) noexcept {
-            LUISA_ERROR_WITH_LOCATION("GLFW error (code = {}): {}", error, message);
+            LUISA_WARNING_WITH_LOCATION("GLFW error (code = {}): {}", error, message);
         });
         if (!glfwInit()) { LUISA_ERROR_WITH_LOCATION("Failed to initialize GLFW."); }
     }

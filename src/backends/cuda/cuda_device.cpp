@@ -200,9 +200,8 @@ void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), cmd_list = std::move(list)] {
         CUDACommandEncoder encoder{this, stream};
-        for (auto cmd : cmd_list) {
-            cmd->accept(encoder);
-        }
+        for (auto cmd : cmd_list) { cmd->accept(encoder); }
+        stream->dispatch_callbacks();
     });
 }
 
@@ -396,6 +395,13 @@ uint64_t CUDADevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noe
 
 uint64_t CUDADevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
     return reinterpret_cast<CUDAMesh *>(mesh_handle)->triangle_buffer_handle();
+}
+
+CUDADevice::~CUDADevice() noexcept {
+    with_handle([this] {
+        LUISA_CHECK_CUDA(cuCtxSynchronize());
+        _heap.reset();
+    });
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {

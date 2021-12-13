@@ -23,7 +23,7 @@ class Accel;
 class Mesh : public Resource {
 
 private:
-    mutable luisa::unique_ptr<Subject> _subject;
+    luisa::shared_ptr<Subject> _subject;
     bool _requires_rebuild{true};
 
 private:
@@ -58,7 +58,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] Command *build() noexcept;
     [[nodiscard]] Command *update() noexcept;
-    [[nodiscard]] auto subject() const noexcept { return _subject.get(); }
+    [[nodiscard]] auto shared_subject() const noexcept { return _subject; }
 };
 
 template<typename VBuffer, typename TBuffer>

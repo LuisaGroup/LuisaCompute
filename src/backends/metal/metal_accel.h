@@ -27,6 +27,7 @@ private:
     size_t _update_scratch_size{};
     luisa::vector<MetalMesh *> _instance_meshes;
     luisa::vector<float4x4> _instance_transforms;
+    luisa::vector<bool> _instance_visibilities;
     luisa::vector<id<MTLResource>> _resources;// sorted
     luisa::unordered_set<uint64_t> _resource_handles;
     DirtyRange _dirty_range;
@@ -42,8 +43,11 @@ public:
     [[nodiscard]] auto descriptor() const noexcept { return _descriptor; }
     [[nodiscard]] auto resources() noexcept { return std::span{_resources}; }
 
-    void add_instance(MetalMesh *mesh, float4x4 transform) noexcept;
+    void add_instance(MetalMesh *mesh, float4x4 transform, bool visible) noexcept;
+    void pop_instance() noexcept;
+    void set_instance(size_t index, MetalMesh *mesh, float4x4 transform, bool visible) noexcept;
     void set_transform(size_t index, float4x4 transform) noexcept;
+    void set_visibility(size_t index, bool visible) noexcept;
     [[nodiscard]] bool uses_resource(uint64_t resource) const noexcept;
 };
 
