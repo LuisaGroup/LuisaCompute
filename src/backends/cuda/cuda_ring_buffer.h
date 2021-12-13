@@ -11,6 +11,7 @@
 #include <core/spin_mutex.h>
 #include <core/mathematics.h>
 #include <backends/cuda/cuda_error.h>
+#include <backends/cuda/cuda_callback_context.h>
 
 namespace luisa::compute::cuda {
 
@@ -41,7 +42,7 @@ public:
         }
     };
 
-    class RecycleContext {
+    class RecycleContext : public CUDACallbackContext {
 
     private:
         View _buffer;
@@ -50,7 +51,7 @@ public:
     public:
         RecycleContext(View buffer, CUDARingBuffer *pool) noexcept;
         [[nodiscard]] static RecycleContext *create(View buffer, CUDARingBuffer *pool) noexcept;
-        void recycle() noexcept;
+        void recycle() noexcept override;
     };
 
 private:

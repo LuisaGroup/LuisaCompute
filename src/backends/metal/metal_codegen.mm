@@ -742,7 +742,7 @@ void MetalCodegen::_emit_statements(std::span<const Statement *const> stmts) noe
     }
 }
 
-void MetalCodegen::_emit_constant(Function::ConstantBinding c) noexcept {
+void MetalCodegen::_emit_constant(Function::Constant c) noexcept {
 
     if (std::find(_generated_constants.cbegin(),
                   _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }

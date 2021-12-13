@@ -42,6 +42,8 @@ LUISA_STRUCT(Onb, tangent, binormal, normal){
 ;
 
 int main(int argc, char *argv[]) {
+    
+    log_level_info();
 
     Context context{argv[0]};
 

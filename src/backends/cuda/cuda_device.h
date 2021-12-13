@@ -66,7 +66,7 @@ private:
 
 public:
     CUDADevice(const Context &ctx, uint device_id) noexcept;
-    ~CUDADevice() noexcept override = default;
+    ~CUDADevice() noexcept override;
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
     [[nodiscard]] auto heap() noexcept { return _heap.get(); }
     uint64_t create_buffer(size_t size_bytes) noexcept override;

@@ -40,7 +40,7 @@ id<MTLCommandBuffer> MetalAccel::build(
         static_cast<std::byte *>([instance_buffer.handle() contents]) +
         instance_buffer.offset());
     for (auto i = 0u; i < _instance_meshes.size(); i++) {
-        instances[i].mask = 0xffffffffu;
+        instances[i].mask = _instance_visibilities[i] ? ~0u : 0u;
         instances[i].accelerationStructureIndex = i;
         instances[i].intersectionFunctionTableOffset = 0u;
         instances[i].options = MTLAccelerationStructureInstanceOptionOpaque;
@@ -142,7 +142,7 @@ id<MTLCommandBuffer> MetalAccel::update(
             dirty_instance_buffer.offset());
         for (auto i = 0u; i < _dirty_range.size(); i++) {
             auto index = i + _dirty_range.offset();
-            instances[i].mask = 0xffffffffu;
+            instances[i].mask = _instance_visibilities[i] ? ~0u : 0u;
             instances[i].accelerationStructureIndex = index;
             instances[i].intersectionFunctionTableOffset = 0u;
             instances[i].options = MTLAccelerationStructureInstanceOptionOpaque;
@@ -177,9 +177,10 @@ id<MTLCommandBuffer> MetalAccel::update(
     return command_buffer;
 }
 
-void MetalAccel::add_instance(MetalMesh *mesh, float4x4 transform) noexcept {
+void MetalAccel::add_instance(MetalMesh *mesh, float4x4 transform, bool visible) noexcept {
     _instance_meshes.emplace_back(mesh);
     _instance_transforms.emplace_back(transform);
+    _instance_visibilities.emplace_back(visible);
     _resource_handles.emplace(reinterpret_cast<uint64_t>(mesh));
     _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer())));
     _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer())));
@@ -190,8 +191,28 @@ void MetalAccel::set_transform(size_t index, float4x4 transform) noexcept {
     _dirty_range.mark(index);
 }
 
+void MetalAccel::set_visibility(size_t index, bool visible) noexcept {
+    _instance_visibilities[index] = visible;
+    _dirty_range.mark(index);
+}
+
 bool MetalAccel::uses_resource(uint64_t r) const noexcept {
     return _resource_handles.contains(r);
+}
+
+void MetalAccel::pop_instance() noexcept {
+    _instance_meshes.pop_back();
+    _instance_transforms.pop_back();
+    _instance_visibilities.pop_back();
+}
+
+void MetalAccel::set_instance(size_t index, MetalMesh *mesh, float4x4 transform, bool visible) noexcept {
+    _instance_meshes[index] = mesh;
+    _instance_transforms[index] = transform;
+    _instance_visibilities[index] = visible;
+    _resource_handles.emplace(reinterpret_cast<uint64_t>(mesh));
+    _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer())));
+    _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer())));
 }
 
 }

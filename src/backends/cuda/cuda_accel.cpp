@@ -116,11 +116,12 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
     _dirty_range.clear();
     if (auto instance_buffer_size = _instance_meshes.size() * sizeof(OptixInstance);
         _instance_buffer_size < instance_buffer_size) {
-        _heap->free(_instance_buffer);
+        stream->emplace_callback(CUDAHeap::BufferFreeContext::create(
+            _heap, _instance_buffer));
         _instance_buffer_size = instance_buffer_size;
         _instance_buffer = _heap->allocate(_instance_buffer_size);
     }
-    auto instance_buffer = stream->upload_pool().allocate(_instance_buffer_size);
+    auto instance_buffer = stream->upload_pool()->allocate(_instance_buffer_size);
     auto instances = reinterpret_cast<OptixInstance *>(instance_buffer.address());
     for (auto i = 0u; i < _instance_meshes.size(); i++) {
         instances[i] = make_optix_instance(
@@ -132,12 +133,9 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
         CUDAHeap::buffer_address(_instance_buffer),
         instance_buffer.address(),
         _instance_buffer_size, stream->handle()));
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(
-        stream->handle(), [](void *user_data) noexcept {
-            auto ctx = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
-            ctx->recycle();
-        },
-        CUDARingBuffer::RecycleContext::create(instance_buffer, &stream->upload_pool())));
+    stream->emplace_callback(
+        CUDARingBuffer::RecycleContext::create(
+            instance_buffer, stream->upload_pool()));
 
     // build IAS
     auto build_input = _make_build_input();
@@ -160,7 +158,9 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
     };
     if (_build_hint == AccelBuildHint::FAST_REBUILD) {// no compaction
         if (_bvh_buffer_size < sizes.outputSizeInBytes) {
-            _heap->free(_bvh_buffer);
+            stream->emplace_callback(
+                CUDAHeap::BufferFreeContext::create(
+                    _heap, _bvh_buffer));
             _bvh_buffer_size = sizes.outputSizeInBytes;
             _bvh_buffer = _heap->allocate(_bvh_buffer_size);
         }
@@ -173,11 +173,9 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
             CUDAHeap::buffer_address(_bvh_buffer),
             _bvh_buffer_size,
             &_handle, nullptr, 0u));
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(), [](void *p) noexcept {
-                static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
-            },
-            CUDAHeap::BufferFreeContext::create(_heap, temp_buffer)));
+        stream->emplace_callback(
+            CUDAHeap::BufferFreeContext::create(
+                _heap, temp_buffer));
     } else {// with compaction
 
         auto temp_buffer_offset = align(0u);
@@ -207,7 +205,9 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
 
         // do compaction...
         if (_bvh_buffer_size < compacted_size) {
-            _heap->free(_bvh_buffer);
+            stream->emplace_callback(
+                CUDAHeap::BufferFreeContext::create(
+                    _heap, _bvh_buffer));
             _bvh_buffer_size = compacted_size;
             _bvh_buffer = _heap->allocate(_bvh_buffer_size);
         }
@@ -216,11 +216,9 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
             stream->handle(), _handle,
             CUDAHeap::buffer_address(_bvh_buffer),
             _bvh_buffer_size, &_handle));
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(), [](void *p) noexcept {
-                static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
-            },
-            CUDAHeap::BufferFreeContext::create(_heap, build_buffer)));
+        stream->emplace_callback(
+            CUDAHeap::BufferFreeContext::create(
+                _heap, build_buffer));
     }
 }
 
@@ -229,7 +227,7 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream) noexcept {
     // update instance buffer if dirty
     if (!_dirty_range.empty()) {
         auto dirty_update_buffer_size = _dirty_range.size() * sizeof(OptixInstance);
-        auto dirty_update_buffer = stream->upload_pool().allocate(dirty_update_buffer_size);
+        auto dirty_update_buffer = stream->upload_pool()->allocate(dirty_update_buffer_size);
         auto instances = reinterpret_cast<OptixInstance *>(dirty_update_buffer.address());
         for (auto i = 0u; i < _dirty_range.size(); i++) {
             auto index = i + _dirty_range.offset();
@@ -243,12 +241,9 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream) noexcept {
                 _dirty_range.offset() * sizeof(OptixInstance),
             dirty_update_buffer.address(), dirty_update_buffer_size,
             stream->handle()));
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(), [](void *user_data) noexcept {
-                auto recycle_context = static_cast<CUDARingBuffer::RecycleContext *>(user_data);
-                recycle_context->recycle();
-            },
-            CUDARingBuffer::RecycleContext::create(dirty_update_buffer, &stream->upload_pool())));
+        stream->emplace_callback(
+            CUDARingBuffer::RecycleContext::create(
+                dirty_update_buffer, stream->upload_pool()));
         _dirty_range.clear();
     }
 
@@ -264,11 +259,9 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream) noexcept {
         CUDAHeap::buffer_address(_bvh_buffer),
         _bvh_buffer_size,
         &_handle, nullptr, 0u));
-    LUISA_CHECK_CUDA(cuLaunchHostFunc(
-        stream->handle(), [](void *p) noexcept {
-            static_cast<CUDAHeap::BufferFreeContext *>(p)->recycle();
-        },
-        CUDAHeap::BufferFreeContext::create(_heap, update_buffer)));
+    stream->emplace_callback(
+        CUDAHeap::BufferFreeContext::create(
+            _heap, update_buffer));
 }
 
 inline OptixBuildInput CUDAAccel::_make_build_input() const noexcept {

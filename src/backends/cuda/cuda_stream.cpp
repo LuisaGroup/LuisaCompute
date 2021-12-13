@@ -2,7 +2,10 @@
 // Created by Mike on 8/1/2021.
 //
 
+#include <mutex>
+
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_callback_context.h>
 
 namespace luisa::compute::cuda {
 
@@ -16,6 +19,40 @@ CUDAStream::CUDAStream() noexcept
 
 CUDAStream::~CUDAStream() noexcept {
     LUISA_CHECK_CUDA(cuStreamDestroy(_handle));
+}
+
+void CUDAStream::emplace_callback(CUDACallbackContext *cb) noexcept {
+    if (cb != nullptr) {
+        std::scoped_lock lock{_mutex};
+        _callbacks.emplace(cb);
+    }
+}
+
+void CUDAStream::dispatch_callbacks() noexcept {
+    std::scoped_lock lock{_mutex};
+    if (!_callbacks.empty()) {
+        _callbacks.emplace(nullptr);
+        LUISA_CHECK_CUDA(cuLaunchHostFunc(
+            _handle,
+            [](void *p) noexcept {
+                constexpr auto pop = [](auto stream) -> CUDACallbackContext * {
+                    std::scoped_lock lock{stream->_mutex};
+                    if (stream->_callbacks.empty()) [[unlikely]] {
+                        LUISA_WARNING_WITH_LOCATION(
+                            "Fetching stream callback from empty queue.");
+                        return nullptr;
+                    }
+                    auto callback = stream->_callbacks.front();
+                    stream->_callbacks.pop();
+                    return callback;
+                };
+                auto stream = static_cast<CUDAStream *>(p);
+                while (auto callback = pop(stream)) {
+                    callback->recycle();
+                }
+            },
+            this));
+    }
 }
 
 }// namespace luisa::compute::cuda
