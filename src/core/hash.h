@@ -50,7 +50,7 @@ public:
         : _seed{seed} {}
 
     template<typename T>
-    [[nodiscard]] auto operator()(T &&s) const noexcept {
+    [[nodiscard]] auto operator()(T &&s) const noexcept -> uint64_t {
         if constexpr (detail::hashable_with_hash_method<T>) {
             return (*this)(std::forward<T>(s).hash());
         } else if constexpr (detail::hashable_with_hash_code_method<T>) {
@@ -77,7 +77,7 @@ public:
 };
 
 template<typename T>
-[[nodiscard]] inline auto hash64(T &&v, uint64_t seed = Hash64::default_seed) noexcept {
+[[nodiscard]] inline auto hash64(T &&v, uint64_t seed = Hash64::default_seed) noexcept -> uint64_t {
     return Hash64{seed}(std::forward<T>(v));
 }
 
