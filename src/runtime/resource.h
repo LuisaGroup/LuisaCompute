@@ -30,12 +30,12 @@ private:
 
 protected:
     Resource(Device::Interface *device, Tag tag, uint64_t handle) noexcept;
-    ~Resource() noexcept { _destroy(); }
     void _destroy() noexcept;
     void _set_handle(uint64_t h) noexcept { _handle = h; }
 
 public:
     Resource() noexcept = default;
+    virtual ~Resource() noexcept { _destroy(); }
     Resource(Resource &&) noexcept = default;
     Resource(const Resource &) noexcept = delete;
     Resource &operator=(Resource &&) noexcept;
