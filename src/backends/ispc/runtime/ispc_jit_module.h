@@ -14,7 +14,13 @@ class LLVMContext;
 class ExecutionEngine;
 }
 
+namespace luisa::compute {
+class Context;
+}
+
 namespace lc::ispc {
+
+using luisa::compute::Context;
 
 class JITModule final : public Module {
 
