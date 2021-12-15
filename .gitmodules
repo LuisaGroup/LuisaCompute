@@ -25,3 +25,6 @@
 [submodule "src/ext/fmt"]
 	path = src/ext/fmt
 	url = https://github.com/fmtlib/fmt.git
+[submodule "src/ext/embree"]
+	path = src/ext/embree
+	url = https://github.com/embree/embree.git
