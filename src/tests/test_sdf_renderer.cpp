@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-#define ENABLE_DISPLAY
+//#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -141,7 +141,6 @@ int main(int argc, char *argv[]) {
 
     Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 accum_image, UInt frame_index) noexcept {
         set_block_size(16u, 8u, 1u);
-//        auto bad = def(0.0f);
 
         auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
@@ -213,7 +212,7 @@ int main(int argc, char *argv[]) {
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
     cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
 
-    static constexpr auto interval = 4u;
+    static constexpr auto interval = 32u;
 
 #ifdef ENABLE_DISPLAY
     static constexpr auto total_spp = 500000u;

@@ -33,9 +33,17 @@ public:
 
 class Subject final : public std::enable_shared_from_this<Subject> {
 
+public:
+    struct ObserverHash {
+        using is_transparent = void;
+        [[nodiscard]] auto operator()(const Observer *p) const noexcept -> uint64_t {
+            return hash64(reinterpret_cast<uint64_t>(p));
+        }
+    };
+
 private:
     spin_mutex _mutex;
-    luisa::unordered_map<Observer *, size_t> _observers;
+    luisa::unordered_map<Observer *, size_t, ObserverHash> _observers;
 
 private:
     friend class Observer;
@@ -52,4 +60,4 @@ public:
     void notify_all() noexcept;
 };
 
-}
+}// namespace luisa

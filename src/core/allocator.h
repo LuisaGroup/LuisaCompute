@@ -124,4 +124,23 @@ using unordered_map = std::unordered_map<Key, Value, Hash, Pred, allocator<std::
 template<typename Key, typename Hash = std::hash<Key>, typename Pred = std::equal_to<>>
 using unordered_set = std::unordered_set<Key, Hash, Pred, allocator<Key>>;
 
+namespace detail {
+
+template<typename F>
+class LazyConstructor {
+private:
+    mutable F _ctor;
+
+public:
+    explicit LazyConstructor(F _ctor) noexcept: _ctor{_ctor} {}
+    [[nodiscard]] operator auto() const noexcept { return _ctor(); }
+};
+
+}
+
+template<typename F>
+[[nodiscard]] auto lazy_construct(F ctor) noexcept {
+    return detail::LazyConstructor<F>(ctor);
+}
+
 }// namespace luisa
