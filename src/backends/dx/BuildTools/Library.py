@@ -34,11 +34,33 @@ def __GetAllFiles(result:dict, rootDir:str, curDir:str, ignorePath:dict, ignoreF
                     result[fileExt] = []
                 result[fileExt].append (culledPath)
 
+def __GetRootFiles(result:dict, rootDir:str, curDir:str, extensions:dict):
+    for lists in os.listdir(curDir):
+        path = ProcessPath(os.path.join(curDir, lists))
+        culledPath = path[len(rootDir): len(path)]
+        splitPaths = culledPath.split('/')
+        if len(splitPaths) == 0:
+            continue
+        if not os.path.isdir(path):
+            name = splitPaths[len(splitPaths) - 1]
+            fileSplits = name.split('.')
+            fileExt = fileSplits[len(fileSplits) - 1]
+            if extensions.get(fileExt) != None:
+                if result.get(fileExt) == None:
+                    result[fileExt] = []
+                result[fileExt].append (culledPath)
+
 def File_GetAllFiles(result:dict, rootDir:str, ignorePath:dict, ignoreFolders:dict, ignoreName:dict, extensions:dict):
     rootDir = ProcessPath(rootDir)
     if rootDir[len(rootDir) - 1] != '/':
         rootDir += '/'
     __GetAllFiles(result, rootDir, rootDir, ignorePath, ignoreFolders, ignoreName, extensions)
+
+def File_GetRootFiles(result:dict, rootDir:str, extensions:dict):
+    rootDir = ProcessPath(rootDir)
+    if rootDir[len(rootDir) - 1] != '/':
+        rootDir += '/'
+    __GetRootFiles(result, rootDir, rootDir, extensions)
 ########################## XML
 def XML_GetNameSpace(root:ET.Element):
     startIndex = root.tag.find('{')

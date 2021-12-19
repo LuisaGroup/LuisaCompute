@@ -39,18 +39,17 @@ void ReverseBytes(T &num) {
 
 template<typename T, bool reverseBytes = false>
 struct SerDe {
-    static_assert(std::is_trivial_v<T>, "only trivial type can be serialized!");
     static_assert(!std::is_pointer_v<T>, "pointer can not be serialized!");
-    static T Get(std::span<uint8_t const> &data) {
+    static T Get(vstd::span<uint8_t const> &data) {
         using Type = std::remove_cvref_t<T>;
         if (reverseBytes) {
             Type ptr = *reinterpret_cast<Type const *>(data.data());
             ReverseBytes(ptr);
-            data = std::span<uint8_t const>(data.data() + sizeof(Type), data.size() - sizeof(Type));
+            data = vstd::span<uint8_t const>(data.data() + sizeof(Type), data.size() - sizeof(Type));
             return ptr;
         } else {
             Type const *ptr = reinterpret_cast<Type const *>(data.data());
-            data = std::span<uint8_t const>(data.data() + sizeof(Type), data.size() - sizeof(Type));
+            data = vstd::span<uint8_t const>(data.data() + sizeof(Type), data.size() - sizeof(Type));
             return *ptr;
         }
     }
@@ -67,10 +66,10 @@ struct SerDe {
 };
 template<bool reverseBytes>
 struct SerDe<vstd::string, reverseBytes> {
-    static vstd::string Get(std::span<uint8_t const> &sp) {
+    static vstd::string Get(vstd::span<uint8_t const> &sp) {
         auto strLen = SerDe<uint, reverseBytes>::Get(sp);
         auto ptr = sp.data();
-        sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
+        sp = vstd::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
         return vstd::string(reinterpret_cast<char const *>(ptr), strLen);
     }
     static void Set(vstd::string const &data, vector<uint8_t> &arr) {
@@ -80,10 +79,10 @@ struct SerDe<vstd::string, reverseBytes> {
 };
 template<bool reverseBytes>
 struct SerDe<std::string_view, reverseBytes> {
-    static std::string_view Get(std::span<uint8_t const> &sp) {
+    static std::string_view Get(vstd::span<uint8_t const> &sp) {
         auto strLen = SerDe<uint, reverseBytes>::Get(sp);
         auto ptr = sp.data();
-        sp = std::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
+        sp = vstd::span<uint8_t const>(ptr + strLen, sp.size() - strLen);
         return std::string_view(
             reinterpret_cast<char const *>(ptr),
             strLen);
@@ -97,7 +96,7 @@ struct SerDe<std::string_view, reverseBytes> {
 template<typename T, VEngine_AllocType alloc, bool tri, bool reverseBytes>
 struct SerDe<vector<T, alloc, tri>, reverseBytes> {
     using Value = vector<T, alloc, tri>;
-    static Value Get(std::span<T const> &sp) {
+    static Value Get(vstd::span<T const> &sp) {
         Value sz;
         auto s = SerDe<uint, reverseBytes>::Get(sp);
         sz.push_back_func(
@@ -118,7 +117,7 @@ struct SerDe<vector<T, alloc, tri>, reverseBytes> {
 template<typename K, typename V, typename Hash, typename Equal, VEngine_AllocType alloc, bool reverseBytes>
 struct SerDe<HashMap<K, V, Hash, Equal, alloc>, reverseBytes> {
     using Value = HashMap<K, V, Hash, Equal, alloc>;
-    static Value Get(std::span<uint8_t const> &sp) {
+    static Value Get(vstd::span<uint8_t const> &sp) {
         Value sz;
         auto capa = SerDe<uint, reverseBytes>::Get(sp);
         sz.reserve(capa);
@@ -143,16 +142,16 @@ template<typename... Args, bool reverseBytes>
 struct SerDe<variant<Args...>, reverseBytes> {
     using Value = variant<Args...>;
     template<typename T>
-    static void ExecuteGet(void *placePtr, std::span<uint8_t const> &sp) {
+    static void ExecuteGet(void *placePtr, vstd::span<uint8_t const> &sp) {
         new (placePtr) Value(SerDe<T, reverseBytes>::Get(sp));
     }
     template<typename T>
     static void ExecuteSet(void const *placePtr, vector<uint8_t> &sp) {
         SerDe<T, reverseBytes>::Set(*reinterpret_cast<T const *>(placePtr), sp);
     }
-    static Value Get(std::span<uint8_t const> &sp) {
+    static Value Get(vstd::span<uint8_t const> &sp) {
         auto type = SerDe<uint8_t, reverseBytes>::Get(sp);
-        funcPtr_t<void(void *, std::span<uint8_t const> &)> ptrs[sizeof...(Args)] = {
+        funcPtr_t<void(void *, vstd::span<uint8_t const> &)> ptrs[sizeof...(Args)] = {
             ExecuteGet<Args>...};
         Value v;
         v.update(type, [&](void *ptr) {
@@ -171,7 +170,7 @@ struct SerDe<variant<Args...>, reverseBytes> {
 template<typename A, typename B, bool reverseBytes>
 struct SerDe<std::pair<A, B>, reverseBytes> {
     using Value = std::pair<A, B>;
-    static Value Get(std::span<uint8_t const> &sp) {
+    static Value Get(vstd::span<uint8_t const> &sp) {
         return Value{SerDe<A, reverseBytes>::Get(sp), SerDe<B, reverseBytes>::Get(sp)};
     }
     static void Set(Value const &data, vector<uint8_t> &arr) {
@@ -181,8 +180,8 @@ struct SerDe<std::pair<A, B>, reverseBytes> {
 };
 
 template<bool reverseBytes>
-struct SerDe<std::span<uint8_t const>, reverseBytes> {
-    using Value = std::span<uint8_t const>;
+struct SerDe<vstd::span<uint8_t const>, reverseBytes> {
+    using Value = vstd::span<uint8_t const>;
     static Value Get(Value &sp) {
         auto sz = SerDe<uint, reverseBytes>::Get(sp);
         Value v(sp.data(), sz);
@@ -197,7 +196,7 @@ struct SerDe<std::span<uint8_t const>, reverseBytes> {
 template<typename T, size_t sz, bool reverseBytes>
 struct SerDe<std::array<T, sz>, reverseBytes> {
     using Value = std::array<T, sz>;
-    static Value Get(std::span<uint8_t const> &sp) {
+    static Value Get(vstd::span<uint8_t const> &sp) {
         Value v;
         for (auto &&i : v) {
             i = SerDe<T, reverseBytes>::Get(sp);
@@ -217,7 +216,7 @@ struct SerDeAll_Impl;
 template<typename Ret, typename... Args>
 struct SerDeAll_Impl<Ret(Args...)> {
     template<typename Class, typename Func>
-    static Ret CallMemberFunc(Class *ptr, Func func, std::span<uint8_t const> data) {
+    static Ret CallMemberFunc(Class *ptr, Func func, vstd::span<uint8_t const> data) {
         auto closureFunc = [&](Args &&...args) {
             return (ptr->*func)(std::forward<Args>(args)...);
         };
@@ -234,7 +233,7 @@ struct SerDeAll_Impl<Ret(Args...)> {
     template<typename Func>
     static decltype(auto) Call(
         Func &&func) {
-        return [f = std::forward<Func>(func)](std::span<uint8_t const> data) {
+        return [f = std::forward<Func>(func)](vstd::span<uint8_t const> data) {
             return std::apply(f, std::tuple<Args...>{SerDe<std::remove_cvref_t<Args>>::Get(data)...});
         };
     }

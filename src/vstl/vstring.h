@@ -71,7 +71,6 @@ inline string to_string(double Val) noexcept {
     return str;
 }
 
-
 namespace detail {
 
 template<size_t size, bool is_signed>
@@ -108,7 +107,7 @@ template<typename T>
     return IntegerToString(static_cast<canonical_integer_t<T>>(val));
 }
 
-inline void to_string(float Val, string& str) noexcept {
+inline void to_string(float Val, string &str) noexcept {
     to_string((double)Val, str);
     str += 'f';
 }
