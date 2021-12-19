@@ -21,8 +21,10 @@ struct vector_stack_obj<T, 0> {
 };
 }// namespace detail
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, size_t stackCount = 0>
-class vector : public IOperatorNewBase {
+    requires(!(std::is_const_v<T> || std::is_reference_v<T>))
+class vector {
 private:
+    using Allocator = VAllocHandle<allocType>;
     //	template<bool v>
     //	struct EraseLastType;
     //	template<>
@@ -37,20 +39,19 @@ private:
     detail::vector_stack_obj<T, stackCount> vec;
     size_t mSize;
     size_t mCapacity;
-    VAllocHandle<allocType> allocHandle;
     static size_t GetNewVectorSize(size_t oldSize) {
         return oldSize * 1.5 + 8;
     }
     T *Allocate(size_t const &capacity) noexcept {
-        return reinterpret_cast<T *>(allocHandle.Malloc(sizeof(T) * capacity));
+        return reinterpret_cast<T *>(Allocator().Malloc(sizeof(T) * capacity));
     }
 
     void Free(T *ptr) noexcept {
         if constexpr (stackCount > 0) {
             if (mCapacity > stackCount)
-                allocHandle.Free(ptr);
+                Allocator().Free(ptr);
         } else {
-            allocHandle.Free(ptr);
+            Allocator().Free(ptr);
         }
     }
     void ResizeRange(size_t count) {

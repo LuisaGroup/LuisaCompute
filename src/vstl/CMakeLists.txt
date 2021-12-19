@@ -7,7 +7,9 @@ set(LUISA_COMPUTE_UTIL_SOURCES
         VGuid.cpp
         ThreadPool.cpp
         ThreadTaskHandle.cpp
+        StackAllocator
         BinaryReader.cpp
+        PoolAllocator.cpp
         vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})

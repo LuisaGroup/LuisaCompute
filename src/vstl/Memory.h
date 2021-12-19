@@ -32,29 +32,47 @@ inline void vengine_delete(T *ptr) noexcept {
         ((T *)ptr)->~T();
     vengine_free(ptr);
 }
-#define DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW                            \
-    inline static void *operator new(size_t size) noexcept {             \
-        return vengine_malloc(size);                                     \
-    }                                                                    \
-    inline static void *operator new(size_t, void *place) noexcept {     \
-        return place;                                                    \
-    }                                                                    \
-    inline static void operator delete(void *pdead, size_t) noexcept {   \
-        vengine_free(pdead);                                             \
-    }                                                                    \
-    inline static void *operator new[](size_t size) noexcept {           \
-        return vengine_malloc(size);                                     \
-    }                                                                    \
-    inline static void operator delete[](void *pdead, size_t) noexcept { \
-        vengine_free(pdead);                                             \
+#define DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW           \
+    static void *operator new(                          \
+        size_t size) noexcept {                         \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void *operator new(                          \
+        size_t,                                         \
+        void *place) noexcept {                         \
+        return place;                                   \
+    }                                                   \
+    static void *operator new[](                        \
+        size_t size) noexcept {                         \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void *operator new(                          \
+        size_t size, const std::nothrow_t &) noexcept { \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void *operator new(                          \
+        size_t,                                         \
+        void *place, const std::nothrow_t &) noexcept { \
+        return place;                                   \
+    }                                                   \
+    static void *operator new[](                        \
+        size_t size, const std::nothrow_t &) noexcept { \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void operator delete(                        \
+        void *pdead) noexcept {                         \
+        vengine_free(pdead);                            \
+    }                                                   \
+    static void operator delete[](                      \
+        void *pdead) noexcept {                         \
+        vengine_free(pdead);                            \
     }
-
 namespace vstd {
 // Not correctly implemented and could lead to memory leaks
-// class IOperatorNewBase {
-// public:
-//     DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-// };
+class IOperatorNewBase {
+public:
+    DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+};
 class ISelfPtr {
 public:
     virtual ~ISelfPtr() = default;

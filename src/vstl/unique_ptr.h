@@ -18,4 +18,8 @@ template<typename T>
 unique_ptr<T> make_unique(T* ptr) {
 	return unique_ptr<T>(ptr);
 }
+template<typename T>
+unique_ptr<T> create_unique(T *ptr) {
+    return unique_ptr<T>(ptr);
+}
 }// namespace vstd

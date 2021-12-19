@@ -91,4 +91,108 @@ protected:
     luisa::string &str;
     uint64 stmtCount = 0;
 };
+
+template<typename T>
+struct PrintValue;
+template<>
+struct PrintValue<float> {
+    void operator()(float const &v, luisa::string &str) {
+        if (std::isnan(v)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
+        }
+        if (std::isinf(v)) {
+            str.append(v < 0.0f ? "(-INFINITY_f)" : "(+INFINITY_f)");
+        } else {
+            auto s = fmt::format("{}", v);
+            str.append(s);
+            if (s.find('.') == std::string_view::npos &&
+                s.find('e') == std::string_view::npos) {
+                str.append(".0");
+            }
+            str.append("f");
+        }
+    }
+};
+template<>
+struct PrintValue<int> {
+    void operator()(int const &v, luisa::string &str) {
+        vstd::to_string(v, str);
+    }
+};
+template<>
+struct PrintValue<uint> {
+    void operator()(uint const &v, luisa::string &str) {
+        vstd::to_string(v, str);
+    }
+};
+
+template<>
+struct PrintValue<bool> {
+    void operator()(bool const &v, luisa::string &str) {
+        if (v)
+            str << "true";
+        else
+            str << "false";
+    }
+};
+template<typename EleType, uint64 N>
+struct PrintValue<Vector<EleType, N>> {
+    using T = Vector<EleType, N>;
+    void PureRun(T const &v, luisa::string &varName) {
+        for (uint64 i = 0; i < N; ++i) {
+            vstd::to_string(v[i], varName);
+            varName += ',';
+        }
+        auto &&last = varName.end() - 1;
+        if (*last == ',')
+            varName.erase(last);
+    }
+    void operator()(T const &v, luisa::string &varName) {
+        if constexpr (N > 1) {
+            if constexpr (std::is_same_v<EleType, float>) {
+                varName << "_float";
+            } else if constexpr (std::is_same_v<EleType, uint>) {
+                varName << "_uint";
+            } else if constexpr (std::is_same_v<EleType, int>) {
+                varName << "_int";
+            } else if constexpr (std::is_same_v<EleType, bool>) {
+                varName << "_bool";
+            }
+            vstd::to_string(N, varName);
+            varName << '(';
+            PureRun(v, varName);
+            varName << ')';
+        } else {
+            PureRun(v, varName);
+        }
+    }
+};
+
+template<uint64 N>
+struct PrintValue<Matrix<N>> {
+    using T = Matrix<N>;
+    using EleType = float;
+    void operator()(T const &v, luisa::string &varName) {
+        varName << "_float";
+        auto ss = vstd::to_string(N);
+        varName << ss << 'x' << ss << '(';
+        PrintValue<Vector<EleType, N>> vecPrinter;
+        for (uint64 i = 0; i < N; ++i) {
+            vecPrinter.PureRun(v[i], varName);
+            varName += ',';
+        }
+        auto &&last = varName.end() - 1;
+        if (*last == ',')
+            varName.erase(last);
+        varName << ')';
+    }
+};
+
+template<>
+struct PrintValue<LiteralExpr::MetaValue> {
+    void operator()(const LiteralExpr::MetaValue &s, luisa::string &varName) const noexcept {
+        // TODO...
+    }
+};
+
 }// namespace lc::ispc
