@@ -1,13 +1,27 @@
 #pragma once
+
 #include <vstl/config.h>
-#include <stdint.h>
+#include <cstdint>
 #include <utility>
 #include <tuple>
-VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash(void const* ptr, size_t sz);
-VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_seed(void const* ptr, size_t sz, size_t seed);
+
+#include <core/hash.h>
+
+[[nodiscard]] inline uint64_t vstd_xxhash_gethash(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
+    return luisa::detail::xxh3_hash64(data, size, seed);
+}
+
+[[nodiscard]] inline uint64_t vstd_xxhash_gethash_small(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
+    return vstd_xxhash_gethash(data, size, seed);
+}
+
+
+//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash(void const* ptr, size_t sz);
+//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_seed(void const* ptr, size_t sz, size_t seed);
 //Size must less than 32 in x64
-VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small(void const* ptr, size_t sz);
-VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small_seed(void const* ptr, size_t sz, size_t seed);
+//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small(void const* ptr, size_t sz);
+//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small_seed(void const* ptr, size_t sz, size_t seed);
+
 namespace vstd {
 template<typename K>
 struct hash;
@@ -105,7 +119,9 @@ struct hash<std::pair<A, B>> {
 template<typename... T>
 struct hash<std::tuple<T...>> {
 	size_t operator()(std::tuple<T...> const& tp) const noexcept {
-		return std::apply(Hash::MultipleHash<T...>, tp);
+        return []<size_t... i>(const auto &tp, std::index_sequence<i...>) noexcept {
+            return Hash::MultipleHash(std::get<i>(tp)...);
+        }(tp, std::index_sequence_for<T...>{});
 	}
 };
 

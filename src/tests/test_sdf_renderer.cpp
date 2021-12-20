@@ -192,10 +192,10 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
     auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_ISPC_ENABLED)
-    auto device = context.create_device("ispc");
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
+#elif defined(LUISA_BACKEND_ISPC_ENABLED)
+    auto device = context.create_device("ispc");
 #else
     auto device = FakeDevice::create(context);
 #endif
