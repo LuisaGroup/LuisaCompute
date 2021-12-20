@@ -4,21 +4,9 @@
 #include <stdint.h>
 #include <type_traits>
 #include <vstl/MetaLib.h>
-#include <core/allocator.h>
 VENGINE_C_FUNC_COMMON void *vengine_default_malloc(size_t sz);
 VENGINE_C_FUNC_COMMON void vengine_default_free(void *ptr);
 VENGINE_C_FUNC_COMMON void *vengine_default_realloc(void *ptr, size_t size);
-
-inline void *vengine_malloc(size_t size) {
-    return luisa::detail::allocator_allocate(size, 0);
-}
-inline void vengine_free(void *ptr) {
-    luisa::detail::allocator_deallocate(ptr, 0);
-}
-inline void *vengine_realloc(void *ptr, size_t size) {
-    return luisa::detail::allocator_reallocate(ptr, size, 0);
-}
-
 template<typename T, typename... Args>
 inline T *vengine_new(Args &&...args) noexcept {
     T *tPtr = (T *)vengine_malloc(sizeof(T));

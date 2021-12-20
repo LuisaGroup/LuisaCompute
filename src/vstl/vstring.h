@@ -11,6 +11,7 @@
 #include <vstl/vector.h>
 namespace vstd {
 using string = luisa::string;
+using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, luisa::allocator<wchar_t>>;
 template<class Elem, class UTy>
 Elem *UIntegral_to_buff(Elem *RNext, UTy UVal) noexcept {// format UVal into buffer *ending at* RNext
     static_assert(std::is_unsigned_v<UTy>, "UTy must be unsigned");
@@ -228,7 +229,7 @@ auto &operator<<(vstd::string &s, T &&v) noexcept {
 }
 
 template<typename T>
-auto &operator<<(std::wstring &s, T &&v) noexcept {
+auto &operator<<(vstd::wstring &s, T &&v) noexcept {
     if constexpr (std::is_same_v<std::remove_cvref_t<T>, wchar_t>) {
         s += v;
         return s;
