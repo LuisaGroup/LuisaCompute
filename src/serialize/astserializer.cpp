@@ -1,7 +1,9 @@
 #pragma vengine_package serialize
+
 #include <serialize/config.h>
 #include <serialize/serialize.h>
 #include <vstl/variant_util.h>
+
 namespace luisa::compute {
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Expression const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
@@ -223,6 +225,7 @@ struct DeserArray {
         ConstantData &t) const {
         size_t sz = arr.Length() * sizeof(T);
         T *ptr = (T *)evt.Allocate(sz);
+
         t._view = std::span<T const>(ptr, arr.Length());
         for (auto &&i : arr) {
             *ptr = i.get_or<T>(0);
@@ -465,7 +468,7 @@ struct DeserLiteral<luisa::Vector<T, n>> {
         using GetType = typename DeserType<T>::Type;
         luisa::Vector<T, n> vec;
         T *vecPtr = reinterpret_cast<T *>(&vec);
-        for (auto i : vstd::range(n) {
+        for (auto i : vstd::range(n)) {
             vecPtr[i] = arr->Get(i).get_or<GetType>(0);
         }
         t = vec;
@@ -481,7 +484,7 @@ struct DeserLiteral<luisa::Matrix<n>> {
         if (!arr || arr->Length() < (n * n)) return;
         luisa::Matrix<n> vec;
         float *vecPtr = reinterpret_cast<float *>(&vec);
-        for (auto i : vstd::range(n * n) {
+        for (auto i : vstd::range(n * n)) {
             vecPtr[i] = arr->Get(i).get_or<float>(0);
         }
         t = vec;

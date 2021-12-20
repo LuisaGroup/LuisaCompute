@@ -1,13 +1,13 @@
 set(LUISA_COMPUTE_UTIL_SOURCES
         ObjectPtr.cpp
         StringUtility.cpp
-        xxhash.cpp
+#        xxhash.cpp
         Log.cpp
         MD5.cpp
         VGuid.cpp
         ThreadPool.cpp
         ThreadTaskHandle.cpp
-        StackAllocator
+        StackAllocator.cpp
         BinaryReader.cpp
         PoolAllocator.cpp
         vstl.cpp)

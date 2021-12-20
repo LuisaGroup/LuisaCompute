@@ -9,7 +9,6 @@ target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-runtime
         luisa-compute-compile
         luisa-compute-backends)
-add_dependencies(luisa-compute-api luisa-compute-serialize)
 set_target_properties(luisa-compute-api PROPERTIES UNITY_BUILD ON)
 
 find_package(Python3 COMPONENTS Interpreter)

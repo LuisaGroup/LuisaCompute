@@ -37,7 +37,7 @@ add_subdirectory(vstl)
 add_subdirectory(meta)
 add_subdirectory(ast)
 add_subdirectory(runtime)
-add_subdirectory(serialize)
+#add_subdirectory(serialize)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
@@ -59,7 +59,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-gui
         luisa-compute-backends)
 
-add_dependencies(luisa-compute luisa-compute-api luisa-compute-serialize)
+add_dependencies(luisa-compute luisa-compute-api)
 add_library(luisa::compute ALIAS luisa-compute)
 
 if (LUISA_COMPUTE_BUILD_TESTS)
