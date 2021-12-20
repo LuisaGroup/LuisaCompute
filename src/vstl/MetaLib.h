@@ -592,7 +592,9 @@ class SBO {
 
 public:
     template<typename Func>
-    constexpr static bool LegalCtorFunc = (std::is_invocable_v<Func, void *> && IsLegalType<FuncRetType<std::remove_cvref_t<Func>>>);
+    constexpr static bool LegalCtorFunc =
+        std::is_invocable_v<Func, void *> &&
+        IsLegalType<FuncRetType<std::remove_cvref_t<Func>>>;
     I *operator->() const {
         return ptr;
     }
@@ -602,7 +604,7 @@ public:
     }
 
     template<typename Func>
-        requires((!std::is_same_v<SBO, std::remove_cvref_t<Func>>)&&LegalCtorFunc<Func>)
+        requires std::negation_v<std::is_same<SBO, std::remove_cvref_t<Func>>> && LegalCtorFunc<Func>
     SBO(Func &&func) {
         using T = std::remove_pointer_t<FuncRetType<std::remove_cvref_t<Func>>>;
         constexpr size_t sz = sizeof(T);
@@ -676,7 +678,8 @@ private:
 public:
     IEnumerable<T> *Get() const { return ptr; }
     template<typename Func>
-        requires((!std::is_same_v<Iterator, std::remove_cvref_t<Func>>)&&decltype(ptr)::template LegalCtorFunc<Func>)
+    requires std::negation_v<std::is_same<Iterator, std::remove_cvref_t<Func>>> &&
+        SBO<IEnumerable<T>>::template LegalCtorFunc<Func>
     Iterator(Func &&func) : ptr(std::forward<Func>(func)) {}
     Iterator(Iterator const &) = delete;
     Iterator(Iterator &&v)
