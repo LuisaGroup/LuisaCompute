@@ -5,9 +5,9 @@
 #include <vector>
 
 #include <runtime/context.h>
-#include <gui/window.h>
-#include <gui/framerate.h>
 #include <runtime/stream.h>
+#include <runtime/device.h>
+#include <runtime/image.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -22,31 +22,18 @@ int main(int argc, char *argv[]) {
 #else
     auto device = context.create_device("ispc");
 #endif
+    auto stream = device.create_stream();
 
-    int width = 1920, height = 1080;
+    auto width = 1920u, height = 1080u;
+    auto device_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
+    auto device_image1 = device.create_image<float>(PixelStorage::BYTE4, width, height);
     std::vector<std::array<uint8_t, 4u>> host_image(width * height);
+    std::vector<std::array<uint8_t, 4u>> host_image1(width * height);
 
-    Window window{"Display", make_uint2(width, height)};
-    window.set_key_callback([&](int key, int action) noexcept {
-        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
-            window.set_should_close();
-        }
-    });
-
-    Clock clock;
-    Framerate framerate{32};
-    window.run([&] {
-        framerate.record();
-        auto time = static_cast<float>(clock.toc() * 1e-3);
-        stream << shader(device_image, time).dispatch(width, height)
-               << device_image.copy_to(host_image.data())
-               << synchronize();
-        window.set_background(host_image.data(), make_uint2(width, height));
-
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("FPS: %.1f", framerate.report());
-        ImGui::End();
-    });
+    stream << device_image.copy_to(host_image.data())
+           << device_image1.copy_to(host_image1.data())
+           << device_image.copy_from(host_image1.data())
+           << synchronize();
 
     return 0;
 }

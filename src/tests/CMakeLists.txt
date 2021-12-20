@@ -37,6 +37,9 @@ target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
 add_executable(test_ispc_101 test_ispc_101.cpp)
 target_link_libraries(test_ispc_101 PRIVATE luisa::compute)
 
+add_executable(test_command_reorder test_command_reorder.cpp)
+target_link_libraries(test_command_reorder PRIVATE luisa::compute)
+
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_executable(test_shader_toy test_shader_toy.cpp)
     target_link_libraries(test_shader_toy PRIVATE luisa::compute)
