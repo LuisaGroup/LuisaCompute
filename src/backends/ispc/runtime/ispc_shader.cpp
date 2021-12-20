@@ -61,7 +61,11 @@ Shader::Shader(
         "--opt=fast-masked-vload",
         "--opt=fast-math",
         "--opt=force-aligned-memory",
+#ifndef __aarch64__
         "--cpu=core-avx2",
+#else
+        "--cpu=apple-a14",
+#endif
         "--enable-llvm-intrinsics",
         emit_opt,
         include_opt.c_str()};

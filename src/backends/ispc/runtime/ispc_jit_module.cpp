@@ -54,7 +54,12 @@ JITModule::~JITModule() noexcept = default;
     options.GuaranteedTailCallOpt = true;
     auto mcpu = llvm::sys::getHostCPUName();
     auto machine = target->createTargetMachine(
-        target_triple, mcpu, "+avx2",
+        target_triple, mcpu,
+#ifndef __aarch64__
+        "+avx2",
+#else
+        {},
+#endif
         options, {}, {},
         llvm::CodeGenOpt::Aggressive, true);
     if (machine == nullptr) {
