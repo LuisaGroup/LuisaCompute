@@ -1,5 +1,4 @@
 #pragma once
-#define FMT_CONSTEVAL inline
 #include <core/platform.h>
 #include <core/logging.h>
 

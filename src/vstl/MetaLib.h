@@ -14,6 +14,16 @@
 #include <vstl/AllocateType.h>
 #include <vstl/Compare.h>
 #include <vstl/Hash.h>
+#include <core/allocator.h>
+inline void *vengine_malloc(size_t size) {
+    return luisa::detail::allocator_allocate(size, 0);
+}
+inline void vengine_free(void *ptr) {
+    luisa::detail::allocator_deallocate(ptr, 0);
+}
+inline void *vengine_realloc(void *ptr, size_t size) {
+    return luisa::detail::allocator_reallocate(ptr, size, 0);
+}
 VENGINE_DLL_COMMON void VEngine_Log(std::type_info const &t);
 VENGINE_DLL_COMMON void VEngine_Log(char const *chunk);
 namespace vstd {

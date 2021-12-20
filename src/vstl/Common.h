@@ -22,7 +22,6 @@ template<
 using span = std::span<T, Extent>;
 using string_view = std::basic_string_view<char>;
 using wstring_view = std::basic_string_view<wchar_t>;
-using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, luisa::allocator<wchar_t>>;
 }// namespace vstd
 inline constexpr vstd::string_view operator"" _sv(const char *_Str, size_t _Len) noexcept {
     return vstd::string_view(_Str, _Len);
