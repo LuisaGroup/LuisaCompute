@@ -45,6 +45,7 @@ void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 }
 void ISPCDevice::dispatch(uint64_t stream_handle, CommandList cmdList) noexcept {
     auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
+    // TODO : multi-thread
     for (auto &&i : cmdList) {
         i->accept(*cmd);
     }
@@ -130,11 +131,9 @@ bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) c
 }
 
 void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept {
-
 }
 
 void ISPCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
-
 }
 
 bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {

@@ -135,7 +135,7 @@ std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
         // get all heads
         for (size_t i = 0; i < index; ++i) {
             auto commandRelation = _head[i];
-            commandList.append(commandRelation->command);
+            commandList.append(commandRelation->command->clone());
             // prepare next loop
             for (auto nextCommandRelation : commandRelation->next) {
                 nextCommandRelation->prev.erase(

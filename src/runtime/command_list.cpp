@@ -42,24 +42,4 @@ CommandList &CommandList::operator=(CommandList &&rhs) noexcept {
 
 CommandList::~CommandList() noexcept { _recycle(); }
 
-auto CommandList::remove_all() noexcept {
-    std::vector<Command *> ans;
-    while (_head != nullptr) {
-        ans.push_back(_head);
-        _head = _head->next();
-        ans.back()->set_next(nullptr);
-    }
-    _tail = nullptr;
-    return ans;
-}
-std::vector<Command *> CommandList::get_all() const noexcept {
-    std::vector<Command *> ans;
-    auto ptr = _head;
-    while (ptr != nullptr) {
-        ans.push_back(ptr);
-        ptr = ptr->next();
-    }
-    return ans;
-}
-
 }// namespace luisa::compute

@@ -27,15 +27,3 @@ if (CUDAToolkit_FOUND)
     target_include_directories(luisa-compute-backend-cuda PRIVATE optix)
     set_target_properties(luisa-compute-backend-cuda PROPERTIES UNITY_BUILD OFF)
 endif ()
-
-
-# OpenMP support
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    # TODO
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
-    # TODO
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /openmp")
-endif()
