@@ -31,8 +31,9 @@ public:
     static constexpr size_t IndexOf = detail::IndexOfStruct<0, std::remove_cvref_t<T>, Args...>::Index;
     template<typename Func>
     void operator()(Func &&func, size_t idx) {
-        assert(idx < sizeof...(Args));
-        detail::VisitVariant<Func, Args...>(std::forward<Func>(func), idx);
+        if (idx < sizeof...(Args)) {
+            detail::VisitVariant<Func, Args...>(std::forward<Func>(func), idx);
+        }
     }
 };
 

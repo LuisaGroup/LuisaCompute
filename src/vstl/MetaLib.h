@@ -151,31 +151,11 @@ public:
         }
         return **this;
     }
-    T &operator=(T const &value) {
-        if constexpr (std::is_copy_assignable_v<T>) {
-            operator*() = value;
-        } else if constexpr (std::is_copy_constructible_v<T>) {
-            Delete();
-            New(value);
-        } else {
-            VEngine_Log(typeid(T));
-            VENGINE_EXIT;
-        }
-        return **this;
-    }
-    T &operator=(T const &&value) {
-        operator=(value);
-    }
-    T &operator=(T &&value) {
-        if constexpr (std::is_move_assignable_v<T>) {
-            operator*() = std::move(value);
-        } else if constexpr (std::is_move_constructible_v<T>) {
-            Delete();
-            New(std::move(value));
-        } else {
-            VEngine_Log(typeid(T));
-            VENGINE_EXIT;
-        }
+    template<typename Arg>
+        requires(std::is_assignable_v<T, Arg &&>)
+    T &
+    operator=(Arg &&value) {
+        operator*() = std::forward<Arg>(value);
         return **this;
     }
 };
@@ -349,34 +329,16 @@ public:
         }
         return *stackObj;
     }
-    T &operator=(T const &value) {
-        if (!initialized) {
-            if constexpr (std::is_copy_constructible_v<T>) {
-                stackObj.New(value);
-            } else {
-                VEngine_Log(typeid(T));
-                VENGINE_EXIT;
-            }
-            initialized = true;
-
+    template<typename Arg>
+        requires(std::is_assignable_v<StackObject<T, false>, Arg &&>)
+    T &
+    operator=(Arg &&value) {
+        if (initialized) {
+            return stackObj = std::forward<Arg>(value);
         } else {
-            stackObj = value;
+            New(std::forward<Arg>(value));
+            return **this;
         }
-        return *stackObj;
-    }
-    T &operator=(T &&value) {
-        if (!initialized) {
-            if constexpr (std::is_move_constructible_v<T>) {
-                stackObj.New(std::move(value));
-            } else {
-                VEngine_Log(typeid(T));
-                VENGINE_EXIT;
-            }
-            initialized = true;
-        } else {
-            stackObj = std::move(value);
-        }
-        return *stackObj;
     }
 };
 //Declare Tuple
@@ -671,12 +633,13 @@ struct IteEndTag {};
 template<typename T>
 class Iterator {
 private:
-    SBO<IEnumerable<T>> ptr;
+    using PtrType = SBO<IEnumerable<T>>;
+    PtrType ptr;
 
 public:
     IEnumerable<T> *Get() const { return ptr; }
     template<typename Func>
-        requires((!std::is_same_v<Iterator, std::remove_cvref_t<Func>>)&&decltype(ptr)::template LegalCtorFunc<Func>)
+        requires((!std::is_same_v<Iterator, std::remove_cvref_t<Func>>)&&PtrType::template LegalCtorFunc<Func>)
     Iterator(Func &&func) : ptr(std::forward<Func>(func)) {}
     Iterator(Iterator const &) = delete;
     Iterator(Iterator &&v)
@@ -857,6 +820,15 @@ template<size_t i, typename Dest, typename T, typename... Args>
 struct IndexOfStruct<i, Dest, T, Args...> {
     static constexpr size_t Index = std::is_same_v<Dest, T> ? i : IndexOfStruct<i + 1, Dest, Args...>::Index;
 };
+template<size_t i, typename Dest, typename... Args>
+struct AssignableOfStruct {
+    static constexpr size_t Index = i;
+};
+
+template<size_t i, typename Dest, typename T, typename... Args>
+struct AssignableOfStruct<i, Dest, T, Args...> {
+    static constexpr size_t Index = std::is_assignable_v<Dest, T> ? i : AssignableOfStruct<i + 1, Dest, Args...>::Index;
+};
 }// namespace detail
 class Evaluable {};
 template<class Func>
@@ -888,6 +860,8 @@ public:
     static constexpr size_t argSize = sizeof...(AA);
     template<typename TarT>
     static constexpr size_t IndexOf = detail::IndexOfStruct<0, std::remove_cvref_t<TarT>, AA...>::Index;
+    template<typename TarT>
+    static constexpr size_t AssignableOf = detail::AssignableOfStruct<0, std::remove_cvref_t<TarT>, AA...>::Index;
 
 private:
     template<typename... Funcs>
@@ -934,17 +908,6 @@ private:
     struct Constructor;
     template<typename B, typename... Args>
     struct Constructor<B, Args...> {
-        template<typename A>
-        static size_t CopyOrMoveConst(void *ptr, size_t idx, A &&a) {
-            if constexpr (std::is_same_v<std::remove_cvref_t<B>, std::remove_cvref_t<A>>) {
-                new (ptr) B(std::forward<A>(a));
-                return idx;
-            } else if constexpr (sizeof...(Args) == 0) {
-                return idx + 1;
-            } else {
-                return Constructor<Args...>::template CopyOrMoveConst<A>(ptr, idx + 1, std::forward<A>(a));
-            }
-        }
         template<typename... A>
         static size_t AnyConst(void *ptr, size_t idx, A &&...a) {
             if constexpr (std::is_constructible_v<B, A &&...>) {
@@ -976,16 +939,18 @@ private:
 
     std::aligned_storage_t<(detail::max_size<sizeof(AA)...>::value), (detail::max_size<alignof(AA)...>::value)> placeHolder;
     size_t switcher = 0;
+    void m_dispose() {
+        if constexpr (detail::Any_v<!std::is_trivially_destructible_v<AA>...>) {
+            auto disposeFunc = [&]<typename T>(T &value) {
+                value.~T();
+            };
+            visit(disposeFunc);
+        }
+    }
 
 public:
     template<size_t i>
     using TypeOf = std::tuple_element_t<i, std::tuple<AA...>>;
-
-    template<typename... Args>
-    void reset(Args &&...args) {
-        this->~variant();
-        new (this) variant(std::forward<Args>(args)...);
-    }
 
     bool valid() const { return switcher < argSize; }
 
@@ -1127,12 +1092,6 @@ public:
 #endif
         return std::move(DefaultCtor::template Get<tarIdx>(&placeHolder));
     }
-    template<typename Arg>
-    variant &operator=(Arg &&arg) {
-        this->~variant();
-        new (this) variant(std::forward<Arg>(arg));
-        return *this;
-    }
     template<typename Func>
     void visit(Func &&func) & {
         if (switcher >= argSize) return;
@@ -1271,12 +1230,7 @@ public:
         }
     }
     void dispose() {
-        if constexpr (detail::Any_v<!std::is_trivially_destructible_v<AA>...>) {
-            auto disposeFunc = [&]<typename T>(T &value) {
-                value.~T();
-            };
-            visit(disposeFunc);
-        }
+        m_dispose();
         switcher = argSize;
     }
     variant() {
@@ -1290,12 +1244,18 @@ public:
                  std::is_constructible_v<AA, T &&, Arg &&...>...>)
     variant(T &&t, Arg &&...arg) {
         if constexpr (sizeof...(Arg) == 0) {
-            switcher = DefaultCtor::template CopyOrMoveConst<T>(&placeHolder, 0, std::forward<T>(t));
-            if (switcher < argSize) return;
+            using PureT = std::remove_cvref_t<T>;
+            constexpr size_t tIdx = IndexOf<PureT>;
+            if constexpr (tIdx < argSize) {
+                switcher = tIdx;
+                new (&placeHolder) PureT(std::forward<T>(t));
+            } else {
+                switcher = DefaultCtor::template AnyConst<T, Arg...>(&placeHolder, 0, std::forward<T>(t), std::forward<Arg>(arg)...);
+            }
+        } else {
+            switcher = DefaultCtor::template AnyConst<T, Arg...>(&placeHolder, 0, std::forward<T>(t), std::forward<Arg>(arg)...);
         }
-        switcher = DefaultCtor::template AnyConst<T, Arg...>(&placeHolder, 0, std::forward<T>(t), std::forward<Arg>(arg)...);
     }
-
     variant(variant const &v)
         : switcher(v.switcher) {
         auto copyFunc = [&]<typename T>(T const &value) {
@@ -1311,7 +1271,77 @@ public:
         v.visit(moveFunc);
     }
     ~variant() {
-        dispose();
+        m_dispose();
+    }
+    template<typename... Args>
+        requires(detail::Any_v<
+                 std::is_constructible_v<AA, Args &&...>...>)
+    void reset(Args &&...args) {
+        this->~variant();
+        new (this) variant(std::forward<Args>(args)...);
+    }
+    template<typename T>
+        requires(detail::Any_v<
+                 std::is_assignable_v<AA, T &&>...>)
+    variant &
+    operator=(T &&t) {
+        using PureT = std::remove_cvref_t<T>;
+        constexpr size_t idxOfT = IndexOf<PureT>;
+        if constexpr (idxOfT < argSize) {
+            if (switcher == idxOfT) {
+                *reinterpret_cast<PureT *>(&placeHolder) = std::forward<T>(t);
+            } else {
+                dispose();
+                new (&placeHolder) PureT(std::forward<T>(t));
+                switcher = idxOfT;
+            }
+        } else {
+            constexpr size_t asignOfT = AssignableOf<std::remove_cvref_t<T>>;
+            static_assert(asignOfT < argSize, "illegal type");
+            using CurT = TypeOf<asignOfT>;
+            if (switcher == asignOfT) {
+                *reinterpret_cast<CurT *>(&placeHolder) = std::forward<T>(t);
+            } else {
+                dispose();
+                new (&placeHolder) CurT(std::forward<T>(t));
+                switcher = asignOfT;
+            }
+        }
+        return *this;
+    }
+    variant &operator=(variant const &a) {
+        if (switcher != a.switcher) {
+            this->~variant();
+            new (this) variant(a);
+        } else {
+            auto assignFunc = [&]<typename T>(T const &v) {
+                if constexpr (std::is_copy_assignable_v<T>)
+                    *reinterpret_cast<T *>(&placeHolder) = v;
+                else {
+                    VEngine_Log(typeid(T));
+                    VENGINE_EXIT;
+                }
+            };
+            a.visit(assignFunc);
+        }
+        return *this;
+    }
+    variant &operator=(variant &&a) {
+        if (switcher != a.switcher) {
+            this->~variant();
+            new (this) variant(std::move(a));
+        } else {
+            auto assignFunc = [&]<typename T>(T &v) {
+                if constexpr (std::is_move_assignable_v<T>)
+                    *reinterpret_cast<T *>(&placeHolder) = std::move(v);
+                else {
+                    VEngine_Log(typeid(T));
+                    VENGINE_EXIT;
+                }
+            };
+            a.visit(assignFunc);
+        }
+        return *this;
     }
 };
 
