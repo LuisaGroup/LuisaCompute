@@ -123,6 +123,12 @@ void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::Com
 
     // 3. check new command if it's a head
     if (commandRelation->prev.empty()) {
+        // TODO : problem here
+        /*
+         *                                -- buffer2
+         *                             /
+         * buffer -- buffer1 -- buffer -- buffer1
+         */
         _head.push_back(commandRelation);
     }
 }
@@ -362,8 +368,6 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device, size_t size) {
     this->device = device;
     this->_commandRelationData.reserve(size);
-    this->_head.reserve(size);
-    this->_tail.reserve(size);
 }
 
 }// namespace luisa::compute
