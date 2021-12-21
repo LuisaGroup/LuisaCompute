@@ -973,7 +973,7 @@ public:
     size_t index() const { return switcher; }
     template<typename T>
     bool IsTypeOf() const {
-        return switcher == IndexOf<T>;
+        return switcher == (IndexOf<T>);
     }
 
     template<size_t i>
@@ -1013,7 +1013,7 @@ public:
     template<typename T>
         requires((IndexOf<T>) < argSize)
     T const *try_get() const & {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
             return nullptr;
         }
@@ -1023,7 +1023,7 @@ public:
     template<typename T>
         requires((IndexOf<T>) < argSize)
     T *try_get() & {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
             return nullptr;
         }
@@ -1032,7 +1032,7 @@ public:
     template<typename T>
         requires((IndexOf<T>) < argSize)
     optional<T> try_get() && {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
             return {};
         }
@@ -1042,7 +1042,7 @@ public:
         requires((IndexOf<T>) < argSize)
     T get_or(T &&value)
     const & {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
             return std::forward<T>(value);
         }
@@ -1051,7 +1051,7 @@ public:
     template<typename T>
         requires((IndexOf<T>) < argSize)
     T get_or(T &&value) && {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
             return std::forward<T>(value);
         }
@@ -1060,7 +1060,7 @@ public:
     template<typename T>
         requires((IndexOf<T>) < argSize)
     T const &force_get() const & {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
 #ifdef DEBUG
         if (tarIdx != switcher) {
             VEngine_Log("Try get wrong variant type!\n");
@@ -1073,7 +1073,7 @@ public:
     template<typename T>
         requires((IndexOf<T>) < argSize)
     T &force_get() & {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
 #ifdef DEBUG
         if (tarIdx != switcher) {
             VEngine_Log("Try get wrong variant type!\n");
@@ -1085,7 +1085,7 @@ public:
     template<typename T>
         requires((IndexOf<T>) < argSize)
     T && force_get() && {
-        static constexpr auto tarIdx = IndexOf<T>;
+        static constexpr auto tarIdx = (IndexOf<T>);
 #ifdef DEBUG
         if (tarIdx != switcher) {
             VEngine_Log("Try get wrong variant type!\n");
@@ -1245,11 +1245,11 @@ public:
         requires(detail::Any_v<
                  std::is_constructible_v<AA, T &&, Arg &&...>...>)
     variant(T &&t, Arg &&...arg) {
-        if constexpr (sizeof...(Arg) == 0) {
+        if constexpr ((sizeof...(Arg)) == 0) {
             using PureT = std::remove_cvref_t<T>;
             constexpr size_t tIdx = IndexOf<PureT>;
-            if constexpr (tIdx < argSize) {
-                switcher = tIdx;
+            if constexpr ((tIdx) < argSize) {
+                switcher = (tIdx);
                 new (&placeHolder) PureT(std::forward<T>(t));
             } else {
                 switcher = DefaultCtor::template AnyConst<T, Arg...>(&placeHolder, 0, std::forward<T>(t), std::forward<Arg>(arg)...);
@@ -1289,24 +1289,24 @@ public:
     operator=(T &&t) {
         using PureT = std::remove_cvref_t<T>;
         constexpr size_t idxOfT = IndexOf<PureT>;
-        if constexpr (idxOfT < argSize) {
-            if (switcher == idxOfT) {
+        if constexpr ((idxOfT) < argSize) {
+            if (switcher == (idxOfT)) {
                 *reinterpret_cast<PureT *>(&placeHolder) = std::forward<T>(t);
             } else {
-                dispose();
+                m_dispose();
                 new (&placeHolder) PureT(std::forward<T>(t));
-                switcher = idxOfT;
+                switcher = (idxOfT);
             }
         } else {
             constexpr size_t asignOfT = AssignableOf<std::remove_cvref_t<T>>;
-            static_assert(asignOfT < argSize, "illegal type");
-            using CurT = TypeOf<asignOfT>;
-            if (switcher == asignOfT) {
+            static_assert((asignOfT) < argSize, "illegal type");
+            using CurT = TypeOf<(asignOfT)>;
+            if (switcher == (asignOfT)) {
                 *reinterpret_cast<CurT *>(&placeHolder) = std::forward<T>(t);
             } else {
-                dispose();
+                m_dispose();
                 new (&placeHolder) CurT(std::forward<T>(t));
-                switcher = asignOfT;
+                switcher = (asignOfT);
             }
         }
         return *this;
@@ -1346,7 +1346,6 @@ public:
         return *this;
     }
 };
-
 template<typename... T>
 struct hash<variant<T...>> {
     size_t operator()(variant<T...> const &v) const {
