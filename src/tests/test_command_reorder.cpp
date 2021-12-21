@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device("ispc");
 #endif
 
-    auto width = 100u, height = 100u;
+    auto width = 1920u, height = 1080u;
 
     auto texture = device.create_image<float>(PixelStorage::BYTE4, width, height);
     auto texture1 = device.create_image<float>(PixelStorage::BYTE4, width, height);
@@ -31,10 +31,6 @@ int main(int argc, char *argv[]) {
     auto buffer2 = device.create_buffer<float>(width * height);
 
     CommandReorderVisitor commandReorderVisitor(device.impl(), 100);
-
-    {
-        std::vector<CommandList> reordered_list;
-    }
 
     {
         auto bindless_array = device.create_bindless_array(3);
@@ -131,7 +127,7 @@ int main(int argc, char *argv[]) {
          *        /
          * buffer -- buffer1 --
          *                      \
-         *          -----------  bindless_array
+         *          ------------ bindless_array
          *        /
          * texture1 -- texture -- texture2
          */
@@ -156,6 +152,36 @@ int main(int argc, char *argv[]) {
         //        assert(size[0] == 2);
         //        assert(size[1] == 2);
         //        assert(size[2] == 1);
+    }
+
+    {
+        CommandList feed;
+
+        /*
+         *                               -- buffer2
+         *                             /
+         * buffer -- buffer1 -- buffer -- buffer1
+         */
+        feed.append(buffer1.copy_from(buffer));
+        feed.append(buffer.copy_from(buffer1));
+        feed.append(buffer1.copy_from(buffer));
+        feed.append(buffer2.copy_from(buffer));
+
+        for (auto command : feed) {
+            command->accept(commandReorderVisitor);
+        }
+        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+
+        assert(reordered_list.size() == 3);
+        std::vector<int> size(reordered_list.size(), 0);
+        for (auto i = 0; i < reordered_list.size(); ++i) {
+            auto &command_list = reordered_list[i];
+            for (auto command : command_list)
+                ++size[i];
+        }
+        assert(size[0] == 1);
+        assert(size[1] == 1);
+        assert(size[2] == 2);
     }
 
     return 0;
