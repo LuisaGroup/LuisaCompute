@@ -60,7 +60,6 @@ bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB
                (sourceB.offset >= sourceA.offset && sourceB.offset <= sourceA.offset + sourceA.size) ||
                (sourceB.offset + sourceB.size >= sourceA.offset && sourceB.offset + sourceB.size <= sourceA.offset + sourceA.size);
     } else {
-        // TODO : different types
         // sourceA will be set to higher level
         if (sourceB.type == CommandType::BINDLESS_ARRAY || sourceB.type == CommandType::ACCEL ||
             (sourceB.type == CommandType::MESH && (sourceA.type == CommandType::BUFFER || sourceA.type == CommandType::TEXTURE)))
@@ -94,9 +93,9 @@ bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB
 }
 
 void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::CommandRelation *commandRelation) noexcept {
-    // 1. check all tails if they overlap with the command under processing
-    for (int i = 0; i < _tail.size();) {
-        CommandRelation *lastCommandRelation = _tail[i];
+    // 1. check all relations if they overlap with the command under processing
+    for (auto & i : _commandRelationData) {
+        CommandRelation *lastCommandRelation = &i;
         bool overlap = false;
         // check every condition
         for (const auto &source : commandRelation->sourceSet) {
@@ -112,9 +111,9 @@ void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::Com
         if (overlap) {
             lastCommandRelation->next.push_back(commandRelation);
             commandRelation->prev.push_back(lastCommandRelation);
-            _tail.erase(_tail.begin() + i);
-        } else {
-            ++i;
+            auto iter = std::find(_tail.begin(), _tail.end(), lastCommandRelation);
+            if (iter != _tail.end())
+                _tail.erase(iter);
         }
     }
 
@@ -362,8 +361,6 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device, size_t size) {
     this->device = device;
     this->_commandRelationData.reserve(size);
-    this->_head.reserve(size);
-    this->_tail.reserve(size);
 }
 
 }// namespace luisa::compute
