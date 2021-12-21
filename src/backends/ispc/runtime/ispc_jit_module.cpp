@@ -54,7 +54,12 @@ JITModule::~JITModule() noexcept = default;
     options.GuaranteedTailCallOpt = true;
     auto mcpu = llvm::sys::getHostCPUName();
     auto machine = target->createTargetMachine(
-        target_triple, mcpu, "+avx2",
+        target_triple, mcpu,
+#if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
+        "+neon",
+#else
+        "+avx2",
+#endif
         options, {}, {},
         llvm::CodeGenOpt::Aggressive, true);
     if (machine == nullptr) {

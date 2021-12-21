@@ -554,7 +554,9 @@ class SBO {
 
 public:
     template<typename Func>
-    constexpr static bool LegalCtorFunc = (std::is_invocable_v<Func, void *> && IsLegalType<FuncRetType<std::remove_cvref_t<Func>>>);
+    constexpr static bool LegalCtorFunc =
+        std::is_invocable_v<Func, void *> &&
+            IsLegalType<FuncRetType<std::remove_cvref_t<Func>>>;
     I *operator->() const {
         return ptr;
     }
@@ -564,40 +566,40 @@ public:
     }
 
     template<typename Func>
-        requires((!std::is_same_v<SBO, std::remove_cvref_t<Func>>)&&LegalCtorFunc<Func>)
-    SBO(Func &&func) {
-        using T = std::remove_pointer_t<FuncRetType<std::remove_cvref_t<Func>>>;
-        constexpr size_t sz = sizeof(T);
-        void *originPtr;
-        if constexpr (sz > sboSize) {
-            originPtr = vengine_malloc(sz);
-        } else {
-            originPtr = &buffer;
+        requires std::negation_v<std::is_same<SBO, std::remove_cvref_t<Func>>> && LegalCtorFunc<Func>
+        SBO(Func &&func) {
+            using T = std::remove_pointer_t<FuncRetType<std::remove_cvref_t<Func>>>;
+            constexpr size_t sz = sizeof(T);
+            void *originPtr;
+            if constexpr (sz > sboSize) {
+                originPtr = vengine_malloc(sz);
+            } else {
+                originPtr = &buffer;
+            }
+            func(originPtr);
+            ptr = reinterpret_cast<T *>(originPtr);
+            if constexpr (std::is_move_constructible_v<T>) {
+                moveFunc = [](void *src, void *dst) -> void * {
+                    if (dst)
+                        return new (dst) T(std::move(*reinterpret_cast<T *>(src)));
+                    else {
+                        I *ptr = reinterpret_cast<I *>(src);
+                        T *offsetPtr = static_cast<T *>(ptr);
+                        return offsetPtr;
+                    }
+                };
+            } else {
+                moveFunc = [](void *src, void *dst) -> void * {
+                    if (dst)
+                        VEngine_Log(typeid(T));
+                    else {
+                        I *ptr = reinterpret_cast<I *>(0);
+                        T *offsetPtr = static_cast<T *>(ptr);
+                        return offsetPtr;
+                    }
+                };
+            }
         }
-        func(originPtr);
-        ptr = reinterpret_cast<T *>(originPtr);
-        if constexpr (std::is_move_constructible_v<T>) {
-            moveFunc = [](void *src, void *dst) -> void * {
-                if (dst)
-                    return new (dst) T(std::move(*reinterpret_cast<T *>(src)));
-                else {
-                    I *ptr = reinterpret_cast<I *>(src);
-                    T *offsetPtr = static_cast<T *>(ptr);
-                    return offsetPtr;
-                }
-            };
-        } else {
-            moveFunc = [](void *src, void *dst) -> void * {
-                if (dst)
-                    VEngine_Log(typeid(T));
-                else {
-                    I *ptr = reinterpret_cast<I *>(0);
-                    T *offsetPtr = static_cast<T *>(ptr);
-                    return offsetPtr;
-                }
-            };
-        }
-    }
     SBO(SBO const &) = delete;
     SBO(SBO &&sbo)
         : moveFunc(sbo.moveFunc) {
@@ -639,7 +641,7 @@ private:
 public:
     IEnumerable<T> *Get() const { return ptr; }
     template<typename Func>
-        requires((!std::is_same_v<Iterator, std::remove_cvref_t<Func>>)&&PtrType::template LegalCtorFunc<Func>)
+        requires((std::negation_v<std::is_same<Iterator, std::remove_cvref_t<Func>>>)&&PtrType::template LegalCtorFunc<Func>)
     Iterator(Func &&func) : ptr(std::forward<Func>(func)) {}
     Iterator(Iterator const &) = delete;
     Iterator(Iterator &&v)

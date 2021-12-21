@@ -1,7 +1,9 @@
 #pragma vengine_package serialize
+
 #include <serialize/config.h>
 #include <serialize/serialize.h>
 #include <vstl/variant_util.h>
+
 namespace luisa::compute {
 using namespace toolhub::db;
 template<typename T>
@@ -213,6 +215,7 @@ struct DeserArray {
         Func &&setView) const {
         size_t sz = arr.Length() * sizeof(T);
         T *ptr = (T *)evt.Allocate(sz);
+
         setView(std::span<T const>(ptr, arr.Length()));
         for (auto &&i : arr) {
             *ptr = i.get_or<BasicType_t<T>>(0);
