@@ -31,7 +31,7 @@ public:
 private:
     luisa::shared_ptr<GLFWContext> _context;
     GLFWwindow *_handle{nullptr};
-    luisa::unique_ptr<GLTexture> _texture;
+    mutable luisa::unique_ptr<GLTexture> _texture;
     MouseButtonCallback _mouse_button_callback;
     CursorPositionCallback _cursor_position_callback;
     WindowSizeCallback _window_size_callback;

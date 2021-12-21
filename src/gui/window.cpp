@@ -34,7 +34,7 @@ class GLFWContext {
 public:
     GLFWContext() noexcept {
         glfwSetErrorCallback([](int error, const char *message) noexcept {
-            LUISA_ERROR_WITH_LOCATION("GLFW error (code = {}): {}.", error, message);
+            LUISA_WARNING_WITH_LOCATION("GLFW error (code = {}): {}", error, message);
         });
         if (!glfwInit()) { LUISA_ERROR_WITH_LOCATION("Failed to initialize GLFW."); }
     }
@@ -171,8 +171,8 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
 }
 
 Window::~Window() noexcept {
-    _texture.reset();
     glfwMakeContextCurrent(_handle);
+    _texture.reset();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown(_handle);
     ImGui::DestroyContext();
@@ -232,31 +232,35 @@ void Window::set_should_close() noexcept {
 }
 
 void Window::_begin_frame() noexcept {
-    glfwMakeContextCurrent(_handle);
-    glfwPollEvents();
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame(_handle);
-    ImGui::NewFrame();
+    if (!should_close()) {
+        glfwMakeContextCurrent(_handle);
+        glfwPollEvents();
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame(_handle);
+        ImGui::NewFrame();
+    }
 }
 
 void Window::_end_frame() noexcept {
-    // background
-    if (_texture != nullptr) {
-        ImVec2 background_size{
-            static_cast<float>(_texture->size().x),
-            static_cast<float>(_texture->size().y)};
-        ImGui::GetBackgroundDrawList()->AddImage(
-            _texture->handle(), {}, background_size);
+    if (!should_close()) {
+        // background
+        if (_texture != nullptr) {
+            ImVec2 background_size{
+                static_cast<float>(_texture->size().x),
+                static_cast<float>(_texture->size().y)};
+            ImGui::GetBackgroundDrawList()->AddImage(
+                _texture->handle(), {}, background_size);
+        }
+        // rendering
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(_handle, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(0.3f, 0.5f, 0.7f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        glfwSwapBuffers(_handle);
     }
-    // rendering
-    ImGui::Render();
-    int display_w, display_h;
-    glfwGetFramebufferSize(_handle, &display_w, &display_h);
-    glViewport(0, 0, display_w, display_h);
-    glClearColor(0.3f, 0.5f, 0.7f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    glfwSwapBuffers(_handle);
 }
 
 void Window::set_size(uint2 size) noexcept {

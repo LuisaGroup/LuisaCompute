@@ -130,7 +130,16 @@ bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) c
     return false;
 }
 
-void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform) noexcept {
+void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept {
+}
+
+void ISPCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
+}
+
+void ISPCDevice::set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept {
+}
+
+void ISPCDevice::set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept {
 }
 
 void ISPCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {

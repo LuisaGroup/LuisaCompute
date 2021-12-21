@@ -38,7 +38,6 @@ vstd::unique_ptr<IJsonDict> FuncSerializer::GetBuilderSerFunc(detail::FunctionBu
         callablesArr->Add(i->_hash);
     }
     for (auto &&i : b->_used_builtin_callables) {
-        std::cout << "callables\n";
         builtInCallArr->Add(static_cast<int64>(i));
     }
     *blkSize << b->_block_size.x << b->_block_size.y << b->_block_size.z;
@@ -156,7 +155,6 @@ vstd::unique_ptr<IJsonArray> FuncSerializer::SerKernel(Function f, IJsonDatabase
     func(func, f);
     arr->Reserve(checkMap.size());
     for (auto &&i : checkMap) {
-        std::cout << "checked\n";
         arr->Add(GetBuilderSerFunc(f.builder(), db));
     }
     return arr;
@@ -187,6 +185,36 @@ vstd::unique_ptr<IJsonArray> Serializer_Impl::SerKernel(Function func, IJsonData
 }
 Function Serializer_Impl::DeserKernel(IJsonArray *arr) const {
     return FuncSerializer::DeserKernel(arr);
+}
+
+vstd::unique_ptr<IJsonArray> Serializer_Impl::SerTypes(IJsonDatabase *db) const {
+    auto arr = db->CreateArray();
+    struct SerTypeVisitor : public TypeVisitor {
+        IJsonDatabase *db;
+        IJsonArray *arr;
+        SerTypeVisitor(
+            IJsonDatabase *db,
+            IJsonArray *arr) : arr(arr), db(db) {}
+        void visit(Type const *t) noexcept override {
+            arr->Add(t->description());
+        }
+    };
+    SerTypeVisitor v{db, arr.get()};
+    Type::traverse(v);
+    return arr;
+}
+vstd::vector<Type const *> Serializer_Impl::DeserTypes(IJsonArray *arr) const {
+    vstd::vector<Type const *> allTypes;
+    allTypes.push_back_func(
+        [&](size_t i) -> Type const * {
+            auto ss = (*arr)[i].try_get<std::string_view>();
+            if (ss)
+                return Type::from(*ss);
+            else
+                return nullptr;
+        },
+        arr->Length());
+    return allTypes;
 }
 vstd::optional<Serializer_Impl> serializer;
 VSTL_EXPORT_C ISerializer const *Serialize_GetFactory() {

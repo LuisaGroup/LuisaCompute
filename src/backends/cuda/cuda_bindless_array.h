@@ -48,7 +48,7 @@ public:
     explicit CUDABindlessArray(size_t capacity) noexcept;
     ~CUDABindlessArray() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    void emplace_buffer(size_t index, CUdeviceptr buffer, size_t offset) noexcept;
+    void emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept;
     void emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
     void emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
     void remove_buffer(size_t index) noexcept;

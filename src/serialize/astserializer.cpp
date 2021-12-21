@@ -1,55 +1,31 @@
 #pragma vengine_package serialize
+
 #include <serialize/config.h>
 #include <serialize/serialize.h>
+#include <vstl/variant_util.h>
+
 namespace luisa::compute {
-vstd::unique_ptr<toolhub::db::IJsonDict> AstSerializer::Serialize(Type const &t, toolhub::db::IJsonDatabase *db) {
-    auto r = db->CreateDict();
-    r->Set("hash", t._hash);
-    r->Set("size", t.size());
-    r->Set("align", t.alignment());
-    r->Set("tag", static_cast<int64>(t.tag()));
-    r->Set("index", t._index);
-    r->Set("dim", t.dimension());
-    return r;
-}
-void AstSerializer::DeSerialize(Type &t, IJsonDict *dict) {
-    auto getOr = [&](auto &&opt) {
-        return dict->Get(opt).template get_or<int64>(0);
-    };
-    t._hash = getOr("hash");
-    t._size = getOr("size");
-    t._index = getOr("index");
-    t._alignment = getOr("alignment");
-    t._dimension = getOr("dimension");
-    t._tag = static_cast<Type::Tag>(getOr("tag"));
-}
-
-vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(TypeData const &t, IJsonDatabase *db) {
-    auto data = db->CreateDict();
-    data->Set("description", std::string_view(t.description.data(), t.description.size()));
-    auto members = db->CreateArray();
-    members->Reserve(t.members.size());
-    for (auto &&i : t.members) {
-        members->Add(i->_hash);
-    }
-    data->Set("members", std::move(members));
-    return data;
-}
-void AstSerializer::DeSerialize(TypeData &d, IJsonDict *dict) {
-    auto descOpt = dict->Get("description").try_get<std::string_view>();
-    if (descOpt) {
-        d.description = luisa::string(descOpt->data(), descOpt->size());
-    }
-    auto memberArr = dict->Get("members").try_get<IJsonArray *>();
-    if (memberArr) {
-        d.members.reserve((*memberArr)->Length());
-        for (auto &&i : (**memberArr)) {
-            auto it = i.try_get<int64>();
-            d.members.push_back(it ? Type::get_type(*it) : nullptr);
-        }
-    }
-}
-
+using namespace toolhub::db;
+template<typename T>
+struct BasicType;
+template<>
+struct BasicType<float> {
+    using Type = double;
+};
+template<>
+struct BasicType<int> {
+    using Type = int64;
+};
+template<>
+struct BasicType<uint> {
+    using Type = int64;
+};
+template<>
+struct BasicType<bool> {
+    using Type = bool;
+};
+template<typename T>
+using BasicType_t = typename BasicType<T>::Type;
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Expression const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("hash", t._hash);
@@ -147,615 +123,219 @@ void AstSerializer::DeSerialize(RefExpr &t, IJsonDict *r, DeserVisitor const &ev
         DeSerialize(t._variable, *dd);
     }
 }
-
+template<typename T>
+struct SerArrayVisitor {
+    void SerArray(
+        IJsonArray &r,
+        vstd::span<T const> a) const {
+        for (auto &&i : a) {
+            r << static_cast<BasicType_t<T>>(i);
+        }
+    }
+    void SerValue(
+        IJsonDict *dict,
+        IJsonDatabase *db,
+        T const &a) const {
+        dict->Set("value", static_cast<BasicType_t<T>>(a));
+    }
+};
+template<typename T, size_t n>
+struct SerArrayVisitor<luisa::Vector<T, n>> {
+    using Type = luisa::Vector<T, n>;
+    void SerArray(
+        IJsonArray &r,
+        vstd::span<Type const> a) const {
+        for (auto &&i : a) {
+            auto ptr = reinterpret_cast<T const *>(&i);
+            for (auto id : vstd::range(n)) {
+                r << static_cast<BasicType_t<T>>(ptr[id]);
+            }
+        }
+    }
+    void SerValue(
+        IJsonDict *dict,
+        IJsonDatabase *db,
+        Type const &a) const {
+        auto arr = db->CreateArray();
+        arr->Reserve(n);
+        auto ptr = reinterpret_cast<T const *>(&a);
+        for (auto id : vstd::range(n)) {
+            (*arr) << static_cast<BasicType_t<T>>(ptr[id]);
+        }
+        dict->Set("value", std::move(arr));
+    }
+};
+template<size_t n>
+struct SerArrayVisitor<luisa::Matrix<n>> {
+    using Type = luisa::Matrix<n>;
+    void SerArray(
+        IJsonArray &r,
+        vstd::span<Type const> a) const {
+        for (auto &&i : a) {
+            auto ptr = reinterpret_cast<float const *>(&i);
+            for (auto id : vstd::range(n * n)) {
+                r << static_cast<double>(ptr[id]);
+            }
+        }
+    }
+    void SerValue(
+        IJsonDict *dict,
+        IJsonDatabase *db,
+        Type const &a) const {
+        auto arr = db->CreateArray();
+        arr->Reserve(n * n);
+        auto ptr = reinterpret_cast<float const *>(&a);
+        for (auto id : vstd::range(n * n)) {
+            (*arr) << static_cast<double>(ptr[id]);
+        }
+        dict->Set("value", std::move(arr));
+    }
+};
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantData const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
     auto &&view = t.view();
     r->Set("view_type", view.index());
     r->Set("hash", t._hash);
-    struct SerValueVisitor {
-        IJsonDatabase *db;
-        IJsonArray &r;
-        void operator()(std::span<const bool> a) const {
-            for (auto &&i : a) {
-                r << i;
-            }
-        }
-        void operator()(std::span<const int> a) const {
-            for (auto &&i : a) {
-                r << i;
-            }
-        }
-        void operator()(std::span<const uint> a) const {
-            for (auto &&i : a) {
-                r << i;
-            }
-        }
-        void operator()(std::span<const float> a) const {
-            for (auto &&i : a) {
-                r << double(i);
-            }
-        }
-        void operator()(std::span<const bool2> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y;
-            }
-        }
-        void operator()(std::span<const int2> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y;
-            }
-        }
-        void operator()(std::span<const uint2> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y;
-            }
-        }
-        void operator()(std::span<const float2> a) const {
-            for (auto &&i : a) {
-                r << double(i.x) << double(i.y);
-            }
-        }
-        void operator()(std::span<const bool3> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y << i.z;
-            }
-        }
-        void operator()(std::span<const int3> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y << i.z;
-            }
-        }
-        void operator()(std::span<const uint3> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y << i.z;
-            }
-        }
-        void operator()(std::span<const float3> a) const {
-            for (auto &&i : a) {
-                r << double(i.x) << double(i.y) << double(i.z);
-            }
-        }
-        void operator()(std::span<const bool4> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y << i.z << i.w;
-            }
-        }
-        void operator()(std::span<const int4> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y << i.z << i.w;
-            }
-        }
-        void operator()(std::span<const uint4> a) const {
-            for (auto &&i : a) {
-                r << i.x << i.y << i.z << i.w;
-            }
-        }
-        void operator()(std::span<const float4> a) const {
-            for (auto &&i : a) {
-                r << double(i.x) << double(i.y) << double(i.z) << double(i.w);
-            }
-        }
-        void operator()(std::span<const float2x2> a) const {
-            for (auto &&i : a) {
-                for (auto &&c : i.cols)
-                    r << double(c.x) << double(c.y);
-            }
-        }
-        void operator()(std::span<const float3x3> a) const {
-            for (auto &&i : a) {
-                for (auto &&c : i.cols)
-                    r << double(c.x) << double(c.y) << double(c.z);
-            }
-        }
-        void operator()(std::span<const float4x4> a) const {
-            for (auto &&i : a) {
-                for (auto &&c : i.cols)
-                    r << double(c.x) << double(c.y) << double(c.z) << double(c.w);
-            }
-        }
-    };
     auto arr = db->CreateArray();
-    SerValueVisitor vis{db, *arr};
-    std::visit(vis, view);
+    std::visit(
+        [&]<typename T>(T const &t) {
+            SerArrayVisitor<std::remove_cvref_t<typename T::element_type>>().SerArray(*arr, t);
+        },
+        view);
     r->Set("values", std::move(arr));
     return r;
 }
+
+template<typename T>
+struct DeserArray {
+    template<typename Func>
+    void operator()(
+        IJsonArray &arr,
+        DeserVisitor const &evt,
+        Func &&setView) const {
+        size_t sz = arr.Length() * sizeof(T);
+        T *ptr = (T *)evt.Allocate(sz);
+
+        setView(std::span<T const>(ptr, arr.Length()));
+        for (auto &&i : arr) {
+            *ptr = i.get_or<BasicType_t<T>>(0);
+            ptr++;
+        }
+    }
+};
+template<typename T, size_t n>
+struct DeserArray<luisa::Vector<T, n>> {
+    template<typename Func>
+    void operator()(
+        IJsonArray &arr,
+        DeserVisitor const &evt,
+        Func &&setView) const {
+        size_t sz = arr.Length() * sizeof(T);
+        T *ptr = (T *)evt.Allocate(sz);
+        setView(std::span<luisa::Vector<T, n> const>((luisa::Vector<T, n> *)ptr, arr.Length() / n));
+        for (auto &&i : arr) {
+            *ptr = i.get_or<BasicType_t<T>>(0);
+            ptr++;
+        }
+    }
+};
+template<size_t n>
+struct DeserArray<luisa::Matrix<n>> {
+    template<typename Func>
+    void operator()(
+        IJsonArray &arr,
+        DeserVisitor const &evt,
+        Func &&setView) const {
+        size_t sz = arr.Length() * sizeof(float);
+        float *ptr = (float *)evt.Allocate(sz);
+        setView(std::span<luisa::Matrix<n> const>((luisa::Matrix<n> *)ptr, arr.Length() / (n * n)));
+        for (auto &&i : arr) {
+            *ptr = i.get_or<double>(0);
+            ptr++;
+        }
+    }
+};
 void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, DeserVisitor const &evt) {
     t._hash = r->Get("hash").get_or<int64>(0);
     auto arrOpt = r->Get("values").try_get<IJsonArray *>();
     auto type = r->Get("view_type").get_or(std::numeric_limits<int64>::max());
     if (arrOpt) {
         auto &&arr = **arrOpt;
-        switch (type) {
-            case 0: {
-                size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.Allocate(sz);
-                t._view = std::span<bool const>(ptr, sz);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<bool>(false);
-                    ptr++;
-                }
-            } break;
-            case 1: {
-                size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.Allocate(sz);
-                t._view = std::span<float const>(ptr, sz);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<double>(0);
-                    ptr++;
-                }
-            } break;
-            case 2: {
-                size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.Allocate(sz);
-                t._view = std::span<int const>(ptr, sz);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 3: {
-                size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.Allocate(sz);
-                t._view = std::span<uint const>(ptr, sz);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 4: {
-                size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.Allocate(sz);
-                t._view = std::span<bool2 const>((bool2 *)ptr, sz / 2);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<bool>(false);
-                    ptr++;
-                }
-            } break;
-            case 5: {
-                size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.Allocate(sz);
-                t._view = std::span<float2 const>((float2 *)ptr, sz / 2);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<double>(0);
-                    ptr++;
-                }
-            } break;
-            case 6: {
-                size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.Allocate(sz);
-                t._view = std::span<int2 const>((int2 *)ptr, sz / 2);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 7: {
-                size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.Allocate(sz);
-                t._view = std::span<uint2 const>((uint2 *)ptr, sz / 2);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 8: {
-                size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.Allocate(sz);
-                t._view = std::span<bool3 const>((bool3 *)ptr, sz / 3);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<bool>(false);
-                    ptr++;
-                }
-            } break;
-            case 9: {
-                size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.Allocate(sz);
-                t._view = std::span<float3 const>((float3 *)ptr, sz / 3);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<double>(0);
-                    ptr++;
-                }
-            } break;
-            case 10: {
-                size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.Allocate(sz);
-                t._view = std::span<int3 const>((int3 *)ptr, sz / 3);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 11: {
-                size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.Allocate(sz);
-                t._view = std::span<uint3 const>((uint3 *)ptr, sz / 3);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 12: {
-                size_t sz = arr.Length();
-                bool *ptr = (bool *)evt.Allocate(sz);
-                t._view = std::span<bool4 const>((bool4 *)ptr, sz / 4);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<bool>(false);
-                    ptr++;
-                }
-            } break;
-            case 13: {
-                size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.Allocate(sz);
-                t._view = std::span<float4 const>((float4 *)ptr, sz / 4);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<double>(0);
-                    ptr++;
-                }
-            } break;
-            case 14: {
-                size_t sz = arr.Length() * sizeof(int);
-                int *ptr = (int *)evt.Allocate(sz);
-                t._view = std::span<int4 const>((int4 *)ptr, sz / 4);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 15: {
-                size_t sz = arr.Length() * sizeof(int);
-                uint *ptr = (uint *)evt.Allocate(sz);
-                t._view = std::span<uint4 const>((uint4 *)ptr, sz / 4);
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<int64>(0);
-                    ptr++;
-                }
-            } break;
-            case 16: {
-                size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.Allocate(sz);
-                t._view = std::span<float2x2 const>((float2x2 *)ptr, sz / sizeof(float2x2));
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<double>(0);
-                    ptr++;
-                }
-            } break;
-            case 17: {
-                size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.Allocate(sz);
-                t._view = std::span<float3x3 const>((float3x3 *)ptr, sz / sizeof(float3x3));
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<double>(0);
-                    ptr++;
-                }
-            } break;
-            case 18: {
-                size_t sz = arr.Length() * sizeof(float);
-                float *ptr = (float *)evt.Allocate(sz);
-                t._view = std::span<float4x4 const>((float4x4 *)ptr, sz / sizeof(float4x4));
-                for (auto &&i : arr) {
-                    *ptr = i.get_or<double>(0);
-                    ptr++;
-                }
-            } break;
-        }
+        vstd::VariantVisitor_t<basic_types>()(
+            [&]<typename T>() {
+                auto setFunc = [&](auto &&v) {
+                    t._view = v;
+                };
+                DeserArray<T>().template operator()<decltype(setFunc)>(
+                    arr,
+                    evt,
+                    std::move(setFunc));
+            },
+            type);
     }
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
-    struct SerValueVisitor {
-        IJsonDatabase *db;
-        IJsonDict *r;
-        void operator()(bool const &a) const {
-            r->Set("value", a);
-        }
-        void operator()(int const &a) const {
-            r->Set("value", int64(a));
-        }
-        void operator()(uint const &a) const {
-            r->Set("value", int64(a));
-        }
-        void operator()(float const &a) const {
-            r->Set("value", double(a));
-        }
-        void operator()(bool2 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (a.x);
-            (*arr) << (a.y);
-            r->Set("value", std::move(arr));
-        }
-        void operator()(int2 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (int64(a.x));
-            (*arr) << (int64(a.y));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(uint2 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (int64(a.x));
-            (*arr) << (int64(a.y));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(float2 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (float(a.x));
-            (*arr) << (float(a.y));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(bool3 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (a.x);
-            (*arr) << (a.y);
-            (*arr) << (a.z);
-            r->Set("value", std::move(arr));
-        }
-        void operator()(int3 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (int64(a.x));
-            (*arr) << (int64(a.y));
-            (*arr) << (int64(a.z));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(uint3 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (int64(a.x));
-            (*arr) << (int64(a.y));
-            (*arr) << (int64(a.z));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(float3 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (float(a.x));
-            (*arr) << (float(a.y));
-            (*arr) << (float(a.z));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(bool4 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (a.x);
-            (*arr) << (a.y);
-            (*arr) << (a.z);
-            (*arr) << (a.w);
-            r->Set("value", std::move(arr));
-        }
-        void operator()(int4 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (int64(a.x));
-            (*arr) << (int64(a.y));
-            (*arr) << (int64(a.z));
-            (*arr) << (int64(a.w));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(uint4 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (int64(a.x));
-            (*arr) << (int64(a.y));
-            (*arr) << (int64(a.z));
-            (*arr) << (int64(a.w));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(float4 const &a) const {
-            auto arr = db->CreateArray();
-            (*arr) << (float(a.x));
-            (*arr) << (float(a.y));
-            (*arr) << (float(a.z));
-            (*arr) << (float(a.w));
-            r->Set("value", std::move(arr));
-        }
-        void operator()(float2x2 const &a) const {
-            auto arr = db->CreateArray();
-            auto set = [&](auto &&c) {
-                (*arr) << (float(c.x));
-                (*arr) << (float(c.y));
-            };
-            for (auto &&i : a.cols) {
-                set(i);
+    std::visit(
+        [&]<typename T>(T const &t) {
+            if constexpr (!std::is_same_v<T, LiteralExpr::MetaValue>) {
+                SerArrayVisitor<T>().SerValue(r.get(), db, t);
             }
-            r->Set("value", std::move(arr));
-        }
-        void operator()(float3x3 const &a) const {
-            auto arr = db->CreateArray();
-            auto set = [&](auto &&c) {
-                (*arr) << (float(c.x));
-                (*arr) << (float(c.y));
-                (*arr) << (float(c.z));
-            };
-            for (auto &&i : a.cols) {
-                set(i);
-            }
-            r->Set("value", std::move(arr));
-        }
-        void operator()(float4x4 const &a) const {
-            auto arr = db->CreateArray();
-            auto set = [&](auto &&c) {
-                (*arr) << (float(c.x));
-                (*arr) << (float(c.y));
-                (*arr) << (float(c.z));
-                (*arr) << (float(c.w));
-            };
-            for (auto &&i : a.cols) {
-                set(i);
-            }
-            r->Set("value", std::move(arr));
-        }
-        void operator()(LiteralExpr::MetaValue const &a) const {
-            auto dict = db->CreateDict();
-            if (a.type())
-                dict->Set("type", a.type()->_hash);
-            dict->Set("expr", a.expr());
-            r->Set("value", std::move(dict));
-        }
-    };
-
-    SerValueVisitor v{db, r.get()};
-    std::visit(v, t);
+        },
+        t);
     r->Set("value_type", t.index());
     return r;
 }
+template<typename T>
+struct DeserLiteral {
+    void operator()(
+        IJsonDict *r,
+        LiteralExpr::Value &t) const {
+        t = static_cast<T>(r->Get("value").get_or<BasicType_t<T>>(0));
+    }
+};
+template<typename T, size_t n>
+struct DeserLiteral<luisa::Vector<T, n>> {
+    void operator()(
+        IJsonDict *r,
+        LiteralExpr::Value &t) const {
+        auto arr = r->Get("value").get_or<IJsonArray *>(nullptr);
+        if (!arr || arr->Length() < n) return;
+        luisa::Vector<T, n> vec;
+        T *vecPtr = reinterpret_cast<T *>(&vec);
+        for (auto i : vstd::range(n)) {
+            vecPtr[i] = arr->Get(i).get_or<BasicType_t<T>>(0);
+        }
+        t = vec;
+    }
+};
+
+template<size_t n>
+struct DeserLiteral<luisa::Matrix<n>> {
+    void operator()(
+        IJsonDict *r,
+        LiteralExpr::Value &t) const {
+        auto arr = r->Get("value").get_or<IJsonArray *>(nullptr);
+        if (!arr || arr->Length() < (n * n)) return;
+        luisa::Matrix<n> vec;
+        float *vecPtr = reinterpret_cast<float *>(&vec);
+        for (auto i : vstd::range(n * n)) {
+            vecPtr[i] = arr->Get(i).get_or<double>(0);
+        }
+        t = vec;
+    }
+};
 void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
     auto type = r->Get("value_type").try_get<int64>();
-    if (!type) return;
-    size_t ofst = 0;
-
-    auto getFloat = [&](auto &&arr) {
-        auto flt = arr->Get(ofst).template get_or<double>(0.0);
-        ofst++;
-        return flt;
-    };
-    switch (*type) {
-        case 0:
-            t = r->Get("value").get_or<bool>(false);
-            break;
-        case 1:
-            t = static_cast<float>(r->Get("value").get_or<double>(0));
-            break;
-        case 2:
-            t = static_cast<int>(r->Get("value").get_or<int64>(0));
-            break;
-        case 3:
-            t = static_cast<uint>(r->Get("value").get_or<int64>(0));
-            break;
-        case 4: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = bool2(
-                (*arr)->Get(0).get_or<bool>(false),
-                (*arr)->Get(1).get_or<bool>(false));
-        } break;
-        case 5: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = float2(
-                (*arr)->Get(0).get_or<double>(0),
-                (*arr)->Get(1).get_or<double>(0));
-        } break;
-        case 6: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = int2(
-                (*arr)->Get(0).get_or<int64>(0),
-                (*arr)->Get(1).get_or<int64>(0));
-        } break;
-        case 7: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = uint2(
-                (*arr)->Get(0).get_or<int64>(0),
-                (*arr)->Get(1).get_or<int64>(0));
-        } break;
-        case 8: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = bool3(
-                (*arr)->Get(0).get_or<bool>(false),
-                (*arr)->Get(1).get_or<bool>(false),
-                (*arr)->Get(2).get_or<bool>(false));
-        } break;
-        case 9: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = float3(
-                (*arr)->Get(0).get_or<double>(0),
-                (*arr)->Get(1).get_or<double>(0),
-                (*arr)->Get(2).get_or<double>(0));
-        } break;
-        case 10: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = int3(
-                (*arr)->Get(0).get_or<int64>(0),
-                (*arr)->Get(1).get_or<int64>(0),
-                (*arr)->Get(2).get_or<int64>(0));
-        } break;
-        case 11: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = uint3(
-                (*arr)->Get(0).get_or<int64>(0),
-                (*arr)->Get(1).get_or<int64>(0),
-                (*arr)->Get(2).get_or<int64>(0));
-        }
-
-        break;
-        case 12: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = bool4(
-                (*arr)->Get(0).get_or<bool>(false),
-                (*arr)->Get(1).get_or<bool>(false),
-                (*arr)->Get(2).get_or<bool>(false),
-                (*arr)->Get(3).get_or<bool>(false));
-        } break;
-        case 13: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = float4(
-                (*arr)->Get(0).get_or<double>(0),
-                (*arr)->Get(1).get_or<double>(0),
-                (*arr)->Get(2).get_or<double>(0),
-                (*arr)->Get(3).get_or<double>(0));
-        } break;
-        case 14: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = int4(
-                (*arr)->Get(0).get_or<int64>(0),
-                (*arr)->Get(1).get_or<int64>(0),
-                (*arr)->Get(2).get_or<int64>(0),
-                (*arr)->Get(3).get_or<int64>(0));
-        } break;
-        case 15: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            t = uint4(
-                (*arr)->Get(0).get_or<int64>(0),
-                (*arr)->Get(1).get_or<int64>(0),
-                (*arr)->Get(2).get_or<int64>(0),
-                (*arr)->Get(3).get_or<int64>(0));
-        } break;
-        case 16: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            float2x2 v;
-            for (auto &&i : v.cols) {
-                i.x = getFloat(*arr);
-                i.y = getFloat(*arr);
-            }
-            t = v;
-        } break;
-        case 17: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            float3x3 v;
-            for (auto &&i : v.cols) {
-                i.x = getFloat(*arr);
-                i.y = getFloat(*arr);
-                i.z = getFloat(*arr);
-            }
-            t = v;
-        } break;
-        case 18: {
-            auto arr = r->Get("value").try_get<IJsonArray *>();
-            if (!arr) break;
-            float4x4 v;
-            for (auto &&i : v.cols) {
-                i.x = getFloat(*arr);
-                i.y = getFloat(*arr);
-                i.z = getFloat(*arr);
-                i.w = getFloat(*arr);
-            }
-            t = v;
-        } break;
-        case 19: {
-            auto dict = r->Get("value").get_or<IJsonDict *>(nullptr);
-            if (!dict) break;
-            auto type = dict->Get("type").try_get<int64>();
-            t = LiteralExpr::MetaValue(
-                type ? Type::get_type(*type) : nullptr,
-                luisa::string(dict->Get("expr").get_or<std::string_view>(""sv)));
-        } break;
-    }
+    if (!type)
+        return;
+    vstd::VariantVisitor_t<basic_types>()(
+        [&]<typename T>() {
+            DeserLiteral<T>()(
+                r,
+                t);
+        },
+        type);
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantExpr const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();

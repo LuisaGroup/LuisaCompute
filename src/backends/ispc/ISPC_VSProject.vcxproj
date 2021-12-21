@@ -147,6 +147,8 @@
 		<ClCompile Include="runtime/ispc_codegen.cpp" />
 		<ClCompile Include="runtime/ispc_codegenutil.cpp" />
 		<ClCompile Include="runtime/ispc_device.cpp" />
+		<ClCompile Include="runtime/ispc_dll_module.cpp" />
+		<ClCompile Include="runtime/ispc_jit_module.cpp" />
 		<ClCompile Include="runtime/ispc_runtime.cpp" />
 		<ClCompile Include="runtime/ispc_shader.cpp" />
 	</ItemGroup>
