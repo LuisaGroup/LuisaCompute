@@ -116,21 +116,5 @@ if (WIN32)
                 m128_u32=vector4_u32)
     endif ()
     set_target_properties(luisa-compute-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-
-    # Copy compiler toolkits
-    add_custom_target(luisa-compute-backend-dx-copy-compiler ALL
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/VEngineCompiler"
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/VEngineCompiler")
-    add_dependencies(luisa-compute-backend-dx luisa-compute-backend-dx-copy-compiler)
-    foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
-        string(TOLOWER ${CONFIG} config_lower)
-        string(TOUPPER ${CONFIG} CONFIG_UPPER)
-        add_custom_target(luisa-compute-backend-dx-copy-compiler-${config_lower} ALL
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/VEngineCompiler"
-                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/VEngineCompiler")
-        add_dependencies(luisa-compute-backend-dx luisa-compute-backend-dx-copy-compiler-${config_lower})
-    endforeach ()
 endif ()
 

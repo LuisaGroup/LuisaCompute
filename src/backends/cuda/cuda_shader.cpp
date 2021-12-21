@@ -55,7 +55,7 @@ public:
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
-                auto buffer = argument.handle + argument.offset;
+                auto buffer = CUDAHeap::buffer_address(argument.handle) + argument.offset;
                 std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                 auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
@@ -262,7 +262,7 @@ public:
                                      OPTIX_SBT_RECORD_ALIGNMENT *
                                      OPTIX_SBT_RECORD_ALIGNMENT;
             auto sbt_buffer = _argument_and_sbt_buffer + sbt_buffer_offset;
-            auto sbt_record_buffer = stream->upload_pool().allocate(sizeof(SBTRecord) * 4u);
+            auto sbt_record_buffer = stream->upload_pool()->allocate(sizeof(SBTRecord) * 4u);
             auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer.address());
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
@@ -271,16 +271,9 @@ public:
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 sbt_buffer, sbt_record_buffer.address(),
                 sbt_record_buffer.size(), stream->handle()));
-            LUISA_CHECK_CUDA(cuLaunchHostFunc(
-                stream->handle(),
-                [](void *user_data) noexcept {
-                    auto context = static_cast<
-                        CUDARingBuffer::RecycleContext *>(user_data);
-                    context->recycle();
-                },
+            stream->emplace_callback(
                 CUDARingBuffer::RecycleContext::create(
-                    sbt_record_buffer,
-                    &stream->upload_pool())));
+                    sbt_record_buffer, stream->upload_pool()));
             _sbt.raygenRecord = sbt_buffer;
             _sbt.hitgroupRecordBase = sbt_buffer + sizeof(SBTRecord);
             _sbt.hitgroupRecordCount = 2u;
@@ -291,7 +284,7 @@ public:
         }
 
         // encode arguments
-        auto argument_buffer = stream->upload_pool().allocate(_argument_buffer_size);
+        auto argument_buffer = stream->upload_pool()->allocate(_argument_buffer_size);
         auto argument_buffer_offset = static_cast<size_t>(0u);
         auto allocate_argument = [&](size_t bytes) noexcept {
             static constexpr auto alignment = 16u;
@@ -308,7 +301,7 @@ public:
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
-                auto buffer = argument.handle + argument.offset;
+                auto buffer = CUDAHeap::buffer_address(argument.handle) + argument.offset;
                 std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                 auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
@@ -332,16 +325,9 @@ public:
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             _argument_and_sbt_buffer, argument_buffer.address(),
             argument_buffer.size(), stream->handle()));
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(),
-            [](void *user_data) noexcept {
-                auto context = static_cast<
-                    CUDARingBuffer::RecycleContext *>(user_data);
-                context->recycle();
-            },
+        stream->emplace_callback(
             CUDARingBuffer::RecycleContext::create(
-                argument_buffer,
-                &stream->upload_pool())));
+                argument_buffer, stream->upload_pool()));
         LUISA_CHECK_OPTIX(optixLaunch(
             _pipeline, stream->handle(),
             _argument_and_sbt_buffer, _argument_buffer_size, &_sbt,

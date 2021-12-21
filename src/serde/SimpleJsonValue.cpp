@@ -16,9 +16,6 @@ public:
         KVMap::Iterator &&end)
         : ite(ite),
           end(end) {}
-    void Dispose() override {
-        delete this;
-    }
     JsonKeyPair GetValue() override {
         return JsonKeyPair{ite->first.GetKey(), ite->second.GetVariant()};
     };
@@ -47,13 +44,11 @@ public:
     void GetNext() override {
         ++ite;
     };
-    void Dispose() override {
-        delete this;
-    }
 };
 template<typename Func>
-class MoveDictIEnumerator : public vstd::IEnumerable<MoveJsonKeyPair>, public vstd::disposer<Func> {
+class MoveDictIEnumerator : public vstd::IEnumerable<MoveJsonKeyPair> {
 public:
+    Func f;
     KVMap::Iterator ite;
     KVMap::Iterator end;
     MoveDictIEnumerator(
@@ -61,12 +56,9 @@ public:
         KVMap::Iterator &&ite,
         KVMap::Iterator &&end)
         : ite(ite),
-          vstd::disposer<Func>(std::move(func)),
+          f(std::move(func)),
           end(end) {}
-    void Dispose() override {
-
-        delete this;
-    }
+    ~MoveDictIEnumerator() { f(); }
     MoveJsonKeyPair GetValue() override {
         return MoveJsonKeyPair{ite->first.GetKey(), std::move(ite->second.value)};
     };
@@ -78,8 +70,9 @@ public:
     };
 };
 template<typename Func>
-class MoveArrayIEnumerator : public vstd::IEnumerable<WriteJsonVariant>, public vstd::disposer<Func> {
+class MoveArrayIEnumerator : public vstd::IEnumerable<WriteJsonVariant> {
 public:
+    Func f;
     SimpleJsonVariant *ite;
     SimpleJsonVariant *end;
     MoveArrayIEnumerator(
@@ -87,8 +80,9 @@ public:
         SimpleJsonVariant *ite,
         SimpleJsonVariant *end)
         : ite(ite),
-          vstd::disposer<Func>(std::move(func)),
+          f(std::move(func)),
           end(end) {}
+    ~MoveArrayIEnumerator() { f(); }
     WriteJsonVariant GetValue() override {
         return std::move(ite->value);
     };
@@ -98,9 +92,6 @@ public:
     void GetNext() override {
         ++ite;
     };
-    void Dispose() override {
-        delete this;
-    }
 };
 struct BinaryHeader {
     uint64 preDefine;
@@ -684,20 +675,23 @@ bool SimpleJsonValueArray::Read(std::span<uint8_t const> sp, bool clearLast) {
     return true;
 }
 vstd::Iterator<JsonKeyPair> SimpleJsonValueDict::begin() const & {
-    return new DictIEnumerator(vars.begin(), vars.end());
+    return [&](void *ptr) { return new (ptr) DictIEnumerator(vars.begin(), vars.end()); };
 }
 
 vstd::Iterator<ReadJsonVariant> SimpleJsonValueArray::begin() const & {
-    return new ArrayIEnumerator(arr.begin(), arr.end());
+    return [&](void *ptr) { return new (ptr) ArrayIEnumerator(arr.begin(), arr.end()); };
 }
 vstd::Iterator<MoveJsonKeyPair> SimpleJsonValueDict::begin() && {
-    auto deleterFunc = [&] { vars.Clear(); };
-    return new MoveDictIEnumerator<decltype(deleterFunc)>(std::move(deleterFunc), vars.begin(), vars.end());
+
+    return [&](void *ptr) {
+		auto deleterFunc = [&] { vars.Clear(); };
+		return new (ptr) MoveDictIEnumerator<decltype(deleterFunc)>(std::move(deleterFunc), vars.begin(), vars.end()); };
 }
 
 vstd::Iterator<WriteJsonVariant> SimpleJsonValueArray::begin() && {
-    auto deleterFunc = [&] { arr.clear(); };
-    return new MoveArrayIEnumerator<decltype(deleterFunc)>(std::move(deleterFunc), arr.begin(), arr.end());
+    return [&](void *ptr) {
+		auto deleterFunc = [&] { arr.clear(); };
+		return new (ptr) MoveArrayIEnumerator<decltype(deleterFunc)>(std::move(deleterFunc), arr.begin(), arr.end()); };
 }
 IJsonDatabase *SimpleJsonValueDict::GetDB() const { return db; }
 IJsonDatabase *SimpleJsonValueArray::GetDB() const { return db; }

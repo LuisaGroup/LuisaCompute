@@ -20,9 +20,11 @@ struct vector_stack_obj<T, 0> {
     T *arr;
 };
 }// namespace detail
-template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool forceTrivial = false, size_t stackCount = 0>
+template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, size_t stackCount = 0>
+    requires(!(std::is_const_v<T> || std::is_reference_v<T>))
 class vector {
 private:
+    using Allocator = VAllocHandle<allocType>;
     //	template<bool v>
     //	struct EraseLastType;
     //	template<>
@@ -37,20 +39,19 @@ private:
     detail::vector_stack_obj<T, stackCount> vec;
     size_t mSize;
     size_t mCapacity;
-    VAllocHandle<allocType> allocHandle;
     static size_t GetNewVectorSize(size_t oldSize) {
         return oldSize * 1.5 + 8;
     }
     T *Allocate(size_t const &capacity) noexcept {
-        return reinterpret_cast<T *>(allocHandle.Malloc(sizeof(T) * capacity));
+        return reinterpret_cast<T *>(Allocator().Malloc(sizeof(T) * capacity));
     }
 
     void Free(T *ptr) noexcept {
         if constexpr (stackCount > 0) {
             if (mCapacity > stackCount)
-                allocHandle.Free(ptr);
+                Allocator().Free(ptr);
         } else {
-            allocHandle.Free(ptr);
+            Allocator().Free(ptr);
         }
     }
     void ResizeRange(size_t count) {
@@ -84,9 +85,9 @@ public:
         if (newCapacity <= mCapacity) return;
         T *newArr = Allocate(newCapacity);
         if (vec.arr) {
-            if constexpr (std::is_trivially_move_constructible_v<T> || forceTrivial) {
+            if constexpr (std::is_trivially_move_constructible_v<T>) {
                 memcpy(newArr, vec.arr, sizeof(T) * mSize);
-                if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+                if constexpr (!(std::is_trivially_destructible_v<T>)) {
                     auto ee = end();
                     for (auto i = begin(); i != ee; ++i) {
                         i->~T();
@@ -96,7 +97,7 @@ public:
                 for (size_t i = 0; i < mSize; ++i) {
                     auto oldT = vec.arr + i;
                     new (newArr + i) T(std::move(*oldT));
-                    if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+                    if constexpr (!(std::is_trivially_destructible_v<T>)) {
                         oldT->~T();
                     }
                 }
@@ -114,7 +115,7 @@ public:
     size_t capacity() const noexcept { return mCapacity; }
     vector(size_t mSize) noexcept : mSize(mSize) {
         InitCapacity(mSize);
-        if constexpr (!(std::is_trivially_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_constructible_v<T>)) {
             auto ee = end();
             for (auto i = begin(); i != ee; ++i) {
                 new (i) T();
@@ -124,7 +125,7 @@ public:
     vector(std::initializer_list<T> const &lst) : mSize(lst.size()) {
         InitCapacity(lst.size());
         auto ptr = &static_cast<T const &>(*lst.begin());
-        if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             for (size_t i = 0; i < mSize; ++i) {
                 new (vec.arr + i) T(ptr[i]);
             }
@@ -134,7 +135,7 @@ public:
     }
     vector(std::span<T> const &lst) : mSize(lst.size()) {
         InitCapacity(lst.size());
-        if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             for (size_t i = 0; i < mSize; ++i) {
                 new (vec.arr + i) T(lst[i]);
             }
@@ -146,7 +147,7 @@ public:
         : mSize(another.mSize),
           mCapacity(another.mCapacity) {
         vec.arr = Allocate(mCapacity);
-        if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             for (size_t i = 0; i < mSize; ++i) {
                 new (vec.arr + i) T(another.vec.arr[i]);
             }
@@ -162,7 +163,7 @@ public:
             if (mCapacity <= stackCount) {
                 vec.arr = reinterpret_cast<T *>(&vec.value);
                 constexpr bool Trivial = std::is_trivially_move_constructible_v<T> && std::is_trivially_destructible_v<T>;
-                if constexpr (!(Trivial || forceTrivial)) {
+                if constexpr (!Trivial) {
                     for (size_t i = 0; i < another.mSize; ++i) {
                         T *arr = &another.vec.arr[i];
                         new (vec.arr + i) T(std::move(*arr));
@@ -186,7 +187,7 @@ public:
         clear();
         reserve(another.mSize);
         mSize = another.mSize;
-        if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             for (size_t i = 0; i < mSize; ++i) {
                 new (vec.arr + i) T(another.vec.arr[i]);
             }
@@ -201,7 +202,7 @@ public:
 
     void push_back_all(const T *values, size_t count) noexcept {
         ResizeRange(count);
-        if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             auto endPtr = vec.arr + mSize;
             for (size_t i = 0; i < count; ++i) {
                 T *ptr = endPtr + i;
@@ -264,7 +265,7 @@ public:
                     curPtr++;
                 }
                 size_t newSize = lastPtr - begin();
-                if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+                if constexpr (!(std::is_trivially_destructible_v<T>)) {
                     for (auto i = begin() + newSize; i != ed; ++i) {
                         i->~T();
                     }
@@ -284,7 +285,7 @@ public:
         push_back_all(&static_cast<T const &>(*list.begin()), list.size());
     }
     void SetZero() const noexcept {
-        if constexpr (!(std::is_trivial_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivial_v<T>)) {
             static_assert(AlwaysFalse<T>, "Non-Trivial data cannot be setted");
         } else {
             if (vec.arr) memset(vec.arr, 0, sizeof(T) * mSize);
@@ -295,7 +296,7 @@ public:
         reserve(list.size());
         mSize = list.size();
         auto ptr = &static_cast<T const &>(*list.begin());
-        if constexpr (!(std::is_trivially_copy_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             for (size_t i = 0; i < mSize; ++i) {
                 new (vec.arr + i) T(ptr[i]);
             }
@@ -356,13 +357,13 @@ public:
 #if defined(DEBUG)
         if (index >= mSize) throw "Out of Range!";
 #endif
-        if constexpr (!(std::is_trivially_move_constructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_move_constructible_v<T>)) {
             if (index < mSize - 1) {
                 for (auto &&i : ptr_range(ite, end() - 1)) {
                     i = std::move((&i)[1]);
                 }
             }
-            if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial))
+            if constexpr (!(std::is_trivially_destructible_v<T>))
                 (vec.arr + mSize - 1)->~T();
         } else {
             if (index < mSize - 1) {
@@ -374,7 +375,7 @@ public:
 
     T erase_last() noexcept {
         mSize--;
-        if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_destructible_v<T>)) {
             auto disp = create_disposer([this]() {
                 (vec.arr + mSize)->~T();
             });
@@ -384,7 +385,7 @@ public:
         }
     }
     void clear() noexcept {
-        if constexpr (!(std::is_trivially_destructible_v<T> || forceTrivial)) {
+        if constexpr (!(std::is_trivially_destructible_v<T>)) {
             for (auto &&i : *this) {
                 i.~T();
             }
@@ -401,7 +402,7 @@ public:
     }
     void resize(size_t newSize) noexcept {
         reserve(newSize);
-        if constexpr (!((std::is_trivially_constructible_v<T> && std::is_trivially_destructible_v<T>) || forceTrivial)) {
+        if constexpr (!((std::is_trivially_constructible_v<T> && std::is_trivially_destructible_v<T>))) {
             if (mSize < newSize) {
                 if constexpr (!std::is_trivially_constructible_v<T>) {
                     auto bb = begin() + mSize;
@@ -438,5 +439,3 @@ public:
     }
 };
 }// namespace vstd
-template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
-using ArrayList = typename vstd::vector<T, allocType, true>;

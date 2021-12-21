@@ -1,13 +1,15 @@
 set(LUISA_COMPUTE_UTIL_SOURCES
         ObjectPtr.cpp
         StringUtility.cpp
-        xxhash.cpp
+#        xxhash.cpp
         Log.cpp
         MD5.cpp
         VGuid.cpp
         ThreadPool.cpp
         ThreadTaskHandle.cpp
+        StackAllocator.cpp
         BinaryReader.cpp
+        PoolAllocator.cpp
         vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
@@ -17,12 +19,13 @@ set_target_properties(luisa-compute-vstl PROPERTIES
         UNITY_BUILD ON)
 
 if (WIN32)
-    target_link_libraries(luisa-compute-vstl PRIVATE Shlwapi)
+    target_link_libraries(luisa-compute-vstl PUBLIC Shlwapi)
 elseif (APPLE)
+    target_link_options(luisa-compute-vstl PUBLIC "-F${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/")
     target_link_libraries(luisa-compute-vstl PUBLIC "-framework CoreFoundation")
 else ()
-    find_library(LibUUID_LIBRARY NAMES uuid)
-    find_path(LibUUID_INCLUDE_DIR NAMES uuid/uuid.h)
+    find_library(LibUUID_LIBRARY NAMES uuid REQUIRED)
+    find_path(LibUUID_INCLUDE_DIR NAMES uuid/uuid.h REQUIRED)
     target_include_directories(luisa-compute-vstl PUBLIC "${LibUUID_INCLUDE_DIR}")
     target_link_libraries(luisa-compute-vstl PUBLIC "${LibUUID_LIBRARY}")
 endif ()

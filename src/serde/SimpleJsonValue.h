@@ -229,7 +229,7 @@ public:
     void Dispose() override;
     SimpleBinaryJson *MGetDB() const { return db; }
     IJsonDatabase *GetDB() const override;
-    vstd::vector<SimpleJsonVariant, VEngine_AllocType::VEngine, false, 4> arr;
+    vstd::vector<SimpleJsonVariant, VEngine_AllocType::VEngine, 4> arr;
     SimpleJsonValueArray(SimpleBinaryJson *db);
     ~SimpleJsonValueArray();
     /* SimpleJsonValueArray(

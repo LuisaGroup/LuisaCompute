@@ -20,7 +20,7 @@ private:
     vstd::HashMap<uint, uint> varIdToArg;
 
 public:
-    using ArgVector = vstd::vector<uint8_t, VEngine_AllocType::VEngine, true, 32>;
+    using ArgVector = vstd::vector<uint8_t, VEngine_AllocType::VEngine, 32>;
     Shader(const Context &ctx, Function func);
     [[nodiscard]] size_t GetArgIndex(uint varID) const;
     static constexpr size_t CalcAlign(size_t value, size_t align) {

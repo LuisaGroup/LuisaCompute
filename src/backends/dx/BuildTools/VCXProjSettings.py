@@ -1,63 +1,49 @@
 import Library as lb
 import BuildData as bd
+import Database as db
+import ctypes
 from xml.etree import ElementTree as ET
 from shutil import copyfile
 import os
 import os.path
 
-def SetCLCompile(root:ET.Element, prep:str, includeDir:str, xmlns):
-    inc = lb.XML_GetSubElement(root, 'AdditionalIncludeDirectories', xmlns)
-    inc.text = includeDir + "%(AdditionalIncludeDirectories);"
-    ppEle = lb.XML_GetSubElement(root, 'PreprocessorDefinitions', xmlns)
-    ppEle.text = prep + "%(PreprocessorDefinitions);"
 
-def SetLink(root:ET.Element, dep:str, xmlns):
+def SetCLCompile(pdbIndex: int, root: ET.Element, xmlns):
+    pdb = lb.XML_GetSubElement(root, 'ProgramDataBaseFileName', xmlns)
+    pdb.text = "$(IntDir)vc_" + str(pdbIndex) + ".pdb"
+
+
+def SetLink(root: ET.Element, dep: str, xmlns):
     depEle = lb.XML_GetSubElement(root, 'AdditionalDependencies', xmlns)
     depEle.text = dep + "%(AdditionalDependencies);"
 
-def SetItemDefinitionGroup(root : ET.Element, xmlns):
+
+def GeneratePlaceHolder():
+    for i in bd.SubProj:
+        holder = i.get("PlaceHolder")
+        if holder == None or holder == "":
+            continue
+        path = holder.replace("#", i["Name"])
+        if os.path.isfile(path):
+            continue
+        f = open(path, 'w')
+        f.write("0")
+        f.close()
+
+
+def SetItemDefinitionGroup(pdbIndex: int, root: ET.Element, data: dict, xmlns):
     itemGroups = []
     lb.XML_GetSubElements(itemGroups, root, 'ItemDefinitionGroup', xmlns)
     for itemGroup in itemGroups:
         att = itemGroup.attrib.get("Condition")
         if att == None:
             continue
-        preprocess = ''
-        includes = ''
-        deps = ''
-        for inc in bd.IncludePaths:
-            includes += inc + ';'
-        for d in bd.dependices:
-            deps += d + ';'
-        for i in bd.PP:
-            if att.find('\'' + i + '|') >= 0:
-                for macro in bd.PP[i]:
-                    preprocess += macro
-                    preprocess += ';'
         clComp = lb.XML_GetSubElement(itemGroup, 'ClCompile', xmlns)
-        SetCLCompile(clComp, preprocess, includes, xmlns)
+        SetCLCompile(pdbIndex, clComp, xmlns)
         link = lb.XML_GetSubElement(itemGroup, 'Link', xmlns)
-        SetLink(link, deps, xmlns)
 
-def SetItemGroups(root:ET.Element, xmlns, ignoreFiles:dict, allFiles:dict):
-    subEles = []
-    for sub in root:
-        if lb.XML_GetTag(sub, xmlns) == "ItemGroup" and len(sub.attrib) == 0:
-            subEles.append(sub)
-    for i in subEles:
-        root.remove(i)
-    for exten in allFiles:
-        tag = bd.ContainedFiles[exten]
-        itemGroup = ET.Element('ItemGroup')
-        files = allFiles[exten]
-        for i in files:
-            if ignoreFiles.get(i) != None:
-                continue
-            son = ET.Element(tag, {'Include': i})
-            itemGroup.append(son)
-        root.append(itemGroup)
 
-def RemoveIncludes(root:ET.Element, xmlns):
+def RemoveIncludes(root: ET.Element, xmlns):
     items = []
     lb.XML_GetSubElements(items, root, 'ItemGroup', xmlns)
     removeItemGroups = []
@@ -75,42 +61,36 @@ def RemoveIncludes(root:ET.Element, xmlns):
     for i in removeItemGroups:
         root.remove(i)
 
-def GetClCompile(result:dict, root:ET.Element, xmlns):
-    itemGroups = []
-    lb.XML_GetSubElements(itemGroups, root, "ItemGroup",xmlns)
-    for i in itemGroups:
-        if len(i.attrib) != 0:
-            continue
-        for sub in i:
-            if lb.XML_GetTag(sub, xmlns) == 'ClCompile':
-                includePath = lb.ProcessPath(sub.attrib.get('Include'))
-                if includePath == None:
-                    continue
-                result[includePath] = 1
 
-def RemoveNonExistsPath(root:ET.Element, xmlns, filePaths: dict):
+def RemoveNonExistsPath(subName: str, dll, root: ET.Element, xmlns, addFile:bool):
+    subName = subName.lower()
     itemGroups = []
     lb.XML_GetSubElements(itemGroups, root, "ItemGroup", xmlns)
     itemGroupsRemoveList = []
     for i in itemGroups:
         if len(i.attrib) != 0:
             continue
-        itemGroupDict = {}
+        isCompileList = True
         for sub in i:
-            includePath = lb.ProcessPath(sub.attrib.get('Include'))
-            if includePath == None:
-                continue
-            if filePaths.get(includePath) != None:
-                itemGroupDict[sub] = 1
-        i.clear()
-        for key in itemGroupDict:
-            i.append(key)
-        if len(i) == 0:
+            if lb.XML_GetTag(sub, xmlns) != 'ClCompile':
+                isCompileList = False
+                break
+        if isCompileList:
             itemGroupsRemoveList.append(i)
     for i in itemGroupsRemoveList:
         root.remove(i)
+    if addFile:
+        CompileItemGroup = ET.Element("ItemGroup", {})
+        root.append(CompileItemGroup)
+        dll.Py_SetPackageName(subName.encode("ascii"))
+        sz = dll.Py_PathSize()
+        for i in range(sz):
+            p = str(ctypes.string_at(dll.Py_GetPath(i)), "ascii")
+            CompileItemGroup.append(
+                ET.Element("ClCompile", {'Include': p}))
 
-def GetVCXProj(path:str):
+
+def GetVCXProj(path: str):
     tree = ET.parse(path)
     root = tree.getroot()
     xmlns = lb.XML_GetNameSpace(root)
@@ -118,80 +98,78 @@ def GetVCXProj(path:str):
         ET.register_namespace('', xmlns)
     return tree, xmlns
 
+
 def ClearFilter(path):
     filterPath = path + '.filters'
     if os.path.exists(filterPath):
         os.remove(filterPath)
 
-def VCXProjSettingMain():
-    xmlPath = bd.Proj + '.vcxproj'
-    tree, xmlns = GetVCXProj(xmlPath)
-    root = tree.getroot()
-    allFiles = {}
-    lb.File_GetAllFiles(allFiles, '.', bd.IgnoreFolders, {}, bd.IgnoreFile, bd.ContainedFiles)
-    allFileDict = {}
-    for i in allFiles:
-        lst = allFiles[i]
-        for j in lst:
-            allFileDict[j] = 1
 
-    ############## Process Sub Model
-    ignoreFiles = {}
+def OutputXML(tree, path):
+    tree.write(path)
+
+def VCXProjSettingMain(readFile:bool):
+    dll = None
+    if readFile:
+        filePath = os.path.dirname(os.path.realpath(__file__))
+        dll = ctypes.cdll.LoadLibrary(filePath + "/VEngine_CPPBuilder.dll")
+        dll.Py_InitFileSys()
+        dll.Py_AddExtension("cpp".encode("ascii"))
+        dll.Py_AddExtension("c".encode("ascii"))
+        dll.Py_AddExtension("cxx".encode("ascii"))
+        dll.Py_AddExtension("cc".encode("ascii"))
+        dll.Py_AddIgnorePath(".vs".encode("ascii"))
+        dll.Py_AddIgnorePath("Build".encode("ascii"))
+        dll.Py_AddIgnorePath("BuildTools".encode("ascii"))
+        dll.Py_AddIgnorePath("x64".encode("ascii"))
+        dll.Py_AddIgnorePath("x86".encode("ascii"))
+        dll.Py_ExecuteFileSys()
+        dll.Py_GetPath.restype = ctypes.c_char_p
+
+    pdbIndex = 0
     for sub in bd.SubProj:
-        subPath = sub + '.vcxproj'
+        subName = sub["Name"]
+        subPath = subName + '.vcxproj'
         subTree, subXmlns = GetVCXProj(subPath)
         subRoot = subTree.getroot()
-        RemoveIncludes(subRoot, subXmlns)
-        RemoveNonExistsPath(subRoot, subXmlns, allFileDict)
-        GetClCompile(ignoreFiles, subRoot, subXmlns)
+        if sub.get("RemoveHeader") == 1:
+            RemoveIncludes(subRoot, subXmlns)
+        RemoveNonExistsPath(subName, dll, subRoot, subXmlns,readFile)
+        SetItemDefinitionGroup(pdbIndex, subRoot, sub, subXmlns)
+        pdbIndex += 1
         lb.XML_Format(subRoot)
-        subTree.write(subPath)
-    SetItemGroups(root, xmlns, ignoreFiles, allFiles)
-    SetItemDefinitionGroup(root, xmlns)
-    lb.XML_Format(root)
-    tree.write(xmlPath)
+        OutputXML(subTree, subPath)
+    if readFile:
+        dll.Py_DisposeFileSys()
     print("Build Success!")
 
 
-def GenerateCMake(root:ET.Element, xmlns):
-    cmakePaths = []
-    itemGroups = []
-    lb.XML_GetSubElements(itemGroups, root, "ItemGroup",xmlns)
-    for i in itemGroups:
-        if len(i.attrib) != 0:
-            continue
-        for sub in i:
-            if lb.XML_GetTag(sub, xmlns) == 'ClCompile':
-                path = sub.attrib.get('Include')
-                if path != None:
-                    cmakePaths.append(path.replace('\\','/'))
-    example = open("CMakeLists.txt", "r")
-    exampleStr = example.read()
-    example.close()
-    setValue = "\n    set(DX_BACKEND_SOURCES\n"
-    for i in cmakePaths: 
-        setValue += "        " + i + '\n'
-    setValue += '    )\n'
-    splitedStrs = exampleStr.split("##[[[]]]")
-    if len(splitedStrs) == 2:
-        setValue = splitedStrs[0] + "##[[[]]]" + setValue + "##[[[]]]" + splitedStrs[1]
-    elif len(splitedStrs) == 3:
-        setValue = splitedStrs[0] + "##[[[]]]" + setValue + "##[[[]]]" + splitedStrs[2]
-    else: 
-        print("CMakeLists format wrong!")
+def MakeVCXProj(inverse:bool):
+    backup = ""
+    vs = ""
+    if inverse:
+        backup = "vcxproj"
+        vs = "vcxprojbackup"
+    else:
+        vs = "vcxproj"
+        backup = "vcxprojbackup"
+
+    ext = {backup: 1}
+    fileResults = {}
+    lb.File_GetRootFiles(fileResults, ".", ext)
+    lst = fileResults.get(backup)
+    if lst == None:
         return
-    example = open("CMakeLists.txt", "w")
-    example.write(setValue)
-    example.close()
-    print("CMake Generate Success!")
-    
+    for i in lst:
+        copyfile(i, i.replace("." + backup, "." + vs))
+
+
 def ClearFilters():
-    xmlPath = bd.Proj + '.vcxproj'
-    ClearFilter(xmlPath)
     for sub in bd.SubProj:
-        subPath = sub + '.vcxproj'
+        subPath = sub["Name"] + '.vcxproj'
         ClearFilter(subPath)
     print("Clear Filters Success!")
+
 
 def CopyFiles():
     for i in bd.CopyFilePaths:
@@ -199,12 +177,34 @@ def CopyFiles():
     print("Copy Success!")
 
 
-def main():
+def VcxMain():
+    MakeVCXProj(False)
+    GeneratePlaceHolder()
     ClearFilters()
-    VCXProjSettingMain()
+    VCXProjSettingMain(True)
 
-def cmakeMain():
-    xmlPath = bd.Proj + '.vcxproj'
-    tree, xmlns = GetVCXProj(xmlPath)
-    root = tree.getroot()
-    GenerateCMake(root, xmlns)
+def VcxMain_EmptyFile():
+    GeneratePlaceHolder()
+    ClearFilters()
+    VCXProjSettingMain(False)
+    MakeVCXProj(True)
+
+def CompileProj():
+    obj = db.SerializeObject()
+    rt = obj.GetRootNode()
+    rt.Reset()
+    rt.Add(bd.Compiler)
+    projs = obj.CreateDict()
+    for p in bd.SubProj:
+        deps = p.get("Dependency")
+        if deps == None:
+            deps = []
+        projs.Set(p["Name"], deps)
+    rt.Set("Projects", projs)
+    filePath = os.path.dirname(os.path.realpath(__file__))
+    dll = ctypes.cdll.LoadLibrary(filePath + "/VEngine_CPPBuilder.dll")
+    dll.compile_msbuild.restype = ctypes.c_bool
+    if dll.compile_msbuild(ctypes.c_uint64(obj.data)):
+        print("Finished!")
+    else:
+        print("Compile Failed!")
