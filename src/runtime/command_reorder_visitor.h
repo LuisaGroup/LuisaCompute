@@ -2,8 +2,8 @@
 // Created by ChenXin on 2021/12/3.
 //
 
-#ifndef LUISACOMPUTE_COMMANDREORDERVISITOR_H
-#define LUISACOMPUTE_COMMANDREORDERVISITOR_H
+#ifndef LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
+#define LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
 
 #include <runtime/device.h>
 #include <vector>
@@ -109,4 +109,4 @@ public:
 
 }// namespace luisa::compute
 
-#endif//LUISACOMPUTE_COMMANDREORDERVISITOR_H
+#endif//LUISACOMPUTE_COMMAND_REORDER_VISITOR_H

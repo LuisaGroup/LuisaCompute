@@ -6,7 +6,7 @@
 #include <vector>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/CommandReorderVisitor.h>
+#include <runtime/command_reorder_visitor.h>
 
 namespace luisa::compute {
 
