@@ -142,16 +142,15 @@ int main(int argc, char *argv[]) {
         }
         std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
-        //        assert(reordered_list.size() == 3);
+        assert(reordered_list.size() == 2);
         std::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
                 ++size[i];
         }
-        //        assert(size[0] == 2);
-        //        assert(size[1] == 2);
-        //        assert(size[2] == 1);
+        assert(size[0] == 3);
+        assert(size[1] == 2);
     }
 
     {
