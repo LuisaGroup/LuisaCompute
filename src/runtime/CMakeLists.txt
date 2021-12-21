@@ -15,7 +15,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         sampler.h
         resource.cpp resource.h
         mipmap.h
-        CommandReorderVisitor.h CommandReorderVisitor.cpp
+        command_reorder_visitor.h command_reorder_visitor.cpp
         resource_tracker.cpp resource_tracker.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})

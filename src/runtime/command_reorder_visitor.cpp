@@ -2,7 +2,7 @@
 // Created by ChenXin on 2021/12/7.
 //
 
-#include <runtime/CommandReorderVisitor.h>
+#include <runtime/command_reorder_visitor.h>
 #include <runtime/stream.h>
 
 namespace luisa::compute {
@@ -95,7 +95,7 @@ bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB
 
 void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::CommandRelation *commandRelation) noexcept {
     // 1. check all tails if they overlap with the command under processing
-    for (int i = 0; i < _tail.size(); ++i) {
+    for (int i = 0; i < _tail.size();) {
         CommandRelation *lastCommandRelation = _tail[i];
         bool overlap = false;
         // check every condition
@@ -113,7 +113,8 @@ void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::Com
             lastCommandRelation->next.push_back(commandRelation);
             commandRelation->prev.push_back(lastCommandRelation);
             _tail.erase(_tail.begin() + i);
-            --i;
+        } else {
+            ++i;
         }
     }
 
@@ -128,7 +129,8 @@ void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::Com
 
 std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
     std::vector<CommandList> ans;
-    // 1 command list per loop
+
+    // one command list per loop
     while (!_head.empty()) {
         CommandList commandList;
         size_t index = _head.size();
@@ -156,6 +158,13 @@ std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
     _commandRelationData.clear();
 
     LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
+    auto index = 0;
+    for (auto &commandList : ans) {
+        auto size = 0;
+        for (auto command : commandList)
+            ++size;
+        LUISA_VERBOSE_WITH_LOCATION("List {} : size = {}", index++, size);
+    }
     return ans;
 }
 
@@ -353,6 +362,8 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device, size_t size) {
     this->device = device;
     this->_commandRelationData.reserve(size);
+    this->_head.reserve(size);
+    this->_tail.reserve(size);
 }
 
 }// namespace luisa::compute
