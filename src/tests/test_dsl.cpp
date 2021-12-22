@@ -39,6 +39,20 @@ int main(int argc, char *argv[]) {
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
 
+    Callable c1 = [&](UInt a) noexcept {
+        return buffer[a];// captures buffer
+    };
+
+    Callable c2 = [&](UInt b) noexcept {
+        // captures buffer (propagated from c1) and float_buffer
+        return c1(b) + make_float4(float_buffer[b]);
+    };
+
+    Kernel1D k1 = [&] {
+        // captures buffer and float_buffer (propagated from c2)
+        float_buffer[dispatch_x()] = c2(dispatch_x());
+    };
+
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
