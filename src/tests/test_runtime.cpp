@@ -12,6 +12,7 @@
 #include <runtime/buffer.h>
 #include <runtime/bindless_array.h>
 #include <dsl/syntax.h>
+#include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
 using namespace luisa;
@@ -68,11 +69,21 @@ int main(int argc, char *argv[]) {
     Callable add = [](Float a, Float b) noexcept { return a + b; };
     Callable sub = [](Float a, Float b) noexcept { return a - b; };
     Callable mul = [](Float a, Float b) noexcept { return a * b; };
-    std::vector ftab{add, sub, mul};
+    std::vector func_table{add, sub, mul};
+    Callable dynamic_dispatch = [&](UInt tag, Float a, Float b) noexcept {
+        Float result;
+        $switch(tag) {
+            for (auto i = 0u; i < func_table.size(); i++) {
+                $case(i) { result = func_table[i](a, b); };
+            }
+        };
+        return result;
+    };
+
     Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, BindlessVar heap) noexcept {
         Var tag = 114514;
         match({123, 6666, 114514}, tag, [&](auto i) noexcept {
-            Var result = ftab[i](float_consts[0], float_consts[1]);
+            Var result = func_table[i](float_consts[0], float_consts[1]);
         });
 
         Var v_int = 10;
