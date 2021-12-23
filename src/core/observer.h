@@ -31,7 +31,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _subjects.size(); }
 };
 
-class Subject final : public std::enable_shared_from_this<Subject> {
+class Subject final : public luisa::enable_shared_from_this<Subject> {
 
 public:
     struct ObserverHash {
