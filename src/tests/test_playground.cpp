@@ -48,20 +48,21 @@ int main() {
     ff.free(n2);
     LUISA_INFO("free_list = {}.", ff.dump_free_list());
 
-    ThreadPool pool;
-    auto f1 = pool.dispatch([] {
+    auto &&thread_pool = ThreadPool::global();
+    auto f1 = thread_pool.dispatch([] {
         LUISA_INFO("Hello!");
         return 1234;
     });
-    auto f2 = pool.dispatch([f = std::move(f1)]() mutable noexcept {
+    auto f2 = thread_pool.dispatch([&thread_pool, f = std::move(f1)]() mutable noexcept {
         LUISA_INFO("Hello: {}!", f.get());
+        thread_pool.dispatch([]{ LUISA_INFO("Sub-hello!"); });
     });
     f2.wait();
 
-    pool.parallel(4, 4, [](auto x, auto y) {
+    thread_pool.parallel(4, 4, [](auto x, auto y) {
         std::ostringstream oss;
         oss << std::this_thread::get_id();
         LUISA_INFO("Hello from thread {}: ({}, {}).", oss.str(), x, y);
     });
-    pool.synchronize();
+    thread_pool.synchronize();
 }
