@@ -82,3 +82,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(imgui)
     target_link_libraries(luisa-compute-ext INTERFACE imgui)
 endif ()
+
+add_subdirectory(EASTL)
+set_target_properties(EASTL PROPERTIES UNITY_BUILD ON)
+target_link_libraries(luisa-compute-ext INTERFACE EASTL)

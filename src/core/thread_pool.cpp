@@ -8,6 +8,26 @@
 
 namespace luisa {
 
+namespace detail {
+
+[[nodiscard]] static inline auto &is_worker_thread() noexcept {
+    static thread_local auto is_worker = false;
+    return is_worker;
+}
+
+static inline void check_not_in_worker_thread(std::string_view f) noexcept {
+    if (is_worker_thread()) [[unlikely]] {
+        std::ostringstream oss;
+        oss << std::this_thread::get_id();
+        LUISA_ERROR_WITH_LOCATION(
+            "Invoking ThreadPool::{}() "
+            "from worker thread {}.",
+            f, oss.str());
+    }
+}
+
+}// namespace detail
+
 ThreadPool::ThreadPool(size_t num_threads) noexcept
     : _synchronize_barrier{[&num_threads] {
           if (num_threads == 0u) { num_threads = std::thread::hardware_concurrency(); }
@@ -23,6 +43,7 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept
     _threads.reserve(num_threads);
     for (auto i = 0u; i < num_threads; i++) {
         _threads.emplace_back(std::thread{[this] {
+            detail::is_worker_thread() = true;
             for (;;) {
                 std::unique_lock lock{_mutex};
                 _cv.wait(lock, [this] { return !_tasks.empty() || _should_stop; });
@@ -39,31 +60,16 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept
         num_threads, num_threads == 1u ? "" : "s");
 }
 
-#define LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD(f) \
-    auto thread_id = std::this_thread::get_id();        \
-    for (auto &&t : _threads) {                         \
-        if (t.get_id() == thread_id) [[unlikely]] {     \
-            std::ostringstream oss;                     \
-            oss << thread_id;                           \
-            LUISA_ERROR_WITH_LOCATION(                  \
-                "Invoking ThreadPool::" #f "() "        \
-                "from worker thread {}.",               \
-                oss.str());                             \
-        }                                               \
-    }
-
 void ThreadPool::barrier() noexcept {
-    LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD(barrier)
+    detail::check_not_in_worker_thread("barrier");
     _dispatch_all([this] { _dispatch_barrier.arrive_and_wait(); });
 }
 
 void ThreadPool::synchronize() noexcept {
-    LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD(synchronize)
+    detail::check_not_in_worker_thread("synchronize");
     _dispatch_all([this] { _synchronize_barrier.arrive_and_wait(); });
     _synchronize_barrier.arrive_and_wait();
 }
-
-#undef LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD
 
 void ThreadPool::_dispatch(std::function<void()> task) noexcept {
     {

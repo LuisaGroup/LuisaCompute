@@ -56,6 +56,7 @@ int main() {
     thread_pool.barrier();
     thread_pool.dispatch([&thread_pool, f = std::move(f1)]() mutable noexcept {
         LUISA_INFO("Hello: {}!", f.get());
+        thread_pool.barrier();
         thread_pool.dispatch([]{ LUISA_INFO("Sub-hello!"); });
     });
     thread_pool.parallel(4, 4, [](auto x, auto y) noexcept {
