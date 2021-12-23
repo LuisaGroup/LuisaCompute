@@ -68,4 +68,9 @@ ThreadPool::~ThreadPool() noexcept {
     for (auto &&t : _threads) { t.join(); }
 }
 
+ThreadPool &ThreadPool::global() noexcept {
+    static ThreadPool pool;
+    return pool;
+}
+
 }// namespace luisa

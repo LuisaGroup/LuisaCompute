@@ -43,6 +43,7 @@ public:
     ThreadPool(const ThreadPool &) noexcept = delete;
     ThreadPool &operator=(ThreadPool &&) noexcept = delete;
     ThreadPool &operator=(const ThreadPool &) noexcept = delete;
+    [[nodiscard]] static ThreadPool &global() noexcept;
 
 public:
     void synchronize() noexcept;
