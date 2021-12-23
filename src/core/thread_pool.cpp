@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/12/23.
 //
 
+#include <sstream>
 #include <core/logging.h>
 #include <core/thread_pool.h>
 
@@ -38,14 +39,31 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept
         num_threads, num_threads == 1u ? "" : "s");
 }
 
+#define LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD(f) \
+    auto thread_id = std::this_thread::get_id();        \
+    for (auto &&t : _threads) {                         \
+        if (t.get_id() == thread_id) [[unlikely]] {     \
+            std::ostringstream oss;                     \
+            oss << thread_id;                           \
+            LUISA_ERROR_WITH_LOCATION(                  \
+                "Invoking ThreadPool::" #f "() "        \
+                "from worker thread {}.",               \
+                oss.str());                             \
+        }                                               \
+    }
+
 void ThreadPool::barrier() noexcept {
+    LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD(barrier)
     _dispatch_all([this] { _dispatch_barrier.arrive_and_wait(); });
 }
 
 void ThreadPool::synchronize() noexcept {
+    LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD(synchronize)
     _dispatch_all([this] { _synchronize_barrier.arrive_and_wait(); });
     _synchronize_barrier.arrive_and_wait();
 }
+
+#undef LUISA_THREAD_POOL_CHECK_NOT_IN_WORKER_THREAD
 
 void ThreadPool::_dispatch(std::function<void()> task) noexcept {
     {
