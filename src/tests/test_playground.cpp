@@ -53,11 +53,11 @@ int main() {
         LUISA_INFO("Hello!");
         return 1234;
     });
-    auto f2 = thread_pool.dispatch([&thread_pool, f = std::move(f1)]() mutable noexcept {
+    thread_pool.dispatch([&thread_pool, f = std::move(f1)]() mutable noexcept {
         LUISA_INFO("Hello: {}!", f.get());
         thread_pool.dispatch([]{ LUISA_INFO("Sub-hello!"); });
     });
-    f2.wait();
+    thread_pool.barrier();
 
     thread_pool.parallel(4, 4, [](auto x, auto y) {
         std::ostringstream oss;

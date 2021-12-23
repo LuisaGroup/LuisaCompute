@@ -28,7 +28,8 @@ private:
     luisa::vector<std::thread> _threads;
     luisa::queue<std::function<void()>> _tasks;
     std::mutex _mutex;
-    barrier_type _barrier;
+    barrier_type _synchronize_barrier;
+    barrier_type _dispatch_barrier;
     std::condition_variable _cv;
     bool _should_stop;
 
@@ -46,7 +47,9 @@ public:
     [[nodiscard]] static ThreadPool &global() noexcept;
 
 public:
+    void barrier() noexcept;
     void synchronize() noexcept;
+
     template<typename F, typename... Args>
         requires std::invocable<F, Args...>
     auto dispatch(F f, Args &&...args) noexcept {

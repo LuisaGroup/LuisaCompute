@@ -8,10 +8,11 @@
 namespace luisa {
 
 ThreadPool::ThreadPool(size_t num_threads) noexcept
-    : _barrier{[&num_threads] {
+    : _synchronize_barrier{[&num_threads] {
           if (num_threads == 0u) { num_threads = std::thread::hardware_concurrency(); }
           return static_cast<std::ptrdiff_t>(num_threads /* worker threads */ + 1u /* main thread */);
       }()},
+      _dispatch_barrier{static_cast<std::ptrdiff_t>(num_threads)},
       _should_stop{false} {
     if (num_threads + 1u > barrier_type::max()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
@@ -37,9 +38,13 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept
         num_threads, num_threads == 1u ? "" : "s");
 }
 
+void ThreadPool::barrier() noexcept {
+    _dispatch_all([this] { _dispatch_barrier.arrive_and_wait(); });
+}
+
 void ThreadPool::synchronize() noexcept {
-    _dispatch_all([this] { _barrier.arrive_and_wait(); });
-    _barrier.arrive_and_wait();
+    _dispatch_all([this] { _synchronize_barrier.arrive_and_wait(); });
+    _synchronize_barrier.arrive_and_wait();
 }
 
 void ThreadPool::_dispatch(std::function<void()> task) noexcept {
