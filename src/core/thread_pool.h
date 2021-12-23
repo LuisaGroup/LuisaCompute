@@ -50,16 +50,21 @@ public:
     void barrier() noexcept;
     void synchronize() noexcept;
 
-    template<typename F, typename... Args>
-        requires std::invocable<F, Args...>
-    auto dispatch(F f, Args &&...args) noexcept {
-        using return_type = std::invoke_result_t<F, Args...>;
-        auto task = luisa::new_with_allocator<std::packaged_task<return_type()>>(
-            std::move(f), std::forward<Args>(args)...);
-        auto future = task->get_future().share();
-        _dispatch([task, future] {
-            (*task)();
-            luisa::delete_with_allocator(task);
+    template<typename F>
+        requires std::invocable<F>
+    auto dispatch(F f) noexcept {
+        using R = std::invoke_result_t<F>;
+        auto promise = luisa::new_with_allocator<std::promise<R>>(
+            std::allocator_arg, luisa::allocator{});
+        auto future = promise->get_future().share();
+        _dispatch([func = std::move(f), promise, future]() mutable noexcept {
+            if constexpr (std::same_as<R, void>) {
+                func();
+                promise->set_value();
+            } else {
+                promise->set_value(func());
+            }
+            luisa::delete_with_allocator(promise);
         });
         return future;
     }
