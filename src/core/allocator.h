@@ -82,6 +82,7 @@ using unique_ptr = std::unique_ptr<T, deleter>;
 
 using std::shared_ptr;
 using std::weak_ptr;
+using std::enable_shared_from_this;
 
 template<typename T, typename... Args>
 [[nodiscard]] auto make_unique(Args &&...args) noexcept {

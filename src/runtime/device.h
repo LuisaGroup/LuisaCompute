@@ -48,7 +48,7 @@ class FunctionBuilder;
 class Device {
 
 public:
-    class Interface : public std::enable_shared_from_this<Interface> {
+    class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
         const Context &_ctx;
