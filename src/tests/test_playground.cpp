@@ -58,13 +58,13 @@ int main() {
         LUISA_INFO("Hello: {}!", f.get());
         thread_pool.dispatch([]{ LUISA_INFO("Sub-hello!"); });
     });
-    thread_pool.parallel(4, 4, [](auto x, auto y) {
+    thread_pool.parallel(4, 4, [](auto x, auto y) noexcept {
         std::ostringstream oss;
         oss << std::this_thread::get_id();
         LUISA_INFO("Hello from thread {}: ({}, {}).", oss.str(), x, y);
     });
     thread_pool.barrier();
-    thread_pool.parallel(4, 4, [](auto x, auto y) {
+    thread_pool.parallel(4, 4, [](auto x, auto y) noexcept {
         std::ostringstream oss;
         oss << std::this_thread::get_id();
         LUISA_INFO("Bye from thread {}: ({}, {}).", oss.str(), x, y);

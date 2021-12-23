@@ -80,27 +80,17 @@ public:
     }
 
     template<typename F>
-    void parallel(uint2 n, F f) noexcept {
-        parallel(n.x * n.y, [=, f = std::move(f)](auto i) mutable noexcept {
-            f(i % n.x, i / n.x);
-        });
-    }
-
-    template<typename F>
     void parallel(uint nx, uint ny, F f) noexcept {
-        parallel(make_uint2(nx, ny), std::move(f));
-    }
-
-    template<typename F>
-    void parallel(uint3 n, F f) noexcept {
-        parallel(n.x * n.y * n.z, [=, f = std::move(f)](auto i) mutable noexcept {
-            f(i % n.x, i / n.x % n.y, i / n.x / n.y);
+        parallel(nx * ny, [=, f = std::move(f)](auto i) mutable noexcept {
+            f(i % nx, i / nx);
         });
     }
 
     template<typename F>
     void parallel(uint nx, uint ny, uint nz, F f) noexcept {
-        parallel(make_uint3(nx, ny, nz), std::move(f));
+        parallel(nx * ny * nz, [=, f = std::move(f)](auto i) mutable noexcept {
+            f(i % nx, i / nx % ny, i / nx / ny);
+        });
     }
 };
 
