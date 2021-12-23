@@ -20,7 +20,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         lru_cache.h
         dirty_range.cpp dirty_range.h
         first_fit.cpp first_fit.h
-        observer.cpp observer.h)
+        observer.cpp observer.h thread_pool.cpp thread_pool.h)
 
 find_package(Threads REQUIRED)
 
