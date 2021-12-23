@@ -3,7 +3,7 @@
 //
 
 #include <iostream>
-
+#include <EASTL/allocator.h>
 #include <nlohmann/json.hpp>
 #include <ast/op.h>
 #include <core/logging.h>
@@ -11,6 +11,8 @@
 #include <core/thread_pool.h>
 
 int main() {
+
+    eastl::SetDefaultAllocator();
 
     using namespace luisa;
     using namespace luisa::compute;
