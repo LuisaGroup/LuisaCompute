@@ -13,16 +13,19 @@
 #include <core/constants.h>
 #include <core/dirty_range.h>
 #include <core/dynamic_module.h>
+#include <core/first_fit.h>
 #include <core/hash.h>
 #include <core/intrin.h>
 #include <core/logging.h>
 #include <core/lru_cache.h>
 #include <core/macro.h>
 #include <core/mathematics.h>
+#include <core/observer.h>
 #include <core/platform.h>
 #include <core/pool.h>
 #include <core/rc.h>
 #include <core/spin_mutex.h>
+#include <core/thread_pool.h>
 
 #include <ast/constant_data.h>
 #include <ast/expression.h>

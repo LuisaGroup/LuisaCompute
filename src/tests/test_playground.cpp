@@ -7,6 +7,7 @@
 #include <ast/op.h>
 #include <core/logging.h>
 #include <core/first_fit.h>
+#include <core/thread_pool.h>
 
 int main() {
 
@@ -46,4 +47,21 @@ int main() {
     LUISA_INFO("free_list = {}.", ff.dump_free_list());
     ff.free(n2);
     LUISA_INFO("free_list = {}.", ff.dump_free_list());
+
+    ThreadPool pool;
+    auto f1 = pool.dispatch([] {
+        LUISA_INFO("Hello!");
+        return 1234;
+    });
+    auto f2 = pool.dispatch([f = std::move(f1)]() mutable noexcept {
+        LUISA_INFO("Hello: {}!", f.get());
+    });
+    f2.wait();
+
+    pool.parallel(4, 4, [](auto x, auto y) {
+        std::ostringstream oss;
+        oss << std::this_thread::get_id();
+        LUISA_INFO("Hello from thread {}: ({}, {}).", oss.str(), x, y);
+    });
+    pool.synchronize();
 }
