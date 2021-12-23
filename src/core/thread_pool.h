@@ -73,9 +73,7 @@ public:
     void parallel(uint n, F f) noexcept {
         auto counter = luisa::make_shared<std::atomic_uint>(0u);
         _dispatch_all([=]() mutable noexcept {
-            for (auto i = counter->fetch_add(1u);
-                 i < n;
-                 i = counter->fetch_add(1u)) { f(i); }
+            for (auto i = (*counter)++; i < n; i = (*counter)++) { f(i); }
         });
     }
 
