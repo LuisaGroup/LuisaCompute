@@ -12,8 +12,6 @@
 
 int main() {
 
-    eastl::SetDefaultAllocator();
-
     using namespace luisa;
     using namespace luisa::compute;
 
