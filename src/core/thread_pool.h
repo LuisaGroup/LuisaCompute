@@ -35,7 +35,7 @@ private:
 
 private:
     void _dispatch(std::function<void()> task) noexcept;
-    void _dispatch_all(std::function<void()> task) noexcept;
+    void _dispatch_all(std::function<void()> task, size_t max_threads = std::numeric_limits<size_t>::max()) noexcept;
 
 public:
     explicit ThreadPool(size_t num_threads = 0u) noexcept;
@@ -71,10 +71,16 @@ public:
 
     template<typename F>
     void parallel(uint n, F f) noexcept {
-        auto counter = luisa::make_shared<std::atomic_uint>(0u);
-        _dispatch_all([=]() mutable noexcept {
-            for (auto i = (*counter)++; i < n; i = (*counter)++) { f(i); }
-        });
+        if (n > 0u) {
+            auto counter = luisa::make_shared<std::atomic_uint>(0u);
+            _dispatch_all(
+                [=]() mutable noexcept {
+                    for (auto i = (*counter)++; i < n; i = (*counter)++) {
+                        f(i);
+                    }
+                },
+                n);
+        }
     }
 
     template<typename F>
