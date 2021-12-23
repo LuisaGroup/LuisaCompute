@@ -30,8 +30,12 @@ static inline void check_not_in_worker_thread(std::string_view f) noexcept {
 
 ThreadPool::ThreadPool(size_t num_threads) noexcept
     : _synchronize_barrier{[&num_threads] {
-          if (num_threads == 0u) { num_threads = std::thread::hardware_concurrency(); }
-          return static_cast<std::ptrdiff_t>(num_threads /* worker threads */ + 1u /* main thread */);
+          if (num_threads == 0u) {
+              num_threads = std::max(
+                  std::thread::hardware_concurrency(), 1u);
+          }
+          return static_cast<std::ptrdiff_t>(
+              num_threads /* worker threads */ + 1u /* main thread */);
       }()},
       _dispatch_barrier{static_cast<std::ptrdiff_t>(num_threads)},
       _should_stop{false} {
@@ -79,10 +83,12 @@ void ThreadPool::_dispatch(std::function<void()> task) noexcept {
     _cv.notify_one();
 }
 
-void ThreadPool::_dispatch_all(std::function<void()> task) noexcept {
+void ThreadPool::_dispatch_all(std::function<void()> task, size_t max_threads) noexcept {
     {
         std::scoped_lock lock{_mutex};
-        for (auto i = 0u; i < _threads.size() - 1u; i++) { _tasks.emplace(task); }
+        for (auto i = 0u; i < std::min(_threads.size(), max_threads) - 1u; i++) {
+            _tasks.emplace(task);
+        }
         _tasks.emplace(std::move(task));
     }
     _cv.notify_all();
