@@ -7,6 +7,8 @@
 
 namespace luisa::compute {
 
+thread_local std::vector<std::vector<CommandReorderVisitor::CommandRelation>> CommandReorderVisitor::_commandRelationData;
+
 CommandReorderVisitor::ShaderDispatchCommandVisitor::ShaderDispatchCommandVisitor(
     CommandReorderVisitor::CommandRelation *commandRelation, Function *kernel) {
     this->commandRelation = commandRelation;
@@ -328,7 +330,8 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
 
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device, size_t size) {
     this->device = device;
-    this->_commandRelationData.reserve(size);
+    if (size > _commandRelationData.capacity())
+        _commandRelationData.reserve(size);
 }
 
 }// namespace luisa::compute
