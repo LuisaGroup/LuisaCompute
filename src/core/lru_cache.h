@@ -32,7 +32,7 @@ public:
         return luisa::make_unique<LRUCache>(capacity);
     }
 
-    [[nodiscard]] auto fetch(const Key &key) noexcept -> std::optional<Value> {
+    [[nodiscard]] auto fetch(const Key &key) noexcept -> luisa::optional<Value> {
         std::scoped_lock lock{_mutex};
         auto timepoint_iter = _key_to_timepoint.find(key);
         // not in cache
