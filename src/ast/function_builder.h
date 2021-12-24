@@ -181,7 +181,7 @@ public:
     [[nodiscard]] auto constants() const noexcept { return luisa::span{_captured_constants}; }
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings}; }
-    [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
+    [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() noexcept { return &_body; }
