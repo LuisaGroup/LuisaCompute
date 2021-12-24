@@ -6,9 +6,7 @@
 
 #include <cstdlib>
 #include <cmath>
-#include <vector>
 #include <memory>
-#include <span>
 #include <string>
 
 #include <EASTL/memory.h>
@@ -104,6 +102,7 @@ using eastl::unordered_set;
 using eastl::variant;
 using eastl::optional;
 using eastl::monostate;
+using eastl::nullopt;
 using eastl::visit;
 using eastl::holds_alternative;
 
