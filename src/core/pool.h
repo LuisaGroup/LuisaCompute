@@ -68,7 +68,7 @@ public:
             _available_objects.pop_back();
             return p;
         }();
-        return luisa::construct_at(p, std::forward<Args>(args)...);
+        return std::construct_at(p, std::forward<Args>(args)...);
     }
 
     void recycle(T *object) noexcept {

@@ -728,7 +728,7 @@ void MetalCodegen::_emit_indent() noexcept {
     }
 }
 
-void MetalCodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+void MetalCodegen::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";

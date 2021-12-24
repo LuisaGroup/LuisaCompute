@@ -8,18 +8,22 @@
 #include <cmath>
 #include <vector>
 #include <memory>
+#include <span>
 #include <string>
-#include <map>
-#include <set>
-#include <deque>
-#include <queue>
-#include <unordered_map>
-#include <unordered_set>
+
+#include <EASTL/memory.h>
+#include <EASTL/unique_ptr.h>
+#include <EASTL/shared_ptr.h>
+#include <EASTL/span.h>
+#include <EASTL/vector.h>
+#include <EASTL/map.h>
+#include <EASTL/set.h>
+#include <EASTL/deque.h>
+#include <EASTL/queue.h>
+#include <EASTL/unordered_map.h>
+#include <EASTL/unordered_set.h>
 
 namespace luisa {
-
-using std::construct_at;
-using std::destroy_at;
 
 namespace detail {
 void *allocator_allocate(size_t size, size_t alignment) noexcept;
@@ -45,9 +49,6 @@ struct allocator {
     }
 };
 
-//template<typename T = std::byte>
-//using allocator = std::allocator<T>;
-
 template<typename T>
 [[nodiscard]] inline auto allocate(size_t n = 1u) noexcept {
     return allocator<T>{}.allocate(n);
@@ -60,70 +61,43 @@ inline void deallocate(T *p) noexcept {
 
 template<typename T, typename... Args>
 [[nodiscard]] inline auto new_with_allocator(Args &&...args) noexcept {
-    return construct_at(allocate<T>(), std::forward<Args>(args)...);
+    return std::construct_at(allocate<T>(), std::forward<Args>(args)...);
 }
 
 template<typename T>
 inline void delete_with_allocator(T *p) noexcept {
     if (p != nullptr) {
-        destroy_at(p);
+        std::destroy_at(p);
         deallocate(p);
     }
 }
 
-struct deleter {
-    void operator()(auto p) const noexcept {
-        delete_with_allocator(p);
-    }
-};
-
-template<typename T>
-using unique_ptr = std::unique_ptr<T, deleter>;
-
-using std::shared_ptr;
-using std::weak_ptr;
-using std::enable_shared_from_this;
-
-template<typename T, typename... Args>
-[[nodiscard]] auto make_unique(Args &&...args) noexcept {
-    return unique_ptr<T>{new_with_allocator<T>(std::forward<Args>(args)...)};
-}
-
-template<typename T, typename... Args>
-[[nodiscard]] auto make_shared(Args &&...args) noexcept {
-    return shared_ptr<T>{
-        new_with_allocator<T>(std::forward<Args>(args)...),
-        deleter{}, allocator<std::byte>{}};
-}
+using eastl::unique_ptr;
+using eastl::shared_ptr;
+using eastl::weak_ptr;
+using eastl::enable_shared_from_this;
+using eastl::make_unique;
+using eastl::make_shared;
+using eastl::const_pointer_cast;
+using eastl::reinterpret_pointer_cast;
+using eastl::static_pointer_cast;
+using eastl::dynamic_pointer_cast;
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
 
 template<typename T>
 using vector = std::vector<T, allocator<T>>;
 
-template<typename T>
-using deque = std::deque<T, allocator<T>>;
+using std::span;
 
-template<typename T>
-using queue = std::queue<T, deque<T>>;
-
-template<typename Key, typename Value, typename Pred = std::less<>>
-using map = std::map<Key, Value, Pred, allocator<std::pair<const Key, Value>>>;
-
-template<typename Key, typename Pred = std::less<>>
-using set = std::set<Key, Pred, allocator<Key>>;
-
-template<typename Key, typename Value, typename Pred = std::less<>>
-using multimap = std::map<Key, Value, Pred, allocator<std::pair<const Key, Value>>>;
-
-template<typename Key, typename Pred = std::less<>>
-using multiset = std::set<Key, Pred, allocator<Key>>;
-
-template<typename Key, typename Value, typename Hash = std::hash<Key>, typename Pred = std::equal_to<>>
-using unordered_map = std::unordered_map<Key, Value, Hash, Pred, allocator<std::pair<const Key, Value>>>;
-
-template<typename Key, typename Hash = std::hash<Key>, typename Pred = std::equal_to<>>
-using unordered_set = std::unordered_set<Key, Hash, Pred, allocator<Key>>;
+using eastl::deque;
+using eastl::queue;
+using eastl::map;
+using eastl::set;
+using eastl::multimap;
+using eastl::multiset;
+using eastl::unordered_map;
+using eastl::unordered_set;
 
 namespace detail {
 

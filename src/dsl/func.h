@@ -295,7 +295,7 @@ public:
         _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint3(0u)) : arg.offset();
         return *this;
     }
-    [[nodiscard]] auto args() const noexcept { return std::span{_args.data(), _arg_count}; }
+    [[nodiscard]] auto args() const noexcept { return luisa::span{_args.data(), _arg_count}; }
 };
 
 }// namespace detail
@@ -322,7 +322,7 @@ class Callable<Ret(Args...)> {
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
 private:
-    std::shared_ptr<const detail::FunctionBuilder> _builder;
+    luisa::shared_ptr<const detail::FunctionBuilder> _builder;
 
 public:
     template<typename Def>

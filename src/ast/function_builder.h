@@ -164,7 +164,7 @@ private:
         push(f.get());
         f->with(&f->_body, std::forward<Def>(def));
         pop(f.get());
-        return std::const_pointer_cast<const FunctionBuilder>(f);
+        return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
 
 public:
@@ -177,11 +177,11 @@ public:
     [[nodiscard]] static FunctionBuilder *current() noexcept;
 
     // interfaces for class Function
-    [[nodiscard]] auto builtin_variables() const noexcept { return std::span{_builtin_variables}; }
-    [[nodiscard]] auto constants() const noexcept { return std::span{_captured_constants}; }
-    [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments}; }
-    [[nodiscard]] auto argument_bindings() const noexcept { return std::span{_argument_bindings}; }
-    [[nodiscard]] auto custom_callables() const noexcept { return std::span{_used_custom_callables}; }
+    [[nodiscard]] auto builtin_variables() const noexcept { return luisa::span{_builtin_variables.data(), _builtin_variables.size()}; }
+    [[nodiscard]] auto constants() const noexcept { return luisa::span{_captured_constants.data(), _captured_constants.size()}; }
+    [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments.data(), _arguments.size()}; }
+    [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings.data(), _arguments.size()}; }
+    [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() noexcept { return &_body; }
@@ -250,10 +250,10 @@ public:
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, std::initializer_list<const Expression *> args) noexcept;
     void call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
     void call(Function custom, std::initializer_list<const Expression *> args) noexcept;
-    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, std::span<const Expression *const> args) noexcept;
-    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, std::span<const Expression *const> args) noexcept;
-    void call(CallOp call_op, std::span<const Expression *const> args) noexcept;
-    void call(Function custom, std::span<const Expression *const> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, luisa::span<const Expression *const> args) noexcept;
+    void call(CallOp call_op, luisa::span<const Expression *const> args) noexcept;
+    void call(Function custom, luisa::span<const Expression *const> args) noexcept;
 
     // statements
     void break_() noexcept;
@@ -282,7 +282,7 @@ public:
         auto p = luisa::detail::allocator_allocate(sizeof(T), alignof(T));
         _temporary_data.emplace_back(std::make_pair(
             static_cast<std::byte *>(p), alignof(T)));
-        return luisa::construct_at(
+        return std::construct_at(
             static_cast<T *>(p),
             std::forward<Args>(args)...);
     }

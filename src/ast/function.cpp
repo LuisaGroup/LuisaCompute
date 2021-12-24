@@ -8,15 +8,15 @@
 
 namespace luisa::compute {
 
-std::span<const Variable> Function::builtin_variables() const noexcept {
+luisa::span<const Variable> Function::builtin_variables() const noexcept {
     return _builder->builtin_variables();
 }
 
-std::span<const Function::Constant> Function::constants() const noexcept {
+luisa::span<const Function::Constant> Function::constants() const noexcept {
     return _builder->constants();
 }
 
-std::span<const Variable> Function::arguments() const noexcept {
+luisa::span<const Variable> Function::arguments() const noexcept {
     return _builder->arguments();
 }
 
@@ -28,7 +28,7 @@ const MetaStmt *Function::body() const noexcept {
     return _builder->body();
 }
 
-std::span<const luisa::shared_ptr<const detail::FunctionBuilder>> Function::custom_callables() const noexcept {
+luisa::span<const luisa::shared_ptr<const detail::FunctionBuilder>> Function::custom_callables() const noexcept {
     return _builder->custom_callables();
 }
 

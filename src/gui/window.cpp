@@ -44,7 +44,7 @@ public:
     GLFWContext &operator=(const GLFWContext &) noexcept = delete;
     ~GLFWContext() noexcept { glfwTerminate(); }
     [[nodiscard]] static auto retain() noexcept {
-        static std::weak_ptr<GLFWContext> instance;
+        static luisa::weak_ptr<GLFWContext> instance;
         if (auto p = instance.lock()) { return p; }
         auto p = luisa::make_shared<GLFWContext>();
         instance = p;

@@ -394,7 +394,7 @@ const RefExpr *FunctionBuilder::accel() noexcept {
     return _ref(v);
 }
 
-const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::span<const Expression *const> args) noexcept {
+const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::span<const Expression *const> args) noexcept {
     if (call_op == CallOp::CUSTOM) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Custom functions are not allowed to "
@@ -408,7 +408,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::spa
             args.end()});
 }
 
-const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::span<const Expression *const> args) noexcept {
+const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::span<const Expression *const> args) noexcept {
     if (custom.tag() != Function::Tag::CALLABLE) {
         LUISA_ERROR_WITH_LOCATION(
             "Calling non-callable function in device code.");
@@ -449,11 +449,11 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::sp
     return expr;
 }
 
-void FunctionBuilder::call(CallOp call_op, std::span<const Expression *const> args) noexcept {
+void FunctionBuilder::call(CallOp call_op, luisa::span<const Expression *const> args) noexcept {
     _void_expr(call(nullptr, call_op, args));
 }
 
-void FunctionBuilder::call(Function custom, std::span<const Expression *const> args) noexcept {
+void FunctionBuilder::call(Function custom, luisa::span<const Expression *const> args) noexcept {
     _void_expr(call(nullptr, custom, args));
 }
 
