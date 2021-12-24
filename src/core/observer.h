@@ -5,7 +5,7 @@
 #pragma once
 
 #include <core/hash.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/spin_mutex.h>
 
 namespace luisa {

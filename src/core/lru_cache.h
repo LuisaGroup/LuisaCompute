@@ -7,7 +7,7 @@
 #include <mutex>
 #include <optional>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa {
 

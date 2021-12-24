@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/atomic.h>
 #include <core/basic_traits.h>
 #include <core/basic_types.h>
