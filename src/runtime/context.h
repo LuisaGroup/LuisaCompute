@@ -20,10 +20,10 @@ class Context {
 private:
     std::filesystem::path _runtime_directory;
     std::filesystem::path _cache_directory;
-    std::vector<DynamicModule> _loaded_modules;
-    std::vector<std::string> _device_identifiers;
-    std::vector<Device::Creator *> _device_creators;
-    std::vector<Device::Deleter *> _device_deleters;
+    luisa::vector<DynamicModule> _loaded_modules;
+    luisa::vector<luisa::string> _device_identifiers;
+    luisa::vector<Device::Creator *> _device_creators;
+    luisa::vector<Device::Deleter *> _device_deleters;
 
 public:
     explicit Context(const std::filesystem::path &program) noexcept;

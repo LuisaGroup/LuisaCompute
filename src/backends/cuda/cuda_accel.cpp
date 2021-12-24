@@ -57,7 +57,7 @@ void CUDAAccel::set_transform(size_t index, float4x4 transform) noexcept {
 }
 
 bool CUDAAccel::uses_resource(uint64_t handle) const noexcept {
-    return _resources.contains(handle);
+    return _resources.count(handle) != 0u;
 }
 
 [[nodiscard]] inline auto make_optix_instance(
