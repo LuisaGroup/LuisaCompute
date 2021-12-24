@@ -103,7 +103,9 @@ using eastl::variant;
 using eastl::optional;
 using eastl::monostate;
 using eastl::nullopt;
+using eastl::get;
 using eastl::visit;
+using eastl::get_if;
 using eastl::holds_alternative;
 
 namespace detail {
