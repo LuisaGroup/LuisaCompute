@@ -37,7 +37,7 @@ public:
         auto timepoint_iter = _key_to_timepoint.find(key);
         // not in cache
         if (timepoint_iter == _key_to_timepoint.end()) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         // in cache, update timepoint
         auto old_timepoint = timepoint_iter->second;
