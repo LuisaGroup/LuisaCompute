@@ -177,10 +177,10 @@ public:
     [[nodiscard]] static FunctionBuilder *current() noexcept;
 
     // interfaces for class Function
-    [[nodiscard]] auto builtin_variables() const noexcept { return luisa::span{_builtin_variables.data(), _builtin_variables.size()}; }
-    [[nodiscard]] auto constants() const noexcept { return luisa::span{_captured_constants.data(), _captured_constants.size()}; }
-    [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments.data(), _arguments.size()}; }
-    [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings.data(), _arguments.size()}; }
+    [[nodiscard]] auto builtin_variables() const noexcept { return luisa::span{_builtin_variables}; }
+    [[nodiscard]] auto constants() const noexcept { return luisa::span{_captured_constants}; }
+    [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
+    [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings}; }
     [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
