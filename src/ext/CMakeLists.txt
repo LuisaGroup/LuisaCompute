@@ -68,6 +68,3 @@ endif ()
 
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
-#if (MSVC)
-#    target_compile_definitions(EASTL PUBLIC EASTL_API=__declspec\(dllexport\))
-#endif ()
