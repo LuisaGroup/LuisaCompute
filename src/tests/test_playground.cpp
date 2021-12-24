@@ -3,7 +3,7 @@
 //
 
 #include <iostream>
-#include <EASTL/allocator.h>
+#include <EASTL/vector.h>
 #include <nlohmann/json.hpp>
 #include <ast/op.h>
 #include <core/logging.h>
@@ -71,4 +71,7 @@ int main() {
         LUISA_INFO("Bye from thread {}: ({}, {}).", oss.str(), x, y);
     });
     thread_pool.synchronize();
+
+    eastl::vector<int> a;
+    a.emplace_back(0);
 }
