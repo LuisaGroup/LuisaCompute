@@ -66,7 +66,7 @@ class CommandReorderVisitor : public CommandVisitor {
 
 private:
     Device::Interface *device;
-    std::vector<std::vector<CommandRelation>> _commandRelationData;
+    static thread_local std::vector<std::vector<CommandRelation>> _commandRelationData;
 
 private:
     inline bool Overlap(CommandSource sourceA, CommandSource sourceB);
