@@ -23,6 +23,16 @@
 #include <EASTL/functional.h>
 #include <EASTL/variant.h>
 #include <EASTL/optional.h>
+#include <EASTL/fixed_map.h>
+#include <EASTL/fixed_set.h>
+#include <EASTL/fixed_hash_map.h>
+#include <EASTL/fixed_hash_set.h>
+#include <EASTL/vector_map.h>
+#include <EASTL/vector_set.h>
+#include <EASTL/vector_multimap.h>
+#include <EASTL/vector_multiset.h>
+#include <EASTL/bitvector.h>
+#include <EASTL/bit.h>
 
 namespace luisa {
 
@@ -98,15 +108,34 @@ using eastl::multimap;
 using eastl::multiset;
 using eastl::unordered_map;
 using eastl::unordered_set;
+using eastl::unordered_multimap;
+using eastl::unordered_multiset;
 
 using eastl::variant;
 using eastl::optional;
 using eastl::monostate;
 using eastl::nullopt;
+
 using eastl::get;
 using eastl::visit;
 using eastl::get_if;
+using eastl::bit_cast;
 using eastl::holds_alternative;
+
+using eastl::fixed_map;
+using eastl::fixed_set;
+using eastl::fixed_multimap;
+using eastl::fixed_multiset;
+using eastl::fixed_hash_map;
+using eastl::fixed_hash_map;
+using eastl::fixed_hash_multimap;
+using eastl::fixed_hash_multimap;
+
+using eastl::bitvector;
+using eastl::vector_map;
+using eastl::vector_set;
+using eastl::vector_multimap;
+using eastl::vector_multiset;
 
 namespace detail {
 
