@@ -85,10 +85,8 @@ using eastl::dynamic_pointer_cast;
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
 
-template<typename T>
-using vector = std::vector<T, allocator<T>>;
-
-using std::span;
+using eastl::vector;
+using eastl::span;
 
 using eastl::deque;
 using eastl::queue;
