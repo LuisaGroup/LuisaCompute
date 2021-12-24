@@ -14,7 +14,7 @@
 #include <vstl/AllocateType.h>
 #include <vstl/Compare.h>
 #include <vstl/Hash.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 inline void *vengine_malloc(size_t size) {
     return luisa::detail::allocator_allocate(size, 0);
 }

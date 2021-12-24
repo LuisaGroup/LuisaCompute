@@ -5,7 +5,7 @@
 #pragma once
 
 #include <cstddef>
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa {
 

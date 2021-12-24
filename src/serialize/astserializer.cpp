@@ -197,7 +197,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantData const &t, IJso
     r->Set("view_type", view.index());
     r->Set("hash", t._hash);
     auto arr = db->CreateArray();
-    std::visit(
+    luisa::visit(
         [&]<typename T>(T const &t) {
             SerArrayVisitor<std::remove_cvref_t<typename T::element_type>>().SerArray(*arr, t);
         },
@@ -276,7 +276,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, DeserVisitor cons
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
-    std::visit(
+    luisa::visit(
         [&]<typename T>(T const &t) {
             if constexpr (!std::is_same_v<T, LiteralExpr::MetaValue>) {
                 SerArrayVisitor<T>().SerValue(r.get(), db, t);

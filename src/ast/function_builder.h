@@ -6,7 +6,7 @@
 
 #include <vector>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/hash.h>
 #include <core/spin_mutex.h>
 
@@ -101,8 +101,8 @@ public:
         }
     };
 
-    using Binding = std::variant<
-        std::monostate,// not bound
+    using Binding = luisa::variant<
+        luisa::monostate,// not bound
         BufferBinding,
         TextureBinding,
         BindlessArrayBinding,

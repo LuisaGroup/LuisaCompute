@@ -14,7 +14,7 @@
 #include <functional>
 #include <condition_variable>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/basic_types.h>
 
 namespace luisa {

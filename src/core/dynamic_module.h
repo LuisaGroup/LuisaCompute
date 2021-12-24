@@ -4,7 +4,7 @@
 #include <functional>
 
 #include <core/platform.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/concepts.h>
 
 namespace luisa {

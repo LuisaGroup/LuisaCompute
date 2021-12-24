@@ -13,7 +13,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         dynamic_module.cpp dynamic_module.h
         intrin.h
         clock.h
-        allocator.h allocator.cpp
+        stl.h stl.cpp
         rc.h
         pool.h
         constants.h

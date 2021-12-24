@@ -169,7 +169,7 @@ public:
 }// namespace detail
 
 void CUDACodegen::visit(const LiteralExpr *expr) {
-    std::visit(detail::LiteralPrinter{_scratch}, expr->value());
+    luisa::visit(detail::LiteralPrinter{_scratch}, expr->value());
 }
 
 void CUDACodegen::visit(const RefExpr *expr) {
@@ -723,7 +723,7 @@ void CUDACodegen::_emit_constant(Function::Constant c) noexcept {
     auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
-    std::visit(
+    luisa::visit(
         [count, this](auto ptr) {
             detail::LiteralPrinter print{_scratch};
             for (auto i = 0u; i < count; i++) {

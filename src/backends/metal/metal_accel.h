@@ -7,7 +7,7 @@
 #import <vector>
 #import <Metal/Metal.h>
 
-#import <core/allocator.h>
+#import <core/stl.h>
 #import <core/dirty_range.h>
 #import <rtx/accel.h>
 #import <backends/metal/metal_mesh.h>

@@ -8,7 +8,7 @@
 #import <Metal/Metal.h>
 
 #import <core/spin_mutex.h>
-#import <core/allocator.h>
+#import <core/stl.h>
 #import <core/dirty_range.h>
 #import <runtime/bindless_array.h>
 #import <backends/metal/metal_ring_buffer.h>

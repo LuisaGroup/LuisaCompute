@@ -23,6 +23,8 @@
 #include <EASTL/unordered_map.h>
 #include <EASTL/unordered_set.h>
 #include <EASTL/functional.h>
+#include <EASTL/variant.h>
+#include <EASTL/optional.h>
 
 namespace luisa {
 
@@ -98,6 +100,12 @@ using eastl::multimap;
 using eastl::multiset;
 using eastl::unordered_map;
 using eastl::unordered_set;
+
+using eastl::variant;
+using eastl::optional;
+using eastl::monostate;
+using eastl::visit;
+using eastl::holds_alternative;
 
 namespace detail {
 

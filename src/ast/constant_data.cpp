@@ -24,7 +24,7 @@ namespace detail {
 }// namespace detail
 
 ConstantData ConstantData::create(ConstantData::View data) noexcept {
-    return std::visit(
+    return luisa::visit(
         [](auto view) noexcept -> ConstantData {
             using T = std::remove_const_t<typename decltype(view)::value_type>;
             auto type = Type::of<T>();
