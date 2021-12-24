@@ -41,7 +41,7 @@ public:
         MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
     [[nodiscard]] auto descriptor() const noexcept { return _descriptor; }
-    [[nodiscard]] auto resources() noexcept { return std::span{_resources}; }
+    [[nodiscard]] auto resources() noexcept { return luisa::span{_resources}; }
 
     void add_instance(MetalMesh *mesh, float4x4 transform, bool visible) noexcept;
     void pop_instance() noexcept;

@@ -73,7 +73,7 @@ Shader::Shader(
         include_opt.c_str()
     };
     luisa::string ispc_opt_string{ispc_options.front()};
-    for (auto o : std::span{ispc_options}.subspan(1u)) {
+    for (auto o : luisa::span{ispc_options}.subspan(1u)) {
         ispc_opt_string.append(" ").append(o);
     }
 

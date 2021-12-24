@@ -128,7 +128,7 @@ public:
 
     using Deleter = void(Interface *);
     using Creator = Interface *(const Context & /* context */, std::string_view /* properties */);
-    using Handle = std::shared_ptr<Interface>;
+    using Handle = luisa::shared_ptr<Interface>;
 
 private:
     Handle _impl;

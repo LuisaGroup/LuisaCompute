@@ -224,11 +224,11 @@ class Shader final : public Resource {
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
 
 private:
-    std::shared_ptr<const detail::FunctionBuilder> _kernel;
+    luisa::shared_ptr<const detail::FunctionBuilder> _kernel;
 
 private:
     friend class Device;
-    Shader(Device::Interface *device, std::shared_ptr<const detail::FunctionBuilder> kernel, std::string_view meta_options) noexcept
+    Shader(Device::Interface *device, luisa::shared_ptr<const detail::FunctionBuilder> kernel, std::string_view meta_options) noexcept
         : Resource{
               device,
               Tag::SHADER,

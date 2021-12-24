@@ -565,7 +565,7 @@ void CppCodegen::_emit_indent() noexcept {
     for (auto i = 0u; i < _indent; i++) { _scratch << "  "; }
 }
 
-void CppCodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+void CppCodegen::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";

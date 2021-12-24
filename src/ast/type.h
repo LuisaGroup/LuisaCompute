@@ -316,7 +316,7 @@ public:
         return _dimension;
     }
 
-    [[nodiscard]] std::span<const Type *const> members() const noexcept;
+    [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
     [[nodiscard]] const Type *element() const noexcept;
 
     [[nodiscard]] constexpr bool is_scalar() const noexcept {

@@ -19,15 +19,15 @@ private:
     ConstantData _data;
 
 public:
-    Constant(std::span<const T> data) noexcept
+    Constant(luisa::span<const T> data) noexcept
         : _type{Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
           _data{ConstantData::create(data)} {}
 
     Constant(const T *data, size_t size) noexcept
-        : Constant{std::span{data, size}} {}
+        : Constant{luisa::span{data, size}} {}
 
     template<typename U>
-    Constant(U &&data) noexcept : Constant{std::span<const T>{std::forward<U>(data)}} {}
+    Constant(U &&data) noexcept : Constant{luisa::span<const T>{std::forward<U>(data)}} {}
 
     Constant(std::initializer_list<T> init) noexcept : Constant{luisa::vector<T>{init}} {}
 
@@ -47,10 +47,10 @@ public:
 };
 
 template<typename T>
-Constant(std::span<T> data) -> Constant<T>;
+Constant(luisa::span<T> data) -> Constant<T>;
 
 template<typename T>
-Constant(std::span<const T> data) -> Constant<T>;
+Constant(luisa::span<const T> data) -> Constant<T>;
 
 template<typename T>
 Constant(std::initializer_list<T>) -> Constant<T>;

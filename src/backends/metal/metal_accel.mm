@@ -197,7 +197,7 @@ void MetalAccel::set_visibility(size_t index, bool visible) noexcept {
 }
 
 bool MetalAccel::uses_resource(uint64_t r) const noexcept {
-    return _resource_handles.contains(r);
+    return _resource_handles.count(r) != 0u;
 }
 
 void MetalAccel::pop_instance() noexcept {

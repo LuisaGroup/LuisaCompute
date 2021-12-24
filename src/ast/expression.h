@@ -356,7 +356,7 @@ public:
           _custom{},
           _op{builtin} { _mark(); }
     [[nodiscard]] auto op() const noexcept { return _op; }
-    [[nodiscard]] auto arguments() const noexcept { return std::span{_arguments}; }
+    [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     [[nodiscard]] auto custom() const noexcept { return _custom; }
     [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()

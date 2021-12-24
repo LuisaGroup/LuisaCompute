@@ -13,6 +13,7 @@
 #include <core/macro.h>
 #include <core/basic_types.h>
 #include <core/atomic.h>
+#include <core/allocator.h>
 
 namespace luisa::concepts {
 
@@ -37,7 +38,7 @@ concept string_viewable = requires(T v) {
 
 template<typename T>
 concept span_convertible = requires(T v) {
-    std::span{v};
+    luisa::span{v};
 };
 
 template<typename T, typename... Args>

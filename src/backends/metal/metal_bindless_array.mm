@@ -97,12 +97,12 @@ void MetalBindlessArray::_release(id<MTLResource> r) noexcept {
 
 bool MetalBindlessArray::has_buffer(uint64_t handle) const noexcept {
     auto buffer = (__bridge id<MTLBuffer>)(reinterpret_cast<void *>(handle));
-    return _resources.contains(MetalBindlessResource{buffer});
+    return _resources.count(MetalBindlessResource{buffer}) != 0u;
 }
 
 bool MetalBindlessArray::has_texture(uint64_t handle) const noexcept {
     auto texture = (__bridge id<MTLTexture>)(reinterpret_cast<void *>(handle));
-    return _resources.contains(MetalBindlessResource{texture});
+    return _resources.count(MetalBindlessResource{texture}) != 0u;
 }
 
 }
