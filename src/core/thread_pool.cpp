@@ -75,7 +75,7 @@ void ThreadPool::synchronize() noexcept {
     _synchronize_barrier.arrive_and_wait();
 }
 
-void ThreadPool::_dispatch(std::function<void()> task) noexcept {
+void ThreadPool::_dispatch(luisa::function<void()> task) noexcept {
     {
         std::scoped_lock lock{_mutex};
         _tasks.emplace(std::move(task));
@@ -83,7 +83,7 @@ void ThreadPool::_dispatch(std::function<void()> task) noexcept {
     _cv.notify_one();
 }
 
-void ThreadPool::_dispatch_all(std::function<void()> task, size_t max_threads) noexcept {
+void ThreadPool::_dispatch_all(luisa::function<void()> task, size_t max_threads) noexcept {
     {
         std::scoped_lock lock{_mutex};
         for (auto i = 0u; i < std::min(_threads.size(), max_threads) - 1u; i++) {

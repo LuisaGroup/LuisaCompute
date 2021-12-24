@@ -22,6 +22,7 @@
 #include <EASTL/queue.h>
 #include <EASTL/unordered_map.h>
 #include <EASTL/unordered_set.h>
+#include <EASTL/functional.h>
 
 namespace luisa {
 
@@ -72,6 +73,7 @@ inline void delete_with_allocator(T *p) noexcept {
     }
 }
 
+using eastl::function;
 using eastl::unique_ptr;
 using eastl::shared_ptr;
 using eastl::weak_ptr;
