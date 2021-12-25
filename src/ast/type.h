@@ -13,7 +13,7 @@
 
 #include <core/hash.h>
 #include <core/concepts.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa::compute {
 

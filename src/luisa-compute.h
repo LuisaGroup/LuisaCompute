@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <core/allocator.h>
 #include <core/atomic.h>
 #include <core/basic_traits.h>
 #include <core/basic_types.h>
@@ -25,6 +24,7 @@
 #include <core/pool.h>
 #include <core/rc.h>
 #include <core/spin_mutex.h>
+#include <core/stl.h>
 #include <core/thread_pool.h>
 
 #include <ast/constant_data.h>

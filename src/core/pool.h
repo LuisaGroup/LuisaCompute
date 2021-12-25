@@ -9,7 +9,7 @@
 
 #include <core/logging.h>
 #include <core/spin_mutex.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa {
 

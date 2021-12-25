@@ -14,7 +14,7 @@
 #include <functional>
 #include <condition_variable>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/basic_types.h>
 
 namespace luisa {
@@ -26,7 +26,7 @@ public:
 
 private:
     luisa::vector<std::thread> _threads;
-    luisa::queue<std::function<void()>> _tasks;
+    luisa::queue<luisa::function<void()>> _tasks;
     std::mutex _mutex;
     barrier_type _synchronize_barrier;
     barrier_type _dispatch_barrier;
@@ -34,8 +34,8 @@ private:
     bool _should_stop;
 
 private:
-    void _dispatch(std::function<void()> task) noexcept;
-    void _dispatch_all(std::function<void()> task, size_t max_threads = std::numeric_limits<size_t>::max()) noexcept;
+    void _dispatch(luisa::function<void()> task) noexcept;
+    void _dispatch_all(luisa::function<void()> task, size_t max_threads = std::numeric_limits<size_t>::max()) noexcept;
 
 public:
     explicit ThreadPool(size_t num_threads = 0u) noexcept;
