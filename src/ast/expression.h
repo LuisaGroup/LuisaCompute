@@ -14,7 +14,7 @@
 #include <core/basic_types.h>
 #include <core/logging.h>
 #include <core/hash.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <ast/op.h>
@@ -230,7 +230,7 @@ struct make_literal_value {
 
 template<typename... T>
 struct make_literal_value<std::tuple<T...>> {
-    using type = std::variant<T...>;
+    using type = luisa::variant<T...>;
 };
 
 template<typename T>
@@ -267,7 +267,7 @@ private:
 protected:
     void _mark(Usage) const noexcept override {}
     uint64_t _compute_hash() const noexcept override {
-        return std::visit(
+        return luisa::visit(
             [](auto &&v) noexcept {
                 if constexpr (std::is_same_v<std::remove_cvref_t<decltype(v)>, MetaValue>) {
                     return hash64(v.expr(), v.type()->hash());

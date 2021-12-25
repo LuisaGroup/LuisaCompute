@@ -6,7 +6,7 @@
 
 #include <vector>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/hash.h>
 #include <core/spin_mutex.h>
 
@@ -101,8 +101,8 @@ public:
         }
     };
 
-    using Binding = std::variant<
-        std::monostate,// not bound
+    using Binding = luisa::variant<
+        luisa::monostate,// not bound
         BufferBinding,
         TextureBinding,
         BindlessArrayBinding,
@@ -181,7 +181,7 @@ public:
     [[nodiscard]] auto constants() const noexcept { return luisa::span{_captured_constants}; }
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings}; }
-    [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables.data(), _used_custom_callables.size()}; }
+    [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables}; }
     [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto body() noexcept { return &_body; }

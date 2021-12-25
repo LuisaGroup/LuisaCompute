@@ -189,7 +189,7 @@ const RefExpr *FunctionBuilder::buffer(const Type *type) noexcept {
 const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept {
     // find if already bound
     for (auto i = 0u; i < _arguments.size(); i++) {
-        if (std::visit(
+        if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
                     if constexpr (std::is_same_v<T, BufferBinding>) {
                         return *_arguments[i].type() == *type &&
@@ -277,7 +277,7 @@ const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
 
 const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handle, uint32_t level) noexcept {
     for (auto i = 0u; i < _arguments.size(); i++) {
-        if (std::visit(
+        if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
                     if constexpr (std::is_same_v<T, TextureBinding>) {
                         return *_arguments[i].type() == *type &&
@@ -340,7 +340,7 @@ void FunctionBuilder::_compute_hash() noexcept {// FIXME: seems not good
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
     for (auto i = 0u; i < _arguments.size(); i++) {
-        if (std::visit(
+        if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
                     if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
                         return binding.handle == handle;
@@ -368,7 +368,7 @@ const RefExpr *FunctionBuilder::bindless_array() noexcept {
 const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
     _raytracing = true;
     for (auto i = 0u; i < _arguments.size(); i++) {
-        if (std::visit(
+        if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
                     if constexpr (std::is_same_v<T, AccelBinding>) {
                         return binding.handle == handle;
@@ -417,7 +417,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
-        call_args[i] = std::visit(
+        call_args[i] = luisa::visit(
             [&]<typename T>(T binding) noexcept -> const Expression * {
                 if constexpr (std::is_same_v<T, BufferBinding>) {
                     return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes);

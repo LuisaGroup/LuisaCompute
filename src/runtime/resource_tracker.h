@@ -5,7 +5,7 @@
 #pragma once
 
 #include <core/basic_types.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa::compute {
 

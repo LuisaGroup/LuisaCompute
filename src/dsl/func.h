@@ -6,7 +6,7 @@
 
 #include <type_traits>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <runtime/command.h>
 #include <runtime/device.h>
 #include <runtime/shader.h>
@@ -402,7 +402,6 @@ LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(const volatile noexcept)
 template<typename T>
 using canonical_signature_t = typename canonical_signature<T>::type;
 
-// TODO: clangd has trouble with MSVC regarding the deduction guides of std::function
 template<typename T>
 struct dsl_function {
     using type = typename dsl_function<

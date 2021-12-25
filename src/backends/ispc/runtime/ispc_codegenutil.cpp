@@ -131,7 +131,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, luisa::string &
     str << "struct tc";
     vstd::to_string((constCount), str);
     uint64 varCount = 1;
-    std::visit(
+    luisa::visit(
         [&](auto &&arr) {
             varCount = arr.size();
         },
@@ -162,7 +162,7 @@ void CodegenUtility::GetConstantData(ConstantData const &data, luisa::string &st
     luisa::string name = vstd::to_string((constCount));
     str << "uniform const tc" << name << " c" << name;
     str << "={{";
-    std::visit(
+    luisa::visit(
         [&](auto &&arr) {
             for (auto const &ele : arr) {
                 PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;

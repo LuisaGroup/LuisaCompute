@@ -53,10 +53,10 @@ private:
     void _encode_pending_bindings() noexcept {
         auto bindings = _kernel.builder()->argument_bindings();
         for (; _argument_index < _kernel.arguments().size() &&
-               !std::holds_alternative<std::monostate>(// has binding
+               !luisa::holds_alternative<luisa::monostate>(// has binding
                    bindings[_argument_index]);
              _argument_index++) {
-            std::visit(
+            luisa::visit(
                 [&, arg = _kernel.arguments()[_argument_index]]<typename T>(T binding) noexcept {
                     if constexpr (std::is_same_v<T, FunctionBuilder::BufferBinding>) {
                         _dispatch_command()->encode_buffer(

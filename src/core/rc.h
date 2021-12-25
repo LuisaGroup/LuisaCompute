@@ -8,7 +8,7 @@
 #include <utility>
 
 #include <core/logging.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa {
 
