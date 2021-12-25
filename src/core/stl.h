@@ -34,7 +34,6 @@
 #include <EASTL/vector_multimap.h>
 #include <EASTL/vector_multiset.h>
 #include <EASTL/bonus/lru_cache.h>
-#include <EASTL/bonus/tuple_vector.h>
 
 namespace luisa {
 
@@ -133,14 +132,13 @@ using eastl::fixed_hash_map;
 using eastl::fixed_hash_multimap;
 using eastl::fixed_hash_multimap;
 
+using eastl::lru_cache;
 using eastl::bitvector;
+
 using eastl::vector_map;
 using eastl::vector_set;
 using eastl::vector_multimap;
 using eastl::vector_multiset;
-
-using eastl::lru_cache;
-using eastl::tuple_vector;
 
 namespace detail {
 
