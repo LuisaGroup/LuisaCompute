@@ -1,5 +1,6 @@
 #pragma once
 #include <vstl/Common.h>
+#include <EASTL/vector.h>
 class VENGINE_DLL_COMMON BinaryReader
 {
 private:
@@ -20,7 +21,7 @@ private:
 public:
 	BinaryReader(vstd::string const& path);
 	void Read(char* ptr, uint64 len);
-	vstd::vector<uint8_t> Read(bool addNullEnd = false);
+	eastl::vector<uint8_t> Read(bool addNullEnd = false);
 	inline operator bool() const {
 		return isAvaliable;
 	}

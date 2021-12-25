@@ -38,16 +38,13 @@ void ThreadTaskHandle::TaskData::ReleaseThreadLocker() {
 ThreadTaskHandle::ThreadTaskHandle(
     ThreadPool *pool, bool waitable) : pool(pool) {
     isArray = false;
-    auto ptr = vstd::MakeObjectPtr(
-        new TaskData(waitable));
-    taskFlag.New(std::move(ptr));
+    taskFlag.New(eastl::make_shared<TaskData>(waitable));
 }
 ThreadTaskHandle::ThreadTaskHandle(
     ThreadPool *pool,
     vstd::function<void()> &&func, bool waitable) : pool(pool) {
     isArray = false;
-    auto ptr = vstd::MakeObjectPtr(new TaskData(std::move(func), waitable));
-    taskFlag.New(std::move(ptr));
+    taskFlag.New(eastl::make_shared<TaskData>(std::move(func), waitable));
 }
 
 ThreadTaskHandle::ThreadTaskHandle(
@@ -68,23 +65,8 @@ ThreadTaskHandle::ThreadTaskHandle(
 
     auto taskCounter = tPool->counters.New_Lock(tPool->counterMtx, threadCount);
     for (size_t v = 0; v < threadCount - 1; ++v) {
-        tasks.emplace_back(vstd::MakeObjectPtr(
-            new TaskData(
-                [=]() {
-                    auto i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
-                    while (i < parallelCount) {
-                        func(i);
-                        i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
-                    }
-                    if (taskCounter->finishedCount.fetch_sub(1, std::memory_order_relaxed) == 1) {
-                        tPool->counters.Delete_Lock(tPool->counterMtx, taskCounter);
-                    }
-                },
-                waitable)));
-    }
-    tasks.emplace_back(vstd::MakeObjectPtr(
-        new TaskData(
-            [=, func = std::move(func)]() {
+        tasks.emplace_back(eastl::make_shared<TaskData>(
+            [=]() {
                 auto i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
                 while (i < parallelCount) {
                     func(i);
@@ -94,7 +76,20 @@ ThreadTaskHandle::ThreadTaskHandle(
                     tPool->counters.Delete_Lock(tPool->counterMtx, taskCounter);
                 }
             },
-            waitable)));
+            waitable));
+    }
+    tasks.emplace_back(eastl::make_shared<TaskData>(
+        [=, func = std::move(func)]() {
+            auto i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
+            while (i < parallelCount) {
+                func(i);
+                i = taskCounter->counter.fetch_add(1, std::memory_order_acq_rel);
+            }
+            if (taskCounter->finishedCount.fetch_sub(1, std::memory_order_relaxed) == 1) {
+                tPool->counters.Delete_Lock(tPool->counterMtx, taskCounter);
+            }
+        },
+        waitable));
 }
 
 ThreadTaskHandle::ThreadTaskHandle(
@@ -115,12 +110,11 @@ ThreadTaskHandle::ThreadTaskHandle(
     size_t eachJobCount = parallelCount / threadCount;
     tasks.reserve(threadCount + 1);
     auto AddTask = [&](size_t beg, size_t ed) {
-        tasks.emplace_back(vstd::MakeObjectPtr(
-            new TaskData(
+        tasks.emplace_back(eastl::make_shared<TaskData>(
                 [=]() {
                     func(beg, ed);
                 },
-                waitable)));
+                waitable));
     };
     for (size_t i = 0; i < threadCount; ++i) {
         AddTask(i * eachJobCount, (i + 1) * eachJobCount);
@@ -145,7 +139,7 @@ void ThreadTaskHandle::Complete() const {
     };
     TPoolCounter tcounter(pool);
     int64 needEnableState = 0;
-    auto checkExecuteFunc = [&](vstd::ObjectPtr<TaskData> const &p) {
+    auto checkExecuteFunc = [&](eastl::shared_ptr<TaskData> const &p) {
         pool->ExecuteTask(p, needEnableState);
     };
     auto func = [&](TaskData *p) {
@@ -174,13 +168,13 @@ void ThreadTaskHandle::Complete() const {
         pool->EnableThread(needEnableState);
         pool->ActiveOneBackupThread();
         for (auto &taskFlag : *taskFlags) {
-            func(taskFlag);
+            func(taskFlag.get());
         }
     } else {
         checkExecuteFunc(*taskFlag);
         pool->EnableThread(needEnableState);
         pool->ActiveOneBackupThread();
-        func(*taskFlag);
+        func(taskFlag->get());
     }
 }
 
@@ -191,18 +185,18 @@ bool ThreadTaskHandle::IsComplete() const {
     };
     if (isArray) {
         for (auto &taskFlag : *taskFlags) {
-            if (!func(taskFlag)) return false;
+            if (!func(taskFlag.get())) return false;
         }
         return true;
     } else {
-        return func(*taskFlag);
+        return func(taskFlag->get());
     }
 }
 template<typename H>
 void ThreadTaskHandle::TAddDepend(H &&handle) const {
-    auto func = [&](vstd::ObjectPtr<TaskData> const &selfPtr, auto &&dep, uint64 &dependAdd) {
-        TaskData *p = dep;
-        TaskData *self = selfPtr;
+    auto func = [&](eastl::shared_ptr<TaskData> const &selfPtr, auto &&dep, uint64 &dependAdd) {
+        TaskData *p = dep.get();
+        TaskData *self = selfPtr.get();
 
         TaskState state = static_cast<TaskState>(p->state.load(std::memory_order_acquire));
         if ((uint8_t)state < (uint8_t)TaskState::Executed) {
@@ -218,7 +212,7 @@ void ThreadTaskHandle::TAddDepend(H &&handle) const {
             VENGINE_EXIT;
         }
     };
-    auto executeSelf = [&](vstd::ObjectPtr<TaskData> const &self, auto &&handle) {
+    auto executeSelf = [&](eastl::shared_ptr<TaskData> const &self, auto &&handle) {
         uint64 v = 0;
         if (handle.isArray) {
             for (auto &i : *handle.taskFlags) {
