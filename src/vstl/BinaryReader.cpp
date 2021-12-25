@@ -25,8 +25,8 @@ void BinaryReader::Read(char *ptr, uint64 len) {
     fseek(ifs, lastPos, SEEK_SET);
     fread(ptr, len, 1, ifs);
 }
-vstd::vector<uint8_t> BinaryReader::Read(bool addNullEnd) {
-    if (!isAvaliable) return vstd::vector<uint8_t>();
+eastl::vector<uint8_t> BinaryReader::Read(bool addNullEnd) {
+    if (!isAvaliable) return eastl::vector<uint8_t>();
     auto len = length;
     uint64 targetEnd = currentPos + len;
     if (targetEnd > length) {
@@ -35,11 +35,11 @@ vstd::vector<uint8_t> BinaryReader::Read(bool addNullEnd) {
     }
     if (len == 0) {
         if (addNullEnd)
-            return vstd::vector<uint8_t>({0});
+            return eastl::vector<uint8_t>({0});
         else
-            return vstd::vector<uint8_t>();
+            return eastl::vector<uint8_t>();
     }
-    vstd::vector<uint8_t> result;
+    eastl::vector<uint8_t> result;
     result.resize(addNullEnd ? (len + 1) : len);
     uint64 lastPos = currentPos;
     currentPos = targetEnd;

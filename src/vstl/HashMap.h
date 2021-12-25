@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <memory>
 #include <vstl/Pool.h>
-#include <vstl/vector.h>
 #include <vstl/Hash.h>
 #include <vstl/MetaLib.h>
 #include <vstl/VAllocator.h>
@@ -401,7 +400,7 @@ public:
 
 private:
     LinkNode **nodeArray;
-    Pool<LinkNode, allocType, true> pool;
+    Pool<LinkNode, true> pool;
     size_t mSize;
     size_t mCapacity;
 

@@ -29,7 +29,7 @@ ThreadPool::ThreadPool(size_t workerThreadCount)
         vengineTpool_isWorkerThread = true;
         while (enabled.test(std::memory_order_acquire)) {
             while (auto func = taskList.Pop()) {
-                ThreadTaskHandle::TaskData *ptr = *func;
+                ThreadTaskHandle::TaskData *ptr = func->get();
                 ThreadExecute(ptr);
             }
             LockThread(
@@ -40,7 +40,7 @@ ThreadPool::ThreadPool(size_t workerThreadCount)
         vengineTpool_isWorkerThread = true;
         while (enabled.test(std::memory_order_acquire)) {
             while (auto func = taskList.Pop()) {
-                ThreadExecute(*func);
+                ThreadExecute(func->get());
                 if (threadIndex >= pausedWorkingThread) break;
             }
             LockThread(
@@ -93,7 +93,7 @@ void ThreadPool::ThreadExecute(ThreadTaskHandle::TaskData *ptr) {
     }
     int64 needNotifyThread = -1;
     for (auto &i : ptr->dependedJobs) {
-        ThreadTaskHandle::TaskData *d = i;
+        ThreadTaskHandle::TaskData *d = i.get();
         if (d->dependCount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
             if (d->state.load(std::memory_order_acquire) != static_cast<uint8_t>(ThreadTaskHandle::TaskState::Executed)) continue;
             taskList.Push(std::move(i));
@@ -161,8 +161,8 @@ ThreadTaskHandle ThreadPool::M_GetBeginEndTask(
     return GetFence(waitable);
 }
 
-void ThreadPool::ExecuteTask(vstd::ObjectPtr<ThreadTaskHandle::TaskData> const &task, int64 &accumulateCount) {
-    ThreadTaskHandle::TaskData *ptr = task;
+void ThreadPool::ExecuteTask(eastl::shared_ptr<ThreadTaskHandle::TaskData> const &task, int64 &accumulateCount) {
+    ThreadTaskHandle::TaskData *ptr = task.get();
     uint8_t expected = static_cast<uint8_t>(ThreadTaskHandle::TaskState::Waiting);
     if (!ptr->state.compare_exchange_strong(
             expected,

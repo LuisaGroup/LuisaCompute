@@ -836,22 +836,21 @@ class Evaluable {};
 template<class Func>
 class LazyEval : public Evaluable {
 private:
-    Func func;
+    mutable Func func;
 
 public:
     using EvalType = decltype(std::declval<Func>()());
     LazyEval(Func &&func)
         : func(std::move(func)) {}
     LazyEval(LazyEval const &) = delete;
-    LazyEval(LazyEval &&v)
-        : func(std::move(v.func)) {}
-    operator decltype(auto)() {
+    LazyEval(LazyEval &&v) = default;
+    operator decltype(auto)() const {
         return func();
     }
 };
 
 template<class Func>
-LazyEval<Func> MakeLazyEval(Func &&func) {
+LazyEval<std::remove_cvref_t<Func>> MakeLazyEval(Func &&func) {
     return std::forward<Func>(func);
 }
 template<typename... Args>
@@ -1373,4 +1372,30 @@ struct compare<variant<T...>> {
             return (a.GetType() > b.GetType()) ? 1 : -1;
     }
 };
+template<typename Vec, typename Func>
+void push_back_func(Vec &&vec, Func &&func, size_t count) {
+    if constexpr (std::is_invocable_v<Func>) {
+        std::fill_n(
+            std::back_inserter(vec),
+            count,
+            LazyEval<std::remove_cvref_t<Func>>(std::forward<Func>(func)));
+    } else if constexpr (std::is_invocable_v<Func, size_t>) {
+        size_t i = 0;
+        std::fill_n(
+            std::back_inserter(vec),
+            count,
+            MakeLazyEval([&] {
+                auto d = create_disposer([&] { ++i; });
+                return func(i);
+            }));
+    } else {
+        static_assert(AlwaysFalse<Vec>, "illegal type");
+    }
+}
+template<typename Vec>
+auto erase_last(Vec &&vec) {
+    auto lastIte = vec.end() - 1;
+    auto disp = create_disposer([&] { vec.erase(lastIte); });
+    return std::move(*lastIte);
+}
 }// namespace vstd
