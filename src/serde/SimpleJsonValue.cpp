@@ -28,11 +28,11 @@ public:
 };
 class ArrayIEnumerator : public vstd::IEnumerable<ReadJsonVariant> {
 public:
-    SimpleJsonVariant *ite;
-    SimpleJsonVariant *end;
+    SimpleJsonVariant const *ite;
+    SimpleJsonVariant const *end;
     ArrayIEnumerator(
-        SimpleJsonVariant *ite,
-        SimpleJsonVariant *end)
+        SimpleJsonVariant const *ite,
+        SimpleJsonVariant const *end)
         : ite(ite),
           end(end) {}
     ReadJsonVariant GetValue() override {
@@ -416,8 +416,8 @@ static void CompressPrintArray(Vector const &arr, vstd::string &str) {
     }
 }
 //////////////////////////  Single Thread
-SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db) 
-: vars(4) {
+SimpleJsonValueDict::SimpleJsonValueDict(SimpleBinaryJson *db)
+    : vars(4) {
     this->db = db;
 }
 SimpleJsonValueDict::~SimpleJsonValueDict() {

@@ -371,12 +371,12 @@ public:
 template<typename T>
 class JobPool {
 private:
-    vector<T *> allocatedPool;
-    vector<T *> list[2];
+    eastl::vector<T *> allocatedPool;
+    eastl::vector<T *> list[2];
     spin_mutex mtx;
     bool switcher = false;
     uint32_t capacity;
-    void ReserveList(vector<T *> &vec) {
+    void ReserveList(eastl::vector<T *> &vec) {
         T *t = new T[capacity];
         allocatedPool.push_back(t);
         vec.resize(capacity);
@@ -399,7 +399,7 @@ public:
     }
 
     T *New() {
-        vector<T *> &lst = list[switcher];
+        eastl::vector<T *> &lst = list[switcher];
         if (lst.empty()) ReserveList(lst);
         T *value = erase_last(lst);
         value->Reset();
@@ -407,7 +407,7 @@ public:
     }
 
     void Delete(T *value) {
-        vector<T *> &lst = list[!switcher];
+        eastl::vector<T *> &lst = list[!switcher];
         value->Dispose();
         std::lock_guard<spin_mutex> lck(mtx);
         lst.push_back(value);

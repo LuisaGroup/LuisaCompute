@@ -2,7 +2,8 @@
 #include <vstl/VGuid.h>
 #include <serde/IJsonDatabase.h>
 #include <serde/ParserException.h>
-
+#include <EASTL/variant.h>
+#include <EASTL/optional.h>
 namespace toolhub::db {
 class IJsonDict;
 class IJsonArray;
