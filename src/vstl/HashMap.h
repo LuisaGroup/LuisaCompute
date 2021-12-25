@@ -327,6 +327,7 @@ public:
     using LinkNode = typename Map::Node;
     using NodePair = typename Map::ConstElement;
     using MoveNodePair = typename Map::Element;
+    using Allocator = VAllocHandle<allocType>;
     struct Iterator {
     private:
         LinkNode **ii;
@@ -431,7 +432,7 @@ private:
     }
     void Resize(size_t newCapacity) noexcept {
         if (mCapacity >= newCapacity) return;
-        LinkNode **newNode = reinterpret_cast<LinkNode **>(pool.GetAllocator().Malloc(sizeof(LinkNode *) * newCapacity * 2));
+        LinkNode **newNode = reinterpret_cast<LinkNode **>(Allocator().Malloc(sizeof(LinkNode *) * newCapacity * 2));
         memcpy(newNode, nodeArray, sizeof(LinkNode *) * mSize);
         auto nodeVec = newNode + newCapacity;
         memset(nodeVec, 0, sizeof(LinkNode *) * newCapacity);
@@ -441,7 +442,7 @@ private:
             Map *targetTree = reinterpret_cast<Map *>(&nodeVec[hashValue]);
             targetTree->weak_insert(pool, node);
         }
-        pool.GetAllocator().Free(nodeArray);
+        Allocator().Free(nodeArray);
         nodeArray = newNode;
         mCapacity = newCapacity;
     }
@@ -483,7 +484,7 @@ public:
     HashMap(size_t capacity) noexcept : pool(capacity) {
         if (capacity < 2) capacity = 2;
         capacity = GetPow2Size(capacity);
-        nodeArray = reinterpret_cast<LinkNode **>(pool.GetAllocator().Malloc(sizeof(LinkNode *) * capacity * 2));
+        nodeArray = reinterpret_cast<LinkNode **>(Allocator().Malloc(sizeof(LinkNode *) * capacity * 2));
         memset(nodeArray + capacity, 0, capacity * sizeof(LinkNode *));
         mCapacity = capacity;
         mSize = 0;
@@ -507,7 +508,7 @@ public:
         for (auto i : ptr_range(nodeArray, nodeArray + mSize)) {
             i->~LinkNode();
         }
-        pool.GetAllocator().Free(nodeArray);
+        Allocator().Free(nodeArray);
     }
     HashMap() noexcept : HashMap(16) {}
     ///////////////////////
