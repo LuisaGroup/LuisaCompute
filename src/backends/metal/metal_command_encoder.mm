@@ -231,12 +231,21 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 "Encoding texture heap #{} at index {}.",
                 argument.handle, buffer_index);
             auto heap = to_bindless_array(argument.handle);
-            heap->traverse([&](auto &&res) noexcept {
+            heap->traverse_resources([&](auto &&res) noexcept {
                 [compute_encoder useResource:res
                                        usage:MTLResourceUsageRead];
             });
-            [compute_encoder setBuffer:heap->desc_buffer()
-                                offset:0u
+            [compute_encoder setBuffer:heap->desc_buffer_device()
+                                offset:heap->buffer_encoding_offset()
+                               atIndex:buffer_index++];
+            [compute_encoder setBuffer:heap->desc_buffer_device()
+                                offset:heap->tex2d_encoding_offset()
+                               atIndex:buffer_index++];
+            [compute_encoder setBuffer:heap->desc_buffer_device()
+                                offset:heap->tex3d_encoding_offset()
+                               atIndex:buffer_index++];
+            [compute_encoder setBuffer:heap->desc_buffer_device()
+                                offset:heap->sampler_encoding_offset()
                                atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
@@ -299,20 +308,7 @@ MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noex
 
 void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
     auto array = to_bindless_array(command->handle());
-    auto dirty_range = array->dirty_range();
-    array->clear_dirty_range();
-    if (dirty_range.empty()) { return; }
-    auto offset_bytes = MetalBindlessArray::slot_size * dirty_range.offset();
-    auto size_bytes = MetalBindlessArray::slot_size * dirty_range.size();
-    auto temp_buffer = _upload(
-        static_cast<std::byte *>([array->desc_buffer_host() contents]) + offset_bytes, size_bytes);
-    auto blit_encoder = [_command_buffer blitCommandEncoder];
-    [blit_encoder copyFromBuffer:temp_buffer.handle()
-                    sourceOffset:temp_buffer.offset()
-                        toBuffer:array->desc_buffer()
-               destinationOffset:offset_bytes
-                            size:size_bytes];
-    [blit_encoder endEncoding];
+    array->update(_stream, _command_buffer);
 }
 
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
