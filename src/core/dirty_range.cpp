@@ -23,4 +23,11 @@ void DirtyRange::mark(size_t index) noexcept {
     }
 }
 
+DirtyRange DirtyRange::merge(DirtyRange r1, DirtyRange r2) noexcept {
+    if (r1.empty()) { return r2; }
+    r2.mark(r1.offset());
+    r2.mark(r1.offset() + r1.size() - 1u);
+    return r2;
 }
+
+}// namespace luisa::compute

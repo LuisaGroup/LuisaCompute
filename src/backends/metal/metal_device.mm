@@ -81,21 +81,44 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     // initialize bindless array encoder
     // TODO: use SoA
     static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct alignas(16) BindlessItem {\n"
-                                 "  device const void *buffer;\n"
-                                 "  metal::ushort sampler2d;\n"
-                                 "  metal::ushort sampler3d;\n"
-                                 "  metal::texture2d<float> handle2d;\n"
-                                 "  metal::texture3d<float> handle3d;\n"
+                                 "struct BindlessTex2D {\n"
+                                 "  metal::texture2d<float> handle;\n"
                                  "};\n"
-                                 "[[kernel]] void k(device const BindlessItem *array) {}\n";
-    auto library = [_handle newLibraryWithSource:src options:nullptr error:nullptr];
-    auto function = [library newFunctionWithName:@"k"];
-    _bindless_array_encoder = [function newArgumentEncoderWithBufferIndex:0];
-    if (auto enc_size = _bindless_array_encoder.encodedLength; enc_size != MetalBindlessArray::slot_size) {
+                                 "struct BindlessTex3D {\n"
+                                 "  metal::texture3d<float> handle;\n"
+                                 "};\n"
+                                 "struct BindlessBuffer {\n"
+                                 "  device const void *handle;\n"
+                                 "};\n"
+                                 "[[kernel]] void k(\n"
+                                 "  device const BindlessBuffer *b,\n"
+                                 "  device const BindlessTex2D *t2,\n"
+                                 "  device const BindlessTex3D *t3) {}\n";
+    NSError *error;
+    auto library = [_handle newLibraryWithSource:src options:nullptr error:&error];
+    if (error) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid bindless array encoded size: {} (expected {}).",
-            enc_size, MetalBindlessArray::slot_size);
+            "Failed to create bindless array encoder: {}.",
+            [[error description] cStringUsingEncoding:NSUTF8StringEncoding]);
+    }
+    auto function = [library newFunctionWithName:@"k"];
+    _bindless_array_buffer_encoder = [function newArgumentEncoderWithBufferIndex:0];
+    _bindless_array_tex2d_encoder = [function newArgumentEncoderWithBufferIndex:1];
+    _bindless_array_tex3d_encoder = [function newArgumentEncoderWithBufferIndex:2];
+    if (auto enc_size = _bindless_array_buffer_encoder.encodedLength; enc_size != MetalBindlessArray::buffer_slot_size) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid bindless array buffer encoded size: {} (expected {}).",
+            enc_size, MetalBindlessArray::buffer_slot_size);
+    }
+    if (auto enc_size = _bindless_array_tex2d_encoder.encodedLength; enc_size != MetalBindlessArray::tex2d_slot_size) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid bindless array 2D texture encoded size: {} (expected {}).",
+            enc_size, MetalBindlessArray::tex2d_slot_size);
+    }
+    if (auto enc_size = _bindless_array_tex3d_encoder.encodedLength; enc_size != MetalBindlessArray::tex3d_slot_size) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid bindless array 3D texture encoded size: {} (expected {}).",
+            enc_size, MetalBindlessArray::tex3d_slot_size);
     }
 }
 

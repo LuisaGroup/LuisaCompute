@@ -25,6 +25,20 @@ public:
     void commit() noexcept;
     [[nodiscard]] bool uses_buffer(uint64_t handle) const noexcept;
     [[nodiscard]] bool uses_texture(uint64_t handle) const noexcept;
+
+    template<typename F>
+    void traverse_buffers(F &&f) const noexcept {
+        for (auto [handle, _] : _buffer_ref_count) {
+            std::invoke(std::forward<F>(f), handle);
+        }
+    }
+
+    template<typename F>
+    void traverse_textures(F &&f) const noexcept {
+        for (auto [handle, _] : _texture_ref_count) {
+            std::invoke(std::forward<F>(f), handle);
+        }
+    }
 };
 
 }
