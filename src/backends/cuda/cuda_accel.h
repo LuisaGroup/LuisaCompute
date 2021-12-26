@@ -25,7 +25,7 @@ private:
     OptixTraversableHandle _handle{};
     luisa::vector<CUDAMesh *> _instance_meshes;
     luisa::vector<float4x4> _instance_transforms;
-    luisa::vector<bool> _instance_visibilities;
+    luisa::bitvector<> _instance_visibilities;
     luisa::unordered_set<uint64_t> _resources;
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};
