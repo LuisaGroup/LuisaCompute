@@ -690,7 +690,7 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
-            _scratch << "BindlessArray ";
+            _scratch << "const BindlessArray ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
@@ -1088,14 +1088,14 @@ struct BindlessBuffer {
   device const void *__restrict__ handle;
 };
 
-struct alignas(16) BindlessArray {
+struct BindlessArray {
   device const BindlessBuffer *__restrict__ buffer;
   device const BindlessTex2D *__restrict__ tex2d;
   device const BindlessTex3D *__restrict__ tex3d;
   device const uchar *__restrict__ sampler;
 };
 
-[[nodiscard, gnu::always_inline]] sampler get_sampler(uint code) {
+[[nodiscard, gnu::always_inline]] inline sampler get_sampler(uint code) {
   switch (code) {
     case 0: return sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none);
     case 1: return sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none);
@@ -1130,64 +1130,64 @@ struct alignas(16) Hit {
   float2 m2;
 };
 
-[[nodiscard]] auto bindless_texture_sample2d(BindlessArray heap, uint index, float2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(const BindlessArray heap, uint index, float2 uv) {
   return heap.tex2d[index].handle.sample(get_sampler(heap.sampler[index] & 0x0fu), uv);
 }
 
-[[nodiscard]] auto bindless_texture_sample3d(BindlessArray heap, uint index, float3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d(const BindlessArray heap, uint index, float3 uvw) {
   return heap.tex3d[index].handle.sample(get_sampler(heap.sampler[index] >> 4u), uvw);
 }
 
-[[nodiscard]] auto bindless_texture_sample2d_level(BindlessArray heap, uint index, float2 uv, float lod) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_level(const BindlessArray heap, uint index, float2 uv, float lod) {
   return heap.tex2d[index].handle.sample(get_sampler(heap.sampler[index] & 0x0fu), uv, level(lod));
 }
 
-[[nodiscard]] auto bindless_texture_sample3d_level(BindlessArray heap, uint index, float3 uvw, float lod) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_level(const BindlessArray heap, uint index, float3 uvw, float lod) {
   return heap.tex3d[index].handle.sample(get_sampler(heap.sampler[index] >> 4u), uvw, level(lod));
 }
 
-[[nodiscard]] auto bindless_texture_sample2d_grad(BindlessArray heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad(const BindlessArray heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
   return heap.tex2d[index].handle.sample(get_sampler(heap.sampler[index] & 0x0fu), uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto bindless_texture_sample3d_grad(BindlessArray heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad(const BindlessArray heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
   return heap.tex3d[index].handle.sample(get_sampler(heap.sampler[index] >> 4u), uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto bindless_texture_size2d(BindlessArray heap, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(const BindlessArray heap, uint i) {
   return uint2(heap.tex2d[i].handle.get_width(), heap.tex2d[i].handle.get_height());
 }
 
-[[nodiscard]] auto bindless_texture_size3d(BindlessArray heap, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d(const BindlessArray heap, uint i) {
   return uint3(heap.tex3d[i].handle.get_width(), heap.tex3d[i].handle.get_height(), heap.tex3d[i].handle.get_depth());
 }
 
-[[nodiscard]] auto bindless_texture_size2d_level(BindlessArray heap, uint i, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d_level(const BindlessArray heap, uint i, uint lv) {
   return uint2(heap.tex2d[i].handle.get_width(lv), heap.tex2d[i].handle.get_height(lv));
 }
 
-[[nodiscard]] auto bindless_texture_size3d_level(BindlessArray heap, uint i, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d_level(const BindlessArray heap, uint i, uint lv) {
   return uint3(heap.tex3d[i].handle.get_width(lv), heap.tex3d[i].handle.get_height(lv), heap.tex3d[i].handle.get_depth(lv));
 }
 
-[[nodiscard]] auto bindless_texture_read2d(BindlessArray heap, uint i, uint2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d(const BindlessArray heap, uint i, uint2 uv) {
   return heap.tex2d[i].handle.read(uv);
 }
 
-[[nodiscard]] auto bindless_texture_read3d(BindlessArray heap, uint i, uint3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d(const BindlessArray heap, uint i, uint3 uvw) {
   return heap.tex3d[i].handle.read(uvw);
 }
 
-[[nodiscard]] auto bindless_texture_read2d_level(BindlessArray heap, uint i, uint2 uv, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d_level(const BindlessArray heap, uint i, uint2 uv, uint lv) {
   return heap.tex2d[i].handle.read(uv, lv);
 }
 
-[[nodiscard]] auto bindless_texture_read3d_level(BindlessArray heap, uint i, uint3 uvw, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d_level(const BindlessArray heap, uint i, uint3 uvw, uint lv) {
   return heap.tex3d[i].handle.read(uvw, lv);
 }
 
 template<typename T>
-[[nodiscard]] auto bindless_buffer_read(BindlessArray heap, uint buffer_index, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(const BindlessArray heap, uint buffer_index, uint i) {
   return static_cast<device const T *>(heap.buffer[buffer_index].handle)[i];
 }
 
