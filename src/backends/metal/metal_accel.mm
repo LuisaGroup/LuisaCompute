@@ -180,7 +180,7 @@ id<MTLCommandBuffer> MetalAccel::update(
 void MetalAccel::add_instance(MetalMesh *mesh, float4x4 transform, bool visible) noexcept {
     _instance_meshes.emplace_back(mesh);
     _instance_transforms.emplace_back(transform);
-    _instance_visibilities.emplace_back(visible);
+    _instance_visibilities.push_back(visible);
     _resource_handles.emplace(reinterpret_cast<uint64_t>(mesh));
     _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer())));
     _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer())));

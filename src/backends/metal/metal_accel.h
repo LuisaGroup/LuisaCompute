@@ -27,7 +27,7 @@ private:
     size_t _update_scratch_size{};
     luisa::vector<MetalMesh *> _instance_meshes;
     luisa::vector<float4x4> _instance_transforms;
-    luisa::vector<bool> _instance_visibilities;
+    luisa::bitvector<> _instance_visibilities;
     luisa::vector<id<MTLResource>> _resources;// sorted
     luisa::unordered_set<uint64_t> _resource_handles;
     DirtyRange _dirty_range;

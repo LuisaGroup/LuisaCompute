@@ -25,7 +25,7 @@ CUDAAccel::~CUDAAccel() noexcept {
 void CUDAAccel::add_instance(CUDAMesh *mesh, float4x4 transform, bool visible) noexcept {
     _instance_meshes.emplace_back(mesh);
     _instance_transforms.emplace_back(transform);
-    _instance_visibilities.emplace_back(visible);
+    _instance_visibilities.push_back(visible);
     _resources.emplace(mesh->vertex_buffer_handle());
     _resources.emplace(mesh->triangle_buffer_handle());
     _resources.emplace(reinterpret_cast<uint64_t>(mesh));
