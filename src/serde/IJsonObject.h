@@ -2,7 +2,8 @@
 #include <vstl/VGuid.h>
 #include <serde/IJsonDatabase.h>
 #include <serde/ParserException.h>
-
+#include <EASTL/variant.h>
+#include <EASTL/optional.h>
 namespace toolhub::db {
 class IJsonDict;
 class IJsonArray;
@@ -45,6 +46,8 @@ protected:
 
 public:
     ////////// Basic
+    virtual bool IsDict() const { return false; }
+    virtual bool IsArray() const { return false; }
     virtual IJsonDatabase *GetDB() const = 0;
     virtual size_t Length() const = 0;
     virtual vstd::vector<uint8_t> Serialize() const = 0;
@@ -69,6 +72,7 @@ protected:
     ~IJsonDict() = default;
 
 public:
+    bool IsDict() const override { return true; }
     virtual ReadJsonVariant Get(Key const &key) const = 0;
     virtual vstd::vector<ReadJsonVariant> Get(std::span<Key> keys) const = 0;
     virtual bool Contains(Key const &key) const = 0;
@@ -104,6 +108,7 @@ protected:
     ~IJsonArray() = default;
 
 public:
+    bool IsArray() const override { return true; }
     virtual ReadJsonVariant Get(size_t index) const = 0;
     virtual vstd::vector<ReadJsonVariant> Get(std::span<size_t> indices) const = 0;
     virtual void Set(size_t index, WriteJsonVariant &&value) = 0;

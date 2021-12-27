@@ -48,7 +48,7 @@ class FunctionBuilder;
 class Device {
 
 public:
-    class Interface : public std::enable_shared_from_this<Interface> {
+    class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
         const Context &_ctx;
@@ -128,7 +128,7 @@ public:
 
     using Deleter = void(Interface *);
     using Creator = Interface *(const Context & /* context */, std::string_view /* properties */);
-    using Handle = std::shared_ptr<Interface>;
+    using Handle = luisa::shared_ptr<Interface>;
 
 private:
     Handle _impl;

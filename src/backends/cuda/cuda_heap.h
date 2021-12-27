@@ -7,7 +7,7 @@
 #include <cuda.h>
 
 #include <core/spin_mutex.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/first_fit.h>
 #include <core/pool.h>
 #include <core/basic_types.h>

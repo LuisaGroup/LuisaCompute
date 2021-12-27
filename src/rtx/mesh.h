@@ -5,7 +5,7 @@
 #pragma once
 
 #include <core/observer.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <runtime/device.h>
 #include <runtime/buffer.h>
 #include <dsl/syntax.h>

@@ -55,22 +55,22 @@ void *luisa_compute_ast_create_constant_data(const void *t, const void *data, si
     auto view = [type = static_cast<const Type *>(t), data, n]() noexcept -> ConstantData::View {
         switch (type->tag()) {
             case Type::Tag::BOOL:
-                return std::span{static_cast<const bool *>(data), n};
+                return luisa::span{static_cast<const bool *>(data), n};
             case Type::Tag::FLOAT:
-                return std::span{static_cast<const float *>(data), n};
+                return luisa::span{static_cast<const float *>(data), n};
             case Type::Tag::INT:
-                return std::span{static_cast<const int *>(data), n};
+                return luisa::span{static_cast<const int *>(data), n};
             case Type::Tag::UINT:
-                return std::span{static_cast<const uint *>(data), n};
+                return luisa::span{static_cast<const uint *>(data), n};
             case Type::Tag::VECTOR:
                 return [dim = type->dimension(), elem = type->element(), data, n]() noexcept -> ConstantData::View {
                     auto vector_view = [dim, data, n]<typename T>() noexcept -> ConstantData::View {
                         if (dim == 2) {
-                            return std::span{static_cast<const Vector<T, 2> *>(data), n};
+                            return luisa::span{static_cast<const Vector<T, 2> *>(data), n};
                         } else if (dim == 3) {
-                            return std::span{static_cast<const Vector<T, 3> *>(data), n};
+                            return luisa::span{static_cast<const Vector<T, 3> *>(data), n};
                         } else if (dim == 4) {
-                            return std::span{static_cast<const Vector<T, 4> *>(data), n};
+                            return luisa::span{static_cast<const Vector<T, 4> *>(data), n};
                         }
                         LUISA_ERROR_WITH_LOCATION(
                             "Invalid matrix dimension: {}.", dim);
@@ -88,11 +88,11 @@ void *luisa_compute_ast_create_constant_data(const void *t, const void *data, si
             case Type::Tag::MATRIX:
                 return [dim = type->dimension(), data, n]() noexcept -> ConstantData::View {
                     if (dim == 2) {
-                        return std::span{static_cast<const float2x2 *>(data), n};
+                        return luisa::span{static_cast<const float2x2 *>(data), n};
                     } else if (dim == 3) {
-                        return std::span{static_cast<const float3x3 *>(data), n};
+                        return luisa::span{static_cast<const float3x3 *>(data), n};
                     } else if (dim == 4) {
-                        return std::span{static_cast<const float4x4 *>(data), n};
+                        return luisa::span{static_cast<const float4x4 *>(data), n};
                     }
                     LUISA_ERROR_WITH_LOCATION(
                         "Invalid matrix dimension: {}.", dim);
@@ -312,7 +312,7 @@ const void *luisa_compute_ast_call_expr(const void *t, uint32_t call_op, const v
     auto f = FunctionBuilder::current();
     auto ret = static_cast<const Type *>(t);
     auto op = static_cast<CallOp>(call_op);
-    std::span a{static_cast<Expression const *const *>(args), arg_count};
+    luisa::span a{static_cast<Expression const *const *>(args), arg_count};
     if (op == CallOp::CUSTOM) {
         auto callable = Function{static_cast<const luisa::shared_ptr<FunctionBuilder> *>(custom_callable)->get()};
         if (ret != nullptr) {

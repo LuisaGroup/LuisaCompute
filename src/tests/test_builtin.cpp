@@ -133,9 +133,6 @@ template<>
 struct BufferSOA<float> : BasicBufferSOA<float> {};
 
 template<>
-struct BufferSOA<bool> : BasicBufferSOA<bool> {};
-
-template<>
 struct BufferSOA<int> : BasicBufferSOA<int> {};
 
 template<>

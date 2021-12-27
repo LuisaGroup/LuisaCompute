@@ -70,7 +70,7 @@ public:
                 LUISA_ERROR_WITH_LOCATION(
                     "Acceleration arguments are not allowed in native CUDA kernels.");
             } else {// uniform
-                static_assert(std::same_as<T, std::span<const std::byte>>);
+                static_assert(std::same_as<T, luisa::span<const std::byte>>);
                 auto ptr = allocate_argument(argument.size_bytes());
                 std::memcpy(ptr, argument.data(), argument.size_bytes());
             }
@@ -317,7 +317,7 @@ public:
                 auto accel = reinterpret_cast<CUDAAccel *>(argument.handle)->handle();
                 std::memcpy(ptr, &accel, sizeof(OptixTraversableHandle));
             } else {// uniform
-                static_assert(std::same_as<T, std::span<const std::byte>>);
+                static_assert(std::same_as<T, luisa::span<const std::byte>>);
                 auto ptr = allocate_argument(argument.size_bytes());
                 std::memcpy(ptr, argument.data(), argument.size_bytes());
             }

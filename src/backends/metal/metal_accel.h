@@ -7,7 +7,7 @@
 #import <vector>
 #import <Metal/Metal.h>
 
-#import <core/allocator.h>
+#import <core/stl.h>
 #import <core/dirty_range.h>
 #import <rtx/accel.h>
 #import <backends/metal/metal_mesh.h>
@@ -27,7 +27,7 @@ private:
     size_t _update_scratch_size{};
     luisa::vector<MetalMesh *> _instance_meshes;
     luisa::vector<float4x4> _instance_transforms;
-    luisa::vector<bool> _instance_visibilities;
+    luisa::bitvector<> _instance_visibilities;
     luisa::vector<id<MTLResource>> _resources;// sorted
     luisa::unordered_set<uint64_t> _resource_handles;
     DirtyRange _dirty_range;
@@ -41,7 +41,7 @@ public:
         MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
     [[nodiscard]] auto descriptor() const noexcept { return _descriptor; }
-    [[nodiscard]] auto resources() noexcept { return std::span{_resources}; }
+    [[nodiscard]] auto resources() noexcept { return luisa::span{_resources}; }
 
     void add_instance(MetalMesh *mesh, float4x4 transform, bool visible) noexcept;
     void pop_instance() noexcept;

@@ -54,19 +54,26 @@ Shader::Shader(
         std::filesystem::canonical(
             ctx.runtime_directory() / "backends" / "ispc_support")
             .string());
-    std::array ispc_options{
+    std::array ispc_options {
         "-woff",
         "-O3",
         "--math-lib=fast",
         "--opt=fast-masked-vload",
         "--opt=fast-math",
         "--opt=force-aligned-memory",
+#if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
+        "--cpu=apple-a14",
+        "--arch=aarch64",
+#else
         "--cpu=core-avx2",
+        "--arch=x86-64",
+#endif
         "--enable-llvm-intrinsics",
         emit_opt,
-        include_opt.c_str()};
+        include_opt.c_str()
+    };
     luisa::string ispc_opt_string{ispc_options.front()};
-    for (auto o : std::span{ispc_options}.subspan(1u)) {
+    for (auto o : luisa::span{ispc_options}.subspan(1u)) {
         ispc_opt_string.append(" ").append(o);
     }
 

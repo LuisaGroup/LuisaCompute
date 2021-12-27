@@ -130,7 +130,7 @@ public:
 
 private:
     vstd::vector<SimpleJsonParser> *subParsers;
-    vstd::Pool<Field, VEngine_AllocType::VEngine, false> *fieldPool;
+    vstd::Pool<Field, false> *fieldPool;
 
     vstd::HashMap<std::string_view, Field *> keywords;
     std::string_view keywordName;
@@ -894,7 +894,7 @@ vstd::optional<ParsingException> RunParse(
     }
     using namespace parser;
     vstd::vector<SimpleJsonParser> subParsers;
-    vstd::Pool<SimpleJsonParser::Field, VEngine_AllocType::VEngine, false> fieldPool(32, false);
+    vstd::Pool<SimpleJsonParser::Field, false> fieldPool(32, false);
     SimpleJsonParser parser(&fieldPool, &subParsers);
     vstd::string msg;
     if (!parser.Parse(str, db, ptr, msg)) {

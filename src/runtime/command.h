@@ -449,7 +449,7 @@ public:
                     UniformArgument uniform_argument{};
                     std::memcpy(&uniform_argument, p, sizeof(UniformArgument));
                     p += sizeof(UniformArgument);
-                    std::span data{p, uniform_argument.size};
+                    luisa::span data{p, uniform_argument.size};
                     visit(argument.variable_uid, data);
                     p += uniform_argument.size;
                     break;

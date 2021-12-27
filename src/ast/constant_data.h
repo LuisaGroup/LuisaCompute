@@ -25,21 +25,23 @@ struct constant_data_view {
 
 template<typename... T>
 struct constant_data_view<std::tuple<T...>> {
-    using type = std::variant<std::span<const T>...>;
+    using type = luisa::variant<luisa::span<const T>...>;
 };
 
 template<typename T>
 using constant_data_view_t = typename constant_data_view<T>::type;
 
 }// namespace detail
+
 class AstSerializer;
+
 class ConstantData {
-    friend class AstSerializer;
 
 public:
+    friend class AstSerializer;
     using View = detail::constant_data_view_t<basic_types>;
 
-private:
+protected:
     View _view;
     uint64_t _hash{};
 

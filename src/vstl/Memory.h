@@ -4,21 +4,9 @@
 #include <stdint.h>
 #include <type_traits>
 #include <vstl/MetaLib.h>
-#include <core/allocator.h>
 VENGINE_C_FUNC_COMMON void *vengine_default_malloc(size_t sz);
 VENGINE_C_FUNC_COMMON void vengine_default_free(void *ptr);
 VENGINE_C_FUNC_COMMON void *vengine_default_realloc(void *ptr, size_t size);
-
-inline void *vengine_malloc(size_t size) {
-    return luisa::detail::allocator_allocate(size, 0);
-}
-inline void vengine_free(void *ptr) {
-    luisa::detail::allocator_deallocate(ptr, 0);
-}
-inline void *vengine_realloc(void *ptr, size_t size) {
-    return luisa::detail::allocator_reallocate(ptr, size, 0);
-}
-
 template<typename T, typename... Args>
 inline T *vengine_new(Args &&...args) noexcept {
     T *tPtr = (T *)vengine_malloc(sizeof(T));
@@ -32,29 +20,47 @@ inline void vengine_delete(T *ptr) noexcept {
         ((T *)ptr)->~T();
     vengine_free(ptr);
 }
-#define DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW                            \
-    inline static void *operator new(size_t size) noexcept {             \
-        return vengine_malloc(size);                                     \
-    }                                                                    \
-    inline static void *operator new(size_t, void *place) noexcept {     \
-        return place;                                                    \
-    }                                                                    \
-    inline static void operator delete(void *pdead, size_t) noexcept {   \
-        vengine_free(pdead);                                             \
-    }                                                                    \
-    inline static void *operator new[](size_t size) noexcept {           \
-        return vengine_malloc(size);                                     \
-    }                                                                    \
-    inline static void operator delete[](void *pdead, size_t) noexcept { \
-        vengine_free(pdead);                                             \
+#define DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW           \
+    static void *operator new(                          \
+        size_t size) noexcept {                         \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void *operator new(                          \
+        size_t,                                         \
+        void *place) noexcept {                         \
+        return place;                                   \
+    }                                                   \
+    static void *operator new[](                        \
+        size_t size) noexcept {                         \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void *operator new(                          \
+        size_t size, const std::nothrow_t &) noexcept { \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void *operator new(                          \
+        size_t,                                         \
+        void *place, const std::nothrow_t &) noexcept { \
+        return place;                                   \
+    }                                                   \
+    static void *operator new[](                        \
+        size_t size, const std::nothrow_t &) noexcept { \
+        return vengine_malloc(size);                    \
+    }                                                   \
+    static void operator delete(                        \
+        void *pdead) noexcept {                         \
+        vengine_free(pdead);                            \
+    }                                                   \
+    static void operator delete[](                      \
+        void *pdead) noexcept {                         \
+        vengine_free(pdead);                            \
     }
-
 namespace vstd {
 // Not correctly implemented and could lead to memory leaks
-// class IOperatorNewBase {
-// public:
-//     DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
-// };
+class IOperatorNewBase {
+public:
+    DECLARE_VENGINE_OVERRIDE_OPERATOR_NEW
+};
 class ISelfPtr {
 public:
     virtual ~ISelfPtr() = default;

@@ -7,12 +7,12 @@
 namespace vstd {
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class LockFreeArrayQueue {
+	using Allocator = VAllocHandle<allocType>;
 	size_t head;
 	size_t tail;
 	size_t capacity;
 	mutable spin_mutex mtx;
 	T* arr;
-	VAllocHandle<allocType> allocHandle;
 
 	static constexpr size_t GetIndex(size_t index, size_t capacity) noexcept {
 		return index & capacity;
@@ -30,7 +30,7 @@ public:
 		}(capacity);
 		this->capacity = capacity - 1;
 		std::lock_guard<spin_mutex> lck(mtx);
-		arr = (T*)allocHandle.Malloc(sizeof(T) * capacity);
+		arr = (T*)Allocator().Malloc(sizeof(T) * capacity);
 	}
 	LockFreeArrayQueue(SelfType&& v)
 		: head(v.head),
@@ -51,7 +51,7 @@ public:
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
-			T* newArr = (T*)allocHandle.Malloc(sizeof(T) * newCapa);
+			T* newArr = (T*)Allocator().Malloc(sizeof(T) * newCapa);
 			newCapa--;
 			for (size_t s = tail; s != index; ++s) {
 				T* ptr = arr + GetIndex(s, capacity);
@@ -60,7 +60,7 @@ public:
 					ptr->~T();
 				}
 			}
-			allocHandle.Free(arr);
+			Allocator().Free(arr);
 			arr = newArr;
 			capacity = newCapa;
 		}
@@ -73,7 +73,7 @@ public:
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
-			T* newArr = (T*)allocHandle.Malloc(sizeof(T) * newCapa);
+			T* newArr = (T*)Allocator().Malloc(sizeof(T) * newCapa);
 			newCapa--;
 			for (size_t s = tail; s != index; ++s) {
 				T* ptr = arr + GetIndex(s, capacity);
@@ -82,7 +82,7 @@ public:
 					ptr->~T();
 				}
 			}
-			allocHandle.Free(arr);
+			Allocator().Free(arr);
 			arr = newArr;
 			capacity = newCapa;
 		}
@@ -144,7 +144,7 @@ public:
 				arr[GetIndex(s, capacity)].~T();
 			}
 		}
-		allocHandle.Free(arr);
+		Allocator().Free(arr);
 	}
 	size_t Length() const {
 		std::lock_guard<spin_mutex> lck(mtx);
@@ -158,7 +158,7 @@ class SingleThreadArrayQueue {
 	size_t tail;
 	size_t capacity;
 	T* arr;
-	VAllocHandle<allocType> allocHandle;
+    using Allocator = VAllocHandle<allocType>;
 
 	static constexpr size_t GetIndex(size_t index, size_t capacity) noexcept {
 		return index & capacity;
@@ -184,7 +184,7 @@ public:
 			return ssize;
 		}(capacity);
 		this->capacity = capacity - 1;
-		arr = (T*)allocHandle.Malloc(sizeof(T) * capacity);
+		arr = (T*)Allocator().Malloc(sizeof(T) * capacity);
 	}
 	SingleThreadArrayQueue() : SingleThreadArrayQueue(32) {}
 
@@ -193,7 +193,7 @@ public:
 		size_t index = head++;
 		if (head - tail > capacity) {
 			auto newCapa = (capacity + 1) * 2;
-			T* newArr = (T*)allocHandle.Malloc(sizeof(T) * newCapa);
+			T* newArr = (T*)Allocator().Malloc(sizeof(T) * newCapa);
 			newCapa--;
 			for (size_t s = tail; s != index; ++s) {
 				T* ptr = arr + GetIndex(s, capacity);
@@ -202,7 +202,7 @@ public:
 					ptr->~T();
 				}
 			}
-			allocHandle.Free(arr);
+			Allocator().Free(arr);
 			arr = newArr;
 			capacity = newCapa;
 		}
@@ -233,7 +233,7 @@ public:
 				arr[GetIndex(s, capacity)].~T();
 			}
 		}
-		allocHandle.Free(arr);
+		Allocator().Free(arr);
 	}
 };
 }// namespace vstd

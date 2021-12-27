@@ -7,7 +7,7 @@
 #include <cuda.h>
 
 #include <core/spin_mutex.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/dirty_range.h>
 #include <runtime/sampler.h>
 #include <runtime/resource_tracker.h>

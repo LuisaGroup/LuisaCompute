@@ -6,7 +6,7 @@
 
 #include <type_traits>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <runtime/command.h>
 #include <runtime/device.h>
 #include <runtime/shader.h>
@@ -295,7 +295,7 @@ public:
         _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint3(0u)) : arg.offset();
         return *this;
     }
-    [[nodiscard]] auto args() const noexcept { return std::span{_args.data(), _arg_count}; }
+    [[nodiscard]] auto args() const noexcept { return luisa::span{_args.data(), _arg_count}; }
 };
 
 }// namespace detail
@@ -322,7 +322,7 @@ class Callable<Ret(Args...)> {
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
 private:
-    std::shared_ptr<const detail::FunctionBuilder> _builder;
+    luisa::shared_ptr<const detail::FunctionBuilder> _builder;
 
 public:
     template<typename Def>
@@ -402,7 +402,6 @@ LUISA_MAKE_FUNCTOR_CANONICAL_SIGNATURE(const volatile noexcept)
 template<typename T>
 using canonical_signature_t = typename canonical_signature<T>::type;
 
-// TODO: clangd has trouble with MSVC regarding the deduction guides of std::function
 template<typename T>
 struct dsl_function {
     using type = typename dsl_function<

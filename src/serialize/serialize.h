@@ -43,10 +43,6 @@ public:
 class AstSerializer {
 public:
     //Expr
-    static vstd::unique_ptr<IJsonDict> Serialize(Type const &t, IJsonDatabase *db);
-    static void DeSerialize(Type &t, IJsonDict *dict);
-    static vstd::unique_ptr<IJsonDict> Serialize(TypeData const &t, IJsonDatabase *db);
-    static void DeSerialize(TypeData &t, IJsonDict *dict);
     static vstd::unique_ptr<IJsonDict> Serialize(Expression const &t, IJsonDatabase *db);
     static vstd::unique_ptr<IJsonDict> Serialize(UnaryExpr const &t, IJsonDatabase *db);
     static void DeSerialize(UnaryExpr &t, IJsonDict *dict, DeserVisitor const &evt);

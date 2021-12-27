@@ -154,7 +154,7 @@ public:
 }// namespace detail
 
 void MetalCodegen::visit(const LiteralExpr *expr) {
-    std::visit(detail::LiteralPrinter{_scratch}, expr->value());
+    luisa::visit(detail::LiteralPrinter{_scratch}, expr->value());
 }
 
 void MetalCodegen::visit(const RefExpr *expr) {
@@ -728,7 +728,7 @@ void MetalCodegen::_emit_indent() noexcept {
     }
 }
 
-void MetalCodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+void MetalCodegen::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";
@@ -754,7 +754,7 @@ void MetalCodegen::_emit_constant(Function::Constant c) noexcept {
     auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
-    std::visit(
+    luisa::visit(
         [count, this](auto ptr) {
             detail::LiteralPrinter print{_scratch};
             for (auto i = 0u; i < count; i++) {
@@ -1084,7 +1084,7 @@ struct alignas(16) BindlessItem {
   metal::texture3d<float> handle3d;
 };
 
-[[nodiscard, gnu::always_inline]] sampler get_sampler(uint code) {
+[[nodiscard, gnu::always_inline]] constexpr sampler get_sampler(uint code) {
   switch (code) {
     case 0: return sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none);
     case 1: return sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none);
@@ -1119,70 +1119,70 @@ struct alignas(16) Hit {
   float2 m2;
 };
 
-[[nodiscard]] auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
   device const auto &t = heap[index];
   return t.handle2d.sample(get_sampler(t.sampler2d), uv);
 }
 
-[[nodiscard]] auto bindless_texture_sample3d(device const BindlessItem *heap, uint index, float3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d(device const BindlessItem *heap, uint index, float3 uvw) {
   device const auto &t = heap[index];
   return t.handle3d.sample(get_sampler(t.sampler3d), uvw);
 }
 
-[[nodiscard]] auto bindless_texture_sample2d_level(device const BindlessItem *heap, uint index, float2 uv, float lod) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_level(device const BindlessItem *heap, uint index, float2 uv, float lod) {
   device const auto &t = heap[index];
   return t.handle2d.sample(get_sampler(t.sampler2d), uv, level(lod));
 }
 
-[[nodiscard]] auto bindless_texture_sample3d_level(device const BindlessItem *heap, uint index, float3 uvw, float lod) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_level(device const BindlessItem *heap, uint index, float3 uvw, float lod) {
   device const auto &t = heap[index];
   return t.handle3d.sample(get_sampler(t.sampler3d), uvw, level(lod));
 }
 
-[[nodiscard]] auto bindless_texture_sample2d_grad(device const BindlessItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad(device const BindlessItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
   device const auto &t = heap[index];
   return t.handle2d.sample(get_sampler(t.sampler2d), uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto bindless_texture_sample3d_grad(device const BindlessItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad(device const BindlessItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
   device const auto &t = heap[index];
   return t.handle3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto bindless_texture_size2d(device const BindlessItem *heap, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(device const BindlessItem *heap, uint i) {
   return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
 }
 
-[[nodiscard]] auto bindless_texture_size3d(device const BindlessItem *heap, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d(device const BindlessItem *heap, uint i) {
   return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
 }
 
-[[nodiscard]] auto bindless_texture_size2d_level(device const BindlessItem *heap, uint i, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d_level(device const BindlessItem *heap, uint i, uint lv) {
   return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
 }
 
-[[nodiscard]] auto bindless_texture_size3d_level(device const BindlessItem *heap, uint i, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d_level(device const BindlessItem *heap, uint i, uint lv) {
   return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
 }
 
-[[nodiscard]] auto bindless_texture_read2d(device const BindlessItem *heap, uint i, uint2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d(device const BindlessItem *heap, uint i, uint2 uv) {
   return heap[i].handle2d.read(uv);
 }
 
-[[nodiscard]] auto bindless_texture_read3d(device const BindlessItem *heap, uint i, uint3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d(device const BindlessItem *heap, uint i, uint3 uvw) {
   return heap[i].handle3d.read(uvw);
 }
 
-[[nodiscard]] auto bindless_texture_read2d_level(device const BindlessItem *heap, uint i, uint2 uv, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d_level(device const BindlessItem *heap, uint i, uint2 uv, uint lv) {
   return heap[i].handle2d.read(uv, lv);
 }
 
-[[nodiscard]] auto bindless_texture_read3d_level(device const BindlessItem *heap, uint i, uint3 uvw, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d_level(device const BindlessItem *heap, uint i, uint3 uvw, uint lv) {
   return heap[i].handle3d.read(uvw, lv);
 }
 
 template<typename T>
-[[nodiscard]] auto bindless_buffer_read(device const BindlessItem *heap, uint buffer_index, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(device const BindlessItem *heap, uint buffer_index, uint i) {
   return static_cast<device const T *>(heap[buffer_index].buffer)[i];
 }
 

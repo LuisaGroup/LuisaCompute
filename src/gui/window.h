@@ -22,11 +22,11 @@ class GLFWContext;
 class Window {
 
 public:
-    using MouseButtonCallback = std::function<void(int /* button */, int /* action */, float2 /* (x, y) */)>;
-    using CursorPositionCallback = std::function<void(float2 /* (x, y) */)>;
-    using WindowSizeCallback = std::function<void(uint2 /* (width, height) */)>;
-    using KeyCallback = std::function<void(int /* key */, int /* action */)>;
-    using ScrollCallback = std::function<void(float2 /* (dx, dy) */)>;
+    using MouseButtonCallback = luisa::function<void(int /* button */, int /* action */, float2 /* (x, y) */)>;
+    using CursorPositionCallback = luisa::function<void(float2 /* (x, y) */)>;
+    using WindowSizeCallback = luisa::function<void(uint2 /* (width, height) */)>;
+    using KeyCallback = luisa::function<void(int /* key */, int /* action */)>;
+    using ScrollCallback = luisa::function<void(float2 /* (dx, dy) */)>;
 
 private:
     luisa::shared_ptr<GLFWContext> _context;

@@ -1,13 +1,13 @@
 set(LUISA_COMPUTE_UTIL_SOURCES
-        ObjectPtr.cpp
         StringUtility.cpp
-        xxhash.cpp
         Log.cpp
         MD5.cpp
         VGuid.cpp
         ThreadPool.cpp
         ThreadTaskHandle.cpp
+        StackAllocator.cpp
         BinaryReader.cpp
+        PoolAllocator.cpp
         vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})

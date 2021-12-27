@@ -1,7 +1,5 @@
 import Library as lb
 import BuildData as bd
-from xml.etree import ElementTree as ET
-from shutil import copyfile
 import os
 import os.path
 
@@ -26,23 +24,28 @@ def GetPath(currentPath, inputStr):
 
 
 def GetIncludeData(currentPath, inputStr):
+    originPath = inputStr
+    inputStr = inputStr.strip()
     includePre = "#include \""
     idx = inputStr.find(includePre)
     if idx != 0:
-        return inputStr
+        return originPath
     inputStr = inputStr[len(includePre):len(inputStr) - 1]
     return "#include <" + GetPath(currentPath, inputStr) + ">\n"
 
 def ProcessFile(path):
-    file = open(path, encoding='utf-8', errors='ignore')
-    lines = file.readlines()
-    result = ""
-    for line in lines:
-        result += GetIncludeData(path, line.replace('\r', ' '))
-    file.close()
-    file = open(path, 'w')
-    file.write(result)
-    file.close()
+    try:
+        file = open(path, encoding='utf-8')
+        lines = file.readlines()
+        result = ""
+        for line in lines:
+            result += GetIncludeData(path, line.replace('\r', ' '))
+        file.close()
+        file = open(path, 'w')
+        file.write(result)
+        file.close()
+    except:
+        print("File: " + path + " have non utf-8 code!")
 
 def MakeInclude():  
     allFiles = {}
@@ -60,4 +63,3 @@ def MakeInclude():
         for i in fileLst:
             ProcessFile(i)
     print("finished")
-    os.system("pause")

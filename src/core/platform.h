@@ -43,7 +43,7 @@
 #include <string_view>
 #include <filesystem>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa {
 

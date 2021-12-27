@@ -18,6 +18,7 @@ private:
 public:
     void clear() noexcept;
     void mark(size_t index) noexcept;
+    [[nodiscard]] static DirtyRange merge(DirtyRange r1, DirtyRange r2) noexcept;
     [[nodiscard]] auto empty() const noexcept { return _size == 0u; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }

@@ -491,6 +491,8 @@ struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
 template<typename T>
 class BindlessBuffer {
 
+    static_assert(is_valid_buffer_element_v<T>);
+
 private:
     const RefExpr *_array{nullptr};
     const Expression *_index{nullptr};
