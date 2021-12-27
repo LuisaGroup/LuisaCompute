@@ -93,6 +93,6 @@ int main(int argc, char *argv[]) {
         sum_error += e;
     }
     LUISA_INFO(
-        "error: min = {} deg, max = {} deg, avg = {}.",
+        "error: min = {} deg, max = {} deg, avg = {} deg.",
         min_error, max_error, sum_error / n);
 }

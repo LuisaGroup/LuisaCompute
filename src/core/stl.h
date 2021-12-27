@@ -13,6 +13,8 @@
 #include <EASTL/map.h>
 #include <EASTL/set.h>
 #include <EASTL/span.h>
+#include <EASTL/list.h>
+#include <EASTL/slist.h>
 #include <EASTL/deque.h>
 #include <EASTL/queue.h>
 #include <EASTL/memory.h>
@@ -101,10 +103,12 @@ using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
 using eastl::vector;
 using eastl::span;
 
-using eastl::deque;
-using eastl::queue;
 using eastl::map;
 using eastl::set;
+using eastl::list;
+using eastl::slist;
+using eastl::deque;
+using eastl::queue;
 using eastl::multimap;
 using eastl::multiset;
 using eastl::unordered_map;
