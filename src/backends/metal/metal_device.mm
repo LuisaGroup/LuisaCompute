@@ -81,19 +81,14 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     // initialize bindless array encoder
     // TODO: use SoA
     static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct BindlessTex2D {\n"
-                                 "  metal::texture2d<float> handle;\n"
+                                 "struct alignas(16) BindlessItem {"
+                                 "  device const void *buffer;\n"
+                                 "  metal::uint sampler2d;\n"
+                                 "  metal::uint sampler3d;\n"
+                                 "  metal::texture2d<float> tex2d;\n"
+                                 "  metal::texture3d<float> tex3d;\n"
                                  "};\n"
-                                 "struct BindlessTex3D {\n"
-                                 "  metal::texture3d<float> handle;\n"
-                                 "};\n"
-                                 "struct BindlessBuffer {\n"
-                                 "  device const void *handle;\n"
-                                 "};\n"
-                                 "[[kernel]] void k(\n"
-                                 "  device const BindlessBuffer *b,\n"
-                                 "  device const BindlessTex2D *t2,\n"
-                                 "  device const BindlessTex3D *t3) {}\n";
+                                 "[[kernel]] void k(device const BindlessItem *array) {}\n";
     NSError *error;
     auto library = [_handle newLibraryWithSource:src options:nullptr error:&error];
     if (error) [[unlikely]] {
@@ -102,23 +97,12 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
             [[error description] cStringUsingEncoding:NSUTF8StringEncoding]);
     }
     auto function = [library newFunctionWithName:@"k"];
-    _bindless_array_buffer_encoder = [function newArgumentEncoderWithBufferIndex:0];
-    _bindless_array_tex2d_encoder = [function newArgumentEncoderWithBufferIndex:1];
-    _bindless_array_tex3d_encoder = [function newArgumentEncoderWithBufferIndex:2];
-    if (auto enc_size = _bindless_array_buffer_encoder.encodedLength; enc_size != MetalBindlessArray::buffer_slot_size) {
+    _bindless_array_encoder = [function newArgumentEncoderWithBufferIndex:0];
+    if (_bindless_array_encoder.encodedLength != MetalBindlessArray::slot_size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid bindless array buffer encoded size: {} (expected {}).",
-            enc_size, MetalBindlessArray::buffer_slot_size);
-    }
-    if (auto enc_size = _bindless_array_tex2d_encoder.encodedLength; enc_size != MetalBindlessArray::tex2d_slot_size) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid bindless array 2D texture encoded size: {} (expected {}).",
-            enc_size, MetalBindlessArray::tex2d_slot_size);
-    }
-    if (auto enc_size = _bindless_array_tex3d_encoder.encodedLength; enc_size != MetalBindlessArray::tex3d_slot_size) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid bindless array 3D texture encoded size: {} (expected {}).",
-            enc_size, MetalBindlessArray::tex3d_slot_size);
+            _bindless_array_encoder.encodedLength,
+            MetalBindlessArray::buffer_slot_size);
     }
 }
 

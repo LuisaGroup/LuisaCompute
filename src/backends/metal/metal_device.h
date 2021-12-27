@@ -32,9 +32,7 @@ class MetalDevice final : public Device::Interface {
 
 private:
     id<MTLDevice> _handle{nullptr};
-    id<MTLArgumentEncoder> _bindless_array_buffer_encoder{nullptr};
-    id<MTLArgumentEncoder> _bindless_array_tex2d_encoder{nullptr};
-    id<MTLArgumentEncoder> _bindless_array_tex3d_encoder{nullptr};
+    id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
 public:
@@ -43,9 +41,7 @@ public:
     [[nodiscard]] id<MTLDevice> handle() const noexcept;
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     void check_raytracing_supported() const noexcept;
-    [[nodiscard]] auto bindless_array_buffer_encoder() const noexcept { return _bindless_array_buffer_encoder; }
-    [[nodiscard]] auto bindless_array_tex2d_encoder() const noexcept { return _bindless_array_tex2d_encoder; }
-    [[nodiscard]] auto bindless_array_tex3d_encoder() const noexcept { return _bindless_array_tex3d_encoder; }
+    [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
