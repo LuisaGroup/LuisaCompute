@@ -66,6 +66,7 @@ class CommandReorderVisitor : public CommandVisitor {
 
 private:
     Device::Interface *device;
+    int windowSize = 5;
     static thread_local std::vector<std::vector<CommandRelation>> _commandRelationData;
 
 private:

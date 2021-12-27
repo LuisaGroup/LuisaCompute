@@ -97,7 +97,7 @@ bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB
 void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::CommandRelation &&commandRelation) noexcept {
     // check all relations by reversed index if they overlap with the command under processing
     int insertIndex = 0;
-    for (int i = int(_commandRelationData.size()) - 1; i >= 0; --i) {
+    for (int i = int(_commandRelationData.size()) - 1; i >= std::max(0, int(_commandRelationData.size()) - windowSize); --i) {
         for (auto &j : _commandRelationData[i]) {
             CommandRelation *lastCommandRelation = &j;
             bool overlap = false;
