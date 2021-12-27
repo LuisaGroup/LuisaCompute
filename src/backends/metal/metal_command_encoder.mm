@@ -235,17 +235,8 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 [compute_encoder useResource:res
                                        usage:MTLResourceUsageRead];
             });
-            [compute_encoder setBuffer:heap->desc_buffer_device()
-                                offset:heap->buffer_encoding_offset()
-                               atIndex:buffer_index++];
-            [compute_encoder setBuffer:heap->desc_buffer_device()
-                                offset:heap->tex2d_encoding_offset()
-                               atIndex:buffer_index++];
-            [compute_encoder setBuffer:heap->desc_buffer_device()
-                                offset:heap->tex3d_encoding_offset()
-                               atIndex:buffer_index++];
-            [compute_encoder setBuffer:heap->desc_buffer_device()
-                                offset:heap->sampler_encoding_offset()
+            [compute_encoder setBuffer:heap->handle()
+                                offset:0u
                                atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
