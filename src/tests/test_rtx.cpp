@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
         return make_float2(rx, ry);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, AccelVar accel, UInt frame_index) noexcept {
+    Kernel2D raytracing_kernel = [&](BufferFloat4 image, AccelVar accel, UInt frame_index) noexcept {
         auto coord = dispatch_id().xy();
         auto p = (make_float2(coord) + rand(frame_index, coord)) /
                      make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
@@ -88,16 +88,16 @@ int main(int argc, char *argv[]) {
             constexpr auto blue = float3(0.0f, 0.0f, 1.0f);
             color = hit->interpolate(red, green, blue);
         };
-        auto old = image.read(coord).xyz();
+        auto old = image[coord.y * dispatch_size_x() + coord.x].xyz();
         auto t = 1.0f / (frame_index + 1.0f);
-        image.write(coord, make_float4(lerp(old, color, t), 1.0f));
+        image[coord.y * dispatch_size_x() + coord.x] = make_float4(lerp(old, color, t), 1.0f);
     };
 
-    Kernel2D colorspace_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image) noexcept {
-        auto coord = dispatch_id().xy();
-        auto hdr = hdr_image.read(coord).xyz();
-        auto ldr = linear_to_srgb(hdr);
-        ldr_image.write(coord, make_float4(ldr, 1.0f));
+    Kernel2D colorspace_kernel = [&](BufferFloat4 hdr_image, BufferUInt ldr_image) noexcept {
+        auto i = dispatch_y() * dispatch_size_x() + dispatch_x();
+        auto hdr = hdr_image[i].xyz();
+        auto ldr = make_uint3(round(saturate(linear_to_srgb(hdr)) * 255.0f));
+        ldr_image[i] = ldr.x | (ldr.y << 8u) | (ldr.z << 16u) | (255u << 24u);
     };
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(3u);
@@ -117,8 +117,8 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 512u;
     static constexpr auto height = 512u;
-    auto hdr_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
+    auto hdr_image = device.create_buffer<float4>(width * height);
+    auto ldr_image = device.create_buffer<uint>(width * height);
     std::vector<uint8_t> pixels(width * height * 4u);
 
     Clock clock;

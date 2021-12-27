@@ -13,7 +13,7 @@
 
 #include <core/hash.h>
 #include <core/concepts.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa::compute {
 
@@ -316,7 +316,7 @@ public:
         return _dimension;
     }
 
-    [[nodiscard]] std::span<const Type *const> members() const noexcept;
+    [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
     [[nodiscard]] const Type *element() const noexcept;
 
     [[nodiscard]] constexpr bool is_scalar() const noexcept {

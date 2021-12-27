@@ -31,9 +31,6 @@ target_link_libraries(test_bindless PRIVATE luisa::compute)
 add_executable(test_rtx test_rtx.cpp)
 target_link_libraries(test_rtx PRIVATE luisa::compute)
 
-add_executable(test_wavefront_pt test_wavefront_pt.cpp)
-target_link_libraries(test_wavefront_pt PRIVATE luisa::compute)
-
 add_executable(test_ispc_101 test_ispc_101.cpp)
 target_link_libraries(test_ispc_101 PRIVATE luisa::compute)
 

@@ -212,7 +212,7 @@ Type const *Type::get_type(uint64_t hash) {
 
 std::string_view Type::description() const noexcept { return _data->description; }
 
-std::span<const Type *const> Type::members() const noexcept {
+luisa::span<const Type *const> Type::members() const noexcept {
     assert(is_structure());
     return _data->members;
 }

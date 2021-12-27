@@ -81,21 +81,28 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
     // initialize bindless array encoder
     // TODO: use SoA
     static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct alignas(16) BindlessItem {\n"
+                                 "struct alignas(16) BindlessItem {"
                                  "  device const void *buffer;\n"
-                                 "  metal::ushort sampler2d;\n"
-                                 "  metal::ushort sampler3d;\n"
-                                 "  metal::texture2d<float> handle2d;\n"
-                                 "  metal::texture3d<float> handle3d;\n"
+                                 "  metal::uint sampler2d;\n"
+                                 "  metal::uint sampler3d;\n"
+                                 "  metal::texture2d<float> tex2d;\n"
+                                 "  metal::texture3d<float> tex3d;\n"
                                  "};\n"
                                  "[[kernel]] void k(device const BindlessItem *array) {}\n";
-    auto library = [_handle newLibraryWithSource:src options:nullptr error:nullptr];
+    NSError *error;
+    auto library = [_handle newLibraryWithSource:src options:nullptr error:&error];
+    if (error) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to create bindless array encoder: {}.",
+            [[error description] cStringUsingEncoding:NSUTF8StringEncoding]);
+    }
     auto function = [library newFunctionWithName:@"k"];
     _bindless_array_encoder = [function newArgumentEncoderWithBufferIndex:0];
-    if (auto enc_size = _bindless_array_encoder.encodedLength; enc_size != MetalBindlessArray::slot_size) {
+    if (_bindless_array_encoder.encodedLength != MetalBindlessArray::slot_size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid bindless array encoded size: {} (expected {}).",
-            enc_size, MetalBindlessArray::slot_size);
+            "Invalid bindless array buffer encoded size: {} (expected {}).",
+            _bindless_array_encoder.encodedLength,
+            MetalBindlessArray::buffer_slot_size);
     }
 }
 

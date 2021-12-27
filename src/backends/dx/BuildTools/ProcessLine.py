@@ -1,6 +1,4 @@
 needCodegenFile = [
-    "RHI/ICommandBuffer.h",
-    "RHI/ICommandBuffer.cpp"
 ]
 
 codegenStart = "//VENGINE_CODEGEN start"
@@ -106,3 +104,4 @@ def ProcessFile(fileName: str):
 def ProcessMain():
     for i in needCodegenFile:
         ProcessFile(i)
+    print("Success!")

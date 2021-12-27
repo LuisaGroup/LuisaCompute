@@ -3,10 +3,12 @@
 //
 
 #include <iostream>
+#include <EASTL/vector.h>
 #include <nlohmann/json.hpp>
 #include <ast/op.h>
 #include <core/logging.h>
 #include <core/first_fit.h>
+#include <core/thread_pool.h>
 
 int main() {
 
@@ -46,4 +48,30 @@ int main() {
     LUISA_INFO("free_list = {}.", ff.dump_free_list());
     ff.free(n2);
     LUISA_INFO("free_list = {}.", ff.dump_free_list());
+
+    auto &&thread_pool = ThreadPool::global();
+    auto f1 = thread_pool.dispatch([] {
+        LUISA_INFO("Hello!");
+        return 1234;
+    });
+    thread_pool.barrier();
+    thread_pool.dispatch([&thread_pool, f = std::move(f1)]() mutable noexcept {
+        LUISA_INFO("Hello: {}!", f.get());
+        thread_pool.dispatch([]{ LUISA_INFO("Sub-hello!"); });
+    });
+    thread_pool.parallel(2, 2, [](auto x, auto y) noexcept {
+        std::ostringstream oss;
+        oss << std::this_thread::get_id();
+        LUISA_INFO("Hello from thread {}: ({}, {}).", oss.str(), x, y);
+    });
+    thread_pool.barrier();
+    thread_pool.parallel(4, 4, [](auto x, auto y) noexcept {
+        std::ostringstream oss;
+        oss << std::this_thread::get_id();
+        LUISA_INFO("Bye from thread {}: ({}, {}).", oss.str(), x, y);
+    });
+    thread_pool.synchronize();
+
+    eastl::vector<int> a;
+    a.emplace_back(0);
 }

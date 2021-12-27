@@ -6,7 +6,7 @@ namespace luisa::compute {
 using namespace toolhub::db;
 class FuncSerializer {
 private:
-    using FuncMap = vstd::HashMap<uint64, std::pair<IJsonDict *, std::shared_ptr<detail::FunctionBuilder>>>;
+    using FuncMap = vstd::HashMap<uint64, std::pair<IJsonDict *, luisa::shared_ptr<detail::FunctionBuilder>>>;
     static vstd::unique_ptr<IJsonDict> GetBuilderSerFunc(detail::FunctionBuilder const *b, IJsonDatabase *db);
     static void GetBuilderDeserFunc(IJsonDict *dict, detail::FunctionBuilder *builder, FuncMap &map);
 
@@ -17,6 +17,8 @@ public:
 class ISerializer {
 public:
     virtual vstd::unique_ptr<IJsonArray> SerKernel(Function func, IJsonDatabase *db) const = 0;
+    virtual vstd::unique_ptr<IJsonArray> SerTypes(IJsonDatabase *db) const = 0;
+    virtual vstd::vector<Type const *> DeserTypes(IJsonArray *arr) const = 0;
     virtual Function DeserKernel(IJsonArray *arr) const = 0;
 };
 // Entry:
@@ -25,6 +27,8 @@ public:
 class Serializer_Impl : public ISerializer {
 public:
     vstd::unique_ptr<IJsonArray> SerKernel(Function func, IJsonDatabase *db) const override;
+    vstd::unique_ptr<IJsonArray> SerTypes(IJsonDatabase *db) const override;
+    vstd::vector<Type const *> DeserTypes(IJsonArray *arr) const override;
     Function DeserKernel(IJsonArray *arr) const override;
 };
 #endif

@@ -1,10 +1,3 @@
-if (WIN32) # mimalloc seems not beneficial on other platforms
-    set(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT ON)
-else ()
-    set(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT OFF)
-endif ()
-mark_as_advanced(LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT)
-option(LUISA_COMPUTE_ENABLE_MIMALLOC "Enable mimalloc" ${LUISA_COMPUTE_ENABLE_MIMALLOC_DEFAULT})
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
 
 if (WIN32)
@@ -59,7 +52,10 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-gui
         luisa-compute-backends)
 
-add_dependencies(luisa-compute luisa-compute-api luisa-compute-serialize)
+add_dependencies(luisa-compute
+        luisa-compute-api
+        luisa-compute-serialize
+        luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)
 
 if (LUISA_COMPUTE_BUILD_TESTS)

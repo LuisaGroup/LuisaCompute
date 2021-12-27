@@ -5,7 +5,7 @@
 #pragma once
 
 #include <core/concepts.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <ast/variable.h>
 #include <ast/expression.h>
 
@@ -148,7 +148,7 @@ private:
 
 public:
     ScopeStmt() noexcept : Statement{Tag::SCOPE} {}
-    [[nodiscard]] auto statements() const noexcept { return std::span{_statements}; }
+    [[nodiscard]] auto statements() const noexcept { return luisa::span{_statements}; }
     void append(const Statement *stmt) noexcept { _statements.emplace_back(stmt); }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
@@ -391,8 +391,8 @@ public:
     [[nodiscard]] auto scope() const noexcept { return &_scope; }
     [[nodiscard]] auto add(const MetaStmt *child) noexcept { _children.emplace_back(child); }
     [[nodiscard]] auto add(Variable v) noexcept { _variables.emplace_back(v); }
-    [[nodiscard]] auto children() const noexcept { return std::span{_children}; }
-    [[nodiscard]] auto variables() const noexcept { return std::span{_variables}; }
+    [[nodiscard]] auto children() const noexcept { return luisa::span{_children}; }
+    [[nodiscard]] auto variables() const noexcept { return luisa::span{_variables}; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 

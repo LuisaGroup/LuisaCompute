@@ -286,7 +286,7 @@ template<typename T>
             result.w = lc_texel_read_convert<T>(v.w);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
     return result;
 }
@@ -389,7 +389,7 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             surf2Dwrite(make_float4(vx, vy, vz, vw), surf.handle, p.x * sizeof(float4), p.y, cudaBoundaryModeZero);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
 }
 
@@ -492,7 +492,7 @@ template<typename T>
             result.w = lc_texel_read_convert<T>(v.w);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
     return result;
 }
@@ -595,7 +595,7 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             surf3Dwrite(make_float4(vx, vy, vz, vw), surf.handle, p.x * sizeof(float4), p.y, p.z, cudaBoundaryModeZero);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
 }
 
