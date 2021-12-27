@@ -37,8 +37,8 @@ int main(int argc, char *argv[]) {
             auto y = dist(random);
             auto z = dist(random);
             auto v = make_float3(x, y, z);
-            if (auto vv = dot(v, v); vv > 1e-3f && vv < 1.0f) {
-                v = v * (1.0f / std::sqrt(vv));
+            if (auto vv = dot(v, v); vv > 1e-4f && vv < 1.0f) {
+                v = normalize(v);
                 normals.emplace_back(v);
                 encoded_normals.emplace_back(oct_encode(v));
                 break;
@@ -73,21 +73,26 @@ int main(int argc, char *argv[]) {
            << synchronize();
 
     for (auto i = 0u; i < 1024u; i++) {
-        auto u = normals[i];
-        auto v = decoded_normals[i];
+        auto u = normalize(normals[i]);
+        auto v = normalize(decoded_normals[i]);
         auto e = degrees(std::sqrt(dot(u - v, u - v)));
         LUISA_INFO(
             "original = ({}, {}, {}), decoded = ({}, {}, {}), error = {} deg.",
             u.x, u.y, u.z, v.x, v.y, v.z, e);
     }
 
+    auto min_error = std::numeric_limits<float>::max();
     auto max_error = 0.0f;
+    auto sum_error = 0.0;
     for (auto i = 0u; i < n; i++) {
         auto u = normalize(normals[i]);
         auto v = normalize(decoded_normals[i]);
-        if (auto e = degrees(std::sqrt(dot(u - v, u - v))); e > max_error) {
-            max_error = e;
-        }
+        auto e = degrees(std::sqrt(dot(u - v, u - v)));
+        if (e < min_error) { min_error = e; }
+        if (e > max_error) { max_error = e; }
+        sum_error += e;
     }
-    LUISA_INFO("max error = {} deg.", max_error);
+    LUISA_INFO(
+        "error: min = {} deg, max = {} deg, avg = {}.",
+        min_error, max_error, sum_error / n);
 }
