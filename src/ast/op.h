@@ -164,12 +164,10 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT4X4,
 
     TRACE_CLOSEST,
-    TRACE_ANY,
-
-    ACCEL_INSTANCE_TRANSFORM
+    TRACE_ANY
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::ACCEL_INSTANCE_TRANSFORM) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::TRACE_ANY) + 1u;
 
 class CallOpSet {
 

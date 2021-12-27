@@ -293,7 +293,6 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
-        case CallOp::ACCEL_INSTANCE_TRANSFORM: _scratch << "instance_transform"; break;
     }
 
     _scratch << "(";
@@ -1238,10 +1237,6 @@ template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto trace_any(instance_acceleration_structure accel, Ray r) {
   auto isect = intersector_any().intersect(make_ray(r), accel);
   return isect.type != intersection_type::none;
-}
-
-[[nodiscard, gnu::always_inline]] inline auto instance_transform(instance_acceleration_structure accel, Ray r) {
-  return float4x4(1.0f);
 }
 
 )";

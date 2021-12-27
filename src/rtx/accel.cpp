@@ -50,10 +50,6 @@ Var<bool> Accel::trace_any(Expr<Ray> ray) const noexcept {
     return Expr<Accel>{*this}.trace_any(ray);
 }
 
-Var<float4x4> Accel::instance_transform(Expr<uint> instance_id) const noexcept {
-    return Expr<Accel>{*this}.instance_transform(instance_id);
-}
-
 Accel &Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool vis) noexcept {
     _rebuild_observer->notify();
     device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform, vis);
