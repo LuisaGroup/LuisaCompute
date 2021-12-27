@@ -575,7 +575,7 @@ void MetalCodegen::_emit_type_decl() noexcept {
 }
 
 static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>,matrix<4>,matrix<4>>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>,matrix<4>>";
 
 void MetalCodegen::visit(const Type *type) noexcept {
     if (type->is_structure()) {
@@ -1118,7 +1118,6 @@ struct alignas(16) Hit {
   uint m1;
   float2 m2;
   float4x4 m3;
-  float4x4 m4;
 };
 
 [[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
@@ -1230,7 +1229,6 @@ template<typename T>
     Hit{isect.instance_id,
         isect.primitive_id,
         isect.triangle_barycentric_coord,
-        float4x3_to_float4x4(isect.world_to_object_transform),
         float4x3_to_float4x4(isect.object_to_world_transform)};
 }
 
