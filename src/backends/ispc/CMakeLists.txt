@@ -7,6 +7,8 @@ set(ISPC_BACKEND_SOURCES
         runtime/ispc_device.cpp
         runtime/ispc_runtime.cpp
         runtime/ispc_shader.cpp
+        runtime/ispc_mesh.cpp
+        runtime/ispc_accel.cpp
         )
 ##[[[]]]
 
