@@ -183,5 +183,35 @@ int main(int argc, char *argv[]) {
         assert(size[2] == 2);
     }
 
+    {
+        CommandList feed;
+
+        Kernel2D kernel = [](ImageFloat texture, ImageFloat texture1, ImageFloat texture2,
+                             BufferFloat buffer, BufferFloat buffer1, BufferFloat buffer2) {
+
+        };
+        auto shader = device.compile(kernel);
+
+        feed.append(shader(texture, texture1, texture2,
+                           buffer, buffer1, buffer2)
+                        .dispatch(width, height));
+
+        for (auto command : feed) {
+            command->accept(commandReorderVisitor);
+        }
+        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+
+        //        assert(reordered_list.size() == 3);
+        std::vector<int> size(reordered_list.size(), 0);
+        for (auto i = 0; i < reordered_list.size(); ++i) {
+            auto &command_list = reordered_list[i];
+            for (auto command : command_list)
+                ++size[i];
+        }
+        //        assert(size[0] == 1);
+        //        assert(size[1] == 1);
+        //        assert(size[2] == 2);
+    }
+
     return 0;
 }

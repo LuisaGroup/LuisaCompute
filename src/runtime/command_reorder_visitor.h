@@ -44,7 +44,6 @@ class CommandReorderVisitor : public CommandVisitor {
 
     struct CommandRelation {
         Command *command;
-        std::vector<CommandRelation *> prev, next;
         std::unordered_set<CommandSource, Hash64> sourceSet;
     };
 
@@ -67,13 +66,13 @@ class CommandReorderVisitor : public CommandVisitor {
 
 private:
     Device::Interface *device;
-    std::vector<CommandRelation *> _head, _tail;
-    std::vector<CommandRelation> _commandRelationData;
+    int windowSize = 5;
+    static thread_local std::vector<std::vector<CommandRelation>> _commandRelationData;
 
 private:
     inline bool Overlap(CommandSource sourceA, CommandSource sourceB);
 
-    void processNewCommandRelation(CommandRelation *commandRelation) noexcept;
+    void processNewCommandRelation(CommandRelation &&commandRelation) noexcept;
 
 public:
     explicit CommandReorderVisitor(Device::Interface *device, size_t size);

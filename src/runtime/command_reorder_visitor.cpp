@@ -7,6 +7,8 @@
 
 namespace luisa::compute {
 
+thread_local std::vector<std::vector<CommandReorderVisitor::CommandRelation>> CommandReorderVisitor::_commandRelationData;
+
 CommandReorderVisitor::ShaderDispatchCommandVisitor::ShaderDispatchCommandVisitor(
     CommandReorderVisitor::CommandRelation *commandRelation, Function *kernel) {
     this->commandRelation = commandRelation;
@@ -60,7 +62,6 @@ bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB
                (sourceB.offset >= sourceA.offset && sourceB.offset <= sourceA.offset + sourceA.size) ||
                (sourceB.offset + sourceB.size >= sourceA.offset && sourceB.offset + sourceB.size <= sourceA.offset + sourceA.size);
     } else {
-        // TODO : different types
         // sourceA will be set to higher level
         if (sourceB.type == CommandType::BINDLESS_ARRAY || sourceB.type == CommandType::ACCEL ||
             (sourceB.type == CommandType::MESH && (sourceA.type == CommandType::BUFFER || sourceA.type == CommandType::TEXTURE)))
@@ -93,74 +94,50 @@ bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB
     }
 }
 
-void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::CommandRelation *commandRelation) noexcept {
-    // 1. check all tails if they overlap with the command under processing
-    for (int i = 0; i < _tail.size();) {
-        CommandRelation *lastCommandRelation = _tail[i];
-        bool overlap = false;
-        // check every condition
-        for (const auto &source : commandRelation->sourceSet) {
-            for (const auto &lastSource : lastCommandRelation->sourceSet)
-                if (Overlap(lastSource, source)) {
-                    overlap = true;
+void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::CommandRelation &&commandRelation) noexcept {
+    // check all relations by reversed index if they overlap with the command under processing
+    int insertIndex = 0;
+    for (int i = int(_commandRelationData.size()) - 1; i >= std::max(0, int(_commandRelationData.size()) - windowSize); --i) {
+        for (auto &j : _commandRelationData[i]) {
+            CommandRelation *lastCommandRelation = &j;
+            bool overlap = false;
+            // check every condition
+            for (const auto &source : commandRelation.sourceSet) {
+                for (const auto &lastSource : lastCommandRelation->sourceSet)
+                    if (Overlap(lastSource, source)) {
+                        overlap = true;
+                        break;
+                    }
+                if (overlap)
                     break;
-                }
-            if (overlap)
+            }
+            // if overlapping: add relation, tail command is not tail anymore
+            if (overlap) {
+                insertIndex = i + 1;
                 break;
+            }
         }
-        // if overlapping: add relation, tail command is not tail anymore
-        if (overlap) {
-            lastCommandRelation->next.push_back(commandRelation);
-            commandRelation->prev.push_back(lastCommandRelation);
-            _tail.erase(_tail.begin() + i);
-        } else {
-            ++i;
-        }
+        if (insertIndex > 0)
+            break;
     }
 
-    // 2. new command must be a tail
-    _tail.push_back(commandRelation);
-
-    // 3. check new command if it's a head
-    if (commandRelation->prev.empty()) {
-        // TODO : problem here
-        /*
-         *                                -- buffer2
-         *                             /
-         * buffer -- buffer1 -- buffer -- buffer1
-         */
-        _head.push_back(commandRelation);
-    }
+    if (insertIndex == _commandRelationData.size())
+        _commandRelationData.push_back({commandRelation});
+    else
+        _commandRelationData[insertIndex].push_back(commandRelation);
 }
 
 std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
     std::vector<CommandList> ans;
 
-    // one command list per loop
-    while (!_head.empty()) {
+    for (auto &i : _commandRelationData) {
         CommandList commandList;
-        size_t index = _head.size();
-        // get all heads
-        for (size_t i = 0; i < index; ++i) {
-            auto commandRelation = _head[i];
-            commandList.append(commandRelation->command->clone());
-            // prepare next loop
-            for (auto nextCommandRelation : commandRelation->next) {
-                nextCommandRelation->prev.erase(
-                    std::find(nextCommandRelation->prev.begin(),
-                              nextCommandRelation->prev.end(),
-                              commandRelation));
-                // prev empty means it becomes a new head
-                if (nextCommandRelation->prev.empty()) {
-                    _head.push_back(nextCommandRelation);
-                }
-            }
+        for (auto &j : i) {
+            commandList.append(j.command->clone());
         }
         ans.push_back(std::move(commandList));
-        _head.erase(_head.begin(), _head.begin() + index);
     }
-    // _head has been cleared
-    _tail.clear();
+
     _commandRelationData.clear();
 
     LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
@@ -175,199 +152,186 @@ std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
 }
 
 void CommandReorderVisitor::visit(const BufferUploadCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), command->offset(), command->size(), Usage::WRITE, CommandType::BUFFER});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const BufferDownloadCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), command->offset(), command->size(), Usage::READ, CommandType::BUFFER});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const BufferCopyCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->src_handle(), command->src_offset(), command->size(), Usage::READ, CommandType::BUFFER});
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->dst_handle(), command->dst_offset(), command->size(), Usage::WRITE, CommandType::BUFFER});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const BufferToTextureCopyCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->buffer(), size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->texture(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::TEXTURE});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
     Function kernel = command->kernel();
-    ShaderDispatchCommandVisitor shaderDispatchCommandVisitor(commandRelation, &kernel);
+    ShaderDispatchCommandVisitor shaderDispatchCommandVisitor(&commandRelation, &kernel);
     command->decode(shaderDispatchCommandVisitor);
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const TextureUploadCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::TEXTURE});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const TextureDownloadCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::READ, CommandType::TEXTURE});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const TextureCopyCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->src_handle(), size_t(-1), size_t(-1), Usage::READ, CommandType::TEXTURE});
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->dst_handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::TEXTURE});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const TextureToBufferCopyCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->texture(), size_t(-1), size_t(-1), Usage::READ, CommandType::TEXTURE});
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->buffer(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::BUFFER});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const BindlessArrayUpdateCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::BINDLESS_ARRAY});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const AccelUpdateCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::ACCEL});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const AccelBuildCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::ACCEL});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE});
     //    // TODO : whether triangle and vertex are read ?
     //    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
     //             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
-    //    commandRelation->sourceSet.insert(CommandSource{
+    //    commandRelation.sourceSet.insert(CommandSource{
     //        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
-    //    commandRelation->sourceSet.insert(CommandSource{
+    //    commandRelation.sourceSet.insert(CommandSource{
     //        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
-    // save data
-    _commandRelationData.push_back({(Command *)command});
-    CommandRelation *commandRelation = &_commandRelationData.back();
+    // generate CommandRelation data
+    CommandRelation commandRelation{(Command *)command};
 
     // get source set
-    commandRelation->sourceSet.insert(CommandSource{
+    commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE});
     //    // TODO : whether triangle and vertex are read ?
     //    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
     //             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
-    //    commandRelation->sourceSet.insert(CommandSource{
+    //    commandRelation.sourceSet.insert(CommandSource{
     //        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
-    //    commandRelation->sourceSet.insert(CommandSource{
+    //    commandRelation.sourceSet.insert(CommandSource{
     //        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
 
-    processNewCommandRelation(commandRelation);
+    processNewCommandRelation(std::move(commandRelation));
 }
 
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device, size_t size) {
     this->device = device;
-    this->_commandRelationData.reserve(size);
+    if (size > _commandRelationData.capacity())
+        _commandRelationData.reserve(size);
 }
 
 }// namespace luisa::compute
