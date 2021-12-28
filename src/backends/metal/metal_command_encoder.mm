@@ -251,6 +251,9 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             }
             [compute_encoder setAccelerationStructure:accel->handle()
                                         atBufferIndex:buffer_index++];
+            [compute_encoder setBuffer:accel->instance_buffer()
+                                offset:0u
+                               atIndex:buffer_index++];
 #else
             LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
 #endif
