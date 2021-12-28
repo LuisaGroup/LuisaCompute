@@ -303,6 +303,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::ini
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
     }
+    if (call_op == CallOp::TRACE_ANY ||
+        call_op == CallOp::TRACE_CLOSEST) {
+        _raytracing = true;
+    }
     _used_builtin_callables.mark(call_op);
     return _create_expression<CallExpr>(type, call_op, args);
 }
@@ -311,6 +315,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::in
     if (custom.tag() != Function::Tag::CALLABLE) {
         LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
     }
+    if (custom.raytracing()) { _raytracing = true; }
     auto expr = _create_expression<CallExpr>(type, custom, args);
     if (auto iter = std::find_if(
             _used_custom_callables.cbegin(),

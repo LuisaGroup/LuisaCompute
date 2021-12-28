@@ -67,8 +67,12 @@ public:
                 auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle)->handle();
                 std::memcpy(ptr, &array, sizeof(CUDABindlessArray::SlotSOA));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Acceleration arguments are not allowed in native CUDA kernels.");
+                auto ptr = allocate_argument(sizeof(CUDAAccel::Binding));
+                auto accel = reinterpret_cast<CUDAAccel *>(argument.handle);
+                CUDAAccel::Binding binding{
+                    .handle = accel->handle(),
+                    .instances = CUDAHeap::buffer_address(accel->instance_buffer())};
+                std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
             } else {// uniform
                 static_assert(std::same_as<T, luisa::span<const std::byte>>);
                 auto ptr = allocate_argument(argument.size_bytes());
