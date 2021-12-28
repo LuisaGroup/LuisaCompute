@@ -60,7 +60,7 @@ class CommandReorderVisitor : public CommandVisitor {
         void operator()(uint32_t vid, ShaderDispatchCommand::AccelArgument argument);
         template<typename UnknownArgument>
         void operator()(uint32_t vid, UnknownArgument argument) {
-            // include UniformArgument
+            // include ShaderDispatchCommand::UniformArgument
         }
     };
 

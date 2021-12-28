@@ -186,31 +186,92 @@ int main(int argc, char *argv[]) {
     {
         CommandList feed;
 
-        Kernel2D kernel = [](ImageFloat texture, ImageFloat texture1, ImageFloat texture2,
-                             BufferFloat buffer, BufferFloat buffer1, BufferFloat buffer2) {
+        /*
+         * texture ------           ----- shader2
+         *                \       /
+         * texture1 ------ shader ------- shader1
+         *               /
+         * texture2 ----
+         */
 
+        Kernel2D kernel = [](ImageFloat texture, ImageFloat texture1, ImageFloat texture2) {
+            Var xy = dispatch_id().xy();
+            Var data = texture1.read(xy).xyz();
+            texture.write(xy, make_float4(data, 1.0f));
+            texture2.write(xy, make_float4(data, 1.0f));
         };
-        auto shader = device.compile(kernel);
+        Kernel2D kernel1 = [](ImageFloat texture, ImageFloat texture1) {
+            Var xy = dispatch_id().xy();
+            Var data = texture.read(xy).xyz();
+            texture1.write(xy, make_float4(data, 1.0f));
+        };
+        Kernel2D kernel2 = [](ImageFloat texture, ImageFloat texture2) {
+            Var xy = dispatch_id().xy();
+            Var data = texture.read(xy).xyz();
+            texture2.write(xy, make_float4(data, 1.0f));
+        };
 
-        feed.append(shader(texture, texture1, texture2,
-                           buffer, buffer1, buffer2)
-                        .dispatch(width, height));
+        auto shader = device.compile(kernel);
+        auto shader1 = device.compile(kernel1);
+        auto shader2 = device.compile(kernel2);
+
+        feed.append(shader(texture, texture1, texture2).dispatch(width, height));
+        feed.append(shader1(texture, texture1).dispatch(width, height));
+        feed.append(shader2(texture, texture2).dispatch(width, height));
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
         }
         std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
-        //        assert(reordered_list.size() == 3);
+        assert(reordered_list.size() == 2);
         std::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
                 ++size[i];
         }
-        //        assert(size[0] == 1);
-        //        assert(size[1] == 1);
-        //        assert(size[2] == 2);
+        assert(size[0] == 1);
+        assert(size[1] == 2);
+    }
+
+    {
+        CommandList feed;
+
+        auto vertex_buffer = device.create_buffer<Vector<float, 3>>(3);
+        auto triangle_buffer = device.create_buffer<Triangle>(1);
+        auto vertex_buffer1 = device.create_buffer<Vector<float, 3>>(3);
+        auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+        auto mesh1 = device.create_mesh(vertex_buffer1, triangle_buffer);
+        auto accel = device.create_accel();
+        accel.emplace_back(mesh);
+
+        /*
+         * vertex_buffer -------
+         *                       \
+         * triangle_buffer ------- mesh ------  ------- accel
+         *                                     \
+         * vertex_buffer1 ---------------------  ------ mesh1
+         */
+
+        feed.append(mesh.build());
+        feed.append(mesh1.build());
+        feed.append(accel.build());
+
+        for (auto command : feed) {
+            command->accept(commandReorderVisitor);
+        }
+        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+
+        assert(reordered_list.size() == 2);
+        std::vector<int> size(reordered_list.size(), 0);
+        for (auto i = 0; i < reordered_list.size(); ++i) {
+            auto &command_list = reordered_list[i];
+            for (auto command : command_list)
+                ++size[i];
+        }
+        assert(size[0] == 1);
+        assert(size[1] == 2);
     }
 
     return 0;
