@@ -366,7 +366,6 @@ const RefExpr *FunctionBuilder::bindless_array() noexcept {
 }
 
 const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
-    _raytracing = true;
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
@@ -387,7 +386,6 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
 }
 
 const RefExpr *FunctionBuilder::accel() noexcept {
-    _raytracing = true;
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
@@ -399,6 +397,9 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
         LUISA_ERROR_WITH_LOCATION(
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
+    }
+    if (call_op == CallOp::TRACE_CLOSEST || call_op == CallOp::TRACE_ANY) {
+        _raytracing = true;
     }
     _used_builtin_callables.mark(call_op);
     return _create_expression<CallExpr>(
