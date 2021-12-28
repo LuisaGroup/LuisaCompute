@@ -804,15 +804,6 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
         : );
 }
 
-[[nodiscard]] inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
-    auto m = accel.instances[instance_id].m;
-    return lc_make_float4x4(
-        m[0].x, m[1].x, m[2].x, 0.0f,
-        m[0].y, m[1].y, m[2].y, 0.0f,
-        m[0].z, m[1].z, m[2].z, 0.0f,
-        m[0].w, m[1].w, m[2].w, 1.0f);
-}
-
 [[nodiscard]] inline auto lc_trace_closest(LCAccel accel, LCRay ray) noexcept {
     constexpr auto flags = 1u;// disable any hit
     auto r0 = ~0u;

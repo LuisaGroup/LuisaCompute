@@ -312,6 +312,7 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "lc_accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "lc_trace_any"; break;
     }
@@ -594,7 +595,7 @@ void CUDACodegen::_emit_type_decl() noexcept {
 }
 
 static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>,matrix<4>>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
 
 void CUDACodegen::visit(const Type *type) noexcept {
     if (type->is_structure() &&
