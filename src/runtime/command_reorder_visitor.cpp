@@ -299,13 +299,13 @@ void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
     // get source set
     commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE});
-    //    // TODO : whether triangle and vertex are read ?
-    //    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
-    //             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
-    //    commandRelation.sourceSet.insert(CommandSource{
-    //        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
-    //    commandRelation.sourceSet.insert(CommandSource{
-    //        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
+    // TODO : whether triangle and vertex are read ?
+    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
+             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
+    commandRelation.sourceSet.insert(CommandSource{
+        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
+    commandRelation.sourceSet.insert(CommandSource{
+        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
 
     processNewCommandRelation(std::move(commandRelation));
 }
@@ -317,13 +317,13 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
     // get source set
     commandRelation.sourceSet.insert(CommandSource{
         command->handle(), size_t(-1), size_t(-1), Usage::WRITE});
-    //    // TODO : whether triangle and vertex are read ?
-    //    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
-    //             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
-    //    commandRelation.sourceSet.insert(CommandSource{
-    //        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
-    //    commandRelation.sourceSet.insert(CommandSource{
-    //        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
+    // TODO : whether triangle and vertex are read ?
+    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
+             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
+    commandRelation.sourceSet.insert(CommandSource{
+        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
+    commandRelation.sourceSet.insert(CommandSource{
+        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
 
     processNewCommandRelation(std::move(commandRelation));
 }
