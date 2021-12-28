@@ -255,8 +255,9 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
-        case CallOp::TRACE_CLOSEST: break;
-        case CallOp::TRACE_ANY: break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "instance_to_world"; break;
+        case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
+        case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
