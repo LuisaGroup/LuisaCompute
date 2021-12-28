@@ -575,7 +575,7 @@ void MetalCodegen::_emit_type_decl() noexcept {
 }
 
 static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>,matrix<4>>";
 
 void MetalCodegen::visit(const Type *type) noexcept {
     if (type->is_structure()) {
@@ -1117,6 +1117,7 @@ struct alignas(16) Hit {
   uint m0;
   uint m1;
   float2 m2;
+  float4x4 m3;
 };
 
 [[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
@@ -1191,15 +1192,15 @@ template<typename T>
     if (f.raytracing()) {
         _scratch << R"(using namespace metal::raytracing;
 
-[[nodiscard]] constexpr auto intersector_closest() {
-  intersector<triangle_data, instancing> i;
+[[nodiscard, gnu::always_inline]] constexpr auto intersector_closest() {
+  intersector<triangle_data, instancing, world_space_data> i;
   i.assume_geometry_type(geometry_type::triangle);
   i.force_opacity(forced_opacity::opaque);
   i.accept_any_intersection(false);
   return i;
 }
 
-[[nodiscard]] constexpr auto intersector_any() {
+[[nodiscard, gnu::always_inline]] constexpr auto intersector_any() {
   intersector<triangle_data, instancing> i;
   i.assume_geometry_type(geometry_type::triangle);
   i.force_opacity(forced_opacity::opaque);
@@ -1207,20 +1208,31 @@ template<typename T>
   return i;
 }
 
-[[nodiscard]] auto make_ray(Ray r_in) {
+[[nodiscard, gnu::always_inline]] inline auto make_ray(Ray r_in) {
   auto o = float3(r_in.m0[0], r_in.m0[1], r_in.m0[2]);
   auto d = float3(r_in.m2[0], r_in.m2[1], r_in.m2[2]);
   return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard]] auto trace_closest(instance_acceleration_structure accel, Ray r) {
+[[nodiscard, gnu::always_inline]] inline auto float4x3_to_float4x4(float4x3 m) {
+  return float4x4(
+    float4(m[0], 0.0f),
+    float4(m[1], 0.0f),
+    float4(m[2], 0.0f),
+    float4(0.0f, 0.0f, 0.0f, 1.0f));
+}
+
+[[nodiscard, gnu::always_inline]] inline auto trace_closest(instance_acceleration_structure accel, Ray r) {
   auto isect = intersector_closest().intersect(make_ray(r), accel);
   return isect.type == intersection_type::none ?
     Hit{0xffffffffu, 0xffffffffu, float2(0.0f)} :
-    Hit{isect.instance_id, isect.primitive_id, isect.triangle_barycentric_coord};
+    Hit{isect.instance_id,
+        isect.primitive_id,
+        isect.triangle_barycentric_coord,
+        float4x3_to_float4x4(isect.object_to_world_transform)};
 }
 
-[[nodiscard]] auto trace_any(instance_acceleration_structure accel, Ray r) {
+[[nodiscard, gnu::always_inline]] inline auto trace_any(instance_acceleration_structure accel, Ray r) {
   auto isect = intersector_any().intersect(make_ray(r), accel);
   return isect.type != intersection_type::none;
 }

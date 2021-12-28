@@ -39,6 +39,8 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     target_link_libraries(test_shader_toy PRIVATE luisa::compute)
     add_executable(test_path_tracing test_path_tracing.cpp)
     target_link_libraries(test_path_tracing PRIVATE luisa::compute)
+    add_executable(test_normal_encoding test_normal_encoding.cpp)
+    target_link_libraries(test_normal_encoding PRIVATE luisa::compute)
 endif ()
 
 find_package(OpenCV CONFIG)

@@ -188,6 +188,11 @@ public:
     [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {
         return _impl->query(meta_expr);
     }
+
+    template<typename T, typename... Args>
+    [[nodiscard]] auto create(Args &&...args) noexcept {
+        return _create<T>(std::forward<Args>(args)...);
+    }
 };
 
 }// namespace luisa::compute

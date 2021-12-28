@@ -647,7 +647,7 @@ BindlessTexture2D BindlessArray::tex2d(I &&index) const noexcept {
 }
 
 template<typename I>
-BindlessTexture2D BindlessArray::tex3d(I &&index) const noexcept {
+BindlessTexture3D BindlessArray::tex3d(I &&index) const noexcept {
     auto i = def(std::forward<I>(index));
     return Expr<BindlessArray>{*this}.tex3d(i);
 }

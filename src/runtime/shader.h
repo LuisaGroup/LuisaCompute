@@ -239,9 +239,9 @@ public:
     Shader() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        detail::ShaderInvoke<dimension> invoke{handle(), _kernel->function()};
-        (invoke << ... << args);
-        return invoke;
+        using invoke_type = detail::ShaderInvoke<dimension>;
+        invoke_type invoke{handle(), _kernel->function()};
+        return static_cast<invoke_type &&>((invoke << ... << args));
     }
 };
 

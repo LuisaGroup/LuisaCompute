@@ -70,7 +70,7 @@ public:
     BindlessTexture2D tex2d(I &&index) const noexcept;
 
     template<typename I>
-    BindlessTexture2D tex3d(I &&index) const noexcept;
+    BindlessTexture3D tex3d(I &&index) const noexcept;
 
     template<typename T, typename I>
     BindlessBuffer<T> buffer(I &&index) const noexcept;
