@@ -104,7 +104,7 @@ void ISPCDevice::synchronize_event(uint64_t handle) noexcept {
 uint64_t ISPCDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
     auto mesh = new ISPCMesh(
         v_buffer, v_offset, v_stride, v_count,
-        t_buffer, t_offset, t_count, hint);
+        t_buffer, t_offset, t_count, hint, _device);
     return reinterpret_cast<uint64_t>(mesh);
 }
 void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {

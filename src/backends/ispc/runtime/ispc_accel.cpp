@@ -2,18 +2,18 @@
 
 namespace lc::ispc{
 
-ISPCAccel::ISPCAccel(AccelBuildHint hint):_hint(hint) {
+ISPCAccel::ISPCAccel(AccelBuildHint hint) noexcept : _hint(hint) {
     _device = rtcNewDevice(nullptr);
     _scene = rtcNewScene(_device);
 }
 
-ISPCAccel::~ISPCAccel() {
+ISPCAccel::~ISPCAccel() noexcept {
     for(auto& instance: _mesh_instances) rtcReleaseGeometry(instance);
     rtcReleaseScene(_scene);
     rtcReleaseDevice(_device);
 }
 
-void ISPCAccel::addMesh(ISPCMesh* mesh, float4x4 transform, bool visible){
+void ISPCAccel::addMesh(ISPCMesh* mesh, float4x4 transform, bool visible) noexcept{
     _meshes.emplace_back(mesh);
     _mesh_transforms.emplace_back(transform);
     _mesh_visibilities.emplace_back(visible);
@@ -52,23 +52,7 @@ void ISPCAccel::setTransform(size_t index, float4x4 transform) noexcept {
 
 inline void ISPCAccel::buildAllGeometry() noexcept {
     for(int k=0;k<_meshes.size();k++){
-        auto geometry = rtcNewGeometry(_device, RTCGeometryType::RTC_GEOMETRY_TYPE_TRIANGLE);
-        rtcSetSharedGeometryBuffer(
-            geometry, RTCBufferType::RTC_BUFFER_TYPE_VERTEX, 
-            0, RTCFormat::RTC_FORMAT_FLOAT3, // slot need to be clarified
-            (void *)_meshes[k]->_v_buffer,
-            _meshes[k]->_v_offset,
-            _meshes[k]->_v_stride,
-            _meshes[k]->_v_count
-        );
-        rtcSetSharedGeometryBuffer(
-            geometry, RTCBufferType::RTC_BUFFER_TYPE_INDEX, 
-            0, RTCFormat::RTC_FORMAT_UINT3, // slot need to be clarified
-            (void *)_meshes[k]->_t_buffer,
-            _meshes[k]->_t_offset,
-            sizeof(Triangle),
-            _meshes[k]->_t_count
-        );
+        auto& geometry = _meshes[k]->geometry;
         float transMat[16];
         for(int i=0;i<4;i++)
             for(int j=0;j<4;j++)
@@ -86,23 +70,7 @@ inline void ISPCAccel::buildAllGeometry() noexcept {
 
 inline void ISPCAccel::updateAllGeometry() noexcept {
     for(auto& k : _dirty){
-        auto& geometry = _mesh_instances[k];
-        rtcSetSharedGeometryBuffer(
-            geometry, RTCBufferType::RTC_BUFFER_TYPE_VERTEX, 
-            0, RTCFormat::RTC_FORMAT_FLOAT3, // slot need to be clarified
-            (void *)_meshes[k]->_v_buffer,
-            _meshes[k]->_v_offset,
-            _meshes[k]->_v_stride,
-            _meshes[k]->_v_count
-        );
-        rtcSetSharedGeometryBuffer(
-            geometry, RTCBufferType::RTC_BUFFER_TYPE_INDEX, 
-            0, RTCFormat::RTC_FORMAT_UINT3, // slot need to be clarified
-            (void *)_meshes[k]->_t_buffer,
-            _meshes[k]->_t_offset,
-            sizeof(Triangle),
-            _meshes[k]->_t_count
-        );
+        auto& geometry = _meshes[k]->geometry;
         float transMat[16];
         for(int i=0;i<4;i++)
             for(int j=0;j<4;j++)
