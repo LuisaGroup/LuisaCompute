@@ -415,6 +415,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
             "Calling non-callable function in device code.");
     }
     auto f = custom.builder();
+    if (f->raytracing()) { _raytracing = true; }
     CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
