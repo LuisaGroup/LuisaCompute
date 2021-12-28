@@ -594,7 +594,7 @@ void CUDACodegen::_emit_type_decl() noexcept {
 }
 
 static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>,matrix<4>>";
 
 void CUDACodegen::visit(const Type *type) noexcept {
     if (type->is_structure() &&
