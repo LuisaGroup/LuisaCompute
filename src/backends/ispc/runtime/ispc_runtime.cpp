@@ -2,6 +2,8 @@
 
 #include "ispc_runtime.h"
 #include "ispc_codegen.h"
+#include "ispc_accel.h"
+#include "ispc_mesh.h"
 
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
@@ -43,8 +45,14 @@ void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureCopyCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureToBufferCopyCommand const *cmd) noexcept {}
-void CommandExecutor::visit(AccelUpdateCommand const *cmd) noexcept {}
-void CommandExecutor::visit(AccelBuildCommand const *cmd) noexcept {}
+void CommandExecutor::visit(AccelUpdateCommand const *cmd) noexcept {
+    auto accel = reinterpret_cast<ISPCAccel*>(cmd->handle());
+    return accel->update();
+}
+void CommandExecutor::visit(AccelBuildCommand const *cmd) noexcept {
+    auto accel = reinterpret_cast<ISPCAccel*>(cmd->handle());
+    return accel->build();
+}
 void CommandExecutor::visit(MeshUpdateCommand const *cmd) noexcept {}
 void CommandExecutor::visit(MeshBuildCommand const *cmd) noexcept {}
 void CommandExecutor::visit(BindlessArrayUpdateCommand const *cmd) noexcept {}

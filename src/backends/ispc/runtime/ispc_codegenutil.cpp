@@ -187,6 +187,9 @@ void CodegenUtility::GetArrayStruct(Type const &t, std::string_view name, luisa:
     str << "];\n};\n";
 }
 
+static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+
 void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
     switch (type.tag()) {
         case Type::Tag::ARRAY:
@@ -219,9 +222,14 @@ void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
         }
             return;
         case Type::Tag::STRUCTURE:
-            str << 'T';
-            vstd::to_string(opt->GetTypeCount(&type), str);
-
+            if(auto desc = type.description(); desc == ray_type_desc){
+                str << "Ray"sv;
+            }else if(desc == hit_type_desc) {
+                str << "Hit"sv;
+            }else{
+                str << 'T' << type.description();
+                vstd::to_string(opt->GetTypeCount(&type), str);
+            }
             return;
         case Type::Tag::BUFFER:
             GetTypeName(*type.element(), str);
@@ -239,8 +247,12 @@ void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
             str << '>';
             break;
         }
+        case Type::Tag::ACCEL: {
+            str << "Accel"sv;
+            break;
+        }
         default:
-            LUISA_ERROR_WITH_LOCATION("Bad.");
+            LUISA_ERROR_WITH_LOCATION("Bad. {}", (int)type.tag());
             break;
     }
 }
@@ -581,6 +593,9 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 4))
                 str << "_float4"sv;
 
+            break;
+        case CallOp::TRACE_CLOSEST:
+            str << "trace_closest"sv;
             break;
         default: {
             auto errorType = expr->op();
