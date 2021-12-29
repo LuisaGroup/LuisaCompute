@@ -549,14 +549,19 @@ class SBO {
     I *ptr;
     //void(Src, Dest)
     funcPtr_t<void *(void *, void *)> moveFunc;
-    template<typename T>
-    constexpr static bool IsLegalType = std::is_pointer_v<T> &&std::is_base_of_v<I, std::remove_pointer_t<T>>;
+    template <typename Func>
+    static constexpr bool CtorFunc() {
+        if constexpr (!std::is_invocable_v<Func, void*>) {
+            return false;
+        } else {
+            using T = std::invoke_result_t<Func, void *>;
+            return std::is_pointer_v<T> && std::is_base_of_v<I, std::remove_pointer_t<T>>;
+        }
+    }
 
 public:
     template<typename Func>
-    constexpr static bool LegalCtorFunc =
-        std::is_invocable_v<Func, void *> &&
-            IsLegalType<FuncRetType<std::remove_cvref_t<Func>>>;
+    static constexpr bool ConstructibleFunc = CtorFunc<Func>();
     I *operator->() const {
         return ptr;
     }
@@ -566,40 +571,40 @@ public:
     }
 
     template<typename Func>
-        requires std::negation_v<std::is_same<SBO, std::remove_cvref_t<Func>>> && LegalCtorFunc<Func>
-        SBO(Func &&func) {
-            using T = std::remove_pointer_t<FuncRetType<std::remove_cvref_t<Func>>>;
-            constexpr size_t sz = sizeof(T);
-            void *originPtr;
-            if constexpr (sz > sboSize) {
-                originPtr = vengine_malloc(sz);
-            } else {
-                originPtr = &buffer;
-            }
-            func(originPtr);
-            ptr = reinterpret_cast<T *>(originPtr);
-            if constexpr (std::is_move_constructible_v<T>) {
-                moveFunc = [](void *src, void *dst) -> void * {
-                    if (dst)
-                        return new (dst) T(std::move(*reinterpret_cast<T *>(src)));
-                    else {
-                        I *ptr = reinterpret_cast<I *>(src);
-                        T *offsetPtr = static_cast<T *>(ptr);
-                        return offsetPtr;
-                    }
-                };
-            } else {
-                moveFunc = [](void *src, void *dst) -> void * {
-                    if (dst)
-                        VEngine_Log(typeid(T));
-                    else {
-                        I *ptr = reinterpret_cast<I *>(0);
-                        T *offsetPtr = static_cast<T *>(ptr);
-                        return offsetPtr;
-                    }
-                };
-            }
+        requires(ConstructibleFunc<Func>)
+    SBO(Func &&func) {
+        using T = std::remove_pointer_t<FuncRetType<std::remove_cvref_t<Func>>>;
+        constexpr size_t sz = sizeof(T);
+        void *originPtr;
+        if constexpr (sz > sboSize) {
+            originPtr = vengine_malloc(sz);
+        } else {
+            originPtr = &buffer;
         }
+        func(originPtr);
+        ptr = reinterpret_cast<T *>(originPtr);
+        if constexpr (std::is_move_constructible_v<T>) {
+            moveFunc = [](void *src, void *dst) -> void * {
+                if (dst)
+                    return new (dst) T(std::move(*reinterpret_cast<T *>(src)));
+                else {
+                    I *ptr = reinterpret_cast<I *>(src);
+                    T *offsetPtr = static_cast<T *>(ptr);
+                    return offsetPtr;
+                }
+            };
+        } else {
+            moveFunc = [](void *src, void *dst) -> void * {
+                if (dst)
+                    VEngine_Log(typeid(T));
+                else {
+                    I *ptr = reinterpret_cast<I *>(0);
+                    T *offsetPtr = static_cast<T *>(ptr);
+                    return offsetPtr;
+                }
+            };
+        }
+    }
     SBO(SBO const &) = delete;
     SBO(SBO &&sbo)
         : moveFunc(sbo.moveFunc) {
@@ -639,9 +644,9 @@ private:
     PtrType ptr;
 
 public:
-    IEnumerable<T> *Get() const { return ptr; }
+    IEnumerable<T> *Get() const { return ptr.Get(); }
     template<typename Func>
-        requires((std::negation_v<std::is_same<Iterator, std::remove_cvref_t<Func>>>)&&PtrType::template LegalCtorFunc<Func>)
+        requires(PtrType::ConstructibleFunc<Func>)
     Iterator(Func &&func) : ptr(std::forward<Func>(func)) {}
     Iterator(Iterator const &) = delete;
     Iterator(Iterator &&v)
@@ -654,6 +659,9 @@ public:
         return ptr->GetValue();
     }
     void operator++() const {
+        ptr->GetNext();
+    }
+    void operator++(int) const {
         ptr->GetNext();
     }
     bool operator==(IteEndTag) const {
