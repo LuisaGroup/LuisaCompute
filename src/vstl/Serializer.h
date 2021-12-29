@@ -238,9 +238,4 @@ struct SerDeAll_Impl<Ret(Args...)> {
         };
     }
 };
-
-template<typename Func>
-using SerDeAll = SerDeAll_Impl<FuncType<std::remove_cvref_t<Func>>>;
-template<typename Func>
-using SerDeAll_Member = SerDeAll_Impl<typename vstl_detail::memFuncPtr<std::remove_cvref_t<Func>>::Type::FuncType>;
 }// namespace vstd
