@@ -146,7 +146,7 @@ template<typename T>
 
 template<typename T>
 [[nodiscard]] inline auto def(const Expression *expr) noexcept -> Var<expr_value_t<T>> {
-    return Var{Expr<T>{expr}};
+    return Var{Expr<expr_value_t<T>>{expr}};
 }
 
 template<typename T, typename SExpr>

@@ -415,78 +415,6 @@ constexpr size_t array_byte_size(T const &t) {
     return array_meta<T>::byte_size;
 }
 
-namespace vstl_detail {
-
-template<typename T, typename... Args>
-struct FunctionRetAndArgs {
-    static constexpr size_t ArgsCount = sizeof...(Args);
-    using RetType = T;
-    inline static const Type retTypes = typeid(T);
-    inline static const Type argTypes[ArgsCount] =
-        {
-            typeid(Args)...};
-};
-
-template<typename T>
-struct memFuncPtr;
-
-template<typename T>
-struct FunctionPointerData;
-
-template<typename Ret, typename... Args>
-struct FunctionPointerData<Ret(Args...)> {
-    using RetAndArgsType = FunctionRetAndArgs<Ret, Args...>;
-    static constexpr size_t ArgsCount = sizeof...(Args);
-};
-
-template<typename T>
-struct FunctionType {
-    using Type = typename memFuncPtr<decltype(&T::operator())>::Type;
-};
-
-template<typename Ret, typename... Args>
-struct FunctionType<Ret(Args...)> {
-    using Type = FunctionType<Ret(Args...)>;
-    using RetAndArgsType = typename FunctionPointerData<Ret(Args...)>::RetAndArgsType;
-    using FuncType = Ret(Args...);
-    using RetType = Ret;
-    static constexpr size_t ArgsCount = sizeof...(Args);
-    using FuncPtrType = Ret (*)(Args...);
-};
-
-template<typename Class, typename Ret, typename... Args>
-struct memFuncPtr<Ret (Class::*)(Args...)> {
-    using Type = FunctionType<Ret(Args...)>;
-};
-
-template<typename Class, typename Ret, typename... Args>
-struct memFuncPtr<Ret (Class::*)(Args...) const> {
-    using Type = FunctionType<Ret(Args...)>;
-};
-
-template<typename Ret, typename... Args>
-struct FunctionType<Ret (*)(Args...)> {
-    using Type = FunctionType<Ret(Args...)>;
-};
-}// namespace vstl_detail
-
-template<typename T>
-using FunctionDataType = typename vstl_detail::FunctionType<T>::Type::RetAndArgsType;
-
-template<typename T>
-using FuncPtrType = typename vstl_detail::FunctionType<T>::Type::FuncPtrType;
-
-template<typename T>
-using FuncType = typename vstl_detail::FunctionType<T>::Type::FuncType;
-
-template<typename T>
-using FuncRetType = typename vstl_detail::FunctionType<T>::Type::RetType;
-
-template<typename T>
-constexpr size_t FuncArgCount = vstl_detail::FunctionType<T>::Type::ArgsCount;
-
-template<typename Func, typename Target>
-static constexpr bool IsFunctionTypeOf = std::is_same_v<FuncType<Func>, Target>;
 template<typename A, typename B, typename C, typename... Args>
 decltype(auto) select(A &&a, B &&b, C &&c, Args &&...args) {
     if (c(std::forward<Args>(args)...)) {
@@ -549,14 +477,18 @@ class SBO {
     I *ptr;
     //void(Src, Dest)
     funcPtr_t<void *(void *, void *)> moveFunc;
-    template<typename T>
-    constexpr static bool IsLegalType = std::is_pointer_v<T> &&std::is_base_of_v<I, std::remove_pointer_t<T>>;
+
 
 public:
     template<typename Func>
-    constexpr static bool LegalCtorFunc =
-        std::is_invocable_v<Func, void *> &&
-            IsLegalType<FuncRetType<std::remove_cvref_t<Func>>>;
+    static consteval bool CtorFunc() {
+        if constexpr (!std::is_invocable_v<Func, void *>) {
+            return false;
+        } else {
+            using T = std::invoke_result_t<Func, void *>;
+            return std::is_pointer_v<T> && std::is_base_of_v<I, std::remove_pointer_t<T>>;
+        }
+    }
     I *operator->() const {
         return ptr;
     }
@@ -566,40 +498,40 @@ public:
     }
 
     template<typename Func>
-        requires std::negation_v<std::is_same<SBO, std::remove_cvref_t<Func>>> && LegalCtorFunc<Func>
-        SBO(Func &&func) {
-            using T = std::remove_pointer_t<FuncRetType<std::remove_cvref_t<Func>>>;
-            constexpr size_t sz = sizeof(T);
-            void *originPtr;
-            if constexpr (sz > sboSize) {
-                originPtr = vengine_malloc(sz);
-            } else {
-                originPtr = &buffer;
-            }
-            func(originPtr);
-            ptr = reinterpret_cast<T *>(originPtr);
-            if constexpr (std::is_move_constructible_v<T>) {
-                moveFunc = [](void *src, void *dst) -> void * {
-                    if (dst)
-                        return new (dst) T(std::move(*reinterpret_cast<T *>(src)));
-                    else {
-                        I *ptr = reinterpret_cast<I *>(src);
-                        T *offsetPtr = static_cast<T *>(ptr);
-                        return offsetPtr;
-                    }
-                };
-            } else {
-                moveFunc = [](void *src, void *dst) -> void * {
-                    if (dst)
-                        VEngine_Log(typeid(T));
-                    else {
-                        I *ptr = reinterpret_cast<I *>(0);
-                        T *offsetPtr = static_cast<T *>(ptr);
-                        return offsetPtr;
-                    }
-                };
-            }
+        requires(CtorFunc<Func>())
+    SBO(Func &&func) {
+        using T = std::remove_pointer_t<std::invoke_result_t<Func, void *>>;
+        constexpr size_t sz = sizeof(T);
+        void *originPtr;
+        if constexpr (sz > sboSize) {
+            originPtr = vengine_malloc(sz);
+        } else {
+            originPtr = &buffer;
         }
+        func(originPtr);
+        ptr = reinterpret_cast<T *>(originPtr);
+        if constexpr (std::is_move_constructible_v<T>) {
+            moveFunc = [](void *src, void *dst) -> void * {
+                if (dst)
+                    return new (dst) T(std::move(*reinterpret_cast<T *>(src)));
+                else {
+                    I *ptr = reinterpret_cast<I *>(src);
+                    T *offsetPtr = static_cast<T *>(ptr);
+                    return offsetPtr;
+                }
+            };
+        } else {
+            moveFunc = [](void *src, void *dst) -> void * {
+                if (dst)
+                    VEngine_Log(typeid(T));
+                else {
+                    I *ptr = reinterpret_cast<I *>(0);
+                    T *offsetPtr = static_cast<T *>(ptr);
+                    return offsetPtr;
+                }
+            };
+        }
+    }
     SBO(SBO const &) = delete;
     SBO(SBO &&sbo)
         : moveFunc(sbo.moveFunc) {
@@ -639,9 +571,9 @@ private:
     PtrType ptr;
 
 public:
-    IEnumerable<T> *Get() const { return ptr; }
+    IEnumerable<T> *Get() const { return ptr.Get(); }
     template<typename Func>
-        requires((std::negation_v<std::is_same<Iterator, std::remove_cvref_t<Func>>>)&&PtrType::template LegalCtorFunc<Func>)
+        requires(PtrType::template CtorFunc<Func>())
     Iterator(Func &&func) : ptr(std::forward<Func>(func)) {}
     Iterator(Iterator const &) = delete;
     Iterator(Iterator &&v)
@@ -654,6 +586,9 @@ public:
         return ptr->GetValue();
     }
     void operator++() const {
+        ptr->GetNext();
+    }
+    void operator++(int) const {
         ptr->GetNext();
     }
     bool operator==(IteEndTag) const {

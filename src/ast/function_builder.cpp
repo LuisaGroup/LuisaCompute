@@ -303,6 +303,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::ini
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
     }
+    if (call_op == CallOp::TRACE_ANY ||
+        call_op == CallOp::TRACE_CLOSEST) {
+        _raytracing = true;
+    }
     _used_builtin_callables.mark(call_op);
     return _create_expression<CallExpr>(type, call_op, args);
 }
@@ -311,6 +315,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::in
     if (custom.tag() != Function::Tag::CALLABLE) {
         LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
     }
+    if (custom.raytracing()) { _raytracing = true; }
     auto expr = _create_expression<CallExpr>(type, custom, args);
     if (auto iter = std::find_if(
             _used_custom_callables.cbegin(),
@@ -366,7 +371,6 @@ const RefExpr *FunctionBuilder::bindless_array() noexcept {
 }
 
 const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
-    _raytracing = true;
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
@@ -387,7 +391,6 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
 }
 
 const RefExpr *FunctionBuilder::accel() noexcept {
-    _raytracing = true;
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
@@ -399,6 +402,9 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
         LUISA_ERROR_WITH_LOCATION(
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
+    }
+    if (call_op == CallOp::TRACE_CLOSEST || call_op == CallOp::TRACE_ANY) {
+        _raytracing = true;
     }
     _used_builtin_callables.mark(call_op);
     return _create_expression<CallExpr>(
@@ -414,6 +420,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
             "Calling non-callable function in device code.");
     }
     auto f = custom.builder();
+    if (f->raytracing()) { _raytracing = true; }
     CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
