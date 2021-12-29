@@ -291,6 +291,7 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
     }
@@ -575,7 +576,7 @@ void MetalCodegen::_emit_type_decl() noexcept {
 }
 
 static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>,matrix<4>>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
 
 void MetalCodegen::visit(const Type *type) noexcept {
     if (type->is_structure()) {
@@ -694,7 +695,7 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
-            _scratch << "instance_acceleration_structure ";
+            _scratch << "const Accel ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::THREAD_ID:
@@ -1117,7 +1118,6 @@ struct alignas(16) Hit {
   uint m0;
   uint m1;
   float2 m2;
-  float4x4 m3;
 };
 
 [[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
@@ -1192,8 +1192,20 @@ template<typename T>
     if (f.raytracing()) {
         _scratch << R"(using namespace metal::raytracing;
 
+struct alignas(16) Instance {
+  array<float, 12> transform;
+  uint pad[4];
+};
+
+static_assert(sizeof(Instance) == 64u);
+
+struct Accel {
+  instance_acceleration_structure handle;
+  device const Instance *__restrict__ instances;
+};
+
 [[nodiscard, gnu::always_inline]] constexpr auto intersector_closest() {
-  intersector<triangle_data, instancing, world_space_data> i;
+  intersector<triangle_data, instancing> i;
   i.assume_geometry_type(geometry_type::triangle);
   i.force_opacity(forced_opacity::opaque);
   i.accept_any_intersection(false);
@@ -1214,27 +1226,27 @@ template<typename T>
   return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto float4x3_to_float4x4(float4x3 m) {
-  return float4x4(
-    float4(m[0], 0.0f),
-    float4(m[1], 0.0f),
-    float4(m[2], 0.0f),
-    float4(0.0f, 0.0f, 0.0f, 1.0f));
-}
-
-[[nodiscard, gnu::always_inline]] inline auto trace_closest(instance_acceleration_structure accel, Ray r) {
-  auto isect = intersector_closest().intersect(make_ray(r), accel);
+[[nodiscard, gnu::always_inline]] inline auto trace_closest(Accel accel, Ray r) {
+  auto isect = intersector_closest().intersect(make_ray(r), accel.handle);
   return isect.type == intersection_type::none ?
     Hit{0xffffffffu, 0xffffffffu, float2(0.0f)} :
     Hit{isect.instance_id,
         isect.primitive_id,
-        isect.triangle_barycentric_coord,
-        float4x3_to_float4x4(isect.object_to_world_transform)};
+        isect.triangle_barycentric_coord};
 }
 
-[[nodiscard, gnu::always_inline]] inline auto trace_any(instance_acceleration_structure accel, Ray r) {
-  auto isect = intersector_any().intersect(make_ray(r), accel);
+[[nodiscard, gnu::always_inline]] inline auto trace_any(Accel accel, Ray r) {
+  auto isect = intersector_any().intersect(make_ray(r), accel.handle);
   return isect.type != intersection_type::none;
+}
+
+[[nodiscard, gnu::always_inline]] inline auto accel_instance_transform(Accel accel, uint i) {
+  auto m = accel.instances[i].transform;
+  return float4x4(
+    m[0], m[1], m[2], m[3],
+    m[4], m[5], m[6], m[7],
+    m[8], m[9], m[10], m[11],
+    0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 )";

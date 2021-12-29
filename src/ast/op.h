@@ -163,6 +163,8 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT3X3,
     MAKE_FLOAT4X4,
 
+    INSTANCE_TO_WORLD_MATRIX,
+
     TRACE_CLOSEST,
     TRACE_ANY
 };

@@ -15,11 +15,8 @@
 #include <vstl/HashMap.h>
 #include <vstl/vstring.h>
 #include <core/mathematics.h>
+#include <string_view>
 namespace vstd {
-template<
-    class T,
-    std::size_t Extent = std::dynamic_extent>
-using span = std::span<T, Extent>;
 using string_view = std::basic_string_view<char>;
 using wstring_view = std::basic_string_view<wchar_t>;
 }// namespace vstd

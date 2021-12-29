@@ -11,8 +11,7 @@ namespace luisa::compute {
 struct alignas(16) Hit {
     uint inst{0u};
     uint prim{0u};
-    float2 uv;
-    float4x4 object_to_world;
+    float2 bary;
 };
 
 [[nodiscard]] Var<bool> miss(Expr<Hit> hit) noexcept;
@@ -22,7 +21,7 @@ struct alignas(16) Hit {
 
 }// namespace luisa::compute
 
-LUISA_STRUCT(luisa::compute::Hit, inst, prim, uv, object_to_world){
+LUISA_STRUCT(luisa::compute::Hit, inst, prim, bary){
     [[nodiscard]] auto miss() const noexcept {
         return luisa::compute::miss(*this);
     }

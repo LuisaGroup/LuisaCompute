@@ -56,7 +56,7 @@ public:
     virtual bool IsEmpty() const = 0;
     virtual vstd::string FormattedPrint() const = 0;
     virtual vstd::string Print() const = 0;
-    virtual bool Read(std::span<uint8_t const> sp,
+    virtual bool Read(vstd::span<uint8_t const> sp,
                       bool clearLast) = 0;
     virtual void Reserve(size_t capacity) = 0;
     virtual vstd::optional<ParsingException> Parse(
@@ -74,17 +74,17 @@ protected:
 public:
     bool IsDict() const override { return true; }
     virtual ReadJsonVariant Get(Key const &key) const = 0;
-    virtual vstd::vector<ReadJsonVariant> Get(std::span<Key> keys) const = 0;
+    virtual vstd::vector<ReadJsonVariant> Get(vstd::span<Key> keys) const = 0;
     virtual bool Contains(Key const &key) const = 0;
-    virtual vstd::vector<bool> Contains(std::span<Key> keys) const = 0;
+    virtual vstd::vector<bool> Contains(vstd::span<Key> keys) const = 0;
     virtual void Set(Key const &key, WriteJsonVariant &&value) = 0;
-    virtual void Set(std::span<std::pair<Key, WriteJsonVariant>> kv) = 0;
+    virtual void Set(vstd::span<std::pair<Key, WriteJsonVariant>> kv) = 0;
     virtual ReadJsonVariant TrySet(Key const &key, vstd::function<WriteJsonVariant()> const &value) = 0;
     virtual void TryReplace(Key const &key, vstd::function<WriteJsonVariant(ReadJsonVariant const &)> const &value) = 0;
     virtual void Remove(Key const &key) = 0;
     virtual vstd::optional<WriteJsonVariant> GetAndRemove(Key const &key) = 0;
     virtual vstd::optional<WriteJsonVariant> GetAndSet(Key const &key, WriteJsonVariant &&newValue) = 0;
-    virtual void Remove(std::span<Key> keys) = 0;
+    virtual void Remove(vstd::span<Key> keys) = 0;
     virtual vstd::vector<std::pair<Key, ReadJsonVariant>> ToVector() const = 0;
     virtual vstd::Iterator<JsonKeyPair> begin() const & = 0;
     virtual vstd::Iterator<MoveJsonKeyPair> begin() && = 0;
@@ -110,15 +110,15 @@ protected:
 public:
     bool IsArray() const override { return true; }
     virtual ReadJsonVariant Get(size_t index) const = 0;
-    virtual vstd::vector<ReadJsonVariant> Get(std::span<size_t> indices) const = 0;
+    virtual vstd::vector<ReadJsonVariant> Get(vstd::span<size_t> indices) const = 0;
     virtual void Set(size_t index, WriteJsonVariant &&value) = 0;
-    virtual void Set(std::span<std::pair<size_t, WriteJsonVariant>> values) = 0;
+    virtual void Set(vstd::span<std::pair<size_t, WriteJsonVariant>> values) = 0;
     virtual void Remove(size_t index) = 0;
-    virtual void Remove(std::span<size_t> indices) = 0;
+    virtual void Remove(vstd::span<size_t> indices) = 0;
     virtual vstd::optional<WriteJsonVariant> GetAndRemove(size_t index) = 0;
     virtual vstd::optional<WriteJsonVariant> GetAndSet(size_t key, WriteJsonVariant &&newValue) = 0;
     virtual void Add(WriteJsonVariant &&value) = 0;
-    virtual void Add(std::span<WriteJsonVariant> values) = 0;
+    virtual void Add(vstd::span<WriteJsonVariant> values) = 0;
     virtual vstd::vector<ReadJsonVariant> ToVector() const = 0;
     virtual vstd::Iterator<ReadJsonVariant> begin() const & = 0;
     virtual vstd::Iterator<WriteJsonVariant> begin() && = 0;
