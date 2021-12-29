@@ -7,7 +7,7 @@ namespace detail {
 class MD5_Impl {
 public:
     /* Construct a MD5_Impl object with a string. */
-    MD5_Impl(std::span<uint8_t const> message, uint8_t *digest);
+    MD5_Impl(span<uint8_t const> message, uint8_t *digest);
 
     /* Generate md5 digest. */
     void GetDigest();
@@ -118,7 +118,7 @@ const char MD5_Impl::HEX_NUMBERS[16] = {
  * @param {message} the message will be transformed.
  *
  */
-MD5_Impl::MD5_Impl(std::span<uint8_t const> message, uint8_t *digest)
+MD5_Impl::MD5_Impl(span<uint8_t const> message, uint8_t *digest)
     : digest(digest) {
     /* Reset number of bits. */
     count[0] = count[1] = 0;
@@ -373,7 +373,7 @@ std::array<uint8_t, MD5_SIZE> GetMD5FromString(string const &str) {
     md5.GetDigest();
     return arr;
 }
-std::array<uint8_t, MD5_SIZE> GetMD5FromArray(std::span<uint8_t> data) {
+std::array<uint8_t, MD5_SIZE> GetMD5FromArray(span<uint8_t> data) {
     using namespace detail;
     std::array<uint8_t, MD5_SIZE> arr;
     MD5_Impl md5(data, arr.data());
@@ -381,12 +381,12 @@ std::array<uint8_t, MD5_SIZE> GetMD5FromArray(std::span<uint8_t> data) {
     return arr;
 }
 MD5::MD5(string const &str)
-    : MD5(std::span<uint8_t const>(reinterpret_cast<uint8_t const *>(str.data()), str.size())) {
+    : MD5(span<uint8_t const>(reinterpret_cast<uint8_t const *>(str.data()), str.size())) {
 }
 MD5::MD5(std::string_view str)
-    : MD5(std::span<uint8_t const>(reinterpret_cast<uint8_t const *>(str.data()), str.size())) {
+    : MD5(span<uint8_t const>(reinterpret_cast<uint8_t const *>(str.data()), str.size())) {
 }
-MD5::MD5(std::span<uint8_t const> bin) {
+MD5::MD5(span<uint8_t const> bin) {
     using namespace detail;
     using namespace detail;
     MD5_Impl impl(bin, reinterpret_cast<uint8_t *>(&data));
@@ -415,7 +415,7 @@ VENGINE_UNITY_EXTERN void unity_get_md5(
     uint8_t *data,
     uint64 dataLength,
     uint8_t *destData) {
-    detail::MD5_Impl md5(std::span<uint8_t>(data, dataLength), destData);
+    detail::MD5_Impl md5(span<uint8_t>(data, dataLength), destData);
     md5.GetDigest();
 }
 VENGINE_UNITY_EXTERN void md5_to_std::string(
