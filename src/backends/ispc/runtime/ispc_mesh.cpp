@@ -6,7 +6,9 @@ namespace lc::ispc {
         uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint, RTCDevice device) noexcept :
         _v_buffer(v_buffer), _v_offset(v_offset), _v_stride(v_stride), _v_count(v_count),
         _t_buffer(t_buffer), _t_offset(t_offset), _t_count(t_count), _hint(hint), 
-        geometry(rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE)) {}
+        geometry(rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE)) {
+            LUISA_INFO("{} {} {} {}", v_buffer, v_offset, v_stride, v_count);
+        }
 
     ISPCMesh::~ISPCMesh() noexcept {
         rtcReleaseGeometry(geometry);

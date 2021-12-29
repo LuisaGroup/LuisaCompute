@@ -13,7 +13,6 @@ namespace lc::ispc{
 class ISPCAccel{
 private:
     RTCScene _scene;
-    RTCDevice _device;
     AccelBuildHint _hint;
     luisa::vector<ISPCMesh*> _meshes;
     luisa::vector<float4x4> _mesh_transforms;
@@ -25,7 +24,7 @@ private:
     inline void buildAllGeometry() noexcept;
     inline void updateAllGeometry() noexcept;
 public:
-    explicit ISPCAccel(AccelBuildHint hint) noexcept;
+    explicit ISPCAccel(AccelBuildHint hint, RTCDevice device) noexcept;
     ~ISPCAccel() noexcept;
 
     void addMesh(ISPCMesh* mesh, float4x4 transform, bool visible) noexcept;
@@ -36,6 +35,7 @@ public:
     [[nodiscard]] bool usesResource(uint64_t handle) const noexcept;
     void build() noexcept;
     void update() noexcept;
+    [[nodiscard]] auto getScene() const noexcept { return _scene; }
 };
 
 }
