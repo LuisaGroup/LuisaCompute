@@ -22,7 +22,8 @@ namespace luisa {
 class ThreadPool {
 
 public:
-    using barrier_type = std::barrier<decltype([]() noexcept {})>;
+    static constexpr auto barrier_completion_handler = []() noexcept {};
+    using barrier_type = std::barrier<decltype(barrier_completion_handler)>;
 
 private:
     luisa::vector<std::thread> _threads;
