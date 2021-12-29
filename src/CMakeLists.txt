@@ -25,7 +25,8 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
             /Zc:preprocessor)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(luisa-compute-include INTERFACE
-            -Wno-invalid-offsetof)
+            -Wno-invalid-offsetof
+            -Wno-pragmas)
 endif ()
 
 add_subdirectory(core)
