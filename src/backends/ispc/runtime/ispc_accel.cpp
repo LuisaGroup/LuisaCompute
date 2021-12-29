@@ -2,15 +2,13 @@
 
 namespace lc::ispc{
 
-ISPCAccel::ISPCAccel(AccelBuildHint hint) noexcept : _hint(hint) {
-    _device = rtcNewDevice(nullptr);
-    _scene = rtcNewScene(_device);
+ISPCAccel::ISPCAccel(AccelBuildHint hint, RTCDevice device) noexcept : _hint(hint) {
+    _scene = rtcNewScene(device);
 }
 
 ISPCAccel::~ISPCAccel() noexcept {
     for(auto& instance: _mesh_instances) rtcReleaseGeometry(instance);
     rtcReleaseScene(_scene);
-    rtcReleaseDevice(_device);
 }
 
 void ISPCAccel::addMesh(ISPCMesh* mesh, float4x4 transform, bool visible) noexcept{

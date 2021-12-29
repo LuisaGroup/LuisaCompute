@@ -111,7 +111,7 @@ void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<ISPCMesh*>(handle);
 }
 uint64_t ISPCDevice::create_accel(AccelBuildHint hint) noexcept { 
-    auto accel = new ISPCAccel(hint);
+    auto accel = new ISPCAccel(hint, _device);
     return reinterpret_cast<uint64_t>(accel);
 }
 void ISPCDevice::destroy_accel(uint64_t handle) noexcept {

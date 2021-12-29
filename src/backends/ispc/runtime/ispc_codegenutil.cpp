@@ -188,7 +188,7 @@ void CodegenUtility::GetArrayStruct(Type const &t, std::string_view name, luisa:
 }
 
 static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
+static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>,matrix<4>>";
 
 void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
     switch (type.tag()) {
@@ -248,7 +248,7 @@ void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
             break;
         }
         case Type::Tag::ACCEL: {
-            str << "Accel"sv;
+            str << "RTCScene"sv;
             break;
         }
         default:
@@ -695,6 +695,7 @@ void CodegenUtility::PrintFunction(Function func, luisa::string &str, uint3 bloc
     if (func.tag() == Function::Tag::KERNEL) {
         ClearStructType();
         str << "#include <lib.h>\n"sv// <lib.h> instead of "lib.h": already using -I option in the ispc compile command
+            << "#include <embree3/rtcore.isph>\n"sv
             << "#define INFINITY_f (floatbits(0x7f800000))\n"sv;
         ExecuteConst(GetConstantStruct);
         ExecuteConst(GetConstantData);
