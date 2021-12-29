@@ -21,6 +21,7 @@ public:
         BufferUploadCommand,
         BufferDownloadCommand,
         BufferCopyCommand,
+        TextureDownloadCommand,
         Signal,
         Wait>;
 

@@ -21,6 +21,7 @@ struct ShaderDispatcher {
         Shader::PackArg<float *>(vec, reinterpret_cast<float *>(arg.handle));
     }
     void operator()(uint, ShaderDispatchCommand::TextureArgument const &arg) {
+        Shader::PackArg<float *>(vec, reinterpret_cast<float *>(arg.handle));
     }
     void operator()(uint var_id, luisa::span<std::byte const> arg) {
         Shader::PackArr(vec, arg.data(), arg.size(), CodegenUtility::GetTypeAlign(*func.arguments()[sd->GetArgIndex(var_id)].type()));
@@ -40,7 +41,9 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
     AddTask(std::move(handle));
 }
 void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
-void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {}
+void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {
+    AddTask(*cmd);
+}
 void CommandExecutor::visit(TextureCopyCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureToBufferCopyCommand const *cmd) noexcept {}
 void CommandExecutor::visit(AccelUpdateCommand const *cmd) noexcept {}
@@ -70,6 +73,13 @@ void CommandExecutor::ThreadExecute() {
                 uint8_t const *src = reinterpret_cast<uint8_t const *>(cmd.src_handle());
                 uint8_t *dst = reinterpret_cast<uint8_t *>(cmd.dst_handle());
                 memcpy(dst + cmd.dst_offset(), src + cmd.src_offset(), cmd.size());
+            },
+            [&](TextureDownloadCommand const &cmd) {
+                if (cmd.offset().x!=0 || cmd.offset().y!=0 || cmd.offset().z!=0) throw "123";
+                if (cmd.size().z!=1 || cmd.level() != 0) throw "123";
+                Texture2D* tex = reinterpret_cast<Texture2D*>(cmd.handle());
+                if (tex->width != cmd.size().x || tex->height != cmd.size().y) throw "123"; // TODO
+                memcpy(cmd.data(), tex->data, tex->width * tex->height * 4*sizeof(float));
             },
             [&](Signal const &cmd) {
                 std::lock_guard lck(cmd.evt->mtx);
