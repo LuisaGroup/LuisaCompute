@@ -99,7 +99,7 @@ Guid::Guid(std::string_view strv) {
     }
 }
 
-Guid::Guid(std::span<uint8_t> data) {
+Guid::Guid(span<uint8_t> data) {
     if (data.size() != sizeof(GuidData) * 2) {
         VEngine_Log("Wrong guid string length!\n");
         VENGINE_EXIT;

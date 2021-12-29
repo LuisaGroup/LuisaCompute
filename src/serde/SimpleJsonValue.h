@@ -175,10 +175,10 @@ public:
 		SimpleBinaryJson* db,
 		IJsonDict* src);*/
     ReadJsonVariant Get(Key const &key) const override;
-    vstd::vector<ReadJsonVariant> Get(std::span<Key> keys) const override;
-    vstd::vector<bool> Contains(std::span<Key> keys) const override;
-    void Set(std::span<std::pair<Key, WriteJsonVariant>> kv) override;
-    void Remove(std::span<Key> keys) override;
+    vstd::vector<ReadJsonVariant> Get(vstd::span<Key> keys) const override;
+    vstd::vector<bool> Contains(vstd::span<Key> keys) const override;
+    void Set(vstd::span<std::pair<Key, WriteJsonVariant>> kv) override;
+    void Remove(vstd::span<Key> keys) override;
     vstd::string PrintYaml() const override;
     void PrintYaml(vstd::string &str, SimpleJsonKey::ValueType const &key, size_t space) const;
     //Single line dict
@@ -197,9 +197,9 @@ public:
     vstd::vector<uint8_t> Serialize() const override;
     void Serialize(vstd::vector<uint8_t> &vec) const override;
     void M_GetSerData(vstd::vector<uint8_t> &arr) const;
-    void LoadFromSer(std::span<uint8_t const> &arr);
-    void LoadFromSer_DiffEnding(std::span<uint8_t const> &arr);
-    bool Read(std::span<uint8_t const> sp,
+    void LoadFromSer(vstd::span<uint8_t const> &arr);
+    void LoadFromSer_DiffEnding(vstd::span<uint8_t const> &arr);
+    bool Read(vstd::span<uint8_t const> sp,
               bool clearLast) override;
     void Reset() override;
     void Reserve(size_t capacity) override;
@@ -243,14 +243,14 @@ public:
     vstd::vector<uint8_t> Serialize() const override;
     void Serialize(vstd::vector<uint8_t> &vec) const override;
     void M_GetSerData(vstd::vector<uint8_t> &result) const;
-    void LoadFromSer(std::span<uint8_t const> &arr);
-    void LoadFromSer_DiffEnding(std::span<uint8_t const> &arr);
-    bool Read(std::span<uint8_t const> sp, bool clearLast) override;
+    void LoadFromSer(vstd::span<uint8_t const> &arr);
+    void LoadFromSer_DiffEnding(vstd::span<uint8_t const> &arr);
+    bool Read(vstd::span<uint8_t const> sp, bool clearLast) override;
     void Reset() override;
-    vstd::vector<ReadJsonVariant> Get(std::span<size_t> indices) const override;
-    void Set(std::span<std::pair<size_t, WriteJsonVariant>> values) override;
-    void Remove(std::span<size_t> indices) override;
-    void Add(std::span<WriteJsonVariant> values) override;
+    vstd::vector<ReadJsonVariant> Get(vstd::span<size_t> indices) const override;
+    void Set(vstd::span<std::pair<size_t, WriteJsonVariant>> values) override;
+    void Remove(vstd::span<size_t> indices) override;
+    void Add(vstd::span<WriteJsonVariant> values) override;
     vstd::optional<WriteJsonVariant> GetAndRemove(size_t index) override;
     vstd::optional<WriteJsonVariant> GetAndSet(size_t index, WriteJsonVariant &&newValue) override;
     vstd::vector<ReadJsonVariant> ToVector() const override;

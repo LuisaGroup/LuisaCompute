@@ -646,7 +646,7 @@ private:
 public:
     IEnumerable<T> *Get() const { return ptr.Get(); }
     template<typename Func>
-        requires(PtrType::ConstructibleFunc<Func>)
+        requires(PtrType::template ConstructibleFunc<Func>)
     Iterator(Func &&func) : ptr(std::forward<Func>(func)) {}
     Iterator(Iterator const &) = delete;
     Iterator(Iterator &&v)

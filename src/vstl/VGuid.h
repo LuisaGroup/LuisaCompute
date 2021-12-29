@@ -22,7 +22,7 @@ public:
 	explicit Guid(bool generate);
 	Guid(std::string_view strv);
 	static optional<Guid> TryParseGuid(std::string_view strv);
-	Guid(std::span<uint8_t> data);
+	Guid(span<uint8_t> data);
 	Guid(MD5 const& md5) {
 		auto&& bin = md5.ToBinary();
 		data.data0 = bin.data0;
@@ -91,7 +91,7 @@ struct compare<Guid> {
 template<>
 struct SerDe<Guid::GuidData, true> {
     using Value = Guid::GuidData;
-    static Value Get(std::span<uint8_t const> &sp) {
+    static Value Get(span<uint8_t const> &sp) {
         return Value{
             SerDe<uint64, true>::Get(sp),
             SerDe<uint64, true>::Get(sp)};
@@ -105,7 +105,7 @@ struct SerDe<Guid::GuidData, true> {
 template<bool reverseBytes>
 struct SerDe<Guid, reverseBytes> {
     using Value = Guid;
-    static Value Get(std::span<uint8_t const> &sp) {
+    static Value Get(span<uint8_t const> &sp) {
         return SerDe<Guid::GuidData, reverseBytes>::Get(sp);
     }
     static void Set(Value const &data, vector<uint8_t> &arr) {
