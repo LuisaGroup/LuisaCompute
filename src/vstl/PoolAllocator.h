@@ -23,7 +23,7 @@ private:
 
 public:
     template<typename Func>
-        requires(decltype(visitor)::template ConstructibleFunc<Func>)
+        requires(decltype(visitor)::template CtorFunc<Func>())
     PoolAllocator(
         size_t stride,
         size_t elementCount,
