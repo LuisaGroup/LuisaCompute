@@ -1,3 +1,4 @@
+#pragma once
 // Vector
 typedef float<2> float2;
 typedef float<3> float3;
@@ -675,179 +676,179 @@ inline uint _atomic_xor(uniform uint *v, const uint a) { return atomic_xor_globa
 inline int _atomic_compare_exchange(uniform int *v, const int a, const int b) { return atomic_compare_exchange_global(v, a, b); }
 inline uint _atomic_compare_exchange(uniform uint *v, const uint a, const uint b) { return atomic_compare_exchange_global(v, a, b); }
 
-float2 GetCoord(float2 u, TEXTURE_ADDRESS_MODE addr) {
-switch (addr) {
-case TEXTURE_ADDRESS_WRAP:
-u = fmod(u, 1.0f);
-break;
-case TEXTURE_ADDRESS_CLAMP:
-u = clamp(u, _float2(0.0f), _float2(1.0f));
-break;
-case TEXTURE_ADDRESS_MIRROR:
-{
-int2 mulOne = _int2(trunc(u)) % 2;
-if (mulOne.x)
-u.x = frac(u.x);
-else
-u.x = 1.0f - frac(u.x);
-if (mulOne.y)
-u.y = frac(u.y);
-else
-u.y = 1.0f - frac(u.y);
-}
-break;
-}
-return u;
-}
-float3 GetCoord(float3 u, TEXTURE_ADDRESS_MODE addr) {
-switch (addr) {
-case TEXTURE_ADDRESS_WRAP:
-u = fmod(u, 1.0f);
-break;
-case TEXTURE_ADDRESS_CLAMP:
-u = clamp(u, _float3(0.0f), _float3(1.0f));
-break;
-case TEXTURE_ADDRESS_MIRROR:
-{
-int3 mulOne = _int3(trunc(u)) % 2;
-if (mulOne.x)
-u.x = frac(u.x);
-else
-u.x = 1.0f - frac(u.x);
-if (mulOne.y)
-u.y = frac(u.y);
-else
-u.y = 1.0f - frac(u.y);
-if (mulOne.z)
-u.z = frac(u.z);
-else
-u.z = 1.0f - frac(u.z);
-}
-break;
-}
-return u;
-}
+// float2 GetCoord(float2 u, TEXTURE_ADDRESS_MODE addr) {
+// switch (addr) {
+// case TEXTURE_ADDRESS_WRAP:
+// u = fmod(u, 1.0f);
+// break;
+// case TEXTURE_ADDRESS_CLAMP:
+// u = clamp(u, _float2(0.0f), _float2(1.0f));
+// break;
+// case TEXTURE_ADDRESS_MIRROR:
+// {
+// int2 mulOne = _int2(trunc(u)) % 2;
+// if (mulOne.x)
+// u.x = frac(u.x);
+// else
+// u.x = 1.0f - frac(u.x);
+// if (mulOne.y)
+// u.y = frac(u.y);
+// else
+// u.y = 1.0f - frac(u.y);
+// }
+// break;
+// }
+// return u;
+// }
+// float3 GetCoord(float3 u, TEXTURE_ADDRESS_MODE addr) {
+// switch (addr) {
+// case TEXTURE_ADDRESS_WRAP:
+// u = fmod(u, 1.0f);
+// break;
+// case TEXTURE_ADDRESS_CLAMP:
+// u = clamp(u, _float3(0.0f), _float3(1.0f));
+// break;
+// case TEXTURE_ADDRESS_MIRROR:
+// {
+// int3 mulOne = _int3(trunc(u)) % 2;
+// if (mulOne.x)
+// u.x = frac(u.x);
+// else
+// u.x = 1.0f - frac(u.x);
+// if (mulOne.y)
+// u.y = frac(u.y);
+// else
+// u.y = 1.0f - frac(u.y);
+// if (mulOne.z)
+// u.z = frac(u.z);
+// else
+// u.z = 1.0f - frac(u.z);
+// }
+// break;
+// }
+// return u;
+// }
 
-float SampleFloatArray(void* pData, uint index, TEXTURE_BIT_COUNT bitCount){
-	uint8* p = (uint8*)pData;
-	p += bitCount * index;
-	switch(bitCount){
-		case BIT_8:
-		return ((float)*p) / 255f;
-		case BIT_16:
-		return half_to_float_fast(*((uint16*)p));
-		case BIT_32:
-		return *((float*)p);
-	}
-	return 0;
-}
-float4 GetColor(float* pData, uint index, uint numComponents){
-float4 f;
-switch(numComponents){
-case 1:
-f = _float4(pData[index + 0],
-0,
-0,
-0);
-break;
-case 2:
-f = _float4(pData[index + 0],
-pData[index + 1],
-0,
-0);
-break;
-case 3:
-f = _float4(pData[index + 0],
-pData[index + 1],
-pData[index + 2],
-0);
-break;
-case 4:
-f = _float4(pData[index + 0],
-pData[index + 1],
-pData[index + 2],
-pData[index + 3]);
-break;
-default:
-f = _float4(0,0,0,0);
-}
-return f;
-}
-float4 Smp2DPoint(const Texture2D* pTexture, SamplerState const& sampler, float2 uv, const float lodLevelf)
-{
-uint lodLevel = (uint)lodLevelf;
-if(lodLevel >= pTexture->lodLevel) lodLevel = pTexture->lodLevel - 1;
-float* pData = pTexture->pData[lodLevel];
-uv =	GetCoord(uv, sampler.address);
-uint index = pTexture->numComponents * ((uint)(uv.y * (pTexture->height - 1)) * pTexture->width + (uint)(uv.x * (pTexture->width - 1)));
-return GetColor(pData, index, pTexture->numComponents);
-}
+// float SampleFloatArray(void* pData, uint index, TEXTURE_BIT_COUNT bitCount){
+// 	uint8* p = (uint8*)pData;
+// 	p += bitCount * index;
+// 	switch(bitCount){
+// 		case BIT_8:
+// 		return ((float)*p) / 255f;
+// 		case BIT_16:
+// 		return half_to_float_fast(*((uint16*)p));
+// 		case BIT_32:
+// 		return *((float*)p);
+// 	}
+// 	return 0;
+// }
+// float4 GetColor(float* pData, uint index, uint numComponents){
+// float4 f;
+// switch(numComponents){
+// case 1:
+// f = _float4(pData[index + 0],
+// 0,
+// 0,
+// 0);
+// break;
+// case 2:
+// f = _float4(pData[index + 0],
+// pData[index + 1],
+// 0,
+// 0);
+// break;
+// case 3:
+// f = _float4(pData[index + 0],
+// pData[index + 1],
+// pData[index + 2],
+// 0);
+// break;
+// case 4:
+// f = _float4(pData[index + 0],
+// pData[index + 1],
+// pData[index + 2],
+// pData[index + 3]);
+// break;
+// default:
+// f = _float4(0,0,0,0);
+// }
+// return f;
+// }
+// float4 Smp2DPoint(const Texture2D* pTexture, SamplerState const& sampler, float2 uv, const float lodLevelf)
+// {
+// uint lodLevel = (uint)lodLevelf;
+// if(lodLevel >= pTexture->lodLevel) lodLevel = pTexture->lodLevel - 1;
+// float* pData = pTexture->pData[lodLevel];
+// uv =	GetCoord(uv, sampler.address);
+// uint index = pTexture->numComponents * ((uint)(uv.y * (pTexture->height - 1)) * pTexture->width + (uint)(uv.x * (pTexture->width - 1)));
+// return GetColor(pData, index, pTexture->numComponents);
+// }
 
-inline float sign(float v){
-if (v > 0) return 1;
-else if(v < 0) return -1;
-return 0;
-}
-inline float2 sign(float2 v){float2 r={sign(v.x),sign(v.y)};return r;}
-inline float3 sign(float3 v){float3 r={sign(v.x),sign(v.y),sign(v.z)};return r;}
-float4 Smp2DBi(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevel){
-float2 uvSign = sign(uv);
-float4 v0 = Smp2DPoint(pTexture, sampler, uv, lodLevel);
-float4 v1 = Smp2DPoint(pTexture, sampler, uv + _float2(uvSign.x, 0), lodLevel);
-float4 v2 = Smp2DPoint(pTexture, sampler, uv + _float2(0, uvSign.y), lodLevel);
-float4 v3 = Smp2DPoint(pTexture, sampler, uv + uvSign, lodLevel);
-float2 fracUV = frac(uv);
-float4 hori0 = lerp(v0, v1, _float4(fracUV.x));
-float4 hori1 = lerp(v2, v3, _float4(fracUV.x));
-return lerp(hori0, hori1, _float4(fracUV.y));
-}
-float4 Smp2DTri(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevel){
-float lod = max(0, lodLevel);
-float4 v0 = Smp2DBi(pTexture, sampler, uv, lod);
-float4 v1 = Smp2DBi(pTexture, sampler, uv, lod + 1);
-return lerp(v0, v1, frac(lod));
-}
+// inline float sign(float v){
+// if (v > 0) return 1;
+// else if(v < 0) return -1;
+// return 0;
+// }
+// inline float2 sign(float2 v){float2 r={sign(v.x),sign(v.y)};return r;}
+// inline float3 sign(float3 v){float3 r={sign(v.x),sign(v.y),sign(v.z)};return r;}
+// float4 Smp2DBi(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevel){
+// float2 uvSign = sign(uv);
+// float4 v0 = Smp2DPoint(pTexture, sampler, uv, lodLevel);
+// float4 v1 = Smp2DPoint(pTexture, sampler, uv + _float2(uvSign.x, 0), lodLevel);
+// float4 v2 = Smp2DPoint(pTexture, sampler, uv + _float2(0, uvSign.y), lodLevel);
+// float4 v3 = Smp2DPoint(pTexture, sampler, uv + uvSign, lodLevel);
+// float2 fracUV = frac(uv);
+// float4 hori0 = lerp(v0, v1, _float4(fracUV.x));
+// float4 hori1 = lerp(v2, v3, _float4(fracUV.x));
+// return lerp(hori0, hori1, _float4(fracUV.y));
+// }
+// float4 Smp2DTri(const Texture2D* pTexture, SamplerState const& sampler, const float2 uv, const float lodLevel){
+// float lod = max(0, lodLevel);
+// float4 v0 = Smp2DBi(pTexture, sampler, uv, lod);
+// float4 v1 = Smp2DBi(pTexture, sampler, uv, lod + 1);
+// return lerp(v0, v1, frac(lod));
+// }
 
-float4 Smp3DPoint(const Texture3D* pTexture, SamplerState const& sampler, float3 uv, const float lodLevelf){
-uint lodLevel = (uint)lodLevelf;
-if(lodLevel >= pTexture->lodLevel) lodLevel = pTexture->lodLevel - 1;
-float* pData = pTexture->pData[lodLevel];
-uv =	GetCoord(uv, sampler.address);
-uint index = pTexture->numComponents * 
-((uint)(uv.z * (pTexture->depth - 1)) * pTexture->height * pTexture->width
- + (uint)(uv.y * (pTexture->height - 1)) * pTexture->width
- + (uint)(uv.x * (pTexture->width - 1)));
-return GetColor(pData, index, pTexture->numComponents);
-}
-float4 Smp3DBi(const Texture3D* pTexture, SamplerState const& sampler, const float3 uv, const float lodLevel){
-float3 uvSign = sign(uv);
-const float3 ofst[] = {
-0,0,0,
-uvSign.x, 0,0,
-0, uvSign.y,0,
-uvSign.x, uvSign.y,0,
-0,0,uvSign.z,
-uvSign.x, 0,uvSign.z,
-0, uvSign.y,uvSign.z,
-uvSign.x, uvSign.y,uvSign.z,
-};
-float4 vs[8];
-for (uint i = 0; i < 8; ++i){
-vs[i] = Smp3DPoint(pTexture, sampler, uv + ofst[i], lodLevel);
-}
-float3 fracUV = frac(uv);
-for(uint i = 0; i < 4; ++i){
-vs[i] = lerp(vs[i], vs[i + 4], fracUV.z);
-}
-for(uint i = 0; i < 2; ++i){
-vs[i] = lerp(vs[i], vs[i + 2], fracUV.y);
-}
-return lerp(vs[0], vs[1], fracUV.x);
-}
+// float4 Smp3DPoint(const Texture3D* pTexture, SamplerState const& sampler, float3 uv, const float lodLevelf){
+// uint lodLevel = (uint)lodLevelf;
+// if(lodLevel >= pTexture->lodLevel) lodLevel = pTexture->lodLevel - 1;
+// float* pData = pTexture->pData[lodLevel];
+// uv =	GetCoord(uv, sampler.address);
+// uint index = pTexture->numComponents * 
+// ((uint)(uv.z * (pTexture->depth - 1)) * pTexture->height * pTexture->width
+//  + (uint)(uv.y * (pTexture->height - 1)) * pTexture->width
+//  + (uint)(uv.x * (pTexture->width - 1)));
+// return GetColor(pData, index, pTexture->numComponents);
+// }
+// float4 Smp3DBi(const Texture3D* pTexture, SamplerState const& sampler, const float3 uv, const float lodLevel){
+// float3 uvSign = sign(uv);
+// const float3 ofst[] = {
+// 0,0,0,
+// uvSign.x, 0,0,
+// 0, uvSign.y,0,
+// uvSign.x, uvSign.y,0,
+// 0,0,uvSign.z,
+// uvSign.x, 0,uvSign.z,
+// 0, uvSign.y,uvSign.z,
+// uvSign.x, uvSign.y,uvSign.z,
+// };
+// float4 vs[8];
+// for (uint i = 0; i < 8; ++i){
+// vs[i] = Smp3DPoint(pTexture, sampler, uv + ofst[i], lodLevel);
+// }
+// float3 fracUV = frac(uv);
+// for(uint i = 0; i < 4; ++i){
+// vs[i] = lerp(vs[i], vs[i + 4], fracUV.z);
+// }
+// for(uint i = 0; i < 2; ++i){
+// vs[i] = lerp(vs[i], vs[i + 2], fracUV.y);
+// }
+// return lerp(vs[0], vs[1], fracUV.x);
+// }
 
-float4 Smp3DTri(const Texture3D* pTexture, SamplerState const& sampler, const float3 uv, const float lodLevel){
-float lod = max(0, lodLevel);
-float4 v0 = Smp3DBi(pTexture, sampler, uv, lod);
-float4 v1 = Smp3DBi(pTexture, sampler, uv, lod + 1);
-return lerp(v0, v1, frac(lod));
-}
+// float4 Smp3DTri(const Texture3D* pTexture, SamplerState const& sampler, const float3 uv, const float lodLevel){
+// float lod = max(0, lodLevel);
+// float4 v0 = Smp3DBi(pTexture, sampler, uv, lod);
+// float4 v1 = Smp3DBi(pTexture, sampler, uv, lod + 1);
+// return lerp(v0, v1, frac(lod));
+// }

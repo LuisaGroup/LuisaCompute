@@ -1,6 +1,7 @@
 #pragma vengine_package ispc_vsproject
 
 #include <runtime/sampler.h>
+#include <backends/ispc/ISPCTest/Types.h>
 #include <backends/ispc/runtime/ispc_device.h>
 #include <backends/ispc/runtime/ispc_codegen.h>
 #include <backends/ispc/runtime/ispc_shader.h>
@@ -27,8 +28,17 @@ void *ISPCDevice::buffer_native_handle(uint64_t handle) const noexcept {
 uint64_t ISPCDevice::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels) noexcept { return 0; }
-void ISPCDevice::destroy_texture(uint64_t handle) noexcept {}
+    uint mipmap_levels) noexcept {
+    // TODO 3D
+    // TODO format
+    return reinterpret_cast<uint64_t>(
+        new_with_allocator<Texture2D>(width, height, mipmap_levels));
+}
+
+void ISPCDevice::destroy_texture(uint64_t handle) noexcept {
+
+}
+
 void *ISPCDevice::texture_native_handle(uint64_t handle) const noexcept {
     return nullptr;
 }
