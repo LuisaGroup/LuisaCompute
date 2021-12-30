@@ -22,7 +22,8 @@ namespace luisa {
 class ThreadPool {
 
 public:
-    using barrier_type = std::barrier<decltype([]() noexcept {})>;
+    static constexpr auto barrier_completion_handler = []() noexcept {};
+    using barrier_type = std::barrier<decltype(barrier_completion_handler)>;
 
 private:
     luisa::vector<std::thread> _threads;
@@ -54,17 +55,16 @@ public:
         requires std::invocable<F>
     auto dispatch(F f) noexcept {
         using R = std::invoke_result_t<F>;
-        auto promise = luisa::new_with_allocator<std::promise<R>>(
+        auto promise = luisa::make_shared<std::promise<R>>(
             std::allocator_arg, luisa::allocator{});
         auto future = promise->get_future().share();
-        _dispatch([func = std::move(f), promise, future]() mutable noexcept {
+        _dispatch([func = std::move(f), promise = std::move(promise), future]() mutable noexcept {
             if constexpr (std::same_as<R, void>) {
                 func();
                 promise->set_value();
             } else {
                 promise->set_value(func());
             }
-            luisa::delete_with_allocator(promise);
         });
         return future;
     }
