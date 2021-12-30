@@ -7,7 +7,7 @@
 #include <type_traits>
 #include <vstl/Memory.h>
 #include <vstl/VAllocator.h>
-#include <span>
+#include <vstl/span.h>
 namespace vstd {
 namespace detail {
 template<typename T, size_t stackCount>
@@ -125,6 +125,7 @@ public:
     T *data() noexcept { return vec.arr; }
     T const *data() const noexcept { return vec.arr; }
     size_t size() const noexcept { return mSize; }
+    size_t byte_size() const noexcept { return mSize * sizeof(T); }
     size_t capacity() const noexcept { return mCapacity; }
     vector(size_t mSize) noexcept : mSize(mSize) {
         InitCapacity(mSize);
@@ -146,7 +147,7 @@ public:
             memcpy(vec.arr, ptr, sizeof(T) * mSize);
         }
     }
-    vector(std::span<T> const &lst) : mSize(lst.size()) {
+    vector(span<T> const &lst) : mSize(lst.size()) {
         InitCapacity(lst.size());
         if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             for (size_t i = 0; i < mSize; ++i) {
@@ -226,10 +227,10 @@ public:
         }
         mSize += count;
     }
-    void push_back_all(std::span<T> sp) noexcept {
+    void push_back_all(span<T> sp) noexcept {
         push_back_all(sp.data(), sp.size());
     }
-    void push_back_all(std::span<T const> sp) noexcept {
+    void push_back_all(span<T const> sp) noexcept {
         push_back_all(sp.data(), sp.size());
     }
     template<typename Func>
@@ -288,11 +289,11 @@ public:
             }
         }
     }
-    operator std::span<T>() {
-        return std::span<T>(begin(), end());
+    operator span<T>() {
+        return span<T>(begin(), end());
     }
-    operator std::span<T const>() const {
-        return std::span<T const>(begin(), end());
+    operator span<T const>() const {
+        return span<T const>(begin(), end());
     }
     void push_back_all(const std::initializer_list<T> &list) noexcept {
         push_back_all(&static_cast<T const &>(*list.begin()), list.size());

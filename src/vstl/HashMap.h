@@ -306,17 +306,6 @@ struct HashValue {
         return h(t);
     }
 };
-namespace detail {
-template<typename T, typename... Args>
-struct MapConstructible {
-    static constexpr bool value = std::is_constructible_v<T, Args...>;
-};
-
-template<typename... Args>
-struct MapConstructible<void, Args...> {
-    static constexpr bool value = (sizeof...(Args) == 0);
-};
-};// namespace detail
 template<typename K, typename V, typename Hash = HashValue, typename Compare = compare<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap {
 public:
