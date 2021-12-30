@@ -132,6 +132,11 @@ luisa::unique_ptr<Module> JITModule::load(
             .setEngineKind(llvm::EngineKind::JIT)
             .create(machine)};
     engine->DisableLazyCompilation(true);
+    engine->DisableSymbolSearching(false);// to support print in ispc
+    engine->addGlobalMapping("fflush", reinterpret_cast<uint64_t>(&fflush));
+    engine->addGlobalMapping("fputs", reinterpret_cast<uint64_t>(&fputs));
+    engine->addGlobalMapping("snprintf", reinterpret_cast<uint64_t>(&snprintf));
+    engine->addGlobalMapping("vsnprintf", reinterpret_cast<uint64_t>(&vsnprintf));
     if (engine == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to create execution engine: {}.",
