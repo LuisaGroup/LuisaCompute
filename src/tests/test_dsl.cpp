@@ -40,24 +40,25 @@ int main(int argc, char *argv[]) {
     auto float_buffer = device.create_buffer<float>(1024u);
 
     Callable c1 = [&](UInt a) noexcept {
-        return buffer[a];// captures buffer
+        return buffer.read(a);// captures buffer
     };
 
     Callable c2 = [&](UInt b) noexcept {
         // captures buffer (propagated from c1) and float_buffer
-        return c1(b) + make_float4(float_buffer[b]);
+        return c1(b) + make_float4(float_buffer.read(b));
     };
 
     Kernel1D k1 = [&] {
         // captures buffer and float_buffer (propagated from c2)
-        float_buffer[dispatch_x()] = c2(dispatch_x());
+        auto v = c2(dispatch_x());
+        float_buffer.write(dispatch_x(), v.x + v.y + v.z);
     };
 
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
 
     Callable add_mul = [&](Var<int> a, Var<int> b) noexcept {
-        return compose(cast<int>(float_buffer[a + b]), a * b);
+        return compose(cast<int>(float_buffer.read(a + b)), a * b);
     };
 
     Callable callable = [&](Var<int> a, Var<int> b, Var<float> c) noexcept {
@@ -89,7 +90,7 @@ int main(int argc, char *argv[]) {
 
         Var v_int_add_one = add(v_int, 1);
         Var vv_int = int_consts[v_int];
-        Var v_float = buffer_float[count + thread_id().x];
+        Var v_float = buffer_float.read(count + thread_id().x);
         Var vv_float = float_consts[0];
         Var call_ret = callable(10, v_int, v_float);
 
@@ -131,9 +132,9 @@ int main(int argc, char *argv[]) {
         Var vt_copy = vt;
         Var c = 0.5f + vt.a * 1.0f;
 
-        Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)*/
-        buffer[v_int + 1] = float4(123.0f);
+        Var vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
+        Var another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)*/
+        buffer.write(v_int + 1, float4(123.0f));
     };
     auto t1 = clock.toc();
 

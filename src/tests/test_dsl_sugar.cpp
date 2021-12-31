@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
             array[x] = v_int.cast<float>();
         };
 
-        $ v_float = buffer_float[count];
+        $ v_float = buffer_float.read(count);
         $ call_ret = callable(10, v_int, v_float);
 
         $ v_float_copy = v_float;
@@ -96,8 +96,8 @@ int main(int argc, char *argv[]) {
         $ vt_copy = vt;
         $ c = 0.5f + vt.a * 1.0f;
 
-        $ vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        $ another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
+        $ vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
+        $ another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)
     };
 
     auto shader = device.compile(kernel);

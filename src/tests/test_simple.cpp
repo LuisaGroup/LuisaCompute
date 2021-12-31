@@ -40,11 +40,11 @@ int main(int argc, char *argv[]) {
 #endif
 
     Callable load = [](BufferVar<float> buffer, Var<uint> index) noexcept {
-        return buffer[index];
+        return buffer.read(index);
     };
 
     Callable store = [](BufferVar<float> buffer, Var<uint> index, Var<float> value) noexcept {
-        buffer[index] = value;
+        buffer.write(index, value);
     };
 
     Callable add = [](Var<float> a, Var<float> b) noexcept {

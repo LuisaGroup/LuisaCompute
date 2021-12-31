@@ -116,7 +116,7 @@ namespace detail {
 template<size_t i, size_t n, typename I, typename S, typename B>
 inline void soa_read_impl(I index, S s, B buffers) noexcept {
     if constexpr (i < n) {
-        s.template get<i>() = std::get<i>(buffers)[index];
+        s.template get<i>() = std::get<i>(buffers).read(index);
         soa_read_impl<i + 1u, n>(index, s, buffers);
     }
 }
@@ -124,7 +124,7 @@ inline void soa_read_impl(I index, S s, B buffers) noexcept {
 template<size_t i, size_t n, typename I, typename S, typename B>
 inline void soa_write_impl(I index, S s, B buffers) noexcept {
     if constexpr (i < n) {
-        std::get<i>(buffers)[index] = s.template get<i>();
+        std::get<i>(buffers).write(index, s.template get<i>());
         soa_write_impl<i + 1u, n>(index, s, buffers);
     }
 }
@@ -164,14 +164,14 @@ template<typename S, typename Index, typename... Buffers>
     requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
     Var i = std::forward<Index>(index);
-    return Var<S>{std::forward<Buffers>(buffers)[i]...};
+    return Var<S>{std::forward<Buffers>(buffers).read(i)...};
 }
 
 template<typename Index, typename... Buffers>
     requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
     Var i = std::forward<Index>(index);
-    return compose(std::forward<Buffers>(buffers)[i]...);
+    return compose(std::forward<Buffers>(buffers).read(i)...);
 }
 
 template<typename S, typename Index, typename... Buffers>

@@ -278,14 +278,24 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto &operator[](I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
+    [[nodiscard]] auto read(I &&index) const noexcept {
         auto f = detail::FunctionBuilder::current();
-        auto expr = f->access(
-            Type::of<T>(), _expression,
-            index.expression());
-        return *f->create_temporary<Var<T>>(expr);
-    };
+        auto expr = f->call(
+            Type::of<T>(), CallOp::BUFFER_READ,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index))});
+        return def<T>(expr);
+    }
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    void write(I &&index, Expr<T> value) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::BUFFER_WRITE,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index)),
+             value.expression()});
+    }
 };
 
 template<typename T>
