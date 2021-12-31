@@ -147,13 +147,13 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy() + offset;
 
         $if(frame_index == 0u) {
-            seed_image[global_id] = tea(coord.x, coord.y);
-            accum_image[global_id] = make_float4(make_float3(0.0f), 1.0f);
+            seed_image.write(global_id, tea(coord.x, coord.y));
+            accum_image.write(global_id, make_float4(make_float3(0.0f), 1.0f));
         };
 
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
-        auto seed = seed_image[global_id];
+        auto seed = seed_image.read(global_id);
         auto ux = rand(seed);
         auto uy = rand(seed);
         auto uv = make_float2(cast<float>(coord.x) + ux, cast<float>(height - 1u - coord.y) + uy);
@@ -178,9 +178,9 @@ int main(int argc, char *argv[]) {
             pos = hit_pos + 1e-4f * d;
             throughput *= c;
         };
-        auto accum_color = accum_image[global_id].xyz() + throughput.zyx() * hit_light;
-        accum_image[global_id] = make_float4(accum_color, 1.0f);
-        seed_image[global_id] = seed;
+        auto accum_color = accum_image.read(global_id).xyz() + throughput.zyx() * hit_light;
+        accum_image.write(global_id, make_float4(accum_color, 1.0f));
+        seed_image.write(global_id, seed);
     };
 
     Context context{argv[0]};

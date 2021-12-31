@@ -125,7 +125,7 @@ struct BasicBufferSOA {
     Buffer<T> buffer;
     template<typename I>
     [[nodiscard]] auto read(I &&i) const noexcept {
-        return buffer[std::forward<I>(i)];
+        return buffer.read(std::forward<I>(i));
     }
 };
 
@@ -183,8 +183,8 @@ int main(int argc, char *argv[]) {
 
     Kernel1D useless = [&](BufferVar<float4> buffer, Var<SomeSOA> soa) noexcept {
         Var i = dispatch_id().x;
-        Var x = buffer[i];
-        buffer[i].x = 5.0f;
+        Var x = buffer.read(i);
+        buffer.write(i, make_float4(5.0f, x.yzw()));
 
         Var v0 = all(x == make_float4(0.0f));
         auto _ = x == 0.0f;

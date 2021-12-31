@@ -54,12 +54,12 @@ int main(int argc, char *argv[]) {
     Kernel2D fill_buffer_kernel = [](BufferFloat4 image) noexcept {
         Var coord = dispatch_id().xy();
         Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
-        image[coord.x + coord.y * dispatch_size_x()] = make_float4(rg, 1.0f, 1.0f);
+        image.write(coord.x + coord.y * dispatch_size_x(), make_float4(rg, 1.0f, 1.0f));
     };
 
     Kernel2D copy_texture_kernel = [](BufferFloat4 buffer, ImageFloat image) noexcept {
         Var coord = dispatch_id().xy();
-        buffer[coord.x + coord.y * dispatch_size_x()] = image.read(coord);
+        buffer.write(coord.x + coord.y * dispatch_size_x(), image.read(coord));
     };
 
     auto clear_image = device.compile(clear_image_kernel);

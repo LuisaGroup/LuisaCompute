@@ -255,6 +255,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
             _scratch << "atomic_fetch_max_explicit";
             is_atomic_op = true;
             break;
+        case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
@@ -844,6 +846,16 @@ void MetalCodegen::_emit_preamble(Function f) noexcept {
     _scratch << R"(#include <metal_stdlib>
 
 using namespace metal;
+
+template<typename T, typename I>
+[[nodiscard, gnu::always_inline]] inline auto buffer_read(const device T *buffer, I index) {
+  return buffer[index];
+}
+
+template<typename T, typename I>
+[[gnu::always_inline]] inline void buffer_write(device T *buffer, I index, T value) {
+  buffer[index] = value;
+}
 
 template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto address_of(thread T &x) {
