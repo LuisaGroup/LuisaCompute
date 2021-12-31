@@ -1,3 +1,7 @@
+// TODO: implement layout transition
+#define lc_buffer_read(buffer, index) ((buffer)[index])
+#define lc_buffer_write(buffer, index, value) (void)((buffer)[index] = (value))
+
 // Vector
 typedef float<2> float2;
 typedef float<3> float3;
