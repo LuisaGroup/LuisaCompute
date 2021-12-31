@@ -43,6 +43,12 @@ public:
             Type::of<T>(), _expression, i.expression());
         return *f->create_temporary<Var<T>>(expr);
     }
+
+    template<typename I>
+    [[nodiscard]] auto read(I &&index) const noexcept { return (*this)[std::forward<I>(index)]; }
+
+    template<typename I, typename U>
+    void write(I &&i, U &&u) const noexcept { (*this)[std::forward<I>(i)] = std::forward<U>(u); }
 };
 
 namespace detail {

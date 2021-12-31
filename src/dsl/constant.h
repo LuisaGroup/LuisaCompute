@@ -44,6 +44,11 @@ public:
             detail::FunctionBuilder::current()->constant(_type, _data),
             detail::extract_expression(std::forward<U>(index))));
     }
+
+    template<typename I>
+    [[nodiscard]] auto read(I &&index) const noexcept {
+        return (*this)[std::forward<I>(index)];
+    }
 };
 
 template<typename T>
