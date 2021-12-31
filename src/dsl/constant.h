@@ -20,7 +20,7 @@ private:
 
 public:
     Constant(luisa::span<const T> data) noexcept
-        : _type{Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
+        : _type{Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
           _data{ConstantData::create(data)} {}
 
     Constant(const T *data, size_t size) noexcept

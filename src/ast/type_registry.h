@@ -12,9 +12,8 @@
 #include <sstream>
 
 #include <core/macro.h>
-#include <core/spin_mutex.h>
+#include <core/stl.h>
 #include <ast/type.h>
-#include <vstl/HashMap.h>
 
 namespace luisa::compute {
 
@@ -123,7 +122,7 @@ template<typename T, size_t N>
 struct TypeDesc<std::array<T, N>> {
     static_assert(alignof(T) >= 4u);
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("array<{},{}>"),
             TypeDesc<T>::description(), N);
         return s;
@@ -133,7 +132,7 @@ struct TypeDesc<std::array<T, N>> {
 template<typename T, size_t N>
 struct TypeDesc<T[N]> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("array<{},{}>"),
             TypeDesc<T>::description(), N);
         return s;
@@ -143,7 +142,7 @@ struct TypeDesc<T[N]> {
 template<typename T>
 struct TypeDesc<Buffer<T>> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("buffer<{}>"),
             TypeDesc<T>::description());
         return s;
@@ -156,7 +155,7 @@ struct TypeDesc<BufferView<T>> : TypeDesc<Buffer<T>> {};
 template<typename T>
 struct TypeDesc<Image<T>> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("texture<2,{}>"),
             TypeDesc<T>::description());
         return s;
@@ -169,7 +168,7 @@ struct TypeDesc<ImageView<T>> : TypeDesc<Image<T>> {};
 template<typename T>
 struct TypeDesc<Volume<T>> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("texture<3,{}>"),
             TypeDesc<T>::description());
         return s;
@@ -222,7 +221,7 @@ template<typename... T>
 struct TypeDesc<std::tuple<T...>> {
     static std::string_view description() noexcept {
         static thread_local auto s = [] {
-            auto s = fmt::format("struct<{}", alignof(std::tuple<T...>));
+            auto s = luisa::format("struct<{}", alignof(std::tuple<T...>));
             (s.append(",").append(TypeDesc<T>::description()), ...);
             s.append(">");
             return s;

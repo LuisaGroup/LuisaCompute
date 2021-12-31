@@ -25,7 +25,7 @@ private:
 public:
     explicit Shared(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->shared(
-              Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
+              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
 
     Shared(Shared &&) noexcept = default;
     Shared(const Shared &) noexcept = delete;

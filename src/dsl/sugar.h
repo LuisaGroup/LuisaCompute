@@ -86,6 +86,6 @@
 #define $comment(...) \
     ::luisa::compute::comment(__VA_ARGS__)
 #define $comment_with_location(...) \
-    $comment(fmt::format(FMT_STRING("{} [{}:{}]"), std::string_view{__VA_ARGS__}, __FILE__, __LINE__))
+    $comment(luisa::format(FMT_STRING("{} [{}:{}]"), std::string_view{__VA_ARGS__}, __FILE__, __LINE__))
 
 #endif
