@@ -271,6 +271,8 @@ void CUDACodegen::visit(const CallExpr *expr) {
             _scratch << "atomicMax";
             is_atomic = true;
             break;
+        case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
             _scratch << "lc_surf"
                      << expr->arguments().front()->type()->dimension() << "d_read<"

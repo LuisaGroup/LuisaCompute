@@ -1,5 +1,8 @@
 #pragma once
 
+#define lc_buffer_read(buffer, index) ((buffer)[index])
+#define lc_buffer_write(buffer, index, value) static_cast<void>((buffer)[index] = (value))
+
 enum struct LCPixelStorage : lc_uint {
 
     BYTE1,
