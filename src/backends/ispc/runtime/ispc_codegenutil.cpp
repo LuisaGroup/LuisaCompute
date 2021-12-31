@@ -517,6 +517,8 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::ATOMIC_FETCH_MAX:
             str << "_atomic_max"sv;
             return getPointer;
+        case CallOp::BUFFER_READ: str << "lc_buffer_read"; break;
+        case CallOp::BUFFER_WRITE: str << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
             str << "Smptx";
             break;
