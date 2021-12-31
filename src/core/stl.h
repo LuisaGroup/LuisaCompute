@@ -166,11 +166,11 @@ template<typename F>
     return detail::LazyConstructor<F>(ctor);
 }
 
-template<typename... Args>
-[[nodiscard]] inline auto format(luisa::string_view f, Args &&...args) noexcept {
+template<typename FMT, typename... Args>
+[[nodiscard]] inline auto format(FMT &&f, Args &&...args) noexcept {
     using memory_buffer = fmt::basic_memory_buffer<char, fmt::inline_buffer_size, luisa::allocator<char>>;
     memory_buffer buffer;
-    fmt::format_to(std::back_inserter(buffer), f, std::forward<Args>(args)...);
+    fmt::format_to(std::back_inserter(buffer), std::forward<FMT>(f), std::forward<Args>(args)...);
     return luisa::string{buffer.data(), buffer.size()};
 }
 
