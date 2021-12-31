@@ -6,7 +6,7 @@
 
 namespace luisa::compute::detail {
 
-constexpr uint64_t compute::detail::TypeRegistry::_hash(std::string_view desc) noexcept {
+inline uint64_t compute::detail::TypeRegistry::_hash(std::string_view desc) noexcept {
     using namespace std::string_view_literals;
     return hash64(desc, hash64("__hash_type"sv));
 }
