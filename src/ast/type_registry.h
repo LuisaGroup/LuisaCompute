@@ -62,7 +62,7 @@ private:
     mutable std::recursive_mutex _mutex;
 
 private:
-    [[nodiscard]] static constexpr uint64_t _hash(std::string_view desc) noexcept;
+    [[nodiscard]] static uint64_t _hash(std::string_view desc) noexcept;
     [[nodiscard]] const Type *_decode(std::string_view desc) noexcept;
 
 public:
