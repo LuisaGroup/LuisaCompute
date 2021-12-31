@@ -39,26 +39,41 @@ class VolumeView;
 class BindlessArray;
 class Accel;
 
+
+namespace detail {
+
 class TypeRegistry {
 
 private:
+    struct TypePtrHash {
+        [[nodiscard]] auto operator()(const Type *type) const noexcept { return type->hash(); }
+        [[nodiscard]] auto operator()(uint64_t hash) const noexcept { return hash; }
+    };
+    struct TypePtrEqual {
+        template<typename Lhs, typename Rhs>
+        [[nodiscard]] auto operator()(Lhs &&lhs, Rhs &&rhs) const noexcept {
+            constexpr TypePtrHash hash;
+            return hash(std::forward<Lhs>(lhs)) == hash(std::forward<Rhs>(rhs));
+        }
+    };
+
+private:
     luisa::vector<luisa::unique_ptr<Type>> _types;
-    vstd::HashMap<uint64_t, Type *> _type_map;
-    spin_mutex _types_mutex;
+    luisa::unordered_set<Type *, TypePtrHash, TypePtrEqual> _type_set;
+    mutable std::recursive_mutex _mutex;
+
+private:
+    [[nodiscard]] static constexpr uint64_t _hash(std::string_view desc) noexcept;
+    [[nodiscard]] const Type *_decode(std::string_view desc) noexcept;
 
 public:
-    template<typename F>
-    decltype(auto) with_types(F &&f) noexcept {
-        std::scoped_lock lock{_types_mutex};
-        if constexpr (std::is_invocable_v<F, decltype(_types), decltype(_type_map)>) {
-            return f(_types, _type_map);
-        } else {
-            return f(_types);
-        }
-    }
+    [[nodiscard]] static TypeRegistry &instance() noexcept;
+    [[nodiscard]] const Type *type_from(luisa::string_view desc) noexcept;
+    [[nodiscard]] const Type *type_from(uint64_t hash) noexcept;
+    [[nodiscard]] const Type *type_at(size_t i) const noexcept;
+    [[nodiscard]] size_t type_count() const noexcept;
+    void traverse(TypeVisitor &visitor) const noexcept;
 };
-
-namespace detail {
 
 template<typename T>
 struct TypeDesc {

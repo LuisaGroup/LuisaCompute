@@ -9,6 +9,8 @@
 #include <memory>
 #include <string>
 
+#include <fmt/format.h>
+
 #include <EASTL/bit.h>
 #include <EASTL/map.h>
 #include <EASTL/set.h>
@@ -99,6 +101,7 @@ using eastl::static_pointer_cast;
 using eastl::dynamic_pointer_cast;
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
+using std::string_view;
 
 using eastl::vector;
 using eastl::span;
@@ -161,6 +164,14 @@ public:
 template<typename F>
 [[nodiscard]] auto lazy_construct(F ctor) noexcept {
     return detail::LazyConstructor<F>(ctor);
+}
+
+template<typename... Args>
+[[nodiscard]] inline auto format(luisa::string_view f, Args &&...args) noexcept {
+    using memory_buffer = fmt::basic_memory_buffer<char, fmt::inline_buffer_size, luisa::allocator<char>>;
+    memory_buffer buffer;
+    fmt::format_to(std::back_inserter(buffer), f, std::forward<Args>(args)...);
+    return luisa::string{buffer.data(), buffer.size()};
 }
 
 }// namespace luisa

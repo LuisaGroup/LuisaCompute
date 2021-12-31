@@ -5,7 +5,7 @@ set(LUISA_COMPUTE_AST_SOURCES
         variable.h
         statement.cpp statement.h
         type.cpp type.h
-        type_registry.h
+        type_registry.cpp type_registry.h
         interface.h
         constant_data.cpp constant_data.h
         usage.h

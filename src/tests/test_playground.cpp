@@ -3,17 +3,18 @@
 //
 
 #include <iostream>
-#include <EASTL/vector.h>
-#include <nlohmann/json.hpp>
-#include <ast/op.h>
-#include <core/logging.h>
-#include <core/first_fit.h>
-#include <core/thread_pool.h>
+#include <luisa-compute.h>
+
+using namespace luisa;
+using namespace luisa::compute;
+
+[[nodiscard]] auto structured_buffer_read(const Type *type) noexcept {
+
+}
 
 int main() {
 
-    using namespace luisa;
-    using namespace luisa::compute;
+    LUISA_INFO("{}", luisa::format("Hello: {}!", 42));
 
     CallOpSet ops;
     ops.mark(CallOp::BINDLESS_BUFFER_READ);
