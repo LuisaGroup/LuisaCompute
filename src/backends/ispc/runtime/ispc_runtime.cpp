@@ -76,12 +76,43 @@ void CommandExecutor::ThreadExecute() {
                 uint8_t *dst = reinterpret_cast<uint8_t *>(cmd.dst_handle());
                 memcpy(dst + cmd.dst_offset(), src + cmd.src_offset(), cmd.size());
             },
-            [&](TextureDownloadCommand const &cmd) {
-                if (cmd.offset().x!=0 || cmd.offset().y!=0 || cmd.offset().z!=0) throw "123";
-                if (cmd.size().z!=1 || cmd.level() != 0) throw "123";
+            [&](TextureUploadCommand const &cmd) {
+                // 3D is not supported yet
+                if (cmd.offset().z != 0 || cmd.size().z!=1)
+                    throw "TextureDownloadCommand: unimplemented";
+                // debug: check boundary
                 Texture2D* tex = reinterpret_cast<Texture2D*>(cmd.handle());
-                if (tex->width != cmd.size().x || tex->height != cmd.size().y) throw "123"; // TODO
-                memcpy(cmd.data(), tex->data, tex->width * tex->height * 4*sizeof(float));
+                if (cmd.level() >= tex->lodLevel)
+                    throw "TextureDownloadCommand: lod out of bound";
+                if (cmd.size().x + cmd.offset().x > max(tex->width>>cmd.level(),1u))
+                    throw "TextureDownloadCommand: out of bound";
+                if (cmd.size().y + cmd.offset().y > max(tex->height>>cmd.level(),1u))
+                    throw "TextureDownloadCommand: out of bound";
+                // copy data
+                // data is void*; tex->lods is float* for now
+                int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+                int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+                for (int i=0; i<cmd.size().y; ++i)
+                    memcpy(tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4, (unsigned char*)cmd.data() + i*target_stride, cmd.size().x * 4*sizeof(float)); 
+            },
+            [&](TextureDownloadCommand const &cmd) {
+                // 3D is not supported yet
+                if (cmd.offset().z != 0 || cmd.size().z!=1)
+                    throw "TextureDownloadCommand: unimplemented";
+                // debug: check boundary
+                Texture2D* tex = reinterpret_cast<Texture2D*>(cmd.handle());
+                if (cmd.level() >= tex->lodLevel)
+                    throw "TextureDownloadCommand: lod out of bound";
+                if (cmd.size().x + cmd.offset().x > max(tex->width>>cmd.level(),1u))
+                    throw "TextureDownloadCommand: out of bound";
+                if (cmd.size().y + cmd.offset().y > max(tex->height>>cmd.level(),1u))
+                    throw "TextureDownloadCommand: out of bound";
+                // copy data
+                // data is void*; tex->lods is float* for now
+                int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+                int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+                for (int i=0; i<cmd.size().y; ++i)
+                    memcpy((unsigned char*)cmd.data() + i*target_stride, tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4, cmd.size().x * 4*sizeof(float)); 
             },
             [&](Signal const &cmd) {
                 std::lock_guard lck(cmd.evt->mtx);

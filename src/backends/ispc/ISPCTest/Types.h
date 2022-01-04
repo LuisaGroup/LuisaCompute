@@ -1,24 +1,46 @@
 #pragma once
 // Texture
-#ifdef __cplusplus
 
-struct Texture2D{
+const uint MAXLOD = 20;
+// need to make sure the layout is same across ISPC & C++
+struct Texture2D {
     uint width;
     uint height;
     uint lodLevel;
-    float* data;
+    float* lods[MAXLOD];
+
+#ifdef __cplusplus // host code
 
     Texture2D(uint width, uint height, uint lodLevel):
         width(width),
         height(height),
         lodLevel(lodLevel)
     {
-        if (lodLevel != 1) throw "unimplemented";
-        data = new float[width * height * 4];
+        if (lodLevel > MAXLOD) {
+            throw "maximal LoD exceeded";
+        }
+        // mipmap allocate
+        int offset[MAXLOD+1];
+        offset[0] = 0;
+        for (int i=1, w=width, h=height; i<=lodLevel; ++i)
+        {
+            offset[i] = offset[i-1] + w*h*4;
+            w = std::max(w/2, 1);
+            h = std::max(h/2, 1);
+        }
+        lods[0] = new float[offset[lodLevel]*4];
+        for (int i=1; i<lodLevel; ++i)
+            lods[i] = lods[0] + offset[i];
     }
+
+    ~Texture2D()
+    {
+        delete lods[0];
+    }
+#endif
 };
 
-#else
+#ifndef __cplusplus // ISPC code
 
 #include "lib.h"
 
@@ -57,11 +79,6 @@ struct Texture2D{
 // };
 
 
-struct Texture2D{
-    uint width;
-    uint height;
-    uint lodLevel;
-    float* data;
 
     // Texture2D(uint width, uint height, uint lodLevel):
     //     width(width),
@@ -71,7 +88,6 @@ struct Texture2D{
     //     if (lodLevel != 1) throw "unimplemented";
     //     data = new float[width * height * 4];
     // }
-};
 
 // struct Texture3D {
 //     uint width;
