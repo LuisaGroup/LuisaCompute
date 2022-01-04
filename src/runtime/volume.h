@@ -119,8 +119,8 @@ private:
 
     [[nodiscard]] auto _as_mipmap() const noexcept {
         return detail::MipmapView{
-            _handle, _size, _offset, _level,
-            pixel_storage_to_format<T>(_storage)};
+            _handle, _size, _offset,
+            _level, _storage};
     }
 
 public:

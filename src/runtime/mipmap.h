@@ -32,30 +32,27 @@ private:
     uint3 _size;
     uint3 _offset;
     uint32_t _level;
-    PixelFormat _format;
+    PixelStorage _storage;
 
 public:
-    MipmapView(uint64_t handle, uint3 size, uint3 offset, uint32_t level, PixelFormat format) noexcept
+    MipmapView(uint64_t handle, uint3 size, uint3 offset, uint32_t level, PixelStorage storage) noexcept
         : _handle{handle},
           _size{size},
           _offset{offset},
           _level{level},
-          _format{format} {
+          _storage{storage} {
         LUISA_VERBOSE_WITH_LOCATION(
             "Mipmap: offset = [{}, {}, {}], size = [{}, {}, {}], level = {}.",
             offset.x, offset.y, offset.z, size.x, size.y, size.z, level);
     }
 
-    [[nodiscard]] constexpr auto format() const noexcept { return _format; }
-    [[nodiscard]] constexpr auto storage() const noexcept { return pixel_format_to_storage(_format); }
-
     [[nodiscard]] constexpr auto size_bytes() const noexcept {
-        return _size.x * _size.y * _size.z * pixel_format_size(_format);
+        return _size.x * _size.y * _size.z * pixel_storage_size(_storage);
     }
 
     [[nodiscard]] auto copy_from(const void *data) const noexcept {
         return TextureUploadCommand::create(
-            _handle, storage(), _level, _offset, _size, data);
+            _handle, _storage, _level, _offset, _size, data);
     }
 
     template<typename T>
@@ -79,14 +76,22 @@ public:
     }
 
     [[nodiscard]] auto copy_from(MipmapView src) const noexcept {
-        if (!all(_size == src._size)) {
+        if (!all(_size == src._size)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "ImageView sizes mismatch in copy command (src: [{}, {}], dest: [{}, {}]).",
+                "MipmapView sizes mismatch in copy command "
+                "(src: [{}, {}], dest: [{}, {}]).",
                 src._size.x, src._size.y, _size.x, _size.y);
+        }
+        if (src._storage != _storage) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "MipmapView storages mismatch "
+                "(src = {}, dst = {})",
+                to_underlying(src._storage),
+                to_underlying(_storage));
         }
         return TextureCopyCommand::create(
             src._handle, _handle,
-            src._format, _format,
+            src._storage, _storage,
             src._level, _level,
             src._offset, _offset, _size);
     }
@@ -100,7 +105,7 @@ public:
         }
         return BufferToTextureCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
-            _handle, storage(), _level, _offset, _size);
+            _handle, _storage, _level, _offset, _size);
     }
 
     template<typename U>
@@ -112,12 +117,18 @@ public:
         }
         return TextureToBufferCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
-            _handle, storage(), _level, _offset, _size);
+            _handle, _storage, _level, _offset, _size);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return TextureDownloadCommand::create(
-            _handle, storage(), _level, _offset, _size, data);
+            _handle, _storage, _level, _offset, _size, data);
+    }
+
+    template<typename T>
+        requires requires(T t) { t.copy_from(std::declval<MipmapView>()); }
+    [[nodiscard]] auto copy_to(T &&dst) const noexcept {
+        return std::forward<T>(dst).copy_from(*this);
     }
 };
 
@@ -128,9 +139,7 @@ public:
         max_size >>= 1u;
         max_levels++;
     }
-    return requested_levels == 0u
-               ? max_levels
-               : std::min(requested_levels, max_levels);
+    return requested_levels == 0u ? max_levels : std::min(requested_levels, max_levels);
 }
 
 }// namespace detail
