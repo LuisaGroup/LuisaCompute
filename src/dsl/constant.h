@@ -20,7 +20,7 @@ private:
 
 public:
     Constant(luisa::span<const T> data) noexcept
-        : _type{Type::from(fmt::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
+        : _type{Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
           _data{ConstantData::create(data)} {}
 
     Constant(const T *data, size_t size) noexcept
@@ -43,6 +43,11 @@ public:
             Type::of<T>(),
             detail::FunctionBuilder::current()->constant(_type, _data),
             detail::extract_expression(std::forward<U>(index))));
+    }
+
+    template<typename I>
+    [[nodiscard]] auto read(I &&index) const noexcept {
+        return (*this)[std::forward<I>(index)];
     }
 };
 

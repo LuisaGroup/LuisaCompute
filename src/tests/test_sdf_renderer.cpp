@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-#define ENABLE_DISPLAY
+//#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -149,14 +149,14 @@ int main(int argc, char *argv[]) {
         $meta(meta::supports_custom_block_size, "hello") {
             $if(frame_index == 0u) {
                 $meta("nested") { $comment("good\nbad\n"); };
-                seed_image[global_id] = tea(coord.x, coord.y);
-                accum_image[global_id] = make_float4(make_float3(0.0f), 1.0f);
+                seed_image.write(global_id, tea(coord.x, coord.y));
+                accum_image.write(global_id, make_float4(make_float3(0.0f), 1.0f));
             };
         };
 
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
-        auto seed = seed_image[global_id];
+        auto seed = seed_image.read(global_id);
 //        auto seed = frame_index + 1u;
         auto ux = rand(seed);
         auto uy = rand(seed);
@@ -182,9 +182,9 @@ int main(int argc, char *argv[]) {
             pos = hit_pos + 1e-4f * d;
             throughput *= c;
         };
-        auto accum_color = accum_image[global_id].xyz() + throughput.zyx() * hit_light;
-        accum_image[global_id] = make_float4(accum_color, 1.0f);
-        seed_image[global_id] = seed;
+        auto accum_color = accum_image.read(global_id).xyz() + throughput.zyx() * hit_light;
+        accum_image.write(global_id, make_float4(accum_color, 1.0f));
+        seed_image.write(global_id, seed);
     };
 
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());

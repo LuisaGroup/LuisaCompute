@@ -222,6 +222,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::ATOMIC_FETCH_XOR: _scratch << "atomic_fetch_xor"; break;
         case CallOp::ATOMIC_FETCH_MIN: _scratch << "atomic_fetch_min"; break;
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
+        case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "texture_heap_sample2d"; break;

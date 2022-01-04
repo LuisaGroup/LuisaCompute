@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
 
         Var vv_int = int_consts[v_int];
         vv_int = 0;
-        Var v_float = buffer_float[count + thread_id().x];
+        Var v_float = buffer_float.read(count + thread_id().x);
         Var vv_float = float_consts[vv_int];
         Var call_ret = callable(10, v_int, v_float);
 
@@ -137,9 +137,9 @@ int main(int argc, char *argv[]) {
             Var x = w.x;
         }
 
-        Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
-        buffer[v_int + 1] = 123.0f;
+        Var vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
+        Var another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)
+        buffer.write(v_int + 1, 123.0f);
     };
     auto compiled_kernel = device.compile(kernel);
     auto stream = device.create_stream();

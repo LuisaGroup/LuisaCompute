@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
 
                 Var v_int = 10;
                 Var vv_int = int_consts[v_int];
-                Var v_float = buffer_float[count + thread_id().x];
+                Var v_float = buffer_float.read(count + thread_id().x);
                 Var vv_float = float_consts[vv_int];
                 Var call_ret = callable(10, v_int, v_float);
 
@@ -102,8 +102,8 @@ int main(int argc, char *argv[]) {
                 Var vt_copy = vt;
                 Var c = 0.5f + vt.a * 1.0f;
 
-                Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-                Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
+                Var vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
+                Var another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)
             };
             auto t1 = clock.toc();
 
