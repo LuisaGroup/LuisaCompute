@@ -541,7 +541,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
-            _emit_variable_decl(arg);
+            _emit_variable_decl(arg, false);
             _scratch << ",";
             any_arg = true;
         }
@@ -782,7 +782,7 @@ void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
-            _emit_variable_decl(v);
+            _emit_variable_decl(v, false);
             _scratch << "{};";
         }
     }
