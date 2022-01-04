@@ -32,27 +32,30 @@ private:
     uint3 _size;
     uint3 _offset;
     uint32_t _level;
-    PixelStorage _storage;
+    PixelFormat _format;
 
 public:
-    MipmapView(uint64_t handle, uint3 size, uint3 offset, uint32_t level, PixelStorage ps) noexcept
+    MipmapView(uint64_t handle, uint3 size, uint3 offset, uint32_t level, PixelFormat format) noexcept
         : _handle{handle},
           _size{size},
           _offset{offset},
           _level{level},
-          _storage{ps} {
+          _format{format} {
         LUISA_VERBOSE_WITH_LOCATION(
             "Mipmap: offset = [{}, {}, {}], size = [{}, {}, {}], level = {}.",
             offset.x, offset.y, offset.z, size.x, size.y, size.z, level);
     }
 
+    [[nodiscard]] constexpr auto format() const noexcept { return _format; }
+    [[nodiscard]] constexpr auto storage() const noexcept { return pixel_format_to_storage(_format); }
+
     [[nodiscard]] constexpr auto size_bytes() const noexcept {
-        return _size.x * _size.y * _size.z * pixel_storage_size(_storage);
+        return _size.x * _size.y * _size.z * pixel_format_size(_format);
     }
 
     [[nodiscard]] auto copy_from(const void *data) const noexcept {
         return TextureUploadCommand::create(
-            _handle, _storage, _level, _offset, _size, data);
+            _handle, storage(), _level, _offset, _size, data);
     }
 
     template<typename T>
@@ -82,7 +85,9 @@ public:
                 src._size.x, src._size.y, _size.x, _size.y);
         }
         return TextureCopyCommand::create(
-            src._handle, _handle, src._level, _level,
+            src._handle, _handle,
+            src._format, _format,
+            src._level, _level,
             src._offset, _offset, _size);
     }
 
@@ -95,7 +100,7 @@ public:
         }
         return BufferToTextureCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, _level, _offset, _size);
+            _handle, storage(), _level, _offset, _size);
     }
 
     template<typename U>
@@ -107,12 +112,12 @@ public:
         }
         return TextureToBufferCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
-            _handle, _storage, _level, _offset, _size);
+            _handle, storage(), _level, _offset, _size);
     }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return TextureDownloadCommand::create(
-            _handle, _storage, _level, _offset, _size, data);
+            _handle, storage(), _level, _offset, _size, data);
     }
 };
 
