@@ -88,16 +88,16 @@ int main(int argc, char *argv[]) {
             constexpr auto blue = float3(0.0f, 0.0f, 1.0f);
             color = hit->interpolate(red, green, blue);
         };
-        auto old = image[coord.y * dispatch_size_x() + coord.x].xyz();
+        auto old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
         auto t = 1.0f / (frame_index + 1.0f);
-        image[coord.y * dispatch_size_x() + coord.x] = make_float4(lerp(old, color, t), 1.0f);
+        image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
     };
 
     Kernel2D colorspace_kernel = [&](BufferFloat4 hdr_image, BufferUInt ldr_image) noexcept {
         auto i = dispatch_y() * dispatch_size_x() + dispatch_x();
-        auto hdr = hdr_image[i].xyz();
+        auto hdr = hdr_image.read(i).xyz();
         auto ldr = make_uint3(round(saturate(linear_to_srgb(hdr)) * 255.0f));
-        ldr_image[i] = ldr.x | (ldr.y << 8u) | (ldr.z << 16u) | (255u << 24u);
+        ldr_image.write(i, ldr.x | (ldr.y << 8u) | (ldr.z << 16u) | (255u << 24u));
     };
     auto stream = device.create_stream();
     auto vertex_buffer = device.create_buffer<float3>(3u);

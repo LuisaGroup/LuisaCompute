@@ -127,7 +127,7 @@ void FuncSerializer::GetBuilderDeserFunc(IJsonDict *dict, detail::FunctionBuilde
         if (!d) continue;
         auto typeHash = d->Get("type").try_get<int64>();
         if (typeHash)
-            cb.type = Type::get_type(*typeHash);
+            cb.type = Type::find(*typeHash);
         auto data = d->Get("data").get_or<IJsonDict *>(nullptr);
         if (data)
             AstSerializer::DeSerialize(cb.data, data, vis);

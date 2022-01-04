@@ -16,7 +16,8 @@ void RefExpr::_mark(Usage usage) const noexcept {
 
 void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
-        if (_op == CallOp::TEXTURE_WRITE ||
+        if (_op == CallOp::BUFFER_WRITE ||
+            _op == CallOp::TEXTURE_WRITE ||
             _op == CallOp::ATOMIC_EXCHANGE ||
             _op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
             _op == CallOp::ATOMIC_FETCH_ADD ||

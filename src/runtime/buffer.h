@@ -57,9 +57,10 @@ public:
     [[nodiscard]] auto copy_from(BufferView<T> source) { return this->view().copy_from(source); }
 
     template<typename I>
-    [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
-        return this->view()[std::forward<I>(i)];
-    }
+    [[nodiscard]] decltype(auto) read(I &&i) const noexcept { return this->view().read(std::forward<I>(i)); }
+
+    template<typename I, typename V>
+    void write(I &&i, V &&v) const noexcept { this->view().write(std::forward<I>(i), std::forward<V>(v)); }
 
     template<typename I>
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
@@ -139,8 +140,13 @@ public:
     }
 
     template<typename I>
-    [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
-        return Expr<Buffer<T>>{*this}[std::forward<I>(i)];
+    [[nodiscard]] decltype(auto) read(I &&i) const noexcept {
+        return Expr<Buffer<T>>{*this}.read(std::forward<I>(i));
+    }
+
+    template<typename I, typename V>
+    void write(I &&i, V &&v) const noexcept {
+        Expr<Buffer<T>>{*this}.write(std::forward<I>(i), std::forward<V>(v));
     }
 
     template<typename I>
