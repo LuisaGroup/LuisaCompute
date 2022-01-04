@@ -65,8 +65,8 @@ LUISA_EXPORT_API void *luisa_compute_command_copy_texture_to_buffer(
     uint32_t offset_x, uint32_t offset_y, uint32_t offset_z,
     uint32_t size_x, uint32_t size_y, uint32_t size_z) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void *luisa_compute_command_copy_texture_to_texture(
-    uint64_t src, uint32_t src_level, uint32_t src_offset_x, uint32_t src_offset_y, uint32_t src_offset_z,
-    uint64_t dst, uint32_t dst_level, uint32_t dst_offset_x, uint32_t dst_offset_y, uint32_t dst_offset_z,
+    uint64_t src, uint32_t src_format, uint32_t src_level, uint32_t src_offset_x, uint32_t src_offset_y, uint32_t src_offset_z,
+    uint64_t dst, uint32_t dst_format, uint32_t dst_level, uint32_t dst_offset_x, uint32_t dst_offset_y, uint32_t dst_offset_z,
     uint32_t size_x, uint32_t size_y, uint32_t size_z) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void *luisa_compute_command_upload_texture(
     uint64_t handle, uint32_t storage, uint32_t level,

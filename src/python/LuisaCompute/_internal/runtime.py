@@ -283,11 +283,11 @@ def command_copy_texture_to_buffer(buffer, buffer_offset, tex, tex_storage, leve
 
 
 dll.luisa_compute_command_copy_texture_to_texture.restype = c_void_p
-dll.luisa_compute_command_copy_texture_to_texture.argtypes = [c_uint64, c_uint32, c_uint32, c_uint32, c_uint32, c_uint64, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32]
+dll.luisa_compute_command_copy_texture_to_texture.argtypes = [c_uint64, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint64, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32]
 
 
-def command_copy_texture_to_texture(src, src_level, src_offset_x, src_offset_y, src_offset_z, dst, dst_level, dst_offset_x, dst_offset_y, dst_offset_z, size_x, size_y, size_z):
-    return dll.luisa_compute_command_copy_texture_to_texture(src, src_level, src_offset_x, src_offset_y, src_offset_z, dst, dst_level, dst_offset_x, dst_offset_y, dst_offset_z, size_x, size_y, size_z)
+def command_copy_texture_to_texture(src, src_format, src_level, src_offset_x, src_offset_y, src_offset_z, dst, dst_format, dst_level, dst_offset_x, dst_offset_y, dst_offset_z, size_x, size_y, size_z):
+    return dll.luisa_compute_command_copy_texture_to_texture(src, src_format, src_level, src_offset_x, src_offset_y, src_offset_z, dst, dst_format, dst_level, dst_offset_x, dst_offset_y, dst_offset_z, size_x, size_y, size_z)
 
 
 dll.luisa_compute_command_upload_texture.restype = c_void_p

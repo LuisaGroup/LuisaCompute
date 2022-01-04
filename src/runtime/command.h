@@ -236,6 +236,8 @@ class TextureCopyCommand final : public Command {
 private:
     uint64_t _src_handle;
     uint64_t _dst_handle;
+    PixelFormat _src_format;
+    PixelFormat _dst_format;
     uint _src_offset[3];
     uint _dst_offset[3];
     uint _size[3];
@@ -245,18 +247,23 @@ private:
 public:
     TextureCopyCommand(uint64_t src_handle,
                        uint64_t dst_handle,
+                       PixelFormat src_format,
+                       PixelFormat dst_format,
                        uint src_level,
                        uint dst_level,
                        uint3 src_offset,
                        uint3 dst_offset,
                        uint3 size) noexcept
         : _src_handle{src_handle}, _dst_handle{dst_handle},
+          _src_format{src_format}, _dst_format{dst_format},
           _src_offset{src_offset.x, src_offset.y, src_offset.z},
           _dst_offset{dst_offset.x, dst_offset.y, dst_offset.z},
           _size{size.x, size.y, size.z},
           _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
+    [[nodiscard]] auto src_format() const noexcept { return _src_format; }
+    [[nodiscard]] auto dst_format() const noexcept { return _dst_format; }
     [[nodiscard]] auto src_offset() const noexcept { return uint3(_src_offset[0], _src_offset[1], _src_offset[2]); }
     [[nodiscard]] auto dst_offset() const noexcept { return uint3(_dst_offset[0], _dst_offset[1], _dst_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
