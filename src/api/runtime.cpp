@@ -39,7 +39,8 @@ char *luisa_compute_context_cache_directory(void *ctx) LUISA_NOEXCEPT {
 
 void *luisa_compute_device_create(void *ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
     return RC<Device>::create(
-        static_cast<RC<Context> *>(ctx)->retain()->create_device(name, properties));
+        static_cast<RC<Context> *>(ctx)->retain()->create_device(
+            name, nlohmann::json::parse(properties)));
 }
 
 void luisa_compute_device_destroy(void *ctx, void *device) LUISA_NOEXCEPT {
