@@ -296,7 +296,8 @@ CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
 
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
-        return reinterpret_cast<uint64_t>(new_with_allocator<CUDABindlessArray>(size));
+        return reinterpret_cast<uint64_t>(
+            new_with_allocator<CUDABindlessArray>(size));
     });
 }
 
