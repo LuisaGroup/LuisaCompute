@@ -40,7 +40,9 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
         std::move(vec));
     AddTask(std::move(handle));
 }
-void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {}
+void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {
+    AddTask(*cmd);
+}
 void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {
     AddTask(*cmd);
 }
