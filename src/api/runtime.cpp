@@ -207,16 +207,15 @@ void *luisa_compute_command_copy_texture_to_buffer(
 }
 
 void *luisa_compute_command_copy_texture_to_texture(
-    uint64_t src, uint32_t src_storage, uint32_t src_level,
+    uint64_t src, uint32_t src_level,
     uint32_t src_offset_x, uint32_t src_offset_y, uint32_t src_offset_z,
-    uint64_t dst, uint32_t dst_storage, uint32_t dst_level,
+    uint64_t dst, uint32_t dst_level,
     uint32_t dst_offset_x, uint32_t dst_offset_y, uint32_t dst_offset_z,
+    uint32_t storage,
     uint32_t size_x, uint32_t size_y, uint32_t size_z) LUISA_NOEXCEPT {
     return TextureCopyCommand::create(
-        src, dst,
-        static_cast<PixelStorage>(dst_storage),
-        static_cast<PixelStorage>(src_storage),
-        src_level, dst_level,
+        static_cast<PixelStorage>(storage),
+        src, dst, src_level, dst_level,
         make_uint3(src_offset_x, src_offset_y, src_offset_z),
         make_uint3(dst_offset_x, dst_offset_y, dst_offset_z),
         make_uint3(size_x, size_y, size_z));

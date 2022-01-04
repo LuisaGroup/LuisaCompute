@@ -90,8 +90,8 @@ public:
                 to_underlying(_storage));
         }
         return TextureCopyCommand::create(
+            _storage,
             src._handle, _handle,
-            src._storage, _storage,
             src._level, _level,
             src._offset, _offset, _size);
     }
