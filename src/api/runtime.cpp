@@ -2,12 +2,26 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include <core/rc.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/sampler.h>
-#include <runtime/command_list.h>
+#include <luisa-compute.h>
 #include <api/runtime.h>
+
+namespace luisa::compute {
+
+class TypelessBuffer : public Resource {
+
+};
+
+class TypelessTexture : public Resource {
+
+};
+
+class TypelessShader : public Resource {
+
+};
+
+}
+
+// TODO: rewrite with runtime constructs, e.g., Stream, Event, BindlessArray...
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -292,4 +306,16 @@ void *luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
 
 uint32_t luisa_compute_pixel_format_to_storage(uint32_t format) LUISA_NOEXCEPT {
     return to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format)));
+}
+
+uint64_t luisa_compute_bindless_array_create(void *device, size_t n) LUISA_NOEXCEPT {
+    auto d = static_cast<RC<Device> *>(device);
+    auto bindless_array = luisa::new_with_allocator<BindlessArray>(d->retain()->create_bindless_array(n));
+    return reinterpret_cast<uint64_t>(bindless_array);
+}
+
+void luisa_compute_bindless_array_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
+    auto bindless_array = reinterpret_cast<BindlessArray *>(handle);
+    luisa::delete_with_allocator(bindless_array);
+    static_cast<RC<Device> *>(device)->release();
 }

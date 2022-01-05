@@ -186,6 +186,22 @@ def event_synchronize(device, handle):
     dll.luisa_compute_event_synchronize(device, handle)
 
 
+dll.luisa_compute_bindless_array_create.restype = c_uint64
+dll.luisa_compute_bindless_array_create.argtypes = [c_void_p, c_size_t]
+
+
+def bindless_array_create(device, n):
+    return dll.luisa_compute_bindless_array_create(device, n)
+
+
+dll.luisa_compute_bindless_array_destroy.restype = None
+dll.luisa_compute_bindless_array_destroy.argtypes = [c_void_p, c_uint64]
+
+
+def bindless_array_destroy(device, handle):
+    dll.luisa_compute_bindless_array_destroy(device, handle)
+
+
 dll.luisa_compute_mesh_create.restype = c_uint64
 dll.luisa_compute_mesh_create.argtypes = [c_void_p, c_uint64, c_size_t, c_size_t, c_size_t, c_uint64, c_size_t, c_size_t, c_uint32]
 

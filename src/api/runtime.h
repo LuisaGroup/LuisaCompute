@@ -37,6 +37,9 @@ LUISA_EXPORT_API void luisa_compute_event_signal(void *device, uint64_t handle, 
 LUISA_EXPORT_API void luisa_compute_event_wait(void *device, uint64_t handle, uint64_t stream) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_event_synchronize(void *device, uint64_t handle) LUISA_NOEXCEPT;
 
+LUISA_EXPORT_API uint64_t luisa_compute_bindless_array_create(void *device, size_t n) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT;
+
 LUISA_EXPORT_API uint64_t luisa_compute_mesh_create(
     void *device, uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
     uint64_t t_buffer, size_t t_offset, size_t t_count, uint32_t hint) LUISA_NOEXCEPT;

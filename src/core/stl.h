@@ -166,6 +166,10 @@ template<typename F>
     return detail::LazyConstructor<F>(ctor);
 }
 
+#ifndef FMT_STRING
+#define FMT_STRING(...) __VA_ARGS__
+#endif
+
 template<typename FMT, typename... Args>
 [[nodiscard]] inline auto format(FMT &&f, Args &&...args) noexcept {
     using memory_buffer = fmt::basic_memory_buffer<char, fmt::inline_buffer_size, luisa::allocator<char>>;
