@@ -99,7 +99,7 @@ public:
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
 
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
-        if (size_elements * sizeof(T) + offset_elements > _size) [[unlikely]] {
+        if (size_elements + offset_elements > _size) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Subview (with offset_elements = {}, size_elements = {}) "
                 "overflows buffer view (with size_elements = {}).",
