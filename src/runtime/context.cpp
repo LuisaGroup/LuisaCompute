@@ -77,7 +77,10 @@ Device Context::create_device(std::string_view backend_name, const nlohmann::jso
 }
 
 Context::~Context() noexcept {
-    DynamicModule::remove_search_path(_impl->runtime_directory);
+    if (_impl != nullptr) {
+        DynamicModule::remove_search_path(
+            _impl->runtime_directory);
+    }
 }
 
 }// namespace luisa::compute
