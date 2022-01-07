@@ -38,7 +38,7 @@ add_subdirectory(serialize)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
-add_subdirectory(api)
+#add_subdirectory(api)
 add_subdirectory(serde)
 add_subdirectory(gui)
 add_subdirectory(backends)
@@ -57,7 +57,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-backends)
 
 add_dependencies(luisa-compute
-        luisa-compute-api
+#        luisa-compute-api
         luisa-compute-serialize
         luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)

@@ -12,6 +12,7 @@
 #include <core/concepts.h>
 #include <ast/function.h>
 #include <meta/property.h>
+#include <runtime/context.h>
 #include <runtime/pixel.h>
 #include <runtime/sampler.h>
 #include <runtime/command_list.h>
@@ -51,10 +52,10 @@ public:
     class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
-        const Context &_ctx;
+        Context _ctx;
 
     public:
-        explicit Interface(const Context &ctx) noexcept : _ctx{ctx} {}
+        explicit Interface(Context ctx) noexcept : _ctx{std::move(ctx)} {}
         virtual ~Interface() noexcept = default;
 
         [[nodiscard]] const Context &context() const noexcept { return _ctx; }
