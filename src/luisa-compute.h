@@ -22,7 +22,6 @@
 #include <core/observer.h>
 #include <core/platform.h>
 #include <core/pool.h>
-#include <core/rc.h>
 #include <core/spin_mutex.h>
 #include <core/stl.h>
 #include <core/thread_pool.h>
