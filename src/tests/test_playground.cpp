@@ -136,14 +136,14 @@ int main() {
     LUISA_INFO("free_list = {}.", ff.dump_free_list());
 
     auto &&thread_pool = ThreadPool::global();
-    auto f1 = thread_pool.dispatch([] {
+    auto f1 = thread_pool.async([] {
         LUISA_INFO("Hello!");
         return 1234;
     });
     thread_pool.barrier();
-    thread_pool.dispatch([&thread_pool, f = std::move(f1)]() mutable noexcept {
+    thread_pool.async([&thread_pool, f = std::move(f1)]() mutable noexcept {
         LUISA_INFO("Hello: {}!", f.get());
-        thread_pool.dispatch([] { LUISA_INFO("Sub-hello!"); });
+        thread_pool.async([] { LUISA_INFO("Sub-hello!"); });
     });
     thread_pool.parallel(2, 2, [](auto x, auto y) noexcept {
         std::ostringstream oss;
