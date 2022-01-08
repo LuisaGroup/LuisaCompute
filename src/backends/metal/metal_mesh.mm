@@ -31,8 +31,8 @@ MetalMesh::MetalMesh(
 
 id<MTLCommandBuffer> MetalMesh::build(MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept {
 
-    [command_buffer commit];
-    command_buffer = [[command_buffer commandQueue] commandBuffer];
+    stream->dispatch(command_buffer);
+    command_buffer = stream->command_buffer();
 
     auto device = command_buffer.device;
     auto sizes = [device accelerationStructureSizesWithDescriptor:_descriptor];
@@ -73,11 +73,11 @@ id<MTLCommandBuffer> MetalMesh::build(MetalStream *stream, id<MTLCommandBuffer> 
 }
 
 id<MTLCommandBuffer> MetalMesh::update(
-    MetalStream *,
+    MetalStream *stream,
     id<MTLCommandBuffer> command_buffer) noexcept {
 
-    [command_buffer commit];
-    command_buffer = [[command_buffer commandQueue] commandBuffer];
+    stream->dispatch(command_buffer);
+    command_buffer = stream->command_buffer();
 
     auto device = command_buffer.device;
     if (_update_buffer == nullptr || _update_buffer.length < _update_buffer_size) {
