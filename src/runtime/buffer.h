@@ -96,6 +96,7 @@ public:
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto offset() const noexcept { return _offset_bytes / sizeof(T); }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
 
