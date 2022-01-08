@@ -15,19 +15,23 @@ Stream Device::create_stream() noexcept {
 }
 
 void Stream::_dispatch(CommandList commands) noexcept {
-    size_t size = 0;
-    for (auto command : commands)
-        ++size;
-    CommandReorderVisitor visitor(device(), size);
+    //    size_t size = 0;
+    //    for (auto command : commands)
+    //        ++size;
+    //    CommandReorderVisitor visitor(device(), size);
+    //    for (auto command : commands) {
+    //        command->accept(visitor);
+    //    }
+    //    auto commandLists = visitor.getCommandLists();
+    //    for (auto &commandList : commandLists) {
+    //        device()->dispatch(handle(), std::move(commandList));
+    //    }
+
     for (auto command : commands) {
-        command->accept(visitor);
-    }
-    auto commandLists = visitor.getCommandLists();
-    for (auto &commandList : commandLists) {
+        CommandList commandList;
+        commandList.append(command->clone());
         device()->dispatch(handle(), std::move(commandList));
     }
-
-    //    device()->dispatch(handle(), std::move(commands));
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {

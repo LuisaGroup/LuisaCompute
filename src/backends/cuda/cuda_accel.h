@@ -53,4 +53,4 @@ public:
     [[nodiscard]] bool uses_resource(uint64_t handle) const noexcept;
 };
 
-}
+}// namespace luisa::compute::cuda
