@@ -5,7 +5,7 @@ Api/LCDevice.cpp
 Codegen/ArgumentPacker.cpp
 Codegen/DxCodegen.cpp
 Codegen/DxCodegenUtil.cpp
-Codegen/ShaderCompiler.cpp
+Codegen/ShaderHeader.cpp
 Codegen/StructGenerator.cpp
 DXRuntime/AccelStructure.cpp
 DXRuntime/CommandAllocator.cpp
@@ -30,9 +30,10 @@ Resource/UploadBuffer.cpp
 Shader/ComputeShader.cpp
 Shader/RTShader.cpp
 Shader/Shader.cpp
+Shader/ShaderCompiler.cpp
 )
     luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
-    target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Runtime)
+    target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     target_compile_options(luisa-compute-backend-dx PRIVATE
     /JMC
