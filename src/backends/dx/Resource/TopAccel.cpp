@@ -78,8 +78,8 @@ bool TopAccel::Update(
     ist.AccelerationStructure = accel->GetAccelBuffer()->GetAddress();
     delayCommands.emplace_back(
         UpdateCommand{
-            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
-            .ist = ist});
+            .ist = ist,
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
     return true;
 }
 void TopAccel::Emplace(

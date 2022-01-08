@@ -333,3 +333,12 @@ CMakeSettings.json
 
 *.png
 **/imgui.ini
+*.vcxproj
+*.vcxprojbackup
+*.sln
+*.user
+llvm/
+BuildTools/
+llvm-c/
+opencv2/
+doc/

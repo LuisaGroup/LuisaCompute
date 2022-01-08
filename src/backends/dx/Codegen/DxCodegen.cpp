@@ -165,7 +165,7 @@ void StringStateVisitor::visit(const LiteralExpr *expr) {
         [&](auto &&value) -> void {
             using T = std::remove_cvref_t<decltype(value)>;
             PrintValue<T> prt;
-            prt(value, (str));
+            prt(value, (str));  
         },
         expr->value());
 }
@@ -175,7 +175,7 @@ void StringStateVisitor::visit(const CallExpr *expr) {
 void StringStateVisitor::visit(const CastExpr *expr) {
     //TODO: bool & bool vector
     str << '(';
-    CodegenUtility::GetTypeName(*expr->type(), str);
+    CodegenUtility::GetTypeName(*expr->type(), str, Usage::READ);
     str << ')';
     expr->expression()->accept(*this);
 }
@@ -342,19 +342,19 @@ void StringStateVisitor::visit(const ForStmt *state) {
     str << ")";
     state->body()->accept(*this);
 }
-StringStateVisitor::StringStateVisitor(vstd::string &str)
-    : str(str) {
+StringStateVisitor::StringStateVisitor(
+    Function f,
+    vstd::string &str)
+    : str(str), f(f) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
-    str << '{';
     for (auto &&v : stmt->variables()) {
-        CodegenUtility::GetTypeName(*v.type(), str);
+        CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
         str << ' ';
         CodegenUtility::GetVariableName(v, str);
         str << ";\n";
     }
     stmt->scope()->accept(*this);
-    str << '}';
 }
 StringStateVisitor::~StringStateVisitor() = default;
 }// namespace toolhub::directx

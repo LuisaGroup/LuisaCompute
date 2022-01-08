@@ -5,11 +5,20 @@
 #include <ast/function.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
-
+#include <Shader/Shader.h>
 using namespace luisa;
 using namespace luisa::compute;
 namespace toolhub::directx {
 class StringStateVisitor;
+struct CodegenResult {
+    using Properties = vstd::vector<std::pair<vstd::string_view, Shader::Property>>;
+    vstd::string result;
+    Properties properties;
+    template<typename A, typename B>
+    CodegenResult(A &&a, B &&b)
+        : result(std::forward<A>(a)),
+          properties(std::forward<B>(b)) {}
+};
 class CodegenUtility {
 public:
     static constexpr uint64 INLINE_STMT_LIMIT = 5;
@@ -17,8 +26,7 @@ public:
     static void GetConstName(ConstantData const &data, vstd::string &str);
     static void GetVariableName(Variable const &type, vstd::string &str);
     static void GetVariableName(Variable::Tag type, uint id, vstd::string &str);
-    static void GetVariableName(Type::Tag type, uint id, vstd::string &str);
-    static void GetTypeName(Type const &type, vstd::string &str);
+    static void GetTypeName(Type const &type, vstd::string &str, Usage usage);
     static void GetBasicTypeName(uint64 typeIndex, vstd::string &str);
     static void GetConstantStruct(ConstantData const &data, vstd::string &str);
     //static void
@@ -39,11 +47,14 @@ public:
         Function func,
         vstd::string &result);
     static void GenerateCBuffer(
+        Function f,
         std::span<const Variable> vars,
         vstd::string &result);
-    static vstd::optional<vstd::string> Codegen(Function kernel);
+    static vstd::optional<CodegenResult> Codegen(Function kernel);
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
+    Function f;
+
 public:
     void visit(const UnaryExpr *expr) override;
     void visit(const BinaryExpr *expr) override;
@@ -70,6 +81,7 @@ public:
     void visit(const MetaStmt *stmt) override;
     void visit(const CommentStmt *) override;
     StringStateVisitor(
+        Function f,
         vstd::string &str);
     ~StringStateVisitor();
     uint64 StmtCount() const { return stmtCount; }
@@ -87,7 +99,7 @@ struct PrintValue<float> {
             LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
         }
         if (std::isinf(v)) {
-            str.append(v < 0.0f ? "(-INFINITY_f)" : "(+INFINITY_f)");
+            str.append(v < 0.0f ? "(-INFINITY_f)" : "(INFINITY_f)");
         } else {
             auto s = fmt::format("{}", v);
             str.append(s);
@@ -136,13 +148,13 @@ struct PrintValue<Vector<EleType, N>> {
     void operator()(T const &v, vstd::string &varName) {
         if constexpr (N > 1) {
             if constexpr (std::is_same_v<EleType, float>) {
-                varName << "_float";
+                varName << "float";
             } else if constexpr (std::is_same_v<EleType, uint>) {
-                varName << "_uint";
+                varName << "uint";
             } else if constexpr (std::is_same_v<EleType, int>) {
-                varName << "_int";
+                varName << "int";
             } else if constexpr (std::is_same_v<EleType, bool>) {
-                varName << "_bool";
+                varName << "bool";
             }
             vstd::to_string(N, varName);
             varName << '(';
@@ -159,7 +171,7 @@ struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
     void operator()(T const &v, vstd::string &varName) {
-        varName << "_float";
+        varName << "float";
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';
         PrintValue<Vector<EleType, N>> vecPrinter;
