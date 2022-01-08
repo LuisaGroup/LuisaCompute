@@ -35,6 +35,7 @@ public:
     CommandBuffer &operator<<(Event::Wait) &noexcept;
     CommandBuffer &operator<<(Commit) &noexcept;
     void commit() &noexcept { _commit(); }
+    [[nodiscard]] auto &stream() noexcept { return *_stream; }
 };
 
 [[nodiscard]] constexpr auto commit() noexcept { return CommandBuffer::Commit{}; }
