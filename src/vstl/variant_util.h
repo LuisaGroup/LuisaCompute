@@ -28,7 +28,10 @@ class VariantVisitor {
 public:
     using Type = VariantVisitor;
     template<typename T>
-    static constexpr size_t IndexOf = detail::IndexOfStruct<0, std::remove_cvref_t<T>, Args...>::Index;
+    static constexpr size_t IndexOf =
+        detail::IndexOfFunc<
+            0,
+            std::is_same, std::remove_cvref_t<T>, Args...>();
     template<typename Func>
     void operator()(Func &&func, size_t idx) {
         if (idx < sizeof...(Args)) {

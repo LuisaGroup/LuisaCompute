@@ -42,11 +42,11 @@ void ResourceTracker::commit() noexcept {
 }
 
 bool ResourceTracker::uses_buffer(uint64_t handle) const noexcept {
-    return _buffer_ref_count.contains(handle);
+    return _buffer_ref_count.count(handle) != 0u;
 }
 
 bool ResourceTracker::uses_texture(uint64_t handle) const noexcept {
-    return _texture_ref_count.contains(handle);
+    return _texture_ref_count.count(handle) != 0u;
 }
 
 }

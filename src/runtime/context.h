@@ -11,26 +11,23 @@
 #include <nlohmann/json.hpp>
 
 #include <core/dynamic_module.h>
-#include <runtime/device.h>
 
 namespace luisa::compute {
+
+class Device;
 
 class Context {
 
 private:
-    std::filesystem::path _runtime_directory;
-    std::filesystem::path _cache_directory;
-    std::vector<DynamicModule> _loaded_modules;
-    std::vector<std::string> _device_identifiers;
-    std::vector<Device::Creator *> _device_creators;
-    std::vector<Device::Deleter *> _device_deleters;
+    struct Impl;
+    luisa::shared_ptr<Impl> _impl;
 
 public:
     explicit Context(const std::filesystem::path &program) noexcept;
     Context(Context &&) noexcept = default;
-    Context(const Context &) noexcept = delete;
+    Context(const Context &) noexcept = default;
     Context &operator=(Context &&) noexcept = default;
-    Context &operator=(const Context &) noexcept = delete;
+    Context &operator=(const Context &) noexcept = default;
     ~Context() noexcept;
     [[nodiscard]] const std::filesystem::path &runtime_directory() const noexcept;
     [[nodiscard]] const std::filesystem::path &cache_directory() const noexcept;

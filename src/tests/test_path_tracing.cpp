@@ -209,14 +209,14 @@ int main(int argc, char *argv[]) {
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
             auto triangle = heap.buffer<Triangle>(hit.inst)[hit.prim];
-            auto p0 = vertex_buffer[triangle.i0];
-            auto p1 = vertex_buffer[triangle.i1];
-            auto p2 = vertex_buffer[triangle.i2];
+            auto p0 = vertex_buffer.read(triangle.i0);
+            auto p1 = vertex_buffer.read(triangle.i1);
+            auto p2 = vertex_buffer.read(triangle.i2);
             auto p = hit->interpolate(p0, p1, p2);
             auto n = normalize(cross(p1 - p0, p2 - p0));
             auto cos_wi = dot(-direction(ray), n);
             $if(cos_wi < 1e-4f) { $break; };
-            auto material = material_buffer[hit.inst];
+            auto material = material_buffer.read(hit.inst);
 
             // hit light
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {

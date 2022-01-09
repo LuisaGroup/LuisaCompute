@@ -234,11 +234,11 @@ struct ExprEnableSubscriptAccess {
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto operator[](I &&index) const noexcept {
+        auto self = def<T>(static_cast<const T *>(this)->expression());
         using Elem = std::remove_cvref_t<
             decltype(std::declval<expr_value_t<T>>()[0])>;
         return def<Elem>(FunctionBuilder::current()->access(
-            Type::of<Elem>(),
-            static_cast<const T *>(this)->expression(),
+            Type::of<Elem>(), self.expression(),
             extract_expression(std::forward<I>(index))));
     }
 };
@@ -278,14 +278,24 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto &operator[](I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
+    [[nodiscard]] auto read(I &&index) const noexcept {
         auto f = detail::FunctionBuilder::current();
-        auto expr = f->access(
-            Type::of<T>(), _expression,
-            index.expression());
-        return *f->create_temporary<Var<T>>(expr);
-    };
+        auto expr = f->call(
+            Type::of<T>(), CallOp::BUFFER_READ,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index))});
+        return def<T>(expr);
+    }
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    void write(I &&index, Expr<T> value) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::BUFFER_WRITE,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index)),
+             value.expression()});
+    }
 };
 
 template<typename T>
@@ -491,6 +501,8 @@ struct Expr<VolumeView<T>> : public Expr<Volume<T>> {
 template<typename T>
 class BindlessBuffer {
 
+    static_assert(is_valid_buffer_element_v<T>);
+
 private:
     const RefExpr *_array{nullptr};
     const Expression *_index{nullptr};
@@ -645,7 +657,7 @@ BindlessTexture2D BindlessArray::tex2d(I &&index) const noexcept {
 }
 
 template<typename I>
-BindlessTexture2D BindlessArray::tex3d(I &&index) const noexcept {
+BindlessTexture3D BindlessArray::tex3d(I &&index) const noexcept {
     auto i = def(std::forward<I>(index));
     return Expr<BindlessArray>{*this}.tex3d(i);
 }

@@ -12,9 +12,8 @@
 #include <sstream>
 
 #include <core/macro.h>
-#include <core/spin_mutex.h>
+#include <core/stl.h>
 #include <ast/type.h>
-#include <vstl/HashMap.h>
 
 namespace luisa::compute {
 
@@ -39,26 +38,41 @@ class VolumeView;
 class BindlessArray;
 class Accel;
 
+
+namespace detail {
+
 class TypeRegistry {
 
 private:
+    struct TypePtrHash {
+        [[nodiscard]] auto operator()(const Type *type) const noexcept { return type->hash(); }
+        [[nodiscard]] auto operator()(uint64_t hash) const noexcept { return hash; }
+    };
+    struct TypePtrEqual {
+        template<typename Lhs, typename Rhs>
+        [[nodiscard]] auto operator()(Lhs &&lhs, Rhs &&rhs) const noexcept {
+            constexpr TypePtrHash hash;
+            return hash(std::forward<Lhs>(lhs)) == hash(std::forward<Rhs>(rhs));
+        }
+    };
+
+private:
     luisa::vector<luisa::unique_ptr<Type>> _types;
-    vstd::HashMap<uint64_t, Type *> _type_map;
-    spin_mutex _types_mutex;
+    luisa::unordered_set<Type *, TypePtrHash, TypePtrEqual> _type_set;
+    mutable std::recursive_mutex _mutex;
+
+private:
+    [[nodiscard]] static uint64_t _hash(std::string_view desc) noexcept;
+    [[nodiscard]] const Type *_decode(std::string_view desc) noexcept;
 
 public:
-    template<typename F>
-    decltype(auto) with_types(F &&f) noexcept {
-        std::scoped_lock lock{_types_mutex};
-        if constexpr (std::is_invocable_v<F, decltype(_types), decltype(_type_map)>) {
-            return f(_types, _type_map);
-        } else {
-            return f(_types);
-        }
-    }
+    [[nodiscard]] static TypeRegistry &instance() noexcept;
+    [[nodiscard]] const Type *type_from(luisa::string_view desc) noexcept;
+    [[nodiscard]] const Type *type_from(uint64_t hash) noexcept;
+    [[nodiscard]] const Type *type_at(size_t i) const noexcept;
+    [[nodiscard]] size_t type_count() const noexcept;
+    void traverse(TypeVisitor &visitor) const noexcept;
 };
-
-namespace detail {
 
 template<typename T>
 struct TypeDesc {
@@ -106,8 +120,11 @@ LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, UINT32)
 // array
 template<typename T, size_t N>
 struct TypeDesc<std::array<T, N>> {
+    static_assert(alignof(T) >= 4u);
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(FMT_STRING("array<{},{}>"), TypeDesc<T>::description(), N);
+        static thread_local auto s = luisa::format(
+            FMT_STRING("array<{},{}>"),
+            TypeDesc<T>::description(), N);
         return s;
     }
 };
@@ -115,7 +132,9 @@ struct TypeDesc<std::array<T, N>> {
 template<typename T, size_t N>
 struct TypeDesc<T[N]> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(FMT_STRING("array<{},{}>"), TypeDesc<T>::description(), N);
+        static thread_local auto s = luisa::format(
+            FMT_STRING("array<{},{}>"),
+            TypeDesc<T>::description(), N);
         return s;
     }
 };
@@ -123,7 +142,7 @@ struct TypeDesc<T[N]> {
 template<typename T>
 struct TypeDesc<Buffer<T>> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("buffer<{}>"),
             TypeDesc<T>::description());
         return s;
@@ -136,7 +155,7 @@ struct TypeDesc<BufferView<T>> : TypeDesc<Buffer<T>> {};
 template<typename T>
 struct TypeDesc<Image<T>> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("texture<2,{}>"),
             TypeDesc<T>::description());
         return s;
@@ -149,7 +168,7 @@ struct TypeDesc<ImageView<T>> : TypeDesc<Image<T>> {};
 template<typename T>
 struct TypeDesc<Volume<T>> {
     static std::string_view description() noexcept {
-        static thread_local auto s = fmt::format(
+        static thread_local auto s = luisa::format(
             FMT_STRING("texture<3,{}>"),
             TypeDesc<T>::description());
         return s;
@@ -202,7 +221,7 @@ template<typename... T>
 struct TypeDesc<std::tuple<T...>> {
     static std::string_view description() noexcept {
         static thread_local auto s = [] {
-            auto s = fmt::format("struct<{}", alignof(std::tuple<T...>));
+            auto s = luisa::format("struct<{}", alignof(std::tuple<T...>));
             (s.append(",").append(TypeDesc<T>::description()), ...);
             s.append(">");
             return s;
@@ -215,7 +234,8 @@ struct TypeDesc<std::tuple<T...>> {
 
 template<typename T>
 const Type *Type::of() noexcept {
-    static thread_local auto info = Type::from(detail::TypeDesc<std::remove_cvref_t<T>>::description());
+    static thread_local auto info = Type::from(
+        detail::TypeDesc<std::remove_cvref_t<T>>::description());
     return info;
 }
 
@@ -227,30 +247,32 @@ struct is_valid_reflection : std::false_type {};
 template<typename S, typename... M, typename O, O... os>
 struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>> {
 
+    static_assert(((!is_struct_v<M> || alignof(M) >= 4u) && ...));
+
 private:
     [[nodiscard]] constexpr static auto _check() noexcept {
-            constexpr auto count = sizeof...(M);
-            static_assert(sizeof...(os) == count);
-            constexpr std::array<size_t, count> sizes{sizeof(M)...};
-            constexpr std::array<size_t, count> alignments{alignof(M)...};
-            constexpr std::array<size_t, count> offsets{os...};
-            auto current_offset = 0u;
-            for (auto i = 0u; i < count; i++) {
-                auto offset = offsets[i];
-                auto size = sizes[i];
-                auto alignment = alignments[i];
-                current_offset = (current_offset + alignment - 1u) /
-                                 alignment *
-                                 alignment;
-                if (current_offset != offset) { return false; }
-                current_offset += size;
-            }
-            constexpr auto struct_size = sizeof(S);
-            constexpr auto struct_alignment = alignof(S);
-            current_offset = (current_offset + struct_alignment - 1u) /
-                             struct_alignment *
-                             struct_alignment;
-            return current_offset == struct_size;
+        constexpr auto count = sizeof...(M);
+        static_assert(sizeof...(os) == count);
+        constexpr std::array<size_t, count> sizes{sizeof(M)...};
+        constexpr std::array<size_t, count> alignments{alignof(M)...};
+        constexpr std::array<size_t, count> offsets{os...};
+        auto current_offset = 0u;
+        for (auto i = 0u; i < count; i++) {
+            auto offset = offsets[i];
+            auto size = sizes[i];
+            auto alignment = alignments[i];
+            current_offset = (current_offset + alignment - 1u) /
+                             alignment *
+                             alignment;
+            if (current_offset != offset) { return false; }
+            current_offset += size;
+        }
+        constexpr auto struct_size = sizeof(S);
+        constexpr auto struct_alignment = alignof(S);
+        current_offset = (current_offset + struct_alignment - 1u) /
+                         struct_alignment *
+                         struct_alignment;
+        return current_offset == struct_size;
     };
 
 public:
@@ -259,11 +281,6 @@ public:
 
 template<typename S, typename M, typename O>
 constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
-
-template<typename T>
-constexpr auto pointer_to_number(T *p) noexcept {
-    return static_cast<size_t>(p - static_cast<T *>(nullptr));
-}
 
 }// namespace detail
 
@@ -277,7 +294,7 @@ constexpr auto pointer_to_number(T *p) noexcept {
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE(m) \
     std::remove_cvref_t<decltype(std::declval<this_type>().m)>
 
-#ifdef _MSC_VER // force the built-in offsetof(), otherwise clangd would complain that it's not constant
+#ifdef _MSC_VER// force the built-in offsetof(), otherwise clangd would complain that it's not constant
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET(m) \
     __builtin_offsetof(this_type, m)
 #else

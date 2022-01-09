@@ -155,7 +155,7 @@ void StringExprVisitor::visit(const RefExpr *expr) {
 void StringExprVisitor::visit(const LiteralExpr *expr) {
 
     LiteralExpr::Value const &value = expr->value();
-    std::visit([&](auto &&value) -> void {
+    luisa::visit([&](auto &&value) -> void {
         using T = std::remove_cvref_t<decltype(value)>;
         PrintValue<T> prt;
         prt(value, (str));

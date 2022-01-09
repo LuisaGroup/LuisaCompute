@@ -22,11 +22,11 @@ public:
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto operator[](I &&index) const &noexcept {
+        auto self = def<T>(static_cast<const T *>(this)->expression());
         using Elem = std::remove_cvref_t<
             decltype(std::declval<expr_value_t<T>>()[0])>;
         return def<Elem>(FunctionBuilder::current()->access(
-            Type::of<Elem>(),
-            static_cast<const T *>(this)->expression(),
+            Type::of<Elem>(), self.expression(),
             extract_expression(std::forward<I>(index))));
     }
     template<typename I>

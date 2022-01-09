@@ -4,9 +4,7 @@
 
 #pragma once
 
-#include <vector>
-
-#include <functional>
+#include <core/stl.h>
 #include <runtime/command.h>
 
 namespace luisa::compute {
@@ -31,7 +29,7 @@ public:
             return self;
         }
         [[nodiscard]] decltype(auto) operator*() const noexcept { return _command; }
-        [[nodiscard]] auto operator==(Iterator rhs) const noexcept { return _command == rhs._command; }
+        [[nodiscard]] auto operator==(std::default_sentinel_t) const noexcept { return _command == nullptr; }
     };
 
 private:
@@ -49,7 +47,7 @@ public:
 
     void append(Command *cmd) noexcept;
     [[nodiscard]] auto begin() const noexcept { return Iterator{_head}; }
-    [[nodiscard]] auto end() const noexcept { return Iterator{nullptr}; }
+    [[nodiscard]] auto end() const noexcept { return std::default_sentinel; }
     [[nodiscard]] auto empty() const noexcept { return _head == nullptr; }
 };
 

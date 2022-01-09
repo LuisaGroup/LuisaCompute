@@ -53,10 +53,10 @@ private:
     void _encode_pending_bindings() noexcept {
         auto bindings = _kernel.builder()->argument_bindings();
         for (; _argument_index < _kernel.arguments().size() &&
-               !std::holds_alternative<std::monostate>(// has binding
+               !luisa::holds_alternative<luisa::monostate>(// has binding
                    bindings[_argument_index]);
              _argument_index++) {
-            std::visit(
+            luisa::visit(
                 [&, arg = _kernel.arguments()[_argument_index]]<typename T>(T binding) noexcept {
                     if constexpr (std::is_same_v<T, FunctionBuilder::BufferBinding>) {
                         _dispatch_command()->encode_buffer(
@@ -224,11 +224,11 @@ class Shader final : public Resource {
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
 
 private:
-    std::shared_ptr<const detail::FunctionBuilder> _kernel;
+    luisa::shared_ptr<const detail::FunctionBuilder> _kernel;
 
 private:
     friend class Device;
-    Shader(Device::Interface *device, std::shared_ptr<const detail::FunctionBuilder> kernel, std::string_view meta_options) noexcept
+    Shader(Device::Interface *device, luisa::shared_ptr<const detail::FunctionBuilder> kernel, std::string_view meta_options) noexcept
         : Resource{
               device,
               Tag::SHADER,
@@ -239,9 +239,9 @@ public:
     Shader() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        detail::ShaderInvoke<dimension> invoke{handle(), _kernel->function()};
-        (invoke << ... << args);
-        return invoke;
+        using invoke_type = detail::ShaderInvoke<dimension>;
+        invoke_type invoke{handle(), _kernel->function()};
+        return static_cast<invoke_type &&>((invoke << ... << args));
     }
 };
 

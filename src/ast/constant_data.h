@@ -25,7 +25,7 @@ struct constant_data_view {
 
 template<typename... T>
 struct constant_data_view<std::tuple<T...>> {
-    using type = std::variant<std::span<const T>...>;
+    using type = luisa::variant<luisa::span<const T>...>;
 };
 
 template<typename T>

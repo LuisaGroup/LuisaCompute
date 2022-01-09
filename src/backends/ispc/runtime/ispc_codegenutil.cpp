@@ -131,7 +131,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, luisa::string &
     str << "struct tc";
     vstd::to_string((constCount), str);
     uint64 varCount = 1;
-    std::visit(
+    luisa::visit(
         [&](auto &&arr) {
             varCount = arr.size();
         },
@@ -162,7 +162,7 @@ void CodegenUtility::GetConstantData(ConstantData const &data, luisa::string &st
     luisa::string name = vstd::to_string((constCount));
     str << "uniform const tc" << name << " c" << name;
     str << "={{";
-    std::visit(
+    luisa::visit(
         [&](auto &&arr) {
             for (auto const &ele : arr) {
                 PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
@@ -517,6 +517,8 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::ATOMIC_FETCH_MAX:
             str << "_atomic_max"sv;
             return getPointer;
+        case CallOp::BUFFER_READ: str << "lc_buffer_read"; break;
+        case CallOp::BUFFER_WRITE: str << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
             str << "Smptx";
             break;

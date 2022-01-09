@@ -23,7 +23,7 @@ bool SimpleJsonLoader::Check(IJsonDatabase* parent, SimpleJsonVariant const& var
 
 	return res;
 }
-SimpleJsonVariant SimpleJsonLoader::DeSerialize(std::span<uint8_t const>& arr, SimpleBinaryJson* db) {
+SimpleJsonVariant SimpleJsonLoader::DeSerialize(vstd::span<uint8_t const>& arr, SimpleBinaryJson* db) {
 	ValueType type = PopValue<ValueType>(arr);
 	switch (type) {
 		case ValueType::Int: {
@@ -58,7 +58,7 @@ SimpleJsonVariant SimpleJsonLoader::DeSerialize(std::span<uint8_t const>& arr, S
 			return {};
 	}
 }
-SimpleJsonVariant SimpleJsonLoader::DeSerialize_DiffEnding(std::span<uint8_t const>& arr, SimpleBinaryJson* db) {
+SimpleJsonVariant SimpleJsonLoader::DeSerialize_DiffEnding(vstd::span<uint8_t const>& arr, SimpleBinaryJson* db) {
 	ValueType type = PopValueReverse<ValueType>(arr);
 	switch (type) {
 		case ValueType::Int: {

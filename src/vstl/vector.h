@@ -7,7 +7,7 @@
 #include <type_traits>
 #include <vstl/Memory.h>
 #include <vstl/VAllocator.h>
-#include <span>
+#include <vstl/span.h>
 namespace vstd {
 namespace detail {
 template<typename T, size_t stackCount>
@@ -23,6 +23,19 @@ struct vector_stack_obj<T, 0> {
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, size_t stackCount = 0>
     requires(!(std::is_const_v<T> || std::is_reference_v<T>))
 class vector {
+    using value_type = T;
+    using reference = T &;
+    using pointer = T *;
+    using const_pointer = T const *;
+    using iterator = T *;
+    using const_iterator = T const *;
+    using reverse_iterator = T *;
+    using const_reverse_iterator = T const *;
+    using size_type = size_t;
+    constexpr static size_t max_size() noexcept {
+        return std::numeric_limits<size_t>::max();
+    }
+
 private:
     using Allocator = VAllocHandle<allocType>;
     //	template<bool v>
@@ -80,7 +93,6 @@ private:
     }
 
 public:
-    using Iterator = T *;
     void reserve(size_t newCapacity) noexcept {
         if (newCapacity <= mCapacity) return;
         T *newArr = Allocate(newCapacity);
@@ -110,8 +122,10 @@ public:
         }
         mCapacity = newCapacity;
     }
-    T *data() const noexcept { return vec.arr; }
+    T *data() noexcept { return vec.arr; }
+    T const *data() const noexcept { return vec.arr; }
     size_t size() const noexcept { return mSize; }
+    size_t byte_size() const noexcept { return mSize * sizeof(T); }
     size_t capacity() const noexcept { return mCapacity; }
     vector(size_t mSize) noexcept : mSize(mSize) {
         InitCapacity(mSize);
@@ -133,7 +147,7 @@ public:
             memcpy(vec.arr, ptr, sizeof(T) * mSize);
         }
     }
-    vector(std::span<T> const &lst) : mSize(lst.size()) {
+    vector(span<T> const &lst) : mSize(lst.size()) {
         InitCapacity(lst.size());
         if constexpr (!(std::is_trivially_copy_constructible_v<T>)) {
             for (size_t i = 0; i < mSize; ++i) {
@@ -213,10 +227,10 @@ public:
         }
         mSize += count;
     }
-    void push_back_all(std::span<T> sp) noexcept {
+    void push_back_all(span<T> sp) noexcept {
         push_back_all(sp.data(), sp.size());
     }
-    void push_back_all(std::span<T const> sp) noexcept {
+    void push_back_all(span<T const> sp) noexcept {
         push_back_all(sp.data(), sp.size());
     }
     template<typename Func>
@@ -275,21 +289,14 @@ public:
             }
         }
     }
-    operator std::span<T>() const {
-        return std::span<T>(begin(), end());
+    operator span<T>() {
+        return span<T>(begin(), end());
     }
-    operator std::span<T const>() const {
-        return std::span<T const>(begin(), end());
+    operator span<T const>() const {
+        return span<T const>(begin(), end());
     }
     void push_back_all(const std::initializer_list<T> &list) noexcept {
         push_back_all(&static_cast<T const &>(*list.begin()), list.size());
-    }
-    void SetZero() const noexcept {
-        if constexpr (!(std::is_trivial_v<T>)) {
-            static_assert(AlwaysFalse<T>, "Non-Trivial data cannot be setted");
-        } else {
-            if (vec.arr) memset(vec.arr, 0, sizeof(T) * mSize);
-        }
     }
     void operator=(std::initializer_list<T> const &list) noexcept {
         clear();
@@ -344,11 +351,29 @@ public:
         emplace_back(static_cast<T &&>(value));
     }
 
-    T *begin() const noexcept {
+    T *begin() noexcept {
         return vec.arr;
     }
-    T *end() const noexcept {
+    T *end() noexcept {
         return vec.arr + mSize;
+    }
+    T const *begin() const noexcept {
+        return vec.arr;
+    }
+    T const *end() const noexcept {
+        return vec.arr + mSize;
+    }
+    T *rbegin() noexcept {
+        return {end() - 1};
+    }
+    T *rend() noexcept {
+        return {begin() - 1};
+    }
+    T const *rcbegin() const noexcept {
+        return {begin() - 1};
+    }
+    T const *rcend() const noexcept {
+        return {end() - 1};
     }
 
     void erase(T *ite) noexcept {

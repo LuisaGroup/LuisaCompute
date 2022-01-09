@@ -4,6 +4,7 @@ import Database as db
 import ctypes
 from xml.etree import ElementTree as ET
 from shutil import copyfile
+from shutil import rmtree
 import os
 import os.path
 
@@ -12,6 +13,15 @@ def SetCLCompile(pdbIndex: int, root: ET.Element, xmlns):
     pdb = lb.XML_GetSubElement(root, 'ProgramDataBaseFileName', xmlns)
     pdb.text = "$(IntDir)vc_" + str(pdbIndex) + ".pdb"
 
+def GenerateCMakeFile(
+    projectName: str,
+    projectIncludeFiles: list,
+    cmakeTemplateString: str):
+    newStr = cmakeTemplateString.replace("VE_PROJECT", projectName)
+    pathStr = ""
+    for i in projectIncludeFiles:
+        pathStr += i + '\n'
+    return newStr.replace("VE_FILE", pathStr)
 
 def SetLink(root: ET.Element, dep: str, xmlns):
     depEle = lb.XML_GetSubElement(root, 'AdditionalDependencies', xmlns)
@@ -62,7 +72,7 @@ def RemoveIncludes(root: ET.Element, xmlns):
         root.remove(i)
 
 
-def RemoveNonExistsPath(subName: str, dll, root: ET.Element, xmlns, addFile:bool):
+def RemoveNonExistsPath(subName: str, dll, root: ET.Element, xmlns, addFile:bool, cmakeTemplateString: str):
     subName = subName.lower()
     itemGroups = []
     lb.XML_GetSubElements(itemGroups, root, "ItemGroup", xmlns)
@@ -84,10 +94,17 @@ def RemoveNonExistsPath(subName: str, dll, root: ET.Element, xmlns, addFile:bool
         root.append(CompileItemGroup)
         dll.Py_SetPackageName(subName.encode("ascii"))
         sz = dll.Py_PathSize()
+        projectFileNames = []
         for i in range(sz):
             p = str(ctypes.string_at(dll.Py_GetPath(i)), "ascii")
+            projectFileNames.append(p)
             CompileItemGroup.append(
                 ET.Element("ClCompile", {'Include': p}))
+        return GenerateCMakeFile(
+            subName,
+            projectFileNames,
+            cmakeTemplateString
+        )
 
 
 def GetVCXProj(path: str):
@@ -110,8 +127,12 @@ def OutputXML(tree, path):
 
 def VCXProjSettingMain(readFile:bool):
     dll = None
+    cmakeTemplateString = ""
     if readFile:
         filePath = os.path.dirname(os.path.realpath(__file__))
+        cmakeTempF = open(filePath + "/CMakeTemplate.txt", "r")
+        cmakeTemplateString = cmakeTempF.read()
+        cmakeTempF.close()
         dll = ctypes.cdll.LoadLibrary(filePath + "/VEngine_CPPBuilder.dll")
         dll.Py_InitFileSys()
         dll.Py_AddExtension("cpp".encode("ascii"))
@@ -127,6 +148,7 @@ def VCXProjSettingMain(readFile:bool):
         dll.Py_GetPath.restype = ctypes.c_char_p
 
     pdbIndex = 0
+    cmakeResult = ""
     for sub in bd.SubProj:
         subName = sub["Name"]
         subPath = subName + '.vcxproj'
@@ -134,16 +156,27 @@ def VCXProjSettingMain(readFile:bool):
         subRoot = subTree.getroot()
         if sub.get("RemoveHeader") == 1:
             RemoveIncludes(subRoot, subXmlns)
-        RemoveNonExistsPath(subName, dll, subRoot, subXmlns,readFile)
+        cmakeData = RemoveNonExistsPath(subName, dll, subRoot, subXmlns,readFile, cmakeTemplateString)
+        if cmakeData != None:
+            cmakeResult += cmakeData + '\n'
         SetItemDefinitionGroup(pdbIndex, subRoot, sub, subXmlns)
         pdbIndex += 1
         lb.XML_Format(subRoot)
         OutputXML(subTree, subPath)
     if readFile:
         dll.Py_DisposeFileSys()
+    cmakeTempF = open("CMakeLists.txt", "w")
+    cmakeTempF.write(cmakeResult)
+    cmakeTempF.close()
     print("Build Success!")
 
-
+def DeleteDotVS():
+    try:
+        rmtree(".vs")
+    except OSError as e:
+        print("Error: %s - %s." % (e.filename, e.strerror))
+        return
+    print("delete .vs success!");
 def MakeVCXProj(inverse:bool):
     backup = ""
     vs = ""
@@ -182,6 +215,7 @@ def VcxMain():
     GeneratePlaceHolder()
     ClearFilters()
     VCXProjSettingMain(True)
+    DeleteDotVS()
 
 def VcxMain_EmptyFile():
     GeneratePlaceHolder()

@@ -54,12 +54,12 @@ int main(int argc, char *argv[]) {
     Kernel2D fill_buffer_kernel = [](BufferFloat4 image) noexcept {
         Var coord = dispatch_id().xy();
         Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
-        image[coord.x + coord.y * dispatch_size_x()] = make_float4(rg, 1.0f, 1.0f);
+        image.write(coord.x + coord.y * dispatch_size_x(), make_float4(rg, 1.0f, 1.0f));
     };
 
     Kernel2D copy_texture_kernel = [](BufferFloat4 buffer, ImageFloat image) noexcept {
         Var coord = dispatch_id().xy();
-        buffer[coord.x + coord.y * dispatch_size_x()] = image.read(coord);
+        buffer.write(coord.x + coord.y * dispatch_size_x(), image.read(coord));
     };
 
     auto clear_image = device.compile(clear_image_kernel);
@@ -73,6 +73,7 @@ int main(int argc, char *argv[]) {
     //    }
 
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
+    auto device_image_uchar4 = device.create_image<uint>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
     std::vector<std::byte> download_image(1024u * 1024u * 4u);
     auto device_buffer = device.create_buffer<float4>(1024 * 1024);
 
@@ -82,7 +83,8 @@ int main(int argc, char *argv[]) {
     stream << clear_image(device_image.view(0)).dispatch(1024u, 1024u)
            << fill_image(device_image.view(0).region(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
            << fill_buffer(device_buffer).dispatch(1024, 1024)
-           << device_image.view(0).copy_to(download_image.data())
+           << device_image.copy_to(device_image_uchar4)
+           << device_image_uchar4.view(0).copy_to(download_image.data())
            << synchronize();
         stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
 

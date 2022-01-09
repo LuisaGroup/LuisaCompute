@@ -13,7 +13,7 @@
 
 #include <core/hash.h>
 #include <core/concepts.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa::compute {
 
@@ -237,6 +237,8 @@ struct dimension_impl<std::tuple<T...>> {
     static constexpr auto value = sizeof...(T);
 };
 
+class TypeRegistry;
+
 }// namespace detail
 
 template<typename T>
@@ -246,21 +248,19 @@ template<typename T>
 constexpr auto dimension_v = dimension<T>::value;
 
 class Type;
-class TypeRegistry;
 
 struct TypeVisitor {
     virtual void visit(const Type *) noexcept = 0;
 };
 
-struct TypeData {
-    luisa::string description;
-    luisa::vector<const Type *> members;
-};
 class AstSerializer;
+
 class Type {
-    friend class AstSerializer;
 
 public:
+    friend class AstSerializer;
+    friend class detail::TypeRegistry;
+
     enum struct Tag : uint32_t {
 
         BOOL,
@@ -287,9 +287,8 @@ private:
     size_t _alignment;
     uint32_t _dimension;
     Tag _tag;
-    luisa::unique_ptr<TypeData> _data;
-
-    [[nodiscard]] static TypeRegistry &_registry() noexcept;
+    luisa::string _description;
+    luisa::vector<const Type *> _members;
 
 public:
     template<typename T>
@@ -297,9 +296,9 @@ public:
     template<typename T>
     [[nodiscard]] static auto of(T &&) noexcept { return of<std::remove_cvref_t<T>>(); }
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
+    [[nodiscard]] static const Type *find(uint64_t hash) noexcept;
     [[nodiscard]] static const Type *at(uint32_t uid) noexcept;
     [[nodiscard]] static size_t count() noexcept;
-    [[nodiscard]] static Type const *get_type(uint64_t hash);
     static void traverse(TypeVisitor &visitor) noexcept;
 
     [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }
@@ -310,13 +309,13 @@ public:
     [[nodiscard]] constexpr auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto alignment() const noexcept { return _alignment; }
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
-    [[nodiscard]] std::string_view description() const noexcept;
+    [[nodiscard]] auto description() const noexcept { return luisa::string_view{_description}; }
     [[nodiscard]] constexpr size_t dimension() const noexcept {
         assert(is_array() || is_vector() || is_matrix() || is_texture());
         return _dimension;
     }
 
-    [[nodiscard]] std::span<const Type *const> members() const noexcept;
+    [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
     [[nodiscard]] const Type *element() const noexcept;
 
     [[nodiscard]] constexpr bool is_scalar() const noexcept {

@@ -13,7 +13,7 @@
 #import <MetalKit/MetalKit.h>
 
 #import <core/spin_mutex.h>
-#import <core/allocator.h>
+#import <core/stl.h>
 #import <runtime/device.h>
 #import <ast/function.h>
 #import <backends/metal/metal_event.h>

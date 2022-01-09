@@ -3,7 +3,7 @@
 //
 
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/logging.h>
 
 namespace luisa {
@@ -11,7 +11,7 @@ namespace luisa {
 namespace detail {
 [[nodiscard]] spdlog::logger &default_logger() noexcept {
     static auto logger = [] {
-        auto sink = luisa::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         spdlog::logger l{"console", sink};
 #ifndef NDEBUG
         l.set_level(spdlog::level::debug);

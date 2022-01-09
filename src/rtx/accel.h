@@ -5,7 +5,7 @@
 #pragma once
 
 #include <core/basic_types.h>
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/observer.h>
 
 #include <rtx/ray.h>
@@ -52,6 +52,8 @@ public:
     // shader functions
     [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
     [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<float4x4> instance_to_world(Expr<int> instance_id) const noexcept;
+    [[nodiscard]] Var<float4x4> instance_to_world(Expr<uint> instance_id) const noexcept;
 };
 
 template<>
@@ -77,6 +79,18 @@ public:
             detail::FunctionBuilder::current()->call(
                 Type::of<bool>(), CallOp::TRACE_ANY,
                 {_expression, ray.expression()}));
+    }
+    [[nodiscard]] auto instance_to_world(Expr<uint> instance_id) const noexcept {
+        return def<float4x4>(
+            detail::FunctionBuilder::current()->call(
+                Type::of<float4x4>(), CallOp::INSTANCE_TO_WORLD_MATRIX,
+                {_expression, instance_id.expression()}));
+    }
+    [[nodiscard]] auto instance_to_world(Expr<int> instance_id) const noexcept {
+        return def<float4x4>(
+            detail::FunctionBuilder::current()->call(
+                Type::of<float4x4>(), CallOp::INSTANCE_TO_WORLD_MATRIX,
+                {_expression, instance_id.expression()}));
     }
 };
 

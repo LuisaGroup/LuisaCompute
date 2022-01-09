@@ -154,7 +154,7 @@ public:
 }// namespace detail
 
 void MetalCodegen::visit(const LiteralExpr *expr) {
-    std::visit(detail::LiteralPrinter{_scratch}, expr->value());
+    luisa::visit(detail::LiteralPrinter{_scratch}, expr->value());
 }
 
 void MetalCodegen::visit(const RefExpr *expr) {
@@ -255,6 +255,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
             _scratch << "atomic_fetch_max_explicit";
             is_atomic_op = true;
             break;
+        case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
@@ -291,6 +293,7 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
     }
@@ -694,7 +697,7 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
-            _scratch << "instance_acceleration_structure ";
+            _scratch << "const Accel ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::THREAD_ID:
@@ -728,7 +731,7 @@ void MetalCodegen::_emit_indent() noexcept {
     }
 }
 
-void MetalCodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+void MetalCodegen::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";
@@ -754,7 +757,7 @@ void MetalCodegen::_emit_constant(Function::Constant c) noexcept {
     auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
-    std::visit(
+    luisa::visit(
         [count, this](auto ptr) {
             detail::LiteralPrinter print{_scratch};
             for (auto i = 0u; i < count; i++) {
@@ -843,6 +846,16 @@ void MetalCodegen::_emit_preamble(Function f) noexcept {
     _scratch << R"(#include <metal_stdlib>
 
 using namespace metal;
+
+template<typename T, typename I>
+[[nodiscard, gnu::always_inline]] inline auto buffer_read(const device T *buffer, I index) {
+  return buffer[index];
+}
+
+template<typename T, typename I>
+[[gnu::always_inline]] inline void buffer_write(device T *buffer, I index, T value) {
+  buffer[index] = value;
+}
 
 template<typename T>
 [[nodiscard, gnu::always_inline]] inline auto address_of(thread T &x) {
@@ -1084,7 +1097,7 @@ struct alignas(16) BindlessItem {
   metal::texture3d<float> handle3d;
 };
 
-[[nodiscard, gnu::always_inline]] sampler get_sampler(uint code) {
+[[nodiscard, gnu::always_inline]] constexpr sampler get_sampler(uint code) {
   switch (code) {
     case 0: return sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none);
     case 1: return sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none);
@@ -1119,70 +1132,70 @@ struct alignas(16) Hit {
   float2 m2;
 };
 
-[[nodiscard]] auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d(device const BindlessItem *heap, uint index, float2 uv) {
   device const auto &t = heap[index];
   return t.handle2d.sample(get_sampler(t.sampler2d), uv);
 }
 
-[[nodiscard]] auto bindless_texture_sample3d(device const BindlessItem *heap, uint index, float3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d(device const BindlessItem *heap, uint index, float3 uvw) {
   device const auto &t = heap[index];
   return t.handle3d.sample(get_sampler(t.sampler3d), uvw);
 }
 
-[[nodiscard]] auto bindless_texture_sample2d_level(device const BindlessItem *heap, uint index, float2 uv, float lod) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_level(device const BindlessItem *heap, uint index, float2 uv, float lod) {
   device const auto &t = heap[index];
   return t.handle2d.sample(get_sampler(t.sampler2d), uv, level(lod));
 }
 
-[[nodiscard]] auto bindless_texture_sample3d_level(device const BindlessItem *heap, uint index, float3 uvw, float lod) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_level(device const BindlessItem *heap, uint index, float3 uvw, float lod) {
   device const auto &t = heap[index];
   return t.handle3d.sample(get_sampler(t.sampler3d), uvw, level(lod));
 }
 
-[[nodiscard]] auto bindless_texture_sample2d_grad(device const BindlessItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample2d_grad(device const BindlessItem *heap, uint index, float2 uv, float2 dpdx, float2 dpdy) {
   device const auto &t = heap[index];
   return t.handle2d.sample(get_sampler(t.sampler2d), uv, gradient2d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto bindless_texture_sample3d_grad(device const BindlessItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_sample3d_grad(device const BindlessItem *heap, uint index, float3 uvw, float3 dpdx, float3 dpdy) {
   device const auto &t = heap[index];
   return t.handle3d.sample(get_sampler(t.sampler3d), uvw, gradient3d(dpdx, dpdy));
 }
 
-[[nodiscard]] auto bindless_texture_size2d(device const BindlessItem *heap, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d(device const BindlessItem *heap, uint i) {
   return uint2(heap[i].handle2d.get_width(), heap[i].handle2d.get_height());
 }
 
-[[nodiscard]] auto bindless_texture_size3d(device const BindlessItem *heap, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d(device const BindlessItem *heap, uint i) {
   return uint3(heap[i].handle3d.get_width(), heap[i].handle3d.get_height(), heap[i].handle3d.get_depth());
 }
 
-[[nodiscard]] auto bindless_texture_size2d_level(device const BindlessItem *heap, uint i, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size2d_level(device const BindlessItem *heap, uint i, uint lv) {
   return uint2(heap[i].handle2d.get_width(lv), heap[i].handle2d.get_height(lv));
 }
 
-[[nodiscard]] auto bindless_texture_size3d_level(device const BindlessItem *heap, uint i, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_size3d_level(device const BindlessItem *heap, uint i, uint lv) {
   return uint3(heap[i].handle3d.get_width(lv), heap[i].handle3d.get_height(lv), heap[i].handle3d.get_depth(lv));
 }
 
-[[nodiscard]] auto bindless_texture_read2d(device const BindlessItem *heap, uint i, uint2 uv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d(device const BindlessItem *heap, uint i, uint2 uv) {
   return heap[i].handle2d.read(uv);
 }
 
-[[nodiscard]] auto bindless_texture_read3d(device const BindlessItem *heap, uint i, uint3 uvw) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d(device const BindlessItem *heap, uint i, uint3 uvw) {
   return heap[i].handle3d.read(uvw);
 }
 
-[[nodiscard]] auto bindless_texture_read2d_level(device const BindlessItem *heap, uint i, uint2 uv, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read2d_level(device const BindlessItem *heap, uint i, uint2 uv, uint lv) {
   return heap[i].handle2d.read(uv, lv);
 }
 
-[[nodiscard]] auto bindless_texture_read3d_level(device const BindlessItem *heap, uint i, uint3 uvw, uint lv) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_texture_read3d_level(device const BindlessItem *heap, uint i, uint3 uvw, uint lv) {
   return heap[i].handle3d.read(uvw, lv);
 }
 
 template<typename T>
-[[nodiscard]] auto bindless_buffer_read(device const BindlessItem *heap, uint buffer_index, uint i) {
+[[nodiscard, gnu::always_inline]] inline auto bindless_buffer_read(device const BindlessItem *heap, uint buffer_index, uint i) {
   return static_cast<device const T *>(heap[buffer_index].buffer)[i];
 }
 
@@ -1191,7 +1204,19 @@ template<typename T>
     if (f.raytracing()) {
         _scratch << R"(using namespace metal::raytracing;
 
-[[nodiscard]] constexpr auto intersector_closest() {
+struct alignas(16) Instance {
+  array<float, 12> transform;
+  uint pad[4];
+};
+
+static_assert(sizeof(Instance) == 64u);
+
+struct Accel {
+  instance_acceleration_structure handle;
+  device const Instance *__restrict__ instances;
+};
+
+[[nodiscard, gnu::always_inline]] constexpr auto intersector_closest() {
   intersector<triangle_data, instancing> i;
   i.assume_geometry_type(geometry_type::triangle);
   i.force_opacity(forced_opacity::opaque);
@@ -1199,7 +1224,7 @@ template<typename T>
   return i;
 }
 
-[[nodiscard]] constexpr auto intersector_any() {
+[[nodiscard, gnu::always_inline]] constexpr auto intersector_any() {
   intersector<triangle_data, instancing> i;
   i.assume_geometry_type(geometry_type::triangle);
   i.force_opacity(forced_opacity::opaque);
@@ -1207,22 +1232,33 @@ template<typename T>
   return i;
 }
 
-[[nodiscard]] auto make_ray(Ray r_in) {
+[[nodiscard, gnu::always_inline]] inline auto make_ray(Ray r_in) {
   auto o = float3(r_in.m0[0], r_in.m0[1], r_in.m0[2]);
   auto d = float3(r_in.m2[0], r_in.m2[1], r_in.m2[2]);
   return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard]] auto trace_closest(instance_acceleration_structure accel, Ray r) {
-  auto isect = intersector_closest().intersect(make_ray(r), accel);
+[[nodiscard, gnu::always_inline]] inline auto trace_closest(Accel accel, Ray r) {
+  auto isect = intersector_closest().intersect(make_ray(r), accel.handle);
   return isect.type == intersection_type::none ?
     Hit{0xffffffffu, 0xffffffffu, float2(0.0f)} :
-    Hit{isect.instance_id, isect.primitive_id, isect.triangle_barycentric_coord};
+    Hit{isect.instance_id,
+        isect.primitive_id,
+        isect.triangle_barycentric_coord};
 }
 
-[[nodiscard]] auto trace_any(instance_acceleration_structure accel, Ray r) {
-  auto isect = intersector_any().intersect(make_ray(r), accel);
+[[nodiscard, gnu::always_inline]] inline auto trace_any(Accel accel, Ray r) {
+  auto isect = intersector_any().intersect(make_ray(r), accel.handle);
   return isect.type != intersection_type::none;
+}
+
+[[nodiscard, gnu::always_inline]] inline auto accel_instance_transform(Accel accel, uint i) {
+  auto m = accel.instances[i].transform;
+  return float4x4(
+    m[0], m[1], m[2], m[3],
+    m[4], m[5], m[6], m[7],
+    m[8], m[9], m[10], m[11],
+    0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 )";

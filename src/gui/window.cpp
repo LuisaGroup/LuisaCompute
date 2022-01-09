@@ -7,7 +7,7 @@
 #include <glad/glad.h>
 #include <imgui/backends/imgui_impl_opengl3.h>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/logging.h>
 #include <gui/imgui_impl_glfw.h>
 #include <gui/window.h>
@@ -44,7 +44,7 @@ public:
     GLFWContext &operator=(const GLFWContext &) noexcept = delete;
     ~GLFWContext() noexcept { glfwTerminate(); }
     [[nodiscard]] static auto retain() noexcept {
-        static std::weak_ptr<GLFWContext> instance;
+        static luisa::weak_ptr<GLFWContext> instance;
         if (auto p = instance.lock()) { return p; }
         auto p = luisa::make_shared<GLFWContext>();
         instance = p;
