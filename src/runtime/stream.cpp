@@ -19,9 +19,7 @@ Stream Device::create_stream() noexcept {
 void Stream::_dispatch(CommandList commands) noexcept {
 
 #if LUISA_COMPUTE_ENABLE_COMMAND_REORDERING
-    size_t size = 0;
-    for (auto command : commands)
-        ++size;
+    auto size = commands.size();
     CommandReorderVisitor visitor(device(), size);
     for (auto command : commands) {
         command->accept(visitor);
@@ -31,11 +29,7 @@ void Stream::_dispatch(CommandList commands) noexcept {
         device()->dispatch(handle(), std::move(commandList));
     }
 #else
-    for (auto command : commands) {
-        CommandList commandList;
-        commandList.append(command->clone());
-        device()->dispatch(handle(), std::move(commandList));
-    }
+    device()->dispatch(handle(), std::move(commands));
 #endif
 }
 
