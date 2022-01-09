@@ -29,9 +29,7 @@ class CommandReorderVisitor : public CommandVisitor {
         CommandType type;
 
         bool operator==(const CommandSource &b) const {
-            return handle == b.handle && offset == b.offset &&
-                   size == b.size && usage == b.usage &&
-                   type == b.type;
+            return memcmp(this, &b, sizeof(CommandSource)) == 0;
         }
 
         struct Hash {
@@ -66,7 +64,7 @@ class CommandReorderVisitor : public CommandVisitor {
 
 private:
     Device::Interface *device;
-    int windowSize = 5;
+    static constexpr int windowSize = 16;
     static thread_local luisa::vector<luisa::vector<CommandRelation>> _commandRelationData;
 
 private:
