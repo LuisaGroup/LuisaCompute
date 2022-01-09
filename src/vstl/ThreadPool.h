@@ -1,13 +1,13 @@
 #pragma once
 #include <vstl/Common.h>
-#include <vstl/ObjectPtr.h>
 #include <vstl/LockFreeStepQueue.h>
 #include <vstl/ThreadTaskHandle.h>
+#include <EASTL/shared_ptr.h>
 class VENGINE_DLL_COMMON ThreadPool final {
 	friend class ThreadTaskHandle;
 	vstd::vector<std::thread> threads;
 	vstd::vector<std::thread> backupThreads;
-	vstd::LockFreeStepQueue<vstd::ObjectPtr<ThreadTaskHandle::TaskData>, 2> taskList;
+	vstd::LockFreeStepQueue<eastl::shared_ptr<ThreadTaskHandle::TaskData>, 2> taskList;
 	void ThreadExecute(ThreadTaskHandle::TaskData*);
 	std::atomic_flag enabled;
 	std::mutex threadLock;
@@ -15,7 +15,7 @@ class VENGINE_DLL_COMMON ThreadPool final {
 	vstd::spin_mutex threadVectorLock;
 	std::condition_variable cv;
 	std::condition_variable backupCV;
-	void ExecuteTask(vstd::ObjectPtr<ThreadTaskHandle::TaskData> const& task, int64& accumulateCount);
+	void ExecuteTask(eastl::shared_ptr<ThreadTaskHandle::TaskData> const& task, int64& accumulateCount);
 	void EnableThread(int64 enableCount);
 	size_t workerThreadCount;
 	void ActiveOneBackupThread();

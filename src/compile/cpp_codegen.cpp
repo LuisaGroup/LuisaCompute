@@ -148,7 +148,7 @@ public:
 }// namespace detail
 
 void CppCodegen::visit(const LiteralExpr *expr) {
-    std::visit(detail::LiteralPrinter{_scratch}, expr->value());
+    luisa::visit(detail::LiteralPrinter{_scratch}, expr->value());
 }
 
 void CppCodegen::visit(const RefExpr *expr) {
@@ -222,6 +222,8 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::ATOMIC_FETCH_XOR: _scratch << "atomic_fetch_xor"; break;
         case CallOp::ATOMIC_FETCH_MIN: _scratch << "atomic_fetch_min"; break;
         case CallOp::ATOMIC_FETCH_MAX: _scratch << "atomic_fetch_max"; break;
+        case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
         case CallOp::TEXTURE_READ: _scratch << "texture_read"; break;
         case CallOp::TEXTURE_WRITE: _scratch << "texture_write"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "texture_heap_sample2d"; break;
@@ -255,8 +257,9 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
-        case CallOp::TRACE_CLOSEST: break;
-        case CallOp::TRACE_ANY: break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "instance_to_world"; break;
+        case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
+        case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
@@ -565,7 +568,7 @@ void CppCodegen::_emit_indent() noexcept {
     for (auto i = 0u; i < _indent; i++) { _scratch << "  "; }
 }
 
-void CppCodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+void CppCodegen::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";
@@ -592,7 +595,7 @@ void CppCodegen::_emit_constant(Function::Constant c) noexcept {
     auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
-    std::visit(
+    luisa::visit(
         [count, this](auto ptr) {
             detail::LiteralPrinter print{_scratch};
             for (auto i = 0u; i < count; i++) {

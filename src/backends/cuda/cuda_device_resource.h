@@ -1,5 +1,8 @@
 #pragma once
 
+#define lc_buffer_read(buffer, index) ((buffer)[index])
+#define lc_buffer_write(buffer, index, value) static_cast<void>((buffer)[index] = (value))
+
 enum struct LCPixelStorage : lc_uint {
 
     BYTE1,
@@ -286,7 +289,7 @@ template<typename T>
             result.w = lc_texel_read_convert<T>(v.w);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
     return result;
 }
@@ -389,7 +392,7 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             surf2Dwrite(make_float4(vx, vy, vz, vw), surf.handle, p.x * sizeof(float4), p.y, cudaBoundaryModeZero);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
 }
 
@@ -492,7 +495,7 @@ template<typename T>
             result.w = lc_texel_read_convert<T>(v.w);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
     return result;
 }
@@ -595,7 +598,7 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             surf3Dwrite(make_float4(vx, vy, vz, vw), surf.handle, p.x * sizeof(float4), p.y, p.z, cudaBoundaryModeZero);
             break;
         }
-        default: break;
+        default: __builtin_unreachable();
     }
 }
 
@@ -701,17 +704,34 @@ struct alignas(16) LCRay {
 };
 
 struct alignas(16) LCHit {
-    lc_uint m0;  // instance index
-    lc_uint m1;  // primitive index
-    lc_float2 m2;// barycentric coordinates
+    lc_uint m0;    // instance index
+    lc_uint m1;    // primitive index
+    lc_float2 m2;  // barycentric coordinates
     LCHit() noexcept : m0{~0u}, m1{~0u}, m2{0.0f, 0.0f} {}
     LCHit(lc_uint inst, lc_uint prim, lc_float2 bary) noexcept
         : m0{inst}, m1{prim}, m2{bary} {}
 };
 
-#if LC_RAYTRACING_KERNEL
+struct alignas(16) LCAccelInstance {
+    lc_float4x4 m;
+    float pad[4];
+};
 
-using LCAccel = unsigned long long;
+struct alignas(16u) LCAccel {
+    unsigned long long handle;
+    const LCAccelInstance *instances;
+};
+
+[[nodiscard]] inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
+    auto m = accel.instances[instance_id].m;
+    return lc_make_float4x4(
+        m[0].x, m[1].x, m[2].x, 0.0f,
+        m[0].y, m[1].y, m[2].y, 0.0f,
+        m[0].z, m[1].z, m[2].z, 0.0f,
+        m[0].w, m[1].w, m[2].w, 1.0f);
+}
+
+#if LC_RAYTRACING_KERNEL
 
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
@@ -778,7 +798,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
-        : "r"(0u), "l"(accel), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
+        : "r"(0u), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.0f), "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u),
           "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(p4), "r"(p5), "r"(p6),
           "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
@@ -794,7 +814,9 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto r2 = 0u;
     auto r3 = 0u;
     lc_trace_impl<0u, 4u, flags>(accel, ray, r0, r1, r2, r3);
-    return LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
+    return r0 == ~0u ?
+        LCHit{} :
+        LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
 }
 
 [[nodiscard]] inline auto lc_trace_any(LCAccel accel, LCRay ray) noexcept {

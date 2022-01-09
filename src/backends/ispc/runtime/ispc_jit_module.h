@@ -6,7 +6,7 @@
 
 #include <filesystem>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <backends/ispc/runtime/ispc_module.h>
 
 namespace llvm {

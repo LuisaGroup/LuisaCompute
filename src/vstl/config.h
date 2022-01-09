@@ -1,7 +1,6 @@
 #pragma once
 #include <core/platform.h>
 #include <core/logging.h>
-
 #define VSTL_ABORT() LUISA_ERROR_WITH_LOCATION("vstl::abort()")
 
 #if defined(UNICODE) && !defined(VSTL_UNICODE)

@@ -22,7 +22,7 @@ struct ShaderDispatcher {
     }
     void operator()(uint, ShaderDispatchCommand::TextureArgument const &arg) {
     }
-    void operator()(uint var_id, std::span<std::byte const> arg) {
+    void operator()(uint var_id, luisa::span<std::byte const> arg) {
         Shader::PackArr(vec, arg.data(), arg.size(), CodegenUtility::GetTypeAlign(*func.arguments()[sd->GetArgIndex(var_id)].type()));
     }
     void operator()(uint, ShaderDispatchCommand::BindlessArrayArgument const &arg) {}

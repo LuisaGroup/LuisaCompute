@@ -17,15 +17,20 @@ struct Expr;
 template<typename T>
 class BufferView;
 
-#define LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)                    \
-    static_assert(std::is_same_v<T, std::remove_cvref_t<T>>); \
-    static_assert(std::is_trivially_copyable_v<T>);           \
-    static_assert(std::is_trivially_destructible_v<T>);
+template<typename T>
+using is_valid_buffer_element = std::conjunction<
+    std::is_same<T, std::remove_cvref_t<T>>,
+    std::is_trivially_copyable<T>,
+    std::is_trivially_destructible<T>,
+    std::bool_constant<(alignof(T) >= 4u)>>;
+
+template<typename T>
+constexpr auto is_valid_buffer_element_v = is_valid_buffer_element<T>::value;
 
 template<typename T>
 class Buffer final : public Resource {
 
-    LUISA_CHECK_BUFFER_ELEMENT_TYPE(T)
+    static_assert(is_valid_buffer_element_v<T>);
 
 private:
     size_t _size{};
@@ -52,9 +57,10 @@ public:
     [[nodiscard]] auto copy_from(BufferView<T> source) { return this->view().copy_from(source); }
 
     template<typename I>
-    [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
-        return this->view()[std::forward<I>(i)];
-    }
+    [[nodiscard]] decltype(auto) read(I &&i) const noexcept { return this->view().read(std::forward<I>(i)); }
+
+    template<typename I, typename V>
+    void write(I &&i, V &&v) const noexcept { this->view().write(std::forward<I>(i), std::forward<V>(v)); }
 
     template<typename I>
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
@@ -64,6 +70,8 @@ public:
 
 template<typename T>
 class BufferView {
+
+    static_assert(is_valid_buffer_element_v<T>);
 
 private:
     uint64_t _handle;
@@ -132,8 +140,13 @@ public:
     }
 
     template<typename I>
-    [[nodiscard]] decltype(auto) operator[](I &&i) const noexcept {
-        return Expr<Buffer<T>>{*this}[std::forward<I>(i)];
+    [[nodiscard]] decltype(auto) read(I &&i) const noexcept {
+        return Expr<Buffer<T>>{*this}.read(std::forward<I>(i));
+    }
+
+    template<typename I, typename V>
+    void write(I &&i, V &&v) const noexcept {
+        Expr<Buffer<T>>{*this}.write(std::forward<I>(i), std::forward<V>(v));
     }
 
     template<typename I>
@@ -147,8 +160,6 @@ BufferView(const Buffer<T> &) -> BufferView<T>;
 
 template<typename T>
 BufferView(BufferView<T>) -> BufferView<T>;
-
-#undef LUISA_CHECK_BUFFER_ELEMENT_TYPE
 
 namespace detail {
 

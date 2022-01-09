@@ -12,6 +12,7 @@
 #include <core/concepts.h>
 #include <ast/function.h>
 #include <meta/property.h>
+#include <runtime/context.h>
 #include <runtime/pixel.h>
 #include <runtime/sampler.h>
 #include <runtime/command_list.h>
@@ -48,13 +49,13 @@ class FunctionBuilder;
 class Device {
 
 public:
-    class Interface : public std::enable_shared_from_this<Interface> {
+    class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
-        const Context &_ctx;
+        Context _ctx;
 
     public:
-        explicit Interface(const Context &ctx) noexcept : _ctx{ctx} {}
+        explicit Interface(Context ctx) noexcept : _ctx{std::move(ctx)} {}
         virtual ~Interface() noexcept = default;
 
         [[nodiscard]] const Context &context() const noexcept { return _ctx; }
@@ -128,7 +129,7 @@ public:
 
     using Deleter = void(Interface *);
     using Creator = Interface *(const Context & /* context */, std::string_view /* properties */);
-    using Handle = std::shared_ptr<Interface>;
+    using Handle = luisa::shared_ptr<Interface>;
 
 private:
     Handle _impl;
@@ -187,6 +188,11 @@ public:
 
     [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {
         return _impl->query(meta_expr);
+    }
+
+    template<typename T, typename... Args>
+    [[nodiscard]] auto create(Args &&...args) noexcept {
+        return _create<T>(std::forward<Args>(args)...);
     }
 };
 

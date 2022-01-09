@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     };
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return heap.tex2d(0u).sample(uv, mip);
+        return heap.tex2d(0u).sample(uv, make_float2(), make_float2());
     };
 
     Kernel1D useless_kernel = [](BindlessVar heap) noexcept {

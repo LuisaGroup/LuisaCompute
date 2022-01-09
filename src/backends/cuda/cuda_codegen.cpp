@@ -169,7 +169,7 @@ public:
 }// namespace detail
 
 void CUDACodegen::visit(const LiteralExpr *expr) {
-    std::visit(detail::LiteralPrinter{_scratch}, expr->value());
+    luisa::visit(detail::LiteralPrinter{_scratch}, expr->value());
 }
 
 void CUDACodegen::visit(const RefExpr *expr) {
@@ -271,6 +271,8 @@ void CUDACodegen::visit(const CallExpr *expr) {
             _scratch << "atomicMax";
             is_atomic = true;
             break;
+        case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
             _scratch << "lc_surf"
                      << expr->arguments().front()->type()->dimension() << "d_read<"
@@ -312,6 +314,7 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "lc_accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "lc_trace_any"; break;
     }
@@ -538,7 +541,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
-            _emit_variable_decl(arg);
+            _emit_variable_decl(arg, false);
             _scratch << ",";
             any_arg = true;
         }
@@ -697,7 +700,7 @@ void CUDACodegen::_emit_indent() noexcept {
     for (auto i = 0u; i < _indent; i++) { _scratch << "  "; }
 }
 
-void CUDACodegen::_emit_statements(std::span<const Statement *const> stmts) noexcept {
+void CUDACodegen::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";
@@ -723,7 +726,7 @@ void CUDACodegen::_emit_constant(Function::Constant c) noexcept {
     auto count = c.type->dimension();
     static constexpr auto wrap = 16u;
     using namespace std::string_view_literals;
-    std::visit(
+    luisa::visit(
         [count, this](auto ptr) {
             detail::LiteralPrinter print{_scratch};
             for (auto i = 0u; i < count; i++) {
@@ -779,7 +782,7 @@ void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
-            _emit_variable_decl(v);
+            _emit_variable_decl(v, false);
             _scratch << "{};";
         }
     }

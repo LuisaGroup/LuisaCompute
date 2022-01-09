@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     Kernel2D fill_image_kernel = [&linear_to_srgb](BufferUInt image) noexcept {
         auto coord = dispatch_id().xy();
         auto rg = make_float2(coord) / make_float2(dispatch_size().xy());
-        image[coord.x + coord.y * dispatch_size_x()] = linear_to_srgb(make_float3(rg, 0.5f));
+        image.write(coord.x + coord.y * dispatch_size_x(), linear_to_srgb(make_float3(rg, 0.5f)));
     };
 
     // compile

@@ -10,11 +10,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <core/platform.h>
-#include <core/allocator.h>
-
-#ifndef FMT_STRING
-#define FMT_STRING(...) __VA_ARGS__
-#endif
+#include <core/stl.h>
 
 namespace luisa {
 

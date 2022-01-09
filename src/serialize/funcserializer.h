@@ -6,7 +6,7 @@ namespace luisa::compute {
 using namespace toolhub::db;
 class FuncSerializer {
 private:
-    using FuncMap = vstd::HashMap<uint64, std::pair<IJsonDict *, std::shared_ptr<detail::FunctionBuilder>>>;
+    using FuncMap = vstd::HashMap<uint64, std::pair<IJsonDict *, luisa::shared_ptr<detail::FunctionBuilder>>>;
     static vstd::unique_ptr<IJsonDict> GetBuilderSerFunc(detail::FunctionBuilder const *b, IJsonDatabase *db);
     static void GetBuilderDeserFunc(IJsonDict *dict, detail::FunctionBuilder *builder, FuncMap &map);
 

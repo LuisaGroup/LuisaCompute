@@ -12,6 +12,7 @@
 #include <runtime/buffer.h>
 #include <runtime/bindless_array.h>
 #include <dsl/syntax.h>
+#include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
 using namespace luisa;
@@ -68,11 +69,21 @@ int main(int argc, char *argv[]) {
     Callable add = [](Float a, Float b) noexcept { return a + b; };
     Callable sub = [](Float a, Float b) noexcept { return a - b; };
     Callable mul = [](Float a, Float b) noexcept { return a * b; };
-    std::vector ftab{add, sub, mul};
+    std::vector func_table{add, sub, mul};
+    Callable dynamic_dispatch = [&](UInt tag, Float a, Float b) noexcept {
+        Float result;
+        $switch(tag) {
+            for (auto i = 0u; i < func_table.size(); i++) {
+                $case(i) { result = func_table[i](a, b); };
+            }
+        };
+        return result;
+    };
+
     Kernel1D kernel = [&](BufferVar<float> buffer_float, Var<uint> count, BindlessVar heap) noexcept {
         Var tag = 114514;
         match({123, 6666, 114514}, tag, [&](auto i) noexcept {
-            Var result = ftab[i](float_consts[0], float_consts[1]);
+            Var result = func_table[i](float_consts[0], float_consts[1]);
         });
 
         Var v_int = 10;
@@ -89,7 +100,7 @@ int main(int argc, char *argv[]) {
 
         Var vv_int = int_consts[v_int];
         vv_int = 0;
-        Var v_float = buffer_float[count + thread_id().x];
+        Var v_float = buffer_float.read(count + thread_id().x);
         Var vv_float = float_consts[vv_int];
         Var call_ret = callable(10, v_int, v_float);
 
@@ -126,9 +137,9 @@ int main(int argc, char *argv[]) {
             Var x = w.x;
         }
 
-        Var vec4 = buffer[10];           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer[v_int];// indexing into captured buffer (with Var)
-        buffer[v_int + 1] = 123.0f;
+        Var vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
+        Var another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)
+        buffer.write(v_int + 1, 123.0f);
     };
     auto compiled_kernel = device.compile(kernel);
     auto stream = device.create_stream();

@@ -7,35 +7,35 @@
 #include <type_traits>
 #include <mutex>
 #include <vstl/MetaLib.h>
-#include <vstl/vector.h>
 #include <vstl/Memory.h>
-#include <vstl/VAllocator.h>
 #include <vstl/spin_mutex.h>
+#include <EASTL/vector.h>
+
 namespace vstd {
 
-template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, bool noCheckBeforeDispose = std::is_trivially_destructible<T>::value>
+template<typename T, bool noCheckBeforeDispose = std::is_trivially_destructible<T>::value>
 class Pool;
 
-template<typename T, VEngine_AllocType allocType>
-class Pool<T, allocType, true> {
-    using Allocator = VAllocHandle<allocType>;
+template<typename T>
+class Pool<T, true> {
 
 private:
-    vstd::vector<T *, allocType> allPtrs;
-    vector<void *, allocType> allocatedPtrs;
+    eastl::vector<T *> allPtrs;
+    eastl::vector<void *> allocatedPtrs;
     size_t capacity;
-    void *PoolMalloc(size_t size) {
-        return Allocator().Malloc(size);
+    static void *PoolMalloc(size_t size) {
+        return vengine_malloc(size);
     }
-    void PoolFree(void *ptr) {
-        return Allocator().Free(ptr);
+    static void PoolFree(void *ptr) {
+        return vengine_free(ptr);
     }
     inline void AllocateMemory() {
         if (!allPtrs.empty()) return;
         using StorageT = Storage<T, 1>;
         StorageT *ptr = reinterpret_cast<StorageT *>(PoolMalloc(sizeof(StorageT) * capacity));
         allPtrs.reserve(capacity + allPtrs.capacity());
-        allPtrs.push_back_func(
+        push_back_func(
+            allPtrs,
             [&](size_t i) {
                 return (T *)(ptr + i);
             },
@@ -46,7 +46,6 @@ private:
     }
 
 public:
-    static Allocator GetAllocator() { return Allocator(); };
     Pool(size_t capa, bool initialize = true) : capacity(capa) {
         if (initialize)
             AllocateMemory();
@@ -57,7 +56,7 @@ public:
         requires(std::is_constructible_v<T, Args &&...>)
     T *New(Args &&...args) {
         AllocateMemory();
-        T *value = allPtrs.erase_last();
+        T *value = erase_last(allPtrs);
         new (value) T(std::forward<Args>(args)...);
         return value;
     }
@@ -65,7 +64,7 @@ public:
         requires(std::is_constructible_v<T, Args &&...>)
     T *PlaceNew(Args &&...args) {
         AllocateMemory();
-        T *value = allPtrs.erase_last();
+        T *value = erase_last(allPtrs);
         new (value) T{std::forward<Args>(args)...};
         return value;
     }
@@ -76,7 +75,7 @@ public:
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = allPtrs.erase_last();
+            value = erase_last(allPtrs);
         }
         new (value) T(std::forward<Args>(args)...);
         return value;
@@ -88,7 +87,7 @@ public:
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = allPtrs.erase_last();
+            value = erase_last(allPtrs);
         }
         new (value) T{std::forward<Args>(args)...};
         return value;
@@ -119,23 +118,22 @@ public:
     }
 };
 
-template<typename T, VEngine_AllocType allocType>
-class Pool<T, allocType, false> {
+template<typename T>
+class Pool<T, false> {
 private:
-    using Allocator = VAllocHandle<allocType>;
     struct TypeCollector {
         Storage<T, 1> t;
         size_t index = std::numeric_limits<size_t>::max();
     };
-    vector<T *, allocType> allPtrs;
-    vector<void *, allocType> allocatedPtrs;
-    vector<TypeCollector *, allocType> allocatedObjects;
+    eastl::vector<T *> allPtrs;
+    eastl::vector<void *> allocatedPtrs;
+    eastl::vector<TypeCollector *> allocatedObjects;
     size_t capacity;
-    void *PoolMalloc(size_t size) {
-        return Allocator().Malloc(size);
+    static void *PoolMalloc(size_t size) {
+        return vengine_malloc(size);
     }
-    void PoolFree(void *ptr) {
-        return Allocator().Free(ptr);
+    static void PoolFree(void *ptr) {
+        return vengine_free(ptr);
     }
     inline void AllocateMemory() {
         if (!allPtrs.empty()) return;
@@ -157,15 +155,14 @@ private:
         TypeCollector *col = reinterpret_cast<TypeCollector *>(obj);
         if (col->index != allocatedObjects.size() - 1) {
             auto &&v = allocatedObjects[col->index];
-            v = allocatedObjects.erase_last();
+            v = erase_last(allocatedObjects);
             v->index = col->index;
         } else {
-            allocatedObjects.erase_last();
+            erase_last(allocatedObjects);
         }
     }
 
 public:
-    static Allocator GetAllocator() { return Allocator(); };
     struct PoolIterator {
     private:
         TypeCollector **beg;
@@ -213,7 +210,7 @@ public:
         requires(std::is_constructible_v<T, Args &&...>)
     T *New(Args &&...args) {
         AllocateMemory();
-        T *value = allPtrs.erase_last();
+        T *value = erase_last(allPtrs);
         new (value) T(std::forward<Args>(args)...);
         AddAllocatedObject(value);
         return value;
@@ -222,7 +219,7 @@ public:
         requires(std::is_constructible_v<T, Args &&...>)
     T *PlaceNew(Args &&...args) {
         AllocateMemory();
-        T *value = allPtrs.erase_last();
+        T *value = erase_last(allPtrs);
         new (value) T{std::forward<Args>(args)...};
         AddAllocatedObject(value);
         return value;
@@ -234,7 +231,7 @@ public:
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = allPtrs.erase_last();
+            value = erase_last(allPtrs);
             AddAllocatedObject(value);
         }
         new (value) T(std::forward<Args>(args)...);
@@ -247,7 +244,7 @@ public:
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = allPtrs.erase_last();
+            value = erase_last(allPtrs);
             AddAllocatedObject(value);
         }
         new (value) T{std::forward<Args>(args)...};
@@ -374,12 +371,12 @@ public:
 template<typename T>
 class JobPool {
 private:
-    vector<T *> allocatedPool;
-    vector<T *> list[2];
+    eastl::vector<T *> allocatedPool;
+    eastl::vector<T *> list[2];
     spin_mutex mtx;
     bool switcher = false;
     uint32_t capacity;
-    void ReserveList(vector<T *> &vec) {
+    void ReserveList(eastl::vector<T *> &vec) {
         T *t = new T[capacity];
         allocatedPool.push_back(t);
         vec.resize(capacity);
@@ -402,15 +399,15 @@ public:
     }
 
     T *New() {
-        vector<T *> &lst = list[switcher];
+        eastl::vector<T *> &lst = list[switcher];
         if (lst.empty()) ReserveList(lst);
-        T *value = lst.erase_last();
+        T *value = erase_last(lst);
         value->Reset();
         return value;
     }
 
     void Delete(T *value) {
-        vector<T *> &lst = list[!switcher];
+        eastl::vector<T *> &lst = list[!switcher];
         value->Dispose();
         std::lock_guard<spin_mutex> lck(mtx);
         lst.push_back(value);

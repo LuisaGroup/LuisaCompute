@@ -31,7 +31,7 @@ void aligned_free(void *p) noexcept {
 
 namespace detail {
 
-[[nodiscard]] std::string win32_last_error_message() {
+[[nodiscard]] luisa::string win32_last_error_message() {
     // Retrieve the system error message for the last-error code
     void *buffer = nullptr;
     auto err_code = GetLastError();
@@ -42,7 +42,7 @@ namespace detail {
         MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
         (LPTSTR)&buffer,
         0, nullptr);
-    auto err_msg = fmt::format("{} (code = 0x{:x}).", static_cast<char *>(buffer), err_code);
+    luisa::string err_msg{fmt::format("{} (code = 0x{:x}).", static_cast<char *>(buffer), err_code)};
     LocalFree(buffer);
     return err_msg;
 }
@@ -74,9 +74,9 @@ void dynamic_module_destroy(void *handle) noexcept {
 }
 
 void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
-    static thread_local std::string name;
+    static thread_local luisa::string name;
     name = name_view;
-    LUISA_INFO("Loading dynamic symbol: {}.", name);
+    LUISA_VERBOSE_WITH_LOCATION("Loading dynamic symbol: {}.", name);
     auto symbol = GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str());
     if (symbol == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
@@ -174,7 +174,7 @@ void dynamic_module_destroy(void *handle) noexcept {
 }
 
 void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
-    static thread_local std::string name;
+    static thread_local luisa::string name;
     name = name_view;
     Clock clock;
     auto symbol = dlsym(handle, name.c_str());
@@ -182,7 +182,7 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
         LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
                                   name, dlerror());
     }
-    LUISA_INFO(
+    LUISA_VERBOSE_WITH_LOCATION(
         "Loading dynamic symbol '{}' in {} ms.",
         name, clock.toc());
     return symbol;

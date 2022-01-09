@@ -8,7 +8,7 @@
 
 #include <cuda.h>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <core/spin_mutex.h>
 #include <backends/cuda/cuda_callback_context.h>
 #include <backends/cuda/cuda_ring_buffer.h>

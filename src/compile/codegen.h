@@ -6,7 +6,7 @@
 
 #include <string>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 #include <ast/function.h>
 
 namespace luisa::compute {

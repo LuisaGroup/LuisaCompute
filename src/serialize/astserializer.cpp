@@ -105,7 +105,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Variable const &t, IJsonDat
 void AstSerializer::DeSerialize(Variable &t, IJsonDict *r) {
     auto type = r->Get("type").try_get<int64>();
     if (type)
-        t._type = Type::get_type(*type);
+        t._type = Type::find(*type);
     else
         t._type = nullptr;
     t._tag = static_cast<Variable::Tag>(r->Get("tag").get_or<int64>(0));
@@ -127,7 +127,7 @@ template<typename T>
 struct SerArrayVisitor {
     void SerArray(
         IJsonArray &r,
-        vstd::span<T const> a) const {
+        luisa::span<T const> a) const {
         for (auto &&i : a) {
             r << static_cast<BasicType_t<T>>(i);
         }
@@ -144,7 +144,7 @@ struct SerArrayVisitor<luisa::Vector<T, n>> {
     using Type = luisa::Vector<T, n>;
     void SerArray(
         IJsonArray &r,
-        vstd::span<Type const> a) const {
+        luisa::span<Type const> a) const {
         for (auto &&i : a) {
             auto ptr = reinterpret_cast<T const *>(&i);
             for (auto id : vstd::range(n)) {
@@ -170,7 +170,7 @@ struct SerArrayVisitor<luisa::Matrix<n>> {
     using Type = luisa::Matrix<n>;
     void SerArray(
         IJsonArray &r,
-        vstd::span<Type const> a) const {
+        luisa::span<Type const> a) const {
         for (auto &&i : a) {
             auto ptr = reinterpret_cast<float const *>(&i);
             for (auto id : vstd::range(n * n)) {
@@ -197,7 +197,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantData const &t, IJso
     r->Set("view_type", view.index());
     r->Set("hash", t._hash);
     auto arr = db->CreateArray();
-    std::visit(
+    luisa::visit(
         [&]<typename T>(T const &t) {
             SerArrayVisitor<std::remove_cvref_t<typename T::element_type>>().SerArray(*arr, t);
         },
@@ -216,7 +216,7 @@ struct DeserArray {
         size_t sz = arr.Length() * sizeof(T);
         T *ptr = (T *)evt.Allocate(sz);
 
-        setView(std::span<T const>(ptr, arr.Length()));
+        setView(luisa::span<T const>(ptr, arr.Length()));
         for (auto &&i : arr) {
             *ptr = i.get_or<BasicType_t<T>>(0);
             ptr++;
@@ -232,7 +232,7 @@ struct DeserArray<luisa::Vector<T, n>> {
         Func &&setView) const {
         size_t sz = arr.Length() * sizeof(T);
         T *ptr = (T *)evt.Allocate(sz);
-        setView(std::span<luisa::Vector<T, n> const>((luisa::Vector<T, n> *)ptr, arr.Length() / n));
+        setView(luisa::span<luisa::Vector<T, n> const>((luisa::Vector<T, n> *)ptr, arr.Length() / n));
         for (auto &&i : arr) {
             *ptr = i.get_or<BasicType_t<T>>(0);
             ptr++;
@@ -248,7 +248,7 @@ struct DeserArray<luisa::Matrix<n>> {
         Func &&setView) const {
         size_t sz = arr.Length() * sizeof(float);
         float *ptr = (float *)evt.Allocate(sz);
-        setView(std::span<luisa::Matrix<n> const>((luisa::Matrix<n> *)ptr, arr.Length() / (n * n)));
+        setView(luisa::span<luisa::Matrix<n> const>((luisa::Matrix<n> *)ptr, arr.Length() / (n * n)));
         for (auto &&i : arr) {
             *ptr = i.get_or<double>(0);
             ptr++;
@@ -276,7 +276,7 @@ void AstSerializer::DeSerialize(ConstantData &t, IJsonDict *r, DeserVisitor cons
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(LiteralExpr::Value const &t, IJsonDatabase *db) {
     auto r = db->CreateDict();
-    std::visit(
+    luisa::visit(
         [&]<typename T>(T const &t) {
             if constexpr (!std::is_same_v<T, LiteralExpr::MetaValue>) {
                 SerArrayVisitor<T>().SerValue(r.get(), db, t);
@@ -478,7 +478,7 @@ Expression *AstSerializer::GenExpr(IJsonDict *dict, DeserVisitor &evt) {
         t->_hash = r->Get("hash").get_or<int64>(0);
         t->_hash_computed = true;
         auto type = r->Get("type").try_get<int64>();
-        t->_type = type ? Type::get_type(*type) : nullptr;
+        t->_type = type ? Type::find(*type) : nullptr;
         t->_usage = static_cast<Usage>(r->Get("usage").get_or<int64>(0));
         t->_tag = static_cast<Expression::Tag>(*tag);
     };

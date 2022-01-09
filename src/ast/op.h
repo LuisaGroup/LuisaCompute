@@ -5,6 +5,8 @@
 #pragma once
 
 #include <bitset>
+#include <iterator>
+
 #include <core/basic_types.h>
 
 namespace luisa::compute {
@@ -124,6 +126,8 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,
     ATOMIC_FETCH_MAX,
 
+    BUFFER_READ,
+    BUFFER_WRITE,
     TEXTURE_READ,
     TEXTURE_WRITE,
 
@@ -161,6 +165,8 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT3X3,
     MAKE_FLOAT4X4,
 
+    INSTANCE_TO_WORLD_MATRIX,
+
     TRACE_CLOSEST,
     TRACE_ANY
 };
@@ -174,9 +180,6 @@ public:
 
     class Iterator {
 
-    public:
-        struct End {};
-
     private:
         const CallOpSet &_set;
         uint _index{0u};
@@ -189,7 +192,7 @@ public:
         [[nodiscard]] CallOp operator*() const noexcept;
         Iterator &operator++() noexcept;
         Iterator operator++(int) noexcept;
-        [[nodiscard]] bool operator==(End) const noexcept;
+        [[nodiscard]] bool operator==(std::default_sentinel_t) const noexcept;
     };
 
 private:
@@ -201,7 +204,7 @@ public:
     void mark(CallOp op) noexcept { _bits.set(to_underlying(op)); }
     [[nodiscard]] auto test(CallOp op) const noexcept { return _bits.test(to_underlying(op)); }
     [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
-    [[nodiscard]] auto end() const noexcept { return Iterator::End{}; }
+    [[nodiscard]] auto end() const noexcept { return std::default_sentinel; }
 };
 
 enum struct AssignOp {

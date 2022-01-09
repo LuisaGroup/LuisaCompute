@@ -7,7 +7,7 @@
 #include <span>
 #include <variant>
 
-#include <core/allocator.h>
+#include <core/stl.h>
 
 namespace luisa::compute {
 
