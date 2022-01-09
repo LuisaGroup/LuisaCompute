@@ -11,6 +11,11 @@ MetalMesh::MetalMesh(
     id<MTLBuffer> v_buffer, size_t v_offset, size_t v_stride,
     id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
 
+    if (v_offset != 0u || t_offset != 0u) [[unlikely]] {
+        LUISA_WARNING_WITH_LOCATION(
+            "Metal seems to have trouble with non-zero-offset "
+            "vertex and/or index buffers in mesh.");
+    }
     auto mesh_desc = [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
     mesh_desc.vertexBuffer = v_buffer;
     mesh_desc.vertexBufferOffset = v_offset;
