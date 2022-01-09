@@ -33,18 +33,18 @@ class CommandReorderVisitor : public CommandVisitor {
                    size == b.size && usage == b.usage &&
                    type == b.type;
         }
-        inline auto hash() const {
-            return ((handle << 57) | (handle >> 7)) ^
-                   ((offset << 43) | (offset >> 11)) ^
-                   ((size << 31) | (size >> 33)) ^
-                   ((uint32_t(usage) << 19) | (uint32_t(usage) >> 13)) ^
-                   ((uint32_t(type) << 11) | (uint32_t(type) >> 21));
-        }
+
+        struct Hash {
+            [[nodiscard]] auto operator()(CommandSource cs) const {
+                return luisa::detail::xxh3_hash64(&cs, sizeof(cs), 19980810u);
+            }
+        };
     };
 
     struct CommandRelation {
         Command *command;
-        std::unordered_set<CommandSource, Hash64> sourceSet;
+        luisa::unordered_set<CommandSource, CommandSource::Hash> sourceSet;
+        explicit CommandRelation(Command *command) noexcept : command{command} {}
     };
 
     class ShaderDispatchCommandVisitor {
@@ -67,7 +67,7 @@ class CommandReorderVisitor : public CommandVisitor {
 private:
     Device::Interface *device;
     int windowSize = 5;
-    static thread_local std::vector<std::vector<CommandRelation>> _commandRelationData;
+    static thread_local luisa::vector<luisa::vector<CommandRelation>> _commandRelationData;
 
 private:
     inline bool Overlap(CommandSource sourceA, CommandSource sourceB);
@@ -77,7 +77,7 @@ private:
 public:
     explicit CommandReorderVisitor(Device::Interface *device, size_t size);
 
-    [[nodiscard]] std::vector<CommandList> getCommandLists() noexcept;
+    [[nodiscard]] luisa::vector<CommandList> getCommandLists() noexcept;
 
     // Buffer : resource
     void visit(const BufferUploadCommand *command) noexcept override;

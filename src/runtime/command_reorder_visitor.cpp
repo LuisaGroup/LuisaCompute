@@ -7,7 +7,7 @@
 
 namespace luisa::compute {
 
-thread_local std::vector<std::vector<CommandReorderVisitor::CommandRelation>> CommandReorderVisitor::_commandRelationData;
+thread_local luisa::vector<luisa::vector<CommandReorderVisitor::CommandRelation>> CommandReorderVisitor::_commandRelationData;
 
 CommandReorderVisitor::ShaderDispatchCommandVisitor::ShaderDispatchCommandVisitor(
     CommandReorderVisitor::CommandRelation *commandRelation, Function *kernel) {
@@ -127,8 +127,8 @@ void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::Com
         _commandRelationData[insertIndex].push_back(commandRelation);
 }
 
-std::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
-    std::vector<CommandList> ans;
+luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
+    luisa::vector<CommandList> ans;
 
     for (auto &i : _commandRelationData) {
         CommandList commandList;

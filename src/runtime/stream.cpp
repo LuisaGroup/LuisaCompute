@@ -14,7 +14,7 @@ Stream Device::create_stream() noexcept {
     return _create<Stream>();
 }
 
-//#define LUISA_COMPUTE_ENABLE_COMMAND_REORDERING 1
+#define LUISA_COMPUTE_ENABLE_COMMAND_REORDERING 1
 
 void Stream::_dispatch(CommandList commands) noexcept {
 
