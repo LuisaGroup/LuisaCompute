@@ -24,16 +24,20 @@ class CUDADevice final : public Device::Interface {
 
     public:
         explicit ContextGuard(CUcontext ctx) noexcept : _ctx{ctx} {
-            LUISA_CHECK_CUDA(cuCtxPushCurrent(_ctx));
+            static std::once_flag flag;
+            std::call_once(flag, [ctx]{
+                LUISA_CHECK_CUDA(cuCtxPushCurrent(ctx));
+            });
+//            LUISA_CHECK_CUDA(cuCtxPushCurrent(_ctx));
         }
         ~ContextGuard() noexcept {
-            CUcontext ctx = nullptr;
-            LUISA_CHECK_CUDA(cuCtxPopCurrent(&ctx));
-            if (ctx != _ctx) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Invalid CUDA context {} (expected {}).",
-                    fmt::ptr(ctx), fmt::ptr(_ctx));
-            }
+//            CUcontext ctx = nullptr;
+//            LUISA_CHECK_CUDA(cuCtxPopCurrent(&ctx));
+//            if (ctx != _ctx) [[unlikely]] {
+//                LUISA_ERROR_WITH_LOCATION(
+//                    "Invalid CUDA context {} (expected {}).",
+//                    fmt::ptr(ctx), fmt::ptr(_ctx));
+//            }
         }
     };
 
