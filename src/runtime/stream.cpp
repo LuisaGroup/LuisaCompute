@@ -27,11 +27,25 @@ void Stream::_dispatch(CommandList commands) noexcept {
     //        device()->dispatch(handle(), std::move(commandList));
     //    }
 
+    double sum = 0, dispatch_time = 0, clone_time = 0;
+    Clock time;
+
     for (auto command : commands) {
         CommandList commandList;
+        Clock t1;
         commandList.append(command->clone());
+        clone_time += t1.toc();
+        t1.tic();
         device()->dispatch(handle(), std::move(commandList));
+        dispatch_time += t1.toc();
     }
+
+    //    device()->dispatch(handle(), std::move(commands));
+
+    sum = time.toc();
+    LUISA_INFO("Clone Time : {}", clone_time);
+    LUISA_INFO("Dispatch Time : {}", dispatch_time);
+    LUISA_INFO("Sum Time : {}", sum);
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
