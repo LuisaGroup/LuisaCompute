@@ -124,6 +124,7 @@ public:
         [[nodiscard]] virtual uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
+        [[nodiscard]] virtual bool requires_command_reordering() const noexcept { return true; }
     };
 
     using Deleter = void(Interface *);

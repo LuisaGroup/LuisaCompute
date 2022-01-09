@@ -15,9 +15,11 @@ MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcep
     auto buffer_size = slot_size * size;
     _host_buffer = [device->handle() newBufferWithLength:buffer_size
                                                  options:MTLResourceCPUCacheModeDefaultCache |
-                                                         MTLResourceStorageModeShared];
+                                                         MTLResourceStorageModeShared |
+                                                         MTLResourceHazardTrackingModeUntracked];
     _device_buffer = [device->handle() newBufferWithLength:buffer_size
-                                                   options:MTLResourceStorageModePrivate];
+                                                   options:MTLResourceStorageModePrivate |
+                                                           MTLResourceHazardTrackingModeUntracked];
 }
 
 namespace detail {
