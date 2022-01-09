@@ -3,8 +3,10 @@
 //
 
 #include <utility>
+#include <vector>
 #include <runtime/device.h>
 #include <runtime/stream.h>
+#include <runtime/command_reorder_visitor.h>
 
 namespace luisa::compute {
 
@@ -12,9 +14,20 @@ Stream Device::create_stream() noexcept {
     return _create<Stream>();
 }
 
-void Stream::_dispatch(CommandList command_buffer) noexcept {
-    // TODO: reorder commands and separate them into command lists without hazards inside...
-    device()->dispatch(handle(), std::move(command_buffer));
+void Stream::_dispatch(CommandList commands) noexcept {
+    if (auto size = commands.size();
+        size > 1u && device()->requires_command_reordering()) {
+        CommandReorderVisitor visitor(device(), size);
+        for (auto command : commands) {
+            command->accept(visitor);
+        }
+        auto commandLists = visitor.getCommandLists();
+        for (auto &commandList : commandLists) {
+            device()->dispatch(handle(), std::move(commandList));
+        }
+    } else {
+        device()->dispatch(handle(), std::move(commands));
+    }
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {

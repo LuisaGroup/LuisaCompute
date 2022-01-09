@@ -4,6 +4,9 @@
 
 #include <cstring>
 #include <fstream>
+#include <omp.h>
+#include <future>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -406,7 +409,6 @@ CUDADevice::~CUDADevice() noexcept {
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {
-
     // global init
     static std::once_flag flag;
     std::call_once(flag, [] {
