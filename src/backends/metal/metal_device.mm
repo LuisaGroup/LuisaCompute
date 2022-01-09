@@ -24,7 +24,8 @@ namespace luisa::compute::metal {
 uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     Clock clock;
     auto buffer = [_handle newBufferWithLength:size_bytes
-                                       options:MTLResourceStorageModePrivate];
+                                       options:MTLResourceStorageModePrivate |
+                                               MTLResourceHazardTrackingModeUntracked];
     LUISA_VERBOSE_WITH_LOCATION(
         "Created buffer with size {} in {} ms.",
         size_bytes, clock.toc());
