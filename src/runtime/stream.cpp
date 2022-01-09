@@ -14,24 +14,29 @@ Stream Device::create_stream() noexcept {
     return _create<Stream>();
 }
 
-void Stream::_dispatch(CommandList commands) noexcept {
-    //    size_t size = 0;
-    //    for (auto command : commands)
-    //        ++size;
-    //    CommandReorderVisitor visitor(device(), size);
-    //    for (auto command : commands) {
-    //        command->accept(visitor);
-    //    }
-    //    auto commandLists = visitor.getCommandLists();
-    //    for (auto &commandList : commandLists) {
-    //        device()->dispatch(handle(), std::move(commandList));
-    //    }
+//#define LUISA_COMPUTE_ENABLE_COMMAND_REORDERING 1
 
+void Stream::_dispatch(CommandList commands) noexcept {
+
+#if LUISA_COMPUTE_ENABLE_COMMAND_REORDERING
+    size_t size = 0;
+    for (auto command : commands)
+        ++size;
+    CommandReorderVisitor visitor(device(), size);
+    for (auto command : commands) {
+        command->accept(visitor);
+    }
+    auto commandLists = visitor.getCommandLists();
+    for (auto &commandList : commandLists) {
+        device()->dispatch(handle(), std::move(commandList));
+    }
+#else
     for (auto command : commands) {
         CommandList commandList;
         commandList.append(command->clone());
         device()->dispatch(handle(), std::move(commandList));
     }
+#endif
 }
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
