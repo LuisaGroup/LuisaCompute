@@ -2,8 +2,6 @@
 // Created by ChenXin on 2021/12/9.
 //
 
-#include <vector>
-
 #include <luisa-compute.h>
 
 using namespace luisa;

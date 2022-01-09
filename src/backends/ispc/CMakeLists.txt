@@ -59,14 +59,3 @@ else () # fallback to DLL
     message(STATUS "Use runtime DLL loading for ISPC kernels")
     target_sources(luisa-compute-backend-ispc PRIVATE runtime/ispc_dll_module.cpp)
 endif ()
-
-# OpenMP support
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    # TODO
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
-    # TODO
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /openmp")
-endif()
