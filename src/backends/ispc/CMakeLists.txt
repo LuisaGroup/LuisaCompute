@@ -37,10 +37,10 @@ endforeach ()
 if (WIN32)
     option(LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT "Enable LLVM JIT for ISPC kernels" ON)
     if (LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT)
-        find_package(LLVM CONFIG)
+        find_package(LLVM)
     endif ()
 else ()
-    find_package(LLVM CONFIG REQUIRED)
+    find_package(LLVM REQUIRED)
 endif ()
 
 if (LLVM_FOUND) # link with llvm for jit
