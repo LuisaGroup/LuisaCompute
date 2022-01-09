@@ -22,37 +22,35 @@ CUDAStream::~CUDAStream() noexcept {
 }
 
 void CUDAStream::emplace_callback(CUDACallbackContext *cb) noexcept {
-    if (cb != nullptr) {
-        std::scoped_lock lock{_mutex};
-        _callbacks.emplace(cb);
-    }
+    if (cb != nullptr) { _current_callbacks.emplace_back(cb); }
 }
 
 void CUDAStream::dispatch_callbacks() noexcept {
+    if (_current_callbacks.empty()) { return; }
+    auto callbacks = std::move(_current_callbacks);
+    _current_callbacks = {};
     std::scoped_lock lock{_mutex};
-    if (!_callbacks.empty()) {
-        _callbacks.emplace(nullptr);
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            _handle,
-            [](void *p) noexcept {
-                constexpr auto pop = [](auto stream) -> CUDACallbackContext * {
-                    std::scoped_lock lock{stream->_mutex};
-                    if (stream->_callbacks.empty()) [[unlikely]] {
-                        LUISA_WARNING_WITH_LOCATION(
-                            "Fetching stream callback from empty queue.");
-                        return nullptr;
-                    }
-                    auto callback = stream->_callbacks.front();
-                    stream->_callbacks.pop();
-                    return callback;
-                };
-                auto stream = static_cast<CUDAStream *>(p);
-                while (auto callback = pop(stream)) {
-                    callback->recycle();
+    _callback_lists.emplace(std::move(callbacks));
+    LUISA_CHECK_CUDA(cuLaunchHostFunc(
+        _handle, [](void *p) noexcept {
+            constexpr auto pop = [](auto stream) -> luisa::vector<CUDACallbackContext *> {
+                std::scoped_lock lock{stream->_mutex};
+                if (stream->_callback_lists.empty()) [[unlikely]] {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Fetching stream callback from empty queue.");
+                    return {};
                 }
-            },
-            this));
-    }
+                auto callbacks = std::move(stream->_callback_lists.front());
+                stream->_callback_lists.pop();
+                return callbacks;
+            };
+            auto stream = static_cast<CUDAStream *>(p);
+            auto callbacks = pop(stream);
+            for (auto callback : callbacks) {
+                callback->recycle();
+            }
+        },
+        this));
 }
 
 }// namespace luisa::compute::cuda

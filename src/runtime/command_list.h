@@ -35,6 +35,7 @@ public:
 private:
     Command *_head{nullptr};
     Command *_tail{nullptr};
+    size_t _size{};
 
 private:
     void _recycle() noexcept;
@@ -49,6 +50,7 @@ public:
     [[nodiscard]] auto begin() const noexcept { return Iterator{_head}; }
     [[nodiscard]] auto end() const noexcept { return std::default_sentinel; }
     [[nodiscard]] auto empty() const noexcept { return _head == nullptr; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
 };
 
 }// namespace luisa::compute
