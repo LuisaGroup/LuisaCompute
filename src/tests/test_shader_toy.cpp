@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
         for (auto i : range(64)) {
             Var p = ro + rd * t;
             d = map(p, time) * 0.5f;
-            if_(d < 0.02f | d > 100.0f, [] { break_(); });
+            if_(d<0.02f | d> 100.0f, [] { break_(); });
             col += palette(length(p) * 0.1f) / (400.0f * d);
             t += d;
         }
@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     Framerate framerate{32};
-    window.run([&]{
+    window.run([&] {
         framerate.record();
         auto time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)

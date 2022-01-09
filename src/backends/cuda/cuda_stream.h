@@ -22,8 +22,9 @@ class CUDAStream {
 private:
     CUstream _handle;
     CUDARingBuffer _upload_pool;
-    luisa::queue<CUDACallbackContext *> _callbacks;
-    spin_mutex _mutex;
+    luisa::queue<luisa::vector<CUDACallbackContext *>> _callback_lists;
+    luisa::vector<CUDACallbackContext *> _current_callbacks;
+    std::mutex _mutex;
 
 public:
     CUDAStream() noexcept;
