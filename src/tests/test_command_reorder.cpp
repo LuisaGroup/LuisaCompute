@@ -58,10 +58,10 @@ int main(int argc, char *argv[]) {
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
         }
-        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+        luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
         assert(reordered_list.size() == 2);
-        std::vector<int> size(reordered_list.size(), 0);
+        luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
@@ -101,10 +101,10 @@ int main(int argc, char *argv[]) {
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
         }
-        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+        luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
         assert(reordered_list.size() == 3);
-        std::vector<int> size(reordered_list.size(), 0);
+        luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
@@ -140,10 +140,10 @@ int main(int argc, char *argv[]) {
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
         }
-        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+        luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
         assert(reordered_list.size() == 2);
-        std::vector<int> size(reordered_list.size(), 0);
+        luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
@@ -169,10 +169,10 @@ int main(int argc, char *argv[]) {
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
         }
-        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+        luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
         assert(reordered_list.size() == 3);
-        std::vector<int> size(reordered_list.size(), 0);
+        luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
@@ -222,10 +222,10 @@ int main(int argc, char *argv[]) {
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
         }
-        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+        luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
         assert(reordered_list.size() == 2);
-        std::vector<int> size(reordered_list.size(), 0);
+        luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
@@ -261,10 +261,10 @@ int main(int argc, char *argv[]) {
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
         }
-        std::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
+        luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
         assert(reordered_list.size() == 2);
-        std::vector<int> size(reordered_list.size(), 0);
+        luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
