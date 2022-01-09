@@ -76,7 +76,8 @@ int main(int argc, char *argv[]) {
     Kernel2D raytracing_kernel = [&](BufferFloat4 image, AccelVar accel, UInt frame_index) noexcept {
         auto coord = dispatch_id().xy();
         auto p = (make_float2(coord) + rand(frame_index, coord)) /
-                     make_float2(dispatch_size().xy()) * 2.0f - 1.0f;
+                     make_float2(dispatch_size().xy()) * 2.0f -
+                 1.0f;
         auto color = def<float3>(0.3f, 0.5f, 0.7f);
         auto ray = make_ray(
             make_float3(p * make_float2(1.0f, -1.0f), 1.0f),
