@@ -25,12 +25,14 @@ void CUDAStream::emplace_callback(CUDACallbackContext *cb) noexcept {
     if (cb != nullptr) {
         std::scoped_lock lock{_mutex};
         _callbacks.emplace(cb);
+        _any_callback = true;
     }
 }
 
 void CUDAStream::dispatch_callbacks() noexcept {
     std::scoped_lock lock{_mutex};
-    if (!_callbacks.empty()) {
+    if (_any_callback) {
+        _any_callback = false;
         _callbacks.emplace(nullptr);
         LUISA_CHECK_CUDA(cuLaunchHostFunc(
             _handle,
