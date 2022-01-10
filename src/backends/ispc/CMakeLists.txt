@@ -9,6 +9,7 @@ set(ISPC_BACKEND_SOURCES
         runtime/ispc_shader.cpp
         runtime/ispc_mesh.cpp
         runtime/ispc_accel.cpp
+        runtime/ispc_bindless_array.cpp
         )
 ##[[[]]]
 
