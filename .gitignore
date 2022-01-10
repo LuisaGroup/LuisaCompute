@@ -332,3 +332,13 @@ CMakeSettings.json
 !out/build/x64-Release/bin/HLSLCompiler/*.*
 
 *.png
+**/imgui.ini
+*.vcxproj
+*.vcxprojbackup
+*.sln
+*.user
+llvm/
+BuildTools/
+llvm-c/
+opencv2/
+doc/

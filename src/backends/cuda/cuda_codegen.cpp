@@ -271,6 +271,8 @@ void CUDACodegen::visit(const CallExpr *expr) {
             _scratch << "atomicMax";
             is_atomic = true;
             break;
+        case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
+        case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
             _scratch << "lc_surf"
                      << expr->arguments().front()->type()->dimension() << "d_read<"
@@ -539,7 +541,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
-            _emit_variable_decl(arg);
+            _emit_variable_decl(arg, false);
             _scratch << ",";
             any_arg = true;
         }
@@ -780,7 +782,7 @@ void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
-            _emit_variable_decl(v);
+            _emit_variable_decl(v, false);
             _scratch << "{};";
         }
     }
