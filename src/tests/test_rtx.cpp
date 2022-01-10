@@ -24,17 +24,15 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-// #if defined(LUISA_BACKEND_CUDA_ENABLED)
-//     auto device = context.create_device("cuda");
-// #elif defined(LUISA_BACKEND_METAL_ENABLED)
-//     auto device = context.create_device("metal", {{"index", 1}});
-// #elif defined(LUISA_BACKEND_DX_ENABLED)
-//     auto device = context.create_device("dx");
-// #else
-//     auto device = FakeDevice::create(context);
-// #endif
-
+ #if defined(LUISA_BACKEND_CUDA_ENABLED)
+     auto device = context.create_device("cuda");
+ #elif defined(LUISA_BACKEND_METAL_ENABLED)
+     auto device = context.create_device("metal", {{"index", 1}});
+ #elif defined(LUISA_BACKEND_DX_ENABLED)
+     auto device = context.create_device("dx");
+ #else
     auto device = context.create_device("ispc");
+ #endif
 
     std::array vertices{
         float3(-0.5f, -0.5f, 0.0f),
