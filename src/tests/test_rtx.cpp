@@ -110,7 +110,9 @@ int main(int argc, char *argv[]) {
     accel.emplace_back(mesh, scaling(1.5f))
         .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
-    stream << mesh.build() << accel.build();
+    stream << mesh.build()
+           << mesh2.build()
+           << accel.build();
 
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto colorspace_shader = device.compile(colorspace_kernel);

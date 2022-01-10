@@ -5,7 +5,7 @@ const uint3& blk_id,
 const uint3& thd_id,
 const uint3& dsp_c,
 const uint3& dsp_id,
-uint64 arg){
+uniform uint64 arg){
 )"sv;
 static const std::string_view exportName = R"(
 export void run(

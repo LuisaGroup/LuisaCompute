@@ -62,9 +62,5 @@ struct Hit {
     uint v0; // inst
     uint v1; // prim
     float<2> v2; // uv
-    float4x4 v3; // object_to_world
-};
-
-struct Accel{
-    /* data */
+    // float4x4 v3; // object_to_world
 };
