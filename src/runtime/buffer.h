@@ -256,7 +256,7 @@ public:
         auto view = _current_buffer->subview(0u, n_elem);
         _current_buffer = _current_buffer->subview(
             n_elem, _current_buffer->size() - n_elem);
-        return view.as<T>().subview(0u, n);
+        return view.template as<T>().subview(0u, n);
     }
 };
 
