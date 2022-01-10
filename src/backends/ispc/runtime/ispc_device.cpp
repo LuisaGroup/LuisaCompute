@@ -7,6 +7,7 @@
 #include <backends/ispc/runtime/ispc_runtime.h>
 #include <backends/ispc/runtime/ispc_mesh.h>
 #include <backends/ispc/runtime/ispc_accel.h>
+#include <backends/ispc/runtime/ispc_bindless_array.h>
 #include "ispc_event.h"
 
 namespace lc::ispc {
@@ -119,9 +120,11 @@ void ISPCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<ISPCAccel*>(handle);
 }
 uint64_t ISPCDevice::create_bindless_array(size_t size) noexcept {
-    return 0;
+    auto bindlessArray = new ISPCBindlessArray(size);
+    return reinterpret_cast<uint64_t>(bindlessArray);
 }
 void ISPCDevice::destroy_bindless_array(uint64_t handle) noexcept {
+    delete reinterpret_cast<ISPCBindlessArray*>(handle);
 }
 void ISPCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
 }

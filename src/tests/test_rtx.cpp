@@ -20,17 +20,21 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
+    log_level_info();
+
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal", {{"index", 1}});
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
+// #if defined(LUISA_BACKEND_CUDA_ENABLED)
+//     auto device = context.create_device("cuda");
+// #elif defined(LUISA_BACKEND_METAL_ENABLED)
+//     auto device = context.create_device("metal", {{"index", 1}});
+// #elif defined(LUISA_BACKEND_DX_ENABLED)
+//     auto device = context.create_device("dx");
+// #else
+//     auto device = FakeDevice::create(context);
+// #endif
+
+    auto device = context.create_device("ispc");
 
     std::array vertices{
         float3(-0.5f, -0.5f, 0.0f),
@@ -112,7 +116,7 @@ int main(int argc, char *argv[]) {
         .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
     stream << mesh.build()
-           << mesh2.build()
+        //    << mesh2.build()
            << accel.build();
 
     auto raytracing_shader = device.compile(raytracing_kernel);
@@ -135,6 +139,7 @@ int main(int argc, char *argv[]) {
         stream << vertex_buffer.copy_from(vertices.data())
                << mesh.update()
                << accel.update()
+               << synchronize()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
         if (i == 511u) {
             accel.emplace_back(
