@@ -83,6 +83,8 @@ private:
 private:
     friend class Heap;
     friend class Buffer<T>;
+    template<typename U>
+    friend class BufferView;
     BufferView(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept
         : _handle{handle}, _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
@@ -116,13 +118,12 @@ public:
 
     template<typename U>
     [[nodiscard]] auto as() const noexcept {
-        auto byte_size = this->size() * sizeof(T);
-        if (byte_size < sizeof(U)) [[unlikely]] {
+        if (this->size_bytes() < sizeof(U)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Unable to hold any element (with size = {}) in buffer view (with size = {}).",
-                sizeof(U), byte_size);
+                sizeof(U), this->size_bytes());
         }
-        return BufferView{this->device(), this->handle(), this->offset_bytes(), byte_size / sizeof(U), _total_size};
+        return BufferView<U>{_handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
     }
 
     [[nodiscard]] auto copy_to(void *data) const {
