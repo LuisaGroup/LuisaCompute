@@ -13,6 +13,7 @@ namespace lc::ispc{
 class ISPCAccel{
 private:
     RTCScene _scene;
+    RTCDevice _device;
     AccelBuildHint _hint;
     luisa::vector<ISPCMesh*> _meshes;
     luisa::vector<float4x4> _mesh_transforms;

@@ -4,6 +4,7 @@ namespace lc::ispc{
 
 ISPCAccel::ISPCAccel(AccelBuildHint hint, RTCDevice device) noexcept : _hint(hint) {
     _scene = rtcNewScene(device);
+    _device = device;
 }
 
 ISPCAccel::~ISPCAccel() noexcept {
@@ -15,18 +16,24 @@ void ISPCAccel::addMesh(ISPCMesh* mesh, float4x4 transform, bool visible) noexce
     _meshes.emplace_back(mesh);
     _mesh_transforms.emplace_back(transform);
     _mesh_visibilities.emplace_back(visible);
+    // _dirty.emplace(_meshes.size() - 1);
 }
 
 void ISPCAccel::setMesh(size_t index, ISPCMesh* mesh, float4x4 transform, bool visible) noexcept {
+    if(_meshes[index] != mesh) {
+        // TODO: detach instance
+    }
     _meshes[index] = mesh;
     _mesh_transforms[index] = transform;
     _mesh_visibilities[index] = visible;
+    // _dirty.emplace(index);
 }
 
 void ISPCAccel::popMesh() noexcept {
     _meshes.pop_back();
     _mesh_transforms.pop_back();
     _mesh_visibilities.pop_back();
+    // TODO: detach instance
 }
 
 void ISPCAccel::setVisibility(size_t index, bool visible) noexcept {
@@ -50,35 +57,32 @@ void ISPCAccel::setTransform(size_t index, float4x4 transform) noexcept {
 
 inline void ISPCAccel::buildAllGeometry() noexcept {
     for(int k=0;k<_meshes.size();k++){
-        auto& geometry = _meshes[k]->geometry;
-        float transMat[16];
-        for(int i=0;i<4;i++)
-            for(int j=0;j<4;j++)
-                transMat[i*4 + j] = _mesh_transforms[k][i][j];
+        auto& scene = _meshes[k]->scene;
+        auto instance = rtcNewGeometry(_device, RTC_GEOMETRY_TYPE_INSTANCE);
+        rtcSetGeometryInstancedScene(instance, scene);
+        rtcSetGeometryTimeStepCount(instance, 1);
         rtcSetGeometryTransform(
-            geometry, 0, // timeStep = 0
-            RTCFormat::RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR, (void *)transMat
+            instance, 0, // timeStep = 0
+            RTCFormat::RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR, _mesh_transforms.data() + k
         );
-        rtcSetGeometryMask(geometry, _mesh_visibilities[k] ? 0xffffu : 0x0000u);
-        rtcCommitGeometry(geometry);
-        auto id = rtcAttachGeometry(_scene, geometry);
-        _mesh_instances.push_back(geometry);
+        rtcSetGeometryMask(instance, _mesh_visibilities[k] ? 0xffffu : 0x0000u);
+        rtcCommitGeometry(instance);
+        rtcAttachGeometry(_scene, instance);
+        _mesh_instances.push_back(instance);
+        LUISA_INFO("Build {}", k);
     }
 }
 
 inline void ISPCAccel::updateAllGeometry() noexcept {
     for(auto& k : _dirty){
-        auto& geometry = _meshes[k]->geometry;
-        float transMat[16];
-        for(int i=0;i<4;i++)
-            for(int j=0;j<4;j++)
-                transMat[i*4 + j] = _mesh_transforms[k][i][j];
         rtcSetGeometryTransform(
-            geometry, 0, // timeStep = 0
-            RTCFormat::RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR, (void *)transMat
+            _mesh_instances[k], 0, // timeStep = 0
+            RTCFormat::RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR, _mesh_transforms.data() + k
         );
-        rtcSetGeometryMask(geometry, _mesh_visibilities[k] ? 0xffffu : 0x0000u);
-        rtcCommitGeometry(geometry);
+        rtcSetGeometryMask(_mesh_instances[k], _mesh_visibilities[k] ? 0xffffu : 0x0000u);
+    }
+    for(auto& instance : _mesh_instances) {
+        rtcCommitGeometry(instance);
     }
     _dirty.clear();
 }
