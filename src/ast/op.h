@@ -126,6 +126,8 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,
     ATOMIC_FETCH_MAX,
 
+    BUFFER_READ,
+    BUFFER_WRITE,
     TEXTURE_READ,
     TEXTURE_WRITE,
 

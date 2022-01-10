@@ -30,6 +30,9 @@ public:
         return reinterpret_cast<std::add_pointer_t<F>>(
             dynamic_module_find_symbol(_handle, name));
     }
+    void *address(std::string_view name) const noexcept {
+        return dynamic_module_find_symbol(_handle, name);
+    }
 
     template<concepts::function F, typename... Args>
     decltype(auto) invoke(std::string_view name, Args &&...args) const noexcept {

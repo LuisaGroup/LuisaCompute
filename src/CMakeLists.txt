@@ -5,7 +5,8 @@ if (WIN32)
             NOMINMAX=1
             _ENABLE_EXTENDED_ALIGNED_STORAGE=1
             _CRT_SECURE_NO_WARNINGS=1
-            _UNICODE=1)
+            _UNICODE=1
+            WIN32_LEAN_AND_MEAN=1)
     set(CMAKE_SHARED_MODULE_PREFIX "") # for MinGW/Cygwin etc.
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         add_compile_options(/MP)
@@ -38,7 +39,7 @@ add_subdirectory(serialize)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
-add_subdirectory(api)
+#add_subdirectory(api)
 add_subdirectory(serde)
 add_subdirectory(gui)
 add_subdirectory(backends)
@@ -57,7 +58,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-backends)
 
 add_dependencies(luisa-compute
-        luisa-compute-api
+#        luisa-compute-api
         luisa-compute-serialize
         luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)

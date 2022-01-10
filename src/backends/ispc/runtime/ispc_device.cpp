@@ -47,6 +47,7 @@ void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 }
 void ISPCDevice::dispatch(uint64_t stream_handle, CommandList cmdList) noexcept {
     auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
+    // TODO : multi-thread
     for (auto &&i : cmdList) {
         i->accept(*cmd);
     }

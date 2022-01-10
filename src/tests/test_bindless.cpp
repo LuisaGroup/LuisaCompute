@@ -38,11 +38,11 @@ int main(int argc, char *argv[]) {
     };
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return heap.tex2d(0u).sample(uv, mip);
+        return heap.tex2d(0u).sample(uv, make_float2(), make_float2());
     };
 
     Kernel1D useless_kernel = [](BindlessVar heap) noexcept {
-        Var x = heap.buffer<uint>(0)[1u];
+        Var x = heap.buffer<uint>(0).read(1u);
     };
     auto useless_shader = device.compile(useless_kernel);
 

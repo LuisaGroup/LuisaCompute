@@ -278,14 +278,24 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto &operator[](I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
+    [[nodiscard]] auto read(I &&index) const noexcept {
         auto f = detail::FunctionBuilder::current();
-        auto expr = f->access(
-            Type::of<T>(), _expression,
-            index.expression());
-        return *f->create_temporary<Var<T>>(expr);
-    };
+        auto expr = f->call(
+            Type::of<T>(), CallOp::BUFFER_READ,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index))});
+        return def<T>(expr);
+    }
+
+    template<typename I>
+        requires is_integral_expr_v<I>
+    void write(I &&index, Expr<T> value) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::BUFFER_WRITE,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index)),
+             value.expression()});
+    }
 };
 
 template<typename T>
@@ -421,7 +431,7 @@ public:
     explicit Expr(ImageView<T> image) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
               Type::of<Image<T>>(), image.handle(), image.level())},
-          _offset{any(image.offset()) ? detail::FunctionBuilder::current()->literal(Type::of<uint2>(), image.offset()) : nullptr} {}
+          _offset{any(image.offset() != 0u) ? detail::FunctionBuilder::current()->literal(Type::of<uint2>(), image.offset()) : nullptr} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
@@ -464,7 +474,7 @@ public:
     explicit Expr(VolumeView<T> volume) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
               Type::of<Volume<T>>(), volume.handle(), volume.level())},
-          _offset{any(volume.offset()) ? detail::FunctionBuilder::current()->literal(Type::of<uint3>(), volume.offset()) : nullptr} {}
+          _offset{any(volume.offset() != 0u) ? detail::FunctionBuilder::current()->literal(Type::of<uint3>(), volume.offset()) : nullptr} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
@@ -504,7 +514,7 @@ public:
 
     template<typename I>
         requires is_integral_expr_v<I>
-    [[nodiscard]] auto operator[](I &&i) const noexcept {
+    [[nodiscard]] auto read(I &&i) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<T>(
             f->call(

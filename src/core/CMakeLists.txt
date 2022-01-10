@@ -14,7 +14,6 @@ set(LUISA_COMPUTE_CORE_SOURCES
         intrin.h
         clock.h
         stl.h stl.cpp
-        rc.h
         pool.h
         constants.h
         lru_cache.h

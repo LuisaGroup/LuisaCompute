@@ -76,7 +76,7 @@ void dynamic_module_destroy(void *handle) noexcept {
 void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
     static thread_local luisa::string name;
     name = name_view;
-    LUISA_INFO("Loading dynamic symbol: {}.", name);
+    LUISA_VERBOSE_WITH_LOCATION("Loading dynamic symbol: {}.", name);
     auto symbol = GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str());
     if (symbol == nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
@@ -182,7 +182,7 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
         LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
                                   name, dlerror());
     }
-    LUISA_INFO(
+    LUISA_VERBOSE_WITH_LOCATION(
         "Loading dynamic symbol '{}' in {} ms.",
         name, clock.toc());
     return symbol;

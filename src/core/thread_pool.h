@@ -53,7 +53,7 @@ public:
 
     template<typename F>
         requires std::invocable<F>
-    auto dispatch(F f) noexcept {
+    auto async(F f) noexcept {
         using R = std::invoke_result_t<F>;
         auto promise = luisa::make_shared<std::promise<R>>(
             std::allocator_arg, luisa::allocator{});

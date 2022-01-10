@@ -4,6 +4,9 @@
 
 #include <cstring>
 #include <fstream>
+#include <omp.h>
+#include <future>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -296,7 +299,8 @@ CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
 
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
-        return reinterpret_cast<uint64_t>(new_with_allocator<CUDABindlessArray>(size));
+        return reinterpret_cast<uint64_t>(
+            new_with_allocator<CUDABindlessArray>(size));
     });
 }
 
@@ -405,7 +409,6 @@ CUDADevice::~CUDADevice() noexcept {
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {
-
     // global init
     static std::once_flag flag;
     std::call_once(flag, [] {

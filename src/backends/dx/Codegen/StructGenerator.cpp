@@ -28,6 +28,41 @@ size_t StructureType::align() const {
         }
     }
 }
+void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc) {
+    auto leftedValue = tarAlign - (structSize % tarAlign);
+    if (leftedValue == tarAlign) {
+        leftedValue = 0;
+    }
+    if (leftedValue == 0) return;
+    structSize += leftedValue;
+    switch (leftedValue) {
+        case 4:
+            structDesc << "float _aa";
+            vstd::to_string(alignCount, structDesc);
+            alignCount++;
+            structDesc << ";\n";
+            break;
+        case 8:
+            structDesc << "float2 _aa";
+            vstd::to_string(alignCount, structDesc);
+            alignCount++;
+            structDesc << ";\n";
+            break;
+        case 12:
+            structDesc << "float3 _aa";
+            vstd::to_string(alignCount, structDesc);
+            alignCount++;
+            structDesc << ";\n";
+            break;
+        case 16:
+            structDesc << "float4 _aa";
+            vstd::to_string(alignCount, structDesc);
+            alignCount++;
+            structDesc << ";\n";
+            break;
+    }
+}
+
 StructureType StructureType::GetScalar() {
     return {Tag::Scalar, vbyte(0)};
 }
@@ -44,7 +79,7 @@ void StructGenerator::InitAsStruct(
     structName = "S";
     vstd::to_string(structIdx, structName);
     vbyte boolCount = 0;
-    uint alignCount = 0;
+    size_t alignCount = 0;
     structDesc.reserve(1024);
     auto szOpt = vars.Get()->Length();
     if (szOpt)
@@ -64,30 +99,9 @@ void StructGenerator::InitAsStruct(
         vstd::to_string(structTypes.size(), varName);
     };
     auto Align = [&](size_t tarAlign) {
-        auto leftedValue = tarAlign - (structSize % tarAlign);
-        switch (leftedValue) {
-            case 4:
-                structDesc << "float _aa";
-                vstd::to_string(alignCount, structDesc);
-                alignCount++;
-                break;
-            case 8:
-                structDesc << "float2 _aa";
-                vstd::to_string(alignCount, structDesc);
-                alignCount++;
-                break;
-            case 12:
-                structDesc << "float3_aa";
-                vstd::to_string(alignCount, structDesc);
-                alignCount++;
-                break;
-            case 16:
-                structDesc << "float4_aa";
-                vstd::to_string(alignCount, structDesc);
-                alignCount++;
-                break;
-        }
+        ProvideAlignVariable(tarAlign, structSize, alignCount, structDesc);
     };
+
     for (; vars; vars++) {
         auto &&i = *vars;
         if (auto vecDim = CodegenUtility::IsBool(*i)) {
@@ -149,7 +163,7 @@ void StructGenerator::InitAsStruct(
                     ele = subStruct;
                 } break;
             }
-            CodegenUtility::GetTypeName(*i, structDesc);
+            CodegenUtility::GetTypeName(*i, structDesc, Usage::READ);
             structDesc << ' ' << varName << ";\n"sv;
             structTypes.emplace_back(ele);
             structVars.emplace_back(
@@ -158,7 +172,6 @@ void StructGenerator::InitAsStruct(
     }
     updateVarName();
     clearBool();
-    structDesc << "};\n"sv;
 }
 void StructGenerator::InitAsArray(
     Type const *t,
@@ -180,8 +193,8 @@ void StructGenerator::InitAsArray(
         }
         return 0;
     };
-    CodegenUtility::GetTypeName(*ele, structDesc);
-    structDesc << " c["sv << vstd::to_string(t->dimension()) << "];\n";
+    CodegenUtility::GetTypeName(*ele, structDesc, Usage::READ);
+    structDesc << " v["sv << vstd::to_string(t->dimension()) << "];\n";
 }
 StructGenerator::StructGenerator(
     Type const *structureType,

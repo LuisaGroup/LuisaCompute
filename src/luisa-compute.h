@@ -22,7 +22,6 @@
 #include <core/observer.h>
 #include <core/platform.h>
 #include <core/pool.h>
-#include <core/rc.h>
 #include <core/spin_mutex.h>
 #include <core/stl.h>
 #include <core/thread_pool.h>
@@ -44,6 +43,7 @@
 #include <runtime/command.h>
 #include <runtime/command_buffer.h>
 #include <runtime/command_list.h>
+#include <runtime/command_reorder_visitor.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/event.h>

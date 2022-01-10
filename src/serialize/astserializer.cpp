@@ -105,7 +105,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(Variable const &t, IJsonDat
 void AstSerializer::DeSerialize(Variable &t, IJsonDict *r) {
     auto type = r->Get("type").try_get<int64>();
     if (type)
-        t._type = Type::get_type(*type);
+        t._type = Type::find(*type);
     else
         t._type = nullptr;
     t._tag = static_cast<Variable::Tag>(r->Get("tag").get_or<int64>(0));
@@ -478,7 +478,7 @@ Expression *AstSerializer::GenExpr(IJsonDict *dict, DeserVisitor &evt) {
         t->_hash = r->Get("hash").get_or<int64>(0);
         t->_hash_computed = true;
         auto type = r->Get("type").try_get<int64>();
-        t->_type = type ? Type::get_type(*type) : nullptr;
+        t->_type = type ? Type::find(*type) : nullptr;
         t->_usage = static_cast<Usage>(r->Get("usage").get_or<int64>(0));
         t->_tag = static_cast<Expression::Tag>(*tag);
     };

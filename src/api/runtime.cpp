@@ -2,22 +2,43 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
-#include <core/rc.h>
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/sampler.h>
-#include <runtime/command_list.h>
+#include <luisa-compute.h>
 #include <api/runtime.h>
+
+namespace luisa::compute {
+
+struct BufferResource final : public Resource {
+    BufferResource(Device::Interface *device, size_t size_bytes) noexcept
+        : Resource{device, Tag::BUFFER, device->create_buffer(size_bytes)} {}
+};
+
+struct TextureResource final : public Resource {
+    TextureResource(
+        Device::Interface *device,
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels) noexcept
+        : Resource{device, Tag::TEXTURE, device->create_texture(format, dimension, width, height, depth, mipmap_levels)} {}
+};
+
+struct ShaderResource : public Resource {
+    ShaderResource(Device::Interface *device, Function f, luisa::string_view opts) noexcept
+        : Resource{device, Tag::SHADER, device->create_shader(f, opts)} {}
+};
+
+}
+
+// TODO: rewrite with runtime constructs, e.g., Stream, Event, BindlessArray...
 
 using namespace luisa;
 using namespace luisa::compute;
 
 void *luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT {
-    return RC<Context>::create(Context{std::filesystem::path{exe_path}});
+    return new_with_allocator<Context>(std::filesystem::path{exe_path});
 }
 
 void luisa_compute_context_destroy(void *ctx) LUISA_NOEXCEPT {
-    static_cast<RC<Context> *>(ctx)->release();
+    delete_with_allocator(static_cast<Context *>(ctx));
 }
 
 inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
@@ -30,26 +51,24 @@ inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
 void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT { free(cs); }
 
 char *luisa_compute_context_runtime_directory(void *ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(static_cast<RC<Context> *>(ctx)->object()->runtime_directory());
+    return path_to_c_str(static_cast<Context *>(ctx)->runtime_directory());
 }
 
 char *luisa_compute_context_cache_directory(void *ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(static_cast<RC<Context> *>(ctx)->object()->cache_directory());
+    return path_to_c_str(static_cast<Context *>(ctx)->cache_directory());
 }
 
 void *luisa_compute_device_create(void *ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
-    return RC<Device>::create(
-        static_cast<RC<Context> *>(ctx)->retain()->create_device(name, properties));
+    return new_with_allocator<Device>(
+        static_cast<Context *>(ctx)->create_device(
+            name, nlohmann::json::parse(properties)));
 }
 
-void luisa_compute_device_destroy(void *ctx, void *device) LUISA_NOEXCEPT {
-    static_cast<RC<Device> *>(device)->release();
-    static_cast<RC<Context> *>(ctx)->release();
+void luisa_compute_device_destroy(void *device) LUISA_NOEXCEPT {
+    delete_with_allocator(static_cast<Device *>(device));
 }
 
 uint64_t luisa_compute_buffer_create(void *device, size_t size) LUISA_NOEXCEPT {
-    auto d = static_cast<RC<Device> *>(device);
-    return d->retain()->impl()->create_buffer(size);
 }
 
 void luisa_compute_buffer_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
@@ -211,8 +230,10 @@ void *luisa_compute_command_copy_texture_to_texture(
     uint32_t src_offset_x, uint32_t src_offset_y, uint32_t src_offset_z,
     uint64_t dst, uint32_t dst_level,
     uint32_t dst_offset_x, uint32_t dst_offset_y, uint32_t dst_offset_z,
+    uint32_t storage,
     uint32_t size_x, uint32_t size_y, uint32_t size_z) LUISA_NOEXCEPT {
     return TextureCopyCommand::create(
+        static_cast<PixelStorage>(storage),
         src, dst, src_level, dst_level,
         make_uint3(src_offset_x, src_offset_y, src_offset_z),
         make_uint3(dst_offset_x, dst_offset_y, dst_offset_z),
@@ -289,4 +310,16 @@ void *luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
 
 uint32_t luisa_compute_pixel_format_to_storage(uint32_t format) LUISA_NOEXCEPT {
     return to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format)));
+}
+
+uint64_t luisa_compute_bindless_array_create(void *device, size_t n) LUISA_NOEXCEPT {
+    auto d = static_cast<RC<Device> *>(device);
+    auto bindless_array = luisa::new_with_allocator<BindlessArray>(d->retain()->create_bindless_array(n));
+    return reinterpret_cast<uint64_t>(bindless_array);
+}
+
+void luisa_compute_bindless_array_destroy(void *device, uint64_t handle) LUISA_NOEXCEPT {
+    auto bindless_array = reinterpret_cast<BindlessArray *>(handle);
+    luisa::delete_with_allocator(bindless_array);
+    static_cast<RC<Device> *>(device)->release();
 }

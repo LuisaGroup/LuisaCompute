@@ -1,11 +1,14 @@
 #pragma once
 #include <vstl/Common.h>
 #include <runtime/device.h>
+#include <DXRuntime/Device.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
-class LCDevice : public luisa::compute::Device::Interface {
+using LCDeviceInterface = luisa::compute::Device::Interface;
+class LCDevice : public LCDeviceInterface, public vstd::IOperatorNewBase {
 public:
-    LCDevice();
+    Device nativeDevice;
+    LCDevice(const Context &ctx);
     void *native_handle() const noexcept override;
 
     // buffer
@@ -58,16 +61,15 @@ public:
     void destroy_mesh(uint64_t handle) noexcept override;
 
     uint64_t create_accel(AccelBuildHint hint) noexcept override;
-    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
+    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept override;
     void pop_back_instance_from_accel(uint64_t accel) noexcept override;
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
+    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept override;
+    void set_instance_transform_in_accel(uint64_t accel, size_t index, luisa::float4x4 transform) noexcept override;
     void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
     bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
     uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
-
 };
 }// namespace toolhub::directx
