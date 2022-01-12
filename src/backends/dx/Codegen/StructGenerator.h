@@ -58,7 +58,10 @@ class StructGenerator : public vstd::IOperatorNewBase {
         vstd::function<StructGenerator *(Type const *)> const &visitor);
 
 public:
-    static void ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string& structDesc);
+    StructVariable const &GetVariable(size_t idx) const {
+        return structVars[idx];
+    }
+    static void ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc);
     vstd::string_view GetStructDesc() const { return structDesc; }
     vstd::string_view GetStructName() const { return structName; }
     size_t GetStructSize() const { return structSize; }
