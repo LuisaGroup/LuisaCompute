@@ -423,6 +423,7 @@ constexpr auto translation(const float3 v) noexcept {
 }
 
 inline auto rotation(const float3 axis, float angle) noexcept {
+    if (angle == 0.0f) { return make_float4x4(1.0f); }
     auto c = cos(angle);
     auto s = sin(angle);
     auto a = normalize(axis);

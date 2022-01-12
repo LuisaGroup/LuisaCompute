@@ -855,3 +855,38 @@ float4 v0 = Smp3DBi(pTexture, sampler, uv, lod);
 float4 v1 = Smp3DBi(pTexture, sampler, uv, lod + 1);
 return lerp(v0, v1, frac(lod));
 }
+
+#include <embree3/rtcore.isph>
+
+Hit trace_closest(uniform RTCScene scene, Ray ray) {
+
+	// print("???????????\n");
+	// print("origin: (%, %, %), direction: (%, %, %)\n", ray.v0.x, ray.v0.y, ray.v0.z, ray.v2.x, ray.v2.y, ray.v2.z);
+
+	uniform RTCIntersectContext intersectCtx;
+	rtcInitIntersectContext(&intersectCtx);
+	RTCRay r;
+	r.org_x = ray.v0[0];
+	r.org_y = ray.v0[1];
+	r.org_z = ray.v0[2];
+	r.tnear = ray.v1;
+	r.dir_x = ray.v2[0];
+	r.dir_y = ray.v2[1];
+	r.dir_z = ray.v2[2];
+	r.tfar = ray.v3;
+	r.mask = 0xffffu;
+	r.flags = 0;
+	RTCRayHit rh;
+	rh.ray = r;
+	rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+	rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
+	rtcIntersectV(scene, &intersectCtx, &rh);
+	Hit hit;
+	RTCHit h = rh.hit;
+	// hit.v0 = h.instID[0];
+	hit.v0 = h.geomID;
+	hit.v1 = h.primID;
+	hit.v2[0] = h.u;
+	hit.v2[1] = h.v;
+	return hit;
+}

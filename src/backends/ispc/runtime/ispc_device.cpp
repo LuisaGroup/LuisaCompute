@@ -5,6 +5,9 @@
 #include <backends/ispc/runtime/ispc_codegen.h>
 #include <backends/ispc/runtime/ispc_shader.h>
 #include <backends/ispc/runtime/ispc_runtime.h>
+#include <backends/ispc/runtime/ispc_mesh.h>
+#include <backends/ispc/runtime/ispc_accel.h>
+#include <backends/ispc/runtime/ispc_bindless_array.h>
 #include "ispc_event.h"
 
 namespace lc::ispc {
@@ -101,15 +104,27 @@ void ISPCDevice::synchronize_event(uint64_t handle) noexcept {
 
 // accel
 uint64_t ISPCDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
-    return 0;
+    auto mesh = new ISPCMesh(
+        v_buffer, v_offset, v_stride, v_count,
+        t_buffer, t_offset, t_count, hint, _device);
+    return reinterpret_cast<uint64_t>(mesh);
 }
-void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {}
-uint64_t ISPCDevice::create_accel(AccelBuildHint hint) noexcept { return 0; }
-void ISPCDevice::destroy_accel(uint64_t handle) noexcept {}
+void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {
+    delete reinterpret_cast<ISPCMesh*>(handle);
+}
+uint64_t ISPCDevice::create_accel(AccelBuildHint hint) noexcept { 
+    auto accel = new ISPCAccel(hint, _device);
+    return reinterpret_cast<uint64_t>(accel);
+}
+void ISPCDevice::destroy_accel(uint64_t handle) noexcept {
+    delete reinterpret_cast<ISPCAccel*>(handle);
+}
 uint64_t ISPCDevice::create_bindless_array(size_t size) noexcept {
-    return 0;
+    auto bindlessArray = new ISPCBindlessArray(size);
+    return reinterpret_cast<uint64_t>(bindlessArray);
 }
 void ISPCDevice::destroy_bindless_array(uint64_t handle) noexcept {
+    delete reinterpret_cast<ISPCBindlessArray*>(handle);
 }
 void ISPCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
 }
@@ -131,32 +146,37 @@ bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) c
 }
 
 void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept {
+    reinterpret_cast<ISPCAccel*>(accel)->addMesh(reinterpret_cast<ISPCMesh*>(mesh), transform, visible);
 }
 
 void ISPCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
+    reinterpret_cast<ISPCAccel*>(accel)->popMesh();
 }
 
 void ISPCDevice::set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept {
+    reinterpret_cast<ISPCAccel*>(accel)->setMesh(index, reinterpret_cast<ISPCMesh*>(mesh), transform, visible);
 }
 
 void ISPCDevice::set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept {
+    reinterpret_cast<ISPCAccel*>(accel)->setVisibility(index, visible);
 }
 
 void ISPCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
+    reinterpret_cast<ISPCAccel*>(accel)->setTransform(index, transform);
 }
 
 bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCAccel*>(accel)->usesResource(buffer);
 }
 
 bool ISPCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCAccel*>(accel)->usesResource(mesh);
 }
 uint64_t ISPCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return 0;
+    return reinterpret_cast<ISPCMesh*>(mesh_handle)->getVBufferHandle();
 }
 uint64_t ISPCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return 0;
+    return reinterpret_cast<ISPCMesh*>(mesh_handle)->getTBufferHandle();
 }
 
 }// namespace lc::ispc

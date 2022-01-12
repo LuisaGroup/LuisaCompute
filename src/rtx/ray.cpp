@@ -6,22 +6,6 @@
 
 namespace luisa::compute {
 
-Var<float3> origin(Expr<Ray> ray) noexcept {
-    return ray.origin;
-}
-
-Var<float3> direction(Expr<Ray> ray) noexcept {
-    return ray.direction;
-}
-
-void set_origin(Var<Ray> &ray, Expr<float3> origin) noexcept {
-    ray.origin = origin;
-}
-
-void set_direction(Var<Ray> &ray, Expr<float3> direction) noexcept {
-    ray.direction = direction;
-}
-
 Var<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {
     Var<Ray> ray{origin, t_min, direction, t_max};
     return ray;
