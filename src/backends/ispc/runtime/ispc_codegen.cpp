@@ -139,7 +139,7 @@ void StringExprVisitor::visit(const AccessExpr *expr) {
 
     expr->range()->accept(*this);
     auto t = expr->range()->type();
-    if (t && (t->is_buffer() || t->is_vector()))
+    if (t && (t->is_buffer() || t->is_vector() || t->is_array()))
         str << '[';
     else
         str << ".v[";

@@ -50,3 +50,17 @@ struct Texture3D {
     uint lodLevel;
     float** pData;
 };
+
+struct Ray {
+    float<3> v0; // origin
+    float v1; // t_min
+    float<3> v2; // direction
+    float v3; // t_max
+};
+
+struct Hit {
+    uint v0; // inst
+    uint v1; // prim
+    float<2> v2; // uv
+    // float4x4 v3; // object_to_world
+};

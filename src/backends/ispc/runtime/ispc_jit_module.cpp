@@ -18,6 +18,8 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/IPO.h>
 
+#include <core/logging.h>
+#include <runtime/context.h>
 #include <backends/ispc/runtime/ispc_jit_module.h>
 
 namespace lc::ispc {
@@ -70,7 +72,6 @@ JITModule::~JITModule() noexcept = default;
 
 luisa::unique_ptr<Module> JITModule::load(
     const Context &ctx, const std::filesystem::path &ir_path) noexcept {
-
     // load
     auto context = luisa::make_unique<llvm::LLVMContext>();
     llvm::SMDiagnostic error;

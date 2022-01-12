@@ -20,6 +20,8 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
+    log_level_info();
+
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
@@ -29,7 +31,7 @@ int main(int argc, char *argv[]) {
 #elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
 #else
-    auto device = FakeDevice::create(context);
+    auto device = context.create_device("ispc");
 #endif
 
     std::array vertices{
@@ -111,7 +113,9 @@ int main(int argc, char *argv[]) {
     accel.emplace_back(mesh, scaling(1.5f))
         .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
-    stream << mesh.build() << accel.build();
+    stream << mesh.build()
+           //    << mesh2.build()
+           << accel.build();
 
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto colorspace_shader = device.compile(colorspace_kernel);
@@ -133,12 +137,14 @@ int main(int argc, char *argv[]) {
         stream << vertex_buffer.copy_from(vertices.data())
                << mesh.update()
                << accel.update()
+               << synchronize()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
         if (i == 511u) {
             accel.emplace_back(
                 mesh,
                 translation(make_float3(0.0f, 0.0f, 0.3f)) *
-                    rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f)));
+                    rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f)),
+                false);
         }
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)
