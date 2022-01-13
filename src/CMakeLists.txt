@@ -9,7 +9,7 @@ if (WIN32)
             WIN32_LEAN_AND_MEAN=1)
     set(CMAKE_SHARED_MODULE_PREFIX "") # for MinGW/Cygwin etc.
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        add_compile_options(/MP)
+        add_compile_options(/MP /wd4005)
     endif ()
 endif ()
 
@@ -42,6 +42,12 @@ add_subdirectory(rtx)
 #add_subdirectory(api)
 add_subdirectory(serde)
 add_subdirectory(gui)
+
+option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" OFF)
+option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
+option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
+option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" ON)
+option(LUISA_COMPUTE_ENABLE_REMOTE "Enable remote backend" ON)
 add_subdirectory(backends)
 
 add_library(luisa-compute INTERFACE luisa-compute.h)

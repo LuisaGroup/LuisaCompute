@@ -7,16 +7,22 @@
 #include <ast/constant_data.h>
 #include <Codegen/StructGenerator.h>
 #include <Codegen/ShaderHeader.h>
+#include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
 struct CodegenGlobal {
+    size_t isAssigning = 0;
+    int64 scopeCount = -1;
     vstd::HashMap<Type const *, uint64> structTypes;
     vstd::HashMap<uint64, uint64> constTypes;
     vstd::HashMap<uint64, uint64> funcTypes;
     vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::vector<StructGenerator *> customStructVector;
+    vstd::optional<vstd::move_only_func<void()>> assignFunc;
+    StructVariableTracker tracker;
     uint64 count = 0;
     uint64 constCount = 0;
     uint64 funcCount = 0;
+    uint64 tempCount = 0;
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     CodegenGlobal()
         : generateStruct(
@@ -25,14 +31,18 @@ struct CodegenGlobal {
               }) {
     }
     void Clear() {
+        isAssigning = 0;
+        scopeCount = -1;
         structTypes.Clear();
         constTypes.Clear();
         funcTypes.Clear();
         customStruct.Clear();
         customStructVector.clear();
+        tracker.Clear();
         constCount = 0;
         count = 0;
         funcCount = 0;
+        tempCount = 0;
     }
     StructGenerator *CreateStruct(Type const *t) {
         auto ite = customStruct.Find(t);
@@ -77,7 +87,44 @@ struct CodegenGlobal {
         return ite.Value();
     }
 };
+
 static thread_local vstd::optional<CodegenGlobal> opt;
+void CodegenUtility::AddScope(int32 v) {
+    opt->scopeCount += v;
+}
+int64 CodegenUtility::GetScope() {
+    return opt->scopeCount;
+}
+StructVariableTracker *CodegenUtility::GetTracker() {
+    return &opt->tracker;
+}
+uint CodegenUtility::IsBool(Type const &type) {
+    if (type.tag() == Type::Tag::BOOL) {
+        return 1;
+    } else if (type.tag() == Type::Tag::VECTOR && type.element()->tag() == Type::Tag::BOOL) {
+        return type.dimension();
+    }
+    return 0;
+};
+vstd::string CodegenUtility::GetNewTempVarName() {
+    vstd::string name = "tmp";
+    vstd::to_string(opt->tempCount, name);
+    opt->tempCount++;
+    return name;
+}
+AssignSetter::AssignSetter() {
+    opt->isAssigning += 1;
+}
+AssignSetter::~AssignSetter() {
+    opt->isAssigning -= 1;
+}
+bool AssignSetter::IsAssigning() {
+    return opt->isAssigning;
+}
+StructGenerator const *CodegenUtility::GetStruct(
+    Type const *type) {
+    return opt->CreateStruct(type);
+}
 void CodegenUtility::ClearStructType() {
     opt.New();
     opt->Clear();

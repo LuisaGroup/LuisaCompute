@@ -9,14 +9,14 @@ set(ISPC_BACKEND_SOURCES
         runtime/ispc_shader.cpp
         runtime/ispc_mesh.cpp
         runtime/ispc_accel.cpp
-        runtime/ispc_bindless_array.cpp
-        )
+        runtime/ispc_bindless_array.cpp)
 ##[[[]]]
 
 luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})
 set_target_properties(luisa-compute-backend-ispc PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS OFF
         UNITY_BUILD ON)
+target_link_libraries(luisa-compute-backend-ispc PRIVATE embree)
 
 # copy device libs
 set(ISPC_DEVICE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ISPCTest")
