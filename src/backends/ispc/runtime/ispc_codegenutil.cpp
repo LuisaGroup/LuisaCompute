@@ -674,8 +674,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
         case Type::Tag::BUFFER:
         case Type::Tag::TEXTURE:
         case Type::Tag::ACCEL:
-        case Type::Tag::BINDLESS_ARRAY:
             return 8;
+        case Type::Tag::BINDLESS_ARRAY:
+            return 32;
     }
     LUISA_ERROR_WITH_LOCATION(
         "Invalid type: {}.",
