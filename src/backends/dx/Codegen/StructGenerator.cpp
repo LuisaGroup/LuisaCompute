@@ -105,7 +105,9 @@ void StructGenerator::InitAsStruct(
     for (; vars; vars++) {
         auto &&i = *vars;
         if (auto vecDim = CodegenUtility::IsBool(*i)) {
-            if (boolCount + vecDim >= 4) {
+            auto alignedVecDim = vecDim;
+            if (alignedVecDim == 3) alignedVecDim = 4;
+            if (boolCount + alignedVecDim >= 4) {
                 updateVarName();
                 clearBool();
             }

@@ -10,6 +10,8 @@ using namespace luisa;
 using namespace luisa::compute;
 namespace toolhub::directx {
 class StringStateVisitor;
+class StructVariableTracker;
+class StructGenerator;
 struct CodegenResult {
     using Properties = vstd::vector<std::pair<vstd::string_view, Shader::Property>>;
     vstd::string result;
@@ -19,9 +21,18 @@ struct CodegenResult {
         : result(std::forward<A>(a)),
           properties(std::forward<B>(b)) {}
 };
+class AssignSetter {
+public:
+    AssignSetter();
+    ~AssignSetter();
+    static bool IsAssigning();
+};
 class CodegenUtility {
 public:
     static constexpr uint64 INLINE_STMT_LIMIT = 5;
+    static StructVariableTracker *GetTracker();
+    static void AddScope(int32 v);
+    static int64 GetScope();
     static uint IsBool(Type const &type);
     static void GetConstName(ConstantData const &data, vstd::string &str);
     static void GetVariableName(Variable const &type, vstd::string &str);
@@ -46,11 +57,14 @@ public:
     static void CodegenFunction(
         Function func,
         vstd::string &result);
+    static StructGenerator const *GetStruct(
+        Type const *type);
     static void GenerateCBuffer(
         Function f,
         std::span<const Variable> vars,
         vstd::string &result);
     static vstd::optional<CodegenResult> Codegen(Function kernel);
+    static vstd::string GetNewTempVarName();
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
@@ -84,11 +98,18 @@ public:
         Function f,
         vstd::string &str);
     ~StringStateVisitor();
-    uint64 StmtCount() const { return stmtCount; }
+    void InsertString();
+    void SetStub();
+    struct Tracker {
+        StringStateVisitor *self;
+        Tracker(StringStateVisitor* self);
+        ~Tracker();
+    };
 
 protected:
     vstd::string &str;
-    uint64 stmtCount = 0;
+    vstd::string preprocStr;
+    size_t lastIdx = 0;
 };
 template<typename T>
 struct PrintValue;
