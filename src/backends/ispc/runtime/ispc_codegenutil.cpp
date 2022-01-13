@@ -247,6 +247,10 @@ void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
             str << '>';
             break;
         }
+        case Type::Tag::BINDLESS_ARRAY: {
+            str << "uniform LCBindlessArray"sv;
+            break;
+        }
         case Type::Tag::ACCEL: {
             str << "RTCScene"sv;
             break;
@@ -596,13 +600,18 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
                 str << "_float4"sv;
 
             break;
+        case CallOp::BINDLESS_BUFFER_READ:
+            str << "lc_bindless_buffer_read"sv;
+            break;
         case CallOp::TRACE_CLOSEST:
             str << "trace_closest"sv;
             break;
+        // TODO: trace any
         default: {
+            LUISA_ERROR_WITH_LOCATION("Call Op code: {}", (int)expr->op());
             auto errorType = expr->op();
             VEngine_Log("Function Not Implemented"sv);
-            VSTL_ABORT();
+            // VSTL_ABORT();
         }
     }
     return defaultArgs;

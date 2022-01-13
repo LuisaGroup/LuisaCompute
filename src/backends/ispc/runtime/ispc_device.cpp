@@ -17,10 +17,10 @@ void *ISPCDevice::native_handle() const noexcept {
 
 // buffer
 uint64_t ISPCDevice::create_buffer(size_t size_bytes) noexcept {
-    return reinterpret_cast<uint64>(vengine_malloc(size_bytes));
+    return reinterpret_cast<uint64>(luisa::allocate<uint8_t>(size_bytes));
 }
 void ISPCDevice::destroy_buffer(uint64_t handle) noexcept {
-    vengine_free(reinterpret_cast<void *>(handle));
+    luisa::deallocate<uint8_t>(reinterpret_cast<uint8_t *>(handle));
 }
 void *ISPCDevice::buffer_native_handle(uint64_t handle) const noexcept {
     return reinterpret_cast<void *>(handle);
@@ -127,22 +127,28 @@ void ISPCDevice::destroy_bindless_array(uint64_t handle) noexcept {
     delete reinterpret_cast<ISPCBindlessArray*>(handle);
 }
 void ISPCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+    reinterpret_cast<ISPCBindlessArray*>(array)->emplace_buffer(index, handle, offset_bytes);
 }
 void ISPCDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    reinterpret_cast<ISPCBindlessArray*>(array)->emplace_tex2d(index, handle, sampler);
 }
 void ISPCDevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    reinterpret_cast<ISPCBindlessArray*>(array)->emplace_tex3d(index, handle, sampler);
 }
 void ISPCDevice::remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<ISPCBindlessArray*>(array)->remove_buffer(index);
 }
 void ISPCDevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<ISPCBindlessArray*>(array)->remove_tex2d(index);
 }
 void ISPCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<ISPCBindlessArray*>(array)->remove_tex3d(index);
 }
 bool ISPCDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCBindlessArray*>(array)->uses_buffer(handle);
 }
 bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCBindlessArray*>(array)->uses_texture(handle);
 }
 
 void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept {
