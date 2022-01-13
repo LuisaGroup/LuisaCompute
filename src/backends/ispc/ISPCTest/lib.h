@@ -859,10 +859,6 @@ return lerp(v0, v1, frac(lod));
 #include <embree3/rtcore.isph>
 
 Hit trace_closest(uniform RTCScene scene, Ray ray) {
-
-	// print("???????????\n");
-	// print("origin: (%, %, %), direction: (%, %, %)\n", ray.v0.x, ray.v0.y, ray.v0.z, ray.v2.x, ray.v2.y, ray.v2.z);
-
 	uniform RTCIntersectContext intersectCtx;
 	rtcInitIntersectContext(&intersectCtx);
 	RTCRay r;
@@ -883,10 +879,16 @@ Hit trace_closest(uniform RTCScene scene, Ray ray) {
 	rtcIntersectV(scene, &intersectCtx, &rh);
 	Hit hit;
 	RTCHit h = rh.hit;
-	// hit.v0 = h.instID[0];
 	hit.v0 = h.geomID;
 	hit.v1 = h.primID;
 	hit.v2[0] = h.u;
 	hit.v2[1] = h.v;
 	return hit;
+}
+
+inline uint lc_bindless_buffer_read(uniform LCBindlessArray array, int index, int i) {
+	// uint* buffer = (uint*)array.v0[index];
+	// print("buffer % \n",buffer);
+	// return buffer[i];
+	return 0;
 }

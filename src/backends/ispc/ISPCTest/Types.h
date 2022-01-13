@@ -64,3 +64,10 @@ struct Hit {
     float<2> v2; // uv
     // float4x4 v3; // object_to_world
 };
+
+struct LCBindlessArray {
+    uint64* v0; // buffer
+    uint64* v1; // tex2d
+    uint64* v2; // tex3d
+    size_t v3; // size
+};
