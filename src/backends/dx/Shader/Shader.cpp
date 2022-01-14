@@ -2,6 +2,7 @@
 #include <Shader/Shader.h>
 #include <d3dcompiler.h>
 #include <DXRuntime/CommandBuffer.h>
+#include <DXRuntime/GlobalSamplers.h>
 #include <Resource/TopAccel.h>
 #include <Resource/DefaultBuffer.h>
 namespace toolhub::directx {
@@ -60,10 +61,10 @@ Shader::Shader(
         }
         kv.second.rootSigPos = allParameter.size() - 1;
     }
-    //
+    auto arr = GlobalSamplers::GetSamplers();
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
         allParameter.size(), allParameter.data(),
-        0, nullptr,
+        arr.size(), arr.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
     Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;

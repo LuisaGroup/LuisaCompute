@@ -4,138 +4,149 @@
 #include <Resource/Buffer.h>
 #include <Resource/DescriptorHeap.h>
 #include <DXRuntime/CommandBuffer.h>
+#include <DXRuntime/GlobalSamplers.h>
 #include <DXRuntime/CommandAllocator.h>
 namespace toolhub::directx {
 BindlessArray::BindlessArray(
-	Device* device, uint arraySize)
-	: Resource(device),
-	  buffer(device, 3 * arraySize * sizeof(uint), device->defaultAllocator) {
-	TupleType tpl =
-		{
-			std::pair<BufferView, uint>{BufferView(nullptr), std::numeric_limits<uint>::max()},
-			std::pair<Tex2D, uint>{Tex2D(nullptr), std::numeric_limits<uint>::max()},
-			std::pair<Tex3D, uint>{Tex3D(nullptr), std::numeric_limits<uint>::max()}};
-	binded.push_back_func(
-		[&]() { return tpl; },
-		arraySize);
+    Device *device, uint arraySize)
+    : Resource(device),
+      buffer(device, arraySize * sizeof(BindlessStruct), device->defaultAllocator) {
+    binded.resize(arraySize);
+    memset(binded.data(), std::numeric_limits<int>::max(), binded.byte_size());
 }
-template<>
-void BindlessArray::TryReturnBind<BufferView>(BufferView& view) {
-	if (!view.buffer) return;
-	bindedResource.Remove(view);
-	view.buffer = nullptr;
+void BindlessArray::AddDepend(uint idx, BindTag tag, size_t ptr) {
+    auto ite = ptrMap.Emplace(ptr, 0);
+    ite.Value()++;
+    indexMap.Emplace(std::pair<uint, BindTag>(idx, tag), ite);
 }
-template<typename T>
-void BindlessArray::TryReturnBind(T& view) {
-	if (!view.tex) return;
-	bindedResource.Remove(view);
-	view.tex = nullptr;
-}
-
-template<typename T>
-void BindlessArray::RemoveLast(T& pair) {
-	TryReturnBind(pair.first);
-	if (pair.second == std::numeric_limits<uint>::max()) return;
-	disposeQueue.Push(pair.second);
-	pair.second = std::numeric_limits<uint>::max();
-}
-template<typename T>
-void BindlessArray::AddNew(std::pair<T, uint>& pair, T const& newValue, uint index) {
-	pair.first = newValue;
-	pair.second = GetNewIndex();
-	bindedResource.ForceEmplace(newValue, pair.second);
-	updateMap.ForceEmplace(Property::IndexOf<T> * binded.size() + index, pair.second);
+void BindlessArray::RemoveDepend(uint idx, BindTag tag) {
+    auto ite = indexMap.Find(std::pair<uint, BindTag>(idx, tag));
+    if (!ite) return;
+    auto &&v = ite.Value();
+    auto &&refCount = v.Value();
+    refCount--;
+    if (refCount == 0) {
+        ptrMap.Remove(v);
+    }
+    indexMap.Remove(ite);
 }
 uint BindlessArray::GetNewIndex() {
-	return device->globalHeap->AllocateIndex();
+    return device->globalHeap->AllocateIndex();
 }
 
 BindlessArray::~BindlessArray() {
 }
-BufferView BindlessArray::GetBufferArray() const {
-	return {
-		&buffer,
-		uint64(0),
-		uint64(binded.size() * sizeof(uint))};
+void BindlessArray::TryReturnIndex(uint originValue) {
+    if (originValue != BindlessStruct::n_pos) {
+        freeQueue.Push(originValue);
+        // device->globalHeap->ReturnIndex(originValue);
+    }
 }
-BufferView BindlessArray::GetTex2DArray() const {
-	return {
-		&buffer,
-		uint64(binded.size() * sizeof(uint)),
-		uint64(binded.size() * sizeof(uint))};
-}
-BufferView BindlessArray::GetTex3DArray() const {
-	return {
-		&buffer,
-		uint64(binded.size() * 2 * sizeof(uint)),
-		uint64(binded.size() * sizeof(uint))};
+void BindlessArray::Bind(Property const &prop, uint index) {
+    std::lock_guard lck(globalMtx);
+    auto ite = updateMap.Emplace(
+        index,
+        vstd::MakeLazyEval([&] {
+            return binded[index];
+        }));
+    auto &&bindGrp = ite.Value();
+    prop.multi_visit(
+        [&](BufferView const &v) {
+            AddDepend(index, BindTag::Buffer, reinterpret_cast<size_t>(v.buffer));
+            TryReturnIndex(bindGrp.buffer);
+            uint newIdx = GetNewIndex();
+            auto desc = v.buffer->GetColorSrvDesc(
+                v.offset,
+                v.byteSize);
+#ifdef _DEBUG
+            if (!desc) {
+                VEngine_Log("illagel buffer");
+                VENGINE_EXIT;
+            }
+#endif
+            device->globalHeap->CreateSRV(
+                v.buffer->GetResource(),
+                *desc,
+                index);
+            bindGrp.buffer = newIdx;
+        },
+        [&](std::pair<TextureBase const *, Sampler> const &v) {
+            bool isTex2D = (v.first->Dimension() == TextureDimension::Tex2D);
+            if (isTex2D)
+                TryReturnIndex(bindGrp.tex2D);
+            else
+                TryReturnIndex(bindGrp.tex3D);
+            uint texIdx = GetNewIndex();
+            device->globalHeap->CreateSRV(
+                v.first->GetResource(),
+                v.first->GetColorSrvDesc(),
+                texIdx);
+            auto smpIdx = GlobalSamplers::GetIndex(v.second);
+            if (isTex2D) {
+                AddDepend(index, BindTag::Tex2D, reinterpret_cast<size_t>(v.first));
+                bindGrp.tex2D = texIdx;
+                bindGrp.sampler2D = smpIdx;
+            } else {
+                AddDepend(index, BindTag::Tex3D, reinterpret_cast<size_t>(v.first));
+                bindGrp.tex3D = texIdx;
+                bindGrp.sampler3D = smpIdx;
+            }
+        });
 }
 
-void BindlessArray::BindBuffer(BufferView prop, uint index) {
-	auto&& pa = std::get<0>(binded[index]);
-	RemoveLast(pa);
-	AddNew(pa, prop, index);
-	auto desc = prop.buffer->GetColorSrvDesc(prop.offset, prop.byteSize);
-	if (!desc) {
-		VEngine_Log("illegal buffer binding!\n");
-		VENGINE_EXIT;
-	}
-	device->globalHeap->CreateSRV(prop.buffer->GetResource(), *desc, pa.second);
+void BindlessArray::UnBind(BindTag tag, uint index) {
+    std::lock_guard lck(globalMtx);
+    auto &&bindGrp = binded[index];
+    RemoveDepend(index, tag);
+    switch (tag) {
+        case BindTag::Buffer:
+            TryReturnIndex(bindGrp.buffer);
+            break;
+        case BindTag::Tex2D:
+            TryReturnIndex(bindGrp.tex2D);
+            break;
+        case BindTag::Tex3D:
+            TryReturnIndex(bindGrp.tex3D);
+            break;
+    }
 }
-void BindlessArray::BindTex2D(Tex2D prop, uint index) {
-	auto&& pa = std::get<1>(binded[index]);
-	RemoveLast(pa);
-	AddNew(pa, prop, index);
-	device->globalHeap->CreateSRV(prop.tex->GetResource(), prop.tex->GetColorSrvDesc(), index);
+bool BindlessArray::IsPtrInBindless(size_t ptr) const {
+    std::lock_guard lck(globalMtx);
+    return ptrMap.Find(ptr);
 }
-void BindlessArray::BindTex3D(Tex3D prop, uint index) {
-	auto&& pa = std::get<2>(binded[index]);
-	RemoveLast(pa);
-	AddNew(pa, prop, index);
-	device->globalHeap->CreateSRV(prop.tex->GetResource(), prop.tex->GetColorSrvDesc(), index);
-}
-void BindlessArray::UnBind(Property prop) {
-	prop.visit(
-		[&](auto& v) {
-			TryReturnBind(v);
-		});
-}
-vstd::optional<uint> BindlessArray::PropertyIdx(Property prop) const {
-	auto ite = bindedResource.Find(prop);
-	if (ite) return ite.Value();
-	return {};
-}
+
 void BindlessArray::Update(
-	CommandBufferBuilder& builder) {
-	auto alloc = builder.GetCB()->GetAlloc();
-	auto cmd = builder.CmdList();
-	if (updateMap.size() > 0) {
-		D3D12_RESOURCE_BARRIER transBarrier;
-		transBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-		transBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-		transBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-		transBarrier.Transition.pResource = buffer.GetResource();
-		transBarrier.Transition.StateBefore = buffer.GetInitState();
-		transBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-		cmd->ResourceBarrier(1, &transBarrier);
-		auto d = vstd::create_disposer([&] {
-			std::swap(transBarrier.Transition.StateBefore, transBarrier.Transition.StateAfter);
-			cmd->ResourceBarrier(1, &transBarrier);
-		});
-		for (auto&& kv : updateMap) {
-			builder.Upload(
-				BufferView(
-					&buffer,
-					kv.first * sizeof(uint),
-					sizeof(uint)),
-				&kv.second);
-		}
-		updateMap.Clear();
-	}
+    CommandBufferBuilder &builder) {
+    std::lock_guard lck(globalMtx);
+    auto alloc = builder.GetCB()->GetAlloc();
+    auto cmd = builder.CmdList();
+    if (updateMap.size() > 0) {
+        D3D12_RESOURCE_BARRIER transBarrier;
+        transBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        transBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        transBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        transBarrier.Transition.pResource = buffer.GetResource();
+        transBarrier.Transition.StateBefore = buffer.GetInitState();
+        transBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+        cmd->ResourceBarrier(1, &transBarrier);
+        auto d = vstd::create_disposer([&] {
+            std::swap(transBarrier.Transition.StateBefore, transBarrier.Transition.StateAfter);
+            cmd->ResourceBarrier(1, &transBarrier);
+        });
+        for (auto &&kv : updateMap) {
+            builder.Upload(
+                BufferView(
+                    &buffer,
+                    kv.first * sizeof(uint),
+                    sizeof(uint)),
+                &kv.second);
+        }
+        updateMap.Clear();
+    }
 
-	while (auto i = disposeQueue.Pop()) {
-		device->globalHeap->ReturnIndex(*i);
-	}
+    while (auto i = freeQueue.Pop()) {
+        device->globalHeap->ReturnIndex(*i);
+    }
 }
 
 }// namespace toolhub::directx
