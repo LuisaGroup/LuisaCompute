@@ -7,7 +7,6 @@ set(LUISA_COMPUTE_CORE_SOURCES
         spin_mutex.h
         platform.cpp platform.h
         mathematics.h
-        atomic.h
         basic_traits.h
         basic_types.cpp basic_types.h
         dynamic_module.cpp dynamic_module.h

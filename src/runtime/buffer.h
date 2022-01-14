@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <core/atomic.h>
 #include <core/concepts.h>
 #include <core/mathematics.h>
 #include <runtime/command.h>
