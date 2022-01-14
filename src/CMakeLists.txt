@@ -30,7 +30,7 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
             -Wno-pragmas)
 elseif (APPLE AND CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(luisa-compute-include INTERFACE
-            $<$<COMPILE_LANGUAGE:CXX>:-stdlib=c++>)
+            $<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
     target_link_libraries($<$<LINK_LANGUAGE:CXX>:c++>)
 endif ()
 
