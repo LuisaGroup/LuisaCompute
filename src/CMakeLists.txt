@@ -11,6 +11,8 @@ if (WIN32)
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         add_compile_options(/MP /wd4005)
     endif ()
+elseif (APPLE AND CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options("-stdlib=c++")
 endif ()
 
 add_subdirectory(ext)
@@ -64,7 +66,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-backends)
 
 add_dependencies(luisa-compute
-#        luisa-compute-api
+        #        luisa-compute-api
         luisa-compute-serialize
         luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)
