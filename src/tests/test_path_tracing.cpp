@@ -208,13 +208,13 @@ int main(int argc, char *argv[]) {
             // trace
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
-            auto triangle = heap.buffer<Triangle>(hit.inst)[hit.prim];
+            auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
             auto p0 = vertex_buffer.read(triangle.i0);
             auto p1 = vertex_buffer.read(triangle.i1);
             auto p2 = vertex_buffer.read(triangle.i2);
             auto p = hit->interpolate(p0, p1, p2);
             auto n = normalize(cross(p1 - p0, p2 - p0));
-            auto cos_wi = dot(-direction(ray), n);
+            auto cos_wi = dot(-ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
             auto material = material_buffer.read(hit.inst);
 
@@ -224,7 +224,7 @@ int main(int argc, char *argv[]) {
                     radiance += light_emission;
                 }
                 $else {
-                    auto pdf_light = length_squared(p - origin(ray)) / (light_area * cos_wi);
+                    auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
                     auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                     radiance += mis_weight * beta * light_emission;
                 };

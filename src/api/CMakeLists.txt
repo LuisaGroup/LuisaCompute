@@ -1,6 +1,7 @@
 set(LUISA_COMPUTE_API_SOURCES
         runtime.cpp runtime.h
         type.cpp type.h
+        math.cpp math.h
         logging.cpp logging.h
         language.cpp language.h)
 add_library(luisa-compute-api MODULE ${LUISA_COMPUTE_API_SOURCES})

@@ -2,6 +2,7 @@
 
 #include <runtime/device.h>
 #include <vstl/ThreadPool.h>
+#include <embree3/rtcore.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -25,6 +26,9 @@ private:
         uint mipmap_levels) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
     void *texture_native_handle(uint64_t handle) const noexcept override;
+
+    // embree
+    RTCDevice _device;
 
 public:
     uint64_t create_bindless_array(size_t size) noexcept override;
@@ -72,8 +76,8 @@ public:
 
 public:
     ISPCDevice(const luisa::compute::Context &ctx, uint32_t index /* TODO */) noexcept
-        : Device::Interface(ctx), tPool(std::thread::hardware_concurrency() + 1u) {}
-    ~ISPCDevice() noexcept override = default;
+        : Device::Interface(ctx), tPool(std::thread::hardware_concurrency() + 1u), _device(rtcNewDevice(nullptr)) {}
+    ~ISPCDevice() noexcept override { rtcReleaseDevice(_device); }
     void pop_back_instance_from_accel(uint64_t accel) noexcept override;
     void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
     void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;

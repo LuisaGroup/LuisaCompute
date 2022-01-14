@@ -3,6 +3,7 @@
 #include <vstl/PoolAllocator.h>
 #include <Resource/BufferView.h>
 class ElementAllocator;
+using Microsoft::WRL::ComPtr;
 namespace toolhub::directx {
 class IGpuAllocator;
 class DescriptorHeap;

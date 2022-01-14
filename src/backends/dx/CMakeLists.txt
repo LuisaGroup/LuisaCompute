@@ -5,7 +5,7 @@ Api/LCDevice.cpp
 Codegen/ArgumentPacker.cpp
 Codegen/DxCodegen.cpp
 Codegen/DxCodegenUtil.cpp
-Codegen/ShaderCompiler.cpp
+Codegen/ShaderHeader.cpp
 Codegen/StructGenerator.cpp
 DXRuntime/AccelStructure.cpp
 DXRuntime/CommandAllocator.cpp
@@ -30,9 +30,48 @@ Resource/UploadBuffer.cpp
 Shader/ComputeShader.cpp
 Shader/RTShader.cpp
 Shader/Shader.cpp
+Shader/ShaderCompiler.cpp
+Api/LCDevice.h
+Codegen/ArgumentPacker.h
+Codegen/DxCodegen.h
+Codegen/ShaderHeader.h
+Codegen/StructGenerator.h
+d3dx12.h
+dxc/dxcapi.h
+DXRuntime/AccelStructure.h
+DXRuntime/CommandAllocator.h
+DXRuntime/CommandBuffer.h
+DXRuntime/CommandQueue.h
+DXRuntime/Device.h
+DXRuntime/ResourceStateTracker.h
+Resource/AllocHandle.h
+Resource/BindlessArray.h
+Resource/BindProperty.h
+Resource/BottomAccel.h
+Resource/Buffer.h
+Resource/BufferView.h
+Resource/D3D12MemoryAllocator/D3D12MemAlloc.h
+Resource/DefaultBuffer.h
+Resource/DescriptorHeap.h
+Resource/IGpuAllocator.h
+Resource/Mesh.h
+Resource/MeshInstance.h
+Resource/ReadbackBuffer.h
+Resource/RenderTexture.h
+Resource/Resource.h
+Resource/TextureBase.h
+Resource/TopAccel.h
+Resource/UploadBuffer.h
+Shader/ComputeShader.h
+Shader/RTShader.h
+Shader/Shader.h
+Shader/ShaderCompiler.h
+Shader/ShaderVariableType.h
+test_compute.h
+test_rtx.h
 )
     luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
-    target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Runtime)
+    target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     target_compile_options(luisa-compute-backend-dx PRIVATE
     /JMC

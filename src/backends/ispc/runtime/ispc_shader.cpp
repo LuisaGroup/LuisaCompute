@@ -68,7 +68,7 @@ Shader::Shader(
         "--cpu=core-avx2",
         "--arch=x86-64",
 #endif
-        "--enable-llvm-intrinsics",
+        // "--enable-llvm-intrinsics",
         emit_opt,
         include_opt.c_str()
     };
@@ -124,7 +124,7 @@ ThreadTaskHandle Shader::dispatch(
     auto blockCount = (sz + blockSize - 1u) / blockSize;
     auto totalCount = blockCount.x * blockCount.y * blockCount.z;
     auto handle = tPool->GetParallelTask(
-        [=, vec = std::move(vec)](size_t i) noexcept {
+        [=, this, vec = std::move(vec)](size_t i) noexcept {
             uint blockIdxZ = i / (blockCount.y * blockCount.x);
             i -= blockCount.y * blockCount.x * blockIdxZ;
             uint blockIdxY = i / blockCount.x;

@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/atomic.h>
 #include <core/concepts.h>
+#include <core/mathematics.h>
 #include <runtime/command.h>
 #include <runtime/resource.h>
 
@@ -49,7 +49,7 @@ public:
     [[nodiscard]] void *native_handle() const noexcept { return device()->buffer_native_handle(handle()); }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
-    [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), 0u, _size}; }
+    [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), 0u, _size, _size}; }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
@@ -77,12 +77,15 @@ private:
     uint64_t _handle;
     size_t _offset_bytes;
     size_t _size;
+    size_t _total_size;
 
 private:
     friend class Heap;
     friend class Buffer<T>;
-    BufferView(uint64_t handle, size_t offset_bytes, size_t size) noexcept
-        : _handle{handle}, _offset_bytes{offset_bytes}, _size{size} {
+    template<typename U>
+    friend class BufferView;
+    BufferView(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept
+        : _handle{handle}, _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid buffer view offset {} for elements with alignment {}.",
@@ -95,28 +98,31 @@ public:
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto offset() const noexcept { return _offset_bytes / sizeof(T); }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
 
+    [[nodiscard]] auto original() const noexcept {
+        return BufferView{_handle, 0u, _total_size, _total_size};
+    }
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
-        if (size_elements * sizeof(T) + offset_elements > _size) [[unlikely]] {
+        if (size_elements + offset_elements > _size) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Subview (with offset_elements = {}, size_elements = {}) "
                 "overflows buffer view (with size_elements = {}).",
                 offset_elements, size_elements, _size);
         }
-        return BufferView{_handle, _offset_bytes + offset_elements * sizeof(T), size_elements};
+        return BufferView{_handle, _offset_bytes + offset_elements * sizeof(T), size_elements, _total_size};
     }
 
     template<typename U>
     [[nodiscard]] auto as() const noexcept {
-        auto byte_size = this->size() * sizeof(T);
-        if (byte_size < sizeof(U)) [[unlikely]] {
+        if (this->size_bytes() < sizeof(U)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Unable to hold any element (with size = {}) in buffer view (with size = {}).",
-                sizeof(U), byte_size);
+                sizeof(U), this->size_bytes());
         }
-        return BufferView{this->device(), this->handle(), this->offset_bytes(), byte_size / sizeof(U)};
+        return BufferView<U>{_handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
     }
 
     [[nodiscard]] auto copy_to(void *data) const {
@@ -215,5 +221,43 @@ using buffer_element = detail::buffer_element_impl<std::remove_cvref_t<T>>;
 
 template<typename T>
 using buffer_element_t = typename buffer_element<T>::type;
+
+class BufferArena {
+
+private:
+    std::mutex _mutex;
+    Device &_device;
+    luisa::vector<luisa::unique_ptr<Resource>> _buffers;
+    luisa::optional<BufferView<float4>> _current_buffer;
+    size_t _capacity;
+
+public:
+    explicit BufferArena(Device &device, size_t capacity = 4_mb) noexcept
+        : _device{device}, _capacity{std::max(next_pow2(capacity), 64_kb) / sizeof(float4)} {}
+
+    template<typename T>
+    [[nodiscard]] BufferView<T> allocate(size_t n) noexcept {
+        static_assert(alignof(T) <= 16u);
+        std::scoped_lock lock{_mutex};
+        auto size = n * sizeof(T);
+        auto n_elem = (size + sizeof(float4) - 1u) / sizeof(float4);
+        if (n_elem > _capacity) {// too big, will not use the arena
+            auto buffer = luisa::make_unique<Buffer<T>>(_device.create_buffer<T>(n));
+            auto view = buffer->view();
+            _buffers.emplace_back(std::move(buffer));
+            return view;
+        }
+        if (!_current_buffer || n_elem > _current_buffer->size()) {
+            auto buffer = luisa::make_unique<Buffer<float4>>(
+                _device.create_buffer<float4>(_capacity));
+            _current_buffer = buffer->view();
+            _buffers.emplace_back(std::move(buffer));
+        }
+        auto view = _current_buffer->subview(0u, n_elem);
+        _current_buffer = _current_buffer->subview(
+            n_elem, _current_buffer->size() - n_elem);
+        return view.template as<T>().subview(0u, n);
+    }
+};
 
 }// namespace luisa::compute

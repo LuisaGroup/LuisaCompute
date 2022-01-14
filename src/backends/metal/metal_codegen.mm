@@ -290,9 +290,9 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2: _scratch << "float2"; break;
         case CallOp::MAKE_FLOAT3: _scratch << "float3"; break;
         case CallOp::MAKE_FLOAT4: _scratch << "float4"; break;
-        case CallOp::MAKE_FLOAT2X2: _scratch << "float2x2"; break;
-        case CallOp::MAKE_FLOAT3X3: _scratch << "float3x3"; break;
-        case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
+        case CallOp::MAKE_FLOAT2X2: _scratch << "make_float2x2"; break;
+        case CallOp::MAKE_FLOAT3X3: _scratch << "make_float3x3"; break;
+        case CallOp::MAKE_FLOAT4X4: _scratch << "make_float4x4"; break;
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
@@ -847,6 +847,56 @@ void MetalCodegen::_emit_preamble(Function f) noexcept {
 
 using namespace metal;
 
+template<typename... T>
+[[nodiscard, gnu::always_inline]] inline auto make_float2x2(T ...args) {
+  return float2x2(args...);
+}
+
+[[nodiscard, gnu::always_inline]] inline auto make_float2x2(float3x3 m) {
+  return float2x2(m[0].xy, m[1].xy);
+}
+
+[[nodiscard, gnu::always_inline]] inline auto make_float2x2(float4x4 m) {
+  return float2x2(m[0].xy, m[1].xy);
+}
+
+template<typename... T>
+[[nodiscard, gnu::always_inline]] inline auto make_float3x3(T ...args) {
+  return float3x3(args...);
+}
+
+[[nodiscard, gnu::always_inline]] inline auto make_float3x3(float2x2 m) {
+  return float3x3(
+    float3(m[0], 0.0f),
+    float3(m[1], 0.0f),
+    float3(0.0f, 0.0f, 1.0f));
+}
+
+[[nodiscard, gnu::always_inline]] inline auto make_float3x3(float4x4 m) {
+  return float3x3(m[0].xyz, m[1].xyz, m[2].xyz);
+}
+
+template<typename... T>
+[[nodiscard, gnu::always_inline]] inline auto make_float4x4(T ...args) {
+  return float4x4(args...);
+}
+
+[[nodiscard, gnu::always_inline]] inline auto make_float4x4(float2x2 m) {
+  return float4x4(
+    float4(m[0], 0.0f, 0.0f),
+    float4(m[1], 0.0f, 0.0f),
+    float4(0.0f, 0.0f, 1.0f, 0.0f),
+    float4(0.0f, 0.0f, 0.0f, 1.0f));
+}
+
+[[nodiscard, gnu::always_inline]] inline auto make_float4x4(float3x3 m) {
+  return float4x4(
+    float4(m[0], 0.0f),
+    float4(m[1], 0.0f),
+    float4(m[2], 0.0f),
+    float4(0.0f, 0.0f, 0.0f, 1.0f));
+}
+
 template<typename T, typename I>
 [[nodiscard, gnu::always_inline]] inline auto buffer_read(const device T *buffer, I index) {
   return buffer[index];
@@ -1255,10 +1305,10 @@ struct Accel {
 [[nodiscard, gnu::always_inline]] inline auto accel_instance_transform(Accel accel, uint i) {
   auto m = accel.instances[i].transform;
   return float4x4(
-    m[0], m[1], m[2], m[3],
-    m[4], m[5], m[6], m[7],
-    m[8], m[9], m[10], m[11],
-    0.0f, 0.0f, 0.0f, 1.0f);
+    m[0], m[1], m[2], 0.0f,
+    m[3], m[4], m[5], 0.0f,
+    m[6], m[7], m[8], 0.0f,
+    m[9], m[10], m[11], 1.0f);
 }
 
 )";

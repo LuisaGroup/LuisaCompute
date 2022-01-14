@@ -2,6 +2,8 @@
 
 #include "ispc_runtime.h"
 #include "ispc_codegen.h"
+#include "ispc_accel.h"
+#include "ispc_mesh.h"
 
 namespace lc::ispc {
 void CommandExecutor::visit(BufferUploadCommand const *cmd) noexcept {
@@ -27,7 +29,9 @@ struct ShaderDispatcher {
         Shader::PackArr(vec, arg.data(), arg.size(), CodegenUtility::GetTypeAlign(*func.arguments()[sd->GetArgIndex(var_id)].type()));
     }
     void operator()(uint, ShaderDispatchCommand::BindlessArrayArgument const &arg) {}
-    void operator()(uint, ShaderDispatchCommand::AccelArgument const &arg) {}
+    void operator()(uint, ShaderDispatchCommand::AccelArgument const &arg) {
+        Shader::PackArg<RTCScene>(vec, reinterpret_cast<ISPCAccel*>(arg.handle)->getScene());
+    }
 };
 void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
     Shader::ArgVector vec;
@@ -48,10 +52,26 @@ void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {
 }
 void CommandExecutor::visit(TextureCopyCommand const *cmd) noexcept {}
 void CommandExecutor::visit(TextureToBufferCopyCommand const *cmd) noexcept {}
-void CommandExecutor::visit(AccelUpdateCommand const *cmd) noexcept {}
-void CommandExecutor::visit(AccelBuildCommand const *cmd) noexcept {}
-void CommandExecutor::visit(MeshUpdateCommand const *cmd) noexcept {}
-void CommandExecutor::visit(MeshBuildCommand const *cmd) noexcept {}
+void CommandExecutor::visit(AccelUpdateCommand const *cmd) noexcept {
+    auto accel = reinterpret_cast<ISPCAccel*>(cmd->handle());
+    auto handle = tPool->GetTask([accel](){ accel->update(); }, true);
+    AddTask(std::move(handle));
+}
+void CommandExecutor::visit(AccelBuildCommand const *cmd) noexcept {
+    auto accel = reinterpret_cast<ISPCAccel*>(cmd->handle());
+    auto handle = tPool->GetTask([accel](){ accel->build(); }, true);
+    AddTask(std::move(handle));
+}
+void CommandExecutor::visit(MeshUpdateCommand const *cmd) noexcept {
+    auto mesh = reinterpret_cast<ISPCMesh*>(cmd->handle());
+    auto handle = tPool->GetTask([mesh](){ mesh->update(); }, true);
+    AddTask(std::move(handle));
+}
+void CommandExecutor::visit(MeshBuildCommand const *cmd) noexcept {
+    auto mesh = reinterpret_cast<ISPCMesh*>(cmd->handle());
+    auto handle = tPool->GetTask([mesh](){ mesh->build(); }, true);
+    AddTask(std::move(handle));
+}
 void CommandExecutor::visit(BindlessArrayUpdateCommand const *cmd) noexcept {}
 CommandExecutor::CommandExecutor(ThreadPool *tPool)
     : tPool(tPool),

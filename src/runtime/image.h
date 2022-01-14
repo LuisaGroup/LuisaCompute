@@ -57,6 +57,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
+    [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
 
     [[nodiscard]] auto view(uint32_t level = 0u) const noexcept {
         if (level >= _mip_levels) [[unlikely]] {
@@ -125,8 +126,10 @@ private:
 
     [[nodiscard]] auto _as_mipmap() const noexcept {
         return detail::MipmapView{
-            _handle, make_uint3(_size, 1u),
-            make_uint3(_offset, 0u), _level, _storage};
+            _handle,
+            make_uint3(_size, 1u),
+            make_uint3(_offset, 0u),
+            _level, _storage};
     }
 
 public:
@@ -136,6 +139,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
+    [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto region(uint2 offset, uint2 size) const noexcept {
         return ImageView{_handle, _storage, _level, _offset + offset, size};

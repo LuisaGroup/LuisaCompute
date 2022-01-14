@@ -88,10 +88,10 @@ RTShader::RTShader(
     bool closestHit,
     bool anyHit,
     bool intersectHit,
-    std::span<std::pair<vstd::string_view, Property>> properties,
+    std::span<std::pair<vstd::string, Property>> &&properties,
     vstd::span<vbyte> binData,
     Device *device)
-    : Shader(properties, device->device.Get()),
+    : Shader(std::move(properties), device->device.Get()),
       identityBuffer(
           device,
           D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT * 3,

@@ -27,6 +27,47 @@ public:
     ~SpanIterator() {}
 };
 }// namespace detail
+template<typename T, typename FilterFunc>
+    requires(std::is_invocable_r_v<bool, FilterFunc, T const &>)
+class FilterIterator : public vstd::IEnumerable<T> {
+private:
+    T *ptr;
+    T *end;
+    size_t size;
+    FilterFunc avaliableFunc;
+
+public:
+    FilterIterator(
+        vstd::span<T> data,
+        FilterFunc &&avaliableFunc) {
+        if (data.empty()) {
+            ptr = nullptr;
+        } else {
+            ptr = data.data() - 1;
+            end = data.data() + data.size();
+            GetNext();
+        }
+        size = data.size();
+    }
+    T GetValue() override {
+        return ptr->type();
+    }
+    bool End() {
+        return ptr == nullptr;
+    }
+    void GetNext() override {
+        while (true) {
+            ++ptr;
+            if (ptr == end) {
+                ptr = nullptr;
+                break;
+            }
+            if (avaliableFunc(*ptr))
+                break;
+        }
+    }
+    vstd::optional<size_t> Length() override { return size; }
+};
 template<typename T>
 Iterator<T> GetIterator(vstd::span<T> const &sp) {
     return [&](void *ptr) {

@@ -8,8 +8,6 @@
 #include <future>
 #include <thread>
 #include <memory>
-#include <atomic>
-#include <barrier>
 #include <concepts>
 #include <functional>
 #include <condition_variable>
@@ -19,18 +17,16 @@
 
 namespace luisa {
 
-class ThreadPool {
+class Barrier;
 
-public:
-    static constexpr auto barrier_completion_handler = []() noexcept {};
-    using barrier_type = std::barrier<decltype(barrier_completion_handler)>;
+class ThreadPool {
 
 private:
     luisa::vector<std::thread> _threads;
     luisa::queue<luisa::function<void()>> _tasks;
     std::mutex _mutex;
-    barrier_type _synchronize_barrier;
-    barrier_type _dispatch_barrier;
+    luisa::unique_ptr<Barrier> _synchronize_barrier;
+    luisa::unique_ptr<Barrier> _dispatch_barrier;
     std::condition_variable _cv;
     bool _should_stop;
 
@@ -53,7 +49,7 @@ public:
 
     template<typename F>
         requires std::invocable<F>
-    auto dispatch(F f) noexcept {
+    auto async(F f) noexcept {
         using R = std::invoke_result_t<F>;
         auto promise = luisa::make_shared<std::promise<R>>(
             std::allocator_arg, luisa::allocator{});

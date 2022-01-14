@@ -29,7 +29,8 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET 12)
 set(BUILD_SHARED_LIBS ON)
 
 if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
+    message(STATUS "sizeof(void *) = ${CMAKE_SIZEOF_VOID_P}")
+    #message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
 endif ()
 
 if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
