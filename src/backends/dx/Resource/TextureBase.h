@@ -1,6 +1,8 @@
 #pragma once
 #include <Resource/Resource.h>
 #include <Resource/IGpuAllocator.h>
+#include <runtime/pixel.h>
+using namespace luisa::compute;
 namespace toolhub::directx {
 class TextureBase : public Resource {
 protected:
@@ -12,7 +14,8 @@ protected:
 	uint mip;
 
 public:
-	uint Width() const { return width; }
+    static GFXFormat ToGFXFormat(PixelFormat format);
+    uint Width() const { return width; }
 	uint Height() const { return height; }
 	GFXFormat Format() const { return format; }
 	TextureDimension Dimension() const { return dimension; }

@@ -5,6 +5,8 @@
 #include <Codegen/DxCodegen.h>
 #include <Shader/ShaderCompiler.h>
 #include <Codegen/ShaderHeader.h>
+#include <Resource/RenderTexture.h>
+#include <Resource/BindlessArray.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 LCDevice::LCDevice(const Context &ctx)
@@ -33,35 +35,63 @@ uint64_t LCDevice::create_texture(
     uint height,
     uint depth,
     uint mipmap_levels) noexcept {
-    return uint64_t();
+    return reinterpret_cast<uint64>(
+        new RenderTexture(
+            &nativeDevice,
+            width,
+            height,
+            TextureBase::ToGFXFormat(format),
+            (TextureDimension)dimension,
+            depth,
+            mipmap_levels,
+            true,
+            nativeDevice.defaultAllocator));
 }
 void LCDevice::destroy_texture(uint64_t handle) noexcept {
+    delete reinterpret_cast<RenderTexture *>(handle);
 }
 void *LCDevice::texture_native_handle(uint64_t handle) const noexcept {
-    return nullptr;
+    return reinterpret_cast<RenderTexture *>(handle)->GetResource();
 }
 uint64_t LCDevice::create_bindless_array(size_t size) noexcept {
-    return uint64_t();
+    return reinterpret_cast<uint64>(
+        new BindlessArray(&nativeDevice, size));
 }
 void LCDevice::destroy_bindless_array(uint64_t handle) noexcept {
+    delete reinterpret_cast<BindlessArray *>(handle);
 }
 void LCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+    auto buffer = reinterpret_cast<DefaultBuffer *>(handle);
+    reinterpret_cast<BindlessArray *>(array)
+        ->Bind(BufferView(buffer, offset_bytes), index);
 }
 void LCDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    auto tex = reinterpret_cast<RenderTexture *>(handle);
+    reinterpret_cast<BindlessArray *>(array)
+        ->Bind(std::pair<TextureBase const *, Sampler>(tex, sampler), index);
 }
 void LCDevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    emplace_tex2d_in_bindless_array(array, index, handle, sampler);
 }
 bool LCDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return false;
+    return reinterpret_cast<BindlessArray *>(array)
+        ->IsPtrInBindless(handle);
 }
 bool LCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return false;
+    return reinterpret_cast<BindlessArray *>(array)
+        ->IsPtrInBindless(handle);
 }
 void LCDevice::remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<BindlessArray *>(array)
+        ->UnBind(BindlessArray::BindTag::Buffer, index);
 }
 void LCDevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<BindlessArray *>(array)
+        ->UnBind(BindlessArray::BindTag::Tex2D, index);
 }
 void LCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<BindlessArray *>(array)
+        ->UnBind(BindlessArray::BindTag::Tex3D, index);
 }
 uint64_t LCDevice::create_stream() noexcept {
     return uint64_t();

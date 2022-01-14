@@ -7,11 +7,13 @@ Codegen/DxCodegen.cpp
 Codegen/DxCodegenUtil.cpp
 Codegen/ShaderHeader.cpp
 Codegen/StructGenerator.cpp
+Codegen/StructVariableTracker.cpp
 DXRuntime/AccelStructure.cpp
 DXRuntime/CommandAllocator.cpp
 DXRuntime/CommandBuffer.cpp
 DXRuntime/CommandQueue.cpp
 DXRuntime/Device.cpp
+DXRuntime/GlobalSamplers.cpp
 DXRuntime/ResourceStateTracker.cpp
 Resource/BindlessArray.cpp
 Resource/BottomAccel.cpp
@@ -36,6 +38,7 @@ Codegen/ArgumentPacker.h
 Codegen/DxCodegen.h
 Codegen/ShaderHeader.h
 Codegen/StructGenerator.h
+Codegen/StructVariableTracker.h
 d3dx12.h
 dxc/dxcapi.h
 DXRuntime/AccelStructure.h
@@ -43,6 +46,7 @@ DXRuntime/CommandAllocator.h
 DXRuntime/CommandBuffer.h
 DXRuntime/CommandQueue.h
 DXRuntime/Device.h
+DXRuntime/GlobalSamplers.h
 DXRuntime/ResourceStateTracker.h
 Resource/AllocHandle.h
 Resource/BindlessArray.h
