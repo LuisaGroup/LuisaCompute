@@ -11,8 +11,6 @@ if (WIN32)
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         add_compile_options(/MP /wd4005)
     endif ()
-elseif (APPLE AND CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options("-stdlib=c++")
 endif ()
 
 add_subdirectory(ext)
@@ -30,6 +28,10 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(luisa-compute-include INTERFACE
             -Wno-invalid-offsetof
             -Wno-pragmas)
+elseif (APPLE AND CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(luisa-compute-include INTERFACE
+            $<$<COMPILE_LANGUAGE:CXX>:-stdlib=c++>)
+    target_link_libraries($<$<LINK_LANGUAGE:CXX>:c++>)
 endif ()
 
 add_subdirectory(core)
