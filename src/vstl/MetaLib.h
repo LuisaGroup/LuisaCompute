@@ -29,28 +29,21 @@ VENGINE_DLL_COMMON void VEngine_Log(char const *chunk);
 #define VE_SUB_TEMPLATE template<typename...> \
 class
 namespace vstd {
-template<typename T>
-struct funcPtr;
+
 template<typename T>
 struct TypeOf {
     using Type = T;
 };
+
+template<typename T>
+struct funcPtr;
 template<typename Ret, typename... Args>
 struct funcPtr<Ret(Args...)> {
     using Type = Ret (*)(Args...);
-    using FuncType = Ret(Args...);
 };
-
-template<typename Ret, typename... Args>
-struct funcPtr<Ret (*)(Args...)> {
-    using Type = Ret (*)(Args...);
-    using FuncType = Ret(Args...);
-};
-
 template<typename T>
 using funcPtr_t = typename funcPtr<T>::Type;
-template<typename T>
-using functor_t = typename funcPtr<T>::FuncType;
+
 template<typename T, uint32_t size = 1>
 class Storage {
     alignas(T) char c[size * sizeof(T)];
@@ -481,7 +474,6 @@ class SBO {
     //void(Src, Dest)
     funcPtr_t<void *(void *, void *)> moveFunc;
 
-
 public:
     template<typename Func>
     static consteval bool CtorFunc() {
@@ -708,16 +700,19 @@ decltype(auto) array_same(A &&a, B &&b) {
     return true;
 }
 namespace detail {
-template<bool v, bool... vs>
-consteval bool Any() {
-    if constexpr (sizeof...(vs) == 0) {
-        return v;
-    } else if constexpr (v) {
-        return true;
-    } else {
-        return Any<vs...>();
+template<VE_SUB_TEMPLATE map, bool reverse, typename... Tar>
+struct AnyMap {
+    template<typename T, typename... Args>
+    static consteval bool Run() {
+        if constexpr ((map<T, Tar...>::value) ^ reverse) {
+            return true;
+        } else if constexpr (sizeof...(Args) == 0) {
+            return false;
+        } else {
+            return Run<Args...>();
+        }
     }
-}
+};
 template<size_t... size>
 consteval size_t max_size() {
     auto sizes = {size...};
@@ -866,7 +861,7 @@ private:
     std::aligned_storage_t<(detail::max_size<sizeof(AA)...>()), (detail::max_size<alignof(AA)...>())> placeHolder;
     size_t switcher = 0;
     void m_dispose() {
-        if constexpr (detail::Any<!std::is_trivially_destructible_v<AA>...>()) {
+        if constexpr (detail::AnyMap<std::is_trivially_destructible, true>::template Run<AA...>()) {
             auto disposeFunc = [&]<typename T>(T &value) {
                 value.~T();
             };
@@ -898,7 +893,7 @@ public:
     }
 
     template<size_t i>
-        requires(i <= argSize)
+        requires(i < argSize)
     decltype(auto) get() & {
 #ifdef DEBUG
         if (i != switcher) {
@@ -909,7 +904,7 @@ public:
         return *reinterpret_cast<TypeOf<i> *>(&placeHolder);
     }
     template<size_t i>
-        requires(i <= argSize)
+        requires(i < argSize)
     decltype(auto) get() && {
 #ifdef DEBUG
         if (i != switcher) {
@@ -920,7 +915,7 @@ public:
         return std::move(*reinterpret_cast<TypeOf<i> *>(&placeHolder));
     }
     template<size_t i>
-        requires(i <= argSize)
+        requires(i < argSize)
     decltype(auto) get() const & {
 #ifdef DEBUG
         if (i != switcher) {
@@ -932,7 +927,7 @@ public:
     }
 
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     T const *try_get() const & {
         static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
@@ -942,7 +937,7 @@ public:
     }
 
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     T *try_get() & {
         static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
@@ -951,7 +946,7 @@ public:
         return reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder);
     }
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     optional<T> try_get() && {
         static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
@@ -960,7 +955,7 @@ public:
         return optional<T>(std::move(*reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder)));
     }
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     T get_or(T &&value)
     const & {
         static constexpr auto tarIdx = (IndexOf<T>);
@@ -970,7 +965,7 @@ public:
         return *reinterpret_cast<TypeOf<tarIdx> const *>(&placeHolder);
     }
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     T get_or(T &&value) && {
         static constexpr auto tarIdx = (IndexOf<T>);
         if (tarIdx != switcher) {
@@ -979,7 +974,7 @@ public:
         return std::move(*reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder));
     }
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     T const &force_get() const & {
         static constexpr auto tarIdx = (IndexOf<T>);
 #ifdef DEBUG
@@ -992,7 +987,7 @@ public:
     }
 
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     T &force_get() & {
         static constexpr auto tarIdx = (IndexOf<T>);
 #ifdef DEBUG
@@ -1004,7 +999,7 @@ public:
         return *reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder);
     }
     template<typename T>
-        requires(detail::Any<std::is_same_v<T, AA>...>())
+        requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
     T && force_get() && {
         static constexpr auto tarIdx = (IndexOf<T>);
 #ifdef DEBUG
@@ -1163,8 +1158,9 @@ public:
     template<
         typename T,
         typename... Arg>
-        requires(detail::Any<
-                 std::is_constructible_v<AA, T &&, Arg &&...>...>())
+        requires(
+            detail::AnyMap<std::is_constructible, false, T &&, Arg &&...>::
+                template Run<AA...>())
     variant(T &&t, Arg &&...arg) {
         using PureT = std::remove_cvref_t<T>;
         constexpr size_t tIdx = IndexOf<PureT>;
@@ -1195,15 +1191,15 @@ public:
         m_dispose();
     }
     template<typename... Args>
-        requires(detail::Any<
-                 std::is_constructible_v<AA, Args &&...>...>())
+        requires(detail::AnyMap<std::is_constructible, false, Args &&...>::
+                     template Run<AA...>())
     void reset(Args &&...args) {
         this->~variant();
         new (this) variant(std::forward<Args>(args)...);
     }
     template<typename T>
-        requires(detail::Any<
-                 std::is_assignable_v<AA, T &&>...>())
+        requires(detail::AnyMap<std::is_assignable, false, T>::
+                     template Run<AA...>())
     variant &
     operator=(T &&t) {
         using PureT = std::remove_cvref_t<T>;

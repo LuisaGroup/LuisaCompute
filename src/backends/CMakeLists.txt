@@ -9,26 +9,20 @@ function(luisa_compute_add_backend name)
             luisa-compute-vstl)
     add_dependencies(luisa-compute-backends luisa-compute-backend-${name})
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
-            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends"
-            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends/"
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/"
             UNITY_BUILD ON
             DEBUG_POSTFIX "")
     foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
         string(TOUPPER ${CONFIG} CONFIG_UPPER)
         set_target_properties(luisa-compute-backend-${name} PROPERTIES
-                LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends"
-                RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends"
+                LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/"
+                RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/"
                 UNITY_BUILD ON)
     endforeach ()
     string(TOUPPER ${name} UPPER_NAME)
     target_compile_definitions(luisa-compute-backends INTERFACE LUISA_BACKEND_${UPPER_NAME}_ENABLED)
 endfunction()
-
-option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" OFF)
-option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
-option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
-option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" ON)
-option(LUISA_COMPUTE_ENABLE_REMOTE "Enable remote backend" ON)
 
 if (LUISA_COMPUTE_ENABLE_DX)
     # add_subdirectory(dx)

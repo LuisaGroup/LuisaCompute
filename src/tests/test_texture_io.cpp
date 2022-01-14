@@ -73,6 +73,7 @@ int main(int argc, char *argv[]) {
     //    }
 
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
+    auto device_image_uchar4 = device.create_image<uint>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
     std::vector<std::byte> download_image(1024u * 1024u * 4u);
     auto device_buffer = device.create_buffer<float4>(1024 * 1024);
 
@@ -82,7 +83,8 @@ int main(int argc, char *argv[]) {
     stream << clear_image(device_image.view(0)).dispatch(1024u, 1024u)
            << fill_image(device_image.view(0).region(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
            << fill_buffer(device_buffer).dispatch(1024, 1024)
-           << device_image.view(0).copy_to(download_image.data())
+           << device_image.copy_to(device_image_uchar4)
+           << device_image_uchar4.view(0).copy_to(download_image.data())
            << synchronize();
         stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
 

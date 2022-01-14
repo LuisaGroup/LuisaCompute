@@ -7,13 +7,16 @@ set(ISPC_BACKEND_SOURCES
         runtime/ispc_device.cpp
         runtime/ispc_runtime.cpp
         runtime/ispc_shader.cpp
-        )
+        runtime/ispc_mesh.cpp
+        runtime/ispc_accel.cpp
+        runtime/ispc_bindless_array.cpp)
 ##[[[]]]
 
 luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})
 set_target_properties(luisa-compute-backend-ispc PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS OFF
         UNITY_BUILD ON)
+target_link_libraries(luisa-compute-backend-ispc PRIVATE embree)
 
 # copy device libs
 set(ISPC_DEVICE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ISPCTest")
@@ -37,10 +40,10 @@ endforeach ()
 if (WIN32)
     option(LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT "Enable LLVM JIT for ISPC kernels" ON)
     if (LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT)
-        find_package(LLVM CONFIG)
+        find_package(LLVM)
     endif ()
 else ()
-    find_package(LLVM CONFIG REQUIRED)
+    find_package(LLVM REQUIRED)
 endif ()
 
 if (LLVM_FOUND) # link with llvm for jit

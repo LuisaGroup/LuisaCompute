@@ -1,28 +1,38 @@
 #pragma vengine_package vengine_directx
 
 #include <Codegen/DxCodegen.h>
+#include <Codegen/StructGenerator.h>
+#include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
-struct VariableInfo {
-    size_t startUsingStmt = 0;
-    size_t endUsingStmt = 0;
-    size_t scope = 0;
-    //vstd::vector<vstd::vector<std
-};
-class CodegenGlobalData {
-    /* vstd::HashMap<uint64, VariableInfo> varInfos;
-    size_t stmtIndex = 0;*/
-};
 static bool IsFloat3x3(Type const &t) {
     return t.is_matrix() && t.dimension() == 3;
 }
-uint CodegenUtility::IsBool(Type const &type) {
-    if (type.tag() == Type::Tag::BOOL) {
-        return 1;
-    } else if (type.tag() == Type::Tag::VECTOR && type.element()->tag() == Type::Tag::BOOL) {
-        return type.dimension();
+void StringStateVisitor::InsertString() {
+    if (preprocStr.empty()) return;
+    size_t afterSize = str.size() - lastIdx;
+    str.resize(str.size() + preprocStr.size());
+    auto beforePtr = str.data() + lastIdx;
+    if (afterSize > 0) {
+        memmove(
+            beforePtr + preprocStr.size(),
+            beforePtr,
+            afterSize);
     }
-    return 0;
-};
+    memcpy(beforePtr, preprocStr.data(), preprocStr.size());
+    preprocStr.clear();
+    lastIdx += preprocStr.size();
+}
+void StringStateVisitor::SetStub() {
+    lastIdx = str.size();
+}
+
+StringStateVisitor::Tracker::Tracker(StringStateVisitor *self)
+    : self(self) {
+    self->SetStub();
+}
+StringStateVisitor::Tracker::~Tracker() {
+    self->InsertString();
+}
 void StringStateVisitor::visit(const UnaryExpr *expr) {
 
     switch (expr->op()) {
@@ -126,18 +136,34 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
 }
 void StringStateVisitor::visit(const MemberExpr *expr) {
 
+    char const *xyzw = "xyzw";
     if (expr->is_swizzle()) {
         expr->self()->accept(*this);
-        char const *xyzw = "xyzw";
         str << '.';
         for (auto i : vstd::range(static_cast<uint32_t>(expr->swizzle_size()))) {
             str << xyzw[expr->swizzle_index(i)];
         }
 
     } else {
-        expr->self()->accept(*this);
-        str << ".v"sv;
-        vstd::to_string(static_cast<uint64_t>(expr->member_index()), (str));
+        vstd::string curStr;
+        StringStateVisitor vis(f, curStr);
+        expr->self()->accept(vis);
+        auto &&selfStruct = CodegenUtility::GetStruct(expr->self()->type());
+        auto &&structVar = selfStruct->GetVariable(expr->member_index());
+        if (structVar.boolOffset != StructVariable::OFFSET_NPOS) {
+            auto tmpName = CodegenUtility::GetNewTempVarName();
+            auto realTmpName = CodegenUtility::GetTracker()->CreateTempVar(
+                CodegenUtility::GetScope(),
+                preprocStr,
+                curStr,
+                structVar.name,
+                tmpName,
+                AssignSetter::IsAssigning());
+            str << realTmpName << '.' << vstd::string_view(xyzw + structVar.boolOffset, structVar.boolVecDim);
+
+        } else {
+            str << curStr << '.' << structVar.name;
+        }
     }
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
@@ -154,8 +180,16 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
 void StringStateVisitor::visit(const RefExpr *expr) {
 
     Variable v = expr->variable();
+    vstd::string tempStr;
+    CodegenUtility::GetVariableName(v, tempStr);
+    if (v.type()->tag() == Type::Tag::STRUCTURE) {
+        CodegenUtility::GetTracker()->ClearTempVar(
+            CodegenUtility::GetScope(),
+            preprocStr,
+            tempStr);
+    }
     CodegenUtility::RegistStructType(v.type());
-    CodegenUtility::GetVariableName(v, str);
+    str << tempStr;
 }
 
 void StringStateVisitor::visit(const LiteralExpr *expr) {
@@ -175,7 +209,7 @@ void StringStateVisitor::visit(const CallExpr *expr) {
 void StringStateVisitor::visit(const CastExpr *expr) {
     //TODO: bool & bool vector
     str << '(';
-    CodegenUtility::GetTypeName(*expr->type(), str);
+    CodegenUtility::GetTypeName(*expr->type(), str, Usage::READ);
     str << ')';
     expr->expression()->accept(*this);
 }
@@ -194,9 +228,8 @@ void StringStateVisitor::visit(const ContinueStmt *state) {
     str << "continue;\n";
 }
 void StringStateVisitor::visit(const ReturnStmt *state) {
-
+    Tracker t(this);
     if (state->expression()) {
-
         str << "return ";
         state->expression()->accept(*this);
         str << ";\n";
@@ -206,18 +239,21 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
     str << "{\n";
+    CodegenUtility::AddScope(1);
+    InsertString();
     for (auto &&i : state->statements()) {
         i->accept(*this);
     }
+    CodegenUtility::GetTracker()->RemoveStack(str);
+    InsertString();
+    CodegenUtility::AddScope(-1);
     str << "}\n";
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
 }
 void StringStateVisitor::visit(const IfStmt *state) {
-
-    stmtCount = std::numeric_limits<uint64>::max();
+    SetStub();
     str << "if(";
-
     state->condition()->accept(*this);
     str << ")";
     state->true_branch()->accept(*this);
@@ -227,46 +263,35 @@ void StringStateVisitor::visit(const IfStmt *state) {
     }
 }
 void StringStateVisitor::visit(const LoopStmt *state) {
-
-    stmtCount = std::numeric_limits<uint64>::max();
+    SetStub();
     str << "while(true)";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const ExprStmt *state) {
-
-    stmtCount++;
-
+    Tracker t(this);
     state->expression()->accept(*this);
     str << ";\n";
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
-
-    stmtCount++;
+    SetStub();
     str << "switch(";
-
     state->expression()->accept(*this);
     str << ")";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
-
-    stmtCount++;
     str << "case ";
-
     state->expression()->accept(*this);
     str << ":";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
-
-    stmtCount++;
     str << "default:";
     state->body()->accept(*this);
 }
 
 void StringStateVisitor::visit(const AssignStmt *state) {
-    stmtCount++;
-
+    Tracker t(this);
     auto IsMulFuncCall = [&]() -> bool {
         if (state->op() == AssignOp::MUL_ASSIGN) {
             if ((state->lhs()->type()->is_matrix() && (!state->rhs()->type()->is_scalar())) || (state->rhs()->type()->is_matrix() && (!state->lhs()->type()->is_scalar()))) {
@@ -277,59 +302,63 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     };
 
     if (IsMulFuncCall()) {
-        state->lhs()->accept(*this);
+        vstd::string lhsStr;
+        StringStateVisitor vis(f, lhsStr);
+        str << lhsStr;
         if (IsFloat3x3(*state->lhs()->type()) || IsFloat3x3(*state->rhs()->type())) {
             str << "=FMul(";
         } else
             str << "=mul(";
         state->rhs()->accept(*this);
-        str << ',';
-        state->lhs()->accept(*this);
-        str << ")";
+        str << ','
+            << lhsStr
+            << ");\n"sv;
     } else {
-        state->lhs()->accept(*this);
-        switch (state->op()) {
-            case AssignOp::ASSIGN:
-                str << '=';
-                break;
-            case AssignOp::ADD_ASSIGN:
-                str << "+=";
-                break;
-            case AssignOp::SUB_ASSIGN:
-                str << "-=";
-                break;
-            case AssignOp::MUL_ASSIGN:
-                str << "*=";
-                break;
-            case AssignOp::DIV_ASSIGN:
-                str << "/=";
-                break;
-            case AssignOp::MOD_ASSIGN:
-                str << "%=";
-                break;
-            case AssignOp::BIT_AND_ASSIGN:
-                str << "&=";
-                break;
-            case AssignOp::BIT_OR_ASSIGN:
-                str << "|=";
-                break;
-            case AssignOp::BIT_XOR_ASSIGN:
-                str << "^=";
-                break;
-            case AssignOp::SHL_ASSIGN:
-                str << "<<=";
-                break;
-            case AssignOp::SHR_ASSIGN:
-                str << ">>=";
-                break;
+        {
+            AssignSetter setter;
+            state->lhs()->accept(*this);
+            switch (state->op()) {
+                case AssignOp::ASSIGN:
+                    str << '=';
+                    break;
+                case AssignOp::ADD_ASSIGN:
+                    str << "+=";
+                    break;
+                case AssignOp::SUB_ASSIGN:
+                    str << "-=";
+                    break;
+                case AssignOp::MUL_ASSIGN:
+                    str << "*=";
+                    break;
+                case AssignOp::DIV_ASSIGN:
+                    str << "/=";
+                    break;
+                case AssignOp::MOD_ASSIGN:
+                    str << "%=";
+                    break;
+                case AssignOp::BIT_AND_ASSIGN:
+                    str << "&=";
+                    break;
+                case AssignOp::BIT_OR_ASSIGN:
+                    str << "|=";
+                    break;
+                case AssignOp::BIT_XOR_ASSIGN:
+                    str << "^=";
+                    break;
+                case AssignOp::SHL_ASSIGN:
+                    str << "<<=";
+                    break;
+                case AssignOp::SHR_ASSIGN:
+                    str << ">>=";
+                    break;
+            }
         }
         state->rhs()->accept(*this);
+        str << ";\n";
     }
-    str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
-
-    stmtCount = std::numeric_limits<uint64>::max();
+    SetStub();
     str << "for(";
 
     //    state->variable()->accept(*this);
@@ -342,19 +371,20 @@ void StringStateVisitor::visit(const ForStmt *state) {
     str << ")";
     state->body()->accept(*this);
 }
-StringStateVisitor::StringStateVisitor(vstd::string &str)
-    : str(str) {
+StringStateVisitor::StringStateVisitor(
+    Function f,
+    vstd::string &str)
+    : str(str), f(f) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
-    str << '{';
     for (auto &&v : stmt->variables()) {
-        CodegenUtility::GetTypeName(*v.type(), str);
+        CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
         str << ' ';
         CodegenUtility::GetVariableName(v, str);
         str << ";\n";
     }
+    SetStub();
     stmt->scope()->accept(*this);
-    str << '}';
 }
 StringStateVisitor::~StringStateVisitor() = default;
 }// namespace toolhub::directx

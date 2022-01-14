@@ -18,7 +18,8 @@ MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcep
                                                          MTLResourceStorageModeShared |
                                                          MTLResourceHazardTrackingModeUntracked];
     _device_buffer = [device->handle() newBufferWithLength:buffer_size
-                                                   options:MTLResourceStorageModePrivate];
+                                                   options:MTLResourceStorageModePrivate |
+                                                           MTLResourceHazardTrackingModeUntracked];
 }
 
 namespace detail {

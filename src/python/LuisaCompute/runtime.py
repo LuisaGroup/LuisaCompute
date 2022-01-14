@@ -4,6 +4,7 @@ from ._internal.logging import *
 from .pixel import *
 from .type import Type
 import numpy as np
+import json
 
 
 class Command:
@@ -270,10 +271,11 @@ class Texture:
             Stream.dispatch(Command(cmd))
         elif isinstance(src, Texture):
             # TODO: check size
+            assert self.storage == src.storage
             cmd = command_copy_texture_to_texture(
-                src, 0, *src._offset,
-                self, 0, *self._offset,
-                *self._size)
+                src, 0, src._offset[0], src._offset[1], src._offset[2],
+                self, 0, self._offset[0], self._offset[1], self._offset[2],
+                self.storage, self._size[0], self._size[1], self._size[2])
             Stream.dispatch(Command(cmd))
         else:
             raise TypeError(f"Invalid source to copy texture from: {src}")
@@ -313,11 +315,11 @@ ACCEL_BUILD_HINT_FAST_REBUILD = 2
 
 
 class Mesh:
-    def __init__(self, _device, _handle):
+    def __init__(self, _device, _handle, _vertices, _triangles):
         self._device = _device
         self._as_parameter_ = _handle
-        self._vertex_buffer = None
-        self._triangle_buffer = None
+        self._vertex_buffer = _vertices
+        self._triangle_buffer = _triangles
 
     def __del__(self):
         mesh_destroy(self.device, self)
@@ -338,18 +340,11 @@ class Mesh:
     def triangle_buffer(self):
         return self._triangle_buffer
 
-    def build(self, hint: int, vertices: Buffer, triangles: Buffer):
-        self._vertex_buffer = vertices
-        self._triangle_buffer = triangles
-        cmd = command_build_mesh(
-            self, hint,
-            vertices, vertices.offset_bytes,
-            vertices.element.size, vertices.size,
-            triangles, triangles.offset_bytes, triangles.size)
+    def build(self):
+        cmd = command_build_mesh(self)
         Stream.dispatch(cmd)
 
     def update(self):
-        assert self._vertex_buffer is not None and self._triangle_buffer is not None
         cmd = command_update_mesh(self)
         Stream.dispatch(cmd)
 
@@ -364,34 +359,32 @@ class Accel:
     def __del__(self):
         accel_destroy(self.device, self)
 
+    # TODO...
+    def add_instance(self, mesh: Mesh, transform: np.ndarray = None, visible=True):
+        pass
+
+    def set_instance_transform(self, index, transform):
+        pass
+
+    def set_instance_visibility(self, index, visible):
+        pass
+
+    def pop_back(self):
+        pass
+
+    def set_instance(self, index, mesh: Mesh, transform: np.ndarray = None, visible=True):
+        pass
+
     @property
     def device(self):
         return self._device
 
-    def build(self, hint: int, meshes, transforms):
-        count = len(meshes)
-        transforms = np.array(transforms, dtype=np.float32)
-        assert len(transforms.shape) == 3 and transforms.shape[1] == transforms.shape[2] == 4
-        assert len(transforms) == count
-        self._meshes = np.array([m.handle for m in meshes], dtype=np.uint64)
-        self._transforms = transforms
-        cmd = command_build_accel(
-            self, hint,
-            np.ascontiguousarray(self._meshes).ctypes.data,
-            np.ascontiguousarray(self._transforms).ctypes.data,
-            count)
+    def build(self):
+        cmd = command_build_accel(self)
         Stream.dispatch(cmd)
 
-    def update(self, new_transforms=None, offset=None):
-        if new_transforms is None:
-            cmd = command_update_accel(self, None, 0, 0)
-        else:
-            offset = 0 if offset is None else offset
-            transforms = np.array(new_transforms)
-            assert len(transforms.shape) == 3 and transforms.shape[1] == transforms.shape[2] == 4
-            assert offset >= 0 and offset + len(transforms) <= len(self._meshes)
-            self._transforms[offset:offset + len(transforms)] = transforms
-            cmd = command_update_accel(self, np.ascontiguousarray(self._transforms).ctypes.data, offset, len(transforms))
+    def update(self):
+        cmd = command_update_accel(self)
         Stream.dispatch(cmd)
 
 
@@ -418,9 +411,12 @@ class Device:
     def __init__(self, name: str, **kwargs):
         if Device._context is None:
             Device._context = Context()
-        properties = "{\n  " + ",\n  ".join(f"{repr(k)}: {repr(v)}" for k, v in kwargs) + "\n}"
-        log_verbose(f"Properties: {properties}")
-        self._as_parameter_ = device_create(Device._context, name, properties)
+        props = dict(kwargs)
+        if "index" not in props:
+            props["index"] = 0
+        prop_str = json.dumps(props)
+        log_verbose(f"Properties: {prop_str}")
+        self._as_parameter_ = device_create(Device._context, name, prop_str)
         self._default_stream = None
 
     def __del__(self):
@@ -475,10 +471,14 @@ class Device:
             size = (size, size, size)
         return self._create_texture(fmt, 3, size, levels)
 
-    def create_mesh(self):
-        handle = mesh_create(self)
-        return Mesh(self, handle)
+    def create_mesh(self, vertices: Buffer, triangles: Buffer, hint=ACCEL_BUILD_HINT_FAST_TRACE):
+        handle = mesh_create(
+            self,
+            vertices, vertices.offset_bytes, vertices.element.size, vertices.size,
+            triangles, triangles.offset_bytes, triangles.size,
+            hint)
+        return Mesh(self, handle, vertices, triangles)
 
-    def create_accel(self):
-        handle = accel_create(self)
+    def create_accel(self, hint=ACCEL_BUILD_HINT_FAST_TRACE):
+        handle = accel_create(self, hint)
         return Accel(self, handle)

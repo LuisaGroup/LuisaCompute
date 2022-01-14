@@ -12,10 +12,6 @@
 #include <core/platform.h>
 #include <core/stl.h>
 
-#ifndef FMT_STRING
-#define FMT_STRING(...) __VA_ARGS__
-#endif
-
 namespace luisa {
 
 namespace detail {

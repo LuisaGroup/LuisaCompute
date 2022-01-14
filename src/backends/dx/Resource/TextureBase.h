@@ -19,7 +19,7 @@ public:
 	uint Depth() const { return depth; }
 	uint Mip() const { return mip; }
 	virtual D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc() const = 0;
-	virtual D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const VENGINE_PURE_VIRTUAL;
+    virtual D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const VENGINE_PURE_VIRTUAL_RET;
 	TextureBase(
 		Device* device,
 		uint width,

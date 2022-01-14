@@ -8,8 +8,13 @@ struct unique_ptr_deleter {
     void operator()(T *ptr) const noexcept {
         if constexpr (std::is_base_of_v<IDisposable, T>) {
             ptr->Dispose();
+        } else if constexpr (std::is_base_of_v<ISelfPtr, T>) {
+            auto selfPtr = ptr->SelfPtr();
+            ptr->~T();
+            vengine_free(selfPtr);
         } else {
-            delete ptr;
+            ptr->~T();
+            vengine_free(ptr);
         }
     }
 };

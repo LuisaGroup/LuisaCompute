@@ -31,7 +31,7 @@ public:
 		bool closestHit,
 		bool anyHit,
 		bool intersectHit,
-        std::span<std::pair<vstd::string_view, Property>> properties,
+        std::span<std::pair<vstd::string, Property>> &&properties,
         vstd::span<vbyte> binData,
 		Device* device);
 	~RTShader();

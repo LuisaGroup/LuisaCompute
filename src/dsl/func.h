@@ -174,7 +174,6 @@ template<size_t N, typename... Args>
 class Kernel {
 
     static_assert(N == 1u || N == 2u || N == 3u);
-    static_assert(std::negation_v<std::disjunction<is_atomic<Args>...>>);
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
     static_assert(std::negation_v<std::disjunction<std::is_reference<Args>...>>);
 
@@ -318,7 +317,6 @@ class Callable<Ret(Args...)> {
             is_volume_or_view<Ret>>>,
         "Callables may not return buffers, "
         "images or volumes (or their views).");
-    static_assert(std::negation_v<std::disjunction<is_atomic<Args>...>>);
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
 private:
