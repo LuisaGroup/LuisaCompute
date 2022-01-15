@@ -222,11 +222,11 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
     reinterpret_cast<MetalEvent *>(handle)->synchronize();
 }
 
-void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcept {
+void MetalDevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
     @autoreleasepool {
         auto s = reinterpret_cast<MetalStream *>(stream_handle);
         MetalCommandEncoder encoder{this, s};
-        for (auto command : cmd_list) { command->accept(encoder); }
+        for (auto command : list) { command->accept(encoder); }
         s->dispatch(encoder.command_buffer());
     }
 }

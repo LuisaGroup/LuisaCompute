@@ -200,10 +200,10 @@ void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
     });
 }
 
-void CUDADevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
-    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), cmd_list = std::move(list)] {
+void CUDADevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
+    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), &list] {
         CUDACommandEncoder encoder{this, stream};
-        for (auto cmd : cmd_list) { cmd->accept(encoder); }
+        for (auto cmd : list) { cmd->accept(encoder); }
         stream->dispatch_callbacks();
     });
 }
