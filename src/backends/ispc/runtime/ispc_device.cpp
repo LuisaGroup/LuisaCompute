@@ -46,10 +46,10 @@ void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
     auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
     cmd->WaitThread();
 }
-void ISPCDevice::dispatch(uint64_t stream_handle, CommandList cmdList) noexcept {
+void ISPCDevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
     auto cmd = reinterpret_cast<CommandExecutor *>(stream_handle);
     // TODO : multi-thread
-    for (auto &&i : cmdList) {
+    for (auto &&i : list) {
         i->accept(*cmd);
     }
     cmd->ExecuteDispatch();

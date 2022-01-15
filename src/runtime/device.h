@@ -92,7 +92,10 @@ public:
         [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
-        virtual void dispatch(uint64_t stream_handle, CommandList) noexcept = 0;
+        virtual void dispatch(uint64_t stream_handle, const CommandList &list) noexcept = 0;
+        virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
+            for (auto &&list : lists) { dispatch(stream_handle, list); }
+        }
         [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
 
         // kernel

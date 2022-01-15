@@ -75,7 +75,7 @@ void RemoteDevice::destroy_stream(uint64_t handle) noexcept {
 void RemoteDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 }
 
-void RemoteDevice::dispatch(uint64_t stream_handle, CommandList list) noexcept {
+void RemoteDevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
 }
 
 void *RemoteDevice::stream_native_handle(uint64_t handle) const noexcept {
