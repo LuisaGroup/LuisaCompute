@@ -886,6 +886,25 @@ Hit trace_closest(uniform RTCScene scene, Ray ray) {
 	return hit;
 }
 
+void trace_any(uniform RTCScene scene, Ray ray) {
+	// TODO: check availability
+	uniform RTCIntersectContext intersectCtx;
+	rtcInitIntersectContext(&intersectCtx);
+	RTCRay r;
+	r.org_x = ray.v0[0];
+	r.org_y = ray.v0[1];
+	r.org_z = ray.v0[2];
+	r.tnear = ray.v1;
+	r.dir_x = ray.v2[0];
+	r.dir_y = ray.v2[1];
+	r.dir_z = ray.v2[2];
+	r.tfar = ray.v3;
+	r.mask = 0xffffu;
+	r.flags = 0;
+	rtcOccludedV(scene, &intersectCtx, &r);
+	ray.v3 = r.tfar;
+}
+
 #define LC_BINDLESS_BUFFER_READ_TYPE(T) \
 inline T lc_bindless_buffer_read_##T(uniform LCBindlessArray array, int index, int i) { \
 	T* buffer = (T*)array.v0[index]; \

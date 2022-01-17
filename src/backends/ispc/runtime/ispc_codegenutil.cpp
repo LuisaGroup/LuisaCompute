@@ -607,7 +607,9 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::TRACE_CLOSEST:
             str << "trace_closest"sv;
             break;
-        // TODO: trace any
+        case CallOp::TRACE_ANY:
+            str << "trace_any"sv;
+            break;
         default: {
             LUISA_ERROR_WITH_LOCATION("Call Op code: {}", (int)expr->op());
             auto errorType = expr->op();
