@@ -15,20 +15,6 @@ struct BufferView {
     BufferView(
         Buffer const *buffer,
         uint64 offset);
-    size_t get_bin_value() const {
-        return reinterpret_cast<size_t>(buffer) + offset + byteSize;
-    }
-    bool operator==(BufferView const &a) const {
-        return a.get_bin_value() == get_bin_value();
-    }
-    bool operator!=(BufferView const &a) const {
-        return !operator==(a);
-    }
-    bool operator>(BufferView const &a) const {
-        return a.get_bin_value() > get_bin_value();
-    }
-    bool operator<(BufferView const &a) const {
-        return a.get_bin_value() < get_bin_value();
-    }
+    VSTD_TRIVIAL_COMPARABLE(BufferView)
 };
 }// namespace toolhub::directx

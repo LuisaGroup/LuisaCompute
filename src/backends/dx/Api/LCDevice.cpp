@@ -7,6 +7,7 @@
 #include <Codegen/ShaderHeader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/BindlessArray.h>
+#include <Api/LCCmdBuffer.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 LCDevice::LCDevice(const Context &ctx)
@@ -94,16 +95,30 @@ void LCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noex
         ->UnBind(BindlessArray::BindTag::Tex3D, index);
 }
 uint64_t LCDevice::create_stream() noexcept {
-    return uint64_t();
+    return reinterpret_cast<uint64>(
+        new LCCmdBuffer(
+            &nativeDevice,
+            nativeDevice.defaultAllocator,
+            D3D12_COMMAND_LIST_TYPE_COMPUTE));
 }
 void LCDevice::destroy_stream(uint64_t handle) noexcept {
+    delete reinterpret_cast<LCCmdBuffer *>(handle);
 }
 void LCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)->Sync();
 }
-void LCDevice::dispatch(uint64_t stream_handle, CommandList) noexcept {
+void LCDevice::dispatch(uint64_t stream_handle, CommandList const &v) noexcept {
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)
+        ->Execute({&v, 1});
 }
+void LCDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)
+        ->Execute(lists);
+}
+
 void *LCDevice::stream_native_handle(uint64_t handle) const noexcept {
-    return nullptr;
+    return reinterpret_cast<LCCmdBuffer *>(handle)
+        ->queue.Queue();
 }
 uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     static DXShaderCompiler dxCompiler;

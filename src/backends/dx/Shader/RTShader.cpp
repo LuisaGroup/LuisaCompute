@@ -88,7 +88,7 @@ RTShader::RTShader(
     bool closestHit,
     bool anyHit,
     bool intersectHit,
-    std::span<std::pair<vstd::string, Property>> &&properties,
+    vstd::span<std::pair<vstd::string, Property>> &&properties,
     vstd::span<vbyte> binData,
     Device *device)
     : Shader(std::move(properties), device->device.Get()),

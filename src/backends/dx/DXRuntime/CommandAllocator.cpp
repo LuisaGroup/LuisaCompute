@@ -14,8 +14,8 @@ void CommandAllocator::Execute(
     queue->ExecuteCommandLists(
         executeCache.size(),
         executeCache.data());
+    executeCache.clear();
     ThrowIfFailed(queue->Signal(fence, fenceIndex));
-    ThrowIfFailed(queue->Wait(fence, fenceIndex));
 }
 void CommandAllocator::Complete(
     ID3D12Fence *fence,
@@ -124,7 +124,7 @@ BufferView CommandAllocator::GetTempUploadBuffer(uint64 size) {
 }
 BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size) {
     auto chunk = defaultAllocator.Allocate(size);
-    auto package = reinterpret_cast<UploadBuffer *>(chunk.handle);
+    auto package = reinterpret_cast<DefaultBuffer *>(chunk.handle);
     return {
         package,
         chunk.offset,
