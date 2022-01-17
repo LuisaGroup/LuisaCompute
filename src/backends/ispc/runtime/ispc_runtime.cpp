@@ -44,14 +44,6 @@ void CommandExecutor::visit(ShaderDispatchCommand const *cmd) noexcept {
         std::move(vec));
     AddTask(std::move(handle));
 }
-void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept {
-    AddTask(*cmd);
-}
-void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept {
-    AddTask(*cmd);
-}
-void CommandExecutor::visit(TextureCopyCommand const *cmd) noexcept {}
-void CommandExecutor::visit(TextureToBufferCopyCommand const *cmd) noexcept {}
 void CommandExecutor::visit(AccelUpdateCommand const *cmd) noexcept {
     auto accel = reinterpret_cast<ISPCAccel*>(cmd->handle());
     auto handle = tPool->GetTask([accel](){ accel->update(); }, true);
@@ -72,6 +64,11 @@ void CommandExecutor::visit(MeshBuildCommand const *cmd) noexcept {
     auto handle = tPool->GetTask([mesh](){ mesh->build(); }, true);
     AddTask(std::move(handle));
 }
+void CommandExecutor::visit(TextureUploadCommand const *cmd) noexcept { AddTask(*cmd); }
+void CommandExecutor::visit(TextureDownloadCommand const *cmd) noexcept { AddTask(*cmd); }
+void CommandExecutor::visit(TextureCopyCommand const *cmd) noexcept { AddTask(*cmd); }
+void CommandExecutor::visit(TextureToBufferCopyCommand const *cmd) noexcept { AddTask(*cmd); }
+void CommandExecutor::visit(BufferToTextureCopyCommand const *cmd) noexcept { AddTask(*cmd); }
 void CommandExecutor::visit(BindlessArrayUpdateCommand const *cmd) noexcept {}
 CommandExecutor::CommandExecutor(ThreadPool *tPool)
     : tPool(tPool),
@@ -80,6 +77,18 @@ CommandExecutor::CommandExecutor(ThreadPool *tPool)
               ThreadExecute();
       }) {}
 void CommandExecutor::ThreadExecute() {
+    auto check_texture_boundary = [](Texture2D* tex, uint level, uint3 size, uint3 offset)
+    {
+        if (offset.z != 0 || size.z!=1)
+            throw "TextureDownloadCommand: unimplemented";
+        // debug: check boundary
+        if (level >= tex->lodLevel)
+            throw "TextureDownloadCommand: lod out of bound";
+        if (size.x + offset.x > max(tex->width>>level,1u))
+            throw "TextureDownloadCommand: out of bound";
+        if (size.y + offset.y > max(tex->height>>level,1u))
+            throw "TextureDownloadCommand: out of bound";
+    };
     while (auto job = syncTasks.Pop()) {
         job->multi_visit(
             [&](ThreadTaskHandle const &handle) { handle.Complete(); },
@@ -96,12 +105,60 @@ void CommandExecutor::ThreadExecute() {
                 uint8_t *dst = reinterpret_cast<uint8_t *>(cmd.dst_handle());
                 memcpy(dst + cmd.dst_offset(), src + cmd.src_offset(), cmd.size());
             },
-            [&](TextureDownloadCommand const &cmd) {
-                if (cmd.offset().x!=0 || cmd.offset().y!=0 || cmd.offset().z!=0) throw "123";
-                if (cmd.size().z!=1 || cmd.level() != 0) throw "123";
+            [&](TextureUploadCommand const &cmd) {
                 Texture2D* tex = reinterpret_cast<Texture2D*>(cmd.handle());
-                if (tex->width != cmd.size().x || tex->height != cmd.size().y) throw "123"; // TODO
-                memcpy(cmd.data(), tex->data, tex->width * tex->height * 4*sizeof(float));
+                check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+                // copy data
+                // data is void*; tex->lods is float* for now
+                int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+                int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+                for (int i=0; i<cmd.size().y; ++i)
+                    memcpy(tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4, (unsigned char*)cmd.data() + i*target_stride, cmd.size().x * 4*sizeof(float)); 
+            },
+            [&](TextureDownloadCommand const &cmd) {
+                Texture2D* tex = reinterpret_cast<Texture2D*>(cmd.handle());
+                check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+                // copy data
+                // data is void*; tex->lods is float* for now
+                int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+                int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+                for (int i=0; i<cmd.size().y; ++i)
+                    memcpy((unsigned char*)cmd.data() + i*target_stride, tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4, cmd.size().x * 4*sizeof(float)); 
+            },
+            [&](TextureCopyCommand const &cmd) {
+                Texture2D* src_tex = reinterpret_cast<Texture2D*>(cmd.src_handle());
+                Texture2D* dst_tex = reinterpret_cast<Texture2D*>(cmd.dst_handle());
+                check_texture_boundary(src_tex, cmd.src_level(), cmd.size(), cmd.src_offset());
+                check_texture_boundary(dst_tex, cmd.dst_level(), cmd.size(), cmd.dst_offset());
+                // copy data
+                int src_stride = max(src_tex->width>>cmd.src_level(), 1u) * 4; // TODO support for other data type
+                int dst_stride = max(dst_tex->width>>cmd.dst_level(), 1u) * 4; // TODO support for other data type
+                for (int i=0; i<cmd.size().y; ++i) {
+                    memcpy(dst_tex->lods[cmd.dst_level()] + dst_stride * (i+cmd.dst_offset().y) + cmd.dst_offset().x*4,
+                           src_tex->lods[cmd.src_level()] + src_stride * (i+cmd.src_offset().y) + cmd.src_offset().x*4,
+                           cmd.size().x * 4*sizeof(float));
+                }
+            },
+            [&](TextureToBufferCopyCommand const &cmd) {
+                Texture2D* tex = reinterpret_cast<Texture2D*>(cmd.texture());
+                check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+                // copy data
+                // data is void*; tex->lods is float* for now
+                int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+                int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+                for (int i=0; i<cmd.size().y; ++i)
+                    memcpy((unsigned char*)cmd.buffer() + cmd.buffer_offset() + i*target_stride, tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4, cmd.size().x * 4*sizeof(float)); 
+            },
+            [&](BufferToTextureCopyCommand const &cmd) {
+                Texture2D* tex = reinterpret_cast<Texture2D*>(cmd.texture());
+                check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+                // copy data
+                // data is void*; tex->lods is float* for now
+                int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+                int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+                for (int i=0; i<cmd.size().y; ++i)
+                    memcpy(tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4, (unsigned char*)cmd.buffer() + cmd.buffer_offset() + i*target_stride, cmd.size().x * 4*sizeof(float)); 
+
             },
             [&](Signal const &cmd) {
                 std::lock_guard lck(cmd.evt->mtx);
