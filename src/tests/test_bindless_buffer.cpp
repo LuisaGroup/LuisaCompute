@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
 
     Callable readBuffer = [](BindlessVar heap, UInt index) noexcept {
         UInt x = 0;
-        return x;// heap.buffer<uint>(0u).read(index);
+        return heap.buffer<uint>(0u).read(index);
     };
     // auto useless_shader = device.compile(useless_kernel);
 
@@ -55,8 +55,8 @@ int main(int argc, char *argv[]) {
         // Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
         // Var r = length(uv - 0.5f);
         // Var t = log(sin(sqrt(r) * 100.0f - constants::pi_over_two) + 2.0f);
-        image.write(index, 0u);
-        // image.write(index, readBuffer(heap, index));
+        // image.write(index, 0u);
+        image.write(index, readBuffer(heap, index));
     };
 
     auto clear_image = device.compile(clear_image_kernel);
@@ -103,10 +103,10 @@ int main(int argc, char *argv[]) {
     cmd //<< event.signal()
         << commit();
     
-    stream //<< clear_image(device_image).dispatch(1024u, 1024u)
+    stream << clear_image(device_image).dispatch(1024u, 1024u)
         //    << event.wait()
            << fill_image(heap, device_image).dispatch(1024u, 1024u)
-        //    << device_image.copy_to(host_image.data())
+           << device_image.copy_to(host_image.data())
         //    << event.signal()
            << synchronize();
 

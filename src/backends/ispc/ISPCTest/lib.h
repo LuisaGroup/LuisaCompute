@@ -886,9 +886,10 @@ Hit trace_closest(uniform RTCScene scene, Ray ray) {
 	return hit;
 }
 
-inline uint lc_bindless_buffer_read(uniform LCBindlessArray array, int index, int i) {
-	// uint* buffer = (uint*)array.v0[index];
-	// print("buffer % \n",buffer);
-	// return buffer[i];
-	return 0;
+#define LC_BINDLESS_BUFFER_READ_TYPE(T) \
+inline T lc_bindless_buffer_read_##T(uniform LCBindlessArray array, int index, int i) { \
+	T* buffer = (T*)array.v0[index]; \
+	return buffer[i]; \
 }
+
+LC_BINDLESS_BUFFER_READ_TYPE(uint);
