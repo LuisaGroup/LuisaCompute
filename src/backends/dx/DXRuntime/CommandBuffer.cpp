@@ -27,7 +27,7 @@ CommandBuffer::CommandBuffer(
     ThrowIfFailed(cmdList->Close());
 }
 void CommandBufferBuilder::SetResources(
-    Shader *s,
+    Shader const *s,
     vstd::span<const BindProperty> resources) {
     for (auto &&r : resources) {
         r.prop.visit(
@@ -40,7 +40,7 @@ void CommandBufferBuilder::SetResources(
     }
 }
 void CommandBufferBuilder::DispatchCompute(
-    ComputeShader *cs,
+    ComputeShader const *cs,
     uint3 dispatchId,
     vstd::span<const BindProperty> resources) {
     auto calc = [](uint disp, uint thd) {
@@ -58,7 +58,7 @@ void CommandBufferBuilder::DispatchCompute(
     c->Dispatch(dispId.x, dispId.y, dispId.z);
 }
 void CommandBufferBuilder::DispatchRT(
-    RTShader *rt,
+    RTShader const *rt,
     uint3 dispatchId,
     vstd::span<const BindProperty> resources) {
     auto c = cb->cmdList.Get();

@@ -27,6 +27,7 @@ private:
 	void ExecuteThread();
 
 public:
+    ID3D12CommandQueue *Queue() const { return queue.Get(); }
 	CommandQueue(
 		Device* device,
 		IGpuAllocator* resourceAllocator,

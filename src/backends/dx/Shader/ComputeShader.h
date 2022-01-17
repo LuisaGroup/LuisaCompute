@@ -10,7 +10,7 @@ public:
 	uint3 BlockSize() const { return blockSize; }
 	ComputeShader(
 		uint3 blockSize,
-        std::span<std::pair<vstd::string, Property>>&& properties,
+        vstd::span<std::pair<vstd::string, Property>> &&properties,
 		vstd::span<vbyte> binData,
 		ID3D12Device* device);
 	ID3D12PipelineState* Pso() const { return pso.Get(); }

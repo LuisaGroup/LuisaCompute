@@ -3,7 +3,7 @@
 namespace toolhub::directx {
 ComputeShader::ComputeShader(
     uint3 blockSize,
-    std::span<std::pair<vstd::string, Property>> &&properties,
+    vstd::span<std::pair<vstd::string, Property>> &&properties,
     vstd::span<vbyte> binData,
     ID3D12Device *device)
     : Shader(std::move(properties), device),

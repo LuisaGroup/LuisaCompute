@@ -6,14 +6,14 @@
 #include <Resource/TopAccel.h>
 #include <Resource/DefaultBuffer.h>
 namespace toolhub::directx {
-vstd::optional<Shader::InsideProperty> Shader::GetProperty(vstd::string_view str) {
+vstd::optional<Shader::InsideProperty> Shader::GetProperty(vstd::string_view str) const {
     auto ite = properties.Find(str);
     if (!ite) return {};
     return ite.Value();
 }
 
 Shader::Shader(
-    std::span<std::pair<vstd::string, Property>> &&prop,
+    vstd::span<std::pair<vstd::string, Property>> &&prop,
     ID3D12Device *device) {
     properties.reserve(prop.size());
     vstd::vector<CD3DX12_ROOT_PARAMETER, VEngine_AllocType::VEngine, 32> allParameter;
@@ -80,7 +80,7 @@ Shader::Shader(
 bool Shader::SetComputeResource(
     vstd::string_view propertyName,
     CommandBufferBuilder *cb,
-    BufferView buffer) {
+    BufferView buffer) const {
     auto cmdList = cb->CmdList();
     auto var = GetProperty(propertyName);
     if (!var) return false;
@@ -108,7 +108,7 @@ bool Shader::SetComputeResource(
 bool Shader::SetComputeResource(
     vstd::string_view propertyName,
     CommandBufferBuilder *cb,
-    DescriptorHeapView view) {
+    DescriptorHeapView view) const {
     auto cmdList = cb->CmdList();
     auto var = GetProperty(propertyName);
     if (!var) return false;
@@ -128,7 +128,7 @@ bool Shader::SetComputeResource(
 bool Shader::SetComputeResource(
     vstd::string_view propertyName,
     CommandBufferBuilder *cmdList,
-    TopAccel const *bAccel) {
+    TopAccel const *bAccel) const {
     return SetComputeResource(
         propertyName,
         cmdList,

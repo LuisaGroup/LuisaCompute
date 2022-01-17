@@ -137,8 +137,8 @@ void BindlessArray::Update(
             builder.Upload(
                 BufferView(
                     &buffer,
-                    kv.first * sizeof(uint),
-                    sizeof(uint)),
+                    sizeof(BindlessStruct) * kv.first,
+                    sizeof(BindlessStruct)),
                 &kv.second);
         }
         updateMap.Clear();

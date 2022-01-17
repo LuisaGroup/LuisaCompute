@@ -27,7 +27,7 @@ private:
     vstd::vector<BindlessStruct> binded;
     vstd::HashMap<uint, BindlessStruct> updateMap;
     using Map = vstd::HashMap<size_t, size_t>;
-    vstd::HashMap<std::pair<uint, BindTag>, Map::Index> indexMap;
+    vstd::HashMap<std::pair<uint, BindTag>, typename Map::Index> indexMap;
     Map ptrMap;
     DefaultBuffer buffer;
     mutable std::mutex globalMtx;
