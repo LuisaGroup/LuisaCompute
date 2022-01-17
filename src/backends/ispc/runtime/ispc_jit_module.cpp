@@ -9,7 +9,7 @@
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/Host.h>
-#include <llvm/Support/TargetRegistry.h>
+#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>

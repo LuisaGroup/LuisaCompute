@@ -601,7 +601,8 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
 
             break;
         case CallOp::BINDLESS_BUFFER_READ:
-            str << "lc_bindless_buffer_read"sv;
+            str << "lc_bindless_buffer_read_"sv;
+            str << expr->type()->description();
             break;
         case CallOp::TRACE_CLOSEST:
             str << "trace_closest"sv;
