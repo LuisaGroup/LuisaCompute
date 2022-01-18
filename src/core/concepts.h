@@ -12,7 +12,6 @@
 
 #include <core/macro.h>
 #include <core/basic_types.h>
-#include <core/atomic.h>
 #include <core/stl.h>
 
 namespace luisa::concepts {
@@ -124,9 +123,6 @@ concept matrix4 = is_matrix4_v<T>;
 
 template<typename T>
 concept basic = is_basic_v<T>;
-
-template<typename T>
-concept atomic = is_atomic_v<T>;
 
 // operator traits
 #define LUISA_MAKE_UNARY_OP_CONCEPT(op, op_name) \
