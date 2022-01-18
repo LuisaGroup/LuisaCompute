@@ -601,6 +601,15 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
                 str << "_float4"sv;
 
             break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
+            str << "lc_bindless_texture2d_sample"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_READ:
+            str << "lc_bindless_texture2d_read"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE:
+            str << "lc_bindless_texture2d_size"sv;
+            break;
         case CallOp::BINDLESS_BUFFER_READ:
             str << "lc_bindless_buffer_read_"sv;
             str << expr->type()->description();
@@ -680,7 +689,7 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
         case Type::Tag::ACCEL:
             return 8;
         case Type::Tag::BINDLESS_ARRAY:
-            return 32;
+            return 40;
     }
     LUISA_ERROR_WITH_LOCATION(
         "Invalid type: {}.",

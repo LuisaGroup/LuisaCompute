@@ -887,7 +887,7 @@ Hit trace_closest(uniform RTCScene scene, Ray ray) {
 	return hit;
 }
 
-void trace_any(uniform RTCScene scene, Ray ray) {
+bool trace_any(uniform RTCScene scene, Ray ray) {
 	// TODO: check availability
 	uniform RTCIntersectContext intersectCtx;
 	rtcInitIntersectContext(&intersectCtx);
@@ -903,7 +903,8 @@ void trace_any(uniform RTCScene scene, Ray ray) {
 	r.mask = 0xffffu;
 	r.flags = 0;
 	rtcOccludedV(scene, &intersectCtx, &r);
-	ray.v3 = r.tfar;
+	if(ray.v3 != r.tfar) return true;
+	else return false;
 }
 
 #define LC_BINDLESS_BUFFER_READ_TYPE(T) \
@@ -913,3 +914,28 @@ inline T lc_bindless_buffer_read_##T(uniform LCBindlessArray array, int index, i
 }
 
 LC_BINDLESS_BUFFER_READ_TYPE(uint);
+
+#define LC_BINDLESS_TEXTURE2D_READ_TYPE(T) \
+inline T lc_bindless_texture2d_read_##T(uniform LCBindlessArray array, uint index, uint2 p) { \
+	Texture2D* tex = (Texture2D*)array.v1[index]; \
+	return texture_read(tex, p, 0);
+}
+
+LC_BINDLESS_TEXTURE2D_READ_TYPE(float4);
+
+inline uint max(uint a, uint b) {
+	return a > b ? a : b;
+}
+
+inline uint2 lc_bindless_texture2d_size(uniform LCBindlessArray array, int index, int level) {
+	uint x = array.v3[index * 2 + 0];
+	uint y = array.v3[index * 2 + 1];
+	return _uint2(max(x >> level, 1u), max(y >> level, 1u));
+}
+
+inline uint3 lc_bindless_texture3d_size(uniform LCBindlessArray array, int index, int level) {
+	uint x = array.v4[index * 3 + 0];
+	uint y = array.v4[index * 3 + 1];
+	uint z = array.v4[index * 3 + 2];
+	return _uint3(max(x >> level, 1u), max(y >> level, 1u), max(z >> level, 1u));
+}

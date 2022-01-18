@@ -3,19 +3,19 @@
 namespace lc::ispc {
 
 ISPCBindlessArray::ISPCBindlessArray(size_t size) noexcept : 
-    size(size), bufferVector(size, 0), bufferAddressVector(size, 0), tex2dVector(size, 0), tex3dVector(size, 0) {
-    data.size = size;
+    size(size), bufferVector(size, 0), bufferAddressVector(size, 0), tex2dVector(size, 0), tex3dVector(size, 0),
+    tex2dSizeVector(size * 2, 0), tex3dSizeVector(size * 3, 0) {
     data.buffer = bufferAddressVector.data();
     data.tex2d = tex2dVector.data();
     data.tex3d = tex3dVector.data();
-    LUISA_INFO("{} {} {}", (uint64_t)data.buffer, (uint64_t)data.tex2d, (uint64_t)data.tex3d);
+    data.tex2dSize = tex2dSizeVector.data();
+    data.tex3dSize = tex3dSizeVector.data();
 }
 
 void ISPCBindlessArray::emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept {
     bufferVector[index] = buffer;
     bufferAddressVector[index] = buffer + offset;
     auto a = reinterpret_cast<uint32_t *>(buffer + offset)[0];
-    LUISA_INFO("emplace {} = {}, a = {}", buffer, data.buffer[index], a);
 }
 
 void ISPCBindlessArray::emplace_tex2d(size_t index, uint64_t buffer, Sampler sampler) noexcept {

@@ -140,7 +140,8 @@ struct LCBindlessArray {
     uint64* v0; // buffer
     uint64* v1; // tex2d
     uint64* v2; // tex3d
-    size_t v3; // size
+    uint32* v3; // tex2dSize
+    uint32* v4; // tex3dSize
 };
 // float4 texture_sample(Texture2D *tex, float2 u, uint level)
 // {
