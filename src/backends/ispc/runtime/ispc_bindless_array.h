@@ -15,7 +15,8 @@ public:
         uint64_t* buffer;
         uint64_t* tex2d;
         uint64_t* tex3d;
-        size_t size;
+        uint32_t* tex2dSize;
+        uint32_t* tex3dSize;
     };
 private:
     DeviceData data;
@@ -24,6 +25,8 @@ private:
     luisa::vector<uint64_t> bufferAddressVector;
     luisa::vector<uint64_t> tex2dVector;
     luisa::vector<uint64_t> tex3dVector;
+    luisa::vector<uint32_t> tex2dSizeVector;
+    luisa::vector<uint32_t> tex3dSizeVector;
 public:
     explicit ISPCBindlessArray(size_t size) noexcept;
     void emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept;
