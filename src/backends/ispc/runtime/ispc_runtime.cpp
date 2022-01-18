@@ -15,6 +15,11 @@ void CommandExecutor::visit(BufferDownloadCommand const *cmd) noexcept {
 void CommandExecutor::visit(BufferCopyCommand const *cmd) noexcept {
     AddTask(*cmd);
 }
+
+struct TextureView {
+    Texture2D* tex;
+    uint level;
+};
 struct ShaderDispatcher {
     Function func;
     Shader::ArgVector &vec;
@@ -23,7 +28,7 @@ struct ShaderDispatcher {
         Shader::PackArg<float *>(vec, reinterpret_cast<float *>(arg.handle));
     }
     void operator()(uint, ShaderDispatchCommand::TextureArgument const &arg) {
-        Shader::PackArg<float *>(vec, reinterpret_cast<float *>(arg.handle));
+        Shader::PackArg<TextureView>(vec, TextureView{reinterpret_cast<Texture2D*>(arg.handle), arg.level});
     }
     void operator()(uint var_id, luisa::span<std::byte const> arg) {
         Shader::PackArr(vec, arg.data(), arg.size(), CodegenUtility::GetTypeAlign(*func.arguments()[sd->GetArgIndex(var_id)].type()));
