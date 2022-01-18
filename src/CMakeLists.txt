@@ -64,7 +64,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-backends)
 
 add_dependencies(luisa-compute
-#        luisa-compute-api
+        #        luisa-compute-api
         luisa-compute-serialize
         luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)

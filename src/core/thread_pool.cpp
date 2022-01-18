@@ -28,22 +28,40 @@ static inline void check_not_in_worker_thread(std::string_view f) noexcept {
 
 }// namespace detail
 
-ThreadPool::ThreadPool(size_t num_threads) noexcept
-    : _synchronize_barrier{[&num_threads] {
-          if (num_threads == 0u) {
-              num_threads = std::max(
-                  std::thread::hardware_concurrency(), 1u);
-          }
-          return static_cast<std::ptrdiff_t>(
-              num_threads /* worker threads */ + 1u /* main thread */);
-      }()},
-      _dispatch_barrier{static_cast<std::ptrdiff_t>(num_threads)},
-      _should_stop{false} {
-    if (num_threads + 1u > barrier_type::max()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Too many threads: {} (max = {}).",
-            num_threads, barrier_type::max() - 1u);
+// reference: https://github.com/yohhoy/yamc/blob/master/include/yamc_barrier.hpp
+class Barrier {
+
+private:
+    uint _n;
+    uint _counter;
+    uint _phase;
+    std::condition_variable _cv;
+    std::mutex _mutex;
+
+public:
+    explicit Barrier(uint n) noexcept
+        : _n{n}, _counter{n}, _phase{0u} {}
+    void arrive_and_wait() noexcept {
+        std::unique_lock lock{_mutex};
+       auto arrive_phase = _phase;
+        if (--_counter == 0u) {
+            _counter = _n;
+            _phase++;
+            _cv.notify_all();
+        }
+        while (_phase <= arrive_phase) {
+            _cv.wait(lock);
+        }
     }
+};
+
+ThreadPool::ThreadPool(size_t num_threads) noexcept : _should_stop{false} {
+    if (num_threads == 0u) {
+        num_threads = std::max(
+            std::thread::hardware_concurrency(), 1u);
+    }
+    _dispatch_barrier = luisa::make_unique<Barrier>(num_threads);
+    _synchronize_barrier = luisa::make_unique<Barrier>(num_threads + 1u /* main thread */);
     _threads.reserve(num_threads);
     for (auto i = 0u; i < num_threads; i++) {
         _threads.emplace_back(std::thread{[this] {
@@ -51,7 +69,7 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept
             for (;;) {
                 std::unique_lock lock{_mutex};
                 _cv.wait(lock, [this] { return !_tasks.empty() || _should_stop; });
-                if (_should_stop) [[unlikely]] { break; }
+                if (_should_stop && _tasks.empty()) [[unlikely]] { break; }
                 auto task = std::move(_tasks.front());
                 _tasks.pop();
                 lock.unlock();
@@ -66,13 +84,13 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept
 
 void ThreadPool::barrier() noexcept {
     detail::check_not_in_worker_thread("barrier");
-    _dispatch_all([this] { _dispatch_barrier.arrive_and_wait(); });
+    _dispatch_all([this] { _dispatch_barrier->arrive_and_wait(); });
 }
 
 void ThreadPool::synchronize() noexcept {
     detail::check_not_in_worker_thread("synchronize");
-    _dispatch_all([this] { _synchronize_barrier.arrive_and_wait(); });
-    _synchronize_barrier.arrive_and_wait();
+    _dispatch_all([this] { _synchronize_barrier->arrive_and_wait(); });
+    _synchronize_barrier->arrive_and_wait();
 }
 
 void ThreadPool::_dispatch(luisa::function<void()> task) noexcept {

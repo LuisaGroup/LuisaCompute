@@ -21,6 +21,11 @@ public:
         BufferUploadCommand,
         BufferDownloadCommand,
         BufferCopyCommand,
+        TextureUploadCommand,
+        TextureDownloadCommand,
+        TextureCopyCommand,
+        TextureToBufferCopyCommand,
+        BufferToTextureCopyCommand,
         Signal,
         Wait>;
 
@@ -51,7 +56,7 @@ public:
     void visit(BufferUploadCommand const *cmd) noexcept override;
     void visit(BufferDownloadCommand const *cmd) noexcept override;
     void visit(BufferCopyCommand const *cmd) noexcept override;
-    void visit(BufferToTextureCopyCommand const *cmd) noexcept override {}
+    void visit(BufferToTextureCopyCommand const *cmd) noexcept override;
     void visit(ShaderDispatchCommand const *cmd) noexcept override;
     void visit(TextureUploadCommand const *cmd) noexcept override;
     void visit(TextureDownloadCommand const *cmd) noexcept override;
