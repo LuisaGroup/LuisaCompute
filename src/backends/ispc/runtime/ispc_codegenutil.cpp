@@ -687,7 +687,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
             return Shader::CalcAlign(sz, maxAlign);
         }
         case Type::Tag::BUFFER:
+            return 8;
         case Type::Tag::TEXTURE:
+            return 16; // sizeof TextureView
         case Type::Tag::ACCEL:
             return 8;
         case Type::Tag::BINDLESS_ARRAY:

@@ -1,4 +1,5 @@
 #include <backends/ispc/runtime/ispc_bindless_array.h>
+#include <backends/ispc/ISPCTest/Types.h>
 
 namespace lc::ispc {
 
@@ -15,14 +16,15 @@ ISPCBindlessArray::ISPCBindlessArray(size_t size) noexcept :
 void ISPCBindlessArray::emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept {
     bufferVector[index] = buffer;
     bufferAddressVector[index] = buffer + offset;
-    auto a = reinterpret_cast<uint32_t *>(buffer + offset)[0];
 }
 
-void ISPCBindlessArray::emplace_tex2d(size_t index, uint64_t buffer, Sampler sampler) noexcept {
-
+void ISPCBindlessArray::emplace_tex2d(size_t index, uint64_t tex, Sampler sampler) noexcept {
+    tex2dVector[index] = tex;
+    tex2dSizeVector[index * 2 + 0] = reinterpret_cast<Texture2D*>(tex)->width;
+    tex2dSizeVector[index * 2 + 1] = reinterpret_cast<Texture2D*>(tex)->height;
 }
 
-void ISPCBindlessArray::emplace_tex3d(size_t index, uint64_t buffer, Sampler sampler) noexcept {
+void ISPCBindlessArray::emplace_tex3d(size_t index, uint64_t tex, Sampler sampler) noexcept {
 
 }
 
