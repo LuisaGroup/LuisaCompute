@@ -150,6 +150,30 @@ struct Hit {
     // float4x4 v3; // object_to_world
 };
 
+
+float4 texture_sample_tmp(Texture2D *tex, float2 u, uint level)
+{
+    if (u.x<0 || u.x>1 || u.y<0 || u.y>1)
+        return _float4(0.f);
+    // bilinear
+    uint w = max(tex->width>>level, 1u);
+    uint h = max(tex->height>>level, 1u);
+    float x = u.x * w - 0.5f;
+    float y = u.y * h - 0.5f;
+    float fx = frac(x);
+    float fy = frac(y);
+    uint x0 = (uint)max((int)0, (int)x);
+    uint x1 = (uint)min((int)w-1, (int)x+1);
+    uint y0 = (uint)max((int)0, (int)y);
+    uint y1 = (uint)min((int)h-1, (int)y+1);
+    return
+    (1-fx)*(1-fy)*texture_read(tex, _uint2(x0,y0), level) +
+    (1-fx)*(fy)*texture_read(tex, _uint2(x0,y1), level) +
+    (fx)*(1-fy)*texture_read(tex, _uint2(x1,y0), level) +
+    (fx)*(fy)*texture_read(tex, _uint2(x1,y1), level);
+}
+
+
 // float4 texture_sample(Texture2D *tex, float2 u, uint level)
 // {
 //     switch (addr) {
