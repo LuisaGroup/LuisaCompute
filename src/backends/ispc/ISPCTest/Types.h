@@ -1,7 +1,7 @@
 #pragma once
 // Texture
 
-const uint MAXLOD = 20;
+#define MAXLOD 20
 // need to make sure the layout is same across ISPC & C++
 struct Texture2D {
     uint width;
@@ -99,26 +99,40 @@ struct Texture2D {
 // };
 
 
+struct TextureView {
+    Texture2D* tex;
+    uint level;
+};
+
 void texture_write(Texture2D *tex, uint2 p, uint level, float4 value)
 {
     if (p.x >= tex->width || p.y >= tex->height)
         // throw "texture write out of bound";
         print("texture write out of bound %u %u, %u %u\n", p.x, p.y, tex->width, tex->height);
     print("TEX WRITE %u %u %f %f %f %f\n", p.x, p.y, value.x, value.y, value.z, value.w);
-    tex->data[(p.y * tex->width + p.x) * 4 + 0] = value.x;
-    tex->data[(p.y * tex->width + p.x) * 4 + 1] = value.y;
-    tex->data[(p.y * tex->width + p.x) * 4 + 2] = value.z;
-    tex->data[(p.y * tex->width + p.x) * 4 + 3] = value.w;
+    tex->lods[level][(p.y * tex->width + p.x) * 4 + 0] = value.x;
+    tex->lods[level][(p.y * tex->width + p.x) * 4 + 1] = value.y;
+    tex->lods[level][(p.y * tex->width + p.x) * 4 + 2] = value.z;
+    tex->lods[level][(p.y * tex->width + p.x) * 4 + 3] = value.w;
 }
 
 float4 texture_read(Texture2D *tex, uint2 p, uint level)
 {
     float4 value;
-    value.x = tex->data[(p.y * tex->width + p.x) * 4 + 0];
-    value.y = tex->data[(p.y * tex->width + p.x) * 4 + 1];
-    value.z = tex->data[(p.y * tex->width + p.x) * 4 + 2];
-    value.w = tex->data[(p.y * tex->width + p.x) * 4 + 3];
+    value.x = tex->lods[level][(p.y * tex->width + p.x) * 4 + 0];
+    value.y = tex->lods[level][(p.y * tex->width + p.x) * 4 + 1];
+    value.z = tex->lods[level][(p.y * tex->width + p.x) * 4 + 2];
+    value.w = tex->lods[level][(p.y * tex->width + p.x) * 4 + 3];
     return value;
+}
+
+void texture_view_write(TextureView view, uint2 p, float4 value)
+{
+    texture_write(view.tex, p, view.level, value);
+}
+float4 texture_view_read(TextureView view, uint2 p)
+{
+    return texture_read(view.tex, p, view.level);
 }
 
 

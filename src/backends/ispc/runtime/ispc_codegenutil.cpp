@@ -236,16 +236,17 @@ void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
             str << '*';
             break;
         case Type::Tag::TEXTURE: {
-            str << "Texture"sv;
+            // str << "Texture"sv;
 
-            vstd::to_string((type.dimension()), str);
-            // str << "D<"sv;
-            // GetTypeName(*type.element(), str);
-            // if (type.tag() != Type::Tag::VECTOR) {
-            //     str << '4';
-            // }
-            // str << '>';
-            str << "D *";
+            // vstd::to_string((type.dimension()), str);
+            // // str << "D<"sv;
+            // // GetTypeName(*type.element(), str);
+            // // if (type.tag() != Type::Tag::VECTOR) {
+            // //     str << '4';
+            // // }
+            // // str << '>';
+            // str << "D *";
+            str << "TextureView";
             break;
         }
         case Type::Tag::ACCEL: {
@@ -533,10 +534,10 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::BUFFER_READ: str << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: str << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
-            str << "texture_read";
+            str << "texture_view_read";
             break;
         case CallOp::TEXTURE_WRITE:
-            str << "texture_write";
+            str << "texture_view_write";
             break;
         case CallOp::MAKE_BOOL2:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))

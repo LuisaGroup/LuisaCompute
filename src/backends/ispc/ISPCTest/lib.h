@@ -891,4 +891,3 @@ Hit trace_closest(uniform RTCScene scene, Ray ray) {
 	hit.v2[1] = h.v;
 	return hit;
 }
->>>>>>> master
