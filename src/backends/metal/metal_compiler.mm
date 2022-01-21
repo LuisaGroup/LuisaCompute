@@ -20,7 +20,8 @@ MetalShader MetalCompiler::compile(
     LUISA_INFO("Compiling kernel_{:016X}.", kernel.hash());
     Clock clock;
 
-    Codegen::Scratch scratch;
+    static thread_local Codegen::Scratch scratch;
+    scratch.clear();
     MetalCodegen codegen{scratch};
     codegen.emit(kernel);
 
