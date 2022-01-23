@@ -28,7 +28,7 @@ id<MTLCommandBuffer> MetalAccel::build(
     }
     _dirty_range.clear();
 
-    auto pool = &stream->upload_ring_buffer();
+    auto pool = &stream->upload_host_buffer_pool();
     auto instance_buffer = pool->allocate(instance_buffer_size);
     if (instance_buffer.is_pooled()) {
         [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
@@ -95,7 +95,7 @@ id<MTLCommandBuffer> MetalAccel::build(
                             scratchBufferOffset:0u];
     if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
 
-        auto pool = &stream->download_ring_buffer();
+        auto pool = &stream->download_host_buffer_pool();
         auto compacted_size_buffer = pool->allocate(sizeof(uint));
         [command_encoder writeCompactedAccelerationStructureSize:_handle
                                                         toBuffer:compacted_size_buffer.handle()
@@ -129,7 +129,7 @@ id<MTLCommandBuffer> MetalAccel::update(
         using Instance = MTLAccelerationStructureInstanceDescriptor;
         auto dirty_instance_buffer_size = _dirty_range.size() * sizeof(Instance);
 
-        auto pool = &stream->upload_ring_buffer();
+        auto pool = &stream->upload_host_buffer_pool();
         auto dirty_instance_buffer = pool->allocate(dirty_instance_buffer_size);
         if (dirty_instance_buffer.is_pooled()) {
             [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {

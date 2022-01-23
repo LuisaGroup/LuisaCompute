@@ -11,7 +11,7 @@
 
 #import <core/logging.h>
 #import <core/spin_mutex.h>
-#import <backends/metal/metal_ring_buffer.h>
+#import <backends/metal/metal_host_buffer_pool.h>
 
 namespace luisa::compute::metal {
 
@@ -23,8 +23,8 @@ public:
 private:
     id<MTLCommandQueue> _handle;
     __weak id<MTLCommandBuffer> _last{nullptr};
-    MetalRingBuffer _upload_ring_buffer;
-    MetalRingBuffer _download_ring_buffer;
+    MetalHostBufferPool _upload_host_buffer_pool;
+    MetalHostBufferPool _download_host_buffer_pool;
     dispatch_semaphore_t _sem;
 
 public:
@@ -34,8 +34,8 @@ public:
     [[nodiscard]] id<MTLCommandBuffer> command_buffer() noexcept;
     void dispatch(id<MTLCommandBuffer> command_buffer) noexcept;
     void synchronize() noexcept;
-    [[nodiscard]] auto &upload_ring_buffer() noexcept { return _upload_ring_buffer; }
-    [[nodiscard]] auto &download_ring_buffer() noexcept { return _download_ring_buffer; }
+    [[nodiscard]] auto &upload_host_buffer_pool() noexcept { return _upload_host_buffer_pool; }
+    [[nodiscard]] auto &download_host_buffer_pool() noexcept { return _download_host_buffer_pool; }
 };
 
 }// namespace luisa::compute::metal

@@ -50,7 +50,7 @@ id<MTLCommandBuffer> MetalMesh::build(MetalStream *stream, id<MTLCommandBuffer> 
                             scratchBufferOffset:0u];
 
     if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
-        auto pool = &stream->download_ring_buffer();
+        auto pool = &stream->download_host_buffer_pool();
         auto compacted_size_buffer = pool->allocate(sizeof(uint));
         [command_encoder writeCompactedAccelerationStructureSize:_handle
                                                         toBuffer:compacted_size_buffer.handle()
