@@ -38,7 +38,8 @@ int main(int argc, char *argv[]) {
     };
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return heap.tex2d(0u).sample(uv);
+        return make_float4(0);
+        // return heap.tex2d(0u).sample(uv);
         // return heap.tex2d(0u).sample(uv, make_float2(), make_float2());
     };
 
@@ -52,6 +53,7 @@ int main(int argc, char *argv[]) {
         Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
         Var r = length(uv - 0.5f);
         Var t = log(sin(sqrt(r) * 100.0f - constants::pi_over_two) + 2.0f);
+        image.write(coord, make_float4());
         image.write(coord, sample(heap, uv, t * 7.0f));
     };
 
@@ -62,16 +64,16 @@ int main(int argc, char *argv[]) {
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
-    auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
-    auto texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 0u);
-    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
-    std::vector<uint8_t> host_image(1024u * 1024u * 4u);
+    auto image_pixels = stbi_loadf("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
+    auto texture = device.create_image<float>(PixelStorage::FLOAT4, uint2(image_width, image_height), 0u);
+    auto device_image = device.create_image<float>(PixelStorage::FLOAT4, 1024u, 1024u);
+    std::vector<float> host_image(1024u * 1024u * 4u);
 
-    auto event = device.create_event();
+    // auto event = device.create_event();
     auto stream = device.create_stream();
     auto upload_stream = device.create_stream();
 
-    std::vector<uint8_t> mipmaps(image_width * image_height * 4u);
+    std::vector<float> mipmaps(image_width * image_height * 4u);
     auto in_pixels = image_pixels;
     auto out_pixels = mipmaps.data();
 
@@ -82,13 +84,12 @@ int main(int argc, char *argv[]) {
     for (auto i = 1u; i < texture.mip_levels(); i++) {
         auto half_w = std::max(image_width / 2, 1);
         auto half_h = std::max(image_height / 2, 1);
-        stbir_resize_uint8_srgb_edgemode(
+        stbir_resize_float(
             in_pixels,
             image_width, image_height, 0,
             out_pixels,
             half_w, half_h, 0,
-            4, STBIR_ALPHA_CHANNEL_NONE, 0,
-            STBIR_EDGE_REFLECT);
+            4);
         image_width = half_w;
         image_height = half_h;
         stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
@@ -96,17 +97,19 @@ int main(int argc, char *argv[]) {
         in_pixels = out_pixels;
         out_pixels += image_width * image_height * 4u;
     }
-    cmd << event.signal()
+    cmd //<< event.signal()
         << commit();
 
-    stream << clear_image(device_image).dispatch(1024u, 1024u)
-           << event.wait()
+    stream //<< clear_image(device_image).dispatch(1024u, 1024u)
+        //    << event.wait()
            << fill_image(heap,
                          device_image.region(make_uint2(128u), make_uint2(1024u - 256u)))
                   .dispatch(make_uint2(1024u - 256u))
-           << device_image.copy_to(host_image.data())
-           << event.signal()
+        //    << device_image.copy_to(host_image.data())
+        //    << event.signal()
            << synchronize();
+
+    LUISA_INFO("Finish");
 
     stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
 }

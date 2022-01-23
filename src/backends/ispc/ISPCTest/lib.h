@@ -924,7 +924,8 @@ LC_BINDLESS_BUFFER_READ_TYPE(uint);
 // LC_BINDLESS_TEXTURE2D_READ_TYPE(float4);
 
 #define LC_BINDLESS_TEXTURE2D_SAMPLE_TYPE(T) \
-inline T lc_bindless_texture2d_sample(uniform LCBindlessArray array, uint index, uint2 p) { \
+inline T lc_bindless_texture2d_sample(uniform LCBindlessArray array, uint index, float2 p) { \
+	print(">>\n");\
 	Texture2D* tex = (Texture2D*)array.v1[index]; \
 	return texture_sample_tmp(tex, p, 0); \
 }

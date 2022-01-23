@@ -109,7 +109,7 @@ void texture_write(Texture2D *tex, uint2 p, uint level, float4 value)
     if (p.x >= tex->width || p.y >= tex->height)
         // throw "texture write out of bound";
         print("texture write out of bound %u %u, %u %u\n", p.x, p.y, tex->width, tex->height);
-    print("TEX WRITE %u %u %f %f %f %f\n", p.x, p.y, value.x, value.y, value.z, value.w);
+    // print("TEX WRITE %u %u %f %f %f %f\n", p.x, p.y, value.x, value.y, value.z, value.w);
     tex->lods[level][(p.y * tex->width + p.x) * 4 + 0] = value.x;
     tex->lods[level][(p.y * tex->width + p.x) * 4 + 1] = value.y;
     tex->lods[level][(p.y * tex->width + p.x) * 4 + 2] = value.z;
@@ -128,7 +128,10 @@ float4 texture_read(Texture2D *tex, uint2 p, uint level)
 
 void texture_view_write(TextureView view, uint2 p, float4 value)
 {
+    print("% % %\n",p.x,p.y,view.level);
     texture_write(view.tex, p, view.level, value);
+    print("% % %\n",p.x,p.y,view.level);
+
 }
 float4 texture_view_read(TextureView view, uint2 p)
 {
@@ -160,6 +163,7 @@ struct LCBindlessArray {
 
 float4 texture_sample_tmp(Texture2D *tex, float2 u, uint level)
 {
+    // print("in \n");
     if (u.x<0 || u.x>1 || u.y<0 || u.y>1)
         return _float4(0.f);
     // bilinear
@@ -173,6 +177,7 @@ float4 texture_sample_tmp(Texture2D *tex, float2 u, uint level)
     uint x1 = (uint)min((int)w-1, (int)x+1);
     uint y0 = (uint)max((int)0, (int)y);
     uint y1 = (uint)min((int)h-1, (int)y+1);
+    // print("sampled\n");
     return
     (1-fx)*(1-fy)*texture_read(tex, _uint2(x0,y0), level) +
     (1-fx)*(fy)*texture_read(tex, _uint2(x0,y1), level) +
