@@ -279,7 +279,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
 }
 
 MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) noexcept {
-    auto rb = &_stream->upload_ring_buffer();
+    auto rb = &_stream->upload_host_buffer_pool();
     auto buffer = rb->allocate(size);
     std::memcpy(static_cast<std::byte *>(buffer.handle().contents) + buffer.offset(), host_ptr, size);
     if (buffer.is_pooled()) {
@@ -291,7 +291,7 @@ MetalBufferView MetalCommandEncoder::_upload(const void *host_ptr, size_t size) 
 }
 
 MetalBufferView MetalCommandEncoder::_download(void *host_ptr, size_t size) noexcept {
-    auto rb = &_stream->download_ring_buffer();
+    auto rb = &_stream->download_host_buffer_pool();
     auto buffer = rb->allocate(size);
     [_command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
       std::memcpy(host_ptr, static_cast<const std::byte *>(buffer.handle().contents) + buffer.offset(), size);
