@@ -1315,4 +1315,18 @@ auto erase_last(Vec &&vec) {
     auto disp = create_disposer([&] { vec.erase(lastIte); });
     return std::move(*lastIte);
 }
+#define VSTD_TRIVIAL_COMPARABLE(T)               \
+    bool operator==(T const &a) const {          \
+        return memcmp(this, &a, sizeof(T)) == 0; \
+    }                                            \
+    bool operator!=(T const &a) const {          \
+        return memcmp(this, &a, sizeof(T)) != 0; \
+    }                                            \
+    bool operator>(T const &a) const {           \
+        return memcmp(this, &a, sizeof(T)) > 0;  \
+    }                                            \
+    bool operator<(T const &a) const {           \
+        return memcmp(this, &a, sizeof(T)) < 0;  \
+    }
+
 }// namespace vstd

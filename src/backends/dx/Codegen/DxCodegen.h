@@ -13,7 +13,7 @@ class StringStateVisitor;
 class StructVariableTracker;
 class StructGenerator;
 struct CodegenResult {
-    using Properties = vstd::vector<std::pair<vstd::string_view, Shader::Property>>;
+    using Properties = vstd::vector<std::pair<vstd::string, Shader::Property>>;
     vstd::string result;
     Properties properties;
     template<typename A, typename B>

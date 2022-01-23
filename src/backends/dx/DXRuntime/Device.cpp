@@ -23,7 +23,7 @@ Device::Device()
 		  return new (ptr) BufferVisitor(this);
 	  }) {
 	using Microsoft::WRL::ComPtr;
-#if defined(DEBUG)
+#if defined(_DEBUG)
 	// Enable the D3D12 debug layer.
 	{
 		ComPtr<ID3D12Debug> debugController;

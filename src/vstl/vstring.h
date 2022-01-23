@@ -10,7 +10,7 @@
 #include <vstl/string_hash.h>
 #include <vstl/vector.h>
 namespace vstd {
-using string = luisa::string;
+using string = std::basic_string<char, std::char_traits<char>, luisa::allocator<char>>;
 using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, luisa::allocator<wchar_t>>;
 template<class Elem, class UTy>
 Elem *UIntegral_to_buff(Elem *RNext, UTy UVal) noexcept {// format UVal into buffer *ending at* RNext

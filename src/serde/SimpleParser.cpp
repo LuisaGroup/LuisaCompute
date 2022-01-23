@@ -885,7 +885,7 @@ bool SimpleJsonParser::BeginPath(char const *&ptr, char const *const end, vstd::
 }
 }// namespace parser
 template<typename T>
-vstd::optional<ParsingException> RunParse(
+eastl::optional<ParsingException> RunParse(
     T *ptr,
     IJsonDatabase *db,
     std::string_view str, bool clearLast) {
@@ -900,15 +900,15 @@ vstd::optional<ParsingException> RunParse(
     if (!parser.Parse(str, db, ptr, msg)) {
         return ParsingException(std::move(msg));
     }
-    return vstd::optional<ParsingException>();
+    return {};
 }
-vstd::optional<ParsingException> SimpleJsonValueDict::Parse(
+eastl::optional<ParsingException> SimpleJsonValueDict::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<SimpleJsonValueDict>(
         this, db, str, clearLast);
 }
-vstd::optional<ParsingException> SimpleJsonValueArray::Parse(
+eastl::optional<ParsingException> SimpleJsonValueArray::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<SimpleJsonValueArray>(

@@ -1,13 +1,15 @@
 #pragma once
 #include <serde/IJsonObject.h>
 #include <serde/SimpleJsonLoader.h>
+#include <vstl/variant_util.h>
 namespace toolhub::db {
 class ConcurrentBinaryJson;
 class SimpleBinaryJson;
 struct SimpleJsonKey {
-    using ValueType = vstd::variant<int64,
-                                    vstd::string,
-                                    vstd::Guid>;
+    using ValueType = eastl::variant<int64,
+                                     vstd::string,
+                                     vstd::Guid>;
+    using VarType = typename vstd::VariantVisitor<ValueType>::Type;
 
     ValueType value;
     SimpleJsonKey(ValueType const &value)
@@ -15,32 +17,30 @@ struct SimpleJsonKey {
     SimpleJsonKey(ValueType &&value)
         : value(std::move(value)) {}
     SimpleJsonKey(Key const &v) {
-        if (v.GetType() < ValueType::argSize) {
-            value.update(v.GetType(), [&](void *ptr) {
-                switch (v.GetType()) {
-                    case ValueType::IndexOf<int64>:
-                        new (ptr) int64(v.force_get<int64>());
-                        break;
-                    case ValueType::IndexOf<vstd::string>:
-                        new (ptr) vstd::string(v.force_get<std::string_view>());
-                        break;
-                    case ValueType::IndexOf<vstd::Guid>:
-                        new (ptr) vstd::Guid(v.force_get<vstd::Guid>());
-                        break;
-                }
-            });
+        if (v.index() < eastl::variant_size_v<ValueType>) {
+            switch (v.index()) {
+                case VarType::IndexOf<int64>:
+                    value = int64(eastl::get<int64>(v));
+                    break;
+                case VarType::IndexOf<vstd::string>:
+                    value = vstd::string(eastl::get<std::string_view>(v));
+                    break;
+                case VarType::IndexOf<vstd::Guid>:
+                    value = vstd::Guid(eastl::get<vstd::Guid>(v));
+                    break;
+            }
         }
     }
     SimpleJsonKey(Key &&v)
         : SimpleJsonKey(v) {}
     static Key GetKey(ValueType const &value) {
-        switch (value.GetType()) {
-            case ValueType::IndexOf<int64>:
-                return Key(value.force_get<int64>());
-            case ValueType::IndexOf<vstd::Guid>:
-                return Key(value.force_get<vstd::Guid>());
-            case ValueType::IndexOf<vstd::string>:
-                return Key(value.force_get<vstd::string>());
+        switch (value.index()) {
+            case VarType::IndexOf<int64>:
+                return Key(eastl::get<int64>(value));
+            case VarType::IndexOf<vstd::Guid>:
+                return Key(eastl::get<vstd::Guid>(value));
+            case VarType::IndexOf<vstd::string>:
+                return Key(eastl::get<vstd::string>(value));
             default:
                 return Key();
         }
@@ -49,63 +49,54 @@ struct SimpleJsonKey {
         return GetKey(value);
     }
     int32 compare(Key const &key) const {
-        if (key.GetType() == value.GetType()) {
-            switch (value.GetType()) {
-                case ValueType::IndexOf<int64>: {
+        if (key.index() == value.index()) {
+            switch (value.index()) {
+                case VarType::IndexOf<int64>: {
                     static const vstd::compare<int64> cm;
-                    return cm(value.force_get<int64>(), key.force_get<int64>());
+                    return cm(eastl::get<int64>(value), eastl::get<int64>(key));
                 }
-                case ValueType::IndexOf<vstd::Guid>: {
+                case VarType::IndexOf<vstd::Guid>: {
                     static const vstd::compare<vstd::Guid> cm;
-                    return cm(value.force_get<vstd::Guid>(), key.force_get<vstd::Guid>());
+                    return cm(eastl::get<vstd::Guid>(value), eastl::get<vstd::Guid>(key));
                 }
-                case ValueType::IndexOf<vstd::string>: {
+                case VarType::IndexOf<vstd::string>: {
                     static const vstd::compare<std::string_view> cm;
-                    return cm(value.force_get<vstd::string>(), key.force_get<std::string_view>());
+                    return cm(eastl::get<vstd::string>(value), eastl::get<std::string_view>(key));
                 }
             }
             return 0;
         } else
-            return (key.GetType() > value.GetType()) ? 1 : -1;
+            return (key.index() > value.index()) ? 1 : -1;
     }
     int32 compare(ValueType const &key) const {
-        if (key.GetType() == value.GetType()) {
-            switch (value.GetType()) {
-                case ValueType::IndexOf<int64>: {
+        if (key.index() == value.index()) {
+            switch (value.index()) {
+                case VarType::IndexOf<int64>: {
                     static const vstd::compare<int64> cm;
-                    return cm(value.force_get<int64>(), key.force_get<int64>());
+                    return cm(eastl::get<int64>(value), eastl::get<int64>(key));
                 }
-                case ValueType::IndexOf<vstd::Guid>: {
+                case VarType::IndexOf<vstd::Guid>: {
                     static const vstd::compare<vstd::Guid> cm;
-                    return cm(value.force_get<vstd::Guid>(), key.force_get<vstd::Guid>());
+                    return cm(eastl::get<vstd::Guid>(value), eastl::get<vstd::Guid>(key));
                 }
-                case ValueType::IndexOf<vstd::string>: {
+                case VarType::IndexOf<vstd::string>: {
                     static const vstd::compare<std::string_view> cm;
-                    return cm(value.force_get<vstd::string>(), key.force_get<vstd::string>());
+                    return cm(eastl::get<vstd::string>(value), eastl::get<vstd::string>(key));
                 }
                 default:
                     return 0;
             }
         } else
-            return (key.GetType() > value.GetType()) ? 1 : -1;
+            return (key.index() > value.index()) ? 1 : -1;
     }
     size_t GetHashCode() const {
-        auto getHash = [](auto &&v) {
-            vstd::hash<std::remove_cvref_t<decltype(v)>> h;
-            return h(v);
-        };
-        switch (value.GetType()) {
-            case ValueType::IndexOf<int64>:
-                return getHash(*reinterpret_cast<int64 const *>(value.GetPlaceHolder()));
-
-            case ValueType::IndexOf<vstd::Guid>:
-                return getHash(*reinterpret_cast<vstd::Guid const *>(value.GetPlaceHolder()));
-
-            case ValueType::IndexOf<vstd::string>:
-                return getHash(*reinterpret_cast<vstd::string const *>(value.GetPlaceHolder()));
-            default:
-                return 0;
-        }
+        size_t hash;
+        eastl::visit(
+            [&](auto &&v) {
+                hash = vstd::hash<std::remove_cvref_t<decltype(v)>>()(v);
+            },
+            value);
+        return hash;
     }
 };
 struct SimpleJsonKeyHash {
@@ -132,7 +123,7 @@ struct SimpleJsonKeyEqual {
     int32 operator()(SimpleJsonKey const &key, int64 const &t) const {
         if (key.value.index() == 0) {
             vstd::compare<int64> c;
-            return c(key.value.get<0>(), t);
+            return c(eastl::get<0>(key.value), t);
         } else {
             return -1;
         }
@@ -140,7 +131,7 @@ struct SimpleJsonKeyEqual {
     int32 operator()(SimpleJsonKey const &key, std::string_view const &t) const {
         if (key.value.index() == 1) {
             vstd::compare<std::string_view> c;
-            return c(key.value.get<1>(), t);
+            return c(eastl::get<1>(key.value), t);
         } else {
             return (key.value.index() < 1) ? 1 : -1;
         }
@@ -148,7 +139,7 @@ struct SimpleJsonKeyEqual {
     int32 operator()(SimpleJsonKey const &key, vstd::Guid const &t) const {
         if (key.value.index() == 2) {
             vstd::compare<vstd::Guid> c;
-            return c(key.value.get<2>(), t);
+            return c(eastl::get<2>(key.value), t);
         } else {
             return 1;
         }
@@ -179,18 +170,13 @@ public:
     vstd::vector<bool> Contains(vstd::span<Key> keys) const override;
     void Set(vstd::span<std::pair<Key, WriteJsonVariant>> kv) override;
     void Remove(vstd::span<Key> keys) override;
-    vstd::string PrintYaml() const override;
-    void PrintYaml(vstd::string &str, SimpleJsonKey::ValueType const &key, size_t space) const;
-    //Single line dict
-    void PrintYaml(vstd::string &str) const;
-    void PrintYaml(vstd::string &str, size_t space) const;
     void Set(Key const &key, WriteJsonVariant &&value) override;
     ReadJsonVariant TrySet(Key const &key, vstd::function<WriteJsonVariant()> const &value) override;
     void TryReplace(Key const &key, vstd::function<WriteJsonVariant(ReadJsonVariant const &)> const &value) override;
     vstd::vector<std::pair<Key, ReadJsonVariant>> ToVector() const override;
     void Remove(Key const &key) override;
-    vstd::optional<WriteJsonVariant> GetAndRemove(Key const &key) override;
-    vstd::optional<WriteJsonVariant> GetAndSet(Key const &key, WriteJsonVariant &&newValue) override;
+    eastl::optional<WriteJsonVariant> GetAndRemove(Key const &key) override;
+    eastl::optional<WriteJsonVariant> GetAndSet(Key const &key, WriteJsonVariant &&newValue) override;
     vstd::Iterator<JsonKeyPair> begin() const & override;
     vstd::Iterator<MoveJsonKeyPair> begin() && override;
     size_t Length() const override;
@@ -203,14 +189,11 @@ public:
               bool clearLast) override;
     void Reset() override;
     void Reserve(size_t capacity) override;
-    vstd::optional<ParsingException> Parse(
+    eastl::optional<ParsingException> Parse(
         std::string_view str, bool clearLast) override;
     bool IsEmpty() const override { return vars.size() == 0; }
     void M_Print(vstd::string &str) const;
     void M_Print_Compress(vstd::string &str) const;
-    vstd::optional<ParsingException> ParseYaml(
-        std::string_view str,
-        bool clearLast) override;
     vstd::string FormattedPrint() const override {
         vstd::string str;
         M_Print(str);
@@ -237,7 +220,7 @@ public:
 		IJsonArray* src);*/
     size_t Length() const override;
     void Reserve(size_t capacity) override;
-    vstd::optional<ParsingException> Parse(
+    eastl::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) override;
     vstd::vector<uint8_t> Serialize() const override;
@@ -251,8 +234,8 @@ public:
     void Set(vstd::span<std::pair<size_t, WriteJsonVariant>> values) override;
     void Remove(vstd::span<size_t> indices) override;
     void Add(vstd::span<WriteJsonVariant> values) override;
-    vstd::optional<WriteJsonVariant> GetAndRemove(size_t index) override;
-    vstd::optional<WriteJsonVariant> GetAndSet(size_t index, WriteJsonVariant &&newValue) override;
+    eastl::optional<WriteJsonVariant> GetAndRemove(size_t index) override;
+    eastl::optional<WriteJsonVariant> GetAndSet(size_t index, WriteJsonVariant &&newValue) override;
     vstd::vector<ReadJsonVariant> ToVector() const override;
     void Set(size_t index, WriteJsonVariant &&value) override;
     ReadJsonVariant Get(size_t index) const override;
@@ -262,8 +245,6 @@ public:
     vstd::Iterator<WriteJsonVariant> begin() && override;
     bool IsEmpty() const override { return arr.size() == 0; }
     void M_Print(vstd::string &str) const;
-    void PrintYaml(vstd::string &str) const;
-    void PrintYaml(vstd::string &str, size_t space) const;
     vstd::string FormattedPrint() const override {
         vstd::string str;
         M_Print(str);

@@ -16,6 +16,11 @@ public:
         uint registerIndex;
         uint arrSize;
     };
+    enum class Tag : vbyte {
+        ComputeShader,
+        RayTracingShader
+    };
+    virtual Tag GetTag() const = 0;
 
 protected:
     struct InsideProperty : public Property {
@@ -29,10 +34,14 @@ protected:
 
 public:
     Shader(
-        vstd::span<std::pair<vstd::string, Property>>&& properties,
+        vstd::span<std::pair<vstd::string, Property> const> properties,
         ID3D12Device *device);
+    Shader(
+        vstd::span<std::pair<vstd::string, Property> const> properties,
+        ComPtr<ID3D12RootSignature> &&rootSig);
     Shader(Shader &&v) = default;
     ID3D12RootSignature *RootSig() const { return rootSig.Get(); }
+
     bool SetComputeResource(
         vstd::string_view propertyName,
         CommandBufferBuilder *cmdList,

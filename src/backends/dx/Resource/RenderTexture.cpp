@@ -1,5 +1,6 @@
 #pragma vengine_package vengine_directx
 #include <Resource/RenderTexture.h>
+#include <Resource/DescriptorHeap.h>
 namespace toolhub::directx {
 GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
     switch (format) {
@@ -79,6 +80,7 @@ RenderTexture::RenderTexture(
     : TextureBase(device, width, height, format, dimension, depth, mip),
       allocHandle(allocator),
       allowUav(allowUav) {
+    srvIdx = std::numeric_limits<uint>::max();
     D3D12_RESOURCE_DESC texDesc;
     memset(&texDesc, 0, sizeof(D3D12_RESOURCE_DESC));
     switch (dimension) {
@@ -137,9 +139,9 @@ RenderTexture::RenderTexture(
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }
+    //Setup Desc
 }
-RenderTexture ::~RenderTexture() {
-}
+
 D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc() const {
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -223,5 +225,45 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetColorUavDesc(uint targetMipLe
             break;
     }
     return uavDesc;
+}
+uint RenderTexture::GetGlobalSRVIndex() const {
+    uint tempSrvIdx = srvIdx;
+    if (tempSrvIdx != std::numeric_limits<uint>::max()) return tempSrvIdx;
+    auto srvDesc = GetColorSrvDesc();
+    std::lock_guard lck(allocMtx);
+    tempSrvIdx = device->globalHeap->AllocateIndex();
+    device->globalHeap->CreateSRV(
+        GetResource(),
+        srvDesc,
+        tempSrvIdx);
+    srvIdx = tempSrvIdx;
+    return tempSrvIdx;
+}
+uint RenderTexture::GetGlobalUAVIndex(uint mipLevel) const {
+    if (!allowUav) return std::numeric_limits<uint>::max();
+    std::lock_guard lck(allocMtx);
+    uavIdcs.New();
+    auto ite = uavIdcs->Emplace(
+        mipLevel,
+        vstd::MakeLazyEval([&]() -> uint {
+            auto v = device->globalHeap->AllocateIndex();
+            device->globalHeap->CreateUAV(
+                GetResource(),
+                GetColorUavDesc(mipLevel),
+                v);
+            return v;
+        }));
+    return ite.Value();
+}
+RenderTexture ::~RenderTexture() {
+    auto &globalHeap = *device->globalHeap.get();
+    if (srvIdx != std::numeric_limits<uint>::max()) {
+        globalHeap.ReturnIndex(srvIdx);
+    }
+    if (uavIdcs) {
+        for (auto &&i : *uavIdcs) {
+            globalHeap.ReturnIndex(i.second);
+        }
+    }
 }
 }// namespace toolhub::directx

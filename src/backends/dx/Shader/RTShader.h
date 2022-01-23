@@ -22,7 +22,8 @@ public:
 	static wchar_t const* GetAnyHitFuncName();
 	static wchar_t const* GetMissFuncName();
 
-	void DispatchRays(
+    Tag GetTag() const { return Tag::RayTracingShader; }
+    void DispatchRays(
 		CommandBufferBuilder& originCmdList,
 		uint width,
 		uint height,
@@ -31,7 +32,7 @@ public:
 		bool closestHit,
 		bool anyHit,
 		bool intersectHit,
-        vstd::span<std::pair<vstd::string, Property>> &&properties,
+        vstd::span<std::pair<vstd::string, Property> const> properties,
         vstd::span<vbyte> binData,
 		Device* device);
 	~RTShader();
