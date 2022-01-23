@@ -36,7 +36,19 @@ TopAccel::TopAccel(Device *device)
 }
 bool TopAccel::IsBufferInAccel(Buffer const *buffer) const {
     std::lock_guard lck(mtx);
-    return resourceMap.Find(buffer);
+    return resourceRefMap.Find(buffer);
+}
+void TopAccel::IncreRef(Buffer const *bf) {
+    auto ite = resourceRefMap.Emplace(bf, 0);
+    ite.Value()++;
+}
+void TopAccel::DecreRef(Buffer const *bf) {
+    auto ite = resourceRefMap.Find(bf);
+    if (!ite) return;
+    auto &&v = ite.Value();
+    --v;
+    if (v == 0)
+        resourceRefMap.Remove(ite);
 }
 bool TopAccel::IsMeshInAccel(Mesh const *mesh) const {
     return IsBufferInAccel(mesh->vHandle);
@@ -47,16 +59,16 @@ void TopAccel::UpdateBottomAccel(uint idx, BottomAccel const *c) {
         auto m = oldC->GetMesh();
         auto v = m->vHandle;
         auto i = m->iHandle;
-        resourceMap.Remove(v);
-        resourceMap.Remove(i);
+        DecreRef(v);
+        DecreRef(i);
     }
     oldC = c;
     {
         auto m = oldC->GetMesh();
         auto v = m->vHandle;
         auto i = m->iHandle;
-        resourceMap.Emplace(v);
-        resourceMap.Emplace(i);
+        IncreRef(v);
+        IncreRef(i);
     }
 }
 bool TopAccel::Update(

@@ -1,7 +1,9 @@
 if (WIN32)
     message(STATUS "Build with DirectX")
     Set(VENGINE_SOURCE
+Api/LCCmdBuffer.cpp
 Api/LCDevice.cpp
+Api/LCEvent.cpp
 Codegen/ArgumentPacker.cpp
 Codegen/DxCodegen.cpp
 Codegen/DxCodegenUtil.cpp
@@ -33,7 +35,10 @@ Shader/ComputeShader.cpp
 Shader/RTShader.cpp
 Shader/Shader.cpp
 Shader/ShaderCompiler.cpp
+Shader/ShaderSerializer.cpp
+Api/LCCmdBuffer.h
 Api/LCDevice.h
+Api/LCEvent.h
 Codegen/ArgumentPacker.h
 Codegen/DxCodegen.h
 Codegen/ShaderHeader.h
@@ -70,6 +75,7 @@ Shader/ComputeShader.h
 Shader/RTShader.h
 Shader/Shader.h
 Shader/ShaderCompiler.h
+Shader/ShaderSerializer.h
 Shader/ShaderVariableType.h
 test_compute.h
 test_rtx.h

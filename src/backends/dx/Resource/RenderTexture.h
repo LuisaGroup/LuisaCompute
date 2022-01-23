@@ -4,8 +4,11 @@
 namespace toolhub::directx {
 class RenderTexture final : public TextureBase {
 private:
-    bool allowUav;
     AllocHandle allocHandle;
+    mutable vstd::optional<vstd::HashMap<uint, uint>> uavIdcs;
+    mutable std::mutex allocMtx;
+    mutable std::atomic_uint srvIdx;
+    bool allowUav;
 
 public:
     RenderTexture(
@@ -28,6 +31,8 @@ public:
     }
     D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const override;
     Tag GetTag() const override { return Tag::RenderTexture; }
+    uint GetGlobalSRVIndex() const override;
+    uint GetGlobalUAVIndex(uint mipLevel) const override;
     VSTD_SELF_PTR
 };
 }// namespace toolhub::directx

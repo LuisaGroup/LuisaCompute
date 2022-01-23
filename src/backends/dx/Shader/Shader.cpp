@@ -11,9 +11,20 @@ vstd::optional<Shader::InsideProperty> Shader::GetProperty(vstd::string_view str
     if (!ite) return {};
     return ite.Value();
 }
+Shader::Shader(
+    vstd::span<std::pair<vstd::string, Property> const> prop,
+    ComPtr<ID3D12RootSignature> &&rootSig)
+    : rootSig(std::move(rootSig)) {
+    size_t idx = 0;
+    for (auto &&i : prop) {
+        auto ite = properties.Emplace(std::move(i.first), i.second);
+        ite.Value().rootSigPos = idx;
+        ++idx;
+    }
+}
 
 Shader::Shader(
-    vstd::span<std::pair<vstd::string, Property>> &&prop,
+    vstd::span<std::pair<vstd::string, Property> const> prop,
     ID3D12Device *device) {
     properties.reserve(prop.size());
     vstd::vector<CD3DX12_ROOT_PARAMETER, VEngine_AllocType::VEngine, 32> allParameter;
@@ -62,14 +73,15 @@ Shader::Shader(
         kv.second.rootSigPos = allParameter.size() - 1;
     }
     auto arr = GlobalSamplers::GetSamplers();
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(
+
+    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc(
         allParameter.size(), allParameter.data(),
         arr.size(), arr.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
     Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
-    ThrowIfFailed(D3D12SerializeRootSignature(
-        &rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1_0,
+    ThrowIfFailed(D3D12SerializeVersionedRootSignature(
+        &rootSigDesc,
         serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf()));
     ThrowIfFailed(device->CreateRootSignature(
         0,
@@ -77,6 +89,7 @@ Shader::Shader(
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(rootSig.GetAddressOf())));
 }
+
 bool Shader::SetComputeResource(
     vstd::string_view propertyName,
     CommandBufferBuilder *cb,

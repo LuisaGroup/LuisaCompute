@@ -21,10 +21,10 @@ public:
     SimpleJsonValueArray *CreateArray_Nake();
     IJsonDict *CreateDict_RawPtr() override { return CreateDict_Nake(); }
     IJsonArray *CreateArray_RawPtr() override { return CreateArray_Nake(); }
-    vstd::vector<vstd::unique_ptr<IJsonDict>> CreateDicts(size_t count) override;
-    vstd::vector<vstd::unique_ptr<IJsonArray>> CreateArrays(size_t count) override;
-    vstd::vector<IJsonDict *> CreateDicts_RawPtr(size_t count) override;
-    vstd::vector<IJsonArray *> CreateArrays_RawPtr(size_t count) override;
+    eastl::vector<vstd::unique_ptr<IJsonDict>> CreateDicts(size_t count) override;
+    eastl::vector<vstd::unique_ptr<IJsonArray>> CreateArrays(size_t count) override;
+    eastl::vector<IJsonDict *> CreateDicts_RawPtr(size_t count) override;
+    eastl::vector<IJsonArray *> CreateArrays_RawPtr(size_t count) override;
 
 #ifdef VENGINE_PYTHON_SUPPORT
     bool CompileFromPython(char const *code) override;

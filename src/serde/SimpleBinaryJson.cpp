@@ -50,32 +50,32 @@ SimpleJsonValueArray* SimpleBinaryJson::CreateArray_Nake() {
 	return ptr;
 }
 
-vstd::vector<vstd::unique_ptr<IJsonDict>> SimpleBinaryJson::CreateDicts(size_t count) {
-	vstd::vector<vstd::unique_ptr<IJsonDict>> vec;
+eastl::vector<vstd::unique_ptr<IJsonDict>> SimpleBinaryJson::CreateDicts(size_t count) {
+	eastl::vector<vstd::unique_ptr<IJsonDict>> vec;
 	vec.reserve(count);
 	for (auto i : vstd::range(count)) {
 		vec.emplace_back(CreateDict_Nake());
 	}
 	return vec;
 }
-vstd::vector<vstd::unique_ptr<IJsonArray>> SimpleBinaryJson::CreateArrays(size_t count) {
-	vstd::vector<vstd::unique_ptr<IJsonArray>> vec;
+eastl::vector<vstd::unique_ptr<IJsonArray>> SimpleBinaryJson::CreateArrays(size_t count) {
+	eastl::vector<vstd::unique_ptr<IJsonArray>> vec;
 	vec.reserve(count);
 	for (auto i : vstd::range(count)) {
 		vec.emplace_back(CreateArray_Nake());
 	}
 	return vec;
 }
-vstd::vector<IJsonDict*> SimpleBinaryJson::CreateDicts_RawPtr(size_t count) {
-	vstd::vector<IJsonDict*> vec;
+eastl::vector<IJsonDict*> SimpleBinaryJson::CreateDicts_RawPtr(size_t count) {
+	eastl::vector<IJsonDict*> vec;
 	vec.reserve(count);
 	for (auto i : vstd::range(count)) {
 		vec.emplace_back(CreateDict_Nake());
 	}
 	return vec;
 }
-vstd::vector<IJsonArray*> SimpleBinaryJson::CreateArrays_RawPtr(size_t count) {
-	vstd::vector<IJsonArray*> vec;
+eastl::vector<IJsonArray*> SimpleBinaryJson::CreateArrays_RawPtr(size_t count) {
+	eastl::vector<IJsonArray*> vec;
 	vec.reserve(count);
 	for (auto i : vstd::range(count)) {
 		vec.emplace_back(CreateArray_Nake());

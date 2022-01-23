@@ -7,7 +7,12 @@
 #include <Codegen/ShaderHeader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/BindlessArray.h>
+#include <Shader/ComputeShader.h>
+#include <Shader/RTShader.h>
 #include <Api/LCCmdBuffer.h>
+#include <Api/LCEvent.h>
+#include <vstl/MD5.h>
+#include <Shader/ShaderSerializer.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 LCDevice::LCDevice(const Context &ctx)
@@ -128,33 +133,90 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
             << "\n===============================\n"
             << str->result
             << "\n===============================\n";
-        vstd::string compileString(GetHLSLHeader());
-        compileString << str->result;
-        auto compResult = dxCompiler.CompileCompute(
-            compileString,
-            true);
-        compResult.multi_visit(
-            [](auto &&buffer) {
-                std::cout << "Compile Success!! DXIL size: " << buffer->GetBufferSize() << '\n';
-            },
-            [](auto &&err) {
-                std::cout << err << '\n';
-            });
+        //vstd::MD5 md5(vstd::span<vbyte const>{(vbyte const *)str->result.data(), str->result.size()});
+        //auto fileName = md5.ToString();
+        auto md5 = vstd::MD5(vstd::span<vbyte const>((vbyte const *)str->result.data(), str->result.size()));
+
+        vstd::string path;
+        path << ".cache/" << md5.ToString();
+        auto f = fopen(path.c_str(), "rb");
+        //Cached
+        if (f) {
+            auto disp = vstd::create_disposer([&] { fclose(f); });
+            fseek(f, 0, SEEK_END);
+            auto fileLen = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            vstd::vector<vbyte> serData(fileLen);
+            fread(serData.data(), fileLen, 1, f);
+            auto result = ShaderSerializer::DeSerialize(
+                nativeDevice.device.Get(),
+                serData);
+            std::cout << "Read cache success!"sv << '\n';
+            return result.visit_or(
+                uint64(0),
+                [](auto &&v) {
+                    return reinterpret_cast<uint64>(
+                        static_cast<Shader *>(v));
+                });
+        }
+        // Not Cached
+        else {
+            vstd::string compileString(GetHLSLHeader());
+            compileString << str->result;
+            auto compResult = dxCompiler.CompileCompute(
+                compileString,
+                true);
+            return compResult.multi_visit_or(
+                uint64(0),
+                [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
+                    f = fopen(path.c_str(), "wb");
+                    if (f) {
+                        auto disp = vstd::create_disposer([&] { fclose(f); });
+                        auto serData = ShaderSerializer::Serialize(
+                            str->properties,
+                            {buffer->GetBufferPtr(), buffer->GetBufferSize()},
+                            Shader::Tag::ComputeShader);
+                        fwrite(serData.data(), serData.size(), 1, f);
+                        std::cout << "Save cache success!"sv << '\n';
+                    }
+                    return reinterpret_cast<uint64>(
+                        static_cast<Shader *>(
+                            new ComputeShader(
+                                kernel.block_size(),
+                                str->properties,
+                                {buffer->GetBufferPtr(),
+                                 buffer->GetBufferSize()},
+                                nativeDevice.device.Get())));
+                },
+                [](auto &&err) {
+                    std::cout << err << '\n';
+                    return 0;
+                });
+        }
     }
-    return uint64_t();
+    return 0;
 }
 void LCDevice::destroy_shader(uint64_t handle) noexcept {
+    auto shader = reinterpret_cast<Shader *>(handle);
+    delete shader;
 }
 uint64_t LCDevice::create_event() noexcept {
-    return uint64_t();
+    return reinterpret_cast<uint64>(
+        new LCEvent(&nativeDevice));
 }
 void LCDevice::destroy_event(uint64_t handle) noexcept {
+    delete reinterpret_cast<LCEvent *>(handle);
 }
 void LCDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    reinterpret_cast<LCEvent *>(handle)->Signal(
+        &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
 }
 void LCDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    reinterpret_cast<LCEvent *>(handle)->Wait(
+        &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
 }
 void LCDevice::synchronize_event(uint64_t handle) noexcept {
+    reinterpret_cast<LCEvent *>(handle)->Sync();
 }
 uint64_t LCDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
     return uint64_t();

@@ -21,6 +21,8 @@ public:
 	TextureDimension Dimension() const { return dimension; }
 	uint Depth() const { return depth; }
 	uint Mip() const { return mip; }
+    virtual uint GetGlobalSRVIndex() const = 0;
+    virtual uint GetGlobalUAVIndex(uint mipLevel) const = 0;
 	virtual D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc() const = 0;
     virtual D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const VENGINE_PURE_VIRTUAL_RET;
 	TextureBase(
