@@ -115,14 +115,7 @@ private:
           _size{size},
           _offset{offset},
           _level{level},
-          _storage{storage} {
-
-        if (any(_offset >= _size)) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid offset[{}, {}] and size[{}, {}] for image #{} at level {}.",
-                _offset.x, _offset.y, _size.x, _size.y, _handle, _level);
-        }
-    }
+          _storage{storage} {}
 
     [[nodiscard]] auto _as_mipmap() const noexcept {
         return detail::MipmapView{
@@ -142,6 +135,9 @@ public:
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto region(uint2 offset, uint2 size) const noexcept {
+        if (any(offset + size > _size)) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION("Invalid region.");
+        }
         return ImageView{_handle, _storage, _level, _offset + offset, size};
     }
 
