@@ -129,10 +129,7 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
     static DXShaderCompiler dxCompiler;
     auto str = CodegenUtility::Codegen(kernel);
     if (str) {
-        std::cout
-            << "\n===============================\n"
-            << str->result
-            << "\n===============================\n";
+       
         //vstd::MD5 md5(vstd::span<vbyte const>{(vbyte const *)str->result.data(), str->result.size()});
         //auto fileName = md5.ToString();
         auto md5 = vstd::MD5(vstd::span<vbyte const>((vbyte const *)str->result.data(), str->result.size()));
@@ -149,7 +146,7 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
             vstd::vector<vbyte> serData(fileLen);
             fread(serData.data(), fileLen, 1, f);
             auto result = ShaderSerializer::DeSerialize(
-                nativeDevice.device.Get(),
+                &nativeDevice,
                 serData);
             std::cout << "Read cache success!"sv << '\n';
             return result.visit_or(
@@ -162,10 +159,25 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
         // Not Cached
         else {
             vstd::string compileString(GetHLSLHeader());
-            compileString << str->result;
-            auto compResult = dxCompiler.CompileCompute(
-                compileString,
-                true);
+            auto compResult = [&] {
+                compileString << str->result;
+                if (kernel.raytracing()) {
+                    if (CodegenUtility::UseTraceClosest()) {
+                        compileString << GetClosestHitHeader();
+                    }
+                    return dxCompiler.CompileRayTracing(
+                        compileString,
+                        true);
+                } else {
+                    return dxCompiler.CompileCompute(
+                        compileString,
+                        true);
+                }
+            }();
+            std::cout
+                << "\n===============================\n"
+                << compileString
+                << "\n===============================\n";
             return compResult.multi_visit_or(
                 uint64(0),
                 [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
@@ -175,18 +187,32 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
                         auto serData = ShaderSerializer::Serialize(
                             str->properties,
                             {buffer->GetBufferPtr(), buffer->GetBufferSize()},
-                            Shader::Tag::ComputeShader);
+                            kernel.raytracing() ? Shader::Tag::RayTracingShader : Shader::Tag::ComputeShader,
+                            CodegenUtility::UseTraceClosest());
                         fwrite(serData.data(), serData.size(), 1, f);
                         std::cout << "Save cache success!"sv << '\n';
                     }
-                    return reinterpret_cast<uint64>(
-                        static_cast<Shader *>(
-                            new ComputeShader(
-                                kernel.block_size(),
-                                str->properties,
-                                {buffer->GetBufferPtr(),
-                                 buffer->GetBufferSize()},
-                                nativeDevice.device.Get())));
+                    if (kernel.raytracing()) {
+                        return reinterpret_cast<uint64>(
+                            static_cast<Shader *>(
+                                new RTShader(
+                                    CodegenUtility::UseTraceClosest(),
+                                    false,
+                                    false,
+                                    str->properties,
+                                    {buffer->GetBufferPtr(),
+                                     buffer->GetBufferSize()},
+                                    &nativeDevice)));
+                    } else {
+                        return reinterpret_cast<uint64>(
+                            static_cast<Shader *>(
+                                new ComputeShader(
+                                    kernel.block_size(),
+                                    str->properties,
+                                    {buffer->GetBufferPtr(),
+                                     buffer->GetBufferSize()},
+                                    nativeDevice.device.Get())));
+                    }
                 },
                 [](auto &&err) {
                     std::cout << err << '\n';
