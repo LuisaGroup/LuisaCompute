@@ -35,12 +35,12 @@ add_subdirectory(vstl)
 add_subdirectory(meta)
 add_subdirectory(ast)
 add_subdirectory(runtime)
-add_subdirectory(serialize)
+#add_subdirectory(serialize)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
 #add_subdirectory(api)
-add_subdirectory(serde)
+#add_subdirectory(serde)
 add_subdirectory(gui)
 
 option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" OFF)
@@ -63,10 +63,10 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-gui
         luisa-compute-backends)
 
-add_dependencies(luisa-compute
-        #        luisa-compute-api
-        luisa-compute-serialize
-        luisa-compute-serde)
+#add_dependencies(luisa-compute
+#        luisa-compute-api
+#        luisa-compute-serialize
+#        luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)
 
 if (LUISA_COMPUTE_BUILD_TESTS)

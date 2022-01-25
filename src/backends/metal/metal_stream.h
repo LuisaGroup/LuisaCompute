@@ -18,7 +18,7 @@ namespace luisa::compute::metal {
 class MetalStream {
 
 public:
-    static constexpr auto ring_buffer_size = 32u * 1024u * 1024u;
+    static constexpr auto host_buffer_size = 64u * 1024u * 1024u;
 
 private:
     id<MTLCommandQueue> _handle;
