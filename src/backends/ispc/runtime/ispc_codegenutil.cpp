@@ -596,6 +596,8 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
                 str << "_float4"sv;
 
             break;
+        case CallOp::ASSUME: str << "lc_builtin_assume"; break;
+        case CallOp::UNREACHABLE: str << "lc_builtin_unreachable"; break;
         case CallOp::TRACE_CLOSEST:
             str << "trace_closest"sv;
             break;

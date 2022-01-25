@@ -314,6 +314,8 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
+        case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
+        case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "lc_accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "lc_trace_any"; break;
