@@ -24,6 +24,16 @@ template<typename Dest, typename Src>
     return expr.template as<Dest>();
 }
 
+inline void assume(Expr<bool> pred) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::ASSUME, {pred.expression()});
+}
+
+inline void unreachable() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::ASSUME, {});
+}
+
 [[nodiscard]] inline auto thread_id() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->thread_id());
 }

@@ -293,6 +293,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "make_float4x4"; break;
+        case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
+        case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
@@ -1148,25 +1150,25 @@ struct alignas(16) BindlessItem {
 };
 
 [[nodiscard, gnu::always_inline]] constexpr sampler get_sampler(uint code) {
-  switch (code) {
-    case 0: return sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none);
-    case 1: return sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none);
-    case 2: return sampler(coord::normalized, address::mirrored_repeat, filter::nearest, mip_filter::none);
-    case 3: return sampler(coord::normalized, address::clamp_to_zero, filter::nearest, mip_filter::none);
-    case 4: return sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::none);
-    case 5: return sampler(coord::normalized, address::repeat, filter::linear, mip_filter::none);
-    case 6: return sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::none);
-    case 7: return sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::none);
-    case 8: return sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 9: return sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 10: return sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 11: return sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 12: return sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(16));
-    case 13: return sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(16));
-    case 14: return sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(16));
-    case 15: return sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(16));
-    default: return sampler();
-  }
+  constexpr const array<sampler, 16u> samplers{
+    sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::mirrored_repeat, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_zero, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(16)),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(16)),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(16)),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(16))};
+  __builtin_assume(code < 16u);
+  return samplers[code];
 }
 
 struct alignas(16) Ray {

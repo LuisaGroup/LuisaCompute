@@ -1,6 +1,8 @@
 // TODO: implement layout transition
 #define lc_buffer_read(buffer, index) ((buffer)[index])
 #define lc_buffer_write(buffer, index, value) (void)((buffer)[index] = (value))
+#define lc_builtin_assume(x)
+#define lc_builtin_unreachable()
 
 // Vector
 typedef float<2> float2;
