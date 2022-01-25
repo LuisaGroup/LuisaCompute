@@ -88,7 +88,7 @@ void MetalCommandEncoder::visit(const BufferToTextureCopyCommand *command) noexc
     auto offset = command->offset();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
-    auto image_bytes = pitch_bytes * size.y * size.z;
+    auto image_bytes = pitch_bytes * size.y;
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:buffer
                     sourceOffset:command->buffer_offset()
@@ -128,7 +128,7 @@ void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexc
     auto offset = command->offset();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
-    auto image_bytes = pitch_bytes * size.y * size.z;
+    auto image_bytes = pitch_bytes * size.y;
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromTexture:texture
                       sourceSlice:0u
@@ -147,9 +147,9 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto size = command->size();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
+    auto image_bytes = pitch_bytes * size.y;
     auto texture = to_texture(command->handle());
-    auto image_bytes = pitch_bytes * size.y * size.z;
-    auto buffer = _upload(command->data(), image_bytes);
+    auto buffer = _upload(command->data(), image_bytes * size.z);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromBuffer:buffer.handle()
                     sourceOffset:buffer.offset()
@@ -168,9 +168,9 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
     auto size = command->size();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
-    auto image_bytes = pitch_bytes * size.y * size.z;
+    auto image_bytes = pitch_bytes * size.y;
     auto texture = to_texture(command->handle());
-    auto buffer = _download(command->data(), image_bytes);
+    auto buffer = _download(command->data(), image_bytes * size.z);
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromTexture:texture
                       sourceSlice:0u
