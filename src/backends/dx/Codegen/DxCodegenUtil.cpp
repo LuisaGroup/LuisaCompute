@@ -9,6 +9,8 @@
 #include <Codegen/ShaderHeader.h>
 #include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
+static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
+static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
 struct CodegenGlobal {
     size_t isAssigning = 0;
     int64 scopeCount = -1;
@@ -23,7 +25,10 @@ struct CodegenGlobal {
     uint64 constCount = 0;
     uint64 funcCount = 0;
     uint64 tempCount = 0;
+    bool useTraceClosest = false;
     vstd::function<StructGenerator *(Type const *)> generateStruct;
+    StructGenerator *rayDesc = nullptr;
+    StructGenerator *hitDesc = nullptr;
     CodegenGlobal()
         : generateStruct(
               [this](Type const *t) {
@@ -31,6 +36,9 @@ struct CodegenGlobal {
               }) {
     }
     void Clear() {
+        useTraceClosest = false;
+        rayDesc = nullptr;
+        hitDesc = nullptr;
         isAssigning = 0;
         scopeCount = -1;
         structTypes.Clear();
@@ -57,6 +65,11 @@ struct CodegenGlobal {
             t,
             vstd::create_unique(newPtr));
         customStructVector.emplace_back(newPtr);
+        if (t->description() == rayTypeDesc) {
+            rayDesc = newPtr;
+        } else if (t->description() == hitTypeDesc) {
+            hitDesc = newPtr;
+        }
         return newPtr;
     }
     uint64 GetConstCount(uint64 data) {
@@ -266,8 +279,16 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             return;
         case Type::Tag::ARRAY:
         case Type::Tag::STRUCTURE: {
-            auto customType = opt->CreateStruct(&type);
-            str << customType->GetStructName();
+            if (type.description() == hitTypeDesc) {
+                str << "RayPayload";
+                return;
+            } else if (type.description() == rayTypeDesc) {
+                str << "LCRayDesc";
+                return;
+            } else {
+                auto customType = opt->CreateStruct(&type);
+                str << customType->GetStructName();
+            }
         }
             return;
         case Type::Tag::BUFFER:
@@ -301,7 +322,9 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             break;
     }
 }
-
+bool CodegenUtility::UseTraceClosest() {
+    return opt->useTraceClosest;
+}
 void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
     if (func.return_type()) {
         //TODO: return type
@@ -330,9 +353,6 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                 data[data.size() - 1] = ')';
             }
         } break;
-        default:
-            //TODO
-            break;
     }
 }
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, StringStateVisitor &vis) {
@@ -644,11 +664,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "make_float4x4"sv;
             break;
         case CallOp::BUFFER_READ:
-            str << "bfread";
+            str << "bfread"sv;
             //TODO
             break;
         case CallOp::BUFFER_WRITE:
-            str << "bfwrite";
+            str << "bfwrite"sv;
+            break;
+        case CallOp::TRACE_CLOSEST:
+            opt->useTraceClosest = true;
+            str << "TraceClosest"sv;
+            break;
+        case CallOp::TRACE_ANY:
+            str << "TraceAny"sv;
             break;
         default: {
             auto errorType = expr->op();
@@ -790,18 +817,28 @@ void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::string &str) {
 }
 void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
     if (func.tag() == Function::Tag::KERNEL) {
-        result << "[numthreads("
-               << vstd::to_string(func.block_size().x)
-               << ','
-               << vstd::to_string(func.block_size().y)
-               << ','
-               << vstd::to_string(func.block_size().z)
-               << ")]\n"
-               << "void main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId)";
+        if (func.raytracing()) {
+            result << R"(
+[shader("raygeneration")]
+void raygen()
+)"sv;
+        } else {
+            result << "[numthreads("
+                   << vstd::to_string(func.block_size().x)
+                   << ','
+                   << vstd::to_string(func.block_size().y)
+                   << ','
+                   << vstd::to_string(func.block_size().z)
+                   << ")]\n"
+                   << "void main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId)";
+        }
     } else {
         GetFunctionDecl(func, result);
     }
     result << "{\n"sv;
+    if (func.raytracing()) {
+        result << "uint3 dspId = DispatchRaysIndex();\n"sv;
+    }
     auto constants = func.constants();
     for (auto &&i : constants) {
         GetTypeName(*i.type, result, Usage::READ);
@@ -891,14 +928,14 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     };
     callable(callable, kernel);
     vstd::string finalResult;
-    finalResult.reserve(65536);
+    finalResult.reserve(65500);
     if (!opt->customStructVector.empty()) {
-        for (auto ite = opt->customStructVector.end() - 1; ite != opt->customStructVector.begin() - 1; --ite) {
-            auto &&v = *ite;
+        for (auto &&v : opt->customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
         }
     }
+   
     //TODO: print custom struct
     GenerateCBuffer(kernel, kernel.arguments(), finalResult);
 
@@ -967,11 +1004,20 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             } break;
             case Type::Tag::BINDLESS_ARRAY:
             case Type::Tag::ACCEL: {
+                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
                 //TODO
             } break;
         }
     }
-
+    if (kernel.raytracing()) {
+        if (opt->rayDesc) {
+            finalResult << "#define LCRayDesc "sv << opt->rayDesc->GetStructName() << '\n';
+        }
+        if (opt->hitDesc) {
+            finalResult << "#define RayPayload "sv << opt->hitDesc->GetStructName() << '\n';
+        }
+        finalResult << GetRayTracingHeader();
+    }
     finalResult << codegenData;
     return {std::move(finalResult), std::move(properties)};
 }

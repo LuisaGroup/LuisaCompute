@@ -83,19 +83,12 @@ DXRHitGroup RTShader::GetHitGroup() const {
         identityBuffer.GetAddress() + D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT * 2,
         D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES};
 }
-
-RTShader::RTShader(
+void RTShader::Init(
     bool closestHit,
     bool anyHit,
     bool intersectHit,
-    vstd::span<std::pair<vstd::string, Property> const> properties,
-    vstd::span<vbyte> binData,
-    Device *device)
-    : Shader(std::move(properties), device->device.Get()),
-      identityBuffer(
-          device,
-          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT * 3,
-          device->defaultAllocator) {
+    vstd::span<vbyte const> binData,
+    Device *device) {
     finishedUpdate.clear();
     using Microsoft::WRL::ComPtr;
     CD3DX12_STATE_OBJECT_DESC raytracingPipeline{D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE};
@@ -139,6 +132,36 @@ RTShader::RTShader(
     BindIdentifier(GetMissFuncName(), missIdentifier);
     BindIdentifier(L"hh", identifier);
     //TODO: identifier buffer
+}
+
+RTShader::RTShader(
+    bool closestHit,
+    bool anyHit,
+    bool intersectHit,
+    vstd::span<std::pair<vstd::string, Property> const> prop,
+    ComPtr<ID3D12RootSignature> &&rootSig,
+    vstd::span<vbyte const> binData,
+    Device *device)
+    : Shader(prop, std::move(rootSig)),
+      identityBuffer(
+          device,
+          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT * 3,
+          device->defaultAllocator) {
+    Init(closestHit, anyHit, intersectHit, binData, device);
+}
+RTShader::RTShader(
+    bool closestHit,
+    bool anyHit,
+    bool intersectHit,
+    vstd::span<std::pair<vstd::string, Property> const> properties,
+    vstd::span<vbyte const> binData,
+    Device *device)
+    : Shader(std::move(properties), device->device.Get()),
+      identityBuffer(
+          device,
+          D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT * 3,
+          device->defaultAllocator) {
+    Init(closestHit, anyHit, intersectHit, binData, device);
 }
 RTShader::~RTShader() {}
 }// namespace toolhub::directx

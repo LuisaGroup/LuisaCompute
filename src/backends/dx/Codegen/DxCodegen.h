@@ -30,6 +30,7 @@ public:
 class CodegenUtility {
 public:
     static constexpr uint64 INLINE_STMT_LIMIT = 5;
+    static bool UseTraceClosest();
     static StructVariableTracker *GetTracker();
     static void AddScope(int32 v);
     static int64 GetScope();

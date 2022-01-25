@@ -27,12 +27,13 @@ public:
     Serialize(
         vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
         vstd::span<vbyte> binByte,
-        Shader::Tag tag);
+        Shader::Tag tag,
+        bool useTraceClosest);
     static vstd::variant<
         ComputeShader *,
         RTShader *>
     DeSerialize(
-        ID3D12Device *device,
+        Device *device,
         vstd::span<vbyte const> data);
     ShaderSerializer() = delete;
     ~ShaderSerializer() = delete;

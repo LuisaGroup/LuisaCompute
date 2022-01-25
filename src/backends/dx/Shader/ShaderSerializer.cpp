@@ -11,13 +11,15 @@ struct Header {
     uint64 rootSigBytes;
     uint64 codeBytes;
     Shader::Tag tag;
+    bool useTraceClosest;
 };
 }// namespace shader_ser
 vstd::vector<vbyte>
 ShaderSerializer::Serialize(
     vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
     vstd::span<vbyte> binByte,
-    Shader::Tag tag) {
+    Shader::Tag tag,
+    bool useTraceClosest) {
     using namespace shader_ser;
     vstd::vector<vbyte> result;
     result.reserve(65500);
@@ -26,7 +28,8 @@ ShaderSerializer::Serialize(
         (uint64)SerializeReflection(properties, result),
         (uint64)SerializeRootSig(properties, result),
         (uint64)binByte.size(),
-        tag};
+        tag,
+        useTraceClosest};
     *reinterpret_cast<Header *>(result.data()) = header;
     result.push_back_all(binByte);
     return result;
@@ -35,7 +38,7 @@ vstd::variant<
     ComputeShader *,
     RTShader *>
 ShaderSerializer::DeSerialize(
-    ID3D12Device *device,
+    Device *device,
     vstd::span<vbyte const> data) {
     using namespace shader_ser;
     auto ptr = data.data();
@@ -50,7 +53,7 @@ ShaderSerializer::DeSerialize(
         {ptr, header.reflectionBytes});
     ptr += header.reflectionBytes;
     auto rootSig = DeSerializeRootSig(
-        device,
+        device->device.Get(),
         {ptr, header.rootSigBytes});
     ptr += header.rootSigBytes;
     if (header.tag == Shader::Tag::ComputeShader) {
@@ -58,8 +61,16 @@ ShaderSerializer::DeSerialize(
             refl,
             std::move(rootSig),
             {ptr, header.codeBytes},
-            device);
+            device->device.Get());
     } else {
+        return new RTShader(
+            header.useTraceClosest,
+            false,
+            false,
+            refl,
+            std::move(rootSig),
+            {ptr, header.codeBytes},
+            device);
         return nullptr;
     }
 }
