@@ -3,7 +3,6 @@
 //
 
 #include <utility>
-#include <vector>
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/command_reorder_visitor.h>
