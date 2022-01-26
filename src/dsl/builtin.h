@@ -31,7 +31,7 @@ inline void assume(Expr<bool> pred) noexcept {
 
 inline void unreachable() noexcept {
     detail::FunctionBuilder::current()->call(
-        CallOp::ASSUME, {});
+        CallOp::UNREACHABLE, {});
 }
 
 [[nodiscard]] inline auto thread_id() noexcept {
