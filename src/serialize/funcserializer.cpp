@@ -1,8 +1,10 @@
 #pragma vengine_package serialize
 #include <serialize/config.h>
 #include <serialize/serialize.h>
+#include <vstl/variant_util.h>
 #include <serialize/funcserializer.h>
 namespace luisa::compute {
+using ReadVar = vstd::VariantVisitor_t<ReadJsonVariant>;
 vstd::unique_ptr<IJsonDict> FuncSerializer::GetBuilderSerFunc(detail::FunctionBuilder const *b, IJsonDatabase *db) {
     auto exprArr = db->CreateArray();
     auto stmtArr = db->CreateArray();
@@ -31,16 +33,16 @@ vstd::unique_ptr<IJsonDict> FuncSerializer::GetBuilderSerFunc(detail::FunctionBu
     for (auto &&i : b->_captured_constants) {
         auto cDict = db->CreateDict();
         cDict->Set("data", AstSerializer::Serialize(i.data, db));
-        cDict->Set("type", i.type->hash());
+        cDict->Set("type", (int64)i.type->hash());
         constBindArr->Add(std::move(cDict));
     }
     for (auto &&i : b->_used_custom_callables) {
-        callablesArr->Add(i->_hash);
+        callablesArr->Add((int64)i->_hash);
     }
     for (auto &&i : b->_used_builtin_callables) {
         builtInCallArr->Add(static_cast<int64>(i));
     }
-    *blkSize << b->_block_size.x << b->_block_size.y << b->_block_size.z;
+    *blkSize << (int64)b->_block_size.x << (int64)b->_block_size.y << (int64)b->_block_size.z;
     /* for (auto &&i : b->_captured_buffers) {
         auto d = db->CreateDict();
         d->Set("variable", AstSerializer::Serialize(i.variable, db));
@@ -58,7 +60,7 @@ vstd::unique_ptr<IJsonDict> FuncSerializer::GetBuilderSerFunc(detail::FunctionBu
     rootDict->Set("builtin_callables", std::move(builtInCallArr));
     rootDict->Set("tag", static_cast<int64>(b->_tag));
     rootDict->Set("block_size", std::move(blkSize));
-    rootDict->Set("hash", b->_hash);
+    rootDict->Set("hash", (int64)b->_hash);
     rootDict->Set("raytracing", b->_raytracing);
     static_assert(call_op_count <= sizeof(int64) * 2 * 8, "CallOpSet size should less than placeholder");
 
@@ -69,14 +71,14 @@ vstd::unique_ptr<IJsonDict> FuncSerializer::GetBuilderSerFunc(detail::FunctionBu
 
 void FuncSerializer::GetBuilderDeserFunc(IJsonDict *dict, detail::FunctionBuilder *fb, FuncMap &map) {
 
-    auto expr = dict->Get("all_expressions").get_or<IJsonArray *>(nullptr);
-    auto stmt = dict->Get("all_statements").get_or<IJsonArray *>(nullptr);
-    auto blkArr = dict->Get("block_size").get_or<IJsonArray *>(nullptr);
-    auto bodyDict = dict->Get("body").get_or<IJsonDict *>(nullptr);
-    auto customCallables = dict->Get("custom_callables").get_or<IJsonArray *>(nullptr);
-    auto builtinCallables = dict->Get("builtin_callables").get_or<IJsonArray *>(nullptr);
-    auto consts = dict->Get("captured_constants").get_or<IJsonArray *>(nullptr);
-    auto args = dict->Get("arguments").get_or<IJsonArray *>(nullptr);
+    auto expr = ReadVar::get_or<IJsonArray *>(dict->Get("all_expressions"), nullptr);
+    auto stmt = ReadVar::get_or<IJsonArray *>(dict->Get("all_statements"), nullptr);
+    auto blkArr = ReadVar::get_or<IJsonArray *>(dict->Get("block_size"), nullptr);
+    auto bodyDict = ReadVar::get_or<IJsonDict *>(dict->Get("body"), nullptr);
+    auto customCallables = ReadVar::get_or<IJsonArray *>(dict->Get("custom_callables"), nullptr);
+    auto builtinCallables = ReadVar::get_or<IJsonArray *>(dict->Get("builtin_callables"), nullptr);
+    auto consts = ReadVar::get_or<IJsonArray *>(dict->Get("captured_constants"), nullptr);
+    auto args = ReadVar::get_or<IJsonArray *>(dict->Get("arguments"), nullptr);
     if (!expr ||
         !stmt ||
         !blkArr ||
@@ -102,44 +104,44 @@ void FuncSerializer::GetBuilderDeserFunc(IJsonDict *dict, detail::FunctionBuilde
 
     if (blkArr->Length() >= 3) {
         fb->_block_size = {
-            (uint)(*blkArr)[0].get_or<int64>(0),
-            (uint)(*blkArr)[1].get_or<int64>(0),
-            (uint)(*blkArr)[2].get_or<int64>(0)};
+            (uint)ReadVar::get_or<int64>((*blkArr)[0], 0),
+            (uint)ReadVar::get_or<int64>((*blkArr)[1], 0),
+            (uint)ReadVar::get_or<int64>((*blkArr)[2], 0)};
     }
 
     AstSerializer::DeSerialize(fb->_body, bodyDict, vis);
     fb->_used_custom_callables.reserve(customCallables->Length());
     for (auto &&i : *customCallables) {
-        if (auto v = i.try_get<int64>()) {
+        if (auto v = ReadVar::try_get<int64>(i)) {
             auto ite = map.Find(*v);
             fb->_used_custom_callables.emplace_back(ite.Value().second);
         }
     }
     for (auto &&i : *builtinCallables) {
-        if (auto op = i.try_get<int64>()) {
+        if (auto op = ReadVar::try_get<int64>(i)) {
             fb->_used_builtin_callables.mark(static_cast<CallOp>(*op));
         }
     }
     fb->_captured_constants.reserve(consts->Length());
     for (auto &&i : *consts) {
         Function::Constant &cb = fb->_captured_constants.emplace_back();
-        auto d = i.get_or<IJsonDict *>(nullptr);
+        auto d = ReadVar::get_or<IJsonDict *>(i, nullptr);
         if (!d) continue;
-        auto typeHash = d->Get("type").try_get<int64>();
+        auto typeHash = ReadVar::try_get<int64>(d->Get("type"));
         if (typeHash)
             cb.type = Type::find(*typeHash);
-        auto data = d->Get("data").get_or<IJsonDict *>(nullptr);
+        auto data = ReadVar::get_or<IJsonDict *>(d->Get("data"), nullptr);
         if (data)
             AstSerializer::DeSerialize(cb.data, data, vis);
     }
     fb->_arguments.reserve(args->Length());
     for (auto &&i : *args) {
-        auto dict = i.get_or<IJsonDict *>(nullptr);
+        auto dict = ReadVar::get_or<IJsonDict *>(i, nullptr);
         if (!dict) continue;
         auto &&arg = fb->_arguments.emplace_back();
         AstSerializer::DeSerialize(arg, dict);
     }
-    fb->_raytracing = dict->Get("raytracing").get_or<bool>(false);
+    fb->_raytracing = ReadVar::get_or<bool>(dict->Get("raytracing"), false);
     //TODO
 }
 vstd::unique_ptr<IJsonArray> FuncSerializer::SerKernel(Function f, IJsonDatabase *db) {
@@ -163,10 +165,10 @@ Function FuncSerializer::DeserKernel(IJsonArray *arr) {
     FuncMap map;
     detail::FunctionBuilder const *bd = nullptr;
     for (auto &&i : *arr) {
-        auto dict = i.get_or<IJsonDict *>(nullptr);
+        auto dict = ReadVar::get_or<IJsonDict *>(i, nullptr);
         if (!dict) continue;
-        auto tag = dict->Get("tag").try_get<int64>();
-        auto hs = dict->Get("hash").try_get<int64>();
+        auto tag = ReadVar::try_get<int64>(dict->Get("tag"));
+        auto hs = ReadVar::try_get<int64>(dict->Get("hash"));
         auto fb = vengine_new<detail::FunctionBuilder>(static_cast<detail::FunctionBuilder::Tag>(*tag));
         map.Emplace(fb->_hash, dict, fb);
         if (fb->_tag == detail::FunctionBuilder::Tag::KERNEL)
@@ -207,7 +209,7 @@ vstd::vector<Type const *> Serializer_Impl::DeserTypes(IJsonArray *arr) const {
     vstd::vector<Type const *> allTypes;
     allTypes.push_back_func(
         [&](size_t i) -> Type const * {
-            auto ss = (*arr)[i].try_get<std::string_view>();
+            auto ss = ReadVar::try_get<std::string_view>((*arr)[i]);
             if (ss)
                 return Type::from(*ss);
             else
