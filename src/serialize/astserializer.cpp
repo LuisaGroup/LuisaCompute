@@ -219,7 +219,7 @@ struct DeserArray {
 
         setView(luisa::span<T const>(ptr, arr.Length()));
         for (auto &&i : arr) {
-            *ptr = i.get_or<BasicType_t<T>>(0);
+            *ptr = static_cast<T>(ReadVar::get_or<BasicType_t<T>>(i,0));
             ptr++;
         }
     }
@@ -235,7 +235,7 @@ struct DeserArray<luisa::Vector<T, n>> {
         T *ptr = (T *)evt.Allocate(sz);
         setView(luisa::span<luisa::Vector<T, n> const>((luisa::Vector<T, n> *)ptr, arr.Length() / n));
         for (auto &&i : arr) {
-            *ptr = i.get_or<BasicType_t<T>>(0);
+            *ptr = static_cast<T>(ReadVar::get_or<BasicType_t<T>>(i, 0));
             ptr++;
         }
     }
@@ -292,7 +292,7 @@ struct DeserLiteral {
     void operator()(
         IJsonDict *r,
         LiteralExpr::Value &t) const {
-        t = ReadVar::get_or<BasicType_t<T>>(r->Get("value"), 0);
+        t = static_cast<T>(ReadVar::get_or<BasicType_t<T>>(r->Get("value"), 0));
     }
 };
 template<typename T, size_t n>
@@ -300,12 +300,12 @@ struct DeserLiteral<luisa::Vector<T, n>> {
     void operator()(
         IJsonDict *r,
         LiteralExpr::Value &t) const {
-        auto arr = r->Get("value").get_or<IJsonArray *>(nullptr);
+        auto arr = ReadVar::get_or<IJsonArray *>(r->Get("value"),nullptr);
         if (!arr || arr->Length() < n) return;
         luisa::Vector<T, n> vec;
         T *vecPtr = reinterpret_cast<T *>(&vec);
         for (auto i : vstd::range(n)) {
-            vecPtr[i] = arr->Get(i).get_or<BasicType_t<T>>(0);
+            vecPtr[i] = ReadVar::get_or<BasicType_t<T>>(arr->Get(i), 0);
         }
         t = vec;
     }
@@ -316,18 +316,18 @@ struct DeserLiteral<luisa::Matrix<n>> {
     void operator()(
         IJsonDict *r,
         LiteralExpr::Value &t) const {
-        auto arr = r->Get("value").get_or<IJsonArray *>(nullptr);
+        auto arr = ReadVar::get_or<IJsonArray *>(r->Get("value"), nullptr);
         if (!arr || arr->Length() < (n * n)) return;
         luisa::Matrix<n> vec;
         float *vecPtr = reinterpret_cast<float *>(&vec);
         for (auto i : vstd::range(n * n)) {
-            vecPtr[i] = arr->Get(i).get_or<double>(0);
+            vecPtr[i] = ReadVar::get_or<double>(arr->Get(i), 0);
         }
         t = vec;
     }
 };
 void AstSerializer::DeSerialize(LiteralExpr::Value &t, IJsonDict *r) {
-    auto type = r->Get("value_type").try_get<int64>();
+    auto type = ReadVar::try_get<int64>(r->Get("value_type"));
     if (!type)
         return;
     vstd::VariantVisitor_t<basic_types>()(
@@ -345,7 +345,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ConstantExpr const &t, IJso
     return r;
 }
 void AstSerializer::DeSerialize(ConstantExpr &t, IJsonDict *r, DeserVisitor const &evt) {
-    auto data = r->Get("data").get_or<IJsonDict *>(nullptr);
+    auto data = ReadVar::get_or<IJsonDict *>(r->Get("data"), nullptr);
     if (!data) return;
     DeSerialize(t._data, data, evt);
 }
@@ -360,14 +360,14 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CallExpr const &t, IJsonDat
     return r;
 }
 void AstSerializer::DeSerialize(CallExpr &t, IJsonDict *r, DeserVisitor const &evt) {
-    auto customHash = r->Get("custom"sv).try_get<int64>();
+    auto customHash = ReadVar::try_get<int64>(r->Get("custom"sv));
     if (customHash) {
         t._custom = evt.GetFunction(*customHash);
         t._op = CallOp::CUSTOM;
     }
     // Call OP
     else {
-        t._op = (CallOp)r->Get("op").get_or<int64>(0);
+        t._op = (CallOp)ReadVar::get_or<int64>(r->Get("op"), 0);
     }
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CastExpr const &t, IJsonDatabase *db) {
@@ -378,10 +378,10 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CastExpr const &t, IJsonDat
     return r;
 }
 void AstSerializer::DeSerialize(CastExpr &t, IJsonDict *r, DeserVisitor const &evt) {
-    auto src = r->Get("src"sv).try_get<int64>();
+    auto src = ReadVar::try_get<int64>(r->Get("src"sv));
     if (!src) return;
     t._source = evt.GetExpr(src);
-    t._op = (CastOp)r->Get("op"sv).get_or<int64>(0);
+    t._op = (CastOp)ReadVar::get_or<int64>(r->Get("op"sv), 0);
 }
 template<typename Func>
 bool ExecuteFromExprTag(Expression::Tag tag, Func &&func) {
@@ -469,18 +469,18 @@ bool ExecuteFromStmtTag(Statement::Tag tag, Func &&func) {
 }
 Expression *AstSerializer::GenExpr(IJsonDict *dict, DeserVisitor &evt) {
     Expression *t;
-    auto r = dict->Get("expr").get_or<IJsonDict *>(nullptr);
+    auto r = ReadVar::get_or<IJsonDict *>(dict->Get("expr"), nullptr);
     if (!r) return nullptr;
-    auto tag = r->Get("tag").try_get<int64>();
+    auto tag = ReadVar::try_get<int64>(r->Get("tag"));
     if (!tag) return nullptr;
     auto func = [&]<typename T> {
         auto f = reinterpret_cast<T *>(evt.Allocate(sizeof(T)));
         t = f;
-        t->_hash = r->Get("hash").get_or<int64>(0);
+        t->_hash = ReadVar::get_or<int64>(r->Get("hash"), 0);
         t->_hash_computed = true;
-        auto type = r->Get("type").try_get<int64>();
+        auto type = ReadVar::try_get<int64>(r->Get("type"));
         t->_type = type ? Type::find(*type) : nullptr;
-        t->_usage = static_cast<Usage>(r->Get("usage").get_or<int64>(0));
+        t->_usage = static_cast<Usage>(ReadVar::get_or<int64>(r->Get("usage"), 0));
         t->_tag = static_cast<Expression::Tag>(*tag);
     };
     if (!ExecuteFromExprTag(static_cast<Expression::Tag>(*tag), func)) return nullptr;
@@ -525,7 +525,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ReturnStmt const &s, IJsonD
     return r;
 }
 void AstSerializer::DeSerialize(ReturnStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    auto v = r->Get("expr").try_get<int64>();
+    auto v = ReadVar::try_get<int64>(r->Get("expr"));
     if (v)
         s._expr = evt.GetExpr(*v);
 }
@@ -544,12 +544,12 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ScopeStmt const &s, IJsonDa
     return r;
 }
 void AstSerializer::DeSerialize(ScopeStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    auto arrPtr = r->Get("scope"sv).try_get<IJsonArray *>();
+    auto arrPtr = ReadVar::try_get<IJsonArray *>(r->Get("scope"sv));
     if (!arrPtr) return;
     auto arr = *arrPtr;
     s._statements.reserve(arr->Length());
     for (auto &&i : *arr) {
-        auto v = i.try_get<int64>();
+        auto v = ReadVar::try_get<int64>(i);
         if (!v) continue;
         s._statements.emplace_back(evt.GetStmt(*v));
     }
@@ -562,8 +562,8 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(IfStmt const &s, IJsonDatab
     return r;
 }
 void AstSerializer::DeSerialize(IfStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    auto ts = r->Get("true").get_or<IJsonDict *>(nullptr);
-    auto fs = r->Get("false").get_or<IJsonDict *>(nullptr);
+    auto ts = ReadVar::get_or<IJsonDict *>(r->Get("true"), nullptr);
+    auto fs = ReadVar::get_or<IJsonDict *>(r->Get("false"), nullptr);
     if (!ts || !fs) return;
     DeSerialize(s._true_branch, ts, evt);
     DeSerialize(s._false_branch, fs, evt);
@@ -577,23 +577,23 @@ void AstSerializer::DeSerialize(LoopStmt &s, IJsonDict *r, DeserVisitor const &e
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ExprStmt const &s, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("stmt", Serialize(static_cast<Statement const &>(s), db));
-    r->Set("expr", s._expr->_hash);
+    r->Set("expr", (int64)s._expr->_hash);
     return r;
 }
 void AstSerializer::DeSerialize(ExprStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    auto exprHash = r->Get("expr").try_get<int64>();
+    auto exprHash = ReadVar::try_get<int64>(r->Get("expr"));
     if (!exprHash) return;
     s._expr = evt.GetExpr(*exprHash);
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(SwitchStmt const &s, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("stmt", Serialize(static_cast<Statement const &>(s), db));
-    r->Set("expr", s._expr->_hash);
+    r->Set("expr", (int64)s._expr->_hash);
     Serialize(s._body, r.get(), db);
     return r;
 }
 void AstSerializer::DeSerialize(SwitchStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    auto exprHash = r->Get("expr").try_get<int64>();
+    auto exprHash = ReadVar::try_get<int64>(r->Get("expr"));
     if (!exprHash) return;
     s._expr = evt.GetExpr(*exprHash);
     DeSerialize(s._body, r, evt);
@@ -601,12 +601,12 @@ void AstSerializer::DeSerialize(SwitchStmt &s, IJsonDict *r, DeserVisitor const 
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(SwitchCaseStmt const &s, IJsonDatabase *db) {
     auto r = db->CreateDict();
     r->Set("stmt", Serialize(static_cast<Statement const &>(s), db));
-    r->Set("expr", s._expr->_hash);
+    r->Set("expr", (int64)s._expr->_hash);
     Serialize(s._body, r.get(), db);
     return r;
 }
 void AstSerializer::DeSerialize(SwitchCaseStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    auto exprHash = r->Get("expr").try_get<int64>();
+    auto exprHash = ReadVar::try_get<int64>(r->Get("expr"));
     if (!exprHash) return;
     s._expr = evt.GetExpr(*exprHash);
     DeSerialize(s._body, r, evt);
@@ -626,9 +626,9 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(AssignStmt const &s, IJsonD
     return r;
 }
 void AstSerializer::DeSerialize(AssignStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    auto lhs = r->Get("lhs").try_get<int64>();
-    auto rhs = r->Get("rhs").try_get<int64>();
-    auto op = r->Get("op").try_get<int64>();
+    auto lhs = ReadVar::try_get<int64>(r->Get("lhs"));
+    auto rhs = ReadVar::try_get<int64>(r->Get("rhs"));
+    auto op = ReadVar::try_get<int64>(r->Get("op"));
     if (!lhs || !rhs || !op) return;
     s._lhs = evt.GetExpr(*lhs);
     s._rhs = evt.GetExpr(*rhs);
@@ -645,7 +645,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ForStmt const &s, IJsonData
 }
 void AstSerializer::DeSerialize(ForStmt &s, IJsonDict *r, DeserVisitor const &evt) {
     auto set = [&](auto name, auto &&ref) {
-        auto h = r->Get(name).template try_get<int64>();
+        auto h = ReadVar::try_get<int64>(r->Get(name));
         if (!h) return;
         ref = evt.GetExpr(*h);
     };
@@ -661,7 +661,7 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(CommentStmt const &s, IJson
     return r;
 }
 void AstSerializer::DeSerialize(CommentStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    s._comment = r->Get("comment").get_or<std::string_view>(std::string_view(nullptr, 0));
+    s._comment = ReadVar::get_or<std::string_view>(r->Get("comment"), std::string_view(nullptr, 0));
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(MetaStmt const &s, IJsonDatabase *db) {
     auto r = db->CreateDict();
@@ -681,22 +681,22 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(MetaStmt const &s, IJsonDat
     return r;
 }
 void AstSerializer::DeSerialize(MetaStmt &s, IJsonDict *r, DeserVisitor const &evt) {
-    s._info = r->Get("comment").get_or<std::string_view>(std::string_view(nullptr, 0));
+    s._info = ReadVar::get_or<std::string_view>(r->Get("comment"), std::string_view());
     DeSerialize(s._scope, r, evt);
-    auto childArr = r->Get("child").get_or<IJsonArray *>(nullptr);
-    auto varArr = r->Get("var").get_or<IJsonArray *>(nullptr);
+    auto childArr = ReadVar::get_or<IJsonArray *>(r->Get("child"), nullptr);
+    auto varArr = ReadVar::get_or<IJsonArray *>(r->Get("var"),nullptr);
     //TODO
 }
 Statement *AstSerializer::GenStmt(IJsonDict *dict, DeserVisitor &evt) {
     Statement *t;
-    auto r = dict->Get("expr").get_or<IJsonDict *>(nullptr);
+    auto r = ReadVar::get_or<IJsonDict *>(dict->Get("expr"), nullptr);
     if (!r) return nullptr;
-    auto tag = r->Get("tag").try_get<int64>();
+    auto tag = ReadVar::try_get<int64>(r->Get("tag"));
     if (!tag) return nullptr;
     auto func = [&]<typename T> {
         auto f = reinterpret_cast<T *>(evt.Allocate(sizeof(T)));
         t = f;
-        t->_hash = r->Get("hash").get_or<int64>(0);
+        t->_hash = ReadVar::get_or<int64>(r->Get("hash"), 0);
         t->_hash_computed = true;
         t->_tag = static_cast<Statement::Tag>(*tag);
     };
@@ -734,7 +734,7 @@ DeserVisitor::DeserVisitor(
         };
         addCallables(kernel, addCallables);
         for (auto &&i : *exprArr) {
-            auto dict = i.get_or<IJsonDict *>(nullptr);
+            auto dict = ReadVar::get_or<IJsonDict *>(i, nullptr);
             if (!dict) continue;
             auto e = AstSerializer::GenExpr(dict, *this);
             if (e) {
@@ -742,7 +742,7 @@ DeserVisitor::DeserVisitor(
             }
         }
         for (auto &&i : *stmtArr) {
-            auto dict = i.get_or<IJsonDict *>(nullptr);
+            auto dict = ReadVar::get_or<IJsonDict *>(i, nullptr);
             if (!dict) continue;
             auto e = AstSerializer::GenStmt(dict, *this);
             if (e) {
