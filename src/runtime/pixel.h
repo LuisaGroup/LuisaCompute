@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/basic_types.h>
+#include <core/logging.h>
 
 namespace luisa::compute {
 
@@ -153,6 +154,28 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA32F) + 1u;
     return static_cast<size_t>(0u);
 }
 
+[[nodiscard]] constexpr auto pixel_storage_channel_count(PixelStorage storage) noexcept {
+    switch (storage) {
+        case PixelStorage::BYTE1: return 1u;
+        case PixelStorage::BYTE2: return 2u;
+        case PixelStorage::BYTE4: return 4u;
+        case PixelStorage::SHORT1: return 1u;
+        case PixelStorage::SHORT2: return 2u;
+        case PixelStorage::SHORT4: return 4u;
+        case PixelStorage::INT1: return 1u;
+        case PixelStorage::INT2: return 2u;
+        case PixelStorage::INT4: return 4u;
+        case PixelStorage::HALF1: return 1u;
+        case PixelStorage::HALF2: return 2u;
+        case PixelStorage::HALF4: return 4u;
+        case PixelStorage::FLOAT1: return 1u;
+        case PixelStorage::FLOAT2: return 2u;
+        case PixelStorage::FLOAT4: return 4u;
+        default: break;
+    }
+    return 0u;
+}
+
 template<typename T>
 [[nodiscard]] constexpr auto pixel_storage_to_format(PixelStorage storage) noexcept {
     if constexpr (std::is_same_v<T, float>) {
@@ -205,6 +228,10 @@ template<typename T>
 
 [[nodiscard]] constexpr auto pixel_format_size(PixelFormat format) noexcept {
     return pixel_storage_size(pixel_format_to_storage(format));
+}
+
+[[nodiscard]] constexpr auto pixel_format_channel_count(PixelFormat format) noexcept {
+    return pixel_storage_channel_count(pixel_format_to_storage(format));
 }
 
 }// namespace luisa::compute
