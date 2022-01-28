@@ -34,10 +34,10 @@ struct GlobalSampleData {
                     case Sampler::Filter::POINT:
                         v.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
                         break;
-                    case Sampler::Filter::BILINEAR:
+                    case Sampler::Filter::LINEAR_POINT:
                         v.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
                         break;
-                    case Sampler::Filter::TRILINEAR:
+                    case Sampler::Filter::LINEAR_LINEAR:
                         v.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
                         break;
                     case Sampler::Filter::ANISOTROPIC:
