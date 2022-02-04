@@ -10,6 +10,7 @@ struct Header {
     uint64 reflectionBytes;
     uint64 rootSigBytes;
     uint64 codeBytes;
+    uint3 blockSize;
     Shader::Tag tag;
     bool useTraceClosest;
 };
@@ -19,7 +20,8 @@ ShaderSerializer::Serialize(
     vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
     vstd::span<vbyte> binByte,
     Shader::Tag tag,
-    bool useTraceClosest) {
+    bool useTraceClosest,
+    uint3 blockSize) {
     using namespace shader_ser;
     vstd::vector<vbyte> result;
     result.reserve(65500);
@@ -28,6 +30,7 @@ ShaderSerializer::Serialize(
         (uint64)SerializeReflection(properties, result),
         (uint64)SerializeRootSig(properties, result),
         (uint64)binByte.size(),
+        blockSize,
         tag,
         useTraceClosest};
     *reinterpret_cast<Header *>(result.data()) = header;
@@ -58,6 +61,7 @@ ShaderSerializer::DeSerialize(
     ptr += header.rootSigBytes;
     if (header.tag == Shader::Tag::ComputeShader) {
         return new ComputeShader(
+            header.blockSize,
             refl,
             std::move(rootSig),
             {ptr, header.codeBytes},

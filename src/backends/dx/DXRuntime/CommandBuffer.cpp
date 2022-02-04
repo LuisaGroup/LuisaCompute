@@ -13,6 +13,11 @@ void CommandBufferBuilder::SetDescHeap(DescriptorHeap const *heap) {
     cb->cmdList->SetDescriptorHeaps(1, &h);
 }
 ID3D12GraphicsCommandList4 *CommandBufferBuilder::CmdList() const { return cb->cmdList.Get(); }
+CommandBuffer::CommandBuffer(CommandBuffer &&v)
+    : cmdList(std::move(v.cmdList)),
+      alloc(v.alloc) {
+    v.alloc = nullptr;
+}
 
 CommandBuffer::CommandBuffer(
     Device *device,
@@ -157,7 +162,8 @@ void CommandBuffer::Close() const {
 }
 
 void CommandBuffer::Dispose() {
-    alloc->CollectBuffer(this);
+    if (alloc)
+        alloc->CollectBuffer(this);
 }
 CommandBufferBuilder::CommandBufferBuilder(CommandBuffer const *cb)
     : cb(cb) {

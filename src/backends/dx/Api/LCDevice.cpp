@@ -188,7 +188,8 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
                             str->properties,
                             {buffer->GetBufferPtr(), buffer->GetBufferSize()},
                             kernel.raytracing() ? Shader::Tag::RayTracingShader : Shader::Tag::ComputeShader,
-                            CodegenUtility::UseTraceClosest());
+                            CodegenUtility::UseTraceClosest(),
+                            kernel.block_size());
                         fwrite(serData.data(), serData.size(), 1, f);
                         std::cout << "Save cache success!"sv << '\n';
                     }

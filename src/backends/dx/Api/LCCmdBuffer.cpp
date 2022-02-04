@@ -5,6 +5,7 @@
 #include <runtime/command_buffer.h>
 #include <Codegen/DxCodegen.h>
 #include <Shader/ComputeShader.h>
+#include <Shader/RTShader.h>
 #include <Resource/RenderTexture.h>
 namespace toolhub::directx {
 class LCCmdVisitor : public CommandVisitor {
@@ -50,7 +51,6 @@ public:
         LCCmdVisitor *self;
         Function f;
         Variable const *arg;
-        ComputeShader const *cs;
         void UniformAlign(size_t align) {
             self->argVec.resize(CalcAlign(self->argVec.size(), align));
         }
@@ -192,21 +192,33 @@ public:
         bindProps.clear();
         argVec.resize(sizeof(uint3));
         *reinterpret_cast<uint3 *>(argVec.data()) = cmd->dispatch_size();
-        auto cs = reinterpret_cast<ComputeShader const *>(cmd->handle());
-        cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data(), cs});
+        auto shader = reinterpret_cast<Shader const *>(cmd->handle());
+        cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data()});
         auto tempBuffer = bd->GetTempBuffer(argVec.size());
         stateTracker.RecordState(
             tempBuffer.buffer,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_RESOURCE_STATE_COPY_DEST);
         bd->Upload(
             tempBuffer,
             argVec.data());
         bindProps.emplace_back("_Global"sv, tempBuffer);
         bindProps.emplace_back("_BindlessTex", DescriptorHeapView(device->globalHeap.get()));
-        bd->DispatchCompute(
-            cs,
-            cmd->dispatch_size(),
-            bindProps);
+        switch (shader->GetTag()) {
+            case Shader::Tag::ComputeShader: {
+                auto cs = static_cast<ComputeShader const *>(shader);
+                bd->DispatchCompute(
+                    cs,
+                    cmd->dispatch_size(),
+                    bindProps);
+            } break;
+            case Shader::Tag::RayTracingShader: {
+                auto rts = static_cast<RTShader const *>(shader);
+                bd->DispatchRT(
+                    rts,
+                    cmd->dispatch_size(),
+                    bindProps);
+            } break;
+        }
     }
     void visit(const TextureUploadCommand *cmd) noexcept override {}
     void visit(const TextureDownloadCommand *cmd) noexcept override {}
@@ -231,6 +243,7 @@ LCCmdBuffer::LCCmdBuffer(
 }
 void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
     auto allocator = queue.CreateAllocator();
+    vstd::vector<vstd::unique_ptr<CommandBuffer>, VEngine_AllocType::VEngine, 32> cacheVec;
     {
         LCCmdVisitor visitor;
         visitor.device = device;
@@ -245,10 +258,14 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
             }
             auto stateBuilder = stateBuffer->Build();
             visitor.stateTracker.UpdateState(stateBuilder);
+            cacheVec.push_back(std::move(stateBuffer));
+            cacheVec.push_back(std::move(cmdBuffer));
         }
         auto finalBuffer = allocator->GetBuffer();
         auto builder = finalBuffer->Build();
         visitor.stateTracker.RestoreState(builder);
+        cacheVec.push_back(std::move(finalBuffer));
+
     }
     lastFence = queue.Execute(std::move(allocator));
 }

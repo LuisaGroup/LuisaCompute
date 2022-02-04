@@ -11,10 +11,12 @@ void CommandAllocator::Execute(
     ID3D12CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
-    queue->ExecuteCommandLists(
-        executeCache.size(),
-        executeCache.data());
-    executeCache.clear();
+    if (!executeCache.empty()) {
+        queue->ExecuteCommandLists(
+            executeCache.size(),
+            executeCache.data());
+        executeCache.clear();
+    }
     ThrowIfFailed(queue->Signal(fence, fenceIndex));
 }
 void CommandAllocator::Complete(
@@ -55,6 +57,7 @@ CommandAllocator::CommandAllocator(
       defaultAllocator(TEMP_SIZE, &dbVisitor) {
     rbVisitor.self = this;
     ubVisitor.self = this;
+    dbVisitor.self = this;
     ThrowIfFailed(
         device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
 }

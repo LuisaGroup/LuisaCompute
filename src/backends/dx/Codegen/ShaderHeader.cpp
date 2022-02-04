@@ -314,21 +314,20 @@ return (b.x ? 1 : 0) | (b.y ? 256 : 0) | (b.z ? 65536 : 0) | (b.w ? 16777216 : 0
 #define bfread(bf,idx) (bf[(idx)])
 #define bfwrite(bf,idx,value) (bf[(idx)]=(value))
 struct BdlsStruct{
-uint bufferIdx;
-uint tex2DIdx;
-uint tex3DIdx;
+uint buffer;
+uint tex2D;
+uint sampler2D;
+uint tex3D;
+uint sampler3D;
 };
 )"sv;
 }
 vstd::string_view GetRayTracingHeader() {
     return R"(
-#define RAY_FLAG_COLOR_PASS (RAY_FLAG_FORCE_OPAQUE)
-#define RAY_FLAG_SHADOW_PASS (RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE)
-#define INVALID_ID (4294967295)
 [shader("miss")]
 void miss_hit(inout RayPayload payload)
 {
-payload.v0 = INVALID_ID;
+payload.v0 = 4294967295;
 }
 RayPayload TraceClosest(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 RayDesc ray;
@@ -339,7 +338,7 @@ ray.TMax = rayDesc.v3;
 RayPayload payload;
 TraceRay(
 accel,
-RAY_FLAG_COLOR_PASS,
+RAY_FLAG_FORCE_OPAQUE,
 ~0, 0, 1, 0, ray, payload);
 return payload;
 }
@@ -353,9 +352,9 @@ RayPayload payload;
 payload.v0 = 0;
 TraceRay(
 accel,
-RAY_FLAG_SHADOW_PASS,
+(RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE),
 ~0, 0, 1, 0, ray, payload);
-return (payload.v0 != INVALID_ID);
+return (payload.v0 != 4294967295);
 }
 )"sv;
 }

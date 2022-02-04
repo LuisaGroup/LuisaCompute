@@ -49,7 +49,7 @@ struct GlobalSampleData {
                         case Sampler::Address::EDGE:
                             return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
                         case Sampler::Address::REPEAT:
-                            return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+                            return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
                         case Sampler::Address::MIRROR:
                             return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
                         default:

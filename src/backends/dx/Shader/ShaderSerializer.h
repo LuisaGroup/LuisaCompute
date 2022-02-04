@@ -28,7 +28,8 @@ public:
         vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
         vstd::span<vbyte> binByte,
         Shader::Tag tag,
-        bool useTraceClosest);
+        bool useTraceClosest,
+        uint3 blockSize);
     static vstd::variant<
         ComputeShader *,
         RTShader *>
