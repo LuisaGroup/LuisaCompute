@@ -85,7 +85,7 @@ public:
     CommandAllocator *GetAlloc() const { return alloc; }
     void Dispose() override;
     ~CommandBuffer();
-    CommandBuffer(CommandBuffer &&v) = default;
+    CommandBuffer(CommandBuffer &&v);
     CommandBufferBuilder Build() const { return CommandBufferBuilder(this); }
     KILL_COPY_CONSTRUCT(CommandBuffer)
 };
