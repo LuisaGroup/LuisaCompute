@@ -28,7 +28,21 @@ int main(int argc, char *argv[]) {
     auto buffer1 = device.create_buffer<float>(width * height);
     auto buffer2 = device.create_buffer<float>(width * height);
 
+    Kernel1D kernel = [](BufferFloat buffer) noexcept {
+        buffer.write(0u, 1.f);
+    };
+    auto shader = device.compile(kernel);
+
     CommandReorderVisitor commandReorderVisitor(device.impl(), 100);
+
+    {
+        CommandList feed;
+        feed.append(shader(buffer).dispatch(1024u));
+        feed.append(buffer.copy_to(nullptr));
+        for (auto cmd : feed) { cmd->accept(commandReorderVisitor); }
+        auto reordered_lists = commandReorderVisitor.getCommandLists();
+        assert(reordered_lists.size() == 2u);
+    }
 
     {
         auto bindless_array = device.create_bindless_array(3);
