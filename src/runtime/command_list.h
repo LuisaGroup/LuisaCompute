@@ -51,6 +51,7 @@ public:
     [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
     [[nodiscard]] auto empty() const noexcept { return _head == nullptr; }
     [[nodiscard]] auto size() const noexcept {
+        // TODO: optimize this
         if (_size == std::numeric_limits<size_t>::max()) {
             _size = 0u;
             for (auto _ [[maybe_unused]] : *this) { _size++; }
