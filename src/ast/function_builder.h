@@ -260,7 +260,7 @@ public:
     void continue_() noexcept;
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
     void comment_(luisa::string comment) noexcept;
-    void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
+    void assign(const Expression *lhs, const Expression *rhs) noexcept;
 
     [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;
     [[nodiscard]] LoopStmt *loop_() noexcept;

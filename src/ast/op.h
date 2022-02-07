@@ -211,18 +211,4 @@ public:
     [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
 };
 
-enum struct AssignOp {
-    ASSIGN,
-    ADD_ASSIGN,
-    SUB_ASSIGN,
-    MUL_ASSIGN,
-    DIV_ASSIGN,
-    MOD_ASSIGN,
-    BIT_AND_ASSIGN,
-    BIT_OR_ASSIGN,
-    BIT_XOR_ASSIGN,
-    SHL_ASSIGN,
-    SHR_ASSIGN
-};
-
 }// namespace luisa::compute

@@ -268,41 +268,7 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     stmtCount++;
     StringExprVisitor vis(str, ptr);
     state->lhs()->accept(vis);
-    switch (state->op()) {
-        case AssignOp::ASSIGN:
-            str << '=';
-            break;
-        case AssignOp::ADD_ASSIGN:
-            str << "+=";
-            break;
-        case AssignOp::SUB_ASSIGN:
-            str << "-=";
-            break;
-        case AssignOp::MUL_ASSIGN:
-            str << "*=";
-            break;
-        case AssignOp::DIV_ASSIGN:
-            str << "/=";
-            break;
-        case AssignOp::MOD_ASSIGN:
-            str << "%=";
-            break;
-        case AssignOp::BIT_AND_ASSIGN:
-            str << "&=";
-            break;
-        case AssignOp::BIT_OR_ASSIGN:
-            str << "|=";
-            break;
-        case AssignOp::BIT_XOR_ASSIGN:
-            str << "^=";
-            break;
-        case AssignOp::SHL_ASSIGN:
-            str << "<<=";
-            break;
-        case AssignOp::SHR_ASSIGN:
-            str << ">>=";
-            break;
-    }
+    str << '=';
     state->rhs()->accept(vis);
     str << ";\n";
 }

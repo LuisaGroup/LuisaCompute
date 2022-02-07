@@ -159,25 +159,23 @@ class AssignStmt : public Statement {
 private:
     const Expression *_lhs;
     const Expression *_rhs;
-    AssignOp _op;
 
 private:
     uint64_t _compute_hash() const noexcept override {
         auto hl = _lhs->hash();
         auto hr = _rhs->hash();
-        return hash64(_op, hash64(hl, hr));
+        return hash64(hl, hr);
     }
 
 public:
-    AssignStmt(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept
-        : Statement{Tag::ASSIGN}, _lhs{lhs}, _rhs{rhs}, _op{op} {
+    AssignStmt(const Expression *lhs, const Expression *rhs) noexcept
+        : Statement{Tag::ASSIGN}, _lhs{lhs}, _rhs{rhs} {
         _lhs->mark(Usage::WRITE);
         _rhs->mark(Usage::READ);
     }
 
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
     [[nodiscard]] auto rhs() const noexcept { return _rhs; }
-    [[nodiscard]] auto op() const noexcept { return _op; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 

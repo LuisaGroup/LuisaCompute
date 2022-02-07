@@ -271,7 +271,7 @@ int main(int argc, char *argv[]) {
         assert(reordered_list.size() == 1);
     }
 
-    {// FIXME: fails, why?
+    {
         CommandList feed;
 
         auto vertex_buffer = device.create_buffer<Vector<float, 3>>(3);
