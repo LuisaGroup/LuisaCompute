@@ -196,7 +196,7 @@ public:
         [[nodiscard]] CallOp operator*() const noexcept;
         Iterator &operator++() noexcept;
         Iterator operator++(int) noexcept;
-        [[nodiscard]] bool operator==(std::default_sentinel_t) const noexcept;
+        [[nodiscard]] bool operator==(luisa::default_sentinel_t) const noexcept;
     };
 
 private:
@@ -208,7 +208,7 @@ public:
     void mark(CallOp op) noexcept { _bits.set(to_underlying(op)); }
     [[nodiscard]] auto test(CallOp op) const noexcept { return _bits.test(to_underlying(op)); }
     [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
-    [[nodiscard]] auto end() const noexcept { return std::default_sentinel; }
+    [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
 };
 
 enum struct AssignOp {

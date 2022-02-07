@@ -48,7 +48,7 @@ public:
     void synchronize() noexcept;
 
     template<typename F>
-        requires std::invocable<F>
+        requires std::is_invocable_v<F>
     auto async(F f) noexcept {
         using R = std::invoke_result_t<F>;
         auto promise = luisa::make_shared<std::promise<R>>(

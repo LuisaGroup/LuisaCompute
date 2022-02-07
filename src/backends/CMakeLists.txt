@@ -11,6 +11,7 @@ function(luisa_compute_add_backend name)
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends/"
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/"
+            WINDOWS_EXPORT_ALL_SYMBOLS OFF
             UNITY_BUILD ON
             DEBUG_POSTFIX "")
     foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
@@ -37,7 +38,8 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
-    add_subdirectory(ispc)
+#    add_subdirectory(ispc)
+    add_subdirectory(ispc2)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_REMOTE)

@@ -41,6 +41,7 @@ int main(int argc, char *argv[]) {
         feed.append(buffer.copy_to(nullptr));
         for (auto cmd : feed) { cmd->accept(commandReorderVisitor); }
         auto reordered_lists = commandReorderVisitor.getCommandLists();
+        LUISA_INFO("Size: {}.", reordered_lists.size());
         assert(reordered_lists.size() == 2u);
     }
 
@@ -257,6 +258,7 @@ int main(int argc, char *argv[]) {
         auto mesh1 = device.create_mesh(vertex_buffer1, triangle_buffer);
         auto accel = device.create_accel();
         accel.emplace_back(mesh);
+        assert(device.impl()->is_mesh_in_accel(accel.handle(), mesh.handle()));
 
         /*
          * vertex_buffer -------
@@ -274,7 +276,6 @@ int main(int argc, char *argv[]) {
             command->accept(commandReorderVisitor);
         }
         luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
-
         assert(reordered_list.size() == 2);
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {

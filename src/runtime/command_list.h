@@ -29,13 +29,13 @@ public:
             return self;
         }
         [[nodiscard]] decltype(auto) operator*() const noexcept { return _command; }
-        [[nodiscard]] auto operator==(std::default_sentinel_t) const noexcept { return _command == nullptr; }
+        [[nodiscard]] auto operator==(luisa::default_sentinel_t) const noexcept { return _command == nullptr; }
     };
 
 private:
     Command *_head{nullptr};
     Command *_tail{nullptr};
-    size_t _size{};
+    mutable size_t _size{std::numeric_limits<size_t>::max()};
 
 private:
     void _recycle() noexcept;
@@ -48,9 +48,15 @@ public:
 
     void append(Command *cmd) noexcept;
     [[nodiscard]] auto begin() const noexcept { return Iterator{_head}; }
-    [[nodiscard]] auto end() const noexcept { return std::default_sentinel; }
+    [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
     [[nodiscard]] auto empty() const noexcept { return _head == nullptr; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto size() const noexcept {
+        if (_size == std::numeric_limits<size_t>::max()) {
+            _size = 0u;
+            for (auto _ [[maybe_unused]] : *this) { _size++; }
+        }
+        return _size;
+    }
 };
 
 }// namespace luisa::compute
