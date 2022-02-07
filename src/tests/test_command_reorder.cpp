@@ -110,11 +110,11 @@ int main(int argc, char *argv[]) {
          *        /
          * texture1 -- texture -- texture2
          */
-        feed.append(texture.copy_from(texture1));
-        feed.append(texture2.copy_from(texture));
-        feed.append(buffer1.copy_from(buffer));
-        feed.append(bindless_array.update());
-        feed.append(buffer2.copy_from(buffer));
+        feed.append(texture.copy_from(texture1));// 0
+        feed.append(texture2.copy_from(texture));// 1
+        feed.append(buffer1.copy_from(buffer));  // 0
+        feed.append(bindless_array.update());    // 1
+        feed.append(buffer2.copy_from(buffer));  // 0
         /*
          * the same with the last test
          * but bindless_array is inserted before buffer2's copy
@@ -125,16 +125,15 @@ int main(int argc, char *argv[]) {
         }
         luisa::vector<CommandList> reordered_list = commandReorderVisitor.getCommandLists();
 
-        assert(reordered_list.size() == 3);
+        assert(reordered_list.size() == 2);
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
             for (auto command : command_list)
                 ++size[i];
         }
-        assert(size[0] == 2);
+        assert(size[0] == 3);
         assert(size[1] == 2);
-        assert(size[2] == 1);
     }
 
     {
@@ -259,6 +258,21 @@ int main(int argc, char *argv[]) {
 
     {
         CommandList feed;
+        auto bindless_array = device.create_bindless_array();
+        bindless_array.emplace(0u, buffer);
+
+        feed.append(buffer.copy_to(nullptr));
+        feed.append(bindless_array.update());
+
+        for (auto command : feed) {
+            command->accept(commandReorderVisitor);
+        }
+        auto reordered_list = commandReorderVisitor.getCommandLists();
+        assert(reordered_list.size() == 1);
+    }
+
+    {// FIXME: fails, why?
+        CommandList feed;
 
         auto vertex_buffer = device.create_buffer<Vector<float, 3>>(3);
         auto triangle_buffer = device.create_buffer<Triangle>(1);
@@ -277,9 +291,9 @@ int main(int argc, char *argv[]) {
          * vertex_buffer1 ---------------------  ------ mesh1
          */
 
-        feed.append(mesh.build());
-        feed.append(mesh1.build());
-        feed.append(accel.build());
+        feed.append(mesh.build()); // 0
+        feed.append(mesh1.build());// 0
+        feed.append(accel.build());// 1
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
@@ -292,8 +306,8 @@ int main(int argc, char *argv[]) {
             for (auto command : command_list)
                 ++size[i];
         }
-        assert(size[0] == 1);
-        assert(size[1] == 2);
+        assert(size[0] == 2);
+        assert(size[1] == 1);
     }
 
     return 0;

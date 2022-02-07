@@ -47,52 +47,63 @@ void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vi
 bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB) {
 
     // no Usage::NONE by default
-    if (sourceA.usage == Usage::NONE || sourceB.usage == Usage::NONE)
+    if (sourceA.usage == Usage::NONE || sourceB.usage == Usage::NONE) {
         return false;
-    if (sourceA.usage == Usage::READ && sourceB.usage == Usage::READ)
+    }
+    if (sourceA.usage == Usage::READ && sourceB.usage == Usage::READ) {
         return false;
+    }
 
     if (sourceA.type == sourceB.type) {
         // the same type
-        if (sourceA.handle != sourceB.handle)
+        if (sourceA.handle != sourceB.handle) {
             return false;
-        if (sourceA.offset == size_t(-1) || sourceB.offset == size_t(-1) || sourceA.size == size_t(-1) || sourceB.size == size_t(-1))
+        }
+        if (sourceA.offset == size_t(-1) || sourceB.offset == size_t(-1) || sourceA.size == size_t(-1) || sourceB.size == size_t(-1)) {
             return true;
+        }
         return (sourceA.offset >= sourceB.offset && sourceA.offset <= sourceB.offset + sourceB.size) ||
                (sourceA.offset + sourceA.size >= sourceB.offset && sourceA.offset + sourceA.size <= sourceB.offset + sourceB.size) ||
                (sourceB.offset >= sourceA.offset && sourceB.offset <= sourceA.offset + sourceA.size) ||
                (sourceB.offset + sourceB.size >= sourceA.offset && sourceB.offset + sourceB.size <= sourceA.offset + sourceA.size);
-    } else {
-        // sourceA will be set to higher level
-        if (sourceB.type == CommandType::BINDLESS_ARRAY || sourceB.type == CommandType::ACCEL ||
-            (sourceB.type == CommandType::MESH && (sourceA.type == CommandType::BUFFER || sourceA.type == CommandType::TEXTURE)))
-            std::swap(sourceA, sourceB);
-
-        if (sourceA.type == CommandType::ACCEL) {
-            // accel - xxx
-            if (sourceB.type == CommandType::MESH)
-                // accel - mesh
-                return device->is_mesh_in_accel(sourceA.handle, sourceB.handle);
-            else if (sourceB.type == CommandType::BUFFER)
-                // accel - buffer
-                return device->is_buffer_in_accel(sourceA.handle, sourceB.handle);
-            return false;
-        } else if (sourceA.type == CommandType::MESH) {
-            if (sourceB.type == CommandType::BUFFER)
-                // mesh - buffer
-                return sourceB.handle == device->get_vertex_buffer_from_mesh(sourceA.handle) ||
-                       sourceB.handle == device->get_triangle_buffer_from_mesh(sourceA.handle);
-        } else if (sourceA.type == CommandType::BINDLESS_ARRAY) {
-            if (sourceB.type == CommandType::TEXTURE)
-                // bindless_array - texture
-                return device->is_texture_in_bindless_array(sourceA.handle, sourceB.handle);
-            else if (sourceB.type == CommandType::BUFFER)
-                // bindless_array - buffer
-                return device->is_buffer_in_bindless_array(sourceA.handle, sourceB.handle);
-            return false;
-        }
-        return false;
     }
+    // sourceA will be set to higher level
+    if (sourceB.type == CommandType::BINDLESS_ARRAY || sourceB.type == CommandType::ACCEL ||
+        (sourceB.type == CommandType::MESH && (sourceA.type == CommandType::BUFFER || sourceA.type == CommandType::TEXTURE))) {
+        std::swap(sourceA, sourceB);
+    }
+    if (sourceA.type == CommandType::ACCEL) {
+        // accel - xxx
+        if (sourceB.type == CommandType::MESH) {
+            // accel - mesh
+            return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
+                   device->is_mesh_in_accel(sourceA.handle, sourceB.handle);
+        }
+        if (sourceB.type == CommandType::BUFFER) {
+            // accel - buffer
+            return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
+                   device->is_buffer_in_accel(sourceA.handle, sourceB.handle);
+        }
+    } else if (sourceA.type == CommandType::MESH) {
+        if (sourceB.type == CommandType::BUFFER) {
+            // mesh - buffer
+            return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
+                   (sourceB.handle == device->get_vertex_buffer_from_mesh(sourceA.handle) ||
+                    sourceB.handle == device->get_triangle_buffer_from_mesh(sourceA.handle));
+        }
+    } else if (sourceA.type == CommandType::BINDLESS_ARRAY) {
+        if (sourceB.type == CommandType::TEXTURE) {
+            // bindless_array - texture
+            return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
+                   device->is_texture_in_bindless_array(sourceA.handle, sourceB.handle);
+        }
+        if (sourceB.type == CommandType::BUFFER) {
+            // bindless_array - buffer
+            return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
+                   device->is_buffer_in_bindless_array(sourceA.handle, sourceB.handle);
+        }
+    }
+    return false;
 }
 
 void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::CommandRelation &&commandRelation) noexcept {
@@ -300,14 +311,14 @@ void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
 
     // get source set
     commandRelation.sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE});
+        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::MESH});
     // TODO : whether triangle and vertex are read ?
     uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
              vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
     commandRelation.sourceSet.insert(CommandSource{
-        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
+        triangle_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
     commandRelation.sourceSet.insert(CommandSource{
-        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
+        vertex_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
 
     processNewCommandRelation(std::move(commandRelation));
 }
@@ -318,14 +329,14 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
 
     // get source set
     commandRelation.sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE});
+        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::MESH});
     // TODO : whether triangle and vertex are read ?
     uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
              vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
     commandRelation.sourceSet.insert(CommandSource{
-        triangle_buffer, size_t(-1), size_t(-1), Usage::READ});
+        triangle_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
     commandRelation.sourceSet.insert(CommandSource{
-        vertex_buffer, size_t(-1), size_t(-1), Usage::READ});
+        vertex_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
 
     processNewCommandRelation(std::move(commandRelation));
 }
