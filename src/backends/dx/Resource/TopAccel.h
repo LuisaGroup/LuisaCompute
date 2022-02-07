@@ -1,6 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <EASTL/shared_ptr.h>
+#include <runtime/command.h>
 namespace toolhub::directx {
 class DefaultBuffer;
 class BottomAccel;
@@ -9,6 +10,11 @@ class ResourceStateTracker;
 class Mesh;
 class BottomAccel;
 class TopAccel : public vstd::IOperatorNewBase {
+    struct Element {
+        BottomAccel const *mesh = nullptr;
+        float4x4 transform;
+        uint mask;
+    };
     friend class BottomAccel;
     eastl::shared_ptr<DefaultBuffer> instBuffer;
     eastl::shared_ptr<DefaultBuffer> accelBuffer;
@@ -18,7 +24,7 @@ class TopAccel : public vstd::IOperatorNewBase {
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc;
     mutable std::mutex mtx;
     size_t capacity = 0;
-    vstd::vector<BottomAccel const *> accelMap;
+    vstd::vector<Element> accelMap;
     struct CopyCommand {
         eastl::shared_ptr<DefaultBuffer> srcBuffer;
         eastl::shared_ptr<DefaultBuffer> dstBuffer;
@@ -36,7 +42,7 @@ class TopAccel : public vstd::IOperatorNewBase {
     void DecreRef(Buffer const *bf);
 
 public:
-    TopAccel(Device *device);
+    TopAccel(Device *device, luisa::compute::AccelBuildHint hint);
     uint Length() const { return topLevelBuildDesc.Inputs.NumDescs; }
     bool IsBufferInAccel(Buffer const *buffer) const;
     bool IsMeshInAccel(Mesh const *mesh) const;
@@ -45,10 +51,17 @@ public:
         BottomAccel const *accel,
         uint mask,
         float4x4 const &localToWorld);
+    bool Update(
+        uint idx,
+        uint mask);
+    bool Update(
+        uint idx,
+        float4x4 const &localToWorld);
     void Emplace(
         BottomAccel const *accel,
         uint mask,
         float4x4 const &localToWorld);
+    void PopBack();
     DefaultBuffer const *GetAccelBuffer() const {
         return accelBuffer ? (DefaultBuffer const *)accelBuffer.get() : (DefaultBuffer const *)nullptr;
     }
