@@ -28,14 +28,23 @@ int main(int argc, char *argv[]) {
     auto buffer1 = device.create_buffer<float>(width * height);
     auto buffer2 = device.create_buffer<float>(width * height);
 
+    auto stream = device.create_stream();
+
     Kernel1D kernel = [](BufferFloat buffer) noexcept {
-        buffer.write(0u, 1.f);
+        buffer.write(dispatch_x(), 1.f);
     };
     auto shader = device.compile(kernel);
 
     CommandReorderVisitor commandReorderVisitor(device.impl(), 100);
 
     {
+        luisa::vector<float> vec(width * height);
+        LUISA_INFO("Begin");
+        stream << shader(buffer).dispatch(1024u)
+               << buffer.copy_to(vec.data())
+               << synchronize();
+        LUISA_INFO("End");
+
         CommandList feed;
         feed.append(shader(buffer).dispatch(1024u));
         feed.append(buffer.copy_to(nullptr));
