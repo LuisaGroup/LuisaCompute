@@ -7,6 +7,9 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RTShader.h>
 #include <Resource/RenderTexture.h>
+#include <Resource/BottomAccel.h>
+#include <Resource/TopAccel.h>
+#include <Resource/BindlessArray.h>
 namespace toolhub::directx {
 class LCCmdVisitor : public CommandVisitor {
 public:
@@ -18,7 +21,7 @@ public:
     vstd::vector<BindProperty> bindProps;
     void visit(const BufferUploadCommand *cmd) noexcept override {
         BufferView bf(
-            reinterpret_cast<DefaultBuffer const *>(cmd->handle()),
+            reinterpret_cast<Buffer const *>(cmd->handle()),
             cmd->offset(),
             cmd->size());
         stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -26,7 +29,7 @@ public:
     }
     void visit(const BufferDownloadCommand *cmd) noexcept override {
         BufferView bf(
-            reinterpret_cast<DefaultBuffer const *>(cmd->handle()),
+            reinterpret_cast<Buffer const *>(cmd->handle()),
             cmd->offset(),
             cmd->size());
         stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -35,8 +38,8 @@ public:
             cmd->data());
     }
     void visit(const BufferCopyCommand *cmd) noexcept override {
-        auto srcBf = reinterpret_cast<DefaultBuffer const *>(cmd->src_handle());
-        auto dstBf = reinterpret_cast<DefaultBuffer const *>(cmd->dst_handle());
+        auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
+        auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
         stateTracker.RecordState(srcBf, D3D12_RESOURCE_STATE_COPY_SOURCE);
         stateTracker.RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
         bd->CopyBuffer(
@@ -65,7 +68,7 @@ public:
             CodegenUtility::GetVariableName(
                 *arg,
                 name);
-            auto res = reinterpret_cast<DefaultBuffer const *>(bf.handle);
+            auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)f.variable_usage(arg->uid()) | (uint)Usage::WRITE) != 0) {
                 self->stateTracker.RecordState(
                     res,
@@ -224,11 +227,30 @@ public:
     void visit(const TextureDownloadCommand *cmd) noexcept override {}
     void visit(const TextureCopyCommand *cmd) noexcept override {}
     void visit(const TextureToBufferCopyCommand *cmd) noexcept override {}
-    void visit(const AccelUpdateCommand *cmd) noexcept override {}
-    void visit(const AccelBuildCommand *cmd) noexcept override {}
-    void visit(const MeshUpdateCommand *cmd) noexcept override {}
-    void visit(const MeshBuildCommand *cmd) noexcept override {}
-    void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {}
+    void visit(const AccelUpdateCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
+        accel->Build(
+            stateTracker,
+            *bd);
+    }
+    void visit(const AccelBuildCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
+        accel->Build(
+            stateTracker,
+            *bd);
+    }
+    void visit(const MeshUpdateCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
+        accel->Build(*bd);
+    }
+    void visit(const MeshBuildCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
+        accel->Build(*bd);
+    }
+    void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
+        auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
+        arr->Update(*bd);
+    }
 };
 
 LCCmdBuffer::LCCmdBuffer(
@@ -248,8 +270,8 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
         LCCmdVisitor visitor;
         visitor.device = device;
         for (auto &&lst : c) {
-            auto stateBuffer = allocator->GetBuffer();
-            auto cmdBuffer = allocator->GetBuffer();
+            auto stateBuffer = cacheVec.emplace_back(allocator->GetBuffer()).get();
+            auto cmdBuffer = cacheVec.emplace_back(allocator->GetBuffer()).get();
             {
                 auto cmdBuilder = cmdBuffer->Build();
                 visitor.bd = &cmdBuilder;
@@ -258,19 +280,14 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
             }
             auto stateBuilder = stateBuffer->Build();
             visitor.stateTracker.UpdateState(stateBuilder);
-            cacheVec.push_back(std::move(stateBuffer));
-            cacheVec.push_back(std::move(cmdBuffer));
         }
-        auto finalBuffer = allocator->GetBuffer();
+        auto finalBuffer = cacheVec.emplace_back(allocator->GetBuffer()).get();
         auto builder = finalBuffer->Build();
         visitor.stateTracker.RestoreState(builder);
-        cacheVec.push_back(std::move(finalBuffer));
-
     }
     lastFence = queue.Execute(std::move(allocator));
 }
 void LCCmdBuffer::Sync() {
     queue.Complete(lastFence);
 }
-
 }// namespace toolhub::directx

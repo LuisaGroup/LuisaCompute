@@ -13,6 +13,8 @@
 #include <Api/LCEvent.h>
 #include <vstl/MD5.h>
 #include <Shader/ShaderSerializer.h>
+#include <Resource/BottomAccel.h>
+#include <Resource/TopAccel.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 LCDevice::LCDevice(const Context &ctx)
@@ -23,16 +25,17 @@ void *LCDevice::native_handle() const noexcept {
 }
 uint64_t LCDevice::create_buffer(size_t size_bytes) noexcept {
     return reinterpret_cast<uint64>(
-        new DefaultBuffer(
-            &nativeDevice,
-            size_bytes,
-            nativeDevice.defaultAllocator));
+        static_cast<Buffer *>(
+            new DefaultBuffer(
+                &nativeDevice,
+                size_bytes,
+                nativeDevice.defaultAllocator)));
 }
 void LCDevice::destroy_buffer(uint64_t handle) noexcept {
-    delete reinterpret_cast<DefaultBuffer *>(handle);
+    delete reinterpret_cast<Buffer *>(handle);
 }
 void *LCDevice::buffer_native_handle(uint64_t handle) const noexcept {
-    return reinterpret_cast<DefaultBuffer *>(handle)->GetResource();
+    return reinterpret_cast<Buffer *>(handle)->GetResource();
 }
 uint64_t LCDevice::create_texture(
     PixelFormat format,
@@ -67,7 +70,7 @@ void LCDevice::destroy_bindless_array(uint64_t handle) noexcept {
     delete reinterpret_cast<BindlessArray *>(handle);
 }
 void LCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
-    auto buffer = reinterpret_cast<DefaultBuffer *>(handle);
+    auto buffer = reinterpret_cast<Buffer *>(handle);
     reinterpret_cast<BindlessArray *>(array)
         ->Bind(BufferView(buffer, offset_bytes), index);
 }
@@ -129,7 +132,7 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
     static DXShaderCompiler dxCompiler;
     auto str = CodegenUtility::Codegen(kernel);
     if (str) {
-       
+
         //vstd::MD5 md5(vstd::span<vbyte const>{(vbyte const *)str->result.data(), str->result.size()});
         //auto fileName = md5.ToString();
         auto md5 = vstd::MD5(vstd::span<vbyte const>((vbyte const *)str->result.data(), str->result.size()));
@@ -245,37 +248,82 @@ void LCDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
 void LCDevice::synchronize_event(uint64_t handle) noexcept {
     reinterpret_cast<LCEvent *>(handle)->Sync();
 }
-uint64_t LCDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
-    return uint64_t();
+uint64_t LCDevice::create_mesh(
+    uint64_t v_buffer,
+    size_t v_offset,
+    size_t v_stride,
+    size_t v_count,
+    uint64_t t_buffer,
+    size_t t_offset,
+    size_t t_count,
+    AccelBuildHint hint) noexcept {
+    return reinterpret_cast<uint64>(
+        new BottomAccel(
+            &nativeDevice,
+            reinterpret_cast<Buffer *>(v_buffer),
+            v_offset,
+            v_stride,
+            v_count,
+            reinterpret_cast<Buffer *>(t_buffer),
+            t_offset,
+            t_count));
 }
 void LCDevice::destroy_mesh(uint64_t handle) noexcept {
+    delete reinterpret_cast<BottomAccel *>(handle);
 }
 uint64_t LCDevice::create_accel(AccelBuildHint hint) noexcept {
-    return uint64_t();
+    return reinterpret_cast<uint64>(new TopAccel(
+        &nativeDevice,
+        hint));
 }
 void LCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept {
+    auto topAccel = reinterpret_cast<TopAccel *>(accel);
+    auto bottomAccel = reinterpret_cast<BottomAccel *>(mesh);
+    topAccel->Emplace(
+        bottomAccel,
+        visible ? std::numeric_limits<uint>::max() : 0,
+        transform);
 }
 void LCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
+    auto topAccel = reinterpret_cast<TopAccel *>(accel);
+    topAccel->PopBack();
 }
 void LCDevice::set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept {
+    auto topAccel = reinterpret_cast<TopAccel *>(accel);
+    topAccel->Update(
+        index,
+        reinterpret_cast<BottomAccel *>(mesh),
+        visible ? std::numeric_limits<uint>::max() : 0,
+        transform);
 }
 void LCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, luisa::float4x4 transform) noexcept {
+    auto topAccel = reinterpret_cast<TopAccel *>(accel);
+    topAccel->Update(
+        index,
+        transform);
 }
 void LCDevice::set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept {
+    auto topAccel = reinterpret_cast<TopAccel *>(accel);
+    topAccel->Update(
+        index,
+        visible ? std::numeric_limits<uint>::max() : 0);
 }
 bool LCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    return false;
+    auto topAccel = reinterpret_cast<TopAccel *>(accel);
+    return topAccel->IsBufferInAccel(reinterpret_cast<Buffer *>(buffer));
 }
 bool LCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
-    return false;
+    auto topAccel = reinterpret_cast<TopAccel *>(accel);
+    return topAccel->IsMeshInAccel(reinterpret_cast<BottomAccel *>(mesh)->GetMesh());
 }
 uint64_t LCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return uint64_t();
+    return reinterpret_cast<uint64>(reinterpret_cast<BottomAccel *>(mesh_handle)->GetMesh()->vHandle);
 }
 uint64_t LCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return uint64_t();
+    return reinterpret_cast<uint64>(reinterpret_cast<BottomAccel *>(mesh_handle)->GetMesh()->iHandle);
 }
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
+    delete reinterpret_cast<TopAccel *>(handle);
 }
 VSTL_EXPORT_C LCDeviceInterface *CreateDevice(Context const &c) {
     return new LCDevice(c);

@@ -24,13 +24,23 @@ void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
     *z = GetRow(2);
 }
 }// namespace detail
-TopAccel::TopAccel(Device *device)
+TopAccel::TopAccel(Device *device, luisa::compute::AccelBuildHint hint)
     : device(device) {
+    auto GetPreset = [&] {
+        switch (hint) {
+            case AccelBuildHint::FAST_TRACE:
+                return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+            case AccelBuildHint::FAST_REBUILD:
+            case AccelBuildHint::FAST_UPDATE:
+                return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+        }
+    };
     memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));
     memset(&topLevelPrebuildInfo, 0, sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO));
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &topLevelInputs = topLevelBuildDesc.Inputs;
     topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-    topLevelInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE | D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+    topLevelInputs.Flags = GetPreset() |
+                           D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
     topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
     topLevelBuildDesc.Inputs.NumDescs = 0;
 }
@@ -55,16 +65,16 @@ bool TopAccel::IsMeshInAccel(Mesh const *mesh) const {
 }
 void TopAccel::UpdateBottomAccel(uint idx, BottomAccel const *c) {
     auto &&oldC = accelMap[idx];
-    if (oldC) {
-        auto m = oldC->GetMesh();
+    if (oldC.mesh) {
+        auto m = oldC.mesh->GetMesh();
         auto v = m->vHandle;
         auto i = m->iHandle;
         DecreRef(v);
         DecreRef(i);
     }
-    oldC = c;
+    oldC.mesh = c;
     {
-        auto m = oldC->GetMesh();
+        auto m = oldC.mesh->GetMesh();
         auto v = m->vHandle;
         auto i = m->iHandle;
         IncreRef(v);
@@ -73,13 +83,40 @@ void TopAccel::UpdateBottomAccel(uint idx, BottomAccel const *c) {
 }
 bool TopAccel::Update(
     uint idx,
+    float4x4 const &localToWorld) {
+    std::lock_guard lck(mtx);
+    if (idx >= Length()) {
+        return false;
+    }
+    auto &&c = accelMap[idx];
+    c.transform = localToWorld;
+    D3D12_RAYTRACING_INSTANCE_DESC ist;
+    detail::GetRayTransform(ist, localToWorld);
+    ist.InstanceID = c.mesh->GetMesh()->GetMeshInstIdx();
+    ist.InstanceMask = c.mask;
+    ist.InstanceContributionToHitGroupIndex = 0;
+    ist.Flags = 0;
+    ist.AccelerationStructure = c.mesh->GetAccelBuffer()->GetAddress();
+    delayCommands.emplace_back(
+        UpdateCommand{
+            .ist = ist,
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
+    return true;
+}
+bool TopAccel::Update(
+    uint idx,
     BottomAccel const *accel,
     uint mask,
     float4x4 const &localToWorld) {
     std::lock_guard lck(mtx);
-    UpdateBottomAccel(idx, accel);
     if (idx >= Length()) {
         return false;
+    }
+    UpdateBottomAccel(idx, accel);
+    {
+        auto &&c = accelMap[idx];
+        c.mask = mask;
+        c.transform = localToWorld;
     }
     D3D12_RAYTRACING_INSTANCE_DESC ist;
     detail::GetRayTransform(ist, localToWorld);
@@ -94,6 +131,27 @@ bool TopAccel::Update(
             .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
     return true;
 }
+bool TopAccel::Update(
+    uint idx,
+    uint mask) {
+    std::lock_guard lck(mtx);
+    if (idx >= Length()) {
+        return false;
+    }
+    auto &&c = accelMap[idx];
+    D3D12_RAYTRACING_INSTANCE_DESC ist;
+    detail::GetRayTransform(ist, c.transform);
+    ist.InstanceID = c.mesh->GetMesh()->GetMeshInstIdx();
+    ist.InstanceMask = c.mask;
+    ist.InstanceContributionToHitGroupIndex = 0;
+    ist.Flags = 0;
+    ist.AccelerationStructure = c.mesh->GetAccelBuffer()->GetAddress();
+    delayCommands.emplace_back(
+        UpdateCommand{
+            .ist = ist,
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
+    return true;
+}
 void TopAccel::Emplace(
     BottomAccel const *accel,
     uint mask,
@@ -101,7 +159,7 @@ void TopAccel::Emplace(
     auto &&len = topLevelBuildDesc.Inputs.NumDescs;
     uint tarIdx = len;
     len++;
-    accelMap.emplace_back(nullptr);
+    accelMap.emplace_back(Element{});
     if (capacity < len) {
         auto newCapa = capacity;
         do {
@@ -111,6 +169,13 @@ void TopAccel::Emplace(
     }
     Update(tarIdx, accel, mask, localToWorld);
 }
+void TopAccel::PopBack() {
+    auto &&len = topLevelBuildDesc.Inputs.NumDescs;
+    if (len == 0) return;
+    len--;
+    accelMap.erase_last();
+}
+
 TopAccel::~TopAccel() {
 }
 void TopAccel::Reserve(
