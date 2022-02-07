@@ -224,7 +224,6 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
 
 void MetalDevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
     @autoreleasepool {
-        LUISA_INFO("Dispatch command list with {} command(s).", list.size());
         auto s = reinterpret_cast<MetalStream *>(stream_handle);
         MetalCommandEncoder encoder{this, s};
         for (auto command : list) { command->accept(encoder); }
