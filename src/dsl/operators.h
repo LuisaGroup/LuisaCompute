@@ -89,7 +89,9 @@ LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>=, GREATER_EQUAL)
         requires requires { std::declval<T &>() op## =                             \
                                 std::declval<luisa::compute::expr_value_t<U>>(); } \
     void operator op##=(luisa::compute::Var<T> &lhs, U &&rhs) noexcept {           \
-        lhs = lhs op std::forward<U>(rhs);                                         \
+        auto x = lhs op std::forward<U>(rhs);                                      \
+        luisa::compute::detail::FunctionBuilder::current()->assign(                \
+            lhs.expression(), x.expression());                                     \
     }
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(+)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(-)
