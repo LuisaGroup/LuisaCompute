@@ -363,20 +363,7 @@ void CppCodegen::visit(const SwitchDefaultStmt *stmt) {
 
 void CppCodegen::visit(const AssignStmt *stmt) {
     stmt->lhs()->accept(*this);
-    switch (stmt->op()) {
-        case AssignOp::ASSIGN: _scratch << " = "; break;
-        case AssignOp::ADD_ASSIGN: _scratch << " += "; break;
-        case AssignOp::SUB_ASSIGN: _scratch << " -= "; break;
-        case AssignOp::MUL_ASSIGN: _scratch << " *= "; break;
-        case AssignOp::DIV_ASSIGN: _scratch << " /= "; break;
-        case AssignOp::MOD_ASSIGN: _scratch << " %= "; break;
-        case AssignOp::BIT_AND_ASSIGN: _scratch << " &= "; break;
-        case AssignOp::BIT_OR_ASSIGN: _scratch << " |= "; break;
-        case AssignOp::BIT_XOR_ASSIGN: _scratch << " ^= "; break;
-        case AssignOp::SHL_ASSIGN: _scratch << " <<= "; break;
-        case AssignOp::SHR_ASSIGN: _scratch << " >>= "; break;
-        default: break;
-    }
+    _scratch << " = ";
     stmt->rhs()->accept(*this);
     _scratch << ";";
 }

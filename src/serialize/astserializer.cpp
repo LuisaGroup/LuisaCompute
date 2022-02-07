@@ -628,11 +628,9 @@ vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(AssignStmt const &s, IJsonD
 void AstSerializer::DeSerialize(AssignStmt &s, IJsonDict *r, DeserVisitor const &evt) {
     auto lhs = ReadVar::try_get<int64>(r->Get("lhs"));
     auto rhs = ReadVar::try_get<int64>(r->Get("rhs"));
-    auto op = ReadVar::try_get<int64>(r->Get("op"));
-    if (!lhs || !rhs || !op) return;
+    if (!lhs || !rhs) return;
     s._lhs = evt.GetExpr(*lhs);
     s._rhs = evt.GetExpr(*rhs);
-    s._op = (AssignOp)*op;
 }
 vstd::unique_ptr<IJsonDict> AstSerializer::Serialize(ForStmt const &s, IJsonDatabase *db) {
     auto r = db->CreateDict();

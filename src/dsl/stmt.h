@@ -268,7 +268,6 @@ inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept {
         std::tuple_size_v<linear_layout_t<expr_value_t<Rhs>>>);
     if constexpr (concepts::assignable<expr_value_t<Lhs>, expr_value_t<Rhs>>) {
         detail::FunctionBuilder::current()->assign(
-            AssignOp::ASSIGN,
             detail::extract_expression(std::forward<Lhs>(lhs)),
             detail::extract_expression(std::forward<Rhs>(rhs)));
     } else if (is_tuple_v<std::remove_cvref_t<Rhs>>) {

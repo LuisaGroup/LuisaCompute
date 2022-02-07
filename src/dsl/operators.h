@@ -84,24 +84,21 @@ LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>, GREATER)
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>=, GREATER_EQUAL)
 #undef LUISA_MAKE_GLOBAL_DSL_BINARY_OP
 
-#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op, op_tag_name)                       \
-    template<typename T, typename U>                                           \
-        requires requires { std::declval<T &>() op                             \
-                            std::declval<luisa::compute::expr_value_t<U>>(); } \
-    void operator op(luisa::compute::Var<T> &lhs, U &&rhs) noexcept {          \
-        luisa::compute::detail::FunctionBuilder::current()->assign(            \
-            luisa::compute::AssignOp::op_tag_name,                             \
-            lhs.expression(),                                                  \
-            luisa::compute::detail::extract_expression(std::forward<U>(rhs))); \
+#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                        \
+    template<typename T, typename U>                                               \
+        requires requires { std::declval<T &>() op## =                             \
+                                std::declval<luisa::compute::expr_value_t<U>>(); } \
+    void operator op##=(luisa::compute::Var<T> &lhs, U &&rhs) noexcept {           \
+        lhs = lhs op std::forward<U>(rhs);                                         \
     }
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(+=, ADD_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(-=, SUB_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(*=, MUL_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(/=, DIV_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(%=, MOD_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(&=, BIT_AND_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(|=, BIT_OR_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(^=, BIT_XOR_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(<<=, SHL_ASSIGN)
-LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(>>=, SHR_ASSIGN)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(+)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(-)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(*)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(/)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(%)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(&)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(|)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(^)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(<<)
+LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(>>)
 #undef LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP
