@@ -18,9 +18,8 @@ void CommandList::append(Command *cmd) noexcept {
     if (cmd != nullptr) {
         if (_head == nullptr) { _head = cmd; }
         if (_tail != nullptr) { _tail->set_next(cmd); }
-        for (_tail = cmd; _tail->next() != nullptr; _tail = _tail->next()) {
-            _size++;
-        }
+        for (_tail = cmd; _tail->next() != nullptr; _tail = _tail->next()) {}
+        _size = std::numeric_limits<size_t>::max();
     }
 }
 

@@ -2,6 +2,7 @@
 // Created by ChenXin on 2021/12/7.
 //
 
+#include <core/mathematics.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/stream.h>
 
@@ -135,7 +136,9 @@ luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
         for (auto &j : i) {
             commandList.append(j.command->clone());
         }
-        ans.push_back(std::move(commandList));
+        if (!commandList.empty()) {
+            ans.push_back(std::move(commandList));
+        }
     }
 
     _commandRelationData.clear();
@@ -143,10 +146,9 @@ luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
     auto index = 0;
     for (auto &commandList : ans) {
-        auto size = 0;
-        for (auto command : commandList)
-            ++size;
-        LUISA_VERBOSE_WITH_LOCATION("List {} : size = {}", index++, size);
+        LUISA_VERBOSE_WITH_LOCATION(
+            "List {} : size = {}",
+            index++, commandList.size());
     }
     return ans;
 }
@@ -331,7 +333,7 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device, size_t size) {
     this->device = device;
     if (size > _commandRelationData.capacity())
-        _commandRelationData.reserve(size);
+        _commandRelationData.reserve(next_pow2(size));
 }
 
 }// namespace luisa::compute
