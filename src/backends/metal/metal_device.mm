@@ -24,8 +24,7 @@ namespace luisa::compute::metal {
 uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     Clock clock;
     auto buffer = [_handle newBufferWithLength:size_bytes
-                                       options:MTLResourceStorageModePrivate |
-                                               MTLResourceHazardTrackingModeUntracked];
+                                       options:MTLResourceStorageModePrivate];
     LUISA_VERBOSE_WITH_LOCATION(
         "Created buffer with size {} in {} ms.",
         size_bytes, clock.toc());
@@ -467,6 +466,10 @@ bool MetalDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) c
 
 bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return reinterpret_cast<MetalBindlessArray *>(array)->has_texture(handle);
+}
+
+bool MetalDevice::requires_command_reordering() const noexcept {
+    return false;
 }
 
 }
