@@ -6,5 +6,5 @@
 
 export void kernel_main() {
     int3 a = make_int3(1u);
-    print("% % %", a[0], a[1], a[2]);
+    print("% % % %", a[0], a[1], a[2], clamp(3, -2, 0));
 }
