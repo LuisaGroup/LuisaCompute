@@ -1,3 +1,18 @@
+// constants
+#define M_E         2.71828182845904523536028747135266250f   /* e              */
+#define M_LOG2E     1.44269504088896340735992468100189214f   /* log2(e)        */
+#define M_LOG10E    0.434294481903251827651128918916605082f  /* log10(e)       */
+#define M_LN2       0.693147180559945309417232121458176568f  /* loge(2)        */
+#define M_LN10      2.30258509299404568401799145468436421f   /* loge(10)       */
+#define M_PI        3.14159265358979323846264338327950288f   /* pi             */
+#define M_PI_2      1.57079632679489661923132169163975144f   /* pi/2           */
+#define M_PI_4      0.785398163397448309615660845819875721f  /* pi/4           */
+#define M_1_PI      0.318309886183790671537767526745028724f  /* 1/pi           */
+#define M_2_PI      0.636619772367581343075535053490057448f  /* 2/pi           */
+#define M_2_SQRTPI  1.12837916709551257389615890312154517f   /* 2/sqrt(pi)     */
+#define M_SQRT2     1.41421356237309504880168872420969808f   /* sqrt(2)        */
+#define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */
+        
 typedef int<2> int2;
 typedef int<3> int3;
 typedef int<4> int4;
@@ -4215,3 +4230,499 @@ inline uniform bool4 binary_and(uniform bool lhs, uniform bool4 rhs) { return ma
 inline bool4 binary_and(bool lhs, uniform bool4 rhs) { return make_bool4(lhs && rhs.x, lhs && rhs.y, lhs && rhs.z, lhs && rhs.w); }
 inline bool4 binary_and(uniform bool lhs, bool4 rhs) { return make_bool4(lhs && rhs.x, lhs && rhs.y, lhs && rhs.z, lhs && rhs.w); }
 inline bool4 binary_and(bool lhs, bool4 rhs) { return make_bool4(lhs && rhs.x, lhs && rhs.y, lhs && rhs.z, lhs && rhs.w); }
+
+inline uniform bool any(uniform bool2 v) { return v.x || v.y; }
+inline bool any(bool2 v) { return v.x || v.y; }
+inline uniform bool any(uniform bool3 v) { return v.x || v.y || v.z; }
+inline bool any(bool3 v) { return v.x || v.y || v.z; }
+inline uniform bool any(uniform bool4 v) { return v.x || v.y || v.z || v.w; }
+inline bool any(bool4 v) { return v.x || v.y || v.z || v.w; }
+inline uniform bool all(uniform bool2 v) { return v.x && v.y; }
+inline bool all(bool2 v) { return v.x && v.y; }
+inline uniform bool all(uniform bool3 v) { return v.x && v.y && v.z; }
+inline bool all(bool3 v) { return v.x && v.y && v.z; }
+inline uniform bool all(uniform bool4 v) { return v.x && v.y && v.z && v.w; }
+inline bool all(bool4 v) { return v.x && v.y && v.z && v.w; }
+inline uniform bool none(uniform bool2 v) { return !v.x && !v.y; }
+inline bool none(bool2 v) { return !v.x && !v.y; }
+inline uniform bool none(uniform bool3 v) { return !v.x && !v.y && !v.z; }
+inline bool none(bool3 v) { return !v.x && !v.y && !v.z; }
+inline uniform bool none(uniform bool4 v) { return !v.x && !v.y && !v.z && !v.w; }
+inline bool none(bool4 v) { return !v.x && !v.y && !v.z && !v.w; }
+
+#define select_scalar(f, t, p) ((p) ? (t) : (f))
+inline int2 select(int2 f, int2 t, bool2 p) { return make_int2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline int2 select(int2 f, int2 t, uniform bool2 p) { return make_int2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline uniform int2 select(uniform int2 f, uniform int2 t, uniform bool2 p) { return make_int2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline int3 select(int3 f, int3 t, bool3 p) { return make_int3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline int3 select(int3 f, int3 t, uniform bool3 p) { return make_int3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline uniform int3 select(uniform int3 f, uniform int3 t, uniform bool3 p) { return make_int3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline int4 select(int4 f, int4 t, bool4 p) { return make_int4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline int4 select(int4 f, int4 t, uniform bool4 p) { return make_int4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline uniform int4 select(uniform int4 f, uniform int4 t, uniform bool4 p) { return make_int4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline uint2 select(uint2 f, uint2 t, bool2 p) { return make_uint2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline uint2 select(uint2 f, uint2 t, uniform bool2 p) { return make_uint2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline uniform uint2 select(uniform uint2 f, uniform uint2 t, uniform bool2 p) { return make_uint2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline uint3 select(uint3 f, uint3 t, bool3 p) { return make_uint3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline uint3 select(uint3 f, uint3 t, uniform bool3 p) { return make_uint3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline uniform uint3 select(uniform uint3 f, uniform uint3 t, uniform bool3 p) { return make_uint3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline uint4 select(uint4 f, uint4 t, bool4 p) { return make_uint4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline uint4 select(uint4 f, uint4 t, uniform bool4 p) { return make_uint4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline uniform uint4 select(uniform uint4 f, uniform uint4 t, uniform bool4 p) { return make_uint4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline float2 select(float2 f, float2 t, bool2 p) { return make_float2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline float2 select(float2 f, float2 t, uniform bool2 p) { return make_float2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline uniform float2 select(uniform float2 f, uniform float2 t, uniform bool2 p) { return make_float2(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y)); }
+inline float3 select(float3 f, float3 t, bool3 p) { return make_float3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline float3 select(float3 f, float3 t, uniform bool3 p) { return make_float3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline uniform float3 select(uniform float3 f, uniform float3 t, uniform bool3 p) { return make_float3(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z)); }
+inline float4 select(float4 f, float4 t, bool4 p) { return make_float4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline float4 select(float4 f, float4 t, uniform bool4 p) { return make_float4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+inline uniform float4 select(uniform float4 f, uniform float4 t, uniform bool4 p) { return make_float4(select_scalar(f.x, t.x, p.x), select_scalar(f.y, t.y, p.y), select_scalar(f.z, t.z, p.z), select_scalar(f.w, t.w, p.w)); }
+
+inline float fma(float a, float b, float c) { return a * b + c; }
+inline uniform float fma(uniform float a, uniform float b, uniform float c) { return a * b + c; }
+inline float copysign(float a, float b) { return floatbits((intbits(a) & 0x7fffffffu) | signbits(b)); }
+inline uniform float copysign(uniform float a, uniform float b) { return floatbits((intbits(a) & 0x7fffffffu) | signbits(b)); }
+inline float log2(float x) { return log(x) / log(2.f); }
+inline uniform float log2(uniform float x) { return log(x) / log(2.f); }
+inline float log10(float x) { return log(x) / log(10.f); }
+inline uniform float log10(uniform float x) { return log(x) / log(10.f); }
+inline float exp2(float x) { return pow(2.f, x); }
+inline uniform float exp2(uniform float x) { return pow(2.f, x); }
+inline float exp10(float x) { return pow(10.f, x); }
+inline uniform float exp10(uniform float x) { return pow(10.f, x); }
+inline bool is_nan(float x) {
+  uint u = intbits(x);
+  return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
+}
+inline bool is_inf(float x) {
+  uint u = intbits(x);
+  return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
+}
+inline uniform bool is_nan(uniform float x) {
+  uniform uint u = intbits(x);
+  return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
+}
+inline uniform bool is_inf(uniform float x) {
+  uniform uint u = intbits(x);
+  return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
+}
+inline float sinh(float x) { return .5f * (exp(x) - exp(-x)); }
+inline uniform float sinh(uniform float x) { return .5f * (exp(x) - exp(-x)); }
+inline float cosh(float x) { return .5f * (exp(x) + exp(-x)); }
+inline uniform float cosh(uniform float x) { return .5f * (exp(x) + exp(-x)); }
+inline float tanh(float x) { return sinh(x) / cosh(x); }
+inline uniform float tanh(uniform float x) { return sinh(x) / cosh(x); }
+inline float asinh(float x) { return log(x + sqrt(x * x + 1.f)); }
+inline uniform float asinh(uniform float x) { return log(x + sqrt(x * x + 1.f)); }
+inline float acosh(float x) { return log(x + sqrt(x * x - 1.f)); }
+inline uniform float acosh(uniform float x) { return log(x + sqrt(x * x - 1.f)); }
+inline float atanh(float x) { return .5f * log((1.f + x) / (1.f - x)); }
+inline uniform float atanh(uniform float x) { return .5f * log((1.f + x) / (1.f - x)); }
+inline float saturate(float x) { return clamp(x, 0.f, 1.f); }
+inline uniform float saturate(uniform float x) { return clamp(x, 0.f, 1.f); }
+inline float lerp(float a, float b, float t) { return fma(t, b - a, a); }
+inline uniform float lerp(uniform float a, uniform float b, uniform float t) { return fma(t, b - a, a); }
+inline float degrees(float x) { return x * (180.f * M_1_PI); }
+inline uniform float degrees(uniform float x) { return x * (180.f * M_1_PI); }
+inline float radians(float x) { return x * (M_PI / 180.f); }
+inline uniform float radians(uniform float x) { return x * (M_PI / 180.f); }
+inline float step(float edge, float x) { return x < edge ? 0.0f : 1.0f; }
+inline uniform float step(uniform float edge, uniform float x) { return x < edge ? 0.0f : 1.0f; }
+inline float smoothstep(float edge0, float edge1, float x) {
+    float t = saturate((x - edge0) / (edge1 - edge0));
+    return t * t * (3.0f - 2.0f * t);
+}
+inline uniform float smoothstep(uniform float edge0, uniform float edge1, uniform float x) {
+    uniform float t = saturate((x - edge0) / (edge1 - edge0));
+    return t * t * (3.0f - 2.0f * t);
+}
+inline uint ctz(uint x) { return count_trailing_zeros((int)x); }
+inline uniform uint ctz(uniform uint x) { return count_trailing_zeros((int)x); }
+inline uint clz(uint x) { return count_leading_zeros((int)x); }
+inline uniform uint clz(uniform uint x) { return count_leading_zeros((int)x); }
+inline uint popcount(uint x) { return popcnt((int)x); }
+inline uniform uint popcount(uniform uint x) { return popcnt((int)x); }
+
+inline float3 cross(float3 u, float3 v) {
+    return make_float3(
+        u.y * v.z - v.y * u.z,
+        u.z * v.x - v.z * u.x,
+        u.x * v.y - v.x * u.y);
+}
+inline uniform float3 cross(uniform float3 u, uniform float3 v) {
+    return make_float3(
+        u.y * v.z - v.y * u.z,
+        u.z * v.x - v.z * u.x,
+        u.x * v.y - v.x * u.y);
+}
+inline float dot(float2 a, float2 b) { return a.x * b.x + a.y * b.y; }
+inline float dot(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline float dot(float4 a, float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
+inline uniform float dot(uniform float2 a, uniform float2 b) { return a.x * b.x + a.y * b.y; }
+inline uniform float dot(uniform float3 a, uniform float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline uniform float dot(uniform float4 a, uniform float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
+inline float length(float2 v) { return sqrt(dot(v, v)); }
+inline float length(float3 v) { return sqrt(dot(v, v)); }
+inline float length(float4 v) { return sqrt(dot(v, v)); }
+inline uniform float length(uniform float2 v) { return sqrt(dot(v, v)); }
+inline uniform float length(uniform float3 v) { return sqrt(dot(v, v)); }
+inline uniform float length(uniform float4 v) { return sqrt(dot(v, v)); }
+inline float length_squared(float2 v) { return dot(v, v); }
+inline float length_squared(float3 v) { return dot(v, v); }
+inline float length_squared(float4 v) { return dot(v, v); }
+inline uniform float length_squared(uniform float2 v) { return dot(v, v); }
+inline uniform float length_squared(uniform float3 v) { return dot(v, v); }
+inline uniform float length_squared(uniform float4 v) { return dot(v, v); }
+inline float2 normalize(float2 v) { return v * rsqrt(length_squared(v)); }
+inline float3 normalize(float3 v) { return v * rsqrt(length_squared(v)); }
+inline float4 normalize(float4 v) { return v * rsqrt(length_squared(v)); }
+inline uniform float2 normalize(uniform float2 v) { return v * rsqrt(length_squared(v)); }
+inline uniform float3 normalize(uniform float3 v) { return v * rsqrt(length_squared(v)); }
+inline uniform float4 normalize(uniform float4 v) { return v * rsqrt(length_squared(v)); }
+inline float3 faceforward(float3 n, float3 i, float3 n_ref) { return dot(n_ref, i) < 0.f ? n : -n; }
+inline uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform float3 n_ref) { return dot(n_ref, i) < 0.f ? n : -n; }
+
+inline int2 min(int2 a, int2 b) { return make_int2(min(a.x, b.x), min(a.y, b.y)); }
+inline uniform int2 min(uniform int2 a, uniform int2 b) { return make_int2(min(a.x, b.x), min(a.y, b.y)); }
+inline int3 min(int3 a, int3 b) { return make_int3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z)); }
+inline uniform int3 min(uniform int3 a, uniform int3 b) { return make_int3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z)); }
+inline int4 min(int4 a, int4 b) { return make_int4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w)); }
+inline uniform int4 min(uniform int4 a, uniform int4 b) { return make_int4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w)); }
+inline uint2 min(uint2 a, uint2 b) { return make_uint2(min(a.x, b.x), min(a.y, b.y)); }
+inline uniform uint2 min(uniform uint2 a, uniform uint2 b) { return make_uint2(min(a.x, b.x), min(a.y, b.y)); }
+inline uint3 min(uint3 a, uint3 b) { return make_uint3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z)); }
+inline uniform uint3 min(uniform uint3 a, uniform uint3 b) { return make_uint3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z)); }
+inline uint4 min(uint4 a, uint4 b) { return make_uint4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w)); }
+inline uniform uint4 min(uniform uint4 a, uniform uint4 b) { return make_uint4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w)); }
+inline float2 min(float2 a, float2 b) { return make_float2(min(a.x, b.x), min(a.y, b.y)); }
+inline uniform float2 min(uniform float2 a, uniform float2 b) { return make_float2(min(a.x, b.x), min(a.y, b.y)); }
+inline float3 min(float3 a, float3 b) { return make_float3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z)); }
+inline uniform float3 min(uniform float3 a, uniform float3 b) { return make_float3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z)); }
+inline float4 min(float4 a, float4 b) { return make_float4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w)); }
+inline uniform float4 min(uniform float4 a, uniform float4 b) { return make_float4(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z), min(a.w, b.w)); }
+
+inline int2 max(int2 a, int2 b) { return make_int2(max(a.x, b.x), max(a.y, b.y)); }
+inline uniform int2 max(uniform int2 a, uniform int2 b) { return make_int2(max(a.x, b.x), max(a.y, b.y)); }
+inline int3 max(int3 a, int3 b) { return make_int3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)); }
+inline uniform int3 max(uniform int3 a, uniform int3 b) { return make_int3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)); }
+inline int4 max(int4 a, int4 b) { return make_int4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w)); }
+inline uniform int4 max(uniform int4 a, uniform int4 b) { return make_int4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w)); }
+inline uint2 max(uint2 a, uint2 b) { return make_uint2(max(a.x, b.x), max(a.y, b.y)); }
+inline uniform uint2 max(uniform uint2 a, uniform uint2 b) { return make_uint2(max(a.x, b.x), max(a.y, b.y)); }
+inline uint3 max(uint3 a, uint3 b) { return make_uint3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)); }
+inline uniform uint3 max(uniform uint3 a, uniform uint3 b) { return make_uint3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)); }
+inline uint4 max(uint4 a, uint4 b) { return make_uint4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w)); }
+inline uniform uint4 max(uniform uint4 a, uniform uint4 b) { return make_uint4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w)); }
+inline float2 max(float2 a, float2 b) { return make_float2(max(a.x, b.x), max(a.y, b.y)); }
+inline uniform float2 max(uniform float2 a, uniform float2 b) { return make_float2(max(a.x, b.x), max(a.y, b.y)); }
+inline float3 max(float3 a, float3 b) { return make_float3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)); }
+inline uniform float3 max(uniform float3 a, uniform float3 b) { return make_float3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z)); }
+inline float4 max(float4 a, float4 b) { return make_float4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w)); }
+inline uniform float4 max(uniform float4 a, uniform float4 b) { return make_float4(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z), max(a.w, b.w)); }
+
+inline int2 abs(int2 x) { return make_int2(abs(x.x), abs(x.y)); }
+inline uniform int2 abs(uniform int2 x) { return make_int2(abs(x.x), abs(x.y)); }
+inline int3 abs(int3 x) { return make_int3(abs(x.x), abs(x.y), abs(x.z)); }
+inline uniform int3 abs(uniform int3 x) { return make_int3(abs(x.x), abs(x.y), abs(x.z)); }
+inline int4 abs(int4 x) { return make_int4(abs(x.x), abs(x.y), abs(x.z), abs(x.w)); }
+inline uniform int4 abs(uniform int4 x) { return make_int4(abs(x.x), abs(x.y), abs(x.z), abs(x.w)); }
+inline float2 abs(float2 x) { return make_float2(abs(x.x), abs(x.y)); }
+inline uniform float2 abs(uniform float2 x) { return make_float2(abs(x.x), abs(x.y)); }
+inline float3 abs(float3 x) { return make_float3(abs(x.x), abs(x.y), abs(x.z)); }
+inline uniform float3 abs(uniform float3 x) { return make_float3(abs(x.x), abs(x.y), abs(x.z)); }
+inline float4 abs(float4 x) { return make_float4(abs(x.x), abs(x.y), abs(x.z), abs(x.w)); }
+inline uniform float4 abs(uniform float4 x) { return make_float4(abs(x.x), abs(x.y), abs(x.z), abs(x.w)); }
+
+inline float2 acos(float2 x) { return make_float2(acos(x.x), acos(x.y)); }
+inline uniform float2 acos(uniform float2 x) { return make_float2(acos(x.x), acos(x.y)); }
+inline float3 acos(float3 x) { return make_float3(acos(x.x), acos(x.y), acos(x.z)); }
+inline uniform float3 acos(uniform float3 x) { return make_float3(acos(x.x), acos(x.y), acos(x.z)); }
+inline float4 acos(float4 x) { return make_float4(acos(x.x), acos(x.y), acos(x.z), acos(x.w)); }
+inline uniform float4 acos(uniform float4 x) { return make_float4(acos(x.x), acos(x.y), acos(x.z), acos(x.w)); }
+
+inline float2 asin(float2 x) { return make_float2(asin(x.x), asin(x.y)); }
+inline uniform float2 asin(uniform float2 x) { return make_float2(asin(x.x), asin(x.y)); }
+inline float3 asin(float3 x) { return make_float3(asin(x.x), asin(x.y), asin(x.z)); }
+inline uniform float3 asin(uniform float3 x) { return make_float3(asin(x.x), asin(x.y), asin(x.z)); }
+inline float4 asin(float4 x) { return make_float4(asin(x.x), asin(x.y), asin(x.z), asin(x.w)); }
+inline uniform float4 asin(uniform float4 x) { return make_float4(asin(x.x), asin(x.y), asin(x.z), asin(x.w)); }
+
+inline float2 atan(float2 x) { return make_float2(atan(x.x), atan(x.y)); }
+inline uniform float2 atan(uniform float2 x) { return make_float2(atan(x.x), atan(x.y)); }
+inline float3 atan(float3 x) { return make_float3(atan(x.x), atan(x.y), atan(x.z)); }
+inline uniform float3 atan(uniform float3 x) { return make_float3(atan(x.x), atan(x.y), atan(x.z)); }
+inline float4 atan(float4 x) { return make_float4(atan(x.x), atan(x.y), atan(x.z), atan(x.w)); }
+inline uniform float4 atan(uniform float4 x) { return make_float4(atan(x.x), atan(x.y), atan(x.z), atan(x.w)); }
+
+inline float2 acosh(float2 x) { return make_float2(acosh(x.x), acosh(x.y)); }
+inline uniform float2 acosh(uniform float2 x) { return make_float2(acosh(x.x), acosh(x.y)); }
+inline float3 acosh(float3 x) { return make_float3(acosh(x.x), acosh(x.y), acosh(x.z)); }
+inline uniform float3 acosh(uniform float3 x) { return make_float3(acosh(x.x), acosh(x.y), acosh(x.z)); }
+inline float4 acosh(float4 x) { return make_float4(acosh(x.x), acosh(x.y), acosh(x.z), acosh(x.w)); }
+inline uniform float4 acosh(uniform float4 x) { return make_float4(acosh(x.x), acosh(x.y), acosh(x.z), acosh(x.w)); }
+
+inline float2 asinh(float2 x) { return make_float2(asinh(x.x), asinh(x.y)); }
+inline uniform float2 asinh(uniform float2 x) { return make_float2(asinh(x.x), asinh(x.y)); }
+inline float3 asinh(float3 x) { return make_float3(asinh(x.x), asinh(x.y), asinh(x.z)); }
+inline uniform float3 asinh(uniform float3 x) { return make_float3(asinh(x.x), asinh(x.y), asinh(x.z)); }
+inline float4 asinh(float4 x) { return make_float4(asinh(x.x), asinh(x.y), asinh(x.z), asinh(x.w)); }
+inline uniform float4 asinh(uniform float4 x) { return make_float4(asinh(x.x), asinh(x.y), asinh(x.z), asinh(x.w)); }
+
+inline float2 atanh(float2 x) { return make_float2(atanh(x.x), atanh(x.y)); }
+inline uniform float2 atanh(uniform float2 x) { return make_float2(atanh(x.x), atanh(x.y)); }
+inline float3 atanh(float3 x) { return make_float3(atanh(x.x), atanh(x.y), atanh(x.z)); }
+inline uniform float3 atanh(uniform float3 x) { return make_float3(atanh(x.x), atanh(x.y), atanh(x.z)); }
+inline float4 atanh(float4 x) { return make_float4(atanh(x.x), atanh(x.y), atanh(x.z), atanh(x.w)); }
+inline uniform float4 atanh(uniform float4 x) { return make_float4(atanh(x.x), atanh(x.y), atanh(x.z), atanh(x.w)); }
+
+inline float2 atan2(float2 y, float2 x) { return make_float2(atan2(y.x, x.x), atan2(y.y, x.y)); }
+inline uniform float2 atan2(uniform float2 y, uniform float2 x) { return make_float2(atan2(y.x, x.x), atan2(y.y, x.y)); }
+inline float3 atan2(float3 y, float3 x) { return make_float3(atan2(y.x, x.x), atan2(y.y, x.y), atan2(y.z, x.z)); }
+inline uniform float3 atan2(uniform float3 y, uniform float3 x) { return make_float3(atan2(y.x, x.x), atan2(y.y, x.y), atan2(y.z, x.z)); }
+inline float4 atan2(float4 y, float4 x) { return make_float4(atan2(y.x, x.x), atan2(y.y, x.y), atan2(y.z, x.z), atan2(y.w, x.w)); }
+inline uniform float4 atan2(uniform float4 y, uniform float4 x) { return make_float4(atan2(y.x, x.x), atan2(y.y, x.y), atan2(y.z, x.z), atan2(y.w, x.w)); }
+
+inline float2 cos(float2 x) { return make_float2(cos(x.x), cos(x.y)); }
+inline uniform float2 cos(uniform float2 x) { return make_float2(cos(x.x), cos(x.y)); }
+inline float3 cos(float3 x) { return make_float3(cos(x.x), cos(x.y), cos(x.z)); }
+inline uniform float3 cos(uniform float3 x) { return make_float3(cos(x.x), cos(x.y), cos(x.z)); }
+inline float4 cos(float4 x) { return make_float4(cos(x.x), cos(x.y), cos(x.z), cos(x.w)); }
+inline uniform float4 cos(uniform float4 x) { return make_float4(cos(x.x), cos(x.y), cos(x.z), cos(x.w)); }
+
+inline float2 cosh(float2 x) { return make_float2(cosh(x.x), cosh(x.y)); }
+inline uniform float2 cosh(uniform float2 x) { return make_float2(cosh(x.x), cosh(x.y)); }
+inline float3 cosh(float3 x) { return make_float3(cosh(x.x), cosh(x.y), cosh(x.z)); }
+inline uniform float3 cosh(uniform float3 x) { return make_float3(cosh(x.x), cosh(x.y), cosh(x.z)); }
+inline float4 cosh(float4 x) { return make_float4(cosh(x.x), cosh(x.y), cosh(x.z), cosh(x.w)); }
+inline uniform float4 cosh(uniform float4 x) { return make_float4(cosh(x.x), cosh(x.y), cosh(x.z), cosh(x.w)); }
+
+inline float2 sin(float2 x) { return make_float2(sin(x.x), sin(x.y)); }
+inline uniform float2 sin(uniform float2 x) { return make_float2(sin(x.x), sin(x.y)); }
+inline float3 sin(float3 x) { return make_float3(sin(x.x), sin(x.y), sin(x.z)); }
+inline uniform float3 sin(uniform float3 x) { return make_float3(sin(x.x), sin(x.y), sin(x.z)); }
+inline float4 sin(float4 x) { return make_float4(sin(x.x), sin(x.y), sin(x.z), sin(x.w)); }
+inline uniform float4 sin(uniform float4 x) { return make_float4(sin(x.x), sin(x.y), sin(x.z), sin(x.w)); }
+
+inline float2 sinh(float2 x) { return make_float2(sinh(x.x), sinh(x.y)); }
+inline uniform float2 sinh(uniform float2 x) { return make_float2(sinh(x.x), sinh(x.y)); }
+inline float3 sinh(float3 x) { return make_float3(sinh(x.x), sinh(x.y), sinh(x.z)); }
+inline uniform float3 sinh(uniform float3 x) { return make_float3(sinh(x.x), sinh(x.y), sinh(x.z)); }
+inline float4 sinh(float4 x) { return make_float4(sinh(x.x), sinh(x.y), sinh(x.z), sinh(x.w)); }
+inline uniform float4 sinh(uniform float4 x) { return make_float4(sinh(x.x), sinh(x.y), sinh(x.z), sinh(x.w)); }
+
+inline float2 tan(float2 x) { return make_float2(tan(x.x), tan(x.y)); }
+inline uniform float2 tan(uniform float2 x) { return make_float2(tan(x.x), tan(x.y)); }
+inline float3 tan(float3 x) { return make_float3(tan(x.x), tan(x.y), tan(x.z)); }
+inline uniform float3 tan(uniform float3 x) { return make_float3(tan(x.x), tan(x.y), tan(x.z)); }
+inline float4 tan(float4 x) { return make_float4(tan(x.x), tan(x.y), tan(x.z), tan(x.w)); }
+inline uniform float4 tan(uniform float4 x) { return make_float4(tan(x.x), tan(x.y), tan(x.z), tan(x.w)); }
+
+inline float2 tanh(float2 x) { return make_float2(tanh(x.x), tanh(x.y)); }
+inline uniform float2 tanh(uniform float2 x) { return make_float2(tanh(x.x), tanh(x.y)); }
+inline float3 tanh(float3 x) { return make_float3(tanh(x.x), tanh(x.y), tanh(x.z)); }
+inline uniform float3 tanh(uniform float3 x) { return make_float3(tanh(x.x), tanh(x.y), tanh(x.z)); }
+inline float4 tanh(float4 x) { return make_float4(tanh(x.x), tanh(x.y), tanh(x.z), tanh(x.w)); }
+inline uniform float4 tanh(uniform float4 x) { return make_float4(tanh(x.x), tanh(x.y), tanh(x.z), tanh(x.w)); }
+
+inline float2 exp(float2 x) { return make_float2(exp(x.x), exp(x.y)); }
+inline uniform float2 exp(uniform float2 x) { return make_float2(exp(x.x), exp(x.y)); }
+inline float3 exp(float3 x) { return make_float3(exp(x.x), exp(x.y), exp(x.z)); }
+inline uniform float3 exp(uniform float3 x) { return make_float3(exp(x.x), exp(x.y), exp(x.z)); }
+inline float4 exp(float4 x) { return make_float4(exp(x.x), exp(x.y), exp(x.z), exp(x.w)); }
+inline uniform float4 exp(uniform float4 x) { return make_float4(exp(x.x), exp(x.y), exp(x.z), exp(x.w)); }
+
+inline float2 exp2(float2 x) { return make_float2(exp2(x.x), exp2(x.y)); }
+inline uniform float2 exp2(uniform float2 x) { return make_float2(exp2(x.x), exp2(x.y)); }
+inline float3 exp2(float3 x) { return make_float3(exp2(x.x), exp2(x.y), exp2(x.z)); }
+inline uniform float3 exp2(uniform float3 x) { return make_float3(exp2(x.x), exp2(x.y), exp2(x.z)); }
+inline float4 exp2(float4 x) { return make_float4(exp2(x.x), exp2(x.y), exp2(x.z), exp2(x.w)); }
+inline uniform float4 exp2(uniform float4 x) { return make_float4(exp2(x.x), exp2(x.y), exp2(x.z), exp2(x.w)); }
+
+inline float2 exp10(float2 x) { return make_float2(exp10(x.x), exp10(x.y)); }
+inline uniform float2 exp10(uniform float2 x) { return make_float2(exp10(x.x), exp10(x.y)); }
+inline float3 exp10(float3 x) { return make_float3(exp10(x.x), exp10(x.y), exp10(x.z)); }
+inline uniform float3 exp10(uniform float3 x) { return make_float3(exp10(x.x), exp10(x.y), exp10(x.z)); }
+inline float4 exp10(float4 x) { return make_float4(exp10(x.x), exp10(x.y), exp10(x.z), exp10(x.w)); }
+inline uniform float4 exp10(uniform float4 x) { return make_float4(exp10(x.x), exp10(x.y), exp10(x.z), exp10(x.w)); }
+
+inline float2 log(float2 x) { return make_float2(log(x.x), log(x.y)); }
+inline uniform float2 log(uniform float2 x) { return make_float2(log(x.x), log(x.y)); }
+inline float3 log(float3 x) { return make_float3(log(x.x), log(x.y), log(x.z)); }
+inline uniform float3 log(uniform float3 x) { return make_float3(log(x.x), log(x.y), log(x.z)); }
+inline float4 log(float4 x) { return make_float4(log(x.x), log(x.y), log(x.z), log(x.w)); }
+inline uniform float4 log(uniform float4 x) { return make_float4(log(x.x), log(x.y), log(x.z), log(x.w)); }
+
+inline float2 log2(float2 x) { return make_float2(log2(x.x), log2(x.y)); }
+inline uniform float2 log2(uniform float2 x) { return make_float2(log2(x.x), log2(x.y)); }
+inline float3 log2(float3 x) { return make_float3(log2(x.x), log2(x.y), log2(x.z)); }
+inline uniform float3 log2(uniform float3 x) { return make_float3(log2(x.x), log2(x.y), log2(x.z)); }
+inline float4 log2(float4 x) { return make_float4(log2(x.x), log2(x.y), log2(x.z), log2(x.w)); }
+inline uniform float4 log2(uniform float4 x) { return make_float4(log2(x.x), log2(x.y), log2(x.z), log2(x.w)); }
+
+inline float2 log10(float2 x) { return make_float2(log10(x.x), log10(x.y)); }
+inline uniform float2 log10(uniform float2 x) { return make_float2(log10(x.x), log10(x.y)); }
+inline float3 log10(float3 x) { return make_float3(log10(x.x), log10(x.y), log10(x.z)); }
+inline uniform float3 log10(uniform float3 x) { return make_float3(log10(x.x), log10(x.y), log10(x.z)); }
+inline float4 log10(float4 x) { return make_float4(log10(x.x), log10(x.y), log10(x.z), log10(x.w)); }
+inline uniform float4 log10(uniform float4 x) { return make_float4(log10(x.x), log10(x.y), log10(x.z), log10(x.w)); }
+
+inline float2 pow(float2 x, float2 a) { return make_float2(pow(x.x, a.x), pow(x.y, a.y)); }
+inline uniform float2 pow(uniform float2 x, uniform float2 a) { return make_float2(pow(x.x, a.x), pow(x.y, a.y)); }
+inline float3 pow(float3 x, float3 a) { return make_float3(pow(x.x, a.x), pow(x.y, a.y), pow(x.z, a.z)); }
+inline uniform float3 pow(uniform float3 x, uniform float3 a) { return make_float3(pow(x.x, a.x), pow(x.y, a.y), pow(x.z, a.z)); }
+inline float4 pow(float4 x, float4 a) { return make_float4(pow(x.x, a.x), pow(x.y, a.y), pow(x.z, a.z), pow(x.w, a.w)); }
+inline uniform float4 pow(uniform float4 x, uniform float4 a) { return make_float4(pow(x.x, a.x), pow(x.y, a.y), pow(x.z, a.z), pow(x.w, a.w)); }
+
+inline float2 sqrt(float2 x) { return make_float2(sqrt(x.x), sqrt(x.y)); }
+inline uniform float2 sqrt(uniform float2 x) { return make_float2(sqrt(x.x), sqrt(x.y)); }
+inline float3 sqrt(float3 x) { return make_float3(sqrt(x.x), sqrt(x.y), sqrt(x.z)); }
+inline uniform float3 sqrt(uniform float3 x) { return make_float3(sqrt(x.x), sqrt(x.y), sqrt(x.z)); }
+inline float4 sqrt(float4 x) { return make_float4(sqrt(x.x), sqrt(x.y), sqrt(x.z), sqrt(x.w)); }
+inline uniform float4 sqrt(uniform float4 x) { return make_float4(sqrt(x.x), sqrt(x.y), sqrt(x.z), sqrt(x.w)); }
+
+inline float2 rsqrt(float2 x) { return make_float2(rsqrt(x.x), rsqrt(x.y)); }
+inline uniform float2 rsqrt(uniform float2 x) { return make_float2(rsqrt(x.x), rsqrt(x.y)); }
+inline float3 rsqrt(float3 x) { return make_float3(rsqrt(x.x), rsqrt(x.y), rsqrt(x.z)); }
+inline uniform float3 rsqrt(uniform float3 x) { return make_float3(rsqrt(x.x), rsqrt(x.y), rsqrt(x.z)); }
+inline float4 rsqrt(float4 x) { return make_float4(rsqrt(x.x), rsqrt(x.y), rsqrt(x.z), rsqrt(x.w)); }
+inline uniform float4 rsqrt(uniform float4 x) { return make_float4(rsqrt(x.x), rsqrt(x.y), rsqrt(x.z), rsqrt(x.w)); }
+
+inline float2 ceil(float2 x) { return make_float2(ceil(x.x), ceil(x.y)); }
+inline uniform float2 ceil(uniform float2 x) { return make_float2(ceil(x.x), ceil(x.y)); }
+inline float3 ceil(float3 x) { return make_float3(ceil(x.x), ceil(x.y), ceil(x.z)); }
+inline uniform float3 ceil(uniform float3 x) { return make_float3(ceil(x.x), ceil(x.y), ceil(x.z)); }
+inline float4 ceil(float4 x) { return make_float4(ceil(x.x), ceil(x.y), ceil(x.z), ceil(x.w)); }
+inline uniform float4 ceil(uniform float4 x) { return make_float4(ceil(x.x), ceil(x.y), ceil(x.z), ceil(x.w)); }
+
+inline float2 floor(float2 x) { return make_float2(floor(x.x), floor(x.y)); }
+inline uniform float2 floor(uniform float2 x) { return make_float2(floor(x.x), floor(x.y)); }
+inline float3 floor(float3 x) { return make_float3(floor(x.x), floor(x.y), floor(x.z)); }
+inline uniform float3 floor(uniform float3 x) { return make_float3(floor(x.x), floor(x.y), floor(x.z)); }
+inline float4 floor(float4 x) { return make_float4(floor(x.x), floor(x.y), floor(x.z), floor(x.w)); }
+inline uniform float4 floor(uniform float4 x) { return make_float4(floor(x.x), floor(x.y), floor(x.z), floor(x.w)); }
+
+inline float2 trunc(float2 x) { return make_float2(trunc(x.x), trunc(x.y)); }
+inline uniform float2 trunc(uniform float2 x) { return make_float2(trunc(x.x), trunc(x.y)); }
+inline float3 trunc(float3 x) { return make_float3(trunc(x.x), trunc(x.y), trunc(x.z)); }
+inline uniform float3 trunc(uniform float3 x) { return make_float3(trunc(x.x), trunc(x.y), trunc(x.z)); }
+inline float4 trunc(float4 x) { return make_float4(trunc(x.x), trunc(x.y), trunc(x.z), trunc(x.w)); }
+inline uniform float4 trunc(uniform float4 x) { return make_float4(trunc(x.x), trunc(x.y), trunc(x.z), trunc(x.w)); }
+
+inline float2 round(float2 x) { return make_float2(round(x.x), round(x.y)); }
+inline uniform float2 round(uniform float2 x) { return make_float2(round(x.x), round(x.y)); }
+inline float3 round(float3 x) { return make_float3(round(x.x), round(x.y), round(x.z)); }
+inline uniform float3 round(uniform float3 x) { return make_float3(round(x.x), round(x.y), round(x.z)); }
+inline float4 round(float4 x) { return make_float4(round(x.x), round(x.y), round(x.z), round(x.w)); }
+inline uniform float4 round(uniform float4 x) { return make_float4(round(x.x), round(x.y), round(x.z), round(x.w)); }
+
+inline float2 fma(float2 x, float2 y, float2 z) { return make_float2(fma(x.x, y.x, z.x), fma(x.y, y.y, z.y)); }
+inline uniform float2 fma(uniform float2 x, uniform float2 y, uniform float2 z) { return make_float2(fma(x.x, y.x, z.x), fma(x.y, y.y, z.y)); }
+inline float3 fma(float3 x, float3 y, float3 z) { return make_float3(fma(x.x, y.x, z.x), fma(x.y, y.y, z.y), fma(x.z, y.z, z.z)); }
+inline uniform float3 fma(uniform float3 x, uniform float3 y, uniform float3 z) { return make_float3(fma(x.x, y.x, z.x), fma(x.y, y.y, z.y), fma(x.z, y.z, z.z)); }
+inline float4 fma(float4 x, float4 y, float4 z) { return make_float4(fma(x.x, y.x, z.x), fma(x.y, y.y, z.y), fma(x.z, y.z, z.z), fma(x.w, y.w, z.w)); }
+inline uniform float4 fma(uniform float4 x, uniform float4 y, uniform float4 z) { return make_float4(fma(x.x, y.x, z.x), fma(x.y, y.y, z.y), fma(x.z, y.z, z.z), fma(x.w, y.w, z.w)); }
+
+inline float2 copysign(float2 x, float2 y) { return make_float2(copysign(x.x, y.x), copysign(x.y, y.y)); }
+inline uniform float2 copysign(uniform float2 x, uniform float2 y) { return make_float2(copysign(x.x, y.x), copysign(x.y, y.y)); }
+inline float3 copysign(float3 x, float3 y) { return make_float3(copysign(x.x, y.x), copysign(x.y, y.y), copysign(x.z, y.z)); }
+inline uniform float3 copysign(uniform float3 x, uniform float3 y) { return make_float3(copysign(x.x, y.x), copysign(x.y, y.y), copysign(x.z, y.z)); }
+inline float4 copysign(float4 x, float4 y) { return make_float4(copysign(x.x, y.x), copysign(x.y, y.y), copysign(x.z, y.z), copysign(x.w, y.w)); }
+inline uniform float4 copysign(uniform float4 x, uniform float4 y) { return make_float4(copysign(x.x, y.x), copysign(x.y, y.y), copysign(x.z, y.z), copysign(x.w, y.w)); }
+
+inline float2 is_inf(float2 x) { return make_float2(is_inf(x.x), is_inf(x.y)); }
+inline uniform float2 is_inf(uniform float2 x) { return make_float2(is_inf(x.x), is_inf(x.y)); }
+inline float3 is_inf(float3 x) { return make_float3(is_inf(x.x), is_inf(x.y), is_inf(x.z)); }
+inline uniform float3 is_inf(uniform float3 x) { return make_float3(is_inf(x.x), is_inf(x.y), is_inf(x.z)); }
+inline float4 is_inf(float4 x) { return make_float4(is_inf(x.x), is_inf(x.y), is_inf(x.z), is_inf(x.w)); }
+inline uniform float4 is_inf(uniform float4 x) { return make_float4(is_inf(x.x), is_inf(x.y), is_inf(x.z), is_inf(x.w)); }
+
+inline float2 is_nan(float2 x) { return make_float2(is_nan(x.x), is_nan(x.y)); }
+inline uniform float2 is_nan(uniform float2 x) { return make_float2(is_nan(x.x), is_nan(x.y)); }
+inline float3 is_nan(float3 x) { return make_float3(is_nan(x.x), is_nan(x.y), is_nan(x.z)); }
+inline uniform float3 is_nan(uniform float3 x) { return make_float3(is_nan(x.x), is_nan(x.y), is_nan(x.z)); }
+inline float4 is_nan(float4 x) { return make_float4(is_nan(x.x), is_nan(x.y), is_nan(x.z), is_nan(x.w)); }
+inline uniform float4 is_nan(uniform float4 x) { return make_float4(is_nan(x.x), is_nan(x.y), is_nan(x.z), is_nan(x.w)); }
+
+inline int2 clamp(int2 x, int2 l, int2 h) { return make_int2(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y)); }
+inline uniform int2 clamp(uniform int2 x, uniform int2 l, uniform int2 h) { return make_int2(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y)); }
+inline int3 clamp(int3 x, int3 l, int3 h) { return make_int3(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z)); }
+inline uniform int3 clamp(uniform int3 x, uniform int3 l, uniform int3 h) { return make_int3(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z)); }
+inline int4 clamp(int4 x, int4 l, int4 h) { return make_int4(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z), clamp(x.w, l.w, h.w)); }
+inline uniform int4 clamp(uniform int4 x, uniform int4 l, uniform int4 h) { return make_int4(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z), clamp(x.w, l.w, h.w)); }
+inline uint2 clamp(uint2 x, uint2 l, uint2 h) { return make_uint2(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y)); }
+inline uniform uint2 clamp(uniform uint2 x, uniform uint2 l, uniform uint2 h) { return make_uint2(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y)); }
+inline uint3 clamp(uint3 x, uint3 l, uint3 h) { return make_uint3(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z)); }
+inline uniform uint3 clamp(uniform uint3 x, uniform uint3 l, uniform uint3 h) { return make_uint3(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z)); }
+inline uint4 clamp(uint4 x, uint4 l, uint4 h) { return make_uint4(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z), clamp(x.w, l.w, h.w)); }
+inline uniform uint4 clamp(uniform uint4 x, uniform uint4 l, uniform uint4 h) { return make_uint4(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z), clamp(x.w, l.w, h.w)); }
+inline float2 clamp(float2 x, float2 l, float2 h) { return make_float2(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y)); }
+inline uniform float2 clamp(uniform float2 x, uniform float2 l, uniform float2 h) { return make_float2(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y)); }
+inline float3 clamp(float3 x, float3 l, float3 h) { return make_float3(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z)); }
+inline uniform float3 clamp(uniform float3 x, uniform float3 l, uniform float3 h) { return make_float3(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z)); }
+inline float4 clamp(float4 x, float4 l, float4 h) { return make_float4(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z), clamp(x.w, l.w, h.w)); }
+inline uniform float4 clamp(uniform float4 x, uniform float4 l, uniform float4 h) { return make_float4(clamp(x.x, l.x, h.x), clamp(x.y, l.y, h.y), clamp(x.z, l.z, h.z), clamp(x.w, l.w, h.w)); }
+
+inline float2 saturate(float2 x) { return make_float2(saturate(x.x), saturate(x.y)); }
+inline uniform float2 saturate(uniform float2 x) { return make_float2(saturate(x.x), saturate(x.y)); }
+inline float3 saturate(float3 x) { return make_float3(saturate(x.x), saturate(x.y), saturate(x.z)); }
+inline uniform float3 saturate(uniform float3 x) { return make_float3(saturate(x.x), saturate(x.y), saturate(x.z)); }
+inline float4 saturate(float4 x) { return make_float4(saturate(x.x), saturate(x.y), saturate(x.z), saturate(x.w)); }
+inline uniform float4 saturate(uniform float4 x) { return make_float4(saturate(x.x), saturate(x.y), saturate(x.z), saturate(x.w)); }
+
+inline float2 lerp(float2 a, float2 b, float2 t) { return make_float2(lerp(a.x, b.x, t.x), lerp(a.y, b.y, t.y)); }
+inline uniform float2 lerp(uniform float2 a, uniform float2 b, uniform float2 t) { return make_float2(lerp(a.x, b.x, t.x), lerp(a.y, b.y, t.y)); }
+inline float3 lerp(float3 a, float3 b, float3 t) { return make_float3(lerp(a.x, b.x, t.x), lerp(a.y, b.y, t.y), lerp(a.z, b.z, t.z)); }
+inline uniform float3 lerp(uniform float3 a, uniform float3 b, uniform float3 t) { return make_float3(lerp(a.x, b.x, t.x), lerp(a.y, b.y, t.y), lerp(a.z, b.z, t.z)); }
+inline float4 lerp(float4 a, float4 b, float4 t) { return make_float4(lerp(a.x, b.x, t.x), lerp(a.y, b.y, t.y), lerp(a.z, b.z, t.z), lerp(a.w, b.w, t.w)); }
+inline uniform float4 lerp(uniform float4 a, uniform float4 b, uniform float4 t) { return make_float4(lerp(a.x, b.x, t.x), lerp(a.y, b.y, t.y), lerp(a.z, b.z, t.z), lerp(a.w, b.w, t.w)); }
+
+inline float2 radians(float2 x) { return make_float2(radians(x.x), radians(x.y)); }
+inline uniform float2 radians(uniform float2 x) { return make_float2(radians(x.x), radians(x.y)); }
+inline float3 radians(float3 x) { return make_float3(radians(x.x), radians(x.y), radians(x.z)); }
+inline uniform float3 radians(uniform float3 x) { return make_float3(radians(x.x), radians(x.y), radians(x.z)); }
+inline float4 radians(float4 x) { return make_float4(radians(x.x), radians(x.y), radians(x.z), radians(x.w)); }
+inline uniform float4 radians(uniform float4 x) { return make_float4(radians(x.x), radians(x.y), radians(x.z), radians(x.w)); }
+
+inline float2 degrees(float2 x) { return make_float2(degrees(x.x), degrees(x.y)); }
+inline uniform float2 degrees(uniform float2 x) { return make_float2(degrees(x.x), degrees(x.y)); }
+inline float3 degrees(float3 x) { return make_float3(degrees(x.x), degrees(x.y), degrees(x.z)); }
+inline uniform float3 degrees(uniform float3 x) { return make_float3(degrees(x.x), degrees(x.y), degrees(x.z)); }
+inline float4 degrees(float4 x) { return make_float4(degrees(x.x), degrees(x.y), degrees(x.z), degrees(x.w)); }
+inline uniform float4 degrees(uniform float4 x) { return make_float4(degrees(x.x), degrees(x.y), degrees(x.z), degrees(x.w)); }
+
+inline float2 step(float2 e, float2 x) { return make_float2(step(e.x, x.x), step(e.y, x.y)); }
+inline uniform float2 step(uniform float2 e, uniform float2 x) { return make_float2(step(e.x, x.x), step(e.y, x.y)); }
+inline float3 step(float3 e, float3 x) { return make_float3(step(e.x, x.x), step(e.y, x.y), step(e.z, x.z)); }
+inline uniform float3 step(uniform float3 e, uniform float3 x) { return make_float3(step(e.x, x.x), step(e.y, x.y), step(e.z, x.z)); }
+inline float4 step(float4 e, float4 x) { return make_float4(step(e.x, x.x), step(e.y, x.y), step(e.z, x.z), step(e.w, x.w)); }
+inline uniform float4 step(uniform float4 e, uniform float4 x) { return make_float4(step(e.x, x.x), step(e.y, x.y), step(e.z, x.z), step(e.w, x.w)); }
+
+inline float2 smoothstep(float2 e0, float2 e1, float2 x) { return make_float2(smoothstep(e0.x, e1.x, x.x), smoothstep(e0.y, e1.y, x.y)); }
+inline uniform float2 smoothstep(uniform float2 e0, uniform float2 e1, uniform float2 x) { return make_float2(smoothstep(e0.x, e1.x, x.x), smoothstep(e0.y, e1.y, x.y)); }
+inline float3 smoothstep(float3 e0, float3 e1, float3 x) { return make_float3(smoothstep(e0.x, e1.x, x.x), smoothstep(e0.y, e1.y, x.y), smoothstep(e0.z, e1.z, x.z)); }
+inline uniform float3 smoothstep(uniform float3 e0, uniform float3 e1, uniform float3 x) { return make_float3(smoothstep(e0.x, e1.x, x.x), smoothstep(e0.y, e1.y, x.y), smoothstep(e0.z, e1.z, x.z)); }
+inline float4 smoothstep(float4 e0, float4 e1, float4 x) { return make_float4(smoothstep(e0.x, e1.x, x.x), smoothstep(e0.y, e1.y, x.y), smoothstep(e0.z, e1.z, x.z), smoothstep(e0.w, e1.w, x.w)); }
+inline uniform float4 smoothstep(uniform float4 e0, uniform float4 e1, uniform float4 x) { return make_float4(smoothstep(e0.x, e1.x, x.x), smoothstep(e0.y, e1.y, x.y), smoothstep(e0.z, e1.z, x.z), smoothstep(e0.w, e1.w, x.w)); }
+
+inline uint2 clz(uint2 x) { return make_uint2(clz(x.x), clz(x.y)); }
+inline uniform uint2 clz(uniform uint2 x) { return make_uint2(clz(x.x), clz(x.y)); }
+inline uint3 clz(uint3 x) { return make_uint3(clz(x.x), clz(x.y), clz(x.z)); }
+inline uniform uint3 clz(uniform uint3 x) { return make_uint3(clz(x.x), clz(x.y), clz(x.z)); }
+inline uint4 clz(uint4 x) { return make_uint4(clz(x.x), clz(x.y), clz(x.z), clz(x.w)); }
+inline uniform uint4 clz(uniform uint4 x) { return make_uint4(clz(x.x), clz(x.y), clz(x.z), clz(x.w)); }
+
+inline uint2 ctz(uint2 x) { return make_uint2(ctz(x.x), ctz(x.y)); }
+inline uniform uint2 ctz(uniform uint2 x) { return make_uint2(ctz(x.x), ctz(x.y)); }
+inline uint3 ctz(uint3 x) { return make_uint3(ctz(x.x), ctz(x.y), ctz(x.z)); }
+inline uniform uint3 ctz(uniform uint3 x) { return make_uint3(ctz(x.x), ctz(x.y), ctz(x.z)); }
+inline uint4 ctz(uint4 x) { return make_uint4(ctz(x.x), ctz(x.y), ctz(x.z), ctz(x.w)); }
+inline uniform uint4 ctz(uniform uint4 x) { return make_uint4(ctz(x.x), ctz(x.y), ctz(x.z), ctz(x.w)); }
+
+inline uint2 popcount(uint2 x) { return make_uint2(popcount(x.x), popcount(x.y)); }
+inline uniform uint2 popcount(uniform uint2 x) { return make_uint2(popcount(x.x), popcount(x.y)); }
+inline uint3 popcount(uint3 x) { return make_uint3(popcount(x.x), popcount(x.y), popcount(x.z)); }
+inline uniform uint3 popcount(uniform uint3 x) { return make_uint3(popcount(x.x), popcount(x.y), popcount(x.z)); }
+inline uint4 popcount(uint4 x) { return make_uint4(popcount(x.x), popcount(x.y), popcount(x.z), popcount(x.w)); }
+inline uniform uint4 popcount(uniform uint4 x) { return make_uint4(popcount(x.x), popcount(x.y), popcount(x.z), popcount(x.w)); }
+
