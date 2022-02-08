@@ -20,20 +20,23 @@ if __name__ == "__main__":
 #define M_2_PI      0.636619772367581343075535053490057448f  /* 2/pi           */
 #define M_2_SQRTPI  1.12837916709551257389615890312154517f   /* 2/sqrt(pi)     */
 #define M_SQRT2     1.41421356237309504880168872420969808f   /* sqrt(2)        */
-#define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */''', file=file)
+#define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */
+
+#define _x v[0]
+#define _y v[1]
+#define _z v[2]
+#define _w v[3]
+
+#define vector_access(vec, i) ((vec).v[i])
+#define matrix_access(mat, i) ((mat).cols[i])''', file=file)
         # vector types
         scalar_types = ["int", "uint", "float", "bool"]
         for t in scalar_types:
             print(f'''
 struct {t}2 {{ {t} v[2]; }};
 struct {t}3 {{ {t} v[4]; }};
-struct {t}4 {{ {t} v[4]; }};
+struct {t}4 {{ {t} v[4]; }};''', file=file)
 
-#define _x v[0]
-#define _y v[1]
-#define _z v[2]
-#define _w v[3]
-#define vector_access(vec, i) ((vec).v[i])''', file=file)
         template = '''
 inline uniform {T}2 make_{T}2() {
     uniform {T}2 v;
@@ -614,8 +617,6 @@ struct float3x3 {
 struct float4x4 {
     float4 cols[4];
 };
-
-#define matrix_access(m, i) ((m).cols[i])
 
 inline uniform float2x2 make_float2x2() {
     uniform float2x2 m;
