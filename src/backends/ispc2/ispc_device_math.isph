@@ -13,45 +13,29 @@
 #define M_SQRT2     1.41421356237309504880168872420969808f   /* sqrt(2)        */
 #define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */
 
-struct int2 { int v[2]; };
-struct int3 { int v[4]; };
-struct int4 { int v[4]; };
-
 #define _x v[0]
 #define _y v[1]
 #define _z v[2]
 #define _w v[3]
+
 #define vector_access(vec, i) ((vec).v[i])
+#define matrix_access(mat, i) ((mat).cols[i])
+
+struct int2 { int v[2]; };
+struct int3 { int v[4]; };
+struct int4 { int v[4]; };
 
 struct uint2 { uint v[2]; };
 struct uint3 { uint v[4]; };
 struct uint4 { uint v[4]; };
 
-#define _x v[0]
-#define _y v[1]
-#define _z v[2]
-#define _w v[3]
-#define vector_access(vec, i) ((vec).v[i])
-
 struct float2 { float v[2]; };
 struct float3 { float v[4]; };
 struct float4 { float v[4]; };
 
-#define _x v[0]
-#define _y v[1]
-#define _z v[2]
-#define _w v[3]
-#define vector_access(vec, i) ((vec).v[i])
-
 struct bool2 { bool v[2]; };
 struct bool3 { bool v[4]; };
 struct bool4 { bool v[4]; };
-
-#define _x v[0]
-#define _y v[1]
-#define _z v[2]
-#define _w v[3]
-#define vector_access(vec, i) ((vec).v[i])
 
 inline uniform int2 make_int2() {
     uniform int2 v;
@@ -4763,8 +4747,6 @@ struct float3x3 {
 struct float4x4 {
     float4 cols[4];
 };
-
-#define matrix_access(m, i) ((m).cols[i])
 
 inline uniform float2x2 make_float2x2() {
     uniform float2x2 m;
