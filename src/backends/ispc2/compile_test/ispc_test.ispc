@@ -5,6 +5,7 @@
 #include "../ispc_device_math.isph"
 
 export void kernel_main() {
-    int3 a = make_int3(1u);
-    print("% % % %", a[0], a[1], a[2], clamp(3, -2, 0));
+    int3 a = make_int3(1, 2, 3);
+    vector_access(a, 0) = programIndex;
+    print("% % % %", vector_access(a, 0), a._y, a._z, clamp(3, -2, 0));
 }

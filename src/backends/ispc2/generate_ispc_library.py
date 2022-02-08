@@ -20,28 +20,34 @@ if __name__ == "__main__":
 #define M_2_PI      0.636619772367581343075535053490057448f  /* 2/pi           */
 #define M_2_SQRTPI  1.12837916709551257389615890312154517f   /* 2/sqrt(pi)     */
 #define M_SQRT2     1.41421356237309504880168872420969808f   /* sqrt(2)        */
-#define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */
-        ''', file=file)
+#define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */''', file=file)
         # vector types
         scalar_types = ["int", "uint", "float", "bool"]
-        vector_elements = "xyzw"
         for t in scalar_types:
-            for n in range(2, 5):
-                print(f"typedef {t}<{n}> {t}{n};", file=file)
+            print(f'''
+struct {t}2 {{ {t} v[2]; }};
+struct {t}3 {{ {t} v[4]; }};
+struct {t}4 {{ {t} v[4]; }};
+
+#define _x v[0]
+#define _y v[1]
+#define _z v[2]
+#define _w v[3]
+#define vector_access(vec, i) ((vec).v[i])''', file=file)
         template = '''
 inline uniform {T}2 make_{T}2() {
     uniform {T}2 v;
-    v.x = v.y = 0;
+    v.v[0] = v.v[1] = 0;
     return v;
 }
 inline uniform {T}3 make_{T}3() {
     uniform {T}3 v;
-    v.x = v.y = v.z = 0;
+    v.v[0] = v.v[1] = v.v[2] = 0;
     return v;
 }
 inline uniform {T}4 make_{T}4() {
     uniform {T}4 v;
-    v.x = v.y = v.z = v.w = 0;
+    v.v[0] = v.v[1] = v.v[2] = v.v[3] = 0;
     return v;
 }'''
         for t in scalar_types:
@@ -51,13 +57,13 @@ inline uniform {T}4 make_{T}4() {
 // make_{T}2 functions
 inline {U}2 make_{T}2({U} s) {
     {U}2 v;
-    v.x = v.y = s;
+    v.v[0] = v.v[1] = s;
     return v;
 }
 inline {U}2 make_{T}2({U} x, {U} y) {
     {U}2 v;
-    v.x = x;
-    v.y = y;
+    v.v[0] = x;
+    v.v[1] = y;
     return v;
 }
 inline {U}2 make_{T}2({U}2 v) {
@@ -65,42 +71,42 @@ inline {U}2 make_{T}2({U}2 v) {
 }
 inline {U}2 make_{T}2({U}3 v) {
     {U}2 u;
-    u.x = v.x;
-    u.y = v.y;
+    u.v[0] = v.v[0];
+    u.v[1] = v.v[1];
     return u;
 }
 inline {U}2 make_{T}2({U}4 v) {
     {U}2 u;
-    u.x = v.x;
-    u.y = v.y;
+    u.v[0] = v.v[0];
+    u.v[1] = v.v[1];
     return u;
 }
 
 // make_{T}3 functions
 inline {U}3 make_{T}3({U} s) {
     {U}3 v;
-    v.x = v.y = v.z = s;
+    v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
 inline {U}3 make_{T}3({U} x, {U} y, {U} z) {
     {U}3 v;
-    v.x = x;
-    v.y = y;
-    v.z = z;
+    v.v[0] = x;
+    v.v[1] = y;
+    v.v[2] = z;
     return v;
 }
 inline {U}3 make_{T}3({U} x, {U}2 yz) {
     {U}3 v;
-    v.x = x;
-    v.y = yz.x;
-    v.z = yz.y;
+    v.v[0] = x;
+    v.v[1] = yz.v[0];
+    v.v[2] = yz.v[1];
     return v;
 }
 inline {U}3 make_{T}3({U}2 xy, {U} z) {
     {U}3 v;
-    v.x = xy.x;
-    v.y = xy.y;
-    v.z = z;
+    v.v[0] = xy.v[0];
+    v.v[1] = xy.v[1];
+    v.v[2] = z;
     return v;
 }
 inline {U}3 make_{T}3({U}3 v) {
@@ -108,72 +114,72 @@ inline {U}3 make_{T}3({U}3 v) {
 }
 inline {U}3 make_{T}3({U}4 v) {
     {U}3 u;
-    u.x = v.x;
-    u.y = v.y;
-    u.z = v.z;
+    u.v[0] = v.v[0];
+    u.v[1] = v.v[1];
+    u.v[2] = v.v[2];
     return u;
 }
 
 // make_{T}4 functions
 inline {U}4 make_{T}4({U} s) {
     {U}4 v;
-    v.x = v.y = v.z = v.w = s;
+    v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
 inline {U}4 make_{T}4({U} x, {U} y, {U} z, {U} w) {
     {U}4 v;
-    v.x = x;
-    v.y = y;
-    v.z = z;
-    v.w = w;
+    v.v[0] = x;
+    v.v[1] = y;
+    v.v[2] = z;
+    v.v[3] = w;
     return v;
 }
 inline {U}4 make_{T}4({U} x, {U} y, {U}2 zw) {
     {U}4 v;
-    v.x = x;
-    v.y = y;
-    v.z = zw.x;
-    v.w = zw.y;
+    v.v[0] = x;
+    v.v[1] = y;
+    v.v[2] = zw.v[0];
+    v.v[3] = zw.v[1];
     return v;
 }
 inline {U}4 make_{T}4({U} x, {U}2 yz, {U} w) {
     {U}4 v;
-    v.x = x;
-    v.y = yz.x;
-    v.z = yz.y;
-    v.w = w;
+    v.v[0] = x;
+    v.v[1] = yz.v[0];
+    v.v[2] = yz.v[1];
+    v.v[3] = w;
     return v;
 }
 inline {U}4 make_{T}4({U}2 xy, {U} z, {U} w) {
     {U}4 v;
-    v.x = xy.x;
-    v.y = xy.y;
-    v.z = z;
-    v.w = w;
+    v.v[0] = xy.v[0];
+    v.v[1] = xy.v[1];
+    v.v[2] = z;
+    v.v[3] = w;
     return v;
 }
 inline {U}4 make_{T}4({U}2 xy, {U}2 zw) {
     {U}4 v;
-    v.x = xy.x;
-    v.y = xy.y;
-    v.z = zw.x;
-    v.w = zw.y;
+    v.v[0] = xy.v[0];
+    v.v[1] = xy.v[1];
+    v.v[2] = zw.v[0];
+    v.v[3] = zw.v[1];
     return v;
 }
 inline {U}4 make_{T}4({U} x, {U}3 yzw) {
     {U}4 v;
-    v.x = x;
-    v.y = yzw.x;
-    v.z = yzw.y;
-    v.w = yzw.z;
+    v.v[0] = x;
+    v.v[1] = yzw.v[0];
+    v.v[2] = yzw.v[1];
+    v.v[3] = yzw.v[2];
     return v;
 }
 inline {U}4 make_{T}4({U}3 xyz, {U} w) {
     {U}4 v;
-    v.x = xyz.x;
-    v.y = xyz.y;
-    v.z = xyz.z;
-    v.w = w;
+    v.v[0] = xyz.v[0];
+    v.v[1] = xyz.v[1];
+    v.v[2] = xyz.v[2];
+    v.v[3] = w;
     return v;
 }
 inline {U}4 make_{T}4({U}4 v) {
@@ -186,42 +192,42 @@ inline {U}4 make_{T}4({U}4 v) {
 // conversions
 inline {U}2 make_{T}2({other}2 v) {
     {U}2 u;
-    u.x = ({U})v.x;
-    u.y = ({U})v.y;
+    u.v[0] = ({U})v.v[0];
+    u.v[1] = ({U})v.v[1];
     return u;
 }
 inline {U}2 make_{T}2({other}3 v) {
     {U}2 u;
-    u.x = ({U})v.x;
-    u.y = ({U})v.y;
+    u.v[0] = ({U})v.v[0];
+    u.v[1] = ({U})v.v[1];
     return u;
 }
 inline {U}2 make_{T}2({other}4 v) {
     {U}2 u;
-    u.x = ({U})v.x;
-    u.y = ({U})v.y;
+    u.v[0] = ({U})v.v[0];
+    u.v[1] = ({U})v.v[1];
     return u;
 }
 inline {U}3 make_{T}3({other}3 v) {
     {U}3 u;
-    u.x = ({U})v.x;
-    u.y = ({U})v.y;
-    u.z = ({U})v.z;
+    u.v[0] = ({U})v.v[0];
+    u.v[1] = ({U})v.v[1];
+    u.v[2] = ({U})v.v[2];
     return u;
 }
 inline {U}3 make_{T}3({other}4 v) {
     {U}3 u;
-    u.x = ({U})v.x;
-    u.y = ({U})v.y;
-    u.z = ({U})v.z;
+    u.v[0] = ({U})v.v[0];
+    u.v[1] = ({U})v.v[1];
+    u.v[2] = ({U})v.v[2];
     return u;
 }
 inline {U}4 make_{T}4({other}4 v) {
     {U}4 u;
-    u.x = ({U})v.x;
-    u.y = ({U})v.y;
-    u.z = ({U})v.z;
-    u.w = ({U})v.w;
+    u.v[0] = ({U})v.v[0];
+    u.v[1] = ({U})v.v[1];
+    u.v[2] = ({U})v.v[2];
+    u.v[3] = ({U})v.v[3];
     return u;
 }'''
         for t in scalar_types:
@@ -260,7 +266,7 @@ inline {U}4 make_{T}4({other}4 v) {
                         f"inline uniform {type} unary_bit_not(uniform {type} s) {{ return ~s; }}",
                         file=file)
             for i in range(2, 5):
-                elements = ["x", "y", "z", "w"][:i]
+                elements = ["v[0]", "v[1]", "v[2]", "v[3]"][:i]
                 print(
                     f"inline bool{i} unary_not({type}{i} v) {{ return make_bool{i}({', '.join(f'!v.{m}' for m in elements)}); }}",
                     file=file)
@@ -323,7 +329,7 @@ inline {U}4 make_{T}4({other}4 v) {
             print(
                 f"inline {ret_t} {op2name[op]}({arg_t} lhs, {arg_t} rhs) {{ return lhs {op} rhs; }}", file=file)
             for i in range(2, 5):
-                elements = ["x", "y", "z", "w"][:i]
+                elements = ["v[0]", "v[1]", "v[2]", "v[3]"][:i]
                 # vector-vector
                 print(
                     f"inline uniform {ret_t}{i} {op2name[op]}(uniform {arg_t}{i} lhs, uniform {arg_t}{i} rhs) {{ return make_{ret_t}{i}({', '.join(f'lhs.{m} {op} rhs.{m}' for m in elements)}); }}",
@@ -338,7 +344,7 @@ inline {U}4 make_{T}4({other}4 v) {
                     f"inline {ret_t}{i} {op2name[op]}({arg_t}{i} lhs, {arg_t}{i} rhs) {{ return make_{ret_t}{i}({', '.join(f'lhs.{m} {op} rhs.{m}' for m in elements)}); }}",
                     file=file)
                 # vector-scalar
-                operation = ", ".join(f"lhs.{e} {op} rhs" for e in "xyzw"[:i])
+                operation = ", ".join(f"lhs.{e} {op} rhs" for e in ["v[0]", "v[1]", "v[2]", "v[3]"][:i])
                 print(
                     f"inline uniform {ret_t}{i} {op2name[op]}(uniform {arg_t}{i} lhs, uniform {arg_t} rhs) {{ return make_{ret_t}{i}({operation}); }}",
                     file=file)
@@ -352,7 +358,7 @@ inline {U}4 make_{T}4({other}4 v) {
                     f"inline {ret_t}{i} {op2name[op]}({arg_t}{i} lhs, {arg_t} rhs) {{ return make_{ret_t}{i}({operation}); }}",
                     file=file)
                 # scalar-vector
-                operation = ", ".join(f"lhs {op} rhs.{e}" for e in "xyzw"[:i])
+                operation = ", ".join(f"lhs {op} rhs.{e}" for e in ["v[0]", "v[1]", "v[2]", "v[3]"][:i])
                 print(
                     f"inline uniform {ret_t}{i} {op2name[op]}(uniform {arg_t} lhs, uniform {arg_t}{i} rhs) {{ return make_{ret_t}{i}({operation}); }}",
                     file=file)
@@ -394,7 +400,7 @@ inline {U}4 make_{T}4({other}4 v) {
         # any, all, none
         for f, uop, bop in [("any", "", "||"), ("all", "", "&&"), ("none", "!", "&&")]:
             for i in range(2, 5):
-                elements = ["x", "y", "z", "w"][:i]
+                elements = ["v[0]", "v[1]", "v[2]", "v[3]"][:i]
                 print(
                     f"inline uniform bool {f}(uniform bool{i} v) {{ return {f' {bop} '.join(f'{uop}v.{m}' for m in elements)}; }}",
                     file=file)
@@ -411,7 +417,7 @@ inline {U}4 make_{T}4({other}4 v) {
                       "b": "bool"}[t] for t in types]
 
             def call(i):
-                e = "xyzw"[i]
+                e = ["v[0]", "v[1]", "v[2]", "v[3]"][i]
                 return f"{c}(" + ", ".join(f"{a}.{e}" for a in args) + ")"
 
             for t in types:
@@ -433,13 +439,13 @@ inline {U}4 make_{T}4({other}4 v) {
         for t in ["int", "uint", "float"]:
             for n in range(2, 5):
                 print(
-                    f"inline {t}{n} select({t}{n} f, {t}{n} t, bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in 'xyzw'[:n])}); }}",
+                    f"inline {t}{n} select({t}{n} f, {t}{n} t, bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
                     file=file)
                 print(
-                    f"inline {t}{n} select({t}{n} f, {t}{n} t, uniform bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in 'xyzw'[:n])}); }}",
+                    f"inline {t}{n} select({t}{n} f, {t}{n} t, uniform bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
                     file=file)
                 print(
-                    f"inline uniform {t}{n} select(uniform {t}{n} f, uniform {t}{n} t, uniform bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in 'xyzw'[:n])}); }}",
+                    f"inline uniform {t}{n} select(uniform {t}{n} f, uniform {t}{n} t, uniform bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
                     file=file)
 
         print('''
@@ -510,22 +516,22 @@ inline uniform uint popcount(uniform uint x) { return popcnt((int)x); }
 
 inline float3 cross(float3 u, float3 v) {
     return make_float3(
-        u.y * v.z - v.y * u.z,
-        u.z * v.x - v.z * u.x,
-        u.x * v.y - v.x * u.y);
+        u.v[1] * v.v[2] - v.v[1] * u.v[2],
+        u.v[2] * v.v[0] - v.v[2] * u.v[0],
+        u.v[0] * v.v[1] - v.v[0] * u.v[1]);
 }
 inline uniform float3 cross(uniform float3 u, uniform float3 v) {
     return make_float3(
-        u.y * v.z - v.y * u.z,
-        u.z * v.x - v.z * u.x,
-        u.x * v.y - v.x * u.y);
+        u.v[1] * v.v[2] - v.v[1] * u.v[2],
+        u.v[2] * v.v[0] - v.v[2] * u.v[0],
+        u.v[0] * v.v[1] - v.v[0] * u.v[1]);
 }
-inline float dot(float2 a, float2 b) { return a.x * b.x + a.y * b.y; }
-inline float dot(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-inline float dot(float4 a, float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
-inline uniform float dot(uniform float2 a, uniform float2 b) { return a.x * b.x + a.y * b.y; }
-inline uniform float dot(uniform float3 a, uniform float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-inline uniform float dot(uniform float4 a, uniform float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
+inline float dot(float2 a, float2 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1]; }
+inline float dot(float3 a, float3 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]; }
+inline float dot(float4 a, float4 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2] + a.v[3] * b.v[3]; }
+inline uniform float dot(uniform float2 a, uniform float2 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1]; }
+inline uniform float dot(uniform float3 a, uniform float3 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]; }
+inline uniform float dot(uniform float4 a, uniform float4 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2] + a.v[3] * b.v[3]; }
 inline float length(float2 v) { return sqrt(dot(v, v)); }
 inline float length(float3 v) { return sqrt(dot(v, v)); }
 inline float length(float4 v) { return sqrt(dot(v, v)); }
@@ -538,14 +544,14 @@ inline float length_squared(float4 v) { return dot(v, v); }
 inline uniform float length_squared(uniform float2 v) { return dot(v, v); }
 inline uniform float length_squared(uniform float3 v) { return dot(v, v); }
 inline uniform float length_squared(uniform float4 v) { return dot(v, v); }
-inline float2 normalize(float2 v) { return v * rsqrt(length_squared(v)); }
-inline float3 normalize(float3 v) { return v * rsqrt(length_squared(v)); }
-inline float4 normalize(float4 v) { return v * rsqrt(length_squared(v)); }
-inline uniform float2 normalize(uniform float2 v) { return v * rsqrt(length_squared(v)); }
-inline uniform float3 normalize(uniform float3 v) { return v * rsqrt(length_squared(v)); }
-inline uniform float4 normalize(uniform float4 v) { return v * rsqrt(length_squared(v)); }
-inline float3 faceforward(float3 n, float3 i, float3 n_ref) { return dot(n_ref, i) < 0.f ? n : -n; }
-inline uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform float3 n_ref) { return dot(n_ref, i) < 0.f ? n : -n; }
+inline float2 normalize(float2 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+inline float3 normalize(float3 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+inline float4 normalize(float4 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+inline uniform float2 normalize(uniform float2 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+inline uniform float3 normalize(uniform float3 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+inline uniform float4 normalize(uniform float4 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+inline float3 faceforward(float3 n, float3 i, float3 n_ref) { return dot(n_ref, i) < 0.f ? n : unary_minus(n); }
+inline uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform float3 n_ref) { return dot(n_ref, i) < 0.f ? n : unary_minus(n); }
 ''', file=file)
 
         # min/max/abs/acos/asin/asinh/acosh/atan/atanh/atan2/
@@ -609,32 +615,7 @@ struct float4x4 {
     float4 cols[4];
 };
 
-inline float2 matrix_access(float2x2 m, uint i) { return m.cols[i]; }
-inline float2 matrix_access(float2x2 m, int i) { return m.cols[i]; }
-inline float2 matrix_access(uniform float2x2 m, uint i) { return m.cols[i]; }
-inline float2 matrix_access(uniform float2x2 m, int i) { return m.cols[i]; }
-inline float2 matrix_access(float2x2 m, uniform uint i) { return m.cols[i]; }
-inline float2 matrix_access(float2x2 m, uniform int i) { return m.cols[i]; }
-inline uniform float2 matrix_access(uniform float2x2 m, uniform uint i) { return m.cols[i]; }
-inline uniform float2 matrix_access(uniform float2x2 m, uniform int i) { return m.cols[i]; }
-
-inline float3 matrix_access(float3x3 m, uint i) { return m.cols[i]; }
-inline float3 matrix_access(float3x3 m, int i) { return m.cols[i]; }
-inline float3 matrix_access(uniform float3x3 m, uint i) { return m.cols[i]; }
-inline float3 matrix_access(uniform float3x3 m, int i) { return m.cols[i]; }
-inline float3 matrix_access(float3x3 m, uniform uint i) { return m.cols[i]; }
-inline float3 matrix_access(float3x3 m, uniform int i) { return m.cols[i]; }
-inline uniform float3 matrix_access(uniform float3x3 m, uniform uint i) { return m.cols[i]; }
-inline uniform float3 matrix_access(uniform float3x3 m, uniform int i) { return m.cols[i]; }
-
-inline float4 matrix_access(float4x4 m, uint i) { return m.cols[i]; }
-inline float4 matrix_access(float4x4 m, int i) { return m.cols[i]; }
-inline float4 matrix_access(uniform float4x4 m, uint i) { return m.cols[i]; }
-inline float4 matrix_access(uniform float4x4 m, int i) { return m.cols[i]; }
-inline float4 matrix_access(float4x4 m, uniform uint i) { return m.cols[i]; }
-inline float4 matrix_access(float4x4 m, uniform int i) { return m.cols[i]; }
-inline uniform float4 matrix_access(uniform float4x4 m, uniform uint i) { return m.cols[i]; }
-inline uniform float4 matrix_access(uniform float4x4 m, uniform int i) { return m.cols[i]; }
+#define matrix_access(m, i) ((m).cols[i])
 
 inline uniform float2x2 make_float2x2() {
     uniform float2x2 m;
@@ -957,19 +938,25 @@ inline {ret}float4x4 binary_div({lhs}float s, {rhs}float4x4 m) {
 
 // matrix-vector binary operators
 inline {ret}float2 binary_mul({lhs}float2x2 m, {rhs}float2 v) {
-    return binary_mul(m.cols[0], v.x) +
-           binary_mul(m.cols[1], v.y);
+    return binary_add(
+        binary_mul(m.cols[0], v.v[0]),
+        binary_mul(m.cols[1], v.v[1]));
 }
 inline {ret}float3 binary_mul({lhs}float3x3 m, {rhs}float3 v) {
-    return binary_mul(m.cols[0], v.x) +
-           binary_mul(m.cols[1], v.y) +
-           binary_mul(m.cols[2], v.z);
+    return binary_add(
+        binary_add(
+            binary_mul(m.cols[0], v.v[0]),
+            binary_mul(m.cols[1], v.v[1])),
+        binary_mul(m.cols[2], v.v[2]));
 }
 inline {ret}float4 binary_mul({lhs}float4x4 m, {rhs}float4 v) {
-    return binary_mul(m.cols[0], v.x) +
-           binary_mul(m.cols[1], v.y) +
-           binary_mul(m.cols[2], v.z) +
-           binary_mul(m.cols[3], v.w);
+    return binary_add(
+        binary_add(
+            binary_mul(m.cols[0], v.v[0]),
+            binary_mul(m.cols[1], v.v[1])),
+        binary_add(
+           binary_mul(m.cols[2], v.v[2]),
+           binary_mul(m.cols[3], v.v[3])));
 }
 
 // matrix-matrix binary operators
@@ -1036,61 +1023,61 @@ inline {ret}float4x4 binary_mul({lhs}float4x4 lhs, {rhs}float4x4 rhs) {
 // transpose
 inline uniform float2x2 transpose(uniform float2x2 m) {
     return make_float2x2(
-        make_float2(m.cols[0].x, m.cols[1].x),
-        make_float2(m.cols[0].y, m.cols[1].y));
+        make_float2(m.cols[0].v[0], m.cols[1].v[0]),
+        make_float2(m.cols[0].v[1], m.cols[1].v[1]));
 }
 inline uniform float3x3 transpose(uniform float3x3 m) {
     return make_float3x3(
-        make_float3(m.cols[0].x, m.cols[1].x, m.cols[2].x),
-        make_float3(m.cols[0].y, m.cols[1].y, m.cols[2].y),
-        make_float3(m.cols[0].z, m.cols[1].z, m.cols[2].z));
+        make_float3(m.cols[0].v[0], m.cols[1].v[0], m.cols[2].v[0]),
+        make_float3(m.cols[0].v[1], m.cols[1].v[1], m.cols[2].v[1]),
+        make_float3(m.cols[0].v[2], m.cols[1].v[2], m.cols[2].v[2]));
 }
 inline uniform float4x4 transpose(uniform float4x4 m) {
     return make_float4x4(
-        make_float4(m.cols[0].x, m.cols[1].x, m.cols[2].x, m.cols[3].x),
-        make_float4(m.cols[0].y, m.cols[1].y, m.cols[2].y, m.cols[3].y),
-        make_float4(m.cols[0].z, m.cols[1].z, m.cols[2].z, m.cols[3].z),
-        make_float4(m.cols[0].w, m.cols[1].w, m.cols[2].w, m.cols[3].w));
+        make_float4(m.cols[0].v[0], m.cols[1].v[0], m.cols[2].v[0], m.cols[3].v[0]),
+        make_float4(m.cols[0].v[1], m.cols[1].v[1], m.cols[2].v[1], m.cols[3].v[1]),
+        make_float4(m.cols[0].v[2], m.cols[1].v[2], m.cols[2].v[2], m.cols[3].v[2]),
+        make_float4(m.cols[0].v[3], m.cols[1].v[3], m.cols[2].v[3], m.cols[3].v[3]));
 }
 
 // determinant
 inline uniform float determinant(uniform float2x2 m) {
-    return m.cols[0].x * m.cols[1].y - m.cols[1].x * m.cols[0].y;
+    return m.cols[0].v[0] * m.cols[1].v[1] - m.cols[1].v[0] * m.cols[0].v[1];
 }
 inline uniform float determinant(uniform float3x3 m) {
-    return m.cols[0].x * (m.cols[1].y * m.cols[2].z - m.cols[2].y * m.cols[1].z)
-         - m.cols[1].x * (m.cols[0].y * m.cols[2].z - m.cols[2].y * m.cols[0].z)
-         + m.cols[2].x * (m.cols[0].y * m.cols[1].z - m.cols[1].y * m.cols[0].z);
+    return m.cols[0].v[0] * (m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2])
+         - m.cols[1].v[0] * (m.cols[0].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[0].v[2])
+         + m.cols[2].v[0] * (m.cols[0].v[1] * m.cols[1].v[2] - m.cols[1].v[1] * m.cols[0].v[2]);
 }
 inline uniform float determinant(uniform float4x4 m) {
-    const uniform float coef00 = m.cols[2].z * m.cols[3].w - m.cols[3].z * m.cols[2].w;
-    const uniform float coef02 = m.cols[1].z * m.cols[3].w - m.cols[3].z * m.cols[1].w;
-    const uniform float coef03 = m.cols[1].z * m.cols[2].w - m.cols[2].z * m.cols[1].w;
-    const uniform float coef04 = m.cols[2].y * m.cols[3].w - m.cols[3].y * m.cols[2].w;
-    const uniform float coef06 = m.cols[1].y * m.cols[3].w - m.cols[3].y * m.cols[1].w;
-    const uniform float coef07 = m.cols[1].y * m.cols[2].w - m.cols[2].y * m.cols[1].w;
-    const uniform float coef08 = m.cols[2].y * m.cols[3].z - m.cols[3].y * m.cols[2].z;
-    const uniform float coef10 = m.cols[1].y * m.cols[3].z - m.cols[3].y * m.cols[1].z;
-    const uniform float coef11 = m.cols[1].y * m.cols[2].z - m.cols[2].y * m.cols[1].z;
-    const uniform float coef12 = m.cols[2].x * m.cols[3].w - m.cols[3].x * m.cols[2].w;
-    const uniform float coef14 = m.cols[1].x * m.cols[3].w - m.cols[3].x * m.cols[1].w;
-    const uniform float coef15 = m.cols[1].x * m.cols[2].w - m.cols[2].x * m.cols[1].w;
-    const uniform float coef16 = m.cols[2].x * m.cols[3].z - m.cols[3].x * m.cols[2].z;
-    const uniform float coef18 = m.cols[1].x * m.cols[3].z - m.cols[3].x * m.cols[1].z;
-    const uniform float coef19 = m.cols[1].x * m.cols[2].z - m.cols[2].x * m.cols[1].z;
-    const uniform float coef20 = m.cols[2].x * m.cols[3].y - m.cols[3].x * m.cols[2].y;
-    const uniform float coef22 = m.cols[1].x * m.cols[3].y - m.cols[3].x * m.cols[1].y;
-    const uniform float coef23 = m.cols[1].x * m.cols[2].y - m.cols[2].x * m.cols[1].y;
+    const uniform float coef00 = m.cols[2].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[2].v[3];
+    const uniform float coef02 = m.cols[1].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[1].v[3];
+    const uniform float coef03 = m.cols[1].v[2] * m.cols[2].v[3] - m.cols[2].v[2] * m.cols[1].v[3];
+    const uniform float coef04 = m.cols[2].v[1] * m.cols[3].v[3] - m.cols[3].v[1] * m.cols[2].v[3];
+    const uniform float coef06 = m.cols[1].v[1] * m.cols[3].v[3] - m.cols[3].v[1] * m.cols[1].v[3];
+    const uniform float coef07 = m.cols[1].v[1] * m.cols[2].v[3] - m.cols[2].v[1] * m.cols[1].v[3];
+    const uniform float coef08 = m.cols[2].v[1] * m.cols[3].v[2] - m.cols[3].v[1] * m.cols[2].v[2];
+    const uniform float coef10 = m.cols[1].v[1] * m.cols[3].v[2] - m.cols[3].v[1] * m.cols[1].v[2];
+    const uniform float coef11 = m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2];
+    const uniform float coef12 = m.cols[2].v[0] * m.cols[3].v[3] - m.cols[3].v[0] * m.cols[2].v[3];
+    const uniform float coef14 = m.cols[1].v[0] * m.cols[3].v[3] - m.cols[3].v[0] * m.cols[1].v[3];
+    const uniform float coef15 = m.cols[1].v[0] * m.cols[2].v[3] - m.cols[2].v[0] * m.cols[1].v[3];
+    const uniform float coef16 = m.cols[2].v[0] * m.cols[3].v[2] - m.cols[3].v[0] * m.cols[2].v[2];
+    const uniform float coef18 = m.cols[1].v[0] * m.cols[3].v[2] - m.cols[3].v[0] * m.cols[1].v[2];
+    const uniform float coef19 = m.cols[1].v[0] * m.cols[2].v[2] - m.cols[2].v[0] * m.cols[1].v[2];
+    const uniform float coef20 = m.cols[2].v[0] * m.cols[3].v[1] - m.cols[3].v[0] * m.cols[2].v[1];
+    const uniform float coef22 = m.cols[1].v[0] * m.cols[3].v[1] - m.cols[3].v[0] * m.cols[1].v[1];
+    const uniform float coef23 = m.cols[1].v[0] * m.cols[2].v[1] - m.cols[2].v[0] * m.cols[1].v[1];
     const uniform float4 fac0 = make_float4(coef00, coef00, coef02, coef03);
     const uniform float4 fac1 = make_float4(coef04, coef04, coef06, coef07);
     const uniform float4 fac2 = make_float4(coef08, coef08, coef10, coef11);
     const uniform float4 fac3 = make_float4(coef12, coef12, coef14, coef15);
     const uniform float4 fac4 = make_float4(coef16, coef16, coef18, coef19);
     const uniform float4 fac5 = make_float4(coef20, coef20, coef22, coef23);
-    const uniform float4 Vec0 = make_float4(m.cols[1].x, m.cols[0].x, m.cols[0].x, m.cols[0].x);
-    const uniform float4 Vec1 = make_float4(m.cols[1].y, m.cols[0].y, m.cols[0].y, m.cols[0].y);
-    const uniform float4 Vec2 = make_float4(m.cols[1].z, m.cols[0].z, m.cols[0].z, m.cols[0].z);
-    const uniform float4 Vec3 = make_float4(m.cols[1].w, m.cols[0].w, m.cols[0].w, m.cols[0].w);
+    const uniform float4 Vec0 = make_float4(m.cols[1].v[0], m.cols[0].v[0], m.cols[0].v[0], m.cols[0].v[0]);
+    const uniform float4 Vec1 = make_float4(m.cols[1].v[1], m.cols[0].v[1], m.cols[0].v[1], m.cols[0].v[1]);
+    const uniform float4 Vec2 = make_float4(m.cols[1].v[2], m.cols[0].v[2], m.cols[0].v[2], m.cols[0].v[2]);
+    const uniform float4 Vec3 = make_float4(m.cols[1].v[3], m.cols[0].v[3], m.cols[0].v[3], m.cols[0].v[3]);
     const uniform float4 inv0 = binary_add(binary_sub(binary_mul(Vec1, fac0), binary_mul(Vec2, fac1)), binary_mul(Vec3, fac2));
     const uniform float4 inv1 = binary_add(binary_sub(binary_mul(Vec0, fac0), binary_mul(Vec2, fac3)), binary_mul(Vec3, fac4));
     const uniform float4 inv2 = binary_add(binary_sub(binary_mul(Vec0, fac1), binary_mul(Vec1, fac3)), binary_mul(Vec3, fac5));
@@ -1101,60 +1088,60 @@ inline uniform float determinant(uniform float4x4 m) {
     const uniform float4 inv_1 = binary_mul(inv1, sign_b);
     const uniform float4 inv_2 = binary_mul(inv2, sign_a);
     const uniform float4 inv_3 = binary_mul(inv3, sign_b);
-    const uniform float4 dot0 = binary_mul(m.cols[0], make_float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x));
-    return dot0.x + dot0.y + dot0.z + dot0.w;
+    const uniform float4 dot0 = binary_mul(m.cols[0], make_float4(inv_0.v[0], inv_1.v[0], inv_2.v[0], inv_3.v[0]));
+    return dot0.v[0] + dot0.v[1] + dot0.v[2] + dot0.v[3];
 }
 
 // inverse
 inline uniform float2x2 inverse(uniform float2x2 m) {
     const uniform float one_over_determinant = 1.f / determinant(m);
-    return make_float2x2(m.cols[1].y * one_over_determinant,
-                        -m.cols[0].y * one_over_determinant,
-                        -m.cols[1].x * one_over_determinant,
-                        +m.cols[0].x * one_over_determinant);
+    return make_float2x2(m.cols[1].v[1] * one_over_determinant,
+                        -m.cols[0].v[1] * one_over_determinant,
+                        -m.cols[1].v[0] * one_over_determinant,
+                        +m.cols[0].v[0] * one_over_determinant);
 }
 inline uniform float3x3 inverse(uniform float3x3 m) {
     const uniform float one_over_determinant = 1.f / determinant(m);
     return make_float3x3(
-        (m.cols[1].y * m.cols[2].z - m.cols[2].y * m.cols[1].z) * one_over_determinant,
-        (m.cols[2].y * m.cols[0].z - m.cols[0].y * m.cols[2].z) * one_over_determinant,
-        (m.cols[0].y * m.cols[1].z - m.cols[1].y * m.cols[0].z) * one_over_determinant,
-        (m.cols[2].x * m.cols[1].z - m.cols[1].x * m.cols[2].z) * one_over_determinant,
-        (m.cols[0].x * m.cols[2].z - m.cols[2].x * m.cols[0].z) * one_over_determinant,
-        (m.cols[1].x * m.cols[0].z - m.cols[0].x * m.cols[1].z) * one_over_determinant,
-        (m.cols[1].x * m.cols[2].y - m.cols[2].x * m.cols[1].y) * one_over_determinant,
-        (m.cols[2].x * m.cols[0].y - m.cols[0].x * m.cols[2].y) * one_over_determinant,
-        (m.cols[0].x * m.cols[1].y - m.cols[1].x * m.cols[0].y) * one_over_determinant);
+        (m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2]) * one_over_determinant,
+        (m.cols[2].v[1] * m.cols[0].v[2] - m.cols[0].v[1] * m.cols[2].v[2]) * one_over_determinant,
+        (m.cols[0].v[1] * m.cols[1].v[2] - m.cols[1].v[1] * m.cols[0].v[2]) * one_over_determinant,
+        (m.cols[2].v[0] * m.cols[1].v[2] - m.cols[1].v[0] * m.cols[2].v[2]) * one_over_determinant,
+        (m.cols[0].v[0] * m.cols[2].v[2] - m.cols[2].v[0] * m.cols[0].v[2]) * one_over_determinant,
+        (m.cols[1].v[0] * m.cols[0].v[2] - m.cols[0].v[0] * m.cols[1].v[2]) * one_over_determinant,
+        (m.cols[1].v[0] * m.cols[2].v[1] - m.cols[2].v[0] * m.cols[1].v[1]) * one_over_determinant,
+        (m.cols[2].v[0] * m.cols[0].v[1] - m.cols[0].v[0] * m.cols[2].v[1]) * one_over_determinant,
+        (m.cols[0].v[0] * m.cols[1].v[1] - m.cols[1].v[0] * m.cols[0].v[1]) * one_over_determinant);
 }
 inline uniform float4x4 inverse(uniform float4x4 m) {
-    const uniform float coef00 = m.cols[2].z * m.cols[3].w - m.cols[3].z * m.cols[2].w;
-    const uniform float coef02 = m.cols[1].z * m.cols[3].w - m.cols[3].z * m.cols[1].w;
-    const uniform float coef03 = m.cols[1].z * m.cols[2].w - m.cols[2].z * m.cols[1].w;
-    const uniform float coef04 = m.cols[2].y * m.cols[3].w - m.cols[3].y * m.cols[2].w;
-    const uniform float coef06 = m.cols[1].y * m.cols[3].w - m.cols[3].y * m.cols[1].w;
-    const uniform float coef07 = m.cols[1].y * m.cols[2].w - m.cols[2].y * m.cols[1].w;
-    const uniform float coef08 = m.cols[2].y * m.cols[3].z - m.cols[3].y * m.cols[2].z;
-    const uniform float coef10 = m.cols[1].y * m.cols[3].z - m.cols[3].y * m.cols[1].z;
-    const uniform float coef11 = m.cols[1].y * m.cols[2].z - m.cols[2].y * m.cols[1].z;
-    const uniform float coef12 = m.cols[2].x * m.cols[3].w - m.cols[3].x * m.cols[2].w;
-    const uniform float coef14 = m.cols[1].x * m.cols[3].w - m.cols[3].x * m.cols[1].w;
-    const uniform float coef15 = m.cols[1].x * m.cols[2].w - m.cols[2].x * m.cols[1].w;
-    const uniform float coef16 = m.cols[2].x * m.cols[3].z - m.cols[3].x * m.cols[2].z;
-    const uniform float coef18 = m.cols[1].x * m.cols[3].z - m.cols[3].x * m.cols[1].z;
-    const uniform float coef19 = m.cols[1].x * m.cols[2].z - m.cols[2].x * m.cols[1].z;
-    const uniform float coef20 = m.cols[2].x * m.cols[3].y - m.cols[3].x * m.cols[2].y;
-    const uniform float coef22 = m.cols[1].x * m.cols[3].y - m.cols[3].x * m.cols[1].y;
-    const uniform float coef23 = m.cols[1].x * m.cols[2].y - m.cols[2].x * m.cols[1].y;
+    const uniform float coef00 = m.cols[2].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[2].v[3];
+    const uniform float coef02 = m.cols[1].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[1].v[3];
+    const uniform float coef03 = m.cols[1].v[2] * m.cols[2].v[3] - m.cols[2].v[2] * m.cols[1].v[3];
+    const uniform float coef04 = m.cols[2].v[1] * m.cols[3].v[3] - m.cols[3].v[1] * m.cols[2].v[3];
+    const uniform float coef06 = m.cols[1].v[1] * m.cols[3].v[3] - m.cols[3].v[1] * m.cols[1].v[3];
+    const uniform float coef07 = m.cols[1].v[1] * m.cols[2].v[3] - m.cols[2].v[1] * m.cols[1].v[3];
+    const uniform float coef08 = m.cols[2].v[1] * m.cols[3].v[2] - m.cols[3].v[1] * m.cols[2].v[2];
+    const uniform float coef10 = m.cols[1].v[1] * m.cols[3].v[2] - m.cols[3].v[1] * m.cols[1].v[2];
+    const uniform float coef11 = m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2];
+    const uniform float coef12 = m.cols[2].v[0] * m.cols[3].v[3] - m.cols[3].v[0] * m.cols[2].v[3];
+    const uniform float coef14 = m.cols[1].v[0] * m.cols[3].v[3] - m.cols[3].v[0] * m.cols[1].v[3];
+    const uniform float coef15 = m.cols[1].v[0] * m.cols[2].v[3] - m.cols[2].v[0] * m.cols[1].v[3];
+    const uniform float coef16 = m.cols[2].v[0] * m.cols[3].v[2] - m.cols[3].v[0] * m.cols[2].v[2];
+    const uniform float coef18 = m.cols[1].v[0] * m.cols[3].v[2] - m.cols[3].v[0] * m.cols[1].v[2];
+    const uniform float coef19 = m.cols[1].v[0] * m.cols[2].v[2] - m.cols[2].v[0] * m.cols[1].v[2];
+    const uniform float coef20 = m.cols[2].v[0] * m.cols[3].v[1] - m.cols[3].v[0] * m.cols[2].v[1];
+    const uniform float coef22 = m.cols[1].v[0] * m.cols[3].v[1] - m.cols[3].v[0] * m.cols[1].v[1];
+    const uniform float coef23 = m.cols[1].v[0] * m.cols[2].v[1] - m.cols[2].v[0] * m.cols[1].v[1];
     const uniform float4 fac0 = make_float4(coef00, coef00, coef02, coef03);
     const uniform float4 fac1 = make_float4(coef04, coef04, coef06, coef07);
     const uniform float4 fac2 = make_float4(coef08, coef08, coef10, coef11);
     const uniform float4 fac3 = make_float4(coef12, coef12, coef14, coef15);
     const uniform float4 fac4 = make_float4(coef16, coef16, coef18, coef19);
     const uniform float4 fac5 = make_float4(coef20, coef20, coef22, coef23);
-    const uniform float4 Vec0 = make_float4(m.cols[1].x, m.cols[0].x, m.cols[0].x, m.cols[0].x);
-    const uniform float4 Vec1 = make_float4(m.cols[1].y, m.cols[0].y, m.cols[0].y, m.cols[0].y);
-    const uniform float4 Vec2 = make_float4(m.cols[1].z, m.cols[0].z, m.cols[0].z, m.cols[0].z);
-    const uniform float4 Vec3 = make_float4(m.cols[1].w, m.cols[0].w, m.cols[0].w, m.cols[0].w);
+    const uniform float4 Vec0 = make_float4(m.cols[1].v[0], m.cols[0].v[0], m.cols[0].v[0], m.cols[0].v[0]);
+    const uniform float4 Vec1 = make_float4(m.cols[1].v[1], m.cols[0].v[1], m.cols[0].v[1], m.cols[0].v[1]);
+    const uniform float4 Vec2 = make_float4(m.cols[1].v[2], m.cols[0].v[2], m.cols[0].v[2], m.cols[0].v[2]);
+    const uniform float4 Vec3 = make_float4(m.cols[1].v[3], m.cols[0].v[3], m.cols[0].v[3], m.cols[0].v[3]);
     const uniform float4 inv0 = binary_add(binary_sub(binary_mul(Vec1, fac0), binary_mul(Vec2, fac1)), binary_mul(Vec3, fac2));
     const uniform float4 inv1 = binary_add(binary_sub(binary_mul(Vec0, fac0), binary_mul(Vec2, fac3)), binary_mul(Vec3, fac4));
     const uniform float4 inv2 = binary_add(binary_sub(binary_mul(Vec0, fac1), binary_mul(Vec1, fac3)), binary_mul(Vec3, fac5));
@@ -1165,8 +1152,8 @@ inline uniform float4x4 inverse(uniform float4x4 m) {
     const uniform float4 inv_1 = binary_mul(inv1, sign_b);
     const uniform float4 inv_2 = binary_mul(inv2, sign_a);
     const uniform float4 inv_3 = binary_mul(inv3, sign_b);
-    const uniform float4 dot0 = binary_mul(m.cols[0], make_float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x));
-    const uniform float dot1 = dot0.x + dot0.y + dot0.z + dot0.w;
+    const uniform float4 dot0 = binary_mul(m.cols[0], make_float4(inv_0.v[0], inv_1.v[0], inv_2.v[0], inv_3.v[0]));
+    const uniform float dot1 = dot0.v[0] + dot0.v[1] + dot0.v[2] + dot0.v[3];
     const uniform float one_over_determinant = 1.0f / dot1;
     return make_float4x4(binary_mul(inv_0, one_over_determinant),
                          binary_mul(inv_1, one_over_determinant),
