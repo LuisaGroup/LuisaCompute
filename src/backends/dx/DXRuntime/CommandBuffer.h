@@ -15,6 +15,8 @@ class CommandBufferBuilder {
 private:
     CommandBuffer const *cb;
     CommandBufferBuilder(CommandBuffer const *cb);
+    CommandBufferBuilder(CommandBufferBuilder const &) = delete;
+    CommandBufferBuilder(CommandBufferBuilder &&);
     void SetResources(
         Shader const *s,
         vstd::span<const BindProperty> resources);

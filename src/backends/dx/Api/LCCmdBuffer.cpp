@@ -49,7 +49,9 @@ public:
             cmd->dst_offset(),
             cmd->size());
     }
-    void visit(const BufferToTextureCopyCommand *cmd) noexcept override {}
+    void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
+        //TODO
+    }
     struct Visitor {
         LCCmdVisitor *self;
         Function f;
@@ -113,8 +115,12 @@ public:
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {}
-        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {}
+        void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+            //TODO
+        }
+        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+            //TODO
+        }
         void operator()(uint uid, vstd::span<std::byte const> bf) {
             auto PushArray = [&](size_t sz) {
                 bf = {bf.data() + sz, bf.size() - sz};
@@ -194,7 +200,7 @@ public:
         argVec.clear();
         bindProps.clear();
         argVec.resize(sizeof(uint3));
-        *reinterpret_cast<uint3 *>(argVec.data()) = cmd->dispatch_size();
+        memcpy(argVec.data(), vstd::get_rvalue_ptr(cmd->dispatch_size()), sizeof(uint3));
         auto shader = reinterpret_cast<Shader const *>(cmd->handle());
         cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data()});
         auto tempBuffer = bd->GetTempBuffer(argVec.size());
