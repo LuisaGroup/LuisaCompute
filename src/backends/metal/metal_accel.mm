@@ -86,8 +86,7 @@ id<MTLCommandBuffer> MetalAccel::build(
     _update_scratch_size = sizes.refitScratchBufferSize;
     _handle = [device newAccelerationStructureWithSize:sizes.accelerationStructureSize];
     auto scratch_buffer = [device newBufferWithLength:sizes.buildScratchBufferSize
-                                              options:MTLResourceStorageModePrivate |
-                                                      MTLResourceHazardTrackingModeUntracked];
+                                              options:MTLResourceStorageModePrivate];
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
     [command_encoder buildAccelerationStructure:_handle
                                      descriptor:_descriptor
