@@ -7,36 +7,25 @@
 namespace luisa::compute {
 
 void CommandList::_recycle() noexcept {
-    while (_head != nullptr) {
-        auto cmd = _head;
-        _head = _head->next();
-        cmd->recycle();
+    if (!_commands.empty()) {
+        for (auto cmd : _commands) {
+            cmd->recycle();
+        }
     }
 }
 
 void CommandList::append(Command *cmd) noexcept {
-    if (cmd != nullptr) {
-        if (_head == nullptr) { _head = cmd; }
-        if (_tail != nullptr) { _tail->set_next(cmd); }
-        for (_tail = cmd; _tail->next() != nullptr; _tail = _tail->next()) {}
-        _size = std::numeric_limits<size_t>::max();
+    for (; cmd != nullptr; cmd = cmd->next()) {
+        _commands.emplace_back(cmd);
     }
 }
 
-CommandList::CommandList(CommandList &&another) noexcept
-    : _head{another._head},
-      _tail{another._tail} {
-    another._head = nullptr;
-    another._tail = nullptr;
-}
+CommandList::CommandList(CommandList &&another) noexcept = default;
 
 CommandList &CommandList::operator=(CommandList &&rhs) noexcept {
     if (&rhs != this) [[likely]] {
         _recycle();
-        _head = rhs._head;
-        _tail = rhs._tail;
-        rhs._head = nullptr;
-        rhs._tail = nullptr;
+        _commands = std::move(rhs._commands);
     }
     return *this;
 }

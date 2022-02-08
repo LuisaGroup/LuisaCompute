@@ -11,31 +11,8 @@ namespace luisa::compute {
 
 class CommandList : concepts::Noncopyable {
 
-public:
-    class Iterator {
-
-    private:
-        const Command *_command{nullptr};
-
-    public:
-        explicit Iterator(const Command *cmd) noexcept : _command{cmd} {}
-        decltype(auto) operator++() noexcept {
-            _command = _command->next();
-            return (*this);
-        }
-        auto operator++(int) noexcept {
-            auto self = *this;
-            _command = _command->next();
-            return self;
-        }
-        [[nodiscard]] decltype(auto) operator*() const noexcept { return _command; }
-        [[nodiscard]] auto operator==(luisa::default_sentinel_t) const noexcept { return _command == nullptr; }
-    };
-
 private:
-    Command *_head{nullptr};
-    Command *_tail{nullptr};
-    mutable size_t _size{std::numeric_limits<size_t>::max()};
+    luisa::vector<Command *> _commands;
 
 private:
     void _recycle() noexcept;
@@ -47,17 +24,10 @@ public:
     CommandList &operator=(CommandList &&rhs) noexcept;
 
     void append(Command *cmd) noexcept;
-    [[nodiscard]] auto begin() const noexcept { return Iterator{_head}; }
-    [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
-    [[nodiscard]] auto empty() const noexcept { return _head == nullptr; }
-    [[nodiscard]] auto size() const noexcept {
-        // TODO: optimize this
-        if (_size == std::numeric_limits<size_t>::max()) {
-            _size = 0u;
-            for (auto _ [[maybe_unused]] : *this) { _size++; }
-        }
-        return _size;
-    }
+    [[nodiscard]] auto begin() const noexcept { return _commands.begin(); }
+    [[nodiscard]] auto end() const noexcept { return _commands.end(); }
+    [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }
+    [[nodiscard]] auto size() const noexcept { return _commands.size(); }
 };
 
 }// namespace luisa::compute
