@@ -292,70 +292,13 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 
 void StringStateVisitor::visit(const AssignStmt *state) {
     Tracker t(this);
-    auto IsMulFuncCall = [&]() -> bool {
-        if (state->op() == AssignOp::MUL_ASSIGN) {
-            if ((state->lhs()->type()->is_matrix() && (!state->rhs()->type()->is_scalar())) || (state->rhs()->type()->is_matrix() && (!state->lhs()->type()->is_scalar()))) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    if (IsMulFuncCall()) {
-        vstd::string lhsStr;
-        StringStateVisitor vis(f, lhsStr);
-        str << lhsStr;
-        if (IsFloat3x3(*state->lhs()->type()) || IsFloat3x3(*state->rhs()->type())) {
-            str << "=FMul(";
-        } else
-            str << "=mul(";
-        state->rhs()->accept(*this);
-        str << ','
-            << lhsStr
-            << ");\n"sv;
-    } else {
-        {
-            AssignSetter setter;
-            state->lhs()->accept(*this);
-            switch (state->op()) {
-                case AssignOp::ASSIGN:
-                    str << '=';
-                    break;
-                case AssignOp::ADD_ASSIGN:
-                    str << "+=";
-                    break;
-                case AssignOp::SUB_ASSIGN:
-                    str << "-=";
-                    break;
-                case AssignOp::MUL_ASSIGN:
-                    str << "*=";
-                    break;
-                case AssignOp::DIV_ASSIGN:
-                    str << "/=";
-                    break;
-                case AssignOp::MOD_ASSIGN:
-                    str << "%=";
-                    break;
-                case AssignOp::BIT_AND_ASSIGN:
-                    str << "&=";
-                    break;
-                case AssignOp::BIT_OR_ASSIGN:
-                    str << "|=";
-                    break;
-                case AssignOp::BIT_XOR_ASSIGN:
-                    str << "^=";
-                    break;
-                case AssignOp::SHL_ASSIGN:
-                    str << "<<=";
-                    break;
-                case AssignOp::SHR_ASSIGN:
-                    str << ">>=";
-                    break;
-            }
-        }
-        state->rhs()->accept(*this);
-        str << ";\n";
+    {
+        AssignSetter setter;
+        state->lhs()->accept(*this);
+        str << '=';
     }
+    state->rhs()->accept(*this);
+    str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
     SetStub();

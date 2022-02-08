@@ -170,8 +170,14 @@ CommandBufferBuilder::CommandBufferBuilder(CommandBuffer const *cb)
     cb->Reset();
 }
 CommandBufferBuilder::~CommandBufferBuilder() {
-    cb->Close();
+    if (cb)
+        cb->Close();
 }
+CommandBufferBuilder::CommandBufferBuilder(CommandBufferBuilder &&v)
+    : cb(v.cb) {
+    v.cb = nullptr;
+}
+
 CommandBuffer::~CommandBuffer() {
 }
 
