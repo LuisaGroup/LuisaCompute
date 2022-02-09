@@ -59,16 +59,30 @@ public:
         uint64 srcOffset,
         uint64 dstOffset,
         uint64 byteSize);
+    void CopyTexture(
+        TextureBase const *source, uint sourceSlice, uint sourceMipLevel,
+        TextureBase const *dest, uint destSlice, uint destMipLevel);
     void Upload(BufferView const &buffer, void const *src);
     void Readback(BufferView const &buffer, void *dst);
     BufferView GetTempBuffer(size_t size);
-    void CopyBufferToTexture(
-        BufferView const &sourceBuffer,
+    enum class BufferTextureCopy {
+        BufferToTexture,
+        TextureToBuffer,
+    };
+    void CopyBufferTexture(
+        BufferView const &buffer,
         TextureBase *texture,
         uint targetMip,
-        uint width,
-        uint height,
-        uint depth);
+        BufferTextureCopy ope);
+    struct CopyInfo {
+        size_t bufferSize;
+        size_t alignedBufferSize;
+        size_t stepSize;
+        size_t copySize;
+    };
+    static CopyInfo GetCopyTextureBufferSize(
+        TextureBase *texture,
+        uint targetMip);
     ~CommandBufferBuilder();
 };
 class CommandBuffer : public vstd::IDisposable {

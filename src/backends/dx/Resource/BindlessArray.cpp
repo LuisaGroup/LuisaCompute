@@ -7,6 +7,26 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <DXRuntime/CommandAllocator.h>
 namespace toolhub::directx {
+static void GenTex2DSize(BindlessArray::BindlessStruct &s, uint2 size) {
+    s.tex2DSize = size.y;
+    s.tex2DSize <<= 16;
+    s.tex2DSize |= size.x;
+}
+static void GenTex3DSize(BindlessArray::BindlessStruct &s, uint3 size) {
+    s.tex3DSizeXY = size.y;
+    s.tex3DSizeXY <<= 16;
+    s.tex3DSizeXY |= size.x;
+    s.tex3DSizeZSamp &= 65536;
+    s.tex3DSizeZSamp |= (size.z << 16);
+}
+static void GenSampler2D(BindlessArray::BindlessStruct &s, uint samp2D) {
+    s.tex3DSizeZSamp |= samp2D;
+}
+static void GenSampler3D(BindlessArray::BindlessStruct &s, uint samp3D) {
+    samp3D <<= 8;
+    s.tex3DSizeZSamp |= samp3D;
+}
+
 BindlessArray::BindlessArray(
     Device *device, uint arraySize)
     : Resource(device),
@@ -43,13 +63,13 @@ void BindlessArray::TryReturnIndex(uint originValue) {
     }
 }
 void BindlessArray::Bind(Property const &prop, uint index) {
+    BindlessStruct &bindGrp = binded[index];
     std::lock_guard lck(globalMtx);
-    auto ite = updateMap.Emplace(
-        index,
-        vstd::MakeLazyEval([&] {
-            return binded[index];
-        }));
-    auto &&bindGrp = ite.Value();
+    auto dsp = vstd::create_disposer([&] {
+        updateMap.ForceEmplace(
+            index,
+            bindGrp);
+    });
     prop.multi_visit(
         [&](BufferView const &v) {
             AddDepend(index, BindTag::Buffer, reinterpret_cast<size_t>(v.buffer));
@@ -85,11 +105,13 @@ void BindlessArray::Bind(Property const &prop, uint index) {
             if (isTex2D) {
                 AddDepend(index, BindTag::Tex2D, reinterpret_cast<size_t>(v.first));
                 bindGrp.tex2D = texIdx;
-                bindGrp.sampler2D = smpIdx;
+                GenTex2DSize(bindGrp, uint2(v.first->Width(), v.first->Height()));
+                GenSampler2D(bindGrp, smpIdx);
             } else {
                 AddDepend(index, BindTag::Tex3D, reinterpret_cast<size_t>(v.first));
                 bindGrp.tex3D = texIdx;
-                bindGrp.sampler3D = smpIdx;
+                GenTex3DSize(bindGrp, uint3(v.first->Width(), v.first->Height(), v.first->Depth()));
+                GenSampler3D(bindGrp, smpIdx);
             }
         });
 }
