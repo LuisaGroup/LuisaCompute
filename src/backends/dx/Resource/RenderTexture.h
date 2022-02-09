@@ -6,8 +6,8 @@ class RenderTexture final : public TextureBase {
 private:
     AllocHandle allocHandle;
     mutable vstd::optional<vstd::HashMap<uint, uint>> uavIdcs;
+    mutable vstd::optional<vstd::HashMap<uint, uint>> srvIdcs;
     mutable std::mutex allocMtx;
-    mutable std::atomic_uint srvIdx;
     bool allowUav;
 
 public:
@@ -22,7 +22,7 @@ public:
         bool allowUav,
         IGpuAllocator *allocator = nullptr);
     ~RenderTexture();
-    D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc() const override;
+    D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const override;
     ID3D12Resource *GetResource() const override {
         return allocHandle.resource.Get();
     }
@@ -31,7 +31,7 @@ public:
     }
     D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const override;
     Tag GetTag() const override { return Tag::RenderTexture; }
-    uint GetGlobalSRVIndex() const override;
+    uint GetGlobalSRVIndex(uint mipOffset = 0) const override;
     uint GetGlobalUAVIndex(uint mipLevel) const override;
     VSTD_SELF_PTR
 };

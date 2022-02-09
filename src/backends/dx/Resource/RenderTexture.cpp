@@ -80,7 +80,6 @@ RenderTexture::RenderTexture(
     : TextureBase(device, width, height, format, dimension, depth, mip),
       allocHandle(allocator),
       allowUav(allowUav) {
-    srvIdx = std::numeric_limits<uint>::max();
     D3D12_RESOURCE_DESC texDesc;
     memset(&texDesc, 0, sizeof(D3D12_RESOURCE_DESC));
     switch (dimension) {
@@ -142,7 +141,7 @@ RenderTexture::RenderTexture(
     //Setup Desc
 }
 
-D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc() const {
+D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc(uint mipOffset) const {
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     auto format = allocHandle.resource->GetDesc();
@@ -159,13 +158,13 @@ D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc() const {
     switch (dimension) {
         case TextureDimension::Cubemap:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-            srvDesc.TextureCube.MostDetailedMip = 0;
+            srvDesc.TextureCube.MostDetailedMip = mipOffset;
             srvDesc.TextureCube.MipLevels = format.MipLevels;
             srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
             break;
         case TextureDimension::Tex2D:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-            srvDesc.Texture2D.MostDetailedMip = 0;
+            srvDesc.Texture2D.MostDetailedMip = mipOffset;
             srvDesc.Texture2D.MipLevels = format.MipLevels;
             srvDesc.Texture2D.PlaneSlice = 0;
             srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
@@ -173,12 +172,12 @@ D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc() const {
         case TextureDimension::Tex1D:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
             srvDesc.Texture1D.MipLevels = format.MipLevels;
-            srvDesc.Texture1D.MostDetailedMip = 0;
+            srvDesc.Texture1D.MostDetailedMip = mipOffset;
             srvDesc.Texture1D.ResourceMinLODClamp = 0.0f;
             break;
         case TextureDimension::Tex2DArray:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
-            srvDesc.Texture2DArray.MostDetailedMip = 0;
+            srvDesc.Texture2DArray.MostDetailedMip = mipOffset;
             srvDesc.Texture2DArray.MipLevels = format.MipLevels;
             srvDesc.Texture2DArray.PlaneSlice = 0;
             srvDesc.Texture2DArray.ResourceMinLODClamp = 0.0f;
@@ -188,7 +187,7 @@ D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc() const {
         case TextureDimension::Tex3D:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
             srvDesc.Texture3D.MipLevels = format.MipLevels;
-            srvDesc.Texture3D.MostDetailedMip = 0;
+            srvDesc.Texture3D.MostDetailedMip = mipOffset;
             srvDesc.Texture3D.ResourceMinLODClamp = 0.0f;
             break;
     }
@@ -226,18 +225,20 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetColorUavDesc(uint targetMipLe
     }
     return uavDesc;
 }
-uint RenderTexture::GetGlobalSRVIndex() const {
-    uint tempSrvIdx = srvIdx;
-    if (tempSrvIdx != std::numeric_limits<uint>::max()) return tempSrvIdx;
-    auto srvDesc = GetColorSrvDesc();
+uint RenderTexture::GetGlobalSRVIndex(uint mipOffset) const {
     std::lock_guard lck(allocMtx);
-    tempSrvIdx = device->globalHeap->AllocateIndex();
-    device->globalHeap->CreateSRV(
-        GetResource(),
-        srvDesc,
-        tempSrvIdx);
-    srvIdx = tempSrvIdx;
-    return tempSrvIdx;
+    srvIdcs.New();
+    auto ite = srvIdcs->Emplace(
+        mipOffset,
+        vstd::MakeLazyEval([&]() -> uint {
+            auto v = device->globalHeap->AllocateIndex();
+            device->globalHeap->CreateSRV(
+                GetResource(),
+                GetColorSrvDesc(mipOffset),
+                v);
+            return v;
+        }));
+    return ite.Value();
 }
 uint RenderTexture::GetGlobalUAVIndex(uint mipLevel) const {
     if (!allowUav) return std::numeric_limits<uint>::max();
@@ -257,11 +258,13 @@ uint RenderTexture::GetGlobalUAVIndex(uint mipLevel) const {
 }
 RenderTexture ::~RenderTexture() {
     auto &globalHeap = *device->globalHeap.get();
-    if (srvIdx != std::numeric_limits<uint>::max()) {
-        globalHeap.ReturnIndex(srvIdx);
-    }
     if (uavIdcs) {
         for (auto &&i : *uavIdcs) {
+            globalHeap.ReturnIndex(i.second);
+        }
+    }
+    if (srvIdcs) {
+        for (auto &&i : *srvIdcs) {
             globalHeap.ReturnIndex(i.second);
         }
     }

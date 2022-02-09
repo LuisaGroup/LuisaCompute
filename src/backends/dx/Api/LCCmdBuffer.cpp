@@ -111,15 +111,34 @@ public:
                     std::move(name),
                     DescriptorHeapView(
                         self->device->globalHeap.get(),
-                        rt->GetGlobalSRVIndex()));
+                        rt->GetGlobalSRVIndex(bf.level)));
             }
             ++arg;
         }
         void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
-            //TODO
+            auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
+            auto res = arr->Buffer();
+            self->stateTracker.RecordState(
+                res,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            vstd::string name;
+            CodegenUtility::GetVariableName(
+                *arg,
+                name);
+            self->bindProps.emplace_back(
+                std::move(name),
+                BufferView(res, 0));
+            ++arg;
         }
         void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
-            //TODO
+            vstd::string name;
+            CodegenUtility::GetVariableName(
+                *arg,
+                name);
+            self->bindProps.emplace_back(
+                std::move(name),
+                reinterpret_cast<TopAccel *>(bf.handle));
+            ++arg;
         }
         void operator()(uint uid, vstd::span<std::byte const> bf) {
             auto PushArray = [&](size_t sz) {
@@ -229,10 +248,98 @@ public:
             } break;
         }
     }
-    void visit(const TextureUploadCommand *cmd) noexcept override {}
-    void visit(const TextureDownloadCommand *cmd) noexcept override {}
-    void visit(const TextureCopyCommand *cmd) noexcept override {}
-    void visit(const TextureToBufferCopyCommand *cmd) noexcept override {}
+    void visit(const TextureUploadCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
+            rt,
+            cmd->level());
+        auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize);
+        auto uploadBuffer = static_cast<UploadBuffer const *>(bfView.buffer);
+        size_t bufferOffset = bfView.offset;
+        size_t leftedSize = copyInfo.bufferSize;
+        auto dataPtr = reinterpret_cast<vbyte const *>(cmd->data());
+        while (leftedSize > 0) {
+            uploadBuffer->CopyData(
+                bufferOffset,
+                {dataPtr, copyInfo.copySize});
+            dataPtr += copyInfo.copySize;
+            leftedSize -= copyInfo.copySize;
+            bufferOffset += copyInfo.stepSize;
+        }
+        bd->CopyBufferTexture(
+            bfView,
+            rt,
+            cmd->level(),
+            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+    }
+    void visit(const TextureDownloadCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
+            rt,
+            cmd->level());
+        auto bfView = bd->GetCB()->GetAlloc()->GetTempReadbackBuffer(copyInfo.alignedBufferSize);
+        auto rbBuffer = static_cast<ReadbackBuffer const *>(bfView.buffer);
+        size_t bufferOffset = bfView.offset;
+        size_t leftedSize = copyInfo.bufferSize;
+        auto dataPtr = reinterpret_cast<vbyte *>(cmd->data());
+        while (leftedSize > 0) {
+            bd->GetCB()->GetAlloc()->ExecuteAfterComplete(
+                [rbBuffer,
+                 bufferOffset,
+                 dataPtr,
+                 copySize = copyInfo.copySize] {
+                    rbBuffer->CopyData(
+                        bufferOffset,
+                        {dataPtr, copySize});
+                });
+            dataPtr += copyInfo.copySize;
+            leftedSize -= copyInfo.copySize;
+            bufferOffset += copyInfo.stepSize;
+        }
+        bd->CopyBufferTexture(
+            bfView,
+            rt,
+            cmd->level(),
+            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
+    }
+    void visit(const TextureCopyCommand *cmd) noexcept override {
+        auto src = reinterpret_cast<RenderTexture *>(cmd->src_handle());
+        auto dst = reinterpret_cast<RenderTexture *>(cmd->dst_handle());
+        stateTracker.RecordState(
+            src,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.RecordState(
+            dst,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        bd->CopyTexture(
+            src,
+            0,
+            cmd->src_level(),
+            dst,
+            0,
+            cmd->dst_level());
+    }
+    void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
+        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.RecordState(
+            bf,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        bd->CopyBufferTexture(
+            BufferView{bf},
+            rt,
+            cmd->level(),
+            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
+    }
     void visit(const AccelUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(

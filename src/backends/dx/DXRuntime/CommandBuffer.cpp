@@ -89,18 +89,45 @@ void CommandBufferBuilder::CopyBuffer(
         srcOffset,
         byteSize);
 }
-void CommandBufferBuilder::CopyBufferToTexture(
-    BufferView const &sourceBuffer,
+CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
+    TextureBase *texture,
+    uint targetMip) {
+    uint width = texture->Width();
+    uint height = texture->Height();
+    uint depth = texture->Depth();
+    auto GetValue = [&](uint &v) {
+        v = std::max<uint>(1, v >> targetMip);
+    };
+    GetValue(width);
+    GetValue(height);
+    GetValue(depth);
+    auto pureLineSize = width * Resource::GetTexturePixelSize(texture->Format());
+    auto lineSize = CalcConstantBufferByteSize(pureLineSize);
+    return {
+        pureLineSize * height * depth,
+        lineSize * height * depth,
+        lineSize,
+        pureLineSize};
+}
+void CommandBufferBuilder::CopyBufferTexture(
+    BufferView const &buffer,
     TextureBase *texture,
     uint targetMip,
-    uint width,
-    uint height,
-    uint depth) {
+    BufferTextureCopy ope) {
+    uint width = texture->Width();
+    uint height = texture->Height();
+    uint depth = texture->Depth();
+    auto GetValue = [&](uint &v) {
+        v = std::max<uint>(1, v >> targetMip);
+    };
+    GetValue(width);
+    GetValue(height);
+    GetValue(depth);
     auto c = cb->cmdList.Get();
     D3D12_TEXTURE_COPY_LOCATION sourceLocation;
-    sourceLocation.pResource = sourceBuffer.buffer->GetResource();
+    sourceLocation.pResource = buffer.buffer->GetResource();
     sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    sourceLocation.PlacedFootprint.Offset = sourceBuffer.offset;
+    sourceLocation.PlacedFootprint.Offset = buffer.offset;
     sourceLocation.PlacedFootprint.Footprint =
         {
             (DXGI_FORMAT)texture->Format(),//DXGI_FORMAT Format;
@@ -109,17 +136,25 @@ void CommandBufferBuilder::CopyBufferToTexture(
             depth,                         //uint Depth;
             static_cast<uint>(
                 CalcConstantBufferByteSize(
-                    texture->Width() * Resource::GetTexturePixelSize(texture->Format())))//uint RowPitch;
+                    width * Resource::GetTexturePixelSize(texture->Format())))//uint RowPitch;
         };
     D3D12_TEXTURE_COPY_LOCATION destLocation;
     destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     destLocation.SubresourceIndex = targetMip;
     destLocation.pResource = texture->GetResource();
-    c->CopyTextureRegion(
-        &destLocation,
-        0, 0, 0,
-        &sourceLocation,
-        nullptr);
+    if (ope == BufferTextureCopy::BufferToTexture) {
+        c->CopyTextureRegion(
+            &destLocation,
+            0, 0, 0,
+            &sourceLocation,
+            nullptr);
+    } else {
+        c->CopyTextureRegion(
+            &sourceLocation,
+            0, 0, 0,
+            &destLocation,
+            nullptr);
+    }
 }
 void CommandBufferBuilder::Upload(BufferView const &buffer, void const *src) {
     auto uBuffer = cb->alloc->GetTempUploadBuffer(buffer.byteSize);
@@ -133,6 +168,25 @@ void CommandBufferBuilder::Upload(BufferView const &buffer, void const *src) {
         uBuffer.offset,
         buffer.offset,
         buffer.byteSize);
+}
+void CommandBufferBuilder::CopyTexture(
+    TextureBase const* source, uint sourceSlice, uint sourceMipLevel,
+    TextureBase const* dest, uint destSlice, uint destMipLevel) {
+    if (source->Dimension() == TextureDimension::Tex2D) sourceSlice = 0;
+    if (dest->Dimension() == TextureDimension::Tex2D) destSlice = 0;
+    D3D12_TEXTURE_COPY_LOCATION sourceLocation;
+    sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    sourceLocation.SubresourceIndex = sourceSlice * source->Mip() + sourceMipLevel;
+    D3D12_TEXTURE_COPY_LOCATION destLocation;
+    destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    destLocation.SubresourceIndex = destSlice * dest->Mip() + destMipLevel;
+    sourceLocation.pResource = source->GetResource();
+    destLocation.pResource = dest->GetResource();
+    cb->cmdList->CopyTextureRegion(
+        &destLocation,
+        0, 0, 0,
+        &sourceLocation,
+        nullptr);
 }
 BufferView CommandBufferBuilder::GetTempBuffer(size_t size) {
     return cb->alloc->GetTempDefaultBuffer(size);

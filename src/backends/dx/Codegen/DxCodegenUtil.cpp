@@ -18,6 +18,7 @@ struct CodegenGlobal {
     vstd::HashMap<uint64, uint64> constTypes;
     vstd::HashMap<uint64, uint64> funcTypes;
     vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
+    vstd::HashMap<Type const *, uint64> bindlessBufferTypes;
     vstd::vector<StructGenerator *> customStructVector;
     vstd::optional<vstd::move_only_func<void()>> assignFunc;
     StructVariableTracker tracker;
@@ -25,6 +26,7 @@ struct CodegenGlobal {
     uint64 constCount = 0;
     uint64 funcCount = 0;
     uint64 tempCount = 0;
+    uint64 bindlessBufferCount = 0;
     bool useTraceClosest = false;
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;
@@ -44,6 +46,7 @@ struct CodegenGlobal {
         structTypes.Clear();
         constTypes.Clear();
         funcTypes.Clear();
+        bindlessBufferTypes.Clear();
         customStruct.Clear();
         customStructVector.clear();
         tracker.Clear();
@@ -51,6 +54,16 @@ struct CodegenGlobal {
         count = 0;
         funcCount = 0;
         tempCount = 0;
+        bindlessBufferCount = 0;
+    }
+    uint AddBindlessType(Type const *type) {
+        return bindlessBufferTypes
+            .Emplace(
+                type,
+                vstd::MakeLazyEval([&] {
+                    return bindlessBufferCount++;
+                }))
+            .Value();
     }
     StructGenerator *CreateStruct(Type const *t) {
         auto ite = customStruct.Find(t);
@@ -312,7 +325,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             break;
         }
         case Type::Tag::BINDLESS_ARRAY: {
-            str << "StructuredBuffer<BdlsStruct>"sv;
+            str << "BINDLESS_ARRAY"sv;
         } break;
         case Type::Tag::ACCEL: {
             str << "RaytracingAccelerationStructure"sv;
@@ -551,44 +564,54 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "transpose"sv;
             break;
         case CallOp::INVERSE:
-            str << "inverse"sv;
+            str << "_inverse"sv;
             break;
-        case CallOp::ATOMIC_EXCHANGE:
+        case CallOp::ATOMIC_EXCHANGE: {
             str << "_atomic_exchange"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE:
+        }
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: {
             str << "_atomic_compare_exchange"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_ADD:
+        }
+        case CallOp::ATOMIC_FETCH_ADD: {
             str << "_atomic_add"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_SUB:
+        }
+        case CallOp::ATOMIC_FETCH_SUB: {
             str << "_atomic_sub"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_AND:
+        }
+        case CallOp::ATOMIC_FETCH_AND: {
             str << "_atomic_and"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_OR:
+        }
+        case CallOp::ATOMIC_FETCH_OR: {
             str << "_atomic_or"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_XOR:
+        }
+        case CallOp::ATOMIC_FETCH_XOR: {
             str << "_atomic_xor"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_MIN:
+        }
+        case CallOp::ATOMIC_FETCH_MIN: {
             str << "_atomic_min"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_MAX:
+        }
+        case CallOp::ATOMIC_FETCH_MAX: {
+
             str << "_atomic_max"sv;
             getPointer();
             return;
+        }
         case CallOp::TEXTURE_READ:
             str << "Smptx";
             break;
@@ -676,6 +699,50 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             break;
         case CallOp::TRACE_ANY:
             str << "TraceAny"sv;
+            break;
+        case CallOp::BINDLESS_BUFFER_READ: {
+            str << "READ_BUFFER"sv;
+            auto index = opt->AddBindlessType(expr->type());
+            str << '(';
+            auto args = expr->arguments();
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            str << "bdls"sv
+                << vstd::to_string(index)
+                << ')';
+            return;
+        }
+        case CallOp::ASSUME:
+        case CallOp::UNREACHABLE: {
+            return;
+        }
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
+            str << "SampleTex2D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE:
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
+            str << "SampleTex3D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_READ:
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+            str << "ReadTex2D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE3D_READ:
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL:
+            str << "ReadTex3D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE:
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
+            str << "Tex2DSize"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE:
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
+            str << "Tex3DSize"sv;
             break;
         default: {
             auto errorType = expr->op();
@@ -935,11 +1002,15 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                         << v->GetStructDesc() << "};\n";
         }
     }
-   
-    //TODO: print custom struct
     GenerateCBuffer(kernel, kernel.arguments(), finalResult);
-
-    finalResult << "Texture2D<float4> _BindlessTex:register(t0,space1);\n"sv;
+    // Bindless Buffers;
+    for (auto &&i : opt->bindlessBufferTypes) {
+        finalResult << "StructuredBuffer<"sv;
+        GetTypeName(*i.first, finalResult, Usage::READ);
+        finalResult << "> bdls"sv
+                    << vstd::to_string(i.second)
+                    << ":register(t0,space1);\n"sv;
+    }
     CodegenResult::Properties properties;
     properties.reserve(kernel.arguments().size() + 2);
     properties.emplace_back(
@@ -995,6 +1066,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                 } else {
                     genArg(RegisterType::SRV, ShaderVariableType::SRVDescriptorHeap, 't');
                 }
+                break;
             case Type::Tag::BUFFER: {
                 if (Writable(i)) {
                     genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');

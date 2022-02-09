@@ -14,16 +14,17 @@ public:
         Tex2D,
         Tex3D
     };
-
-private:
     struct BindlessStruct {
         static constexpr uint n_pos = std::numeric_limits<uint>::max();
         uint buffer;
         uint tex2D;
-        uint sampler2D;
         uint tex3D;
-        uint sampler3D;
+        uint tex2DSize;
+        uint tex3DSizeXY;
+        uint tex3DSizeZSamp;
     };
+
+private:
     vstd::vector<BindlessStruct> binded;
     vstd::HashMap<uint, BindlessStruct> updateMap;
     using Map = vstd::HashMap<size_t, size_t>;
@@ -44,6 +45,7 @@ public:
     void Bind(Property const &prop, uint index);
     void UnBind(BindTag type, uint index);
     bool IsPtrInBindless(size_t ptr) const;
+    DefaultBuffer const *Buffer() const { return &buffer; }
     void Update(
         CommandBufferBuilder &builder);
     Tag GetTag() const override { return Tag::BindlessArray; }
