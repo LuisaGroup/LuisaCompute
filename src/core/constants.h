@@ -13,5 +13,6 @@ constexpr auto inv_pi = 0.318309886183790671537767526745028724f;
 constexpr auto two_over_pi = 0.636619772367581343075535053490057448f;
 constexpr auto sqrt_two = 1.41421356237309504880168872420969808f;
 constexpr auto inv_sqrt_two = 0.707106781186547524400844362104849039f;
+constexpr auto one_minus_epsilon = 0x1.fffffep-1f;
 }
 }// namespace luisa::constants
