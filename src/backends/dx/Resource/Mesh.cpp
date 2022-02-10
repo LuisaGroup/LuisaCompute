@@ -46,10 +46,16 @@ Mesh::~Mesh() {
 }
 void Mesh::Build(
 	ResourceStateTracker& tracker,
-	CommandBufferBuilder& cmd) {
+    CommandBufferBuilder &cmd) const {
+    tracker.RecordState(
+        vHandle,
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    tracker.RecordState(
+        iHandle,
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	tracker.RecordState(
 		meshInstance.buffer,
-		D3D12_RESOURCE_STATE_COPY_SOURCE);
+		D3D12_RESOURCE_STATE_COPY_DEST);
 	auto disp = vstd::create_disposer([&] {
 		tracker.RecordState(meshInstance.buffer);
 	});

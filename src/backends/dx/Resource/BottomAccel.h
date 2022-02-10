@@ -25,6 +25,7 @@ public:
 		Buffer const* iHandle, size_t iOffset, size_t iCount);
 	~BottomAccel();
 	void Build(
+		ResourceStateTracker& tracker,
 		CommandBufferBuilder& builder) const;
 };
 }// namespace toolhub::directx

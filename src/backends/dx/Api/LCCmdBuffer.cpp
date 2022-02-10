@@ -354,11 +354,11 @@ public:
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->Build(*bd);
+        accel->Build(stateTracker, *bd);
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->Build(*bd);
+        accel->Build(stateTracker, *bd);
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
