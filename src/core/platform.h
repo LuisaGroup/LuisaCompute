@@ -16,7 +16,11 @@
 #define LUISA_FORCE_INLINE __forceinline
 #define LUISA_NEVER_INLINE __declspec(noinline)
 #define LUISA_DLL
+#ifdef LUISA_COMPUTE_CORE_INTERNAL
 #define LUISA_EXPORT_API LUISA_EXTERN_C __declspec(dllexport)
+#else
+#define LUISA_EXPORT_API LUISA_EXTERN_C __declspec(dllimport)
+#endif
 #else
 #define LUISA_FORCE_INLINE [[gnu::always_inline, gnu::hot]] inline
 #define LUISA_NEVER_INLINE [[gnu::noinline]]
