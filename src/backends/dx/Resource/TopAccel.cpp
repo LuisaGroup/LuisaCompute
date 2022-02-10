@@ -9,19 +9,15 @@
 namespace toolhub::directx {
 namespace detail {
 void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
-    auto GetRow = [&](uint row) {
-        return float4(
-            tr.cols[0][row],
-            tr.cols[1][row],
-            tr.cols[2][row],
-            tr.cols[3][row]);
-    };
-    float4 *x = (float4 *)(&inst.Transform[0][0]);
-    float4 *y = (float4 *)(&inst.Transform[1][0]);
-    float4 *z = (float4 *)(&inst.Transform[2][0]);
-    *x = GetRow(0);
-    *y = GetRow(1);
-    *z = GetRow(2);
+    float *x[3] = {inst.Transform[0],
+                   inst.Transform[1],
+                   inst.Transform[2]};
+    for (auto j : vstd::range(3)) {
+        for (auto i : vstd::range(4)) {
+            auto ptr = reinterpret_cast<float const *>(&tr.cols[j]);
+            x[j][i] = ptr[i];
+        }
+    }
 }
 }// namespace detail
 TopAccel::TopAccel(Device *device, luisa::compute::AccelBuildHint hint)

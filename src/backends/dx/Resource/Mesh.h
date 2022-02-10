@@ -28,7 +28,7 @@ public:
 	~Mesh();
 	void Build(
 		ResourceStateTracker& tracker,
-		CommandBufferBuilder& cmd);
+		CommandBufferBuilder& cmd) const;
 	ID3D12Resource* GetResource() const override;
 	D3D12_RESOURCE_STATES GetInitState() const override;
 	VSTD_SELF_PTR

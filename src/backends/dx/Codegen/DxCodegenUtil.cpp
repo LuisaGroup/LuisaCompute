@@ -369,10 +369,64 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
     }
 }
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, StringStateVisitor &vis) {
+    auto args = expr->arguments();
+    auto GenMakeFunc = [&]() {
+        uint tarDim = [&]() -> uint {
+            switch (expr->type()->tag()) {
+                case Type::Tag::VECTOR:
+                    return expr->type()->dimension();
+                case Type::Tag::MATRIX:
+                    return expr->type()->dimension() * expr->type()->dimension();
+                default:
+                    return 1;
+            }
+        }();
+        if (args.size() > 1) {
+            GetTypeName(*expr->type(), str, Usage::READ);
+            str << '(';
+            uint count = 0;
+            for (auto &&i : args) {
+                i->accept(vis);
+                if (i->type()->is_vector()) {
+                    auto dim = i->type()->dimension();
+                    auto ele = i->type()->element();
+                    auto leftEle = tarDim - count;
+                    //More lefted
+                    if (dim <= leftEle) {
+                    } else {
+                        auto swizzle = "xyzw";
+                        str << '.' << vstd::string_view(swizzle, leftEle);
+                    }
+                    count += dim;
+                } else if (i->type()->is_scalar()) {
+                    count++;
+                }
+                str << ',';
+                if (count >= tarDim) break;
+            }
+            if (count < tarDim) {
+                for (auto i : vstd::range(tarDim - count)) {
+                    str << "0,"sv;
+                }
+            }
+            *(str.end() - 1) = ')';
+        } else {
+            str << '(';
+            str << '(';
+            GetTypeName(*expr->type(), str, Usage::READ);
+            str << ')';
+            str << '(';
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            *(str.end() - 1) = ')';
+            str << ')';
+        }
+    };
     auto getPointer = [&]() {
         str << '(';
         uint64 sz = 1;
-        auto args = expr->arguments();
         if (args.size() >= 1) {
             str << "&(";
             args[0]->accept(vis);
@@ -386,18 +440,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
         }
         str << ')';
-    };
-
-    auto IsType = [](Type const *const type, Type::Tag const tag, uint const vecEle) {
-        if (type->tag() == Type::Tag::VECTOR) {
-            if (vecEle > 1) {
-                return type->element()->tag() == tag && type->dimension() == vecEle;
-            } else {
-                return type->tag() == tag;
-            }
-        } else {
-            return vecEle == 1;
-        }
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
@@ -619,73 +661,27 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "Writetx";
             break;
         case CallOp::MAKE_BOOL2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
-                str << "make_bool2"sv;
-
-            break;
         case CallOp::MAKE_BOOL3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 3))
-                str << "make_bool3"sv;
-
-            break;
         case CallOp::MAKE_BOOL4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 4))
-                str << "make_bool4"sv;
-
-            break;
         case CallOp::MAKE_UINT2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 2))
-                str << "make_uint2"sv;
-
-            break;
         case CallOp::MAKE_UINT3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 3))
-                str << "make_uint3"sv;
-            break;
         case CallOp::MAKE_UINT4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 4))
-                str << "make_uint4"sv;
-
-            break;
         case CallOp::MAKE_INT2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 2))
-                str << "make_int2"sv;
-
-            break;
         case CallOp::MAKE_INT3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 3))
-                str << "make_int3"sv;
-
-            break;
         case CallOp::MAKE_INT4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 4))
-                str << "make_int4"sv;
-
-            break;
         case CallOp::MAKE_FLOAT2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 2))
-                str << "make_float2"sv;
-
-            break;
         case CallOp::MAKE_FLOAT3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 3))
-                str << "make_float3"sv;
-
-            break;
         case CallOp::MAKE_FLOAT4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 4))
-                str << "make_float4"sv;
-
-            break;
         case CallOp::MAKE_FLOAT2X2:
-            str << "make_float2x2"sv;
-            break;
         case CallOp::MAKE_FLOAT3X3:
-            str << "make_float3x3"sv;
-            break;
-        case CallOp::MAKE_FLOAT4X4:
-            str << "make_float4x4"sv;
-            break;
+        case CallOp::MAKE_FLOAT4X4: {
+            if (args.size() == 1 && (args[0]->type() == expr->type())) {
+                args[0]->accept(vis);
+            } else {
+                GenMakeFunc();
+            }
+            return;
+        }
         case CallOp::BUFFER_READ:
             str << "bfread"sv;
             //TODO
@@ -752,7 +748,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
     }
     str << '(';
     uint64 sz = 0;
-    auto args = expr->arguments();
     for (auto &&i : args) {
         ++sz;
         i->accept(vis);
@@ -1000,6 +995,30 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         for (auto &&v : opt->customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
+        }
+    }
+    if (kernel.raytracing()) {
+        if (!opt->rayDesc) {
+            finalResult << R"(
+struct FLOATV3{
+    float v[3];
+};
+struct LCRayDesc{
+    FLOATV3 v0;
+    float v1;
+    FLOATV3 v2;
+    float v3;
+};
+)"sv;
+        }
+        if (!opt->hitDesc) {
+            finalResult << R"(
+struct RayPayload{
+    uint v0;
+    uint v1;
+    float2 v2;
+};
+)"sv;
         }
     }
     GenerateCBuffer(kernel, kernel.arguments(), finalResult);

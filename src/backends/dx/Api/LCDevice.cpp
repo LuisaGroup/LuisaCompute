@@ -220,6 +220,7 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
                 },
                 [](auto &&err) {
                     std::cout << err << '\n';
+                    VSTL_ABORT();
                     return 0;
                 });
         }
@@ -261,12 +262,12 @@ uint64_t LCDevice::create_mesh(
         new BottomAccel(
             &nativeDevice,
             reinterpret_cast<Buffer *>(v_buffer),
-            v_offset,
+            v_offset * v_stride,
             v_stride,
             v_count,
             reinterpret_cast<Buffer *>(t_buffer),
-            t_offset,
-            t_count));
+            t_offset * 3 * sizeof(uint),
+            t_count * 3));
 }
 void LCDevice::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<BottomAccel *>(handle);
