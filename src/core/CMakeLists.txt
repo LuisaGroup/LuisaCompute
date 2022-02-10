@@ -33,6 +33,7 @@ target_link_libraries(luisa-compute-core PUBLIC
 set_target_properties(luisa-compute-core PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ON)
+target_compile_definitions(luisa-compute-core PRIVATE LUISA_COMPUTE_CORE_INTERNAL)
 
 if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(luisa-compute-core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
