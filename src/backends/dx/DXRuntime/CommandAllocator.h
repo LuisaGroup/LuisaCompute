@@ -62,6 +62,7 @@ public:
     BufferView GetTempReadbackBuffer(uint64 size);
     BufferView GetTempUploadBuffer(uint64 size);
     BufferView GetTempDefaultBuffer(uint64 size);
+    BufferView GetTempConstBuffer(uint64 size);
     KILL_COPY_CONSTRUCT(CommandAllocator)
     KILL_MOVE_CONSTRUCT(CommandAllocator)
 };

@@ -27,6 +27,9 @@ public:
 	};
 	Chunk Allocate(
 		uint64 targetSize);
+    Chunk Allocate(
+        uint64 targetSize,
+        uint64 align);
 	void Clear();
 };
 }// namespace vstd

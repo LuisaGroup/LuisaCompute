@@ -326,7 +326,10 @@ uint64_t LCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noe
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
 }
-VSTL_EXPORT_C LCDeviceInterface *CreateDevice(Context const &c) {
+VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view) {
     return new LCDevice(c);
+}
+VSTL_EXPORT_C void destroy(LCDeviceInterface *device) {
+    delete static_cast<LCDevice *>(device);
 }
 }// namespace toolhub::directx

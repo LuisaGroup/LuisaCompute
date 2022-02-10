@@ -53,7 +53,20 @@ public:
             cmd->size());
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
-        //TODO
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
+        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.RecordState(
+            bf,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.UpdateState(*bd);
+        bd->CopyBufferTexture(
+            BufferView{bf},
+            rt,
+            cmd->level(),
+            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
     }
     struct Visitor {
         LCCmdVisitor *self;
@@ -225,7 +238,7 @@ public:
         memcpy(argVec.data(), vstd::get_rvalue_ptr(cmd->dispatch_size()), sizeof(uint3));
         auto shader = reinterpret_cast<Shader const *>(cmd->handle());
         cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data()});
-        auto tempBuffer = bd->GetTempBuffer(argVec.size());
+        auto tempBuffer = bd->GetTempConstBuffer(argVec.size());
         stateTracker.RecordState(
             tempBuffer.buffer,
             D3D12_RESOURCE_STATE_COPY_DEST);

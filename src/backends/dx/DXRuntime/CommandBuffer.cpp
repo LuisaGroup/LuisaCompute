@@ -191,7 +191,9 @@ void CommandBufferBuilder::CopyTexture(
 BufferView CommandBufferBuilder::GetTempBuffer(size_t size) {
     return cb->alloc->GetTempDefaultBuffer(size);
 }
-
+BufferView CommandBufferBuilder::GetTempConstBuffer(size_t size) {
+    return cb->alloc->GetTempConstBuffer(size);
+}
 void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
     auto rBuffer = cb->alloc->GetTempReadbackBuffer(buffer.byteSize);
     CopyBuffer(

@@ -65,6 +65,7 @@ public:
     void Upload(BufferView const &buffer, void const *src);
     void Readback(BufferView const &buffer, void *dst);
     BufferView GetTempBuffer(size_t size);
+    BufferView GetTempConstBuffer(size_t size);
     enum class BufferTextureCopy {
         BufferToTexture,
         TextureToBuffer,

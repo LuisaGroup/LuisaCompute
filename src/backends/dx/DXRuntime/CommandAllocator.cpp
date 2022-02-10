@@ -137,5 +137,13 @@ BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size) {
         chunk.offset,
         size};
 }
+BufferView CommandAllocator::GetTempConstBuffer(uint64 size) {
+    auto chunk = defaultAllocator.Allocate(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+    auto package = reinterpret_cast<DefaultBuffer *>(chunk.handle);
+    return {
+        package,
+        chunk.offset,
+        size};
+}
 
 }// namespace toolhub::directx
