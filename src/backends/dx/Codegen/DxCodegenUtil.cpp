@@ -381,7 +381,19 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                     return 1;
             }
         }();
-        if (args.size() > 1) {
+        if (args.size() == 1 && args[0]->type()->is_scalar()) {
+            str << '(';
+            str << '(';
+            GetTypeName(*expr->type(), str, Usage::READ);
+            str << ')';
+            str << '(';
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            *(str.end() - 1) = ')';
+            str << ')';
+        } else {
             GetTypeName(*expr->type(), str, Usage::READ);
             str << '(';
             uint count = 0;
@@ -410,18 +422,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                 }
             }
             *(str.end() - 1) = ')';
-        } else {
-            str << '(';
-            str << '(';
-            GetTypeName(*expr->type(), str, Usage::READ);
-            str << ')';
-            str << '(';
-            for (auto &&i : args) {
-                i->accept(vis);
-                str << ',';
-            }
-            *(str.end() - 1) = ')';
-            str << ')';
         }
     };
     auto getPointer = [&]() {

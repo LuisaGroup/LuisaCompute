@@ -25,6 +25,7 @@ public:
             cmd->offset(),
             cmd->size());
         stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.UpdateState(*bd);
         bd->Upload(bf, cmd->data());
     }
     void visit(const BufferDownloadCommand *cmd) noexcept override {
@@ -33,6 +34,7 @@ public:
             cmd->offset(),
             cmd->size());
         stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.UpdateState(*bd);
         bd->Readback(
             bf,
             cmd->data());
@@ -42,6 +44,7 @@ public:
         auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
         stateTracker.RecordState(srcBf, D3D12_RESOURCE_STATE_COPY_SOURCE);
         stateTracker.RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.UpdateState(*bd);
         bd->CopyBuffer(
             srcBf,
             dstBf,
@@ -226,6 +229,7 @@ public:
         stateTracker.RecordState(
             tempBuffer.buffer,
             D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.UpdateState(*bd);
         bd->Upload(
             tempBuffer,
             argVec.data());
@@ -253,6 +257,7 @@ public:
         stateTracker.RecordState(
             rt,
             D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.UpdateState(*bd);
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
             cmd->level());
@@ -280,6 +285,7 @@ public:
         stateTracker.RecordState(
             rt,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.UpdateState(*bd);
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
             cmd->level());
@@ -317,6 +323,7 @@ public:
         stateTracker.RecordState(
             dst,
             D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.UpdateState(*bd);
         bd->CopyTexture(
             src,
             0,
@@ -334,6 +341,7 @@ public:
         stateTracker.RecordState(
             bf,
             D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.UpdateState(*bd);
         bd->CopyBufferTexture(
             BufferView{bf},
             rt,
@@ -378,25 +386,18 @@ LCCmdBuffer::LCCmdBuffer(
 }
 void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
     auto allocator = queue.CreateAllocator();
-    vstd::vector<vstd::unique_ptr<CommandBuffer>, VEngine_AllocType::VEngine, 32> cacheVec;
+    vstd::unique_ptr<CommandBuffer> cmdBuffer;
     {
         LCCmdVisitor visitor;
         visitor.device = device;
+        cmdBuffer = allocator->GetBuffer();
+        auto cmdBuilder = cmdBuffer->Build();
+        visitor.bd = &cmdBuilder;
         for (auto &&lst : c) {
-            auto stateBuffer = cacheVec.emplace_back(allocator->GetBuffer()).get();
-            auto cmdBuffer = cacheVec.emplace_back(allocator->GetBuffer()).get();
-            {
-                auto cmdBuilder = cmdBuffer->Build();
-                visitor.bd = &cmdBuilder;
-                for (auto &&i : lst)
-                    i->accept(visitor);
-            }
-            auto stateBuilder = stateBuffer->Build();
-            visitor.stateTracker.UpdateState(stateBuilder);
+            for (auto &&i : lst)
+                i->accept(visitor);
         }
-        auto finalBuffer = cacheVec.emplace_back(allocator->GetBuffer()).get();
-        auto builder = finalBuffer->Build();
-        visitor.stateTracker.RestoreState(builder);
+        visitor.stateTracker.RestoreState(cmdBuilder);
     }
     lastFence = queue.Execute(std::move(allocator));
 }
