@@ -29,7 +29,9 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
 
 #define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_tag_name)                              \
     template<typename Lhs, typename Rhs>                                              \
-        requires luisa::compute::any_dsl_v<Lhs, Rhs>                                  \
+        requires luisa::compute::any_dsl_v<Lhs, Rhs> &&                               \
+            luisa::is_basic_v<luisa::compute::expr_value_t<Lhs>> &&                   \
+            luisa::is_basic_v<luisa::compute::expr_value_t<Rhs>>                      \
     [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {            \
         using namespace std::string_view_literals;                                    \
         static constexpr auto is_logic_op = #op == "||"sv || #op == "&&"sv;           \

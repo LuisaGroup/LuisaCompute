@@ -516,7 +516,22 @@ inline uint clz(uint x) { return count_leading_zeros((int)x); }
 inline uniform uint clz(uniform uint x) { return count_leading_zeros((int)x); }
 inline uint popcount(uint x) { return popcnt((int)x); }
 inline uniform uint popcount(uniform uint x) { return popcnt((int)x); }
-
+inline uniform uint reverse(uniform uint n) {
+    n = (n << 16u) | (n >> 16u);
+    n = ((n & 0x00ff00ffu) << 8u) | ((n & 0xff00ff00u) >> 8u);
+    n = ((n & 0x0f0f0f0fu) << 4u) | ((n & 0xf0f0f0f0u) >> 4u);
+    n = ((n & 0x33333333u) << 2u) | ((n & 0xccccccccu) >> 2u);
+    n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
+    return n;
+}
+inline uint reverse(uint n) {
+    n = (n << 16u) | (n >> 16u);
+    n = ((n & 0x00ff00ffu) << 8u) | ((n & 0xff00ff00u) >> 8u);
+    n = ((n & 0x0f0f0f0fu) << 4u) | ((n & 0xf0f0f0f0u) >> 4u);
+    n = ((n & 0x33333333u) << 2u) | ((n & 0xccccccccu) >> 2u);
+    n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
+    return n;
+}
 inline float3 cross(float3 u, float3 v) {
     return make_float3(
         u.v[1] * v.v[2] - v.v[1] * u.v[2],
@@ -561,7 +576,7 @@ inline uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform fl
         # cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
         # log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
         # isinf/isnan/clamp/saturate/lerp/radians/degrees/step
-        # smoothstep/clz/ctz/popcount
+        # smoothstep/clz/ctz/popcount/reverse
         generate_vector_call("min", "min", "iuf", ["a", "b"])
         generate_vector_call("max", "max", "iuf", ["a", "b"])
         generate_vector_call("abs", "abs", "if", ["x"])
