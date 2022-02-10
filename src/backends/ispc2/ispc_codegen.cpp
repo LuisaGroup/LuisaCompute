@@ -550,13 +550,25 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         for (auto arg : f.arguments()) {
             auto aligned_size = (size + 15u) / 16u * 16u;
             if (auto pad_size = aligned_size - size) {
-                _scratch << "    uint8 pad_" << pad_count++
-                         << "[" << pad_size << "];\n";
+                if (pad_size % 4u == 0u) {
+                    _scratch << "    uint _pad_" << pad_count++
+                             << "[" << pad_size / 4u << "];\n";
+                } else {
+                    _scratch << "    uint8 _pad_" << pad_count++
+                             << "[" << pad_size << "];\n";
+                }
             }
             _scratch << "    ";
             _emit_variable_decl(arg, !arg.type()->is_buffer());
             _scratch << ";\n";
-            size = aligned_size + arg.type()->size();// TODO: bindless, accel, etc
+            if (arg.type()->is_buffer() ||
+                arg.type()->is_texture() ||
+                arg.type()->is_accel() ||
+                arg.type()->is_bindless_array()) {
+                size = aligned_size + 8u;
+            } else {
+                size = aligned_size + arg.type()->size();// TODO: bindless, accel, etc
+            }
         }
         _scratch << "};\n\n";
         _scratch << "export void kernel_main(\n"
@@ -633,17 +645,27 @@ void ISPCCodegen::visit(const Type *type) noexcept {
             auto a = member->alignment();
             auto aligned_size = (size + a - 1u) / a * a;
             if (auto pad_size = aligned_size - size) {
-                _scratch << "  uint8 pad_" << pad_count++
-                         << "[" << pad_size << "];\n";
+                if (pad_size % 4u == 0u) {
+                    _scratch << "    uint _pad_" << pad_count++
+                             << "[" << pad_size / 4u << "];\n";
+                } else {
+                    _scratch << "    uint8 _pad_" << pad_count++
+                             << "[" << pad_size << "];\n";
+                }
             }
-            _scratch << "  ";
+            _scratch << "    ";
             _emit_type_name(member);
             _scratch << " m" << i << ";\n";
             size = aligned_size + member->size();
         }
         if (auto pad_size = type->size() - size) {
-            _scratch << "  uint8 pad_" << pad_count
-                     << "[" << pad_size << "];\n";
+            if (pad_size % 4u == 0u) {
+                _scratch << "    uint _pad_" << pad_count
+                         << "[" << pad_size / 4u << "];\n";
+            } else {
+                _scratch << "    uint8 _pad_" << pad_count
+                         << "[" << pad_size << "];\n";
+            }
         }
         _scratch << "};\n\n";
     }
