@@ -27,8 +27,13 @@ if __name__ == "__main__":
 #define _z v[2]
 #define _w v[3]
 
+#define unreachable()
+#define array_access(arr, i) ((arr).a[i])
 #define vector_access(vec, i) ((vec).v[i])
-#define matrix_access(mat, i) ((mat).cols[i])''', file=file)
+#define matrix_access(mat, i) ((mat).cols[i])
+#define buffer_access(buf, i) ((buf)[i])
+#define buffer_read(buf, i) buffer_access(buf, i)
+#define buffer_write(buf, i, value) ((void)(buffer_access(buf, i) = (value)))''', file=file)
         # vector types
         scalar_types = ["int", "uint", "float", "bool"]
         for t in scalar_types:
@@ -1033,7 +1038,8 @@ inline {ret}float4x4 binary_mul({lhs}float4x4 lhs, {rhs}float4x4 rhs) {
         print(template.replace("{ret}", "").replace("{lhs}", "").replace("{rhs}", ""), file=file)
         print(template.replace("{ret}", "").replace("{lhs}", "uniform ").replace("{rhs}", ""), file=file)
         print(template.replace("{ret}", "").replace("{lhs}", "").replace("{rhs}", "uniform "), file=file)
-        print(template.replace("{ret}", "uniform ").replace("{lhs}", "uniform ").replace("{rhs}", "uniform "), file=file)
+        print(template.replace("{ret}", "uniform ").replace("{lhs}", "uniform ").replace("{rhs}", "uniform "),
+              file=file)
 
         template = '''
 // transpose
@@ -1178,3 +1184,21 @@ inline uniform float4x4 inverse(uniform float4x4 m) {
 }'''
         print(template, file=file)
         print(template.replace("uniform ", ""), file=file)
+        print('''
+struct packed_float3 {
+    float a[3];
+};
+struct LCRay {
+    packed_float3 m0;
+    float m1;
+    packed_float3 m2;
+    float m3;
+};
+struct LCHit {
+    uint m0;
+    uint m1;
+    float2 m2;
+};
+
+#define make_array_type(name, T, N) \\
+    struct name { T a[N]; };''', file=file)
