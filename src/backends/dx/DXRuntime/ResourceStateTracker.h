@@ -12,6 +12,7 @@ private:
 	};
 	vstd::HashMap<Resource const*, State> stateMap;
 	vstd::vector<D3D12_RESOURCE_BARRIER> states;
+    void ExecuteStateMap();
 
 public:
 	ResourceStateTracker();

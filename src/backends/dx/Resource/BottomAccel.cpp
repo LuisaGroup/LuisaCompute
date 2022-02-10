@@ -3,6 +3,7 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <Resource/Mesh.h>
+#include <DXRuntime/ResourceStateTracker.h>
 namespace toolhub::directx {
 namespace detail {
 void GetStaticTriangleGeometryDesc(D3D12_RAYTRACING_GEOMETRY_DESC &geometryDesc, Mesh const *mesh) {
@@ -78,15 +79,8 @@ void BottomAccel::Build(
         &bottomStruct,
         0,
         nullptr);
-    D3D12_RESOURCE_BARRIER uavBarrier;
-    D3D12_RESOURCE_BARRIER uavBarriers[2];
-    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    uavBarrier.UAV.pResource = accelBuffer->GetResource();
-    uavBarriers[0] = uavBarrier;
-    uavBarrier.UAV.pResource = scratchBuffer->GetResource();
-    uavBarriers[1] = uavBarrier;
-    builder.CmdList()->ResourceBarrier(
-        vstd::array_count(uavBarriers), uavBarriers);
+    tracker.RecordState(
+        scratchBuffer,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 }
 }// namespace toolhub::directx

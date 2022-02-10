@@ -265,15 +265,8 @@ void TopAccel::Build(
         nullptr);
     topLevelBuildDesc.SourceAccelerationStructureData = topLevelBuildDesc.DestAccelerationStructureData;
     topLevelBuildDesc.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
-    D3D12_RESOURCE_BARRIER uavBarrier;
-    D3D12_RESOURCE_BARRIER uavBarriers[2];
-    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    uavBarrier.UAV.pResource = accelBuffer->GetResource();
-    uavBarriers[0] = uavBarrier;
-    uavBarrier.UAV.pResource = scratchBuffer->GetResource();
-    uavBarriers[1] = uavBarrier;
-    builder.CmdList()->ResourceBarrier(
-        vstd::array_count(uavBarriers), uavBarriers);
+    tracker.RecordState(
+        scratchBuffer,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 }
 }// namespace toolhub::directx
