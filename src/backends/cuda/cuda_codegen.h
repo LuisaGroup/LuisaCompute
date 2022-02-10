@@ -2,6 +2,8 @@
 // Created by Mike on 2021/11/8.
 //
 
+#pragma once
+
 #include <ast/function.h>
 #include <ast/statement.h>
 #include <ast/expression.h>

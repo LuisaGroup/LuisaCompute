@@ -5,6 +5,7 @@
 #include <backends/ispc2/ispc_stream.h>
 #include <backends/ispc2/ispc_device.h>
 #include <backends/ispc2/ispc_event.h>
+#include <backends/ispc2/ispc_codegen.h>
 
 namespace luisa::compute::ispc {
 
@@ -90,8 +91,13 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 }
 
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
+    Codegen::Scratch scratch;
+    ISPCCodegen codegen{scratch};
+    codegen.emit(kernel);
+    LUISA_INFO("Generated Source:\n{}", scratch.view());
     return 0;
 }
+
 void ISPCDevice::destroy_shader(uint64_t handle) noexcept {
 }
 
