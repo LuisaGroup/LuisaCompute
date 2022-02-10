@@ -2,9 +2,8 @@ from os.path import realpath, dirname
 
 if __name__ == "__main__":
     curr_dir = dirname(realpath(__file__))
-    math_library_name = "ispc_device_math"
-    surf_library_name = "ispc_device_resource"
-    with open(f"{curr_dir}/{math_library_name}.isph", "w") as file:
+    library_name = "ispc_device_library"
+    with open(f"{curr_dir}/{library_name}.isph", "w") as file:
 
         # constants
         print('''// constants
@@ -1200,5 +1199,4 @@ struct LCHit {
     float2 m2;
 };
 
-#define make_array_type(name, T, N) \\
-    struct name { T a[N]; };''', file=file)
+#define make_array_type(name, T, N) struct name { T a[N]; }''', file=file)
