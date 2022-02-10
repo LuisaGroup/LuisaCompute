@@ -6283,5 +6283,4 @@ struct LCHit {
     float2 m2;
 };
 
-#define make_array_type(name, T, N) \
-    struct name { T a[N]; };
+#define make_array_type(name, T, N) struct name { T a[N]; }

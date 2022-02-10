@@ -25,31 +25,59 @@ void ISPCCodegen::visit(const UnaryExpr *expr) {
 }
 
 void ISPCCodegen::visit(const BinaryExpr *expr) {
-    switch (expr->op()) {
-        case BinaryOp::ADD: _scratch << "binary_add"; break;
-        case BinaryOp::SUB: _scratch << "binary_sub"; break;
-        case BinaryOp::MUL: _scratch << "binary_mul"; break;
-        case BinaryOp::DIV: _scratch << "binary_div"; break;
-        case BinaryOp::MOD: _scratch << "binary_mod"; break;
-        case BinaryOp::BIT_AND: _scratch << "binary_bit_and"; break;
-        case BinaryOp::BIT_OR: _scratch << "binary_bit_or"; break;
-        case BinaryOp::BIT_XOR: _scratch << "binary_bit_xor"; break;
-        case BinaryOp::SHL: _scratch << "binary_shl"; break;
-        case BinaryOp::SHR: _scratch << "binary_shr"; break;
-        case BinaryOp::AND: _scratch << "binary_and"; break;
-        case BinaryOp::OR: _scratch << "binary_or"; break;
-        case BinaryOp::LESS: _scratch << "binary_lt"; break;
-        case BinaryOp::GREATER: _scratch << "binary_gt"; break;
-        case BinaryOp::LESS_EQUAL: _scratch << "binary_le"; break;
-        case BinaryOp::GREATER_EQUAL: _scratch << "binary_ge"; break;
-        case BinaryOp::EQUAL: _scratch << "binary_eq"; break;
-        case BinaryOp::NOT_EQUAL: _scratch << "binary_ne"; break;
+    if (expr->lhs()->type()->is_scalar() &&
+        expr->rhs()->type()->is_scalar()) {
+        _scratch << "(";
+        expr->lhs()->accept(*this);
+        switch (expr->op()) {
+            case BinaryOp::ADD: _scratch << " + "; break;
+            case BinaryOp::SUB: _scratch << " - "; break;
+            case BinaryOp::MUL: _scratch << " * "; break;
+            case BinaryOp::DIV: _scratch << " / "; break;
+            case BinaryOp::MOD: _scratch << " % "; break;
+            case BinaryOp::BIT_AND: _scratch << " & "; break;
+            case BinaryOp::BIT_OR: _scratch << " | "; break;
+            case BinaryOp::BIT_XOR: _scratch << " ^ "; break;
+            case BinaryOp::SHL: _scratch << " << "; break;
+            case BinaryOp::SHR: _scratch << " >> "; break;
+            case BinaryOp::AND: _scratch << " && "; break;
+            case BinaryOp::OR: _scratch << " || "; break;
+            case BinaryOp::LESS: _scratch << " < "; break;
+            case BinaryOp::GREATER: _scratch << " > "; break;
+            case BinaryOp::LESS_EQUAL: _scratch << " <= "; break;
+            case BinaryOp::GREATER_EQUAL: _scratch << " >= "; break;
+            case BinaryOp::EQUAL: _scratch << " == "; break;
+            case BinaryOp::NOT_EQUAL: _scratch << " != "; break;
+        }
+        expr->rhs()->accept(*this);
+        _scratch << ")";
+    } else {
+        switch (expr->op()) {
+            case BinaryOp::ADD: _scratch << "binary_add"; break;
+            case BinaryOp::SUB: _scratch << "binary_sub"; break;
+            case BinaryOp::MUL: _scratch << "binary_mul"; break;
+            case BinaryOp::DIV: _scratch << "binary_div"; break;
+            case BinaryOp::MOD: _scratch << "binary_mod"; break;
+            case BinaryOp::BIT_AND: _scratch << "binary_bit_and"; break;
+            case BinaryOp::BIT_OR: _scratch << "binary_bit_or"; break;
+            case BinaryOp::BIT_XOR: _scratch << "binary_bit_xor"; break;
+            case BinaryOp::SHL: _scratch << "binary_shl"; break;
+            case BinaryOp::SHR: _scratch << "binary_shr"; break;
+            case BinaryOp::AND: _scratch << "binary_and"; break;
+            case BinaryOp::OR: _scratch << "binary_or"; break;
+            case BinaryOp::LESS: _scratch << "binary_lt"; break;
+            case BinaryOp::GREATER: _scratch << "binary_gt"; break;
+            case BinaryOp::LESS_EQUAL: _scratch << "binary_le"; break;
+            case BinaryOp::GREATER_EQUAL: _scratch << "binary_ge"; break;
+            case BinaryOp::EQUAL: _scratch << "binary_eq"; break;
+            case BinaryOp::NOT_EQUAL: _scratch << "binary_ne"; break;
+        }
+        _scratch << "(";
+        expr->lhs()->accept(*this);
+        _scratch << ", ";
+        expr->rhs()->accept(*this);
+        _scratch << ")";
     }
-    _scratch << "(";
-    expr->lhs()->accept(*this);
-    _scratch << ", ";
-    expr->rhs()->accept(*this);
-    _scratch << ")";
 }
 
 void ISPCCodegen::visit(const MemberExpr *expr) {
@@ -453,6 +481,7 @@ void ISPCCodegen::visit(const AssignStmt *stmt) {
 }
 
 void ISPCCodegen::emit(Function f) {
+    _scratch << "#include <ispc_device_library.isph>\n\n";
     _emit_type_decl();
     _emit_function(f);
 }
@@ -476,7 +505,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "export void "
+        _scratch << "inline void "
                  << "kernel_"
                  << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
@@ -499,33 +528,62 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         any_arg = true;
     }
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "\n    const lc_uint3 ls) {";// launch size
+        _scratch << "\n    const uint3 tid,"
+                    "\n    const uint3 did,"
+                    "\n    const uniform uint3 bid,"
+                    "\n    const uniform uint3 ls) {";// launch size
     } else {
         if (any_arg) { _scratch.pop_back(); }
         _scratch << ") {";
-    }
-    for (auto builtin : f.builtin_variables()) {
-        switch (builtin.tag()) {
-            case Variable::Tag::THREAD_ID:
-                _scratch << "\n  const auto tid = make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
-                break;
-            case Variable::Tag::BLOCK_ID:
-                _scratch << "\n  const auto bid = make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
-                break;
-            case Variable::Tag::DISPATCH_ID:
-                _scratch << "\n  const auto did = lc_make_uint3("
-                         << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
-                         << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
-                         << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
-                break;
-            default: break;
-        }
     }
     _indent = 1;
     _emit_variable_declarations(f.body());
     _indent = 0;
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
+
+    // entry point
+    if (f.tag() == Function::Tag::KERNEL) {
+        _scratch << "struct Params {\n";
+        auto pad_count = 0u;
+        auto size = 0u;
+        for (auto arg : f.arguments()) {
+            auto aligned_size = (size + 15u) / 16u * 16u;
+            if (auto pad_size = aligned_size - size) {
+                _scratch << "    uint8 pad_" << pad_count++
+                         << "[" << pad_size << "];\n";
+            }
+            _scratch << "    ";
+            _emit_variable_decl(arg, !arg.type()->is_buffer());
+            _scratch << ";\n";
+            size = aligned_size + arg.type()->size();// TODO: bindless, accel, etc
+        }
+        _scratch << "};\n\n";
+        _scratch << "export void kernel_main(\n"
+                    "    const Params *uniform params,\n"
+                    "    uniform const uint bx, uniform const uint by, uniform const uint bz,\n"
+                    "    uniform const uint lx, uniform const uint ly, uniform const uint lz) {\n"
+                    "    uniform const uint3 bid = make_uint3(bx, by, bz);\n"
+                    "    uniform const uint3 ls = make_uint3(lx, ly, lz);\n";
+        _scratch << "  foreach ("
+                 << "k = 0..." << f.block_size().z << ", "
+                 << "j = 0..." << f.block_size().y << ", "
+                 << "i = 0..." << f.block_size().x << ") {\n"
+                 << "    uint3 tid = make_uint3(i, j, k);\n"
+                 << "    uint3 did = make_uint3("
+                 << "bx * " << f.block_size().x << " + i, "
+                 << "by * " << f.block_size().y << " + j, "
+                 << "bz * " << f.block_size().z << " + k);\n";
+        _scratch << "    kernel_" << hash_to_string(f.hash()) << "(";
+        for (auto arg : f.arguments()) {
+            _scratch << "params->";
+            _emit_variable_name(arg);
+            _scratch << ", ";
+        }
+        _scratch << "tid, did, bid, ls);\n";
+        _scratch << "  }\n"
+                 << "}";
+    }
 }
 
 void ISPCCodegen::_emit_variable_name(Variable v) noexcept {
@@ -561,7 +619,7 @@ void ISPCCodegen::visit(const Type *type) noexcept {
         _emit_type_name(type->element());
         _scratch << ", "
                  << type->dimension()
-                 << ")\n\n";
+                 << ");\n\n";
     } else if (type->is_structure() &&
                type->description() != ray_type_desc &&
                type->description() != hit_type_desc) {
@@ -581,7 +639,7 @@ void ISPCCodegen::visit(const Type *type) noexcept {
             _scratch << "  ";
             _emit_type_name(member);
             _scratch << " m" << i << ";\n";
-            size += member->size();
+            size = aligned_size + member->size();
         }
         if (auto pad_size = type->size() - size) {
             _scratch << "  uint8 pad_" << pad_count
@@ -662,7 +720,6 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:
-            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
