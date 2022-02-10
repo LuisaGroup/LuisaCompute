@@ -32,7 +32,10 @@ void CommandAllocator::Complete(
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
     }
-    tempEvent.Clear();
+    {
+        std::lock_guard lck(tempEvtMtx);
+        tempEvent.Clear();
+    }
 }
 vstd::unique_ptr<CommandBuffer> CommandAllocator::GetBuffer() {
     auto dev = [&] {
@@ -67,6 +70,7 @@ CommandAllocator::~CommandAllocator() {
     }
 }
 IPipelineEvent *CommandAllocator::AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func) {
+    std::lock_guard lck(tempEvtMtx);
     auto ite = tempEvent.Emplace(ptr, vstd::MakeLazyEval(func));
     return ite.Value().get();
 }
