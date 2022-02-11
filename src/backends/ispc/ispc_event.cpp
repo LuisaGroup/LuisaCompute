@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2022/2/7.
 //
 
-#include <backends/ispc2/ispc_event.h>
+#include <backends/ispc/ispc_event.h>
 
 namespace luisa::compute::ispc {
 
