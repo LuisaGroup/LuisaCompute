@@ -1,5 +1,6 @@
 #pragma vengine_package vengine_directx
 #include <DXRuntime/CommandAllocator.h>
+#include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
 namespace detail {
 
@@ -8,26 +9,36 @@ void CommandAllocator::CollectBuffer(CommandBuffer *buffer) {
     bufferPool.push_back(buffer);
 }
 void CommandAllocator::Execute(
-    ID3D12CommandQueue *queue,
+    CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
+    std::lock_guard lck(queue->GetMutex());
     if (!executeCache.empty()) {
-        queue->ExecuteCommandLists(
+        queue->Queue()->ExecuteCommandLists(
             executeCache.size(),
             executeCache.data());
+
         executeCache.clear();
     }
-    ThrowIfFailed(queue->Signal(fence, fenceIndex));
+    ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
 }
 void CommandAllocator::Complete(
+    CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
-    if (fence->GetCompletedValue() < fenceIndex) {
-        LPCWSTR falseValue = 0;
-        HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-        auto disp = vstd::create_disposer([&] { CloseHandle(eventHandle); });
-        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
-        WaitForSingleObject(eventHandle, INFINITE);
+    uint64 completeValue;
+    vstd::optional<HANDLE> eventHandle;
+    {
+        std::lock_guard lck(CommandQueue::GetMutex());
+        if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
+            LPCWSTR falseValue = 0;
+            eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
+            ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, *eventHandle));
+        }
+    }
+    if (eventHandle) {
+        WaitForSingleObject(*eventHandle, INFINITE);
+        CloseHandle(*eventHandle);
     }
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
@@ -74,7 +85,8 @@ IPipelineEvent *CommandAllocator::AddOrGetTempEvent(void const *ptr, vstd::move_
     auto ite = tempEvent.Emplace(ptr, vstd::MakeLazyEval(func));
     return ite.Value().get();
 }
-void CommandAllocator::Reset() {
+void CommandAllocator::Reset(CommandQueue *queue) {
+    std::lock_guard lck(queue->GetMutex());
     readbackAllocator.Clear();
     uploadAllocator.Clear();
     defaultAllocator.Clear();

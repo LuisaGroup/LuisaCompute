@@ -25,8 +25,10 @@ private:
 	vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
 	vstd::LockFreeArrayQueue<AllocatorPtr> executedAllocators;
 	void ExecuteThread();
+    static std::mutex queueMtx;
 
 public:
+    static std::mutex &GetMutex() { return queueMtx; }
     ID3D12CommandQueue *Queue() const { return queue.Get(); }
 	CommandQueue(
 		Device* device,

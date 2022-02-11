@@ -4,6 +4,7 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <Resource/IGpuAllocator.h>
 namespace toolhub::directx {
+std::mutex CommandQueue::queueMtx;
 CommandQueue::CommandQueue(
 	Device* device,
 	IGpuAllocator* resourceAllocator,
@@ -31,8 +32,8 @@ CommandQueue::AllocatorPtr CommandQueue::CreateAllocator() {
 void CommandQueue::ExecuteThread() {
 	while (enabled) {
 		while (auto b = executedAllocators.Pop()) {
-			(*b)->Complete(cmdFence.Get(), executedFrame + 1);
-			(*b)->Reset();
+			(*b)->Complete(this, cmdFence.Get(), executedFrame + 1);
+			(*b)->Reset(this);
 			allocatorPool.Push(std::move(*b));
 			executedFrame++;
 			{
@@ -60,7 +61,7 @@ CommandQueue::~CommandQueue() {
 	thd.join();
 }
 uint64 CommandQueue::Execute(AllocatorPtr&& alloc) {
-	alloc->Execute(queue.Get(), cmdFence.Get(), lastFrame + 1);
+	alloc->Execute(this, cmdFence.Get(), lastFrame + 1);
 	executedAllocators.Push(std::move(alloc));
 	{
 		std::lock_guard lck(mtx);

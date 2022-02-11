@@ -8,16 +8,21 @@
 #include <Resource/Mesh.h>
 namespace toolhub::directx {
 namespace detail {
-void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
+void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, MeshInstance &meshInst, float4x4 const &tr) {
     float *x[3] = {inst.Transform[0],
                    inst.Transform[1],
                    inst.Transform[2]};
-    for (auto j : vstd::range(3)) {
-        for (auto i : vstd::range(4)) {
+    size_t vv = 0;
+    for (auto i : vstd::range(4))
+        for (auto j : vstd::range(3)) {
             auto ptr = reinterpret_cast<float const *>(&tr.cols[j]);
             x[j][i] = ptr[i];
+            float v = ((float *)&tr[i])[j];
+            meshInst.mat[vv] = v;
+            vv++;
         }
-    }
+
+    memcpy(meshInst.mat, &tr, sizeof(meshInst.mat));
 }
 }// namespace detail
 TopAccel::TopAccel(Device *device, luisa::compute::AccelBuildHint hint)
@@ -87,8 +92,9 @@ bool TopAccel::Update(
     auto &&c = accelMap[idx];
     c.transform = localToWorld;
     D3D12_RAYTRACING_INSTANCE_DESC ist;
-    detail::GetRayTransform(ist, localToWorld);
-    ist.InstanceID = c.mesh->GetMesh()->GetMeshInstIdx();
+    MeshInstance meshInst;
+    detail::GetRayTransform(ist, meshInst, localToWorld);
+    ist.InstanceID = idx;
     ist.InstanceMask = c.mask;
     ist.InstanceContributionToHitGroupIndex = 0;
     ist.Flags = 0;
@@ -96,7 +102,9 @@ bool TopAccel::Update(
     delayCommands.emplace_back(
         UpdateCommand{
             .ist = ist,
-            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
+            .meshInst = meshInst,
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
+            .customBuffer = BufferView(customInstBuffer.get(), sizeof(meshInst) * idx, sizeof(meshInst))});
     return true;
 }
 bool TopAccel::Update(
@@ -115,8 +123,9 @@ bool TopAccel::Update(
         c.transform = localToWorld;
     }
     D3D12_RAYTRACING_INSTANCE_DESC ist;
-    detail::GetRayTransform(ist, localToWorld);
-    ist.InstanceID = accel->GetMesh()->GetMeshInstIdx();
+    MeshInstance meshInst;
+    detail::GetRayTransform(ist, meshInst, localToWorld);
+    ist.InstanceID = idx;
     ist.InstanceMask = mask;
     ist.InstanceContributionToHitGroupIndex = 0;
     ist.Flags = 0;
@@ -124,7 +133,9 @@ bool TopAccel::Update(
     delayCommands.emplace_back(
         UpdateCommand{
             .ist = ist,
-            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
+            .meshInst = meshInst,
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
+            .customBuffer = BufferView(customInstBuffer.get(), sizeof(meshInst) * idx, sizeof(meshInst))});
     return true;
 }
 bool TopAccel::Update(
@@ -136,8 +147,9 @@ bool TopAccel::Update(
     }
     auto &&c = accelMap[idx];
     D3D12_RAYTRACING_INSTANCE_DESC ist;
-    detail::GetRayTransform(ist, c.transform);
-    ist.InstanceID = c.mesh->GetMesh()->GetMeshInstIdx();
+    MeshInstance meshInst;
+    detail::GetRayTransform(ist, meshInst, c.transform);
+    ist.InstanceID = idx;
     ist.InstanceMask = c.mask;
     ist.InstanceContributionToHitGroupIndex = 0;
     ist.Flags = 0;
@@ -145,7 +157,9 @@ bool TopAccel::Update(
     delayCommands.emplace_back(
         UpdateCommand{
             .ist = ist,
-            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
+            .meshInst = meshInst,
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
+            .customBuffer = BufferView(customInstBuffer.get(), sizeof(meshInst) * idx, sizeof(meshInst))});
     return true;
 }
 void TopAccel::Emplace(
@@ -185,23 +199,23 @@ void TopAccel::Reserve(
     auto d = vstd::create_disposer([&] { input.NumDescs = defaultCount; });
     device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
     auto RebuildBuffer = [&](
-                             eastl::shared_ptr<DefaultBuffer> &buffer,
+                             vstd::unique_ptr<DefaultBuffer> &buffer,
                              size_t tarSize,
                              D3D12_RESOURCE_STATES initState,
                              bool copy) {
         if (buffer && buffer->GetByteSize() >= tarSize) return false;
         DefaultBuffer const *b = buffer ? (DefaultBuffer const *)buffer.get() : (DefaultBuffer const *)nullptr;
 
-        auto newBuffer = eastl::make_shared<DefaultBuffer>(
+        auto newBuffer = vstd::create_unique(new DefaultBuffer(
             device,
             CalcAlign(tarSize, 65536),
             device->defaultAllocator,
-            initState);
+            initState));
         if (copy && b) {
             delayCommands.emplace_back(
                 CopyCommand{
-                    .srcBuffer = buffer,
-                    .dstBuffer = newBuffer});
+                    .srcBuffer = std::move(buffer),
+                    .dstBuffer = newBuffer.get()});
         }
         buffer = std::move(newBuffer);
         return true;
@@ -209,6 +223,7 @@ void TopAccel::Reserve(
     if (RebuildBuffer(instBuffer, sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * newCapacity, D3D12_RESOURCE_STATE_COMMON, true)) {
         input.InstanceDescs = instBuffer->GetAddress();
     }
+    RebuildBuffer(customInstBuffer, sizeof(MeshInstance) * newCapacity, D3D12_RESOURCE_STATE_COMMON, true);
     if (RebuildBuffer(accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, false)) {
         topLevelBuildDesc.SourceAccelerationStructureData = 0;
         topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
@@ -220,12 +235,13 @@ void TopAccel::Build(
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder) {
     std::lock_guard lck(mtx);
+    vstd::vector<UpdateCommand> cmdCache;
     auto alloc = builder.GetCB()->GetAlloc();
     for (auto &&i : delayCommands) {
         i.multi_visit(
             [&](CopyCommand &cpyCmd) {
-                DefaultBuffer *srcBuffer = cpyCmd.srcBuffer.get();
-                DefaultBuffer *dstBuffer = cpyCmd.dstBuffer.get();
+                DefaultBuffer const *srcBuffer = cpyCmd.srcBuffer.get();
+                DefaultBuffer const *dstBuffer = cpyCmd.dstBuffer;
                 tracker.RecordState(
                     srcBuffer,
                     D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -244,14 +260,24 @@ void TopAccel::Build(
                 tracker.RecordState(
                     update.buffer.buffer,
                     D3D12_RESOURCE_STATE_COPY_DEST);
-                tracker.UpdateState(builder);
-                auto d = vstd::create_disposer([&] { tracker.RecordState(update.buffer.buffer); });
-                builder.Upload(
-                    update.buffer,
-                    &update.ist);
                 tracker.RecordState(
-                    update.buffer.buffer);
+                    update.customBuffer.buffer,
+                    D3D12_RESOURCE_STATE_COPY_DEST);
+                cmdCache.emplace_back(update);
             });
+    }
+    tracker.UpdateState(builder);
+    for (auto &&i : cmdCache) {
+        auto d = vstd::create_disposer([&] {
+            tracker.RecordState(i.buffer.buffer);
+            tracker.RecordState(i.customBuffer.buffer);
+        });
+        builder.Upload(
+            i.buffer,
+            &i.ist);
+        builder.Upload(
+            i.customBuffer,
+            &i.meshInst);
     }
     delayCommands.clear();
     if (Length() == 0) return;
