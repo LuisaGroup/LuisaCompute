@@ -12,7 +12,6 @@ void CommandAllocator::Execute(
     CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
-    std::lock_guard lck(queue->GetMutex());
     if (!executeCache.empty()) {
         queue->Queue()->ExecuteCommandLists(
             executeCache.size(),
@@ -27,26 +26,17 @@ void CommandAllocator::Complete(
     ID3D12Fence *fence,
     uint64 fenceIndex) {
     uint64 completeValue;
-    vstd::optional<HANDLE> eventHandle;
-    {
-        std::lock_guard lck(CommandQueue::GetMutex());
-        if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
-            LPCWSTR falseValue = 0;
-            eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-            ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, *eventHandle));
-        }
-    }
-    if (eventHandle) {
-        WaitForSingleObject(*eventHandle, INFINITE);
-        CloseHandle(*eventHandle);
+    if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
+        LPCWSTR falseValue = 0;
+        HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
     }
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
     }
-    {
-        std::lock_guard lck(tempEvtMtx);
-        tempEvent.Clear();
-    }
+    tempEvent.Clear();
 }
 vstd::unique_ptr<CommandBuffer> CommandAllocator::GetBuffer() {
     auto dev = [&] {
@@ -81,12 +71,10 @@ CommandAllocator::~CommandAllocator() {
     }
 }
 IPipelineEvent *CommandAllocator::AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func) {
-    std::lock_guard lck(tempEvtMtx);
     auto ite = tempEvent.Emplace(ptr, vstd::MakeLazyEval(func));
     return ite.Value().get();
 }
 void CommandAllocator::Reset(CommandQueue *queue) {
-    std::lock_guard lck(queue->GetMutex());
     readbackAllocator.Clear();
     uploadAllocator.Clear();
     defaultAllocator.Clear();

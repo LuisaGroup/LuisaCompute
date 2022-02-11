@@ -21,11 +21,9 @@ void LCEvent::Sync() {
 }
 void LCEvent::Signal(CommandQueue *queue) {
     ++fenceIndex;
-    std::lock_guard lck(queue->GetMutex());
     queue->Queue()->Signal(fence.Get(), fenceIndex);
 }
 void LCEvent::Wait(CommandQueue *queue) {
-    std::lock_guard lck(queue->GetMutex());
     queue->Queue()->Wait(fence.Get(), fenceIndex);
 }
 }// namespace toolhub::directx

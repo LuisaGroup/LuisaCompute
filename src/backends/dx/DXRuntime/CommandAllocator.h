@@ -27,8 +27,6 @@ private:
     vstd::vector<CommandBuffer *> bufferPool;
     vstd::vector<ID3D12CommandList *> executeCache;
     vstd::LockFreeArrayQueue<vstd::move_only_func<void()>> executeAfterComplete;
-    std::mutex pendantMtx;
-    std::mutex tempEvtMtx;
     Visitor<ReadbackBuffer> rbVisitor;
     Visitor<DefaultBuffer> dbVisitor;
     Visitor<UploadBuffer> ubVisitor;
