@@ -8,16 +8,17 @@
 #include <ast/statement.h>
 #include <ast/expression.h>
 #include <compile/codegen.h>
+#include <backends/ispc/ispc_accel.h>
 
 namespace luisa::compute::ispc {
 
 class ISPCCodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 public:
-    static constexpr auto accel_handle_size = 16u;
-    static constexpr auto buffer_handle_size = 8u;
-    static constexpr auto texture_handle_size = 8u;
-    static constexpr auto bindless_array_handle_size = 8u;
+    static constexpr auto accel_handle_size = sizeof(ISPCAccel::Handle);
+    static constexpr auto buffer_handle_size = sizeof(void *);
+    static constexpr auto texture_handle_size = 8u;       // TODO
+    static constexpr auto bindless_array_handle_size = 8u;// TODO
 
 private:
     Function _function;

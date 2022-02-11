@@ -142,7 +142,6 @@ void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::Com
 
 luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
     luisa::vector<CommandList> ans;
-
     for (auto &i : _commandRelationData) {
         CommandList commandList;
         for (auto &j : i) {
@@ -152,16 +151,8 @@ luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
             ans.push_back(std::move(commandList));
         }
     }
-
     _commandRelationData.clear();
-
     LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
-    auto index = 0;
-    for (auto &commandList : ans) {
-        LUISA_VERBOSE_WITH_LOCATION(
-            "List {} : size = {}",
-            index++, commandList.size());
-    }
     return ans;
 }
 
