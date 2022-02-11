@@ -11,19 +11,12 @@ LCEvent::LCEvent(Device *device) {
 LCEvent::~LCEvent() {
 }
 void LCEvent::Sync() {
-    vstd::optional<HANDLE> eventHandle;
-    {
-        std::lock_guard lck(CommandQueue::GetMutex());
-
-        if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
-            LPCWSTR falseValue = 0;
-            eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-            ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, *eventHandle));
-        }
-    }
-    if (eventHandle) {
-        WaitForSingleObject(*eventHandle, INFINITE);
-        CloseHandle(*eventHandle);
+    if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
+        LPCWSTR falseValue = 0;
+        HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
     }
 }
 void LCEvent::Signal(CommandQueue *queue) {
