@@ -7,7 +7,7 @@
 namespace luisa::compute::ispc {
 
 ISPCBindlessArray::ISPCBindlessArray(size_t capacity) noexcept
-    : _slots(capacity), _items(capacity), _buffer_resources(capacity) {}
+    : _slots(capacity), _items(capacity) {}
 
 void ISPCBindlessArray::emplace_buffer(size_t index, const void *buffer, size_t offset) noexcept {
     remove_buffer(index);
@@ -55,8 +55,8 @@ void ISPCBindlessArray::remove_tex3d(size_t index) noexcept {
 }
 
 void ISPCBindlessArray::update(ThreadPool &pool) noexcept {
-    auto s = luisa::span{_slots}.subspan(_dirty.offset(), _dirty.size());
-    pool.async([this, offset = _dirty.offset(),
+    auto s = luisa::span{_slots};//.subspan(_dirty.offset(), _dirty.size());
+    pool.async([this, offset = 0u,//offset = _dirty.offset(),
                 slots = luisa::vector<Slot>{s.cbegin(), s.cend()}] {
         for (auto i = 0u; i < slots.size(); i++) {
             auto slot = slots[i];

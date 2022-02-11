@@ -13,6 +13,7 @@ class ISPCTexture {
 
 public:
     struct Handle {
+        const void *ptr;// TODO
     };
 
 public:

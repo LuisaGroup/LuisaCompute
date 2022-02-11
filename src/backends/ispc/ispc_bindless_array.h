@@ -24,6 +24,10 @@ public:
         uint16_t sampler3d;
     };
 
+    struct Handle {
+        const Item *items;
+    };
+
     // for resource tracking
     struct Slot {
         const void *buffer{nullptr};
@@ -39,7 +43,6 @@ private:
     luisa::vector<Item> _items;
     DirtyRange _dirty;
     ResourceTracker _tracker;
-    luisa::vector<uint64_t> _buffer_resources;
 
 public:
     explicit ISPCBindlessArray(size_t capacity) noexcept;
@@ -50,7 +53,7 @@ public:
     void remove_tex2d(size_t index) noexcept;
     void remove_tex3d(size_t index) noexcept;
     void update(ThreadPool &pool) noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _items.data(); }
+    [[nodiscard]] auto handle() const noexcept { return Handle{_items.data()}; }
     [[nodiscard]] bool uses_buffer(const void *buffer) const noexcept;
     [[nodiscard]] bool uses_texture(const ISPCTexture *texture) const noexcept;
 };
