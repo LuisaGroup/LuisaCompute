@@ -1,9 +1,12 @@
 from os.path import realpath, dirname
+from os import makedirs
 
 if __name__ == "__main__":
     curr_dir = dirname(realpath(__file__))
     library_name = "ispc_device_library"
-    with open(f"{curr_dir}/{library_name}.isph", "w") as file:
+    support_dir = f"{curr_dir}/ispc_support"
+    makedirs(support_dir, exist_ok=True)
+    with open(f"{support_dir}/{library_name}.isph", "w") as file:
 
         # constants
         print('''// constants

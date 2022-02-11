@@ -8,7 +8,7 @@
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
-#include <backends/ispc2/ispc_codegen.h>
+#include <backends/ispc/ispc_codegen.h>
 
 namespace luisa::compute::ispc {
 
