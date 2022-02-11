@@ -726,6 +726,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
         case Variable::Tag::SHARED:
+            // TODO: support shared
             _scratch << "__shared__ ";
             _emit_type_name(v.type());
             _scratch << " ";

@@ -196,7 +196,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        $for(depth, 10u) {
+        $for(depth, 5u) {
 
             // trace
             auto hit = accel.trace_closest(ray);
@@ -288,8 +288,8 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](BufferFloat4 hdr_image, BufferUInt ldr_image, Float scale) noexcept {
         auto pixel_id = dispatch_y() * dispatch_size_x() + dispatch_x();
         auto hdr = hdr_image.read(pixel_id);
-        auto ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
-//        auto ldr = linear_to_srgb(hdr.xyz());
+//        auto ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
+        auto ldr = linear_to_srgb(hdr.xyz());
         auto srgb = make_uint3(clamp(ldr * 255.f, 0.f, 255.f));
         auto encoded = (255u << 24u) | (srgb.z << 16u) | (srgb.y << 8u) | srgb.x;
         ldr_image.write(pixel_id, encoded);
