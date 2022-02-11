@@ -6,7 +6,9 @@ set(ISPC_BACKEND_SOURCES
         ispc_event.cpp ispc_event.h
         ispc_codegen.cpp ispc_codegen.h
         ispc_module.h
-        ispc_shader.cpp ispc_shader.h)
+        ispc_shader.cpp ispc_shader.h
+        ispc_mesh.cpp ispc_mesh.h
+        ispc_accel.cpp ispc_accel.h)
 
 luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})
 

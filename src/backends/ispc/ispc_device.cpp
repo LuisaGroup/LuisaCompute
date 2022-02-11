@@ -6,6 +6,8 @@
 #include <backends/ispc/ispc_device.h>
 #include <backends/ispc/ispc_event.h>
 #include <backends/ispc/ispc_shader.h>
+#include <backends/ispc/ispc_mesh.h>
+#include <backends/ispc/ispc_accel.h>
 
 namespace luisa::compute::ispc {
 
@@ -118,44 +120,68 @@ void ISPCDevice::synchronize_event(uint64_t handle) noexcept {
 }
 
 uint64_t ISPCDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
-    return 0;
+    auto mesh = luisa::new_with_allocator<ISPCMesh>(
+        _rtc_device, hint,
+        v_buffer, v_offset, v_stride, v_count,
+        t_buffer, t_offset, t_count);
+    return reinterpret_cast<uint64_t>(mesh);
 }
 
 void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(reinterpret_cast<ISPCMesh *>(handle));
 }
 
 uint64_t ISPCDevice::create_accel(AccelBuildHint hint) noexcept {
-    return 0;
+    auto accel = luisa::new_with_allocator<ISPCAccel>(_rtc_device, hint);
+    return reinterpret_cast<uint64_t>(accel);
 }
 
 void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept {
+    reinterpret_cast<ISPCAccel *>(accel)->push_mesh(
+        reinterpret_cast<const ISPCMesh *>(mesh), transform, visible);
 }
+
 void ISPCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
+    reinterpret_cast<ISPCAccel *>(accel)->pop_mesh();
 }
+
 void ISPCDevice::set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept {
+    reinterpret_cast<ISPCAccel *>(accel)->set_mesh(
+        index, reinterpret_cast<const ISPCMesh *>(mesh), transform, visible);
 }
+
 void ISPCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
+    reinterpret_cast<ISPCAccel *>(accel)->set_transform(index, transform);
 }
+
 void ISPCDevice::set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept {
+    reinterpret_cast<ISPCAccel *>(accel)->set_visibility(index, visible);
 }
 
 bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCAccel *>(accel)->uses_resource(buffer);
 }
+
 bool ISPCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCAccel *>(accel)->uses_resource(mesh);
 }
+
 uint64_t ISPCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return 0;
+    return reinterpret_cast<const ISPCMesh *>(mesh_handle)->vertex_buffer();
 }
+
 uint64_t ISPCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return 0;
+    return reinterpret_cast<const ISPCMesh *>(mesh_handle)->triangle_buffer();
 }
+
 void ISPCDevice::destroy_accel(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(reinterpret_cast<ISPCAccel *>(handle));
 }
 
 ISPCDevice::ISPCDevice(const Context &ctx) noexcept
-    : Device::Interface{ctx} {}
+    : Device::Interface{ctx}, _rtc_device{rtcNewDevice(nullptr)} {}
+
+ISPCDevice::~ISPCDevice() noexcept { rtcReleaseDevice(_rtc_device); }
 
 }// namespace luisa::compute::ispc
 

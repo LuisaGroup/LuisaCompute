@@ -67,7 +67,8 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             "--arch=x86-64",
 #endif
             emit_opt,
-            include_opt.c_str()
+            include_opt.c_str(),
+            func.raytracing() ? "-DLC_ISPC_RAYTRACING" : "-DLC_ISPC_NO_RAYTRACING"
     };
     luisa::string ispc_opt_string{ispc_options.front()};
     for (auto o : luisa::span{ispc_options}.subspan(1u)) {
