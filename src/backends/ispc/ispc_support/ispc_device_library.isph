@@ -6291,5 +6291,66 @@ struct LCHit {
     uint m1;
     float2 m2;
 };
+struct LCAccel {
+    void *uniform handle;
+    const float4x4 *uniform transforms;
+};
+
+inline float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
+    return accel.transforms[index];
+}
 
 #define make_array_type(name, T, N) struct name { T a[N]; }
+
+#ifdef LC_ISPC_RAYTRACING
+
+#include <embree3/rtcore.isph>
+
+inline bool trace_any(uniform LCAccel accel, LCRay ray) {
+    uniform RTCIntersectContext ctx;
+    rtcInitIntersectContext(&ctx);
+    RTCRay r;
+    r.org_x = ray.m0.a[0];
+    r.org_y = ray.m0.a[1];
+    r.org_z = ray.m0.a[2];
+    r.tnear = ray.m1;
+    r.dir_x = ray.m2.a[0];
+    r.dir_y = ray.m2.a[1];
+    r.dir_z = ray.m2.a[2];
+    r.time = 0.f;
+    r.tfar = ray.m3;
+    r.mask = 0xffu;
+    r.id = 0u;
+    r.flags = 0u;
+    rtcOccludedV((RTCScene)accel.handle, &ctx, &r);
+    return r.tfar >= 0.f;
+}
+
+inline LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
+    uniform RTCIntersectContext ctx;
+    rtcInitIntersectContext(&ctx);
+    RTCRayHit rh;
+    rh.ray.org_x = ray.m0.a[0];
+    rh.ray.org_y = ray.m0.a[1];
+    rh.ray.org_z = ray.m0.a[2];
+    rh.ray.tnear = ray.m1;
+    rh.ray.dir_x = ray.m2.a[0];
+    rh.ray.dir_y = ray.m2.a[1];
+    rh.ray.dir_z = ray.m2.a[2];
+    rh.ray.time = 0.f;
+    rh.ray.tfar = ray.m3;
+    rh.ray.mask = 0xffu;
+    rh.ray.id = 0u;
+    rh.ray.flags = 0u;
+    rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+    rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
+    rtcIntersectV((RTCScene)accel.handle, &ctx, &rh);
+    LCHit hit;
+    hit.m0 = rh.hit.geomID;
+    hit.m1 = rh.hit.primID;
+    hit.m2.v[0] = rh.hit.u;
+    hit.m2.v[1] = rh.hit.v;
+    return hit;
+}
+
+#endif

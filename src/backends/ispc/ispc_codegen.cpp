@@ -728,21 +728,21 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:
-            if (readonly || force_const) { _scratch << "const "; }
+            if (readonly || force_const) { _scratch << "uniform const "; }
             _emit_type_name(v.type()->element());
             _scratch << " *uniform ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "const LCSurface ";
+            _scratch << "uniform const LCSurface ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
-            _scratch << "const LCBindlessArray ";
+            _scratch << "uniform const LCBindlessArray ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
-            _scratch << "const LCAccel ";
+            _scratch << "uniform const LCAccel ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:

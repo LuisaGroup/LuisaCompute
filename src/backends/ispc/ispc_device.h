@@ -4,14 +4,19 @@
 
 #pragma once
 
+#include <embree3/rtcore_device.h>
 #include <runtime/device.h>
 
 namespace luisa::compute::ispc {
 
 class ISPCDevice final : public Device::Interface {
 
+private:
+    RTCDevice _rtc_device;
+
 public:
     explicit ISPCDevice(const Context &ctx) noexcept;
+    ~ISPCDevice() noexcept override;
     void *native_handle() const noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

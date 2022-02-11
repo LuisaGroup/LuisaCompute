@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2022/2/7.
 //
 
+#include <backends/ispc/ispc_mesh.h>
+#include <backends/ispc/ispc_accel.h>
 #include <backends/ispc/ispc_event.h>
 #include <backends/ispc/ispc_stream.h>
 
@@ -64,7 +66,9 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            auto accel = reinterpret_cast<const ISPCAccel *>(argument.handle);
+            auto handle = accel->handle();
+            std::memcpy(ptr, &handle, sizeof(handle));
         } else {// uniform
             static_assert(std::same_as<T, luisa::span<const std::byte>>);
             std::memcpy(ptr, argument.data(), argument.size_bytes());
@@ -94,15 +98,23 @@ void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const AccelUpdateCommand *command) noexcept {
+    reinterpret_cast<ISPCAccel *>(command->handle())->update(_pool);
 }
 
 void ISPCStream::visit(const AccelBuildCommand *command) noexcept {
+    reinterpret_cast<ISPCAccel *>(command->handle())->build(_pool);
 }
 
 void ISPCStream::visit(const MeshUpdateCommand *command) noexcept {
+    _pool.async([mesh = reinterpret_cast<ISPCMesh *>(command->handle())] {
+        mesh->commit();
+    });
 }
 
 void ISPCStream::visit(const MeshBuildCommand *command) noexcept {
+    _pool.async([mesh = reinterpret_cast<ISPCMesh *>(command->handle())] {
+        mesh->commit();
+    });
 }
 
 void ISPCStream::visit(const BindlessArrayUpdateCommand *command) noexcept {
