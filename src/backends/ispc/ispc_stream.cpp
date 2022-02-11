@@ -6,6 +6,8 @@
 #include <backends/ispc/ispc_accel.h>
 #include <backends/ispc/ispc_event.h>
 #include <backends/ispc/ispc_stream.h>
+#include <backends/ispc/ispc_texture.h>
+#include <backends/ispc/ispc_bindless_array.h>
 
 namespace luisa::compute::ispc {
 
@@ -62,9 +64,13 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
             auto buffer = reinterpret_cast<void *>(argument.handle + argument.offset);
             std::memcpy(ptr, &buffer, sizeof(buffer));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            auto texture = reinterpret_cast<const ISPCTexture *>(argument.handle);
+            auto handle = texture->handle();
+            std::memcpy(ptr, &handle, sizeof(handle));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            auto array = reinterpret_cast<const ISPCBindlessArray *>(argument.handle);
+            auto handle = array->handle();
+            std::memcpy(ptr, &handle, sizeof(handle));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
             auto accel = reinterpret_cast<const ISPCAccel *>(argument.handle);
             auto handle = accel->handle();
@@ -86,15 +92,19 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 void ISPCStream::visit(const TextureDownloadCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 void ISPCStream::visit(const TextureCopyCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 void ISPCStream::visit(const AccelUpdateCommand *command) noexcept {
@@ -118,6 +128,7 @@ void ISPCStream::visit(const MeshBuildCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const BindlessArrayUpdateCommand *command) noexcept {
+    reinterpret_cast<ISPCBindlessArray *>(command->handle())->update(_pool);
 }
 
 }// namespace luisa::compute::ispc

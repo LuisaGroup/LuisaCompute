@@ -8,6 +8,8 @@
 #include <backends/ispc/ispc_shader.h>
 #include <backends/ispc/ispc_mesh.h>
 #include <backends/ispc/ispc_accel.h>
+#include <backends/ispc/ispc_texture.h>
+#include <backends/ispc/ispc_bindless_array.h>
 
 namespace luisa::compute::ispc {
 
@@ -28,10 +30,13 @@ void *ISPCDevice::buffer_native_handle(uint64_t handle) const noexcept {
 }
 
 uint64_t ISPCDevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
-    return 0;
+    auto texture = luisa::new_with_allocator<ISPCTexture>(
+        format, dimension, make_uint3(width, height, depth), mipmap_levels);
+    return reinterpret_cast<uint64_t>(texture);
 }
 
 void ISPCDevice::destroy_texture(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(reinterpret_cast<ISPCTexture *>(handle));
 }
 
 void *ISPCDevice::texture_native_handle(uint64_t handle) const noexcept {
@@ -39,34 +44,49 @@ void *ISPCDevice::texture_native_handle(uint64_t handle) const noexcept {
 }
 
 uint64_t ISPCDevice::create_bindless_array(size_t size) noexcept {
-    return 0;
+    auto array = luisa::new_with_allocator<ISPCBindlessArray>(size);
+    return reinterpret_cast<uint64_t>(array);
 }
 
 void ISPCDevice::destroy_bindless_array(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(reinterpret_cast<ISPCBindlessArray *>(handle));
 }
 
 void ISPCDevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+    reinterpret_cast<ISPCBindlessArray *>(array)->emplace_buffer(
+        index, reinterpret_cast<const void *>(handle), offset_bytes);
 }
 
 void ISPCDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    reinterpret_cast<ISPCBindlessArray *>(array)->emplace_tex2d(
+        index, reinterpret_cast<const ISPCTexture *>(handle), sampler);
 }
 
 void ISPCDevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
+    reinterpret_cast<ISPCBindlessArray *>(array)->emplace_tex3d(
+        index, reinterpret_cast<const ISPCTexture *>(handle), sampler);
 }
 
 bool ISPCDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCBindlessArray *>(array)->uses_buffer(
+        reinterpret_cast<const void *>(handle));
 }
 
 bool ISPCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return false;
+    return reinterpret_cast<ISPCBindlessArray *>(array)->uses_texture(
+        reinterpret_cast<const ISPCTexture *>(handle));
 }
 
 void ISPCDevice::remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<ISPCBindlessArray *>(array)->remove_buffer(index);
 }
+
 void ISPCDevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<ISPCBindlessArray *>(array)->remove_tex2d(index);
 }
+
 void ISPCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
+    reinterpret_cast<ISPCBindlessArray *>(array)->remove_tex3d(index);
 }
 
 uint64_t ISPCDevice::create_stream() noexcept {

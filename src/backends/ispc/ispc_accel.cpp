@@ -53,6 +53,7 @@ void ISPCAccel::build(ThreadPool &pool) noexcept {
             auto transform = instances[i].transform;
             _committed_transforms[i] = _decompress(transform);
             auto geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);
+            _committed_geometries[i] = geometry;
             rtcSetGeometryInstancedScene(geometry, instances[i].mesh->handle());
             rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);
             rtcSetGeometryTransform(
@@ -62,7 +63,6 @@ void ISPCAccel::build(ThreadPool &pool) noexcept {
             if (!instances[i].visible) { rtcDisableGeometry(geometry); }
             rtcCommitGeometry(geometry);
             rtcAttachGeometryByID(_handle, geometry, i);
-            _committed_geometries[i] = geometry;
         }
         rtcCommitScene(_handle);
     });
