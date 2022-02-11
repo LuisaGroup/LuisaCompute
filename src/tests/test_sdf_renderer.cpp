@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-//#define ENABLE_DISPLAY
+#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -84,8 +84,7 @@ int main(int argc, char *argv[]) {
         static constexpr auto freq = 40.0f;
         f *= freq;
         $if(f < 0.0f) {
-            auto ff = floor(f);
-            f = select(f - ff, ff + 1.0f - f, f.cast<int>() % 2 == 0);
+            f = ite(cast<int>(f) % 2 == 0, 1.f - fract(f), fract(f));
         };
         return (f - 0.2f) * (1.0f / freq);
     };
@@ -212,7 +211,7 @@ int main(int argc, char *argv[]) {
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
     cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
 
-    static constexpr auto interval = 32u;
+    static constexpr auto interval = 4u;
 
 #ifdef ENABLE_DISPLAY
     static constexpr auto total_spp = 500000u;

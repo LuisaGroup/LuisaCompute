@@ -226,8 +226,9 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::SELECT: {
             using namespace std::string_view_literals;
-            auto scalar = expr->arguments()[0]->type()->tag() == Type::Tag::BOOL;
-            _scratch << (scalar ? "select_scalar"sv : "select"sv);
+            auto pred_type = expr->arguments()[2]->type();
+            auto is_scalar = pred_type->tag() == Type::Tag::BOOL;
+            _scratch << (is_scalar ? "select_scalar"sv : "select"sv);
             break;
         }
         case CallOp::CLAMP: _scratch << "clamp"; break;
@@ -561,13 +562,16 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
             _scratch << "    ";
             _emit_variable_decl(arg, !arg.type()->is_buffer());
             _scratch << ";\n";
-            if (arg.type()->is_buffer() ||
-                arg.type()->is_texture() ||
-                arg.type()->is_accel() ||
-                arg.type()->is_bindless_array()) {
-                size = aligned_size + 8u;
+            if (arg.type()->is_buffer()) {
+                size = aligned_size + buffer_handle_size;
+            } else if (arg.type()->is_texture()) {
+                size = aligned_size + texture_handle_size;
+            } else if (arg.type()->is_accel()) {
+                size = aligned_size + accel_handle_size;
+            } else if (arg.type()->is_bindless_array()) {
+                size = aligned_size + bindless_array_handle_size;
             } else {
-                size = aligned_size + arg.type()->size();// TODO: bindless, accel, etc
+                size = aligned_size + arg.type()->size();
             }
         }
         _scratch << "};\n\n";

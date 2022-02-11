@@ -4375,6 +4375,8 @@ inline uint reverse(uint n) {
     n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
     return n;
 }
+inline uniform float fract(uniform float x) { return x - floor(x); }
+inline float fract(float x) { return x - floor(x); }
 inline float3 cross(float3 u, float3 v) {
     return make_float3(
         u.v[1] * v.v[2] - v.v[1] * u.v[2],
@@ -4756,6 +4758,13 @@ inline uint3 popcount(uint3 x) { return make_uint3(popcount(x.v[0]), popcount(x.
 inline uniform uint3 popcount(uniform uint3 x) { return make_uint3(popcount(x.v[0]), popcount(x.v[1]), popcount(x.v[2])); }
 inline uint4 popcount(uint4 x) { return make_uint4(popcount(x.v[0]), popcount(x.v[1]), popcount(x.v[2]), popcount(x.v[3])); }
 inline uniform uint4 popcount(uniform uint4 x) { return make_uint4(popcount(x.v[0]), popcount(x.v[1]), popcount(x.v[2]), popcount(x.v[3])); }
+
+inline float2 fract(float2 x) { return make_float2(fract(x.v[0]), fract(x.v[1])); }
+inline uniform float2 fract(uniform float2 x) { return make_float2(fract(x.v[0]), fract(x.v[1])); }
+inline float3 fract(float3 x) { return make_float3(fract(x.v[0]), fract(x.v[1]), fract(x.v[2])); }
+inline uniform float3 fract(uniform float3 x) { return make_float3(fract(x.v[0]), fract(x.v[1]), fract(x.v[2])); }
+inline float4 fract(float4 x) { return make_float4(fract(x.v[0]), fract(x.v[1]), fract(x.v[2]), fract(x.v[3])); }
+inline uniform float4 fract(uniform float4 x) { return make_float4(fract(x.v[0]), fract(x.v[1]), fract(x.v[2]), fract(x.v[3])); }
 
 
 struct float2x2 {
