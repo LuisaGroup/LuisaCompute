@@ -4,7 +4,6 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <Resource/IGpuAllocator.h>
 namespace toolhub::directx {
-std::mutex CommandQueue::queueMtx;
 CommandQueue::CommandQueue(
 	Device* device,
 	IGpuAllocator* resourceAllocator,
