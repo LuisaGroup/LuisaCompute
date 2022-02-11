@@ -7,7 +7,7 @@
 namespace luisa::compute::ispc {
 
 void ISPCEvent::wait() noexcept {
-    auto future = [this]{
+    auto future = [this] {
         std::scoped_lock lock{_mutex};
         return _future;
     }();
@@ -21,4 +21,4 @@ void ISPCEvent::signal(std::shared_future<void> future) noexcept {
     _future = std::move(future);
 }
 
-}
+}// namespace luisa::compute::ispc

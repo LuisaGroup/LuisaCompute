@@ -1215,6 +1215,25 @@ inline float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
 
 #define make_array_type(name, T, N) struct name { T a[N]; }
 
+struct LCTexture {
+    // TODO
+};
+
+struct LCBindlessItem {
+    const void *uniform buffer;
+    const LCTexture tex2d;
+    const LCTexture tex3d;
+    const uint16 sampler2d;
+    const uint16 sampler3d;
+};
+
+struct LCBindlessArray {
+    const LCBindlessItem *uniform items;
+};
+
+#define bindless_buffer_read(type, array, buffer_id, index) \\
+    (((const type *uniform)((array).items[buffer_id].buffer))[index])
+
 #ifdef LC_ISPC_RAYTRACING
 
 #include <embree3/rtcore.isph>

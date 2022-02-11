@@ -9,6 +9,7 @@
 #include <ast/expression.h>
 #include <compile/codegen.h>
 #include <backends/ispc/ispc_accel.h>
+#include <backends/ispc/ispc_bindless_array.h>
 
 namespace luisa::compute::ispc {
 
@@ -16,9 +17,9 @@ class ISPCCodegen final : public Codegen, private TypeVisitor, private ExprVisit
 
 public:
     static constexpr auto accel_handle_size = sizeof(ISPCAccel::Handle);
-    static constexpr auto buffer_handle_size = sizeof(void *);
-    static constexpr auto texture_handle_size = 8u;       // TODO
-    static constexpr auto bindless_array_handle_size = 8u;// TODO
+    static constexpr auto buffer_handle_size = sizeof(const void *);
+    static constexpr auto texture_handle_size = sizeof(ISPCTexture::Handle);
+    static constexpr auto bindless_array_handle_size = sizeof(const ISPCBindlessArray::Item *);
 
 private:
     Function _function;

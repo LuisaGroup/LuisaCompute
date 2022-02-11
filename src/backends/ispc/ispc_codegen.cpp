@@ -221,7 +221,10 @@ void ISPCCodegen::visit(const CallExpr *expr) {
 
     auto is_atomic = false;
     switch (expr->op()) {
-        case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
+        case CallOp::CUSTOM:
+            _scratch << "custom_"
+                     << hash_to_string(expr->custom().hash());
+            break;
         case CallOp::ALL: _scratch << "all"; break;
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::SELECT: {
@@ -283,7 +286,7 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::INVERSE: _scratch << "inverse"; break;
         case CallOp::SYNCHRONIZE_BLOCK: _scratch << "barrier"; break;
         case CallOp::ATOMIC_EXCHANGE:
-            _scratch << "atomic_exchange";
+            _scratch << "atomic_swap";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
@@ -295,7 +298,7 @@ void ISPCCodegen::visit(const CallExpr *expr) {
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            _scratch << "atomic_sub";
+            _scratch << "atomic_subtract";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_AND:
@@ -322,13 +325,15 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::BUFFER_WRITE: _scratch << "buffer_write"; break;
         case CallOp::TEXTURE_READ:
             _scratch << "surf"
-                     << expr->arguments().front()->type()->dimension() << "d_read<"
-                     << "" << expr->arguments().front()->type()->element()->description() << ">";
+                     << expr->arguments().front()->type()->dimension()
+                     << "d_read_"
+                     << expr->arguments().front()->type()->element()->description();
             break;
         case CallOp::TEXTURE_WRITE:
             _scratch << "surf"
-                     << expr->arguments().front()->type()->dimension() << "d_write<"
-                     << "" << expr->arguments().front()->type()->element()->description() << ">";
+                     << expr->arguments().front()->type()->dimension()
+                     << "d_write_"
+                     << expr->arguments().front()->type()->element()->description();
             break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: _scratch << "bindless_texture_sample2d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: _scratch << "bindless_texture_sample2d_level"; break;
@@ -344,20 +349,19 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "bindless_texture_size3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
-        case CallOp::BINDLESS_BUFFER_READ:
-            _scratch << "bindless_buffer_read<";
-            _emit_type_name(expr->type());
-            _scratch << ">";
-            break;
-#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)                  \
-    case CallOp::MAKE_##tag##2: _scratch << "make_" << #type "2"; break; \
-    case CallOp::MAKE_##tag##3: _scratch << "make_" << #type "3"; break; \
-    case CallOp::MAKE_##tag##4: _scratch << "make_" << #type "4"; break;
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
-#undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
+        case CallOp::BINDLESS_BUFFER_READ: _scratch << "bindless_buffer_read"; break;
+        case CallOp::MAKE_BOOL2: _scratch << "make_bool2"; break;
+        case CallOp::MAKE_BOOL3: _scratch << "make_bool3"; break;
+        case CallOp::MAKE_BOOL4: _scratch << "make_bool4"; break;
+        case CallOp::MAKE_INT2: _scratch << "make_int2"; break;
+        case CallOp::MAKE_INT3: _scratch << "make_int3"; break;
+        case CallOp::MAKE_INT4: _scratch << "make_int4"; break;
+        case CallOp::MAKE_UINT2: _scratch << "make_uint2"; break;
+        case CallOp::MAKE_UINT3: _scratch << "make_uint3"; break;
+        case CallOp::MAKE_UINT4: _scratch << "make_uint4"; break;
+        case CallOp::MAKE_FLOAT2: _scratch << "make_float2"; break;
+        case CallOp::MAKE_FLOAT3: _scratch << "make_float3"; break;
+        case CallOp::MAKE_FLOAT4: _scratch << "make_float4"; break;
         case CallOp::MAKE_FLOAT2X2: _scratch << "make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "make_float4x4"; break;
@@ -378,6 +382,10 @@ void ISPCCodegen::visit(const CallExpr *expr) {
             arg->accept(*this);
         }
     } else if (!args.empty()) {
+        if (expr->op() == CallOp::BINDLESS_BUFFER_READ) {
+            _emit_type_name(expr->type());
+            _scratch << ", ";
+        }
         for (auto arg : args) {
             arg->accept(*this);
             _scratch << ", ";

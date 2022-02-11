@@ -17,11 +17,12 @@ class ISPCMesh;
 class ISPCAccel {
 
 public:
-    struct Instance {
+    struct alignas(16) Instance {
         const ISPCMesh *mesh;
         std::array<float, 12> transform;
         bool visible;
     };
+    static_assert(sizeof(Instance) == 64u);
 
     struct Handle {
         RTCScene scene;
