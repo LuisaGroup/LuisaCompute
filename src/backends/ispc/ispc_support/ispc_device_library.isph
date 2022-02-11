@@ -4663,19 +4663,19 @@ inline uniform float3 copysign(uniform float3 x, uniform float3 y) { return make
 inline float4 copysign(float4 x, float4 y) { return make_float4(copysign(x.v[0], y.v[0]), copysign(x.v[1], y.v[1]), copysign(x.v[2], y.v[2]), copysign(x.v[3], y.v[3])); }
 inline uniform float4 copysign(uniform float4 x, uniform float4 y) { return make_float4(copysign(x.v[0], y.v[0]), copysign(x.v[1], y.v[1]), copysign(x.v[2], y.v[2]), copysign(x.v[3], y.v[3])); }
 
-inline float2 is_inf(float2 x) { return make_float2(is_inf(x.v[0]), is_inf(x.v[1])); }
-inline uniform float2 is_inf(uniform float2 x) { return make_float2(is_inf(x.v[0]), is_inf(x.v[1])); }
-inline float3 is_inf(float3 x) { return make_float3(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2])); }
-inline uniform float3 is_inf(uniform float3 x) { return make_float3(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2])); }
-inline float4 is_inf(float4 x) { return make_float4(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2]), is_inf(x.v[3])); }
-inline uniform float4 is_inf(uniform float4 x) { return make_float4(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2]), is_inf(x.v[3])); }
+inline bool2 is_inf(float2 x) { return make_bool2(is_inf(x.v[0]), is_inf(x.v[1])); }
+inline uniform bool2 is_inf(uniform float2 x) { return make_bool2(is_inf(x.v[0]), is_inf(x.v[1])); }
+inline bool3 is_inf(float3 x) { return make_bool3(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2])); }
+inline uniform bool3 is_inf(uniform float3 x) { return make_bool3(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2])); }
+inline bool4 is_inf(float4 x) { return make_bool4(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2]), is_inf(x.v[3])); }
+inline uniform bool4 is_inf(uniform float4 x) { return make_bool4(is_inf(x.v[0]), is_inf(x.v[1]), is_inf(x.v[2]), is_inf(x.v[3])); }
 
-inline float2 is_nan(float2 x) { return make_float2(is_nan(x.v[0]), is_nan(x.v[1])); }
-inline uniform float2 is_nan(uniform float2 x) { return make_float2(is_nan(x.v[0]), is_nan(x.v[1])); }
-inline float3 is_nan(float3 x) { return make_float3(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2])); }
-inline uniform float3 is_nan(uniform float3 x) { return make_float3(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2])); }
-inline float4 is_nan(float4 x) { return make_float4(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2]), is_nan(x.v[3])); }
-inline uniform float4 is_nan(uniform float4 x) { return make_float4(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2]), is_nan(x.v[3])); }
+inline bool2 is_nan(float2 x) { return make_bool2(is_nan(x.v[0]), is_nan(x.v[1])); }
+inline uniform bool2 is_nan(uniform float2 x) { return make_bool2(is_nan(x.v[0]), is_nan(x.v[1])); }
+inline bool3 is_nan(float3 x) { return make_bool3(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2])); }
+inline uniform bool3 is_nan(uniform float3 x) { return make_bool3(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2])); }
+inline bool4 is_nan(float4 x) { return make_bool4(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2]), is_nan(x.v[3])); }
+inline uniform bool4 is_nan(uniform float4 x) { return make_bool4(is_nan(x.v[0]), is_nan(x.v[1]), is_nan(x.v[2]), is_nan(x.v[3])); }
 
 inline int2 clamp(int2 x, int2 l, int2 h) { return make_int2(clamp(x.v[0], l.v[0], h.v[0]), clamp(x.v[1], l.v[1], h.v[1])); }
 inline uniform int2 clamp(uniform int2 x, uniform int2 l, uniform int2 h) { return make_int2(clamp(x.v[0], l.v[0], h.v[0]), clamp(x.v[1], l.v[1], h.v[1])); }
@@ -6303,21 +6303,23 @@ inline float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
 #define make_array_type(name, T, N) struct name { T a[N]; }
 
 struct LCTexture {
-    // TODO
+    const void *uniform ptr; // TODO
 };
 
 struct LCBindlessItem {
     const void *uniform buffer;
-    const LCTexture tex2d;
-    const LCTexture tex3d;
+    uniform const LCTexture tex2d;
+    uniform const LCTexture tex3d;
+    uniform const uint16 sampler2d;
+    uniform const uint16 sampler3d;
 };
 
 struct LCBindlessArray {
-    const LCBindlessItem *uniform items;
+    uniform const LCBindlessItem *uniform items;
 };
 
 #define bindless_buffer_read(type, array, buffer_id, index) \
-    (((const type *uniform)((array).items[buffer_id].buffer))[index])
+    (((const type *)(array.items[buffer_id].buffer))[index])
 
 #ifdef LC_ISPC_RAYTRACING
 
@@ -6361,9 +6363,10 @@ inline LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
     rh.ray.flags = 0u;
     rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
     rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
+    rh.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
     rtcIntersectV((RTCScene)accel.handle, &ctx, &rh);
     LCHit hit;
-    hit.m0 = rh.hit.geomID;
+    hit.m0 = rh.hit.instID[0];
     hit.m1 = rh.hit.primID;
     hit.m2.v[0] = rh.hit.u;
     hit.m2.v[1] = rh.hit.v;

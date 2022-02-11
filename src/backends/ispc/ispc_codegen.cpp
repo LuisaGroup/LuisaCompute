@@ -402,16 +402,18 @@ void ISPCCodegen::visit(const CastExpr *expr) {
             _scratch << "((";
             _emit_type_name(expr->type());
             _scratch << ")(";
+            expr->expression()->accept(*this);
+            _scratch << "))";
             break;
         case CastOp::BITWISE:
-            _scratch << "(*(";
+            _scratch << "(*((varying const ";
             _emit_type_name(expr->type());
             _scratch << " *)&(";
+            expr->expression()->accept(*this);
+            _scratch << ")))";
             break;
         default: break;
     }
-    expr->expression()->accept(*this);
-    _scratch << "))";
 }
 
 void ISPCCodegen::visit(const BreakStmt *) {

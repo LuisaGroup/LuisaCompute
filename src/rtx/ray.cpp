@@ -27,7 +27,7 @@ Var<Ray> make_ray_robust(
         auto of_i = make_int3(int_scale * n);
         auto p_i = as<float3>(as<int3>(p) + ite(p < 0.0f, -of_i, of_i));
         auto ro = ite(abs(p) < origin, p + float_scale * n, p_i);
-        return make_ray(ro, d, 0.0f, t_max);
+        return make_ray(ro, d, 0.f, t_max);
     };
     return _make_ray_robust(p, direction, ng, t_max);
 }

@@ -11,8 +11,7 @@ ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_leve
 }
 
 ISPCTexture::Handle ISPCTexture::handle() const noexcept {
-    // TODO
-    return ISPCTexture::Handle();
+    return {};// TODO
 }
 
 }// namespace luisa::compute::ispc

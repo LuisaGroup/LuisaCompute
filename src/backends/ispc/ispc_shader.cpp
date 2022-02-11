@@ -55,6 +55,9 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             .string());
     std::array ispc_options {
         "-woff",
+#ifndef NDEBUG
+            "-g",
+#endif
             "-O3",
             "--math-lib=fast",
             "--opt=fast-masked-vload",

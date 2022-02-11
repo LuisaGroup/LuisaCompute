@@ -432,7 +432,7 @@ inline {U}4 make_{T}4({other}4 v) {
 
             for t in types:
                 for n in range(2, 5):
-                    ret_t = f"{t if name not in ['isnan', 'isinf'] else 'bool'}{n}"
+                    ret_t = f"{t if name not in ['is_nan', 'is_inf'] else 'bool'}{n}"
                     print(
                         f"inline {ret_t} {name}({', '.join(f'{t}{n} {a}' for a in args)}) {{ return make_{ret_t}({', '.join(call(i) for i in range(n))}); }}",
                         file=file)
@@ -1216,23 +1216,23 @@ inline float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
 #define make_array_type(name, T, N) struct name { T a[N]; }
 
 struct LCTexture {
-    // TODO
+    const void *uniform ptr; // TODO
 };
 
 struct LCBindlessItem {
     const void *uniform buffer;
-    const LCTexture tex2d;
-    const LCTexture tex3d;
-    const uint16 sampler2d;
-    const uint16 sampler3d;
+    uniform const LCTexture tex2d;
+    uniform const LCTexture tex3d;
+    uniform const uint16 sampler2d;
+    uniform const uint16 sampler3d;
 };
 
 struct LCBindlessArray {
-    const LCBindlessItem *uniform items;
+    uniform const LCBindlessItem *uniform items;
 };
 
 #define bindless_buffer_read(type, array, buffer_id, index) \\
-    (((const type *uniform)((array).items[buffer_id].buffer))[index])
+    (((const type *)(array.items[buffer_id].buffer))[index])
 
 #ifdef LC_ISPC_RAYTRACING
 
@@ -1276,9 +1276,10 @@ inline LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
     rh.ray.flags = 0u;
     rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
     rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
+    rh.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
     rtcIntersectV((RTCScene)accel.handle, &ctx, &rh);
     LCHit hit;
-    hit.m0 = rh.hit.geomID;
+    hit.m0 = rh.hit.instID[0];
     hit.m1 = rh.hit.primID;
     hit.m2.v[0] = rh.hit.u;
     hit.m2.v[1] = rh.hit.v;

@@ -19,7 +19,7 @@ public:
     static constexpr auto accel_handle_size = sizeof(ISPCAccel::Handle);
     static constexpr auto buffer_handle_size = sizeof(const void *);
     static constexpr auto texture_handle_size = sizeof(ISPCTexture::Handle);
-    static constexpr auto bindless_array_handle_size = sizeof(const ISPCBindlessArray::Item *);
+    static constexpr auto bindless_array_handle_size = sizeof(ISPCBindlessArray::Handle);
 
 private:
     Function _function;
