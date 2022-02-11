@@ -9,7 +9,6 @@ class IGpuAllocator;
 class DescriptorHeap;
 class Device {
 	std::mutex meshAllocMtx;
-	vstd::PoolAllocator meshAlloc;
 
 public:
 	Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
@@ -17,8 +16,6 @@ public:
 	Microsoft::WRL::ComPtr<IDXGIFactory1> dxgiFactory;
 	IGpuAllocator* defaultAllocator = nullptr;
 	vstd::unique_ptr<DescriptorHeap> globalHeap;
-	BufferView AllocateMeshBuffer();
-	void DeAllocateMeshBuffer(BufferView const& b);
 	Device();
 	~Device();
 };

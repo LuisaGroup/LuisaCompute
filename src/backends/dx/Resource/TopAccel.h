@@ -1,6 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <EASTL/shared_ptr.h>
+#include <Resource/MeshInstance.h>
 #include <runtime/command.h>
 namespace toolhub::directx {
 class DefaultBuffer;
@@ -16,8 +17,9 @@ class TopAccel : public vstd::IOperatorNewBase {
         uint mask;
     };
     friend class BottomAccel;
-    eastl::shared_ptr<DefaultBuffer> instBuffer;
-    eastl::shared_ptr<DefaultBuffer> accelBuffer;
+    vstd::unique_ptr<DefaultBuffer> instBuffer;
+    vstd::unique_ptr<DefaultBuffer> customInstBuffer;
+    vstd::unique_ptr<DefaultBuffer> accelBuffer;
     vstd::HashMap<Buffer const *, size_t> resourceRefMap;
     Device *device;
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO topLevelPrebuildInfo;
@@ -26,12 +28,14 @@ class TopAccel : public vstd::IOperatorNewBase {
     size_t capacity = 0;
     vstd::vector<Element> accelMap;
     struct CopyCommand {
-        eastl::shared_ptr<DefaultBuffer> srcBuffer;
-        eastl::shared_ptr<DefaultBuffer> dstBuffer;
+        vstd::unique_ptr<DefaultBuffer> srcBuffer;
+        DefaultBuffer const *dstBuffer;
     };
     struct UpdateCommand {
         D3D12_RAYTRACING_INSTANCE_DESC ist;
+        MeshInstance meshInst;
         BufferView buffer;
+        BufferView customBuffer;
     };
     using Command = vstd::variant<
         CopyCommand,
@@ -64,6 +68,9 @@ public:
     void PopBack();
     DefaultBuffer const *GetAccelBuffer() const {
         return accelBuffer ? (DefaultBuffer const *)accelBuffer.get() : (DefaultBuffer const *)nullptr;
+    }
+    DefaultBuffer const* GetInstBuffer() const {
+        return customInstBuffer ? (DefaultBuffer const *)customInstBuffer.get() : (DefaultBuffer const *)nullptr;
     }
     void Reserve(
         size_t newCapacity);

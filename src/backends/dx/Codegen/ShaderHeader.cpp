@@ -54,24 +54,6 @@ float3x3 _inverse(float3x3 m) {
 	float rhs2 = 1.0 / dot(lhs.zxy * flt2, 1);
 	return float3x3(flt2, c4, c5) * rhs2;
 }
-/*
-////vec(["float"])
-Z _acosh(Z v){return log(v + sqrt(v * v - 1));}
-////vec(["float"])
-Z _asinh(Z v){return log(v + sqrt(v * v + 1));}
-////vec(["float"])
-Z _atanh(Z v){return 0.5 * log((1 + v) / (1 - v));}
-////vec(["float"])
-Z _exp10(Z v){return pow(10, v);};
-////vec(["float","int"])
-Z _copysign(Z x, Z y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-////vec(["float"])
-Z _length_sqr(Z x){ return dot(x,x);}
-////vec(["float"])
-Z _distance_sqr(Z x, Z y){ return _length_sqr(x - y);}
-////vec(["float","uint","int"])
-Z _min3(Z x, Z y, Z z){return min(x, min(y,z));}
-*/
 float _acosh(float v) { return log(v + sqrt(v * v - 1)); }
 float2 _acosh(float2 v) { return log(v + sqrt(v * v - 1)); }
 float3 _acosh(float3 v) { return log(v + sqrt(v * v - 1)); }
@@ -88,33 +70,11 @@ float _exp10(float v) { return pow(10, v); };
 float2 _exp10(float2 v) { return pow(10, v); };
 float3 _exp10(float3 v) { return pow(10, v); };
 float4 _exp10(float4 v) { return pow(10, v); };
-/*
-float _copysign(float x, float y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-float2 _copysign(float2 x, float2 y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-float3 _copysign(float3 x, float3 y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-float4 _copysign(float4 x, float4 y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-int _copysign(int x, int y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-int2 _copysign(int2 x, int2 y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-int3 _copysign(int3 x, int3 y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-int4 _copysign(int4 x, int4 y) { (abs(sign(x) - sign(y)) > 1) ? (-x): (x); }
-*/
+
 float _length_sqr(float x) { return dot(x, x); }
 float2 _length_sqr(float2 x) { return dot(x, x); }
 float3 _length_sqr(float3 x) { return dot(x, x); }
 float4 _length_sqr(float4 x) { return dot(x, x); }
-float _distance_sqr(float x, float y) { return _length_sqr(x - y); }
-float2 _distance_sqr(float2 x, float2 y) { return _length_sqr(x - y); }
-float3 _distance_sqr(float3 x, float3 y) { return _length_sqr(x - y); }
-float4 _distance_sqr(float4 x, float4 y) { return _length_sqr(x - y); }
-float4 to_tex(float4 v) { return v; }
-float4 to_tex(float2 v) { return float4(v, 1, 1); }
-float4 to_tex(float3 v) { return float4(v, 1); }
-uint4 to_tex(uint4 v) { return v; }
-uint4 to_tex(uint2 v) { return uint4(v, 1, 1); }
-uint4 to_tex(uint3 v) { return uint4(v, 1); }
-int4 to_tex(int4 v) { return v; }
-int4 to_tex(int2 v) { return int4(v, 1, 1); }
-int4 to_tex(int3 v) { return int4(v, 1); }
 bool _isnan(float x) {
 	return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
@@ -279,6 +239,10 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	~0, 0, 1, 0, ray, payload);
 	return (payload.v0 != 4294967295);
 }
+float4x4 InstMatrix(StructuredBuffer<float4x3> instBuffer, uint index){
+	float4x3 m = instBuffer[index];
+	return float4x4(m, float4(0, 0, 0, 1));
+}
 )"sv;
 }
 vstd::string_view GetClosestHitHeader() {
@@ -286,9 +250,9 @@ vstd::string_view GetClosestHitHeader() {
 [shader("closesthit")]
 void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
-payload.v0 = InstanceIndex();
-payload.v1 = PrimitiveIndex();
-payload.v2 = attr.barycentrics;
+	payload.v0 = InstanceIndex();
+	payload.v1 = PrimitiveIndex();
+	payload.v2 = attr.barycentrics;
 }
 )"sv;
 }

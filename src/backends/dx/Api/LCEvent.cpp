@@ -11,12 +11,12 @@ LCEvent::LCEvent(Device *device) {
 LCEvent::~LCEvent() {
 }
 void LCEvent::Sync() {
-    if (fence->GetCompletedValue() < fenceIndex) {
+    if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
         LPCWSTR falseValue = 0;
         HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-        auto disp = vstd::create_disposer([&] { CloseHandle(eventHandle); });
         ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
         WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
     }
 }
 void LCEvent::Signal(CommandQueue *queue) {

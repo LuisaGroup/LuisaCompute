@@ -2,26 +2,11 @@
 #include <DXRuntime/Device.h>
 #include <Resource/DescriptorHeap.h>
 #include <Resource/DefaultBuffer.h>
-#include <Resource/MeshInstance.h>
 namespace toolhub::directx {
-class BufferVisitor : public vstd::PoolAllocator::Visitor {
-public:
-	Device* device;
-	BufferVisitor(Device* device) : device(device) {}
-	void* Allocate(size_t size) override {
-		return new DefaultBuffer(device, size, device->defaultAllocator);
-	}
-	void DeAllocate(void* ptr) override {
-		delete reinterpret_cast<DefaultBuffer*>(ptr);
-	}
-};
 Device::~Device() {
 }
 
-Device::Device()
-	: meshAlloc(sizeof(MeshInstance), 65536 / sizeof(MeshInstance), [this](void* ptr) {
-		  return new (ptr) BufferVisitor(this);
-	  }) {
+Device::Device() {
 	using Microsoft::WRL::ComPtr;
 #if defined(_DEBUG)
 	// Enable the D3D12 debug layer.
@@ -54,25 +39,5 @@ Device::Device()
 			D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
 			1000000,
 			true));
-}
-BufferView Device::AllocateMeshBuffer() {
-	vstd::StackObject<vstd::PoolAllocator::AllocateHandle> handle;
-	{
-		std::lock_guard lck(meshAllocMtx);
-		handle.New(meshAlloc.Allocate());
-	}
-	return BufferView(reinterpret_cast<Buffer const*>(handle->resource),
-					  handle->offset * sizeof(MeshInstance),
-					  sizeof(MeshInstance));
-}
-
-void Device::DeAllocateMeshBuffer(BufferView const& b) {
-	vstd::PoolAllocator::AllocateHandle handle{
-		const_cast<Buffer*>(b.buffer),
-		b.offset / sizeof(MeshInstance)};
-	{
-		std::lock_guard lck(meshAllocMtx);
-		meshAlloc.DeAllocate(handle);
-	}
 }
 }// namespace toolhub::directx

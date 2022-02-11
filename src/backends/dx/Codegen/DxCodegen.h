@@ -143,6 +143,7 @@ template<>
 struct PrintValue<uint> {
     void operator()(uint const &v, vstd::string &str) {
         vstd::to_string(v, str);
+        str << 'u';
     }
 };
 
