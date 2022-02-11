@@ -453,10 +453,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "any"sv;
             break;
         case CallOp::SELECT: {
-            if (expr->arguments()[2]->type()->tag() == Type::Tag::BOOL)
-                str << "select_scale"sv;
-            else
-                str << "select"sv;
+            str << "select"sv;
         } break;
         case CallOp::CLAMP:
             str << "clamp"sv;
@@ -591,7 +588,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "length"sv;
             break;
         case CallOp::LENGTH_SQUARED:
-            str << "length_sqr"sv;
+            str << "_length_sqr"sv;
             break;
         case CallOp::NORMALIZE:
             str << "normalize"sv;
@@ -740,6 +737,15 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
             str << "Tex3DSize"sv;
             break;
+        //case CallOp::SYNCHRONIZE_BLOCK:
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: {
+            str << "InstMatrix("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            args[1]->accept(vis);
+            str << ')';
+            return;
+        }
         default: {
             auto errorType = expr->op();
             VEngine_Log("Function Not Implemented"sv);
@@ -945,6 +951,7 @@ void CodegenUtility::GenerateCBuffer(
     vstd::string &result) {
     result << R"(cbuffer _Global:register(b0){
 uint3 dsp_c;
+uint dsp_align;
 )"sv;
     size_t structSize = 12;
     size_t alignCount = 0;
@@ -981,14 +988,20 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     if (kernel.tag() != Function::Tag::KERNEL) return {};
     ClearStructType();
     vstd::string codegenData;
-    auto callable = [&](auto &&callable, Function func) -> void {
-        for (auto &&i : func.custom_callables()) {
-            Function f(i.get());
-            callable(callable, f);
-        }
-        CodegenFunction(func, codegenData);
-    };
-    callable(callable, kernel);
+    // Custom callable
+    {
+        vstd::HashMap<void const *> callableMap;
+        auto callable = [&](auto &&callable, Function func) -> void {
+            for (auto &&i : func.custom_callables()) {
+                if (callableMap.TryEmplace(i.get()).second) {
+                    Function f(i.get());
+                    callable(callable, f);
+                }
+            }
+            CodegenFunction(func, codegenData);
+        };
+        callable(callable, kernel);
+    }
     vstd::string finalResult;
     finalResult.reserve(65500);
     if (!opt->customStructVector.empty()) {
@@ -1064,14 +1077,29 @@ struct RayPayload{
             finalResult << varName;
             return varName;
         };
-        auto genArg = [&](RegisterType regisT, ShaderVariableType sT, char v) {
+        auto printInstBuffer = [&] {
+            finalResult
+                << "StructuredBuffer<float4x3>"sv
+                << ' ';
+            vstd::string varName;
+            GetVariableName(i, varName);
+            varName << "Inst"sv;
+            finalResult << varName;
+            return varName;
+        };
+        auto genArg = [&]<bool rtBuffer = false>(RegisterType regisT, ShaderVariableType sT, char v) {
             auto &&r = registerCount[(vbyte)regisT];
             Shader::Property prop = {
                 .type = sT,
                 .spaceIndex = 0,
                 .registerIndex = r,
                 .arrSize = 0};
-            properties.emplace_back(print(), prop);
+            if constexpr (rtBuffer) {
+                properties.emplace_back(printInstBuffer(), prop);
+
+            } else {
+                properties.emplace_back(print(), prop);
+            }
             finalResult << ":register("sv << v;
             vstd::to_string(r, finalResult);
             finalResult << ");\n"sv;
@@ -1094,10 +1122,12 @@ struct RayPayload{
                 }
             } break;
             case Type::Tag::BINDLESS_ARRAY:
-            case Type::Tag::ACCEL: {
                 genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
-                //TODO
-            } break;
+                break;
+            case Type::Tag::ACCEL:
+                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                break;
         }
     }
     if (kernel.raytracing()) {

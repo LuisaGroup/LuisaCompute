@@ -1,5 +1,6 @@
 #pragma vengine_package vengine_directx
 #include <DXRuntime/CommandAllocator.h>
+#include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
 namespace detail {
 
@@ -8,34 +9,34 @@ void CommandAllocator::CollectBuffer(CommandBuffer *buffer) {
     bufferPool.push_back(buffer);
 }
 void CommandAllocator::Execute(
-    ID3D12CommandQueue *queue,
+    CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
     if (!executeCache.empty()) {
-        queue->ExecuteCommandLists(
+        queue->Queue()->ExecuteCommandLists(
             executeCache.size(),
             executeCache.data());
+
         executeCache.clear();
     }
-    ThrowIfFailed(queue->Signal(fence, fenceIndex));
+    ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
 }
 void CommandAllocator::Complete(
+    CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
-    if (fence->GetCompletedValue() < fenceIndex) {
+    uint64 completeValue;
+    if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
         LPCWSTR falseValue = 0;
         HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-        auto disp = vstd::create_disposer([&] { CloseHandle(eventHandle); });
         ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
         WaitForSingleObject(eventHandle, INFINITE);
+        CloseHandle(eventHandle);
     }
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
     }
-    {
-        std::lock_guard lck(tempEvtMtx);
-        tempEvent.Clear();
-    }
+    tempEvent.Clear();
 }
 vstd::unique_ptr<CommandBuffer> CommandAllocator::GetBuffer() {
     auto dev = [&] {
@@ -70,11 +71,10 @@ CommandAllocator::~CommandAllocator() {
     }
 }
 IPipelineEvent *CommandAllocator::AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func) {
-    std::lock_guard lck(tempEvtMtx);
     auto ite = tempEvent.Emplace(ptr, vstd::MakeLazyEval(func));
     return ite.Value().get();
 }
-void CommandAllocator::Reset() {
+void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();
     uploadAllocator.Clear();
     defaultAllocator.Clear();

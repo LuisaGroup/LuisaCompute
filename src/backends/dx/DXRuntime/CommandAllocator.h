@@ -27,8 +27,6 @@ private:
     vstd::vector<CommandBuffer *> bufferPool;
     vstd::vector<ID3D12CommandList *> executeCache;
     vstd::LockFreeArrayQueue<vstd::move_only_func<void()>> executeAfterComplete;
-    std::mutex pendantMtx;
-    std::mutex tempEvtMtx;
     Visitor<ReadbackBuffer> rbVisitor;
     Visitor<DefaultBuffer> dbVisitor;
     Visitor<UploadBuffer> ubVisitor;
@@ -43,15 +41,15 @@ private:
     //TODO: allocate commandbuffer
     void CollectBuffer(CommandBuffer *buffer);
     CommandAllocator(Device *device, IGpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
-    void Execute(ID3D12CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
-    void Complete(ID3D12Fence *fence, uint64 fenceIndex);
+    void Execute(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
+    void Complete(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
 
 public:
     ~CommandAllocator();
     IPipelineEvent *AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func);
     ID3D12CommandAllocator *Allocator() const { return allocator.Get(); }
     D3D12_COMMAND_LIST_TYPE Type() const { return type; }
-    void Reset();
+    void Reset(CommandQueue *queue);
     template<typename Func>
         requires(std::is_constructible_v<vstd::function<void()>, Func &&>)
     void ExecuteAfterComplete(Func &&func) {
