@@ -152,7 +152,7 @@ def render():
         color_buffer[u, v] += throughput * hit_light
 
 
-ENABLE_DISPLAY = True
+ENABLE_DISPLAY = False
 INTERVAL = 4
 
 if __name__ == "__main__":

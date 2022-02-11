@@ -9,9 +9,15 @@
 #include <ast/expression.h>
 #include <compile/codegen.h>
 
-namespace luisa::compute::cuda {
+namespace luisa::compute::ispc {
 
-class CUDACodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
+class ISPCCodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
+
+public:
+    static constexpr auto accel_handle_size = 8u;
+    static constexpr auto buffer_handle_size = 8u;
+    static constexpr auto texture_handle_size = 8u;
+    static constexpr auto bindless_array_handle_size = 8u;
 
 private:
     Function _function;
@@ -57,9 +63,8 @@ private:
     virtual void _emit_variable_declarations(const MetaStmt *meta) noexcept;
 
 public:
-    explicit CUDACodegen(Codegen::Scratch &scratch) noexcept
-        : Codegen{scratch} {}
+    explicit ISPCCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}
     void emit(Function f) override;
 };
 
-}// namespace luisa::compute::cuda
+}// namespace luisa::compute::ispc

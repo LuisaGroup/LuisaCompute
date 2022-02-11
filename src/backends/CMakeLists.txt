@@ -38,8 +38,7 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
-#    add_subdirectory(ispc)
-    add_subdirectory(ispc2)
+    add_subdirectory(ispc)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_REMOTE)
