@@ -31,6 +31,7 @@
 #include <EASTL/functional.h>
 #include <EASTL/vector_map.h>
 #include <EASTL/vector_set.h>
+#include <EASTL/shared_array.h>
 #include <EASTL/unordered_map.h>
 #include <EASTL/unordered_set.h>
 #include <EASTL/fixed_hash_map.h>
@@ -99,6 +100,7 @@ using eastl::shared_ptr;
 using eastl::static_pointer_cast;
 using eastl::unique_ptr;
 using eastl::weak_ptr;
+using eastl::shared_array;
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
 using std::string_view;
