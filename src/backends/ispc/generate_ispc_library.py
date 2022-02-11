@@ -1236,7 +1236,7 @@ inline bool trace_any(uniform LCAccel accel, LCRay ray) {
     r.id = 0u;
     r.flags = 0u;
     rtcOccludedV((RTCScene)accel.handle, &ctx, &r);
-    return r.tfar >= 0.f;
+    return r.tfar < 0.f;
 }
 
 inline LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
