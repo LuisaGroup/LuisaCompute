@@ -19,19 +19,15 @@ Mesh::Mesh(Device* device,
 	  vCount(vCount),
 	  iCount(iCount) {
 	//TODO: allocate buffer
-	meshInstance = device->AllocateMeshBuffer();
 	vboIdx = device->globalHeap->AllocateIndex();
 	iboIdx = device->globalHeap->AllocateIndex();
-	meshInstIdx = device->globalHeap->AllocateIndex();
 	auto vSrvDesc = vHandle->GetColorSrvDesc(vOffset, vStride * vCount);
 	auto iSrvDesc = iHandle->GetColorSrvDesc(iOffset, sizeof(uint) * iCount);
-	auto instIdx = meshInstance.buffer->GetColorSrvDesc(meshInstance.offset, meshInstance.byteSize, false);
-	if (!vSrvDesc || !iSrvDesc || !instIdx) {
+	if (!vSrvDesc || !iSrvDesc) {
 		VEngine_Log("illegal mesh buffer!\n");
 		VENGINE_EXIT;
 	}
-	device->globalHeap->CreateSRV(
-		meshInstance.buffer->GetResource(), *instIdx, meshInstIdx);
+
 	device->globalHeap->CreateSRV(
 		vHandle->GetResource(), *vSrvDesc, vboIdx);
 	device->globalHeap->CreateSRV(
@@ -40,39 +36,16 @@ Mesh::Mesh(Device* device,
 Mesh::~Mesh() {
 	device->globalHeap->ReturnIndex(vboIdx);
 	device->globalHeap->ReturnIndex(iboIdx);
-	device->globalHeap->ReturnIndex(meshInstIdx);
-	device->DeAllocateMeshBuffer(meshInstance);
 	//TODO: deallocate buffer
 }
 void Mesh::Build(
-	ResourceStateTracker& tracker,
-    CommandBufferBuilder &cmd) const {
+	ResourceStateTracker& tracker) const {
     tracker.RecordState(
         vHandle,
         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     tracker.RecordState(
         iHandle,
         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-	tracker.RecordState(
-		meshInstance.buffer,
-		D3D12_RESOURCE_STATE_COPY_DEST);
-	auto disp = vstd::create_disposer([&] {
-		tracker.RecordState(meshInstance.buffer);
-	});
-	tracker.UpdateState(cmd);
-	cmd.Upload(
-		meshInstance,
-		vstd::get_rvalue_ptr(MeshInstance{
-			vboIdx,
-			iboIdx,
-			uint(vStride),
-			uint(vCount),
-			uint(iCount)}));
-}
-ID3D12Resource* Mesh::GetResource() const {
-	return meshInstance.buffer->GetResource();
-}
-D3D12_RESOURCE_STATES Mesh::GetInitState() const {
-	return meshInstance.buffer->GetInitState();
+	
 }
 }// namespace toolhub::directx

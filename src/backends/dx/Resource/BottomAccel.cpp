@@ -54,7 +54,7 @@ BottomAccel::~BottomAccel() {
 void BottomAccel::Build(
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder) const {
-    mesh.Build(tracker, builder);
+    mesh.Build(tracker);
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomStruct;
     D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &bottomInput = bottomStruct.Inputs;
@@ -75,6 +75,7 @@ void BottomAccel::Build(
     bottomStruct.SourceAccelerationStructureData = 0;
     bottomStruct.DestAccelerationStructureData = accelBuffer->GetAddress();
     bottomStruct.ScratchAccelerationStructureData = scratchBuffer->GetAddress();
+    tracker.UpdateState(builder);
     builder.CmdList()->BuildRaytracingAccelerationStructure(
         &bottomStruct,
         0,

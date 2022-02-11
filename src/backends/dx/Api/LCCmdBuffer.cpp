@@ -147,13 +147,22 @@ public:
             ++arg;
         }
         void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+            auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             vstd::string name;
+            vstd::string instName;
             CodegenUtility::GetVariableName(
                 *arg,
                 name);
+            self->stateTracker.RecordState(
+                accel->GetInstBuffer(),
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            instName << name << "Inst"sv;
             self->bindProps.emplace_back(
                 std::move(name),
-                reinterpret_cast<TopAccel *>(bf.handle));
+                accel);
+            self->bindProps.emplace_back(
+                std::move(instName),
+                BufferView(accel->GetInstBuffer()));
             ++arg;
         }
         void operator()(uint uid, vstd::span<std::byte const> bf) {
