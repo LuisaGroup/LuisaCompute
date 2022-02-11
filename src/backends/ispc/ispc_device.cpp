@@ -5,7 +5,7 @@
 #include <backends/ispc/ispc_stream.h>
 #include <backends/ispc/ispc_device.h>
 #include <backends/ispc/ispc_event.h>
-#include <backends/ispc/ispc_codegen.h>
+#include <backends/ispc/ispc_shader.h>
 
 namespace luisa::compute::ispc {
 
@@ -80,10 +80,8 @@ void ISPCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 }
 
 void ISPCDevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
-}
-
-void ISPCDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
-    Interface::dispatch(stream_handle, lists);// TODO
+    auto stream = reinterpret_cast<ISPCStream *>(stream_handle);
+    stream->dispatch(list);
 }
 
 void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
@@ -91,14 +89,12 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 }
 
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    Codegen::Scratch scratch;
-    ISPCCodegen codegen{scratch};
-    codegen.emit(kernel);
-    LUISA_INFO("Generated Source:\n{}", scratch.view());
-    return 0;
+    auto shader = luisa::new_with_allocator<ISPCShader>(context(), kernel);
+    return reinterpret_cast<uint64_t>(shader);
 }
 
 void ISPCDevice::destroy_shader(uint64_t handle) noexcept {
+    luisa::delete_with_allocator(reinterpret_cast<ISPCShader *>(handle));
 }
 
 uint64_t ISPCDevice::create_event() noexcept {

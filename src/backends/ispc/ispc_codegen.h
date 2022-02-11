@@ -13,6 +13,12 @@ namespace luisa::compute::ispc {
 
 class ISPCCodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
+public:
+    static constexpr auto accel_handle_size = 8u;
+    static constexpr auto buffer_handle_size = 8u;
+    static constexpr auto texture_handle_size = 8u;
+    static constexpr auto bindless_array_handle_size = 8u;
+
 private:
     Function _function;
     luisa::vector<Function> _generated_functions;

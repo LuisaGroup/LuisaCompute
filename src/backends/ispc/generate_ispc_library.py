@@ -539,6 +539,8 @@ inline uint reverse(uint n) {
     n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
     return n;
 }
+inline uniform float fract(uniform float x) { return x - floor(x); }
+inline float fract(float x) { return x - floor(x); }
 inline float3 cross(float3 u, float3 v) {
     return make_float3(
         u.v[1] * v.v[2] - v.v[1] * u.v[2],
@@ -583,7 +585,7 @@ inline uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform fl
         # cos/cosh/sin/sinh/tan/tanh/exp/exp2/exp10/log/log2/
         # log10/sqrt/rsqrt/ceil/floor/trunc/round/fma/copysignf/
         # isinf/isnan/clamp/saturate/lerp/radians/degrees/step
-        # smoothstep/clz/ctz/popcount/reverse
+        # smoothstep/clz/ctz/popcount/reverse/fract
         generate_vector_call("min", "min", "iuf", ["a", "b"])
         generate_vector_call("max", "max", "iuf", ["a", "b"])
         generate_vector_call("abs", "abs", "if", ["x"])
@@ -627,6 +629,7 @@ inline uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform fl
         generate_vector_call("clz", "clz", "u", ["x"])
         generate_vector_call("ctz", "ctz", "u", ["x"])
         generate_vector_call("popcount", "popcount", "u", ["x"])
+        generate_vector_call("fract", "fract", "f", ["x"])
 
         # matrix types
         print('''
