@@ -31,10 +31,7 @@ if __name__ == "__main__":
 
 inline void lc_assume(bool) {}
 inline void lc_assume(uniform bool pred) { assume(pred); }
-inline void lc_unreachable() {
-  assume(false);
-  assert(false);
-}
+inline void lc_unreachable() { assert(false); }
 
 #define array_access(arr, i) ((arr).a[i])
 #define vector_access(vec, i) ((vec).v[i])
