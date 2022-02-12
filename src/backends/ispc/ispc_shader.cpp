@@ -55,8 +55,11 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             .string());
     std::array ispc_options {
         "-woff",
+            "--addressing=32",
 #ifndef NDEBUG
             "-g",
+#else
+            "--opt=disable-assertions",
 #endif
             "-O3",
             "--math-lib=fast",

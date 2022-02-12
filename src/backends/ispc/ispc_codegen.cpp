@@ -365,8 +365,8 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "make_float4x4"; break;
-        case CallOp::ASSUME: _scratch << "assume"; break;
-        case CallOp::UNREACHABLE: _scratch << "unreachable"; break;
+        case CallOp::ASSUME: _scratch << "lc_assume"; break;
+        case CallOp::UNREACHABLE: _scratch << "lc_unreachable"; break;
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
@@ -384,7 +384,9 @@ void ISPCCodegen::visit(const CallExpr *expr) {
     } else if (!args.empty()) {
         if (expr->op() == CallOp::BINDLESS_BUFFER_READ) {
             _emit_type_name(expr->type());
-            _scratch << ", ";
+            _scratch << ", "
+                     << expr->type()->alignment()
+                     << ", ";
         }
         for (auto arg : args) {
             arg->accept(*this);
@@ -544,7 +546,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
                  << "    const uint3 did,\n"
                  << "    const uniform uint3 bid,\n"
                  << "    const uniform uint3 ls) {"
-                 << "  if (any(binary_ge(did, ls))) { return; }\n" ;
+                 << "  if (any(binary_ge(did, ls))) { return; }\n";
     } else {
         if (any_arg) { _scratch.pop_back(); }
         _scratch << ") {";
@@ -587,12 +589,25 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
             }
         }
         _scratch << "};\n\n";
+
         _scratch << "export void kernel_main(\n"
-                    "    const Params *uniform params,\n"
-                    "    uniform const uint bx, uniform const uint by, uniform const uint bz,\n"
-                    "    uniform const uint lx, uniform const uint ly, uniform const uint lz) {\n"
-                    "    uniform const uint3 bid = make_uint3(bx, by, bz);\n"
-                    "    uniform const uint3 ls = make_uint3(lx, ly, lz);\n";
+                 << "    const Params *uniform params,\n"
+                 << "    uniform const uint bx, uniform const uint by, uniform const uint bz,\n"
+                 << "    uniform const uint lx, uniform const uint ly, uniform const uint lz) {\n"
+                 << "    uniform const uint3 bid = make_uint3(bx, by, bz);\n"
+                 << "    uniform const uint3 ls = make_uint3(lx, ly, lz);\n";
+        _scratch << "  assume((uniform uint64)params % 16u == 0u);\n";
+        for (auto arg : f.arguments()) {
+            if (arg.type()->is_buffer()) {
+                _scratch << "assume((uniform uint64)params->";
+                _emit_variable_name(arg);
+                _scratch << " % 16u == 0u);\n";
+            } else if (arg.type()->is_bindless_array()) {
+                _scratch << "assume((uniform uint64)(params->";
+                _emit_variable_name(arg);
+                _scratch << ".items) % 16u == 0u);\n";
+            }
+        }
         _scratch << "  foreach ("
                  << "k = 0..." << f.block_size().z << ", "
                  << "j = 0..." << f.block_size().y << ", "

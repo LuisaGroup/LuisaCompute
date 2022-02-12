@@ -29,7 +29,13 @@ if __name__ == "__main__":
 #define _z v[2]
 #define _w v[3]
 
-#define unreachable()
+inline void lc_assume(bool) {}
+inline void lc_assume(uniform bool pred) { assume(pred); }
+inline void lc_unreachable() {
+  assume(false);
+  assert(false);
+}
+
 #define array_access(arr, i) ((arr).a[i])
 #define vector_access(vec, i) ((vec).v[i])
 #define matrix_access(mat, i) ((mat).cols[i])
@@ -1220,7 +1226,7 @@ struct LCTexture {
 };
 
 struct LCBindlessItem {
-    const void *uniform buffer;
+    uniform const uint *uniform buffer;
     uniform const LCTexture tex2d;
     uniform const LCTexture tex3d;
     uniform const uint16 sampler2d;
@@ -1231,8 +1237,8 @@ struct LCBindlessArray {
     uniform const LCBindlessItem *uniform items;
 };
 
-#define bindless_buffer_read(type, array, buffer_id, index) \\
-    (((const type *)(array.items[buffer_id].buffer))[index])
+#define bindless_buffer_read(type, alignment, array, buffer_id, index) \\
+    (((const type *)((array).items[buffer_id].buffer))[index])
 
 #ifdef LC_ISPC_RAYTRACING
 
