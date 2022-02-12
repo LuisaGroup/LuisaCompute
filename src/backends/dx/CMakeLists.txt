@@ -114,4 +114,14 @@ test_rtx.h
         m128_u32=vector4_u32)
     endif ()
     set_target_properties(luisa-compute-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+set(DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
+mark_as_advanced(DX_SUPPORT_DIR)
+if (CMAKE_BUILD_TYPE)
+    add_custom_target(lc-dx-copy-support ALL
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${DX_SUPPORT_DIR}"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    add_dependencies(luisa-compute-backend-dx lc-dx-copy-support)
+endif ()
+
 endif ()
