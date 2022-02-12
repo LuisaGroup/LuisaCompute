@@ -535,27 +535,18 @@ void CUDACodegen::_emit_function(Function f) noexcept {
             any_arg = true;
         }
         if (f.tag() == Function::Tag::KERNEL) {
-            _scratch << "\n    const lc_uint3 ls) {";// launch size
+            _scratch << "\n"
+                     << "    const lc_uint3 ls) {\n"
+                     << "  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);\n"
+                     << "  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);\n"
+                     << "  const auto did = lc_make_uint3(\n"
+                     << "    blockIdx.x * blockDim.x + threadIdx.x,\n"
+                     << "    blockIdx.y * blockDim.y + threadIdx.y,\n"
+                     << "    blockIdx.z * blockDim.z + threadIdx.z);\n"
+                     << "  if (lc_any(did >= ls)) { return; }";
         } else {
             if (any_arg) { _scratch.pop_back(); }
             _scratch << ") noexcept {";
-        }
-        for (auto builtin : f.builtin_variables()) {
-            switch (builtin.tag()) {
-                case Variable::Tag::THREAD_ID:
-                    _scratch << "\n  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);";
-                    break;
-                case Variable::Tag::BLOCK_ID:
-                    _scratch << "\n  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);";
-                    break;
-                case Variable::Tag::DISPATCH_ID:
-                    _scratch << "\n  const auto did = lc_make_uint3("
-                             << "\n    blockIdx.x * blockDim.x + threadIdx.x,"
-                             << "\n    blockIdx.y * blockDim.y + threadIdx.y,"
-                             << "\n    blockIdx.z * blockDim.z + threadIdx.z);";
-                    break;
-                default: break;
-            }
         }
     }
     _indent = 1;
