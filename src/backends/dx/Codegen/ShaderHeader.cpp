@@ -157,7 +157,10 @@ uint2 Sampler2D3D(uint tex3DSizeZSamp){
 	result.y = (samplers >> 8);
 	return result;
 }
-
+float fract(float x){ return x - floor(x);}
+float2 fract(float2 x){ return x - floor(x);}
+float3 fract(float3 x){ return x - floor(x);}
+float4 fract(float4 x){ return x - floor(x);}
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float level){
 	BdlsStruct s = arr[index];
 	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).x];
