@@ -33,13 +33,14 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Material, albedo, emission){};
-LUISA_STRUCT(Onb, tangent, binormal, normal){
+// clang-format off
+LUISA_STRUCT(Material, albedo, emission) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
-}
-}
-;
+    }
+};
+// clang-format on
 
 int main(int argc, char *argv[]) {
 
@@ -177,7 +178,7 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D raytracing_kernel = [&](BufferFloat4 image, BufferUInt seed_image, AccelVar accel) noexcept {
-        set_block_size(8u, 8u, 1u);
+        set_block_size(16u, 16u, 1u);
         auto coord = dispatch_id().xy();
         auto pixel_id = coord.y * dispatch_size_x() + coord.x;
         auto frame_size = min(dispatch_size_x(), dispatch_size_y()).cast<float>();
@@ -288,7 +289,7 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](BufferFloat4 hdr_image, BufferUInt ldr_image, Float scale) noexcept {
         auto pixel_id = dispatch_y() * dispatch_size_x() + dispatch_x();
         auto hdr = hdr_image.read(pixel_id);
-//        auto ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
+        //        auto ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
         auto ldr = linear_to_srgb(hdr.xyz());
         auto srgb = make_uint3(clamp(ldr * 255.f, 0.f, 255.f));
         auto encoded = (255u << 24u) | (srgb.z << 16u) | (srgb.y << 8u) | srgb.x;
