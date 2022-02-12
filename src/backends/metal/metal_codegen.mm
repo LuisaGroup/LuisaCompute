@@ -147,7 +147,6 @@ public:
     }
 
     void operator()(const LiteralExpr::MetaValue &s) const noexcept {
-
     }
 };
 
@@ -392,12 +391,12 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     stmt->true_branch()->accept(*this);
     if (auto fb = stmt->false_branch(); !fb->statements().empty()) {
         _scratch << " else ";
-//        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
-//            fb->statements().size() == 1u && elif != nullptr) {
-//            elif->accept(*this);
-//        } else {
-            fb->accept(*this);
-//        }
+        //        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
+        //            fb->statements().size() == 1u && elif != nullptr) {
+        //            elif->accept(*this);
+        //        } else {
+        fb->accept(*this);
+        //        }
     }
 }
 
@@ -468,20 +467,18 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"
-                 << "void kernel_" << hash_to_string(f.hash()) << "(";
+                 << "void kernel_" << hash_to_string(f.hash()) << "(\n";
 
         // arguments
         for (auto arg : f.arguments()) {
-            _scratch << "\n    ";
+            _scratch << "    ";
             _emit_argument_decl(arg);
-            _scratch << ",";
+            _scratch << ",\n";
         }
-        for (auto builtin : f.builtin_variables()) {
-            _scratch << "\n    ";
-            _emit_argument_decl(builtin);
-            _scratch << ",";
-        }
-        _scratch.pop_back();
+        _scratch << "    const uint3 tid [[thread_position_in_threadgroup]],\n"
+                 << "    const uint3 bid [[threadgroup_position_in_grid]],\n"
+                 << "    const uint3 did [[thread_position_in_grid]],\n"
+                 << "    constant uint3 &ls";
     } else if (f.tag() == Function::Tag::CALLABLE) {
         // emit templated access specifier for textures
         if (std::any_of(f.arguments().begin(), f.arguments().end(), [](auto v) noexcept {
@@ -523,21 +520,20 @@ void MetalCodegen::_emit_function(Function f) noexcept {
 
     // emit shared or "mutable" uniform variables for kernel
     if (f.tag() == Function::Tag::KERNEL) {
-        auto has_mutable_args = false;
+        _scratch << "\n"
+                 << "  if (any(did >= ls)) { return; };\n";
         for (auto v : f.arguments()) {
             if (v.tag() == Variable::Tag::LOCAL) {
                 if (auto usage = f.variable_usage(v.uid());
                     usage == Usage::WRITE || usage == Usage::READ_WRITE) {
-                    has_mutable_args = true;
-                    _scratch << "\n  auto ";
+                    _scratch << "  auto ";
                     _emit_variable_name(v);
                     _scratch << " = u";
                     _emit_variable_name(v);
-                    _scratch << ";";
+                    _scratch << ";\n";
                 }
             }
         }
-        if (has_mutable_args) { _scratch << "\n"; }
     }
     // emit body
     _scratch << "\n";
@@ -688,25 +684,6 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             break;
         case Variable::Tag::ACCEL:
             _scratch << "const Accel ";
-            _emit_variable_name(v);
-            break;
-        case Variable::Tag::THREAD_ID:
-            _scratch << "const uint3 ";
-            _emit_variable_name(v);
-            _scratch << " [[thread_position_in_threadgroup]]";
-            break;
-        case Variable::Tag::BLOCK_ID:
-            _scratch << "const uint3 ";
-            _emit_variable_name(v);
-            _scratch << " [[threadgroup_position_in_grid]]";
-            break;
-        case Variable::Tag::DISPATCH_ID:
-            _scratch << "const uint3 ";
-            _emit_variable_name(v);
-            _scratch << " [[thread_position_in_grid]]";
-            break;
-        case Variable::Tag::DISPATCH_SIZE:
-            _scratch << "constant uint3 &";
             _emit_variable_name(v);
             break;
         default:

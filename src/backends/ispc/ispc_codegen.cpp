@@ -539,10 +539,12 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         any_arg = true;
     }
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "\n    const uint3 tid,"
-                    "\n    const uint3 did,"
-                    "\n    const uniform uint3 bid,"
-                    "\n    const uniform uint3 ls) {";// launch size
+        _scratch << "\n"
+                 << "    const uint3 tid,\n"
+                 << "    const uint3 did,\n"
+                 << "    const uniform uint3 bid,\n"
+                 << "    const uniform uint3 ls) {"
+                 << "  if (any(binary_ge(did, ls))) { return; }\n" ;
     } else {
         if (any_arg) { _scratch.pop_back(); }
         _scratch << ") {";
