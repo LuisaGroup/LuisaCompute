@@ -121,6 +121,8 @@ void ISPCCodegen::visit(const AccessExpr *expr) {
         _scratch << "vector_access(";
     } else if (t->is_matrix()) {
         _scratch << "matrix_access(";
+    } else if (t->is_buffer()) {
+        _scratch << "buffer_access(";
     } else {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid range type for access expression: {}.",
@@ -286,39 +288,39 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::INVERSE: _scratch << "inverse"; break;
         case CallOp::SYNCHRONIZE_BLOCK: _scratch << "barrier"; break;
         case CallOp::ATOMIC_EXCHANGE:
-            _scratch << "atomic_swap";
+            _scratch << "atomic_swap_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            _scratch << "atomic_compare_exchange";
+            _scratch << "atomic_compare_exchange_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
-            _scratch << "atomic_add";
+            _scratch << "atomic_add_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            _scratch << "atomic_subtract";
+            _scratch << "atomic_subtract_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_AND:
-            _scratch << "atomic_and";
+            _scratch << "atomic_and_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_OR:
-            _scratch << "atomic_or";
+            _scratch << "atomic_or_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_XOR:
-            _scratch << "atomic_xor";
+            _scratch << "atomic_xor_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_MIN:
-            _scratch << "atomic_min";
+            _scratch << "atomic_min_global";
             is_atomic = true;
             break;
         case CallOp::ATOMIC_FETCH_MAX:
-            _scratch << "atomic_max";
+            _scratch << "atomic_max_global";
             is_atomic = true;
             break;
         case CallOp::BUFFER_READ: _scratch << "buffer_read"; break;

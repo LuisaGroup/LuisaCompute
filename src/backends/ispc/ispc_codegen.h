@@ -26,6 +26,7 @@ private:
     luisa::vector<Function> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
+    uint32_t _temp_counter{};
 
 private:
     void visit(const Type *type) noexcept override;
