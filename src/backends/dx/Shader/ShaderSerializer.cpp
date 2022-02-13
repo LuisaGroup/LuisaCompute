@@ -42,6 +42,7 @@ vstd::variant<
     RTShader *>
 ShaderSerializer::DeSerialize(
     Device *device,
+    vstd::MD5 md5,
     vstd::span<vbyte const> data) {
     using namespace shader_ser;
     auto ptr = data.data();
@@ -65,7 +66,9 @@ ShaderSerializer::DeSerialize(
             refl,
             std::move(rootSig),
             {ptr, header.codeBytes},
-            device->device.Get());
+            device,
+            vstd::Guid(md5),
+            nullptr);
     } else {
         return new RTShader(
             header.useTraceClosest,

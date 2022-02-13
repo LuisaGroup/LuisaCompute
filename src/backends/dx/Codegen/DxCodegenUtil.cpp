@@ -907,6 +907,7 @@ void raygen()
     if (func.raytracing()) {
         result << "uint3 dspId = DispatchRaysIndex();\n"sv;
     }
+    result << "if(any(dspId >= dsp_c)) return;";
     auto constants = func.constants();
     for (auto &&i : constants) {
         GetTypeName(*i.type, result, Usage::READ);

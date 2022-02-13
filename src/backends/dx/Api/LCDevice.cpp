@@ -150,6 +150,7 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
             fread(serData.data(), fileLen, 1, f);
             auto result = ShaderSerializer::DeSerialize(
                 &nativeDevice,
+                md5,
                 serData);
             std::cout << "Read cache success!"sv << '\n';
             return result.visit_or(
@@ -215,7 +216,8 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
                                     str->properties,
                                     {buffer->GetBufferPtr(),
                                      buffer->GetBufferSize()},
-                                    nativeDevice.device.Get())));
+                                    &nativeDevice,
+                                    md5)));
                     }
                 },
                 [](auto &&err) {

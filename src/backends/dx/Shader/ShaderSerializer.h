@@ -35,6 +35,7 @@ public:
         RTShader *>
     DeSerialize(
         Device *device,
+        vstd::MD5 md5,
         vstd::span<vbyte const> data);
     ShaderSerializer() = delete;
     ~ShaderSerializer() = delete;
