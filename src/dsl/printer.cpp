@@ -39,10 +39,10 @@ luisa::string_view Printer::retrieve(Stream &stream) noexcept {
     for (auto offset = 0u; offset < size;) {
         auto desc_id = records[offset++];
         auto desc = _descriptors[desc_id];
-        if (offset + desc.value_tags.size() > records.size()) {
+        if (offset + desc.size() > records.size()) {
             break;
         }
-        for (auto &&tag : desc.value_tags) {
+        for (auto &&tag : desc) {
             auto record = records[offset++];
             switch (tag) {
                 case Descriptor::Tag::INT:

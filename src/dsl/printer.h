@@ -56,7 +56,7 @@ private:
     luisa::vector<uint> _host_buffer;
     luisa::unordered_map<Descriptor, uint, DescriptorHash, std::equal_to<>> _desc_id;
     luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
-    luisa::vector<Descriptor> _descriptors;
+    luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
     luisa::vector<luisa::string_view> _strings;
     luisa::string _scratch;
     uint _uid{};
@@ -118,7 +118,7 @@ void Printer::log(Args &&...args) noexcept {
     if_(index < size, [&] {
         auto [iter, not_present] = _desc_id.try_emplace(
             std::move(desc), static_cast<uint>(_descriptors.size()));
-        if (not_present) { _descriptors.emplace_back(iter->first); }
+        if (not_present) { _descriptors.emplace_back(iter->first.value_tags); }
         _buffer.write(index, iter->second);
     });
 }

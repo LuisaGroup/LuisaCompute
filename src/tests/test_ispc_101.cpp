@@ -23,8 +23,9 @@ int main(int argc, char *argv[]) {
     Printer printer{device};
 
     // __device__
-    Callable linear_to_srgb = [](Float3 linear) noexcept {
+    Callable linear_to_srgb = [&](Float3 linear) noexcept {
         auto x = linear.xyz();
+        printer.log("Linear: (", x.x, ", ", x.y, ", ", x.z, ")");
         auto srgb = make_uint3(
             round(saturate(
                       select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -59,9 +60,9 @@ int main(int argc, char *argv[]) {
 
     // cuStreamCreate
     auto stream = device.create_stream();
+    printer.reset(stream);
 
     // dispatch
-    printer.reset(stream);
     stream << fill_image(device_buffer).dispatch(1024u, 1024u)
            << device_buffer.copy_to(download_image.data());
     std::cout << printer.retrieve(stream);
