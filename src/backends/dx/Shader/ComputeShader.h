@@ -1,9 +1,12 @@
 #pragma once
 #include <Shader/Shader.h>
+#include <vstl/VGuid.h>
 namespace toolhub::directx {
+class PipelineLibrary;
 class ComputeShader final : public Shader {
 protected:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pso;
+    Device *device;
     uint3 blockSize;
 
 public:
@@ -14,12 +17,15 @@ public:
         vstd::span<std::pair<vstd::string, Property> const> prop,
         ComPtr<ID3D12RootSignature> &&rootSig,
         vstd::span<vbyte const> code,
-        ID3D12Device *device);
+        Device *device,
+        vstd::Guid guid,
+        PipelineLibrary *pipeLib);
     ComputeShader(
         uint3 blockSize,
-        vstd::span<std::pair<vstd::string, Property> const> &&properties,
+        vstd::span<std::pair<vstd::string, Property> const> properties,
         vstd::span<vbyte> binData,
-        ID3D12Device *device);
+        Device *device,
+        vstd::Guid guid);
     ID3D12PipelineState *Pso() const { return pso.Get(); }
     ~ComputeShader();
     ComputeShader(ComputeShader &&v) = default;
