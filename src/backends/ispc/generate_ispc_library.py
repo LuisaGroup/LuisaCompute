@@ -22,23 +22,7 @@ if __name__ == "__main__":
 #define M_2_PI      0.636619772367581343075535053490057448f  /* 2/pi           */
 #define M_2_SQRTPI  1.12837916709551257389615890312154517f   /* 2/sqrt(pi)     */
 #define M_SQRT2     1.41421356237309504880168872420969808f   /* sqrt(2)        */
-#define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */
-
-#define _x v[0]
-#define _y v[1]
-#define _z v[2]
-#define _w v[3]
-
-inline void lc_assume(bool) {}
-inline void lc_assume(uniform bool pred) { assume(pred); }
-inline void lc_unreachable() { assert(false); }
-
-#define array_access(arr, i) ((arr).a[i])
-#define vector_access(vec, i) ((vec).v[i])
-#define matrix_access(mat, i) ((mat).cols[i])
-#define buffer_access(buf, i) ((buf)[i])
-#define buffer_read(buf, i) buffer_access(buf, i)
-#define buffer_write(buf, i, value) ((void)(buffer_access(buf, i) = (value)))''', file=file)
+#define M_SQRT1_2   0.707106781186547524400844362104849039f  /* 1/sqrt(2)      */''', file=file)
         # vector types
         scalar_types = ["int", "uint", "float", "bool"]
         for t in scalar_types:
@@ -1216,8 +1200,6 @@ inline float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
     return accel.transforms[index];
 }
 
-#define make_array_type(name, T, N) struct name { T a[N]; }
-
 struct LCTexture {
     const void *uniform ptr; // TODO
 };
@@ -1289,4 +1271,23 @@ inline LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
     return hit;
 }
 
-#endif''', file=file)
+#endif
+
+#define _x v[0]
+#define _y v[1]
+#define _z v[2]
+#define _w v[3]
+
+inline void lc_assume(bool) {}
+inline void lc_assume(uniform bool pred) { assume(pred); }
+inline void lc_unreachable() { assert(false); }
+
+#define make_array_type(name, T, N) struct name { T a[N]; }
+
+#define array_access(arr, i) ((arr).a[i])
+#define vector_access(vec, i) ((vec).v[i])
+#define matrix_access(mat, i) ((mat).cols[i])
+#define buffer_access(buf, i) ((buf)[i])
+#define buffer_read(buf, i) buffer_access(buf, i)
+#define buffer_write(buf, i, value) ((void)(buffer_access(buf, i) = (value)))
+''', file=file)
