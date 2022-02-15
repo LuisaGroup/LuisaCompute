@@ -27,7 +27,6 @@ struct CodegenGlobal {
     uint64 funcCount = 0;
     uint64 tempCount = 0;
     uint64 bindlessBufferCount = 0;
-    bool useTraceClosest = false;
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;
@@ -38,7 +37,6 @@ struct CodegenGlobal {
               }) {
     }
     void Clear() {
-        useTraceClosest = false;
         rayDesc = nullptr;
         hitDesc = nullptr;
         isAssigning = 0;
@@ -335,9 +333,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             break;
     }
 }
-bool CodegenUtility::UseTraceClosest() {
-    return opt->useTraceClosest;
-}
+
 void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
     if (func.return_type()) {
         //TODO: return type
@@ -687,7 +683,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "bfwrite"sv;
             break;
         case CallOp::TRACE_CLOSEST:
-            opt->useTraceClosest = true;
             str << "TraceClosest"sv;
             break;
         case CallOp::TRACE_ANY:
@@ -885,29 +880,18 @@ void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::string &str) {
 }
 void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
     if (func.tag() == Function::Tag::KERNEL) {
-        if (func.raytracing()) {
-            result << R"(
-[shader("raygeneration")]
-void raygen()
-)"sv;
-        } else {
-            result << "[numthreads("
-                   << vstd::to_string(func.block_size().x)
-                   << ','
-                   << vstd::to_string(func.block_size().y)
-                   << ','
-                   << vstd::to_string(func.block_size().z)
-                   << ")]\n"
-                   << "void main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId)";
-        }
+        result << "[numthreads("
+               << vstd::to_string(func.block_size().x)
+               << ','
+               << vstd::to_string(func.block_size().y)
+               << ','
+               << vstd::to_string(func.block_size().z)
+               << ")]\nvoid main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId){\nif(any(dspId >= dsp_c)) return;\n";
+
     } else {
         GetFunctionDecl(func, result);
+        result << "{\n"sv;
     }
-    result << "{\n"sv;
-    if (func.raytracing()) {
-        result << "uint3 dspId = DispatchRaysIndex();\n"sv;
-    }
-    result << "if(any(dspId >= dsp_c)) return;";
     auto constants = func.constants();
     for (auto &&i : constants) {
         GetTypeName(*i.type, result, Usage::READ);

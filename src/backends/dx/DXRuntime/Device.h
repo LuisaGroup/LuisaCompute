@@ -9,10 +9,8 @@ namespace toolhub::directx {
 class IGpuAllocator;
 class DescriptorHeap;
 class ComputeShader;
+class PipelineLibrary;
 class Device {
-    std::mutex computeAllocMtx;
-    vstd::HashMap<ComputeShader const *, vstd::Guid> collectPipeline;
-
 public:
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
     Microsoft::WRL::ComPtr<ID3D12Device5> device;
@@ -21,8 +19,5 @@ public:
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     Device();
     ~Device();
-    void CreateShader(ComputeShader const *cs, vstd::Guid guid);
-    void DestroyShader(ComputeShader const *cs);
-    void IteratePipeline(vstd::function<bool(ComputeShader const *, vstd::Guid)> const &func);
 };
 }// namespace toolhub::directx

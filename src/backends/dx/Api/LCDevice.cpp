@@ -8,13 +8,14 @@
 #include <Resource/RenderTexture.h>
 #include <Resource/BindlessArray.h>
 #include <Shader/ComputeShader.h>
-#include <Shader/RTShader.h>
 #include <Api/LCCmdBuffer.h>
 #include <Api/LCEvent.h>
 #include <vstl/MD5.h>
 #include <Shader/ShaderSerializer.h>
 #include <Resource/BottomAccel.h>
+#include <Shader/PipelineLibrary.h>
 #include <Resource/TopAccel.h>
+#include <vstl/BinaryReader.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 LCDevice::LCDevice(const Context &ctx)
@@ -129,6 +130,56 @@ void *LCDevice::stream_native_handle(uint64_t handle) const noexcept {
         ->queue.Queue();
 }
 uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
+    return create_shader(kernel, meta_options, 0);
+}
+
+uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options, uint64_t psolib) noexcept {
+    struct SerializeVisitor : ShaderSerializer::Visitor {
+        BinaryReader csoReader;
+        vstd::string const &psoPath;
+        bool oldDeleted = false;
+        SerializeVisitor(
+            vstd::string const &path,
+            vstd::string const &psoPath)
+            : csoReader(path),
+              psoPath(psoPath) {
+        }
+        vstd::vector<vbyte> readCache;
+        vbyte const *ReadFile(size_t size) override {
+            readCache.clear();
+            readCache.resize(size);
+            csoReader.Read(reinterpret_cast<char *>(readCache.data()), size);
+            return readCache.data();
+        }
+        ShaderSerializer::ReadResult ReadFileAndPSO(
+            size_t fileSize) override {
+            BinaryReader psoReader(psoPath);
+            ShaderSerializer::ReadResult result;
+            if (psoReader) {
+                size_t psoSize = psoReader.GetLength();
+                readCache.resize(psoSize + fileSize);
+                result.fileSize = fileSize;
+                result.fileData = readCache.data();
+                result.psoSize = psoSize;
+                result.psoData = readCache.data() + fileSize;
+                csoReader.Read(reinterpret_cast<char *>(readCache.data()), fileSize);
+                psoReader.Read(reinterpret_cast<char *>(readCache.data() + fileSize), psoSize);
+            } else {
+                oldDeleted = true;
+                readCache.resize(fileSize);
+                result.fileSize = fileSize;
+                result.fileData = readCache.data();
+                result.psoSize = 0;
+                result.psoData = nullptr;
+                csoReader.Read(reinterpret_cast<char *>(readCache.data()), fileSize);
+            }
+            return result;
+
+        }
+        void DeletePSOFile() override {
+            oldDeleted = true;
+        }
+    };
     static DXShaderCompiler dxCompiler;
     auto str = CodegenUtility::Codegen(kernel);
     if (str) {
@@ -138,87 +189,74 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
         auto md5 = vstd::MD5(vstd::span<vbyte const>((vbyte const *)str->result.data(), str->result.size()));
 
         vstd::string path;
+        vstd::string psoPath;
         path << ".cache/" << md5.ToString();
-        auto f = fopen(path.c_str(), "rb");
+        psoPath = path;
+        path << ".cso";
+        psoPath << ".pso";
+        SerializeVisitor visitor(
+            path,
+            psoPath);
+        auto savePso = [&](ComputeShader const *cs) {
+            auto f = fopen(psoPath.c_str(), "wb");
+            if (f) {
+                auto disp = vstd::create_disposer([&] { fclose(f); });
+                ComPtr<ID3DBlob> psoCache;
+                cs->Pso()->GetCachedBlob(&psoCache);
+                fwrite(psoCache->GetBufferPointer(), psoCache->GetBufferSize(), 1, f);
+            }
+        };
         //Cached
-        if (f) {
-            auto disp = vstd::create_disposer([&] { fclose(f); });
-            fseek(f, 0, SEEK_END);
-            auto fileLen = ftell(f);
-            fseek(f, 0, SEEK_SET);
-            vstd::vector<vbyte> serData(fileLen);
-            fread(serData.data(), fileLen, 1, f);
+        if (visitor.csoReader) {
             auto result = ShaderSerializer::DeSerialize(
                 &nativeDevice,
                 md5,
-                serData);
-            std::cout << "Read cache success!"sv << '\n';
-            return result.visit_or(
-                uint64(0),
-                [](auto &&v) {
-                    return reinterpret_cast<uint64>(
-                        static_cast<Shader *>(v));
-                });
+                visitor,
+                reinterpret_cast<PipelineLibrary *>(psolib));
+            //std::cout << "Read cache success!"sv << '\n';
+            if (visitor.oldDeleted) {
+                savePso(result);
+            }
+            return reinterpret_cast<uint64>(
+                static_cast<Shader *>(result));
         }
         // Not Cached
         else {
             vstd::string compileString(GetHLSLHeader());
             auto compResult = [&] {
                 compileString << str->result;
-                if (kernel.raytracing()) {
-                    if (CodegenUtility::UseTraceClosest()) {
-                        compileString << GetClosestHitHeader();
-                    }
-                    return dxCompiler.CompileRayTracing(
-                        compileString,
-                        true);
-                } else {
-                    return dxCompiler.CompileCompute(
-                        compileString,
-                        true);
-                }
+                return dxCompiler.CompileCompute(
+                    compileString,
+                    true,
+                    kernel.raytracing() ? 65u : 60u);
             }();
-            std::cout
+            /*std::cout
                 << "\n===============================\n"
                 << compileString
-                << "\n===============================\n";
+                << "\n===============================\n";*/
             return compResult.multi_visit_or(
                 uint64(0),
                 [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
-                    f = fopen(path.c_str(), "wb");
+                    auto f = fopen(path.c_str(), "wb");
                     if (f) {
                         auto disp = vstd::create_disposer([&] { fclose(f); });
                         auto serData = ShaderSerializer::Serialize(
                             str->properties,
                             {buffer->GetBufferPtr(), buffer->GetBufferSize()},
-                            kernel.raytracing() ? Shader::Tag::RayTracingShader : Shader::Tag::ComputeShader,
-                            CodegenUtility::UseTraceClosest(),
                             kernel.block_size());
                         fwrite(serData.data(), serData.size(), 1, f);
-                        std::cout << "Save cache success!"sv << '\n';
+                        //std::cout << "Save cache success!"sv << '\n';
                     }
-                    if (kernel.raytracing()) {
-                        return reinterpret_cast<uint64>(
-                            static_cast<Shader *>(
-                                new RTShader(
-                                    CodegenUtility::UseTraceClosest(),
-                                    false,
-                                    false,
-                                    str->properties,
-                                    {buffer->GetBufferPtr(),
-                                     buffer->GetBufferSize()},
-                                    &nativeDevice)));
-                    } else {
-                        return reinterpret_cast<uint64>(
-                            static_cast<Shader *>(
-                                new ComputeShader(
-                                    kernel.block_size(),
-                                    str->properties,
-                                    {buffer->GetBufferPtr(),
-                                     buffer->GetBufferSize()},
-                                    &nativeDevice,
-                                    md5)));
-                    }
+                    auto cs = new ComputeShader(
+                        kernel.block_size(),
+                        str->properties,
+                        {buffer->GetBufferPtr(),
+                         buffer->GetBufferSize()},
+                        &nativeDevice,
+                        md5);
+                    savePso(cs);
+                    return reinterpret_cast<uint64>(
+                        static_cast<Shader *>(cs));
                 },
                 [](auto &&err) {
                     std::cout << err << '\n';
@@ -328,6 +366,34 @@ uint64_t LCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noe
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
 }
+
+uint64_t LCDevice::create_psolib(eastl::span<uint64_t> shaders) noexcept {
+    auto sp = vstd::span<ComputeShader const *>(reinterpret_cast<ComputeShader const **>(shaders.data()), shaders.size());
+    return reinterpret_cast<uint64>(
+        new PipelineLibrary(&nativeDevice, sp));
+}
+void LCDevice::destroy_psolib(uint64_t lib_handle) noexcept {
+    delete reinterpret_cast<PipelineLibrary *>(lib_handle);
+}
+bool LCDevice::deser_psolib(uint64_t lib_handle, eastl::span<std::byte const> data) noexcept {
+    auto psoLib = reinterpret_cast<PipelineLibrary *>(lib_handle);
+    return psoLib->Deserialize(vstd::span<vbyte const>(
+        reinterpret_cast<vbyte const *>(data.data()),
+        data.size()));
+}
+size_t LCDevice::ser_psolib(uint64_t lib_handle, eastl::vector<std::byte> &result) noexcept {
+    auto psoLib = reinterpret_cast<PipelineLibrary *>(lib_handle);
+    auto retSize = 0;
+    psoLib->Serialize(
+        [&](size_t sz) -> void * {
+            retSize = sz;
+            auto lastSize = result.size();
+            result.resize(lastSize + sz);
+            return result.data() + lastSize;
+        });
+    return retSize;
+}
+
 VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view) {
     return new LCDevice(c);
 }

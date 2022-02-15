@@ -210,22 +210,32 @@ uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level){
 }
 vstd::string_view GetRayTracingHeader() {
     return R"(
-[shader("miss")]
-void miss_hit(inout RayPayload payload)
-{
-	payload.v0 = 4294967295;
-}
+
+#define CLOSEST_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH)
+#define ANY_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER)
 RayPayload TraceClosest(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	RayDesc ray;
 	ray.Origin = float3(rayDesc.v0.v[0], rayDesc.v0.v[1], rayDesc.v0.v[2]);
 	ray.Direction = float3(rayDesc.v2.v[0], rayDesc.v2.v[1], rayDesc.v2.v[2]);
 	ray.TMin = rayDesc.v1;
 	ray.TMax = rayDesc.v3;
-	RayPayload payload;
-	TraceRay(
+	RayQuery<CLOSEST_HIT_RAY_FLAG> q;
+	q.TraceRayInline(
 	accel,
-	RAY_FLAG_FORCE_OPAQUE,
-	~0, 0, 1, 0, ray, payload);
+	CLOSEST_HIT_RAY_FLAG,
+	~0,
+	ray);
+	RayPayload payload;
+	q.Proceed();
+	if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+    {
+		payload.v0 = q.CommittedInstanceIndex();
+		payload.v1 = q.CommittedPrimitiveIndex();
+		payload.v2 = q.CommittedTriangleBarycentrics();
+    }
+    else {
+		payload.v0 = 4294967295u;
+	}
 	return payload;
 }
 bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
@@ -234,28 +244,18 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	ray.Direction = float3(rayDesc.v2.v[0], rayDesc.v2.v[1], rayDesc.v2.v[2]);
 	ray.TMin = rayDesc.v1;
 	ray.TMax = rayDesc.v3;
-	RayPayload payload;
-	payload.v0 = 0;
-	TraceRay(
+	RayQuery<ANY_HIT_RAY_FLAG> q;
+	q.TraceRayInline(
 	accel,
-	(RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE),
-	~0, 0, 1, 0, ray, payload);
-	return (payload.v0 != 4294967295);
+	ANY_HIT_RAY_FLAG,
+	~0,
+	ray);
+	q.Proceed();
+	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
 }
 float4x4 InstMatrix(StructuredBuffer<float4x3> instBuffer, uint index){
 	float4x3 m = instBuffer[index];
 	return float4x4(m, float4(0, 0, 0, 1));
-}
-)"sv;
-}
-vstd::string_view GetClosestHitHeader() {
-    return R"(
-[shader("closesthit")]
-void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
-{
-	payload.v0 = InstanceIndex();
-	payload.v1 = PrimitiveIndex();
-	payload.v2 = attr.barycentrics;
 }
 )"sv;
 }

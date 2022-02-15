@@ -40,20 +40,4 @@ Device::Device() {
             1000000,
             true));
 }
-void Device::CreateShader(ComputeShader const *cs, vstd::Guid guid) {
-    std::lock_guard lck(computeAllocMtx);
-    collectPipeline.Emplace(cs, guid);
-}
-void Device::DestroyShader(ComputeShader const *cs) {
-    std::lock_guard lck(computeAllocMtx);
-    collectPipeline.Remove(cs);
-}
-void Device::IteratePipeline(
-    vstd::function<bool(ComputeShader const *, vstd::Guid)> const &func) {
-    std::lock_guard lck(computeAllocMtx);
-    for (auto &&i : collectPipeline) {
-        if (!func(i.first, i.second)) return;
-    }
-}
-
 }// namespace toolhub::directx

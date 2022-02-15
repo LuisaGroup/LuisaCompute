@@ -9,16 +9,13 @@ private:
     mutable std::mutex mtx;
 
 public:
-    enum class DeserResult : vbyte {
-        Success,
-        FileNotFound,
-        FileUncompatible
-    };
     PipelineLibrary(
-        Device *device);
-    DeserResult Deserialize(vstd::string const &path);
+        Device *device,
+        vstd::span<ComputeShader const *> computes);
+    bool Deserialize(
+        vstd::span<vbyte const> data);
     void Serialize(
-        vstd::vector<vbyte> &result);
+        vstd::function<void *(size_t)> const &allocFunc);
     ~PipelineLibrary();
     ComPtr<ID3D12PipelineState> GetPipelineState(
         vstd::Guid md5,

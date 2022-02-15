@@ -23,20 +23,32 @@ class ShaderSerializer {
         vstd::span<vbyte const> bytes);
 
 public:
+    struct ReadResult {
+        vbyte const *fileData;
+        size_t fileSize;
+        vbyte const *psoData;
+        size_t psoSize;
+    };
+    class Visitor {
+    protected:
+        ~Visitor() = default;
+
+    public:
+        virtual vbyte const *ReadFile(size_t size) = 0;
+        virtual ReadResult ReadFileAndPSO(
+            size_t fileSize) = 0;
+        virtual void DeletePSOFile() = 0;
+    };
     static vstd::vector<vbyte>
     Serialize(
         vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
         vstd::span<vbyte> binByte,
-        Shader::Tag tag,
-        bool useTraceClosest,
         uint3 blockSize);
-    static vstd::variant<
-        ComputeShader *,
-        RTShader *>
-    DeSerialize(
+    static ComputeShader *DeSerialize(
         Device *device,
         vstd::MD5 md5,
-        vstd::span<vbyte const> data);
+        Visitor &streamFunc,
+        PipelineLibrary *pipeLib);
     ShaderSerializer() = delete;
     ~ShaderSerializer() = delete;
 };
