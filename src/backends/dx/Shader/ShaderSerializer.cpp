@@ -3,7 +3,7 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RTShader.h>
 #include <DXRuntime/GlobalSamplers.h>
-
+#include <Shader/PipelineLibrary.h>
 namespace toolhub::directx {
 namespace shader_ser {
 struct Header {
@@ -11,16 +11,12 @@ struct Header {
     uint64 rootSigBytes;
     uint64 codeBytes;
     uint3 blockSize;
-    Shader::Tag tag;
-    bool useTraceClosest;
 };
 }// namespace shader_ser
 vstd::vector<vbyte>
 ShaderSerializer::Serialize(
     vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
     vstd::span<vbyte> binByte,
-    Shader::Tag tag,
-    bool useTraceClosest,
     uint3 blockSize) {
     using namespace shader_ser;
     vstd::vector<vbyte> result;
@@ -30,56 +26,68 @@ ShaderSerializer::Serialize(
         (uint64)SerializeReflection(properties, result),
         (uint64)SerializeRootSig(properties, result),
         (uint64)binByte.size(),
-        blockSize,
-        tag,
-        useTraceClosest};
+        blockSize};
     *reinterpret_cast<Header *>(result.data()) = header;
     result.push_back_all(binByte);
     return result;
 }
-vstd::variant<
-    ComputeShader *,
-    RTShader *>
-ShaderSerializer::DeSerialize(
+ComputeShader *ShaderSerializer::DeSerialize(
     Device *device,
     vstd::MD5 md5,
-    vstd::span<vbyte const> data) {
+    Visitor &visitor,
+    PipelineLibrary *pipeLib) {
     using namespace shader_ser;
-    auto ptr = data.data();
-    auto Get = [&]<typename T>() {
-        T t;
-        memcpy(&t, ptr, sizeof(T));
-        ptr += sizeof(T);
-        return t;
+    vbyte const *ptr = nullptr;
+    auto Get = [&]<typename T>() -> T const & {
+        ptr = visitor.ReadFile(sizeof(T));
+        return *reinterpret_cast<T const *>(ptr);
     };
     auto header = Get.operator()<Header>();
+    ptr = visitor.ReadFile(header.reflectionBytes);
     auto refl = DeSerializeReflection(
         {ptr, header.reflectionBytes});
-    ptr += header.reflectionBytes;
+    ptr = visitor.ReadFile(header.rootSigBytes);
     auto rootSig = DeSerializeRootSig(
         device->device.Get(),
         {ptr, header.rootSigBytes});
-    ptr += header.rootSigBytes;
-    if (header.tag == Shader::Tag::ComputeShader) {
-        return new ComputeShader(
-            header.blockSize,
-            refl,
-            std::move(rootSig),
-            {ptr, header.codeBytes},
-            device,
+    // Try pipeline library
+    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc;
+    memset(&psoDesc, 0, sizeof(psoDesc));
+    psoDesc.pRootSignature = rootSig.Get();
+    ComPtr<ID3D12PipelineState> pso;
+    auto psoResult = visitor.ReadFileAndPSO(header.codeBytes);
+    psoDesc.CS.pShaderBytecode = psoResult.fileData;
+    psoDesc.CS.BytecodeLength = psoResult.fileSize;
+    psoDesc.CachedPSO.CachedBlobSizeInBytes = psoResult.psoSize;
+    psoDesc.CachedPSO.pCachedBlob = psoResult.psoData;
+    // Try pipeline library
+    if (pipeLib) {
+        pso = pipeLib->GetPipelineState(
             vstd::Guid(md5),
-            nullptr);
-    } else {
-        return new RTShader(
-            header.useTraceClosest,
-            false,
-            false,
-            refl,
-            std::move(rootSig),
-            {ptr, header.codeBytes},
-            device);
-        return nullptr;
+            psoDesc);
     }
+    // No pipeline library, use PSO cache
+    if (!pso) {
+        if (device->device->CreateComputePipelineState(
+                &psoDesc,
+                IID_PPV_ARGS(pso.GetAddressOf())) != S_OK) {
+            // PSO cache miss(probably driver's version or hardware transformed), discard cache
+            visitor.DeletePSOFile();
+            psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
+            psoDesc.CachedPSO.pCachedBlob = nullptr;
+            ThrowIfFailed(device->device->CreateComputePipelineState(
+                &psoDesc,
+                IID_PPV_ARGS(pso.GetAddressOf())));
+        }
+    }
+    auto cs = new ComputeShader(
+        header.blockSize,
+        device,
+        refl,
+        vstd::Guid(md5),
+        std::move(rootSig),
+        std::move(pso));
+    return cs;
 }
 size_t ShaderSerializer::SerializeRootSig(
     vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
