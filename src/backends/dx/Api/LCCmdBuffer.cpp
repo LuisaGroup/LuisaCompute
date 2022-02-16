@@ -31,6 +31,13 @@ public:
             argVec->resize(sz + sizeof(T));
             *reinterpret_cast<T *>(argVec->data() + sz) = data;
         }
+        template<typename T>
+        void EmplaceData(T const *data, size_t size) {
+            size_t sz = argVec->size();
+            auto byteSize = size * sizeof(T);
+            argVec->resize(sz + byteSize);
+            memcpy(argVec->data() + sz, data, byteSize);
+        }
         void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)f.variable_usage(arg->uid()) | (uint)Usage::WRITE) != 0) {
@@ -106,7 +113,8 @@ public:
                                 break;
                         }
                         UniformAlign(align);
-                        AddArg(AddArg, type->element());
+                        EmplaceData<uint>((uint const *)bf.data(), type->dimension());
+                        PushArray(align);
                     } break;
                     case Type::Tag::MATRIX:
                         switch (type->dimension()) {
