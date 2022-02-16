@@ -8,7 +8,7 @@ private:
 	struct State {
 		D3D12_RESOURCE_STATES lastState;
 		D3D12_RESOURCE_STATES curState;
-		bool uavBarrier;
+        bool uavBarrier;
 	};
 	vstd::HashMap<Resource const*, State> stateMap;
 	vstd::vector<D3D12_RESOURCE_BARRIER> states;

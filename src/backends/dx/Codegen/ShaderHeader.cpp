@@ -4,7 +4,7 @@ namespace toolhub::directx {
 vstd::string_view GetHLSLHeader() {
     return R"(
 #define INFINITY_f 3.40282347e+37
-SamplerState samplers[16] : register(s0);
+SamplerState samplers[16] : register(s0, space1);
 
 float4x4 _inverse(float4x4 m) {
 	float n11 = m[0][0], n12 = m[1][0], n13 = m[2][0], n14 = m[3][0];
@@ -133,7 +133,7 @@ Texture3D<float4> _BindlessTex3D[]:register(t0,space1);
 
 uint2 Tex2DSize(uint tex2DSize){
 	uint2 result;
-	result.x = (tex2DSize & 65536);
+	result.x = (tex2DSize & 65535);
 	tex2DSize >>= 16;
 	result.y = tex2DSize;
 	return result;
@@ -144,17 +144,17 @@ uint tex3DSizeXY,
 uint tex3DSizeZSamp
 ){
 	uint3 result;
-	result.x = (tex3DSizeXY & 65536);
+	result.x = (tex3DSizeXY & 65535);
 	tex3DSizeXY >>= 16;
 	result.y = tex3DSizeXY;
 	result.z = (tex3DSizeZSamp >> 16);
 	return result;
 }
 uint2 Sampler2D3D(uint tex3DSizeZSamp){
-	uint samplers = tex3DSizeZSamp & 65536;
+	uint samplers = tex3DSizeZSamp & 65535;
 	uint2 result;
 	result.x = samplers & 255;
-	result.y = (samplers >> 8);
+	result.y = (samplers >> 8) & 255;
 	return result;
 }
 float fract(float x){ return x - floor(x);}
@@ -166,16 +166,26 @@ float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float level){
 	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).x];
 	return _BindlessTex[s.tex2D].SampleLevel(samp, uv, level);
 }
+float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv){
+	return SampleTex2D(arr, index, uv, 0);
+}
+float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float2 ddx, float2 ddy){
+	BdlsStruct s = arr[index];
+	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).x];
+	return _BindlessTex[s.tex2D].SampleGrad(samp, uv, ddx, ddy);
+}
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv, float level){
 	BdlsStruct s = arr[index];
 	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).y];
 	return _BindlessTex3D[s.tex3D].SampleLevel(samp, uv, level);
 }
-float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv){
-	return SampleTex2D(arr, index, uv);
-}
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv){
-	return SampleTex3D(arr, index, uv);
+	return SampleTex3D(arr, index, uv, 0);
+}
+float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv, float3 ddx, float3 ddy){
+	BdlsStruct s = arr[index];
+	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).y];
+	return _BindlessTex3D[s.tex3D].SampleGrad(samp, uv, ddx, ddy);
 }
 float4 ReadTex2D(BINDLESS_ARRAY arr,  uint index, uint2 coord, uint level){
 	BdlsStruct s = arr[index]; 
@@ -205,7 +215,7 @@ uint2 Tex2DSize(BINDLESS_ARRAY arr, uint index, uint level){
 uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level){
 	return max(Tex3DSize(arr, index) >> level, 1u);
 }
-#define READ_BUFFER(arr, index, bf) (bf[arr[index].buffer])
+#define READ_BUFFER(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx])
 )"sv;
 }
 vstd::string_view GetRayTracingHeader() {

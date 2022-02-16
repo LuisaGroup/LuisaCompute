@@ -936,7 +936,6 @@ void CodegenUtility::GenerateCBuffer(
     vstd::string &result) {
     result << R"(cbuffer _Global:register(b0){
 uint3 dsp_c;
-uint dsp_align;
 )"sv;
     size_t structSize = 12;
     size_t alignCount = 0;
@@ -1026,7 +1025,7 @@ struct RayPayload{
         GetTypeName(*i.first, finalResult, Usage::READ);
         finalResult << "> bdls"sv
                     << vstd::to_string(i.second)
-                    << ":register(t0,space1);\n"sv;
+                    << "[]:register(t0,space1);\n"sv;
     }
     CodegenResult::Properties properties;
     properties.reserve(kernel.arguments().size() + 2);

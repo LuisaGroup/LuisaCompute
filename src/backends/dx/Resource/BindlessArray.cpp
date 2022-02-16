@@ -8,6 +8,7 @@
 #include <DXRuntime/CommandAllocator.h>
 namespace toolhub::directx {
 static void GenTex2DSize(BindlessArray::BindlessStruct &s, uint2 size) {
+    std::cout << size.x << ' ' << size.y << '\n';
     s.tex2DSize = size.y;
     s.tex2DSize <<= 16;
     s.tex2DSize |= size.x;
@@ -16,13 +17,15 @@ static void GenTex3DSize(BindlessArray::BindlessStruct &s, uint3 size) {
     s.tex3DSizeXY = size.y;
     s.tex3DSizeXY <<= 16;
     s.tex3DSizeXY |= size.x;
-    s.tex3DSizeZSamp &= 65536;
+    s.tex3DSizeZSamp &= 65535;
     s.tex3DSizeZSamp |= (size.z << 16);
 }
 static void GenSampler2D(BindlessArray::BindlessStruct &s, uint samp2D) {
+    s.tex3DSizeZSamp &= 4294967040u;
     s.tex3DSizeZSamp |= samp2D;
 }
 static void GenSampler3D(BindlessArray::BindlessStruct &s, uint samp3D) {
+    s.tex3DSizeZSamp &= 4294902015u;
     samp3D <<= 8;
     s.tex3DSizeZSamp |= samp3D;
 }
@@ -30,7 +33,7 @@ static void GenSampler3D(BindlessArray::BindlessStruct &s, uint samp3D) {
 BindlessArray::BindlessArray(
     Device *device, uint arraySize)
     : Resource(device),
-      buffer(device, arraySize * sizeof(BindlessStruct), device->defaultAllocator) {
+      buffer(device, arraySize * sizeof(BindlessStruct), device->defaultAllocator, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) {
     binded.resize(arraySize);
     memset(binded.data(), std::numeric_limits<int>::max(), binded.byte_size());
 }
@@ -106,6 +109,7 @@ void BindlessArray::Bind(Property const &prop, uint index) {
                 AddDepend(index, BindTag::Tex2D, reinterpret_cast<size_t>(v.first));
                 bindGrp.tex2D = texIdx;
                 GenTex2DSize(bindGrp, uint2(v.first->Width(), v.first->Height()));
+                std::cout << smpIdx << '\n';
                 GenSampler2D(bindGrp, smpIdx);
             } else {
                 AddDepend(index, BindTag::Tex3D, reinterpret_cast<size_t>(v.first));
@@ -156,6 +160,7 @@ void BindlessArray::Update(
             cmd->ResourceBarrier(1, &transBarrier);
         });
         for (auto &&kv : updateMap) {
+            auto &&sb = kv.second;
             builder.Upload(
                 BufferView(
                     &buffer,

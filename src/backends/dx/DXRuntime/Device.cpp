@@ -2,6 +2,7 @@
 #include <DXRuntime/Device.h>
 #include <Resource/DescriptorHeap.h>
 #include <Resource/DefaultBuffer.h>
+#include <DXRuntime/GlobalSamplers.h>
 namespace toolhub::directx {
 Device::~Device() {
 }
@@ -37,7 +38,18 @@ Device::Device() {
         new DescriptorHeap(
             this,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-            1000000,
+            500000,
             true));
+    samplerHeap = vstd::create_unique(
+        new DescriptorHeap(
+            this,
+            D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
+            16,
+            true));
+    auto samplers = GlobalSamplers::GetSamplers();
+    for (auto i : vstd::range(samplers.size())) {
+        samplerHeap->CreateSampler(
+            samplers[i], i);
+    }
 }
 }// namespace toolhub::directx
