@@ -6,12 +6,6 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RTShader.h>
 namespace toolhub::directx {
-void CommandBufferBuilder::SetDescHeap(DescriptorHeap const *heap) {
-    if (currentDesc == heap) return;
-    currentDesc = heap;
-    ID3D12DescriptorHeap *h = heap->GetHeap();
-    cb->cmdList->SetDescriptorHeaps(1, &h);
-}
 ID3D12GraphicsCommandList4 *CommandBufferBuilder::CmdList() const { return cb->cmdList.Get(); }
 CommandBuffer::CommandBuffer(CommandBuffer &&v)
     : cmdList(std::move(v.cmdList)),
@@ -188,11 +182,8 @@ void CommandBufferBuilder::CopyTexture(
         &sourceLocation,
         nullptr);
 }
-BufferView CommandBufferBuilder::GetTempBuffer(size_t size) {
-    return cb->alloc->GetTempDefaultBuffer(size);
-}
-BufferView CommandBufferBuilder::GetTempConstBuffer(size_t size) {
-    return cb->alloc->GetTempConstBuffer(size);
+BufferView CommandBufferBuilder::GetTempBuffer(size_t size, size_t align) {
+    return cb->alloc->GetTempDefaultBuffer(size, align);
 }
 void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
     auto rBuffer = cb->alloc->GetTempReadbackBuffer(buffer.byteSize);

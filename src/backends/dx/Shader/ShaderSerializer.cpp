@@ -89,12 +89,21 @@ ComputeShader *ShaderSerializer::DeSerialize(
         std::move(pso));
     return cs;
 }
-size_t ShaderSerializer::SerializeRootSig(
-    vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
-    vstd::vector<vbyte> &result) {
-    auto lastSize = result.size();
+ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
+    vstd::span<std::pair<vstd::string, Shader::Property> const> properties) {
     vstd::vector<CD3DX12_ROOT_PARAMETER, VEngine_AllocType::VEngine, 32> allParameter;
     vstd::vector<CD3DX12_DESCRIPTOR_RANGE, VEngine_AllocType::VEngine, 32> allRange;
+    for (auto &&i : properties) {
+        auto &&var = i.second;
+        switch (var.type) {
+            case ShaderVariableType::UAVDescriptorHeap:
+            case ShaderVariableType::CBVDescriptorHeap:
+            case ShaderVariableType::SampDescriptorHeap:
+            case ShaderVariableType::SRVDescriptorHeap: {
+                allRange.emplace_back();
+            } break;
+        }
+    }
     size_t offset = 0;
     for (auto &&kv : properties) {
         auto &&var = kv.second;
@@ -104,9 +113,19 @@ size_t ShaderSerializer::SerializeRootSig(
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
-                auto &&v = allParameter.emplace_back();
-                memset(&v, 0, sizeof(CD3DX12_ROOT_PARAMETER));
-                v.InitAsDescriptorTable(1, &range);
+                allParameter.emplace_back().InitAsDescriptorTable(1, &range);
+            } break;
+            case ShaderVariableType::CBVDescriptorHeap: {
+                CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
+                offset++;
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
+                allParameter.emplace_back().InitAsDescriptorTable(1, &range);
+            } break;
+            case ShaderVariableType::SampDescriptorHeap: {
+                CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
+                offset++;
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
+                allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
             case ShaderVariableType::UAVDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
@@ -127,19 +146,25 @@ size_t ShaderSerializer::SerializeRootSig(
                 break;
         }
     }
-    auto arr = GlobalSamplers::GetSamplers();
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc(
         allParameter.size(), allParameter.data(),
-        arr.size(), arr.data(),
+        0, nullptr,
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
     Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
     ThrowIfFailed(D3D12SerializeVersionedRootSignature(
         &rootSigDesc,
         serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf()));
+    return serializedRootSig;
+}
+size_t ShaderSerializer::SerializeRootSig(
+    vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
+    vstd::vector<vbyte> &result) {
+    auto lastSize = result.size();
+    auto blob = SerializeRootSig(properties);
     result.push_back_all(
-        (vbyte const *)serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize());
+        (vbyte const *)blob->GetBufferPointer(),
+        blob->GetBufferSize());
     return result.size() - lastSize;
 }
 size_t ShaderSerializer::SerializeReflection(

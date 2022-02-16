@@ -11,94 +11,38 @@
 #include <Resource/TopAccel.h>
 #include <Resource/BindlessArray.h>
 namespace toolhub::directx {
-class LCCmdVisitor : public CommandVisitor {
+class LCPreProcessVisitor : public CommandVisitor {
 public:
-    Device *device;
     CommandBufferBuilder *bd;
     ResourceStateTracker stateTracker;
-    using ArgVec = vstd::vector<vbyte, VEngine_AllocType::VEngine, 32>;
-    ArgVec argVec;
-    vstd::vector<BindProperty> bindProps;
-    void visit(const BufferUploadCommand *cmd) noexcept override {
-        BufferView bf(
-            reinterpret_cast<Buffer const *>(cmd->handle()),
-            cmd->offset(),
-            cmd->size());
-        stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_DEST);
-        stateTracker.UpdateState(*bd);
-        bd->Upload(bf, cmd->data());
-    }
-    void visit(const BufferDownloadCommand *cmd) noexcept override {
-        BufferView bf(
-            reinterpret_cast<Buffer const *>(cmd->handle()),
-            cmd->offset(),
-            cmd->size());
-        stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        stateTracker.UpdateState(*bd);
-        bd->Readback(
-            bf,
-            cmd->data());
-    }
-    void visit(const BufferCopyCommand *cmd) noexcept override {
-        auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
-        auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
-        stateTracker.RecordState(srcBf, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        stateTracker.RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
-        stateTracker.UpdateState(*bd);
-        bd->CopyBuffer(
-            srcBf,
-            dstBf,
-            cmd->src_offset(),
-            cmd->dst_offset(),
-            cmd->size());
-    }
-    void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
-        auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
-        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
-        stateTracker.RecordState(
-            rt,
-            D3D12_RESOURCE_STATE_COPY_DEST);
-        stateTracker.RecordState(
-            bf,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
-        stateTracker.UpdateState(*bd);
-        bd->CopyBufferTexture(
-            BufferView{bf},
-            rt,
-            cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-    }
+    vstd::vector<std::pair<vstd::vector<vbyte>, BufferView>> argVecs;
+    vstd::vector<Resource const *> writeArgs;
     struct Visitor {
-        LCCmdVisitor *self;
+        LCPreProcessVisitor *self;
         Function f;
         Variable const *arg;
+        vstd::vector<vbyte> *argVec;
         void UniformAlign(size_t align) {
-            self->argVec.resize(CalcAlign(self->argVec.size(), align));
+            argVec->resize(CalcAlign(argVec->size(), align));
         }
         template<typename T>
         void EmplaceData(T const &data) {
-            size_t sz = self->argVec.size();
-            self->argVec.resize(sz + sizeof(T));
-            *reinterpret_cast<T *>(self->argVec.data() + sz) = data;
+            size_t sz = argVec->size();
+            argVec->resize(sz + sizeof(T));
+            *reinterpret_cast<T *>(argVec->data() + sz) = data;
         }
         void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
-            vstd::string name;
-            CodegenUtility::GetVariableName(
-                *arg,
-                name);
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)f.variable_usage(arg->uid()) | (uint)Usage::WRITE) != 0) {
                 self->stateTracker.RecordState(
                     res,
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                self->writeArgs.push_back(res);
             } else {
                 self->stateTracker.RecordState(
                     res,
                     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             }
-            self->bindProps.emplace_back(
-                std::move(name),
-                BufferView(res, bf.offset));
             ++arg;
         }
         void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
@@ -112,57 +56,17 @@ public:
                 self->stateTracker.RecordState(
                     rt,
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-                self->bindProps.emplace_back(
-                    std::move(name),
-                    DescriptorHeapView(
-                        self->device->globalHeap.get(),
-                        rt->GetGlobalUAVIndex(bf.level)));
+                self->writeArgs.push_back(rt);
             }
             // SRV
             else {
                 self->stateTracker.RecordState(
                     rt,
                     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-                self->bindProps.emplace_back(
-                    std::move(name),
-                    DescriptorHeapView(
-                        self->device->globalHeap.get(),
-                        rt->GetGlobalSRVIndex(bf.level)));
             }
             ++arg;
         }
         void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
-            auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
-            auto res = arr->Buffer();
-            self->stateTracker.RecordState(
-                res,
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            vstd::string name;
-            CodegenUtility::GetVariableName(
-                *arg,
-                name);
-            self->bindProps.emplace_back(
-                std::move(name),
-                BufferView(res, 0));
-            ++arg;
-        }
-        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
-            auto accel = reinterpret_cast<TopAccel *>(bf.handle);
-            vstd::string name;
-            vstd::string instName;
-            CodegenUtility::GetVariableName(
-                *arg,
-                name);
-            self->stateTracker.RecordState(
-                accel->GetInstBuffer(),
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            instName << name << "Inst"sv;
-            self->bindProps.emplace_back(
-                std::move(name),
-                accel);
-            self->bindProps.emplace_back(
-                std::move(instName),
-                BufferView(accel->GetInstBuffer()));
             ++arg;
         }
         void operator()(uint uid, vstd::span<std::byte const> bf) {
@@ -230,7 +134,7 @@ public:
                         break;
                     case Type::Tag::STRUCTURE:
                         UniformAlign(16);
-                        self->argVec.push_back_all(
+                        argVec->push_back_all(
                             (vbyte const *)bf.data(),
                             bf.size());
                         break;
@@ -239,24 +143,224 @@ public:
             AddArg(AddArg, arg->type());
             ++arg;
         }
+        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+            auto accel = reinterpret_cast<TopAccel *>(bf.handle);
+            self->stateTracker.RecordState(
+                accel->GetInstBuffer(),
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            ++arg;
+        }
+    };
+    void visit(const BufferUploadCommand *cmd) noexcept override {
+        BufferView bf(
+            reinterpret_cast<Buffer const *>(cmd->handle()),
+            cmd->offset(),
+            cmd->size());
+        stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    void visit(const BufferDownloadCommand *cmd) noexcept override {
+        BufferView bf(
+            reinterpret_cast<Buffer const *>(cmd->handle()),
+            cmd->offset(),
+            cmd->size());
+        stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+    void visit(const BufferCopyCommand *cmd) noexcept override {
+        auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
+        auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
+        stateTracker.RecordState(srcBf, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
+        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        stateTracker.RecordState(
+            bf,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+    void visit(const TextureUploadCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    void visit(const TextureDownloadCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+    void visit(const TextureCopyCommand *cmd) noexcept override {
+        auto src = reinterpret_cast<RenderTexture *>(cmd->src_handle());
+        auto dst = reinterpret_cast<RenderTexture *>(cmd->dst_handle());
+        stateTracker.RecordState(
+            src,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.RecordState(
+            dst,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
+        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
+        stateTracker.RecordState(
+            rt,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.RecordState(
+            bf,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    void visit(const ShaderDispatchCommand *cmd) noexcept override {
+        auto &&lastArgVec = argVecs.emplace_back();
+        auto &&argVec = lastArgVec.first;
+
+        argVec.resize(12);
+        memcpy(argVec.data(), vstd::get_rvalue_ptr(cmd->dispatch_size()), 12);
+        cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data(), &argVec});
+        lastArgVec.second = bd->GetTempBuffer(argVec.size(), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+        stateTracker.RecordState(
+            lastArgVec.second.buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+    void visit(const AccelUpdateCommand *cmd) noexcept override {
+    }
+    void visit(const AccelBuildCommand *cmd) noexcept override {
+    }
+    void visit(const MeshUpdateCommand *cmd) noexcept override {
+    }
+    void visit(const MeshBuildCommand *cmd) noexcept override {
+    }
+    void visit(const BindlessArrayUpdateCommand *cmd) noexcept override{};
+};
+class LCCmdVisitor : public CommandVisitor {
+public:
+    Device *device;
+    CommandBufferBuilder *bd;
+    ResourceStateTracker *accelStateTracker;
+    std::pair<vstd::vector<vbyte>, BufferView> *bufferVec;
+    vstd::vector<BindProperty> bindProps;
+    void visit(const BufferUploadCommand *cmd) noexcept override {
+        BufferView bf(
+            reinterpret_cast<Buffer const *>(cmd->handle()),
+            cmd->offset(),
+            cmd->size());
+        bd->Upload(bf, cmd->data());
+    }
+    void visit(const BufferDownloadCommand *cmd) noexcept override {
+        BufferView bf(
+            reinterpret_cast<Buffer const *>(cmd->handle()),
+            cmd->offset(),
+            cmd->size());
+        bd->Readback(
+            bf,
+            cmd->data());
+    }
+    void visit(const BufferCopyCommand *cmd) noexcept override {
+        auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
+        auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
+        bd->CopyBuffer(
+            srcBf,
+            dstBf,
+            cmd->src_offset(),
+            cmd->dst_offset(),
+            cmd->size());
+    }
+    void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
+        auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
+        auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
+        bd->CopyBufferTexture(
+            BufferView{bf},
+            rt,
+            cmd->level(),
+            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+    }
+    struct Visitor {
+        LCCmdVisitor *self;
+        Function f;
+        Variable const *arg;
+
+        void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
+            vstd::string name;
+            CodegenUtility::GetVariableName(
+                *arg,
+                name);
+            auto res = reinterpret_cast<Buffer const *>(bf.handle);
+
+            self->bindProps.emplace_back(
+                std::move(name),
+                BufferView(res, bf.offset));
+            ++arg;
+        }
+        void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
+            vstd::string name;
+            CodegenUtility::GetVariableName(
+                *arg,
+                name);
+            RenderTexture *rt = reinterpret_cast<RenderTexture *>(bf.handle);
+            //UAV
+            if (((uint)f.variable_usage(arg->uid()) | (uint)Usage::WRITE) != 0) {
+                self->bindProps.emplace_back(
+                    std::move(name),
+                    DescriptorHeapView(
+                        self->device->globalHeap.get(),
+                        rt->GetGlobalUAVIndex(bf.level)));
+            }
+            // SRV
+            else {
+                self->bindProps.emplace_back(
+                    std::move(name),
+                    DescriptorHeapView(
+                        self->device->globalHeap.get(),
+                        rt->GetGlobalSRVIndex(bf.level)));
+            }
+            ++arg;
+        }
+        void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+            auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
+            auto res = arr->Buffer();
+
+            vstd::string name;
+            CodegenUtility::GetVariableName(
+                *arg,
+                name);
+            self->bindProps.emplace_back(
+                std::move(name),
+                BufferView(res, 0));
+            ++arg;
+        }
+        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+            auto accel = reinterpret_cast<TopAccel *>(bf.handle);
+            vstd::string name;
+            vstd::string instName;
+            CodegenUtility::GetVariableName(
+                *arg,
+                name);
+            instName << name << "Inst"sv;
+            self->bindProps.emplace_back(
+                std::move(name),
+                accel);
+            self->bindProps.emplace_back(
+                std::move(instName),
+                BufferView(accel->GetInstBuffer()));
+            ++arg;
+        }
+        void operator()(uint uid, vstd::span<std::byte const> bf) {
+            ++arg;
+        }
     };
     void visit(const ShaderDispatchCommand *cmd) noexcept override {
-        argVec.clear();
         bindProps.clear();
-        argVec.resize(sizeof(uint3));
-        memcpy(argVec.data(), vstd::get_rvalue_ptr(cmd->dispatch_size()), sizeof(uint3));
         auto shader = reinterpret_cast<Shader const *>(cmd->handle());
         cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data()});
-        auto tempBuffer = bd->GetTempConstBuffer(argVec.size());
-        stateTracker.RecordState(
-            tempBuffer.buffer,
-            D3D12_RESOURCE_STATE_COPY_DEST);
-        stateTracker.UpdateState(*bd);
-        bd->Upload(
-            tempBuffer,
-            argVec.data());
-        bindProps.emplace_back("_Global"sv, tempBuffer);
+        auto &&tempBuffer = *bufferVec;
+        bufferVec++;
+        bindProps.emplace_back("_Global"sv, tempBuffer.second);
         bindProps.emplace_back("_BindlessTex", DescriptorHeapView(device->globalHeap.get()));
+        bindProps.emplace_back("samplers", DescriptorHeapView(device->samplerHeap.get()));
+        accelStateTracker->UpdateState(*bd);
         switch (shader->GetTag()) {
             case Shader::Tag::ComputeShader: {
                 auto cs = static_cast<ComputeShader const *>(shader);
@@ -275,15 +379,12 @@ public:
         }
     }
     void visit(const TextureUploadCommand *cmd) noexcept override {
+
         auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
-        stateTracker.RecordState(
-            rt,
-            D3D12_RESOURCE_STATE_COPY_DEST);
-        stateTracker.UpdateState(*bd);
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
             cmd->level());
-        auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize);
+        auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize, 512);
         auto uploadBuffer = static_cast<UploadBuffer const *>(bfView.buffer);
         size_t bufferOffset = bfView.offset;
         size_t leftedSize = copyInfo.bufferSize;
@@ -304,32 +405,28 @@ public:
     }
     void visit(const TextureDownloadCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
-        stateTracker.RecordState(
-            rt,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
-        stateTracker.UpdateState(*bd);
         auto copyInfo = CommandBufferBuilder::GetCopyTextureBufferSize(
             rt,
             cmd->level());
-        auto bfView = bd->GetCB()->GetAlloc()->GetTempReadbackBuffer(copyInfo.alignedBufferSize);
+        auto bfView = bd->GetCB()->GetAlloc()->GetTempReadbackBuffer(copyInfo.alignedBufferSize, 512);
         auto rbBuffer = static_cast<ReadbackBuffer const *>(bfView.buffer);
         size_t bufferOffset = bfView.offset;
-        size_t leftedSize = copyInfo.bufferSize;
-        auto dataPtr = reinterpret_cast<vbyte *>(cmd->data());
-        while (leftedSize > 0) {
-            bd->GetCB()->GetAlloc()->ExecuteAfterComplete(
-                [rbBuffer,
-                 bufferOffset,
-                 dataPtr,
-                 copySize = copyInfo.copySize] {
+        bd->GetCB()->GetAlloc()->ExecuteAfterComplete(
+            [rbBuffer,
+             bufferOffset,
+             dataPtr = reinterpret_cast<vbyte *>(cmd->data()),
+             copyInfo]() mutable {
+                while (copyInfo.bufferSize > 0) {
+
                     rbBuffer->CopyData(
                         bufferOffset,
-                        {dataPtr, copySize});
-                });
-            dataPtr += copyInfo.copySize;
-            leftedSize -= copyInfo.copySize;
-            bufferOffset += copyInfo.stepSize;
-        }
+                        {dataPtr, copyInfo.copySize});
+                    dataPtr += copyInfo.copySize;
+                    copyInfo.bufferSize -= copyInfo.copySize;
+                    bufferOffset += copyInfo.stepSize;
+                }
+            });
+
         bd->CopyBufferTexture(
             bfView,
             rt,
@@ -339,13 +436,6 @@ public:
     void visit(const TextureCopyCommand *cmd) noexcept override {
         auto src = reinterpret_cast<RenderTexture *>(cmd->src_handle());
         auto dst = reinterpret_cast<RenderTexture *>(cmd->dst_handle());
-        stateTracker.RecordState(
-            src,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
-        stateTracker.RecordState(
-            dst,
-            D3D12_RESOURCE_STATE_COPY_DEST);
-        stateTracker.UpdateState(*bd);
         bd->CopyTexture(
             src,
             0,
@@ -357,13 +447,6 @@ public:
     void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
         auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
-        stateTracker.RecordState(
-            rt,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
-        stateTracker.RecordState(
-            bf,
-            D3D12_RESOURCE_STATE_COPY_DEST);
-        stateTracker.UpdateState(*bd);
         bd->CopyBufferTexture(
             BufferView{bf},
             rt,
@@ -373,22 +456,22 @@ public:
     void visit(const AccelUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
-            stateTracker,
+            *accelStateTracker,
             *bd);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
-            stateTracker,
+            *accelStateTracker,
             *bd);
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->Build(stateTracker, *bd);
+        accel->Build(*accelStateTracker, *bd);
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->Build(stateTracker, *bd);
+        accel->Build(*accelStateTracker, *bd);
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
@@ -410,16 +493,55 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
     auto allocator = queue.CreateAllocator();
     vstd::unique_ptr<CommandBuffer> cmdBuffer;
     {
+        LCPreProcessVisitor ppVisitor;
         LCCmdVisitor visitor;
         visitor.device = device;
+        visitor.accelStateTracker = &ppVisitor.stateTracker;
         cmdBuffer = allocator->GetBuffer();
         auto cmdBuilder = cmdBuffer->Build();
         visitor.bd = &cmdBuilder;
+        ppVisitor.bd = &cmdBuilder;
+        ID3D12DescriptorHeap *h[2] = {
+            device->globalHeap->GetHeap(),
+            device->samplerHeap->GetHeap()};
+        cmdBuilder.CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+
         for (auto &&lst : c) {
+            // Clear caches
+            ppVisitor.argVecs.clear();
+            ppVisitor.writeArgs.clear();
+            // Preprocess: record resources' states
+            for (auto &&i : lst)
+                i->accept(ppVisitor);
+            // Update recorded states
+            ppVisitor.stateTracker.UpdateState(
+                cmdBuilder);
+            // Upload CBuffers
+            for (auto &&i : ppVisitor.argVecs) {
+                cmdBuilder.Upload(
+                    i.second,
+                    i.first.data());
+            }
+            // Update CBuffers' state to read
+            for (auto &&i : ppVisitor.argVecs) {
+                ppVisitor.stateTracker.RecordState(
+                    i.second.buffer,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            }
+            ppVisitor.stateTracker.UpdateState(
+                cmdBuilder);
+            visitor.bufferVec = ppVisitor.argVecs.data();
+            // Execute commands
             for (auto &&i : lst)
                 i->accept(visitor);
+            // Fallback writable resources to read
+            for (auto &&i : ppVisitor.writeArgs) {
+                ppVisitor.stateTracker.RecordState(
+                    i,
+                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            }
         }
-        visitor.stateTracker.RestoreState(cmdBuilder);
+        ppVisitor.stateTracker.RestoreState(cmdBuilder);
     }
     lastFence = queue.Execute(std::move(allocator));
 }

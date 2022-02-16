@@ -25,7 +25,6 @@ private:
 public:
     CommandBuffer const *GetCB() const { return cb; }
     ID3D12GraphicsCommandList4 *CmdList() const;
-    void SetDescHeap(DescriptorHeap const *heap);
 
     void DispatchCompute(
         ComputeShader const *cs,
@@ -64,8 +63,7 @@ public:
         TextureBase const *dest, uint destSlice, uint destMipLevel);
     void Upload(BufferView const &buffer, void const *src);
     void Readback(BufferView const &buffer, void *dst);
-    BufferView GetTempBuffer(size_t size);
-    BufferView GetTempConstBuffer(size_t size);
+    BufferView GetTempBuffer(size_t size, size_t align = 0);
     enum class BufferTextureCopy {
         BufferToTexture,
         TextureToBuffer,

@@ -16,8 +16,7 @@ void ResourceStateTracker::RecordState(Resource const* resource, D3D12_RESOURCE_
 			auto initState = resource->GetInitState();
 			return State{
 				.lastState = initState,
-				.curState = state,
-				.uavBarrier = false};
+				.curState = state};
 		}));
 	if (!newAdd) {
 		auto&& st = ite.Value();
@@ -31,12 +30,15 @@ void ResourceStateTracker::RecordState(Resource const* resource) {
 }
 void ResourceStateTracker::ExecuteStateMap() {
     for (auto &&i : stateMap) {
+        bool uavBarrier =
+            (i.second.lastState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
+             i.second.curState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			
         if (i.second.uavBarrier) {
             D3D12_RESOURCE_BARRIER &uavBarrier = states.emplace_back();
             uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
             uavBarrier.UAV.pResource = i.first->GetResource();
-            i.second.uavBarrier = false;
         } else if (i.second.curState != i.second.lastState) {
             D3D12_RESOURCE_BARRIER &transBarrier = states.emplace_back();
             transBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;

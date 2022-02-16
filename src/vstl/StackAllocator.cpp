@@ -53,13 +53,14 @@ StackAllocator::Chunk StackAllocator::Allocate(
     auto GetLeftSize = [&](uint64 leftSize, uint64 size) -> vstd::optional<Result> {
         uint64 offset = size - leftSize;
         uint64 alignedOffset = CalcAlign(offset, align);
-        if (alignedOffset > size) return {};
-        return Result{alignedOffset, size - alignedOffset};
+        uint64 afterAllocSize = targetSize + alignedOffset;
+        if (afterAllocSize > size) return {};
+        return Result{alignedOffset, size - afterAllocSize};
     };
     for (auto &&i : allocatedBuffers) {
         auto result = GetLeftSize(i.leftSize, i.fullSize);
         if (!result) continue;
-        if (result->leftSize < minLeftSize) {
+        if (result->leftSize >= targetSize && result->leftSize < minLeftSize) {
             minLeftSize = result->leftSize;
             offset = result->offset;
             bf = &i;

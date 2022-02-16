@@ -17,6 +17,7 @@ public:
     Microsoft::WRL::ComPtr<IDXGIFactory1> dxgiFactory;
     IGpuAllocator *defaultAllocator = nullptr;
     vstd::unique_ptr<DescriptorHeap> globalHeap;
+    vstd::unique_ptr<DescriptorHeap> samplerHeap;
     Device();
     ~Device();
 };

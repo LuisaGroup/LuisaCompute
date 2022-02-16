@@ -113,32 +113,35 @@ template<typename Pack>
 void CommandAllocator::Visitor<Pack>::DeAllocate(uint64 handle) {
     delete reinterpret_cast<Pack *>(handle);
 }
-BufferView CommandAllocator::GetTempReadbackBuffer(uint64 size) {
-    auto chunk = readbackAllocator.Allocate(size);
+vstd::StackAllocator::Chunk CommandAllocator::Allocate(
+    vstd::StackAllocator& allocator, 
+    uint64 size, 
+    size_t align) {
+    if (align <= 1) {
+        return allocator.Allocate(size);
+    }
+    return allocator.Allocate(size, align);
+}
+
+BufferView CommandAllocator::GetTempReadbackBuffer(uint64 size, size_t align) {
+    auto chunk = Allocate(readbackAllocator, size, align);
     auto package = reinterpret_cast<ReadbackBuffer *>(chunk.handle);
     return {
         package,
         chunk.offset,
         size};
 }
-BufferView CommandAllocator::GetTempUploadBuffer(uint64 size) {
-    auto chunk = uploadAllocator.Allocate(size);
+
+BufferView CommandAllocator::GetTempUploadBuffer(uint64 size, size_t align) {
+    auto chunk = Allocate(uploadAllocator, size, align);
     auto package = reinterpret_cast<UploadBuffer *>(chunk.handle);
     return {
         package,
         chunk.offset,
         size};
 }
-BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size) {
-    auto chunk = defaultAllocator.Allocate(size);
-    auto package = reinterpret_cast<DefaultBuffer *>(chunk.handle);
-    return {
-        package,
-        chunk.offset,
-        size};
-}
-BufferView CommandAllocator::GetTempConstBuffer(uint64 size) {
-    auto chunk = defaultAllocator.Allocate(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size, size_t align) {
+    auto chunk = Allocate(defaultAllocator, size, align);
     auto package = reinterpret_cast<DefaultBuffer *>(chunk.handle);
     return {
         package,

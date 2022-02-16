@@ -23,6 +23,8 @@ class ShaderSerializer {
         vstd::span<vbyte const> bytes);
 
 public:
+    static ComPtr<ID3DBlob> SerializeRootSig(
+        vstd::span<std::pair<vstd::string, Shader::Property> const> properties);
     struct ReadResult {
         vbyte const *fileData;
         size_t fileSize;

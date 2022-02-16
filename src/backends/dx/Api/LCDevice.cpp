@@ -174,7 +174,6 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options,
                 csoReader.Read(reinterpret_cast<char *>(readCache.data()), fileSize);
             }
             return result;
-
         }
         void DeletePSOFile() override {
             oldDeleted = true;
@@ -230,10 +229,17 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options,
                     true,
                     kernel.raytracing() ? 65u : 60u);
             }();
-            /*std::cout
+            std::cout
                 << "\n===============================\n"
                 << compileString
-                << "\n===============================\n";*/
+                << "\n===============================\n";
+            str->properties.emplace_back(
+                "samplers"sv,
+                Shader::Property{
+                    ShaderVariableType::SampDescriptorHeap,
+                    1u,
+                    0u,
+                    16u});
             return compResult.multi_visit_or(
                 uint64(0),
                 [&](vstd::unique_ptr<DXByteBlob> const &buffer) {

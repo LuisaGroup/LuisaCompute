@@ -18,13 +18,13 @@ struct compare<Sampler> {
 }// namespace vstd
 namespace toolhub::directx {
 struct GlobalSampleData {
-    std::array<D3D12_STATIC_SAMPLER_DESC, 16> arr;
+    std::array<D3D12_SAMPLER_DESC, 16> arr;
     vstd::HashMap<
         Sampler,
         size_t>
         searchMap;
     GlobalSampleData() {
-        memset(arr.data(), 0, sizeof(D3D12_STATIC_SAMPLER_DESC) * arr.size());
+        memset(arr.data(), 0, sizeof(D3D12_SAMPLER_DESC) * arr.size());
         size_t idx = 0;
         for (auto x : vstd::range(4))
             for (auto y : vstd::range(4)) {
@@ -53,7 +53,7 @@ struct GlobalSampleData {
                         case Sampler::Address::MIRROR:
                             return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
                         default:
-                            v.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+                            memset(v.BorderColor, 0, 16);
                             return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
                     }
                 }();
@@ -64,9 +64,6 @@ struct GlobalSampleData {
                 v.MaxAnisotropy = 16;
                 v.MinLOD = 0;
                 v.MaxLOD = 16;
-                v.ShaderRegister = idx;
-                v.RegisterSpace = 0;
-                v.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
                 searchMap.Emplace(
                     Sampler(
                         (Sampler::Filter)y,
@@ -77,13 +74,14 @@ struct GlobalSampleData {
 };
 static GlobalSampleData sampleData;
 
-vstd::span<D3D12_STATIC_SAMPLER_DESC> GlobalSamplers::GetSamplers() {
+vstd::span<D3D12_SAMPLER_DESC> GlobalSamplers::GetSamplers() {
     return {sampleData.arr.data(), sampleData.arr.size()};
 }
 size_t GlobalSamplers::GetIndex(
     Sampler const &sampler) {
     auto ite = sampleData.searchMap.Find(sampler);
-    if (!ite) return std::numeric_limits<size_t>::max();
+    if (!ite)
+        return std::numeric_limits<size_t>::max();
     return ite.Value();
 }
 }// namespace toolhub::directx

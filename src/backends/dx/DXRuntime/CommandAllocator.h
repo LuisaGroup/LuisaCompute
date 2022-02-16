@@ -43,6 +43,7 @@ private:
     CommandAllocator(Device *device, IGpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
     void Execute(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
     void Complete(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
+    vstd::StackAllocator::Chunk Allocate(vstd::StackAllocator &allocator, uint64 size, size_t align);
 
 public:
     ~CommandAllocator();
@@ -57,10 +58,9 @@ public:
     }
     DefaultBuffer const *AllocateScratchBuffer(size_t targetSize);
     vstd::unique_ptr<CommandBuffer> GetBuffer();
-    BufferView GetTempReadbackBuffer(uint64 size);
-    BufferView GetTempUploadBuffer(uint64 size);
-    BufferView GetTempDefaultBuffer(uint64 size);
-    BufferView GetTempConstBuffer(uint64 size);
+    BufferView GetTempReadbackBuffer(uint64 size, size_t align = 0);
+    BufferView GetTempUploadBuffer(uint64 size, size_t align = 0);
+    BufferView GetTempDefaultBuffer(uint64 size, size_t align = 0);
     KILL_COPY_CONSTRUCT(CommandAllocator)
     KILL_MOVE_CONSTRUCT(CommandAllocator)
 };
