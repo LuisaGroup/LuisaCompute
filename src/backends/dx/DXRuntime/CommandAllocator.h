@@ -33,7 +33,6 @@ private:
     vstd::StackAllocator uploadAllocator;
     vstd::StackAllocator defaultAllocator;
     vstd::StackAllocator readbackAllocator;
-    vstd::HashMap<void const *, vstd::unique_ptr<IPipelineEvent>> tempEvent;
     Device *device;
     D3D12_COMMAND_LIST_TYPE type;
     IGpuAllocator *resourceAllocator;
@@ -47,7 +46,6 @@ private:
 
 public:
     ~CommandAllocator();
-    IPipelineEvent *AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func);
     ID3D12CommandAllocator *Allocator() const { return allocator.Get(); }
     D3D12_COMMAND_LIST_TYPE Type() const { return type; }
     void Reset(CommandQueue *queue);

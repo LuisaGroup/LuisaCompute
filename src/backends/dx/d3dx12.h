@@ -35,7 +35,8 @@ enum class TextureDimension : vbyte {
     Cubemap,
     Tex2DArray,
 };
-
+static constexpr D3D12_RESOURCE_STATES VEngineShaderResourceState = (D3D12_RESOURCE_STATES)((0x1 | 0x40) | 0x800);
+static constexpr D3D12_RESOURCE_STATES VEngineShaderResourceRTState = (D3D12_RESOURCE_STATES)(0x40 | 0x800);
 enum GFXFormat {
     GFXFormat_Unknown = DXGI_FORMAT_UNKNOWN,
     GFXFormat_R32G32B32A32_Typeless = DXGI_FORMAT_R32G32B32A32_TYPELESS,
