@@ -42,10 +42,10 @@ void Mesh::Build(
 	ResourceStateTracker& tracker) const {
     tracker.RecordState(
         vHandle,
-        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        VEngineShaderResourceState);
     tracker.RecordState(
         iHandle,
-        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        VEngineShaderResourceState);
 	
 }
 }// namespace toolhub::directx

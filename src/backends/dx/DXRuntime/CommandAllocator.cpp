@@ -16,7 +16,6 @@ void CommandAllocator::Execute(
         queue->Queue()->ExecuteCommandLists(
             executeCache.size(),
             executeCache.data());
-
         executeCache.clear();
     }
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
@@ -27,16 +26,12 @@ void CommandAllocator::Complete(
     uint64 fenceIndex) {
     uint64 completeValue;
     if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
-        LPCWSTR falseValue = 0;
-        HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
-        WaitForSingleObject(eventHandle, INFINITE);
-        CloseHandle(eventHandle);
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, device->EventHandle()));
+        WaitForSingleObject(device->EventHandle(), INFINITE);
     }
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
     }
-    tempEvent.Clear();
 }
 vstd::unique_ptr<CommandBuffer> CommandAllocator::GetBuffer() {
     auto dev = [&] {
@@ -69,10 +64,6 @@ CommandAllocator::~CommandAllocator() {
     for (auto &&i : bufferPool) {
         i->~CommandBuffer();
     }
-}
-IPipelineEvent *CommandAllocator::AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func) {
-    auto ite = tempEvent.Emplace(ptr, vstd::MakeLazyEval(func));
-    return ite.Value().get();
 }
 void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();
@@ -114,8 +105,8 @@ void CommandAllocator::Visitor<Pack>::DeAllocate(uint64 handle) {
     delete reinterpret_cast<Pack *>(handle);
 }
 vstd::StackAllocator::Chunk CommandAllocator::Allocate(
-    vstd::StackAllocator& allocator, 
-    uint64 size, 
+    vstd::StackAllocator &allocator,
+    uint64 size,
     size_t align) {
     if (align <= 1) {
         return allocator.Allocate(size);

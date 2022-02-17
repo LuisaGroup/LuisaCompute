@@ -244,7 +244,7 @@ void TopAccel::Build(
                 DefaultBuffer const *dstBuffer = cpyCmd.dstBuffer;
                 tracker.RecordState(
                     srcBuffer,
-                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    VEngineShaderResourceState);
                 tracker.RecordState(
                     dstBuffer,
                     D3D12_RESOURCE_STATE_COPY_DEST);
@@ -255,6 +255,11 @@ void TopAccel::Build(
                     0,
                     0,
                     srcBuffer->GetByteSize());
+                tracker.RecordState(
+                    srcBuffer);
+                tracker.RecordState(
+                    dstBuffer);
+                tracker.UpdateState(builder);
             },
             [&](UpdateCommand &update) {
                 tracker.RecordState(
@@ -294,5 +299,6 @@ void TopAccel::Build(
     tracker.RecordState(
         scratchBuffer,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    tracker.UpdateState(builder);
 }
 }// namespace toolhub::directx
