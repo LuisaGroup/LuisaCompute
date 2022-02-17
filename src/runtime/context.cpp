@@ -3,6 +3,7 @@
 //
 
 #include <core/logging.h>
+#include <core/platform.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 
@@ -37,7 +38,7 @@ Context::Context(const std::filesystem::path &program) noexcept
         std::filesystem::create_directories(_impl->cache_directory);
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
-#ifdef _WIN32
+#ifdef LUISA_PLATFORM_WINDOWS
     SetDllDirectoryA((_impl->runtime_directory / "backends").string().c_str());
 #endif
 }
