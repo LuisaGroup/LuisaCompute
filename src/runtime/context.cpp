@@ -7,6 +7,10 @@
 #include <runtime/context.h>
 #include <runtime/device.h>
 
+#ifdef LUISA_PLATFORM_WINDOWS
+#include <windows.h>
+#endif
+
 namespace luisa::compute {
 
 struct Context::Impl {
@@ -39,7 +43,7 @@ Context::Context(const std::filesystem::path &program) noexcept
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
 #ifdef LUISA_PLATFORM_WINDOWS
-    SetDllDirectoryA((_impl->runtime_directory / "backends").string().c_str());
+    AddDllDirectory((_impl->runtime_directory / "backends").wstring().c_str());
 #endif
 }
 
