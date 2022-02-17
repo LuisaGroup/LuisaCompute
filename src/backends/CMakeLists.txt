@@ -26,7 +26,7 @@ function(luisa_compute_add_backend name)
 endfunction()
 
 if (LUISA_COMPUTE_ENABLE_DX)
-    # add_subdirectory(dx)
+    add_subdirectory(dx)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_METAL)
