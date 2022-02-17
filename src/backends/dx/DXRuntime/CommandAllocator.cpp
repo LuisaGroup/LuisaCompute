@@ -16,7 +16,6 @@ void CommandAllocator::Execute(
         queue->Queue()->ExecuteCommandLists(
             executeCache.size(),
             executeCache.data());
-
         executeCache.clear();
     }
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
@@ -27,11 +26,8 @@ void CommandAllocator::Complete(
     uint64 fenceIndex) {
     uint64 completeValue;
     if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
-        LPCWSTR falseValue = 0;
-        HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
-        WaitForSingleObject(eventHandle, INFINITE);
-        CloseHandle(eventHandle);
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, device->EventHandle()));
+        WaitForSingleObject(device->EventHandle(), INFINITE);
     }
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
@@ -114,8 +110,8 @@ void CommandAllocator::Visitor<Pack>::DeAllocate(uint64 handle) {
     delete reinterpret_cast<Pack *>(handle);
 }
 vstd::StackAllocator::Chunk CommandAllocator::Allocate(
-    vstd::StackAllocator& allocator, 
-    uint64 size, 
+    vstd::StackAllocator &allocator,
+    uint64 size,
     size_t align) {
     if (align <= 1) {
         return allocator.Allocate(size);
