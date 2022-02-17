@@ -3,8 +3,10 @@
 #include <Resource/DescriptorHeap.h>
 #include <Resource/DefaultBuffer.h>
 #include <DXRuntime/GlobalSamplers.h>
+#include <Resource/IGpuAllocator.h>
 namespace toolhub::directx {
 Device::~Device() {
+    if (defaultAllocator) delete defaultAllocator;
 }
 
 Device::Device() {
@@ -34,6 +36,9 @@ Device::Device() {
         adapter = nullptr;
         adapterIndex++;
     }
+    defaultAllocator = IGpuAllocator::CreateAllocator(
+        this,
+        IGpuAllocator::Tag::DefaultAllocator);
     globalHeap = vstd::create_unique(
         new DescriptorHeap(
             this,
