@@ -43,7 +43,7 @@ Context::Context(const std::filesystem::path &program) noexcept
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
 #ifdef LUISA_PLATFORM_WINDOWS
-    AddDllDirectory((_impl->runtime_directory / "backends").wstring().c_str());
+    SetDllDirectoryW((_impl->runtime_directory / "backends").wstring().c_str());
 #endif
 }
 
