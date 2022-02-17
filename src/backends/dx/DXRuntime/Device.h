@@ -19,6 +19,8 @@ public:
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
     Device();
+    Device(Device const &) = delete;
+    Device(Device &&) = delete;
     ~Device();
 };
 }// namespace toolhub::directx
