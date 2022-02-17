@@ -16,7 +16,7 @@ public:
     CommandBufferBuilder *bd;
     ResourceStateTracker stateTracker;
     vstd::vector<std::pair<vstd::vector<vbyte>, BufferView>> argVecs;
-    vstd::vector<Resource const *> writeArgs;
+    vstd::vector<std::pair<Resource const *, D3D12_RESOURCE_STATES>> writeArgs;
     struct Visitor {
         LCPreProcessVisitor *self;
         Function f;
@@ -44,11 +44,11 @@ public:
                 self->stateTracker.RecordState(
                     res,
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-                self->writeArgs.push_back(res);
+                self->writeArgs.emplace_back(res, VEngineShaderResourceState);
             } else {
                 self->stateTracker.RecordState(
                     res,
-                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    VEngineShaderResourceState);
             }
             ++arg;
         }
@@ -63,13 +63,13 @@ public:
                 self->stateTracker.RecordState(
                     rt,
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-                self->writeArgs.push_back(rt);
+                self->writeArgs.emplace_back(rt, VEngineShaderResourceRTState);
             }
             // SRV
             else {
                 self->stateTracker.RecordState(
                     rt,
-                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    VEngineShaderResourceRTState);
             }
             ++arg;
         }
@@ -155,7 +155,7 @@ public:
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             self->stateTracker.RecordState(
                 accel->GetInstBuffer(),
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                VEngineShaderResourceState);
             ++arg;
         }
     };
@@ -171,12 +171,12 @@ public:
             reinterpret_cast<Buffer const *>(cmd->handle()),
             cmd->offset(),
             cmd->size());
-        stateTracker.RecordState(bf.buffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.RecordState(bf.buffer, VEngineShaderResourceState);
     }
     void visit(const BufferCopyCommand *cmd) noexcept override {
         auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
         auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
-        stateTracker.RecordState(srcBf, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        stateTracker.RecordState(srcBf, VEngineShaderResourceState);
         stateTracker.RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
@@ -187,7 +187,7 @@ public:
             D3D12_RESOURCE_STATE_COPY_DEST);
         stateTracker.RecordState(
             bf,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
+            VEngineShaderResourceState);
     }
     void visit(const TextureUploadCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
@@ -199,14 +199,14 @@ public:
         auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
         stateTracker.RecordState(
             rt,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
+            VEngineShaderResourceRTState);
     }
     void visit(const TextureCopyCommand *cmd) noexcept override {
         auto src = reinterpret_cast<RenderTexture *>(cmd->src_handle());
         auto dst = reinterpret_cast<RenderTexture *>(cmd->dst_handle());
         stateTracker.RecordState(
             src,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
+            VEngineShaderResourceRTState);
         stateTracker.RecordState(
             dst,
             D3D12_RESOURCE_STATE_COPY_DEST);
@@ -216,7 +216,7 @@ public:
         auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
         stateTracker.RecordState(
             rt,
-            D3D12_RESOURCE_STATE_COPY_SOURCE);
+            VEngineShaderResourceRTState);
         stateTracker.RecordState(
             bf,
             D3D12_RESOURCE_STATE_COPY_DEST);
@@ -269,6 +269,9 @@ public:
             cmd->offset(),
             cmd->size());
         bd->Upload(bf, cmd->data());
+        accelStateTracker->RecordState(
+            bf.buffer,
+            VEngineShaderResourceState);
     }
     void visit(const BufferDownloadCommand *cmd) noexcept override {
         BufferView bf(
@@ -288,6 +291,9 @@ public:
             cmd->src_offset(),
             cmd->dst_offset(),
             cmd->size());
+        accelStateTracker->RecordState(
+            dstBf,
+            VEngineShaderResourceState);
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
@@ -297,6 +303,9 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+        accelStateTracker->RecordState(
+            rt,
+            VEngineShaderResourceRTState);
     }
     struct Visitor {
         LCCmdVisitor *self;
@@ -423,6 +432,9 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+        accelStateTracker->RecordState(
+            rt,
+            VEngineShaderResourceRTState);
     }
     void visit(const TextureDownloadCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<RenderTexture *>(cmd->handle());
@@ -464,6 +476,9 @@ public:
             dst,
             0,
             cmd->dst_level());
+        accelStateTracker->RecordState(
+            dst,
+            VEngineShaderResourceRTState);
     }
     void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<RenderTexture *>(cmd->texture());
@@ -473,6 +488,9 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
+        accelStateTracker->RecordState(
+            bf,
+            VEngineShaderResourceState);
     }
     void visit(const AccelUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
@@ -553,7 +571,7 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
             for (auto &&i : ppVisitor.argVecs) {
                 ppVisitor.stateTracker.RecordState(
                     i.second.buffer,
-                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    VEngineShaderResourceState);
             }
             ppVisitor.stateTracker.UpdateState(
                 cmdBuilder);
@@ -564,8 +582,8 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
             // Fallback writable resources to read
             for (auto &&i : ppVisitor.writeArgs) {
                 ppVisitor.stateTracker.RecordState(
-                    i,
-                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    i.first,
+                    i.second);
             }
         }
         ppVisitor.stateTracker.RestoreState(cmdBuilder);

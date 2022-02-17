@@ -33,7 +33,7 @@ static void GenSampler3D(BindlessArray::BindlessStruct &s, uint samp3D) {
 BindlessArray::BindlessArray(
     Device *device, uint arraySize)
     : Resource(device),
-      buffer(device, arraySize * sizeof(BindlessStruct), device->defaultAllocator, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) {
+      buffer(device, arraySize * sizeof(BindlessStruct), device->defaultAllocator, VEngineShaderResourceState) {
     binded.resize(arraySize);
     memset(binded.data(), std::numeric_limits<int>::max(), binded.byte_size());
 }
