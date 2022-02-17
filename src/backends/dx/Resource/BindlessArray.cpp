@@ -9,7 +9,6 @@
 #include <DXRuntime/CommandAllocator.h>
 namespace toolhub::directx {
 static void GenTex2DSize(BindlessArray::BindlessStruct &s, uint2 size) {
-    std::cout << size.x << ' ' << size.y << '\n';
     s.tex2DSize = size.y;
     s.tex2DSize <<= 16;
     s.tex2DSize |= size.x;
@@ -110,7 +109,6 @@ void BindlessArray::Bind(Property const &prop, uint index) {
                 AddDepend(index, BindTag::Tex2D, reinterpret_cast<size_t>(v.first));
                 bindGrp.tex2D = texIdx;
                 GenTex2DSize(bindGrp, uint2(v.first->Width(), v.first->Height()));
-                std::cout << smpIdx << '\n';
                 GenSampler2D(bindGrp, smpIdx);
             } else {
                 AddDepend(index, BindTag::Tex3D, reinterpret_cast<size_t>(v.first));
