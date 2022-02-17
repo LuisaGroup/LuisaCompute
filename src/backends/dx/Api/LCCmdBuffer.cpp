@@ -238,10 +238,23 @@ public:
     void visit(const AccelBuildCommand *cmd) noexcept override {
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
+        accel->PreProcessStates(
+            *bd,
+            stateTracker);
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
+        accel->PreProcessStates(
+            *bd,
+            stateTracker);
     }
-    void visit(const BindlessArrayUpdateCommand *cmd) noexcept override{};
+    void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
+        auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
+        arr->PreProcessStates(
+            *bd,
+            stateTracker);
+    };
 };
 class LCCmdVisitor : public CommandVisitor {
 public:
@@ -475,15 +488,21 @@ public:
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->Build(*accelStateTracker, *bd);
+        accel->UpdateStates(
+            *bd,
+            *accelStateTracker);
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->Build(*accelStateTracker, *bd);
+        accel->UpdateStates(
+            *bd,
+            *accelStateTracker);
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
-        arr->Update(*bd);
+        arr->UpdateStates(
+            *bd,
+            *accelStateTracker);
     }
 };
 

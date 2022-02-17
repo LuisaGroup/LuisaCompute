@@ -5,6 +5,7 @@
 #include <Resource/DescriptorHeap.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/GlobalSamplers.h>
+#include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandAllocator.h>
 namespace toolhub::directx {
 static void GenTex2DSize(BindlessArray::BindlessStruct &s, uint2 size) {
@@ -140,40 +141,38 @@ bool BindlessArray::IsPtrInBindless(size_t ptr) const {
     std::lock_guard lck(globalMtx);
     return ptrMap.Find(ptr);
 }
-
-void BindlessArray::Update(
-    CommandBufferBuilder &builder) {
+void BindlessArray::PreProcessStates(
+    CommandBufferBuilder &builder,
+    ResourceStateTracker &tracker) const {
     std::lock_guard lck(globalMtx);
-    auto alloc = builder.GetCB()->GetAlloc();
-    auto cmd = builder.CmdList();
     if (updateMap.size() > 0) {
-        D3D12_RESOURCE_BARRIER transBarrier;
-        transBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        transBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        transBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        transBarrier.Transition.pResource = buffer.GetResource();
-        transBarrier.Transition.StateBefore = buffer.GetInitState();
-        transBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-        cmd->ResourceBarrier(1, &transBarrier);
-        auto d = vstd::create_disposer([&] {
-            std::swap(transBarrier.Transition.StateBefore, transBarrier.Transition.StateAfter);
-            cmd->ResourceBarrier(1, &transBarrier);
-        });
-        for (auto &&kv : updateMap) {
-            auto &&sb = kv.second;
-            builder.Upload(
-                BufferView(
-                    &buffer,
-                    sizeof(BindlessStruct) * kv.first,
-                    sizeof(BindlessStruct)),
-                &kv.second);
-        }
-        updateMap.Clear();
+        tracker.RecordState(
+            &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST);
     }
-
+}
+void BindlessArray::UpdateStates(
+    CommandBufferBuilder &builder,
+    ResourceStateTracker &tracker) const {
+    {
+        std::lock_guard lck(globalMtx);
+        if (updateMap.size() > 0) {
+            for (auto &&kv : updateMap) {
+                auto &&sb = kv.second;
+                builder.Upload(
+                    BufferView(
+                        &buffer,
+                        sizeof(BindlessStruct) * kv.first,
+                        sizeof(BindlessStruct)),
+                    &kv.second);
+            }
+            updateMap.Clear();
+            tracker.RecordState(
+                &buffer);
+        }
+    }
     while (auto i = freeQueue.Pop()) {
         device->globalHeap->ReturnIndex(*i);
     }
 }
-
 }// namespace toolhub::directx
