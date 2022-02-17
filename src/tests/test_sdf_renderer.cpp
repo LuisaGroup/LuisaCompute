@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-//#define ENABLE_DISPLAY
+#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -182,7 +182,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    auto device = context.create_device("dx");
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
@@ -190,7 +190,6 @@ int main(int argc, char *argv[]) {
     auto accum_image = device.create_buffer<float4>(width * height);
     auto render = device.compile(render_kernel);
     auto stream = device.create_stream();
-    auto swap_event = device.create_event();
     auto copy_event = device.create_event();
 
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
@@ -213,7 +212,6 @@ int main(int argc, char *argv[]) {
         // swap buffers
         copy_event.synchronize();
         std::swap(cv_image, cv_back_image);
-        stream << swap_event.signal();
 #endif
 
         // render
@@ -225,8 +223,7 @@ int main(int argc, char *argv[]) {
         command_buffer << commit();
 
 #ifdef ENABLE_DISPLAY
-        command_buffer << swap_event.wait()
-                       << accum_image.copy_to(cv_back_image.data)
+        command_buffer << accum_image.copy_to(cv_back_image.data)
                        << copy_event.signal();
 
         // display

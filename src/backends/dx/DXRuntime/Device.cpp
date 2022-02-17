@@ -7,6 +7,7 @@
 namespace toolhub::directx {
 Device::~Device() {
     if (defaultAllocator) delete defaultAllocator;
+    CloseHandle(eventHandle);
 }
 
 Device::Device() {
@@ -56,5 +57,7 @@ Device::Device() {
         samplerHeap->CreateSampler(
             samplers[i], i);
     }
+    LPCWSTR falseValue = nullptr;
+    eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
 }
 }// namespace toolhub::directx
