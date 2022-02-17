@@ -27,7 +27,7 @@ public:
         return allocHandle.resource.Get();
     }
     D3D12_RESOURCE_STATES GetInitState() const {
-        return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        return VEngineShaderResourceRTState;
     }
     D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const override;
     Tag GetTag() const override { return Tag::RenderTexture; }
