@@ -11,7 +11,10 @@ class DescriptorHeap;
 class ComputeShader;
 class PipelineLibrary;
 class Device {
+    HANDLE eventHandle;
+
 public:
+    HANDLE EventHandle() const { return eventHandle; }
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
     Microsoft::WRL::ComPtr<ID3D12Device5> device;
     Microsoft::WRL::ComPtr<IDXGIFactory1> dxgiFactory;
