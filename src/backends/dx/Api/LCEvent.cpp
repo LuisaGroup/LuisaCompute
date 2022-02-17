@@ -2,7 +2,8 @@
 #include <Api/LCEvent.h>
 #include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
-LCEvent::LCEvent(Device *device) {
+LCEvent::LCEvent(Device *device)
+    : device(device) {
     ThrowIfFailed(device->device->CreateFence(
         0,
         D3D12_FENCE_FLAG_NONE,
@@ -10,20 +11,25 @@ LCEvent::LCEvent(Device *device) {
 }
 LCEvent::~LCEvent() {
 }
-void LCEvent::Sync() {
-    if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
-        LPCWSTR falseValue = 0;
-        HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
-        WaitForSingleObject(eventHandle, INFINITE);
-        CloseHandle(eventHandle);
+void LCEvent::SyncTarget(uint64 tar) const {
+    if (tar > 0 && fence->GetCompletedValue() < tar) {
+        ThrowIfFailed(fence->SetEventOnCompletion(tar, device->EventHandle()));
+        WaitForSingleObject(device->EventHandle(), INFINITE);
     }
 }
-void LCEvent::Signal(CommandQueue *queue) {
+
+void LCEvent::Sync() const {
+    std::unique_lock lck(globalMtx);
+    while (finishedEvent < fenceIndex) {
+        cv.wait(lck);
+    }
+}
+void LCEvent::Signal(CommandQueue *queue) const {
     ++fenceIndex;
     queue->Queue()->Signal(fence.Get(), fenceIndex);
+    queue->AddEvent(this);
 }
-void LCEvent::Wait(CommandQueue *queue) {
+void LCEvent::Wait(CommandQueue *queue) const {
     queue->Queue()->Wait(fence.Get(), fenceIndex);
 }
 }// namespace toolhub::directx
