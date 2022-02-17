@@ -6,6 +6,7 @@
 #include <backends/ispc/ispc_accel.h>
 #include <backends/ispc/ispc_event.h>
 #include <backends/ispc/ispc_stream.h>
+#include <backends/ispc/ispc_shader.h>
 #include <backends/ispc/ispc_texture.h>
 #include <backends/ispc/ispc_bindless_array.h>
 
@@ -52,6 +53,7 @@ void ISPCStream::visit(const BufferCopyCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const BufferToTextureCopyCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
@@ -87,7 +89,7 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
     _pool.parallel(
         grid_size.x, grid_size.y, grid_size.z,
         [shared_buffer, dispatch_size, module = shader->module()](auto bx, auto by, auto bz) noexcept {
-            module->invoke(shared_buffer->data(), make_uint3(bx, by, bz), dispatch_size);
+            module->invoke(shared_buffer->data(), luisa::make_uint3(bx, by, bz), dispatch_size);
         });
 }
 

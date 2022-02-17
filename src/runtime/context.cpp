@@ -37,6 +37,9 @@ Context::Context(const std::filesystem::path &program) noexcept
         std::filesystem::create_directories(_impl->cache_directory);
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
+#ifdef _WIN32
+    SetDllDirectoryA((_impl->runtime_directory / "backends").string().c_str());
+#endif
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {
