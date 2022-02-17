@@ -113,7 +113,7 @@ RenderTexture::RenderTexture(
             propPtr,
             D3D12_HEAP_FLAG_NONE,
             &texDesc,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            VEngineShaderResourceRTState,
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     } else {
@@ -134,7 +134,7 @@ RenderTexture::RenderTexture(
             heap,
             offset,
             &texDesc,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            VEngineShaderResourceRTState,
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }

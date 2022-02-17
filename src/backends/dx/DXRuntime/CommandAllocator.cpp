@@ -32,7 +32,6 @@ void CommandAllocator::Complete(
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
     }
-    tempEvent.Clear();
 }
 vstd::unique_ptr<CommandBuffer> CommandAllocator::GetBuffer() {
     auto dev = [&] {
@@ -65,10 +64,6 @@ CommandAllocator::~CommandAllocator() {
     for (auto &&i : bufferPool) {
         i->~CommandBuffer();
     }
-}
-IPipelineEvent *CommandAllocator::AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func) {
-    auto ite = tempEvent.Emplace(ptr, vstd::MakeLazyEval(func));
-    return ite.Value().get();
 }
 void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();

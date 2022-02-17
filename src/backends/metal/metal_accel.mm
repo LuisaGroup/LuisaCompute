@@ -43,7 +43,8 @@ id<MTLCommandBuffer> MetalAccel::build(
         instances[i].mask = _instance_visibilities[i] ? ~0u : 0u;
         instances[i].accelerationStructureIndex = i;
         instances[i].intersectionFunctionTableOffset = 0u;
-        instances[i].options = MTLAccelerationStructureInstanceOptionOpaque;
+        instances[i].options = MTLAccelerationStructureInstanceOptionOpaque |
+                               MTLAccelerationStructureInstanceOptionDisableTriangleCulling;
         auto t = _instance_transforms[i];
         for (auto c = 0; c < 4; c++) {
             instances[i].transformationMatrix[c] = {t[c].x, t[c].y, t[c].z};
@@ -71,8 +72,7 @@ id<MTLCommandBuffer> MetalAccel::build(
     // sort resources...
     std::sort(_resources.begin(), _resources.end());
     _resources.erase(
-        std::unique(
-            _resources.begin(), _resources.end()),
+        std::unique(_resources.begin(), _resources.end()),
         _resources.end());
 
     LUISA_VERBOSE_WITH_LOCATION(
@@ -92,30 +92,46 @@ id<MTLCommandBuffer> MetalAccel::build(
                                      descriptor:_descriptor
                                   scratchBuffer:scratch_buffer
                             scratchBufferOffset:0u];
-    if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
-
-        auto pool = &stream->download_host_buffer_pool();
-        auto compacted_size_buffer = pool->allocate(sizeof(uint));
-        [command_encoder writeCompactedAccelerationStructureSize:_handle
-                                                        toBuffer:compacted_size_buffer.handle()
-                                                          offset:compacted_size_buffer.offset()];
-        [command_encoder endEncoding];
-        stream->dispatch(command_buffer);
-        [command_buffer waitUntilCompleted];
-
-        auto compacted_size = *reinterpret_cast<const uint *>(
-            static_cast<const std::byte *>(compacted_size_buffer.handle().contents) +
-            compacted_size_buffer.offset());
-        pool->recycle(compacted_size_buffer);
-
-        auto accel_before_compaction = _handle;
-        _handle = [device newAccelerationStructureWithSize:compacted_size];
-        command_buffer = stream->command_buffer();
-        command_encoder = [command_buffer accelerationStructureCommandEncoder];
-        [command_encoder copyAndCompactAccelerationStructure:accel_before_compaction
-                                     toAccelerationStructure:_handle];
-    }
+    [command_encoder useResources:_resources.data()
+                            count:_resources.size()
+                            usage:MTLResourceUsageRead];
     [command_encoder endEncoding];
+
+    //    if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
+    //
+    //        auto download_pool = &stream->download_host_buffer_pool();
+    //        auto compacted_size_buffer = download_pool->allocate(sizeof(uint));
+    //        auto compaction_encoder = [command_buffer accelerationStructureCommandEncoder];
+    //        [compaction_encoder writeCompactedAccelerationStructureSize:_handle
+    //                                                           toBuffer:compacted_size_buffer.handle()
+    //                                                             offset:compacted_size_buffer.offset()];
+    //        [command_encoder useResources:_resources.data()
+    //                                count:_resources.size()
+    //                                usage:MTLResourceUsageRead];
+    //        [compaction_encoder endEncoding];
+    //        stream->dispatch(command_buffer);
+    //        [command_buffer waitUntilCompleted];
+    //
+    //        auto compacted_size = *reinterpret_cast<const uint *>(
+    //            static_cast<const std::byte *>(compacted_size_buffer.handle().contents) +
+    //            compacted_size_buffer.offset());
+    //        download_pool->recycle(compacted_size_buffer);
+    //
+    //        LUISA_INFO(
+    //            "Accel size: before = {}, after = {}.",
+    //            sizes.accelerationStructureSize, compacted_size);
+    //
+    //        auto accel_before_compaction = _handle;
+    //        _handle = [device newAccelerationStructureWithSize:compacted_size];
+    //        command_buffer = stream->command_buffer();
+    //        compaction_encoder = [command_buffer accelerationStructureCommandEncoder];
+    //        [compaction_encoder copyAndCompactAccelerationStructure:accel_before_compaction
+    //                                        toAccelerationStructure:_handle];
+    //        [compaction_encoder useResources:_resources.data()
+    //                                   count:_resources.size()
+    //                                   usage:MTLResourceUsageRead];
+    //        [compaction_encoder endEncoding];
+    //    }
     return command_buffer;
 }
 
