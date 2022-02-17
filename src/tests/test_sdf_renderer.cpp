@@ -182,15 +182,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_ISPC_ENABLED)
     auto device = context.create_device("ispc");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
@@ -204,7 +196,7 @@ int main(int argc, char *argv[]) {
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
     cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
 
-    static constexpr auto interval = 32u;
+    static constexpr auto interval = 4u;
 
 #ifdef ENABLE_DISPLAY
     static constexpr auto total_spp = 500000u;
