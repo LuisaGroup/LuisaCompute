@@ -81,6 +81,7 @@ ComputeShader *ComputeShader::CompileCompute(
     //Cached
     if (visitor.csoReader) {
         auto result = ShaderSerializer::DeSerialize(
+            str.properties,
             device,
             md5,
             visitor);
