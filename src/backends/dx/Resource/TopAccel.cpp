@@ -21,8 +21,6 @@ void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, MeshInstance &meshIns
             meshInst.mat[vv] = v;
             vv++;
         }
-
-    memcpy(meshInst.mat, &tr, sizeof(meshInst.mat));
 }
 }// namespace detail
 TopAccel::TopAccel(Device *device, luisa::compute::AccelBuildHint hint)
@@ -237,6 +235,7 @@ void TopAccel::Build(
     std::lock_guard lck(mtx);
     vstd::vector<UpdateCommand> cmdCache;
     auto alloc = builder.GetCB()->GetAlloc();
+    cmdCache.reserve(delayCommands.size());
     for (auto &&i : delayCommands) {
         i.multi_visit(
             [&](CopyCommand &cpyCmd) {
@@ -275,7 +274,9 @@ void TopAccel::Build(
     for (auto &&i : cmdCache) {
         auto d = vstd::create_disposer([&] {
             tracker.RecordState(i.buffer.buffer);
-            tracker.RecordState(i.customBuffer.buffer);
+            tracker.RecordState(
+                i.customBuffer.buffer,
+                VEngineShaderResourceState);
         });
         builder.Upload(
             i.buffer,

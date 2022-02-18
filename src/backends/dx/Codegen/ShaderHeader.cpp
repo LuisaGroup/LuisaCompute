@@ -116,7 +116,9 @@ uint SetBool(bool4 b){
 }
 
 #define bfread(bf,idx) (bf[(idx)])
+#define bfreadVec3(bf,idx) (bf[(idx)].xyz)
 #define bfwrite(bf,idx,value) (bf[(idx)]=(value))
+#define bfwriteVec3(bf,idx,value) (bf[(idx)]=float4((value), 0))
 struct BdlsStruct{
 	uint buffer;
 	uint tex2D;
@@ -128,8 +130,8 @@ struct BdlsStruct{
 #define Smptx(tex, uv) (tex[uv])
 #define Writetx(tex, uv, value) (tex[uv] = value)
 #define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
-Texture2D<float4> _BindlessTex[]:register(t0,space1);
 Texture3D<float4> _BindlessTex3D[]:register(t0,space1);
+Texture2D<float4> _BindlessTex[]:register(t0,space1);
 
 uint2 Tex2DSize(uint tex2DSize){
 	uint2 result;
@@ -216,6 +218,7 @@ uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level){
 	return max(Tex3DSize(arr, index) >> level, 1u);
 }
 #define READ_BUFFER(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx])
+#define READ_BUFFERVec3(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx].xyz)
 )"sv;
 }
 vstd::string_view GetRayTracingHeader() {
@@ -233,7 +236,7 @@ RayPayload TraceClosest(RaytracingAccelerationStructure accel, LCRayDesc rayDesc
 	q.TraceRayInline(
 	accel,
 	CLOSEST_HIT_RAY_FLAG,
-	~0,
+	1,
 	ray);
 	RayPayload payload;
 	q.Proceed();
@@ -258,7 +261,7 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	q.TraceRayInline(
 	accel,
 	ANY_HIT_RAY_FLAG,
-	~0,
+	1,
 	ray);
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);

@@ -207,11 +207,6 @@ void CommandBuffer::Reset() const {
 void CommandBuffer::Close() const {
     ThrowIfFailed(cmdList->Close());
 }
-
-void CommandBuffer::Dispose() {
-    if (alloc)
-        alloc->CollectBuffer(this);
-}
 CommandBufferBuilder::CommandBufferBuilder(CommandBuffer const *cb)
     : cb(cb) {
     cb->Reset();
