@@ -33,13 +33,14 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Material, albedo, emission){};
-LUISA_STRUCT(Onb, tangent, binormal, normal){
+// clang-format off
+LUISA_STRUCT(Material, albedo, emission) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
-}
-}
-;
+    }
+};
+// clang-format on
 
 int main(int argc, char *argv[]) {
     

@@ -208,10 +208,17 @@ void StringStateVisitor::visit(const CallExpr *expr) {
 }
 void StringStateVisitor::visit(const CastExpr *expr) {
     //TODO: bool & bool vector
-    str << '(';
-    CodegenUtility::GetTypeName(*expr->type(), str, Usage::READ);
-    str << ')';
-    expr->expression()->accept(*this);
+    switch (expr->op()) {
+        case CastOp::STATIC:
+            str << '(';
+            CodegenUtility::GetTypeName(*expr->type(), str, Usage::READ);
+            str << ')';
+            expr->expression()->accept(*this);
+            break;
+        case CastOp::BITWISE:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            break;
+    }
 }
 
 void StringStateVisitor::visit(const ConstantExpr *expr) {
