@@ -60,7 +60,7 @@ StackAllocator::Chunk StackAllocator::Allocate(
     for (auto &&i : allocatedBuffers) {
         auto result = GetLeftSize(i.leftSize, i.fullSize);
         if (!result) continue;
-        if (i.leftSize >= targetSize && result->leftSize < minLeftSize) {
+        if (result->leftSize < minLeftSize) {
             minLeftSize = result->leftSize;
             offset = result->offset;
             bf = &i;

@@ -30,11 +30,18 @@ struct CodegenGlobal {
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;
+    vstd::HashMap<vstd::string, vstd::string> structReplaceName;
     CodegenGlobal()
         : generateStruct(
               [this](Type const *t) {
                   return CreateStruct(t);
               }) {
+        structReplaceName.Emplace(
+            "float3"sv, "float4"sv);
+        structReplaceName.Emplace(
+            "int3"sv, "int4"sv);
+        structReplaceName.Emplace(
+            "uint3"sv, "uint4"sv);
     }
     void Clear() {
         rayDesc = nullptr;
@@ -302,13 +309,22 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             }
         }
             return;
-        case Type::Tag::BUFFER:
+        case Type::Tag::BUFFER: {
+
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
                 str << "RW"sv;
             str << "StructuredBuffer<"sv;
-            GetTypeName(*type.element(), str, usage);
+            auto ele = type.element();
+            vstd::string typeName;
+            GetTypeName(*type.element(), typeName, usage);
+            auto ite = opt->structReplaceName.Find(typeName);
+            if (ite) {
+                str << ite.Value();
+            } else {
+                str << typeName;
+            }
             str << '>';
-            break;
+        } break;
         case Type::Tag::TEXTURE: {
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
                 str << "RW"sv;
@@ -436,6 +452,28 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
         }
         str << ')';
+    };
+    auto IsNumVec3 = [&](Type const &t) {
+        if (t.tag() != Type::Tag::VECTOR || t.dimension() != 3) return false;
+        auto &&ele = *t.element();
+        switch (ele.tag()) {
+            case Type::Tag::INT:
+            case Type::Tag::UINT:
+            case Type::Tag::FLOAT:
+                return true;
+            default:
+                return false;
+        }
+    };
+    auto PrintArgs = [&] {
+        uint64 sz = 0;
+        for (auto &&i : args) {
+            ++sz;
+            i->accept(vis);
+            if (sz != args.size()) {
+                str << ',';
+            }
+        }
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
@@ -677,10 +715,15 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         }
         case CallOp::BUFFER_READ:
             str << "bfread"sv;
-            //TODO
+            if (IsNumVec3(*args[0]->type()->element())) {
+                str << "Vec3"sv;
+            }
             break;
         case CallOp::BUFFER_WRITE:
             str << "bfwrite"sv;
+            if (IsNumVec3(*args[0]->type()->element())) {
+                str << "Vec3"sv;
+            }
             break;
         case CallOp::TRACE_CLOSEST:
             str << "TraceClosest"sv;
@@ -690,6 +733,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
             str << "READ_BUFFER"sv;
+            if (IsNumVec3(*expr->type())) {
+                str << "Vec3"sv;
+            }
             auto index = opt->AddBindlessType(expr->type());
             str << '(';
             auto args = expr->arguments();
@@ -748,14 +794,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         }
     }
     str << '(';
-    uint64 sz = 0;
-    for (auto &&i : args) {
-        ++sz;
-        i->accept(vis);
-        if (sz != args.size()) {
-            str << ',';
-        }
-    }
+    PrintArgs();
     str << ')';
 }
 size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
