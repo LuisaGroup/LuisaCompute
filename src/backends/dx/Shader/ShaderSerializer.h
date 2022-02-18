@@ -49,8 +49,7 @@ public:
     static ComputeShader *DeSerialize(
         Device *device,
         vstd::MD5 md5,
-        Visitor &streamFunc,
-        PipelineLibrary *pipeLib);
+        Visitor &streamFunc);
     ShaderSerializer() = delete;
     ~ShaderSerializer() = delete;
 };

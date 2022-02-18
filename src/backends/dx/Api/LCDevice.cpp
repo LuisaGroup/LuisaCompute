@@ -134,142 +134,15 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
 }
 
 uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options, uint64_t psolib) noexcept {
-    struct SerializeVisitor : ShaderSerializer::Visitor {
-        BinaryReader csoReader;
-        vstd::string const &psoPath;
-        bool oldDeleted = false;
-        SerializeVisitor(
-            vstd::string const &path,
-            vstd::string const &psoPath)
-            : csoReader(path),
-              psoPath(psoPath) {
-        }
-        vstd::vector<vbyte> readCache;
-        vbyte const *ReadFile(size_t size) override {
-            readCache.clear();
-            readCache.resize(size);
-            csoReader.Read(reinterpret_cast<char *>(readCache.data()), size);
-            return readCache.data();
-        }
-        ShaderSerializer::ReadResult ReadFileAndPSO(
-            size_t fileSize) override {
-            BinaryReader psoReader(psoPath);
-            ShaderSerializer::ReadResult result;
-            if (psoReader) {
-                size_t psoSize = psoReader.GetLength();
-                readCache.resize(psoSize + fileSize);
-                result.fileSize = fileSize;
-                result.fileData = readCache.data();
-                result.psoSize = psoSize;
-                result.psoData = readCache.data() + fileSize;
-                csoReader.Read(reinterpret_cast<char *>(readCache.data()), fileSize);
-                psoReader.Read(reinterpret_cast<char *>(readCache.data() + fileSize), psoSize);
-            } else {
-                oldDeleted = true;
-                readCache.resize(fileSize);
-                result.fileSize = fileSize;
-                result.fileData = readCache.data();
-                result.psoSize = 0;
-                result.psoData = nullptr;
-                csoReader.Read(reinterpret_cast<char *>(readCache.data()), fileSize);
-            }
-            return result;
-        }
-        void DeletePSOFile() override {
-            oldDeleted = true;
-        }
-    };
-    static DXShaderCompiler dxCompiler;
+
     auto str = CodegenUtility::Codegen(kernel);
     if (str) {
-
-        //vstd::MD5 md5(vstd::span<vbyte const>{(vbyte const *)str->result.data(), str->result.size()});
-        //auto fileName = md5.ToString();
-        auto md5 = vstd::MD5(vstd::span<vbyte const>((vbyte const *)str->result.data(), str->result.size()));
-
-        vstd::string path;
-        vstd::string psoPath;
-        path << ".cache/" << md5.ToString();
-        psoPath = path;
-        path << ".cso";
-        psoPath << ".pso";
-        SerializeVisitor visitor(
-            path,
-            psoPath);
-        auto savePso = [&](ComputeShader const *cs) {
-            auto f = fopen(psoPath.c_str(), "wb");
-            if (f) {
-                auto disp = vstd::create_disposer([&] { fclose(f); });
-                ComPtr<ID3DBlob> psoCache;
-                cs->Pso()->GetCachedBlob(&psoCache);
-                fwrite(psoCache->GetBufferPointer(), psoCache->GetBufferSize(), 1, f);
-            }
-        };
-        //Cached
-        if (visitor.csoReader) {
-            auto result = ShaderSerializer::DeSerialize(
+        return reinterpret_cast<uint64_t>(
+            ComputeShader::CompileCompute(
                 &nativeDevice,
-                md5,
-                visitor,
-                reinterpret_cast<PipelineLibrary *>(psolib));
-            //std::cout << "Read cache success!"sv << '\n';
-            if (visitor.oldDeleted) {
-                savePso(result);
-            }
-            return reinterpret_cast<uint64>(
-                static_cast<Shader *>(result));
-        }
-        // Not Cached
-        else {
-            vstd::string compileString(GetHLSLHeader());
-            auto compResult = [&] {
-                compileString << str->result;
-                return dxCompiler.CompileCompute(
-                    compileString,
-                    true,
-                    kernel.raytracing() ? 65u : 60u);
-            }();
-            std::cout
-                << "\n===============================\n"
-                << compileString
-                << "\n===============================\n";
-            str->properties.emplace_back(
-                "samplers"sv,
-                Shader::Property{
-                    ShaderVariableType::SampDescriptorHeap,
-                    1u,
-                    0u,
-                    16u});
-            return compResult.multi_visit_or(
-                uint64(0),
-                [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
-                    auto f = fopen(path.c_str(), "wb");
-                    if (f) {
-                        auto disp = vstd::create_disposer([&] { fclose(f); });
-                        auto serData = ShaderSerializer::Serialize(
-                            str->properties,
-                            {buffer->GetBufferPtr(), buffer->GetBufferSize()},
-                            kernel.block_size());
-                        fwrite(serData.data(), serData.size(), 1, f);
-                        //std::cout << "Save cache success!"sv << '\n';
-                    }
-                    auto cs = new ComputeShader(
-                        kernel.block_size(),
-                        str->properties,
-                        {buffer->GetBufferPtr(),
-                         buffer->GetBufferSize()},
-                        &nativeDevice,
-                        md5);
-                    savePso(cs);
-                    return reinterpret_cast<uint64>(
-                        static_cast<Shader *>(cs));
-                },
-                [](auto &&err) {
-                    std::cout << err << '\n';
-                    VSTL_ABORT();
-                    return 0;
-                });
-        }
+                *str,
+                kernel.block_size(),
+                kernel.raytracing() ? 65u : 60u));
     }
     return 0;
 }

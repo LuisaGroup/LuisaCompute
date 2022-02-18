@@ -34,8 +34,7 @@ ShaderSerializer::Serialize(
 ComputeShader *ShaderSerializer::DeSerialize(
     Device *device,
     vstd::MD5 md5,
-    Visitor &visitor,
-    PipelineLibrary *pipeLib) {
+    Visitor &visitor) {
     using namespace shader_ser;
     vbyte const *ptr = nullptr;
     auto Get = [&]<typename T>() -> T const & {
@@ -60,26 +59,20 @@ ComputeShader *ShaderSerializer::DeSerialize(
     psoDesc.CS.BytecodeLength = psoResult.fileSize;
     psoDesc.CachedPSO.CachedBlobSizeInBytes = psoResult.psoSize;
     psoDesc.CachedPSO.pCachedBlob = psoResult.psoData;
-    // Try pipeline library
-    if (pipeLib) {
-        pso = pipeLib->GetPipelineState(
-            vstd::Guid(md5),
-            psoDesc);
+    // use PSO cache
+
+    if (device->device->CreateComputePipelineState(
+            &psoDesc,
+            IID_PPV_ARGS(pso.GetAddressOf())) != S_OK) {
+        // PSO cache miss(probably driver's version or hardware transformed), discard cache
+        visitor.DeletePSOFile();
+        psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
+        psoDesc.CachedPSO.pCachedBlob = nullptr;
+        ThrowIfFailed(device->device->CreateComputePipelineState(
+            &psoDesc,
+            IID_PPV_ARGS(pso.GetAddressOf())));
     }
-    // No pipeline library, use PSO cache
-    if (!pso) {
-        if (device->device->CreateComputePipelineState(
-                &psoDesc,
-                IID_PPV_ARGS(pso.GetAddressOf())) != S_OK) {
-            // PSO cache miss(probably driver's version or hardware transformed), discard cache
-            visitor.DeletePSOFile();
-            psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
-            psoDesc.CachedPSO.pCachedBlob = nullptr;
-            ThrowIfFailed(device->device->CreateComputePipelineState(
-                &psoDesc,
-                IID_PPV_ARGS(pso.GetAddressOf())));
-        }
-    }
+
     auto cs = new ComputeShader(
         header.blockSize,
         device,

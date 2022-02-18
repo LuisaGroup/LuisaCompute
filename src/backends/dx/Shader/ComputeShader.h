@@ -2,18 +2,16 @@
 #include <Shader/Shader.h>
 #include <vstl/VGuid.h>
 namespace toolhub::directx {
-class PipelineLibrary;
+struct CodegenResult;
+class ShaderSerializer;
 class ComputeShader final : public Shader {
+    friend class ShaderSerializer;
+
 protected:
     ComPtr<ID3D12PipelineState> pso;
     Device *device;
     uint3 blockSize;
     vstd::Guid guid;
-
-public:
-    vstd::Guid GetGuid() const { return guid; }
-    Tag GetTag() const { return Tag::ComputeShader; }
-    uint3 BlockSize() const { return blockSize; }
     ComputeShader(
         uint3 blockSize,
         Device *device,
@@ -22,6 +20,15 @@ public:
         ComPtr<ID3D12RootSignature> &&rootSig,
         ComPtr<ID3D12PipelineState> &&pso);
 
+public:
+    vstd::Guid GetGuid() const { return guid; }
+    Tag GetTag() const { return Tag::ComputeShader; }
+    uint3 BlockSize() const { return blockSize; }
+    static ComputeShader *CompileCompute(
+        Device *device,
+        CodegenResult &code,
+        uint3 blockSize,
+        uint shaderModel);
     ComputeShader(
         uint3 blockSize,
         vstd::span<std::pair<vstd::string, Property> const> properties,
@@ -30,7 +37,7 @@ public:
         vstd::Guid guid);
     ID3D12PipelineState *Pso() const { return pso.Get(); }
     ~ComputeShader();
-    ComputeShader(ComputeShader &&v) = default;
     KILL_COPY_CONSTRUCT(ComputeShader)
+    KILL_MOVE_CONSTRUCT(ComputeShader)
 };
 }// namespace toolhub::directx
