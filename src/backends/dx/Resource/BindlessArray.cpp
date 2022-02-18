@@ -90,7 +90,7 @@ void BindlessArray::Bind(Property const &prop, uint index) {
             device->globalHeap->CreateSRV(
                 v.buffer->GetResource(),
                 *desc,
-                index);
+                newIdx);
             bindGrp.buffer = newIdx;
         },
         [&](std::pair<TextureBase const *, Sampler> const &v) {
@@ -169,8 +169,16 @@ void BindlessArray::UpdateStates(
                 &buffer);
         }
     }
+    vstd::vector<uint> needReturnIdx;
     while (auto i = freeQueue.Pop()) {
-        device->globalHeap->ReturnIndex(*i);
+        needReturnIdx.push_back(i);
     }
+    builder.GetCB()->GetAlloc()->ExecuteAfterComplete(
+        [vec = std::move(needReturnIdx),
+         device = device] {
+            for (auto &&i : vec) {
+                device->globalHeap->ReturnIndex(i);
+            }
+        });
 }
 }// namespace toolhub::directx

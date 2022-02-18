@@ -2,22 +2,14 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
-namespace detail {
-
-}// namespace detail
-void CommandAllocator::CollectBuffer(CommandBuffer *buffer) {
-    bufferPool.push_back(buffer);
-}
 void CommandAllocator::Execute(
     CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
-    if (!executeCache.empty()) {
-        queue->Queue()->ExecuteCommandLists(
-            executeCache.size(),
-            executeCache.data());
-        executeCache.clear();
-    }
+    ID3D12CommandList *cmdList = cbuffer->CmdList();
+    queue->Queue()->ExecuteCommandLists(
+        1,
+        &cmdList);
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
 }
 void CommandAllocator::Complete(
@@ -33,22 +25,14 @@ void CommandAllocator::Complete(
         (*evt)();
     }
 }
-vstd::unique_ptr<CommandBuffer> CommandAllocator::GetBuffer() {
-    auto dev = [&] {
-        if (bufferPool.empty())
-            return bufferAllocator.New(device, this);
-        else
-            return bufferPool.erase_last();
-    }();
-    executeCache.push_back(dev->CmdList());
-    return vstd::create_unique(dev);
+CommandBuffer *CommandAllocator::GetBuffer() const {
+    return cbuffer.get();
 }
 CommandAllocator::CommandAllocator(
     Device *device,
     IGpuAllocator *resourceAllocator,
     D3D12_COMMAND_LIST_TYPE type)
-    : bufferAllocator(32, false),
-      type(type),
+    : type(type),
       resourceAllocator(resourceAllocator),
       device(device),
       uploadAllocator(TEMP_SIZE, &ubVisitor),
@@ -59,11 +43,13 @@ CommandAllocator::CommandAllocator(
     dbVisitor.self = this;
     ThrowIfFailed(
         device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
+    cbuffer = vstd::create_unique(
+        new CommandBuffer(
+            device,
+            this));
 }
 CommandAllocator::~CommandAllocator() {
-    for (auto &&i : bufferPool) {
-        i->~CommandBuffer();
-    }
+    cbuffer = nullptr;
 }
 void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();

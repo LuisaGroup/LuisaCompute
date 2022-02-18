@@ -170,6 +170,20 @@ void StructGenerator::InitAsStruct(
             structTypes.emplace_back(ele);
             structVars.emplace_back(
                 std::move(varName));
+            switch (i->tag()) {
+                case Type::Tag::VECTOR:
+                case Type::Tag::MATRIX: {
+                    switch (i->dimension()) {
+                        case 2:
+                            Align(8);
+                            break;
+                        case 3:
+                        case 4:
+                            Align(16);
+                            break;
+                    }
+                } break;
+            }
         }
     }
     updateVarName();
@@ -182,19 +196,6 @@ void StructGenerator::InitAsArray(
     structName = "A";
     vstd::to_string(structIdx, structName);
     auto &&ele = t->element();
-    auto GetSize = [](auto &&GetSize, Type const *type) -> size_t {
-        switch (type->tag()) {
-            case Type::Tag::FLOAT:
-            case Type::Tag::UINT:
-            case Type::Tag::INT:
-                return 4;
-            case Type::Tag::VECTOR:
-                return type->dimension() * GetSize(GetSize, type);
-            case Type::Tag::MATRIX:
-                return 4 * ((type->dimension() == 3) ? 4 : type->dimension()) * type->dimension();
-        }
-        return 0;
-    };
     CodegenUtility::GetTypeName(*ele, structDesc, Usage::READ);
     structDesc << " v["sv << vstd::to_string(t->dimension()) << "];\n";
 }
