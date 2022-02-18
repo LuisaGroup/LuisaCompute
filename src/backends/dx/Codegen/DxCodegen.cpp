@@ -207,7 +207,6 @@ void StringStateVisitor::visit(const CallExpr *expr) {
     CodegenUtility::GetFunctionName(expr, str, *this);
 }
 void StringStateVisitor::visit(const CastExpr *expr) {
-    //TODO: bool & bool vector
     switch (expr->op()) {
         case CastOp::STATIC:
             str << '(';
@@ -215,9 +214,26 @@ void StringStateVisitor::visit(const CastExpr *expr) {
             str << ')';
             expr->expression()->accept(*this);
             break;
-        case CastOp::BITWISE:
-            LUISA_ERROR_WITH_LOCATION("Not implemented.");
-            break;
+        case CastOp::BITWISE: {
+            auto type = expr->type();
+            while (type->is_vector()) {
+                type = type->element();
+            }
+            switch (type->tag()) {
+                case Type::Tag::FLOAT:
+                    str << "asfloat"sv;
+                    break;
+                case Type::Tag::INT:
+                    str << "asint"sv;
+                    break;
+                case Type::Tag::UINT:
+                    str << "asuint"sv;
+                    break;
+            }
+            str << '(';
+            expr->expression()->accept(*this);
+            str << ')';
+        } break;
     }
 }
 

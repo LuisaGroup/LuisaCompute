@@ -89,7 +89,7 @@ struct SerDe<std::string_view, reverseBytes> {
     }
     static void Set(std::string_view const &data, vector<uint8_t> &arr) {
         SerDe<uint, reverseBytes>::Set(data.size(), arr);
-        arr.push_back_all(reinterpret_cast<uint8_t const *>(data.begin()), data.size());
+        arr.push_back_all(reinterpret_cast<uint8_t const *>(data.data()), data.size());
     }
 };
 
