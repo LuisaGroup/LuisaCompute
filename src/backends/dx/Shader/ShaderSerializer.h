@@ -13,11 +13,6 @@ class ShaderSerializer {
     static size_t SerializeRootSig(
         vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
         vstd::vector<vbyte> &result);
-    static size_t SerializeReflection(
-        vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
-        vstd::vector<vbyte> &result);
-    static vstd::vector<std::pair<vstd::string, Shader::Property>> DeSerializeReflection(
-        vstd::span<vbyte const> bytes);
     static ComPtr<ID3D12RootSignature> DeSerializeRootSig(
         ID3D12Device *device,
         vstd::span<vbyte const> bytes);
@@ -47,6 +42,7 @@ public:
         vstd::span<vbyte> binByte,
         uint3 blockSize);
     static ComputeShader *DeSerialize(
+        vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
         Device *device,
         vstd::MD5 md5,
         Visitor &streamFunc);

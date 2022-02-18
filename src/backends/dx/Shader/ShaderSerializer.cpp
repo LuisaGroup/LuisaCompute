@@ -7,7 +7,6 @@
 namespace toolhub::directx {
 namespace shader_ser {
 struct Header {
-    uint64 reflectionBytes;
     uint64 rootSigBytes;
     uint64 codeBytes;
     uint3 blockSize;
@@ -23,7 +22,6 @@ ShaderSerializer::Serialize(
     result.reserve(65500);
     result.resize(sizeof(Header));
     Header header{
-        (uint64)SerializeReflection(properties, result),
         (uint64)SerializeRootSig(properties, result),
         (uint64)binByte.size(),
         blockSize};
@@ -32,6 +30,7 @@ ShaderSerializer::Serialize(
     return result;
 }
 ComputeShader *ShaderSerializer::DeSerialize(
+    vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
     Device *device,
     vstd::MD5 md5,
     Visitor &visitor) {
@@ -42,9 +41,6 @@ ComputeShader *ShaderSerializer::DeSerialize(
         return *reinterpret_cast<T const *>(ptr);
     };
     auto header = Get.operator()<Header>();
-    ptr = visitor.ReadFile(header.reflectionBytes);
-    auto refl = DeSerializeReflection(
-        {ptr, header.reflectionBytes});
     ptr = visitor.ReadFile(header.rootSigBytes);
     auto rootSig = DeSerializeRootSig(
         device->device.Get(),
@@ -76,7 +72,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
     auto cs = new ComputeShader(
         header.blockSize,
         device,
-        refl,
+        properties,
         vstd::Guid(md5),
         std::move(rootSig),
         std::move(pso));
@@ -159,50 +155,6 @@ size_t ShaderSerializer::SerializeRootSig(
         (vbyte const *)blob->GetBufferPointer(),
         blob->GetBufferSize());
     return result.size() - lastSize;
-}
-size_t ShaderSerializer::SerializeReflection(
-    vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
-    vstd::vector<vbyte> &result) {
-    auto lastSize = result.size();
-    auto Push = [&]<typename T>(T const &v) {
-        auto sz = result.size();
-        result.resize(sz + sizeof(T));
-        memcpy(result.data() + sz, &v, sizeof(T));
-    };
-    auto PushArray = [&](void const *ptr, size_t size) {
-        auto sz = result.size();
-        result.resize(sz + size);
-        memcpy(result.data() + sz, ptr, size);
-    };
-    Push((size_t)properties.size());
-    for (auto &&i : properties) {
-        PushArray(i.first.data(), i.first.size() + 1);
-        Push(i.second);
-    }
-    return result.size() - lastSize;
-}
-vstd::vector<std::pair<vstd::string, Shader::Property>> ShaderSerializer::DeSerializeReflection(
-    vstd::span<vbyte const> bytes) {
-    vbyte const *ptr = bytes.data();
-    auto Pop = [&]<typename T>() {
-        T result;
-        memcpy(&result, ptr, sizeof(T));
-        ptr += sizeof(T);
-        return result;
-    };
-    auto PopString = [&] {
-        vstd::string str((char const *)ptr);
-        ptr += str.size() + 1;
-        return str;
-    };
-    vstd::vector<std::pair<vstd::string, Shader::Property>> result;
-    auto tarSize = Pop.operator()<size_t>();
-    result.push_back_func(
-        [&]() -> std::pair<vstd::string, Shader::Property> {
-            return {PopString(), Pop.operator()<Shader::Property>()};
-        },
-        tarSize);
-    return result;
 }
 ComPtr<ID3D12RootSignature> ShaderSerializer::DeSerializeRootSig(
     ID3D12Device *device,
