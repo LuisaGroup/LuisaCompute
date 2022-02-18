@@ -536,13 +536,12 @@ LCCmdBuffer::LCCmdBuffer(
 }
 void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
     auto allocator = queue.CreateAllocator();
-    vstd::unique_ptr<CommandBuffer> cmdBuffer;
     {
         LCPreProcessVisitor ppVisitor;
         LCCmdVisitor visitor;
         visitor.device = device;
         visitor.accelStateTracker = &ppVisitor.stateTracker;
-        cmdBuffer = allocator->GetBuffer();
+        auto cmdBuffer = allocator->GetBuffer();
         auto cmdBuilder = cmdBuffer->Build();
         visitor.bd = &cmdBuilder;
         ppVisitor.bd = &cmdBuilder;
