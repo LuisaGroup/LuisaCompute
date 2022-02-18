@@ -229,6 +229,10 @@ void StringStateVisitor::visit(const CastExpr *expr) {
                 case Type::Tag::UINT:
                     str << "asuint"sv;
                     break;
+                default:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Bitwise cast not implemented for type '{}'.",
+                        expr->type()->description());
             }
             str << '(';
             expr->expression()->accept(*this);
