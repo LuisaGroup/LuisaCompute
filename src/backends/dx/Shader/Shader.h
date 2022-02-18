@@ -39,7 +39,6 @@ public:
     Shader(
         vstd::span<std::pair<vstd::string, Property> const> properties,
         ComPtr<ID3D12RootSignature> &&rootSig);
-    Shader(Shader &&v) = default;
     ID3D12RootSignature *RootSig() const { return rootSig.Get(); }
 
     bool SetComputeResource(
@@ -56,6 +55,6 @@ public:
         TopAccel const *bAccel) const;
 
     KILL_COPY_CONSTRUCT(Shader)
-    virtual ~Shader() = default;
+    KILL_MOVE_CONSTRUCT(Shader)
 };
 }// namespace toolhub::directx

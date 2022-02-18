@@ -51,7 +51,7 @@ public:
         Device *device);
 
     ~RTShader();
-    RTShader(RTShader &&v) = default;
     KILL_COPY_CONSTRUCT(RTShader)
+    KILL_MOVE_CONSTRUCT(RTShader)
 };
 }// namespace toolhub::directx

@@ -806,22 +806,24 @@ class Evaluable {};
 template<class Func>
 class LazyEval : public Evaluable {
 private:
-    Func *func;
+    Func func;
 
 public:
     using EvalType = decltype(std::declval<Func>()());
-    LazyEval(Func &func)
-        : func(&func) {}
+    template<typename TT>
+    LazyEval(TT &&func)
+        : func(std::forward<TT>(func)) {}
     LazyEval(LazyEval const &) = delete;
-    LazyEval(LazyEval &&v) = default;
+    LazyEval(LazyEval &&v)
+        : func(std::move(v.func)) {}
     operator decltype(auto)() const {
-        return (*func)();
+        return func();
     }
 };
 
 template<class Func>
-LazyEval<std::remove_reference_t<Func>> MakeLazyEval(Func &&func) {
-    return func;
+LazyEval<Func> MakeLazyEval(Func &&func) {
+    return std::forward<Func>(func);
 }
 template<typename... Args>
 static constexpr bool AlwaysFalse = false;
