@@ -6,8 +6,6 @@ namespace toolhub::directx {
 class CommandBufferBuilder;
 class ResourceStateTracker;
 class Mesh final : public Resource {
-	uint vboIdx = std::numeric_limits<uint>::max();
-	uint iboIdx = std::numeric_limits<uint>::max();
 
 public:
 	Buffer const* vHandle;
