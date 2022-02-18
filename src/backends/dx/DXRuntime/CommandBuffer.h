@@ -84,7 +84,7 @@ public:
         uint targetMip);
     ~CommandBufferBuilder();
 };
-class CommandBuffer : public vstd::IDisposable {
+class CommandBuffer : public vstd::IOperatorNewBase{
     friend class CommandBufferBuilder;
     friend class CommandAllocator;
     void Reset() const;
@@ -98,7 +98,6 @@ public:
         Device *device,
         CommandAllocator *alloc);
     CommandAllocator *GetAlloc() const { return alloc; }
-    void Dispose() override;
     ~CommandBuffer();
     CommandBuffer(CommandBuffer &&v);
     CommandBufferBuilder Build() const { return CommandBufferBuilder(this); }

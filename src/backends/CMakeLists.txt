@@ -11,7 +11,6 @@ function(luisa_compute_add_backend name)
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/backends/"
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/"
-            WINDOWS_EXPORT_ALL_SYMBOLS OFF
             UNITY_BUILD ON
             DEBUG_POSTFIX "")
     foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
@@ -25,22 +24,19 @@ function(luisa_compute_add_backend name)
     target_compile_definitions(luisa-compute-backends INTERFACE LUISA_BACKEND_${UPPER_NAME}_ENABLED)
 endfunction()
 
-if (LUISA_COMPUTE_ENABLE_DX)
-    # add_subdirectory(dx)
-endif ()
-
+add_subdirectory(dx)
 if (LUISA_COMPUTE_ENABLE_METAL)
-    add_subdirectory(metal)
+    #add_subdirectory(metal)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_CUDA)
-    add_subdirectory(cuda)
+    #add_subdirectory(cuda)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
-    add_subdirectory(ispc)
+    #add_subdirectory(ispc)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_REMOTE)
-    add_subdirectory(remote)
+    #add_subdirectory(remote)
 endif ()

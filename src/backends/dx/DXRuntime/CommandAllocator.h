@@ -23,9 +23,7 @@ private:
         void DeAllocate(uint64 handle) override;
     };
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
-    vstd::Pool<CommandBuffer, true> bufferAllocator;
-    vstd::vector<CommandBuffer *> bufferPool;
-    vstd::vector<ID3D12CommandList *> executeCache;
+    vstd::unique_ptr<CommandBuffer> cbuffer;
     vstd::LockFreeArrayQueue<vstd::move_only_func<void()>> executeAfterComplete;
     Visitor<ReadbackBuffer> rbVisitor;
     Visitor<DefaultBuffer> dbVisitor;
@@ -38,7 +36,6 @@ private:
     IGpuAllocator *resourceAllocator;
     vstd::unique_ptr<DefaultBuffer> scratchBuffer;
     //TODO: allocate commandbuffer
-    void CollectBuffer(CommandBuffer *buffer);
     CommandAllocator(Device *device, IGpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
     void Execute(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
     void Complete(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
@@ -55,7 +52,7 @@ public:
         executeAfterComplete.Push(std::forward<Func>(func));
     }
     DefaultBuffer const *AllocateScratchBuffer(size_t targetSize);
-    vstd::unique_ptr<CommandBuffer> GetBuffer();
+    CommandBuffer* GetBuffer() const;
     BufferView GetTempReadbackBuffer(uint64 size, size_t align = 0);
     BufferView GetTempUploadBuffer(uint64 size, size_t align = 0);
     BufferView GetTempDefaultBuffer(uint64 size, size_t align = 0);
