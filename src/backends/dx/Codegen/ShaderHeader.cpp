@@ -223,9 +223,8 @@ uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level){
 }
 vstd::string_view GetRayTracingHeader() {
     return R"(
-
-#define CLOSEST_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH)
-#define ANY_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER)
+#define CLOSEST_HIT_RAY_FLAG (RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
+#define ANY_HIT_RAY_FLAG (RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER)
 RayPayload TraceClosest(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	RayDesc ray;
 	ray.Origin = float3(rayDesc.v0.v[0], rayDesc.v0.v[1], rayDesc.v0.v[2]);
@@ -236,7 +235,7 @@ RayPayload TraceClosest(RaytracingAccelerationStructure accel, LCRayDesc rayDesc
 	q.TraceRayInline(
 	accel,
 	CLOSEST_HIT_RAY_FLAG,
-	1,
+	~0,
 	ray);
 	RayPayload payload;
 	q.Proceed();
@@ -261,7 +260,7 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	q.TraceRayInline(
 	accel,
 	ANY_HIT_RAY_FLAG,
-	1,
+	~0,
 	ray);
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);

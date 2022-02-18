@@ -18,25 +18,8 @@ Mesh::Mesh(Device* device,
 	  vStride(vStride),
 	  vCount(vCount),
 	  iCount(iCount) {
-	//TODO: allocate buffer
-	vboIdx = device->globalHeap->AllocateIndex();
-	iboIdx = device->globalHeap->AllocateIndex();
-	auto vSrvDesc = vHandle->GetColorSrvDesc(vOffset, vStride * vCount);
-	auto iSrvDesc = iHandle->GetColorSrvDesc(iOffset, sizeof(uint) * iCount);
-	if (!vSrvDesc || !iSrvDesc) {
-		VEngine_Log("illegal mesh buffer!\n");
-		VENGINE_EXIT;
-	}
-
-	device->globalHeap->CreateSRV(
-		vHandle->GetResource(), *vSrvDesc, vboIdx);
-	device->globalHeap->CreateSRV(
-		iHandle->GetResource(), *iSrvDesc, iboIdx);
 }
 Mesh::~Mesh() {
-	device->globalHeap->ReturnIndex(vboIdx);
-	device->globalHeap->ReturnIndex(iboIdx);
-	//TODO: deallocate buffer
 }
 void Mesh::Build(
 	ResourceStateTracker& tracker) const {
