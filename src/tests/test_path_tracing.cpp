@@ -46,16 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal", {{"index", 1}});
-#elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
