@@ -542,6 +542,22 @@ inline namespace dsl {// to avoid conflicts
 
 using namespace luisa;
 
+using luisa::make_bool2;
+using luisa::make_bool3;
+using luisa::make_bool4;
+using luisa::make_int2;
+using luisa::make_int3;
+using luisa::make_int4;
+using luisa::make_uint2;
+using luisa::make_uint3;
+using luisa::make_uint4;
+using luisa::make_float2;
+using luisa::make_float3;
+using luisa::make_float4;
+using luisa::make_float2x2;
+using luisa::make_float3x3;
+using luisa::make_float4x4;
+
 #define LUISA_MAKE_VECTOR(type)                                  \
     template<typename S>                                         \
         requires is_dsl_v<S> && is_same_expr_v<S, type>          \
