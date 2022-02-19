@@ -38,7 +38,6 @@ class VolumeView;
 class BindlessArray;
 class Accel;
 
-
 namespace detail {
 
 class TypeRegistry {
@@ -248,6 +247,10 @@ template<typename S, typename... M, typename O, O... os>
 struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>> {
 
     static_assert(((!is_struct_v<M> || alignof(M) >= 4u) && ...));
+    static_assert((!is_bool_vector_v<M> && ...),
+                  "Boolean vectors are not allowed in DSL "
+                  "structures since their may have different "
+                  "layouts on different platforms.");
 
 private:
     [[nodiscard]] constexpr static auto _check() noexcept {
