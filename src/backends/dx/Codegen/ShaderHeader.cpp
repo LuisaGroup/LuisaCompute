@@ -54,27 +54,16 @@ float3x3 _inverse(float3x3 m) {
 	float rhs2 = 1.0 / dot(lhs.zxy * flt2, 1);
 	return float3x3(flt2, c4, c5) * rhs2;
 }
-float _acosh(float v) { return log(v + sqrt(v * v - 1)); }
-float2 _acosh(float2 v) { return log(v + sqrt(v * v - 1)); }
-float3 _acosh(float3 v) { return log(v + sqrt(v * v - 1)); }
-float4 _acosh(float4 v) { return log(v + sqrt(v * v - 1)); }
-float _asinh(float v) { return log(v + sqrt(v * v + 1)); }
-float2 _asinh(float2 v) { return log(v + sqrt(v * v + 1)); }
-float3 _asinh(float3 v) { return log(v + sqrt(v * v + 1)); }
-float4 _asinh(float4 v) { return log(v + sqrt(v * v + 1)); }
-float _atanh(float v) { return 0.5 * log((1 + v) / (1 - v)); }
-float2 _atanh(float2 v) { return 0.5 * log((1 + v) / (1 - v)); }
-float3 _atanh(float3 v) { return 0.5 * log((1 + v) / (1 - v)); }
-float4 _atanh(float4 v) { return 0.5 * log((1 + v) / (1 - v)); }
-float _exp10(float v) { return pow(10, v); };
-float2 _exp10(float2 v) { return pow(10, v); };
-float3 _exp10(float3 v) { return pow(10, v); };
-float4 _exp10(float4 v) { return pow(10, v); };
-
-float _length_sqr(float x) { return dot(x, x); }
-float2 _length_sqr(float2 x) { return dot(x, x); }
-float3 _length_sqr(float3 x) { return dot(x, x); }
-float4 _length_sqr(float4 x) { return dot(x, x); }
+template<typename T>
+T _acosh(T v) { return log(v + sqrt(v * v - 1)); }
+template<typename T>
+T _asinh(T v) { return log(v + sqrt(v * v + 1)); }
+template<typename T>
+T _atanh(T v) { return 0.5 * log((1 + v) / (1 - v)); }
+template<typename T>
+T _exp10(T v) { return pow(10, v); };
+template <typename T>
+float _length_sqr(T x) { return dot(x, x); }
 bool _isnan(float x) {
 	return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
@@ -99,20 +88,34 @@ bool3 _isinf(float3 x) {
 bool4 _isinf(float4 x) {
 	return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
-#define select(a,b,c) (c ? b : a)
+template <typename T>
+T selectVec(T a, T b, bool c){
+	return c ? b : a;
+}
+template <typename T>
+T selectVec2(T a, T b, bool2 c){
+	return T(
+	selectVec(a.x, b.x, c.x),
+	selectVec(a.y, b.y, c.y));
+}
+template <typename T>
+T selectVec3(T a, T b, bool3 c){
+	return T(
+	selectVec(a.x, b.x, c.x),
+	selectVec(a.y, b.y, c.y),
+	selectVec(a.z, b.z, c.z));
+}
+template <typename T>
+T selectVec4(T a, T b, bool4 c){
+	return T(
+	selectVec(a.x, b.x, c.x),
+	selectVec(a.y, b.y, c.y),
+	selectVec(a.z, b.z, c.z),
+	selectVec(a.w, b.w, c.w));
+}
+
 float4 FMul(float4 vec, float4x3 mat){
 	return float4(mul(vec, mat).xyz,0);
-}
-bool4 GetBool(uint b){
-	return bool4(
-	b & 1,
-	b & 256,
-	b & 65536,
-	b & 16777216
-	);
-}
-uint SetBool(bool4 b){
-	return (b.x ? 1 : 0) | (b.y ? 256 : 0) | (b.z ? 65536 : 0) | (b.w ? 16777216 : 0);
 }
 
 #define bfread(bf,idx) (bf[(idx)])
@@ -123,49 +126,24 @@ struct BdlsStruct{
 	uint buffer;
 	uint tex2D;
 	uint tex3D;
-	uint tex2DSize;
-	uint tex3DSizeXY;
-	uint tex3DSizeZSamp;
+	uint tex2DX: 16;
+	uint tex2DY: 16;
+	uint tex3DX: 16;
+	uint tex3DY: 16;
+	uint tex3DZ: 16;
+	uint samp2D: 8;
+	uint samp3D: 8;
 };
 #define Smptx(tex, uv) (tex[uv])
 #define Writetx(tex, uv, value) (tex[uv] = value)
 #define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
 Texture3D<float4> _BindlessTex3D[]:register(t0,space1);
 Texture2D<float4> _BindlessTex[]:register(t0,space1);
-
-uint2 Tex2DSize(uint tex2DSize){
-	uint2 result;
-	result.x = (tex2DSize & 65535);
-	tex2DSize >>= 16;
-	result.y = tex2DSize;
-	return result;
-}
-
-uint3 Tex3DSize(
-uint tex3DSizeXY,
-uint tex3DSizeZSamp
-){
-	uint3 result;
-	result.x = (tex3DSizeXY & 65535);
-	tex3DSizeXY >>= 16;
-	result.y = tex3DSizeXY;
-	result.z = (tex3DSizeZSamp >> 16);
-	return result;
-}
-uint2 Sampler2D3D(uint tex3DSizeZSamp){
-	uint samplers = tex3DSizeZSamp & 65535;
-	uint2 result;
-	result.x = samplers & 255;
-	result.y = (samplers >> 8) & 255;
-	return result;
-}
-float fract(float x){ return x - floor(x);}
-float2 fract(float2 x){ return x - floor(x);}
-float3 fract(float3 x){ return x - floor(x);}
-float4 fract(float4 x){ return x - floor(x);}
+template <typename T>
+T fract(T x){ return x - floor(x);}
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float level){
 	BdlsStruct s = arr[index];
-	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).x];
+	SamplerState samp = samplers[s.samp2D];
 	return _BindlessTex[s.tex2D].SampleLevel(samp, uv, level);
 }
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv){
@@ -173,12 +151,12 @@ float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv){
 }
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float2 ddx, float2 ddy){
 	BdlsStruct s = arr[index];
-	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).x];
+	SamplerState samp = samplers[s.samp2D];
 	return _BindlessTex[s.tex2D].SampleGrad(samp, uv, ddx, ddy);
 }
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv, float level){
 	BdlsStruct s = arr[index];
-	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).y];
+	SamplerState samp = samplers[s.samp3D];
 	return _BindlessTex3D[s.tex3D].SampleLevel(samp, uv, level);
 }
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv){
@@ -186,7 +164,7 @@ float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv){
 }
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv, float3 ddx, float3 ddy){
 	BdlsStruct s = arr[index];
-	SamplerState samp = samplers[Sampler2D3D(s.tex3DSizeZSamp).y];
+	SamplerState samp = samplers[s.samp3D];
 	return _BindlessTex3D[s.tex3D].SampleGrad(samp, uv, ddx, ddy);
 }
 float4 ReadTex2D(BINDLESS_ARRAY arr,  uint index, uint2 coord, uint level){
@@ -205,11 +183,11 @@ float4 ReadTex3D(BINDLESS_ARRAY arr, uint index,  uint3 coord){
 }
 uint2 Tex2DSize(BINDLESS_ARRAY arr, uint index){
 	BdlsStruct s = arr[index]; 
-	return Tex2DSize(s.tex2DSize);
+	return uint2(s.tex2DX, s.tex2DY);
 }
 uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index){
 	BdlsStruct s = arr[index]; 
-	return Tex3DSize(s.tex3DSizeXY, s.tex3DSizeZSamp);
+	return uint3(s.tex3DX, s.tex3DY, s.tex3DZ);
 }
 uint2 Tex2DSize(BINDLESS_ARRAY arr, uint index, uint level){
 	return max(Tex2DSize(arr, index) >> level, 1u);

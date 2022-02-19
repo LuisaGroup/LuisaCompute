@@ -42,7 +42,6 @@ public:
     static void GetConstantStruct(ConstantData const &data, vstd::string &str);
     //static void
     static void GetConstantData(ConstantData const &data, vstd::string &str);
-    static size_t GetTypeSize(Type const &t);
     static size_t GetTypeAlign(Type const &t);
     static vstd::string GetBasicTypeName(uint64 typeIndex) {
         vstd::string s;
@@ -98,17 +97,9 @@ public:
         Function f,
         vstd::string &str);
     ~StringStateVisitor();
-    void InsertString();
-    void SetStub();
-    struct Tracker {
-        StringStateVisitor *self;
-        Tracker(StringStateVisitor* self);
-        ~Tracker();
-    };
 
 protected:
     vstd::string &str;
-    vstd::string preprocStr;
     size_t lastIdx = 0;
 };
 template<typename T>

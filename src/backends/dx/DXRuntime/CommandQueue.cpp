@@ -30,7 +30,6 @@ CommandQueue::AllocatorPtr CommandQueue::CreateAllocator() {
 }
 void CommandQueue::AddEvent(LCEvent const *evt) {
     executedAllocators.Push(evt, uint64(evt->fenceIndex));
-    std::lock_guard lck(mtx);
     waitCv.notify_one();
 }
 
@@ -41,17 +40,16 @@ void CommandQueue::ExecuteThread() {
             b->Reset(this);
             allocatorPool.Push(std::move(b));
             executedFrame++;
-            {
-                std::lock_guard lck(mtx);
-                mainCv.notify_all();
-            }
+            mainCv.notify_all();
         };
         auto ExecuteEvent = [&](std::pair<LCEvent const *, uint64> &pair) {
             auto evt = pair.first;
             auto tarFrame = pair.second;
             evt->SyncTarget(tarFrame);
-            std::lock_guard lck(evt->globalMtx);
-            evt->finishedEvent = tarFrame;
+            {
+                std::lock_guard lck(evt->globalMtx);
+                evt->finishedEvent = tarFrame;
+            }
             evt->cv.notify_one();
         };
         while (auto b = executedAllocators.Pop()) {
@@ -69,8 +67,8 @@ CommandQueue::~CommandQueue() {
     {
         std::lock_guard lck(mtx);
         enabled = false;
-        waitCv.notify_one();
     }
+    waitCv.notify_one();
     thd.join();
 }
 uint64 CommandQueue::Execute(AllocatorPtr &&alloc) {
@@ -79,9 +77,8 @@ uint64 CommandQueue::Execute(AllocatorPtr &&alloc) {
     {
         std::lock_guard lck(mtx);
         lastFrame++;
-        waitCv.notify_one();
     }
-    //TODO: notify thread;
+    waitCv.notify_one();
     return lastFrame;
 }
 void CommandQueue::Complete(uint64 fence) {

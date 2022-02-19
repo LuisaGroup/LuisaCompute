@@ -6,16 +6,6 @@
 #include <ast/statement.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
-struct StructVariable {
-    static constexpr vbyte OFFSET_NPOS = std::numeric_limits<vbyte>::max();
-    vstd::string name;
-    vbyte boolOffset;
-    vbyte boolVecDim;
-    StructVariable(
-        vstd::string &&name,
-        vbyte boolVecDim = 0,
-        vbyte boolOffset = OFFSET_NPOS) : name(std::move(name)), boolVecDim(boolVecDim), boolOffset(boolOffset){};
-};
 class StructureType : public vstd::IOperatorNewBase {
 
 public:
@@ -42,8 +32,7 @@ public:
 };
 class StructGenerator : public vstd::IOperatorNewBase {
     Type const *strutureType;
-    vstd::vector<StructVariable> structVars;
-    vstd::vector<vstd::variant<StructureType, StructGenerator *>> structTypes;
+    vstd::vector<std::pair<vstd::string, vstd::variant<StructureType, StructGenerator *>>> structTypes;
     vstd::string structDesc;
     vstd::string structName;
     size_t structSize = 0;
@@ -58,8 +47,8 @@ class StructGenerator : public vstd::IOperatorNewBase {
         vstd::function<StructGenerator *(Type const *)> const &visitor);
 
 public:
-    StructVariable const &GetVariable(size_t idx) const {
-        return structVars[idx];
+    vstd::string const& GetStructVar(uint idx) const{
+        return structTypes[idx].first;
     }
     static void ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc);
     vstd::string_view GetStructDesc() const { return structDesc; }
@@ -76,16 +65,5 @@ public:
         vstd::function<StructGenerator *(Type const *)> const &visitor);
 
     ~StructGenerator();
-    void GetMemberExpr(
-        uint memberIndex,
-        Type const *type,
-        vstd::function<void()> const &printMember,
-        vstd::string &str);
-    void SetMemberExpr(
-        uint memberIndex,
-        Type const *type,
-        vstd::function<void()> const &printMember,
-        vstd::function<void()> const &printExpr,
-        vstd::string &str);
 };
 }// namespace toolhub::directx

@@ -7,32 +7,6 @@ namespace toolhub::directx {
 static bool IsFloat3x3(Type const &t) {
     return t.is_matrix() && t.dimension() == 3;
 }
-void StringStateVisitor::InsertString() {
-    if (preprocStr.empty()) return;
-    size_t afterSize = str.size() - lastIdx;
-    str.resize(str.size() + preprocStr.size());
-    auto beforePtr = str.data() + lastIdx;
-    if (afterSize > 0) {
-        memmove(
-            beforePtr + preprocStr.size(),
-            beforePtr,
-            afterSize);
-    }
-    memcpy(beforePtr, preprocStr.data(), preprocStr.size());
-    preprocStr.clear();
-    lastIdx += preprocStr.size();
-}
-void StringStateVisitor::SetStub() {
-    lastIdx = str.size();
-}
-
-StringStateVisitor::Tracker::Tracker(StringStateVisitor *self)
-    : self(self) {
-    self->SetStub();
-}
-StringStateVisitor::Tracker::~Tracker() {
-    self->InsertString();
-}
 void StringStateVisitor::visit(const UnaryExpr *expr) {
 
     switch (expr->op()) {
@@ -149,25 +123,11 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
         StringStateVisitor vis(f, curStr);
         expr->self()->accept(vis);
         auto &&selfStruct = CodegenUtility::GetStruct(expr->self()->type());
-        auto &&structVar = selfStruct->GetVariable(expr->member_index());
-        if (structVar.boolOffset != StructVariable::OFFSET_NPOS) {
-            auto tmpName = CodegenUtility::GetNewTempVarName();
-            auto realTmpName = CodegenUtility::GetTracker()->CreateTempVar(
-                CodegenUtility::GetScope(),
-                preprocStr,
-                curStr,
-                structVar.name,
-                tmpName,
-                AssignSetter::IsAssigning());
-            str << realTmpName << '.' << vstd::string_view(xyzw + structVar.boolOffset, structVar.boolVecDim);
-
-        } else {
-            str << curStr << '.' << structVar.name;
-        }
+        auto &&structVar = selfStruct->GetStructVar(expr->member_index());
+        str << curStr << '.' << structVar;
     }
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
-
     expr->range()->accept(*this);
     auto t = expr->range()->type();
     if (t && (t->is_buffer() || t->is_vector()))
@@ -182,12 +142,6 @@ void StringStateVisitor::visit(const RefExpr *expr) {
     Variable v = expr->variable();
     vstd::string tempStr;
     CodegenUtility::GetVariableName(v, tempStr);
-    if (v.type()->tag() == Type::Tag::STRUCTURE) {
-        CodegenUtility::GetTracker()->ClearTempVar(
-            CodegenUtility::GetScope(),
-            preprocStr,
-            tempStr);
-    }
     CodegenUtility::RegistStructType(v.type());
     str << tempStr;
 }
@@ -255,7 +209,6 @@ void StringStateVisitor::visit(const ContinueStmt *state) {
     str << "continue;\n";
 }
 void StringStateVisitor::visit(const ReturnStmt *state) {
-    Tracker t(this);
     if (state->expression()) {
         str << "return ";
         state->expression()->accept(*this);
@@ -267,19 +220,16 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
 void StringStateVisitor::visit(const ScopeStmt *state) {
     str << "{\n";
     CodegenUtility::AddScope(1);
-    InsertString();
     for (auto &&i : state->statements()) {
         i->accept(*this);
     }
     CodegenUtility::GetTracker()->RemoveStack(str);
-    InsertString();
     CodegenUtility::AddScope(-1);
     str << "}\n";
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
 }
 void StringStateVisitor::visit(const IfStmt *state) {
-    SetStub();
     str << "if(";
     state->condition()->accept(*this);
     str << ")";
@@ -290,17 +240,14 @@ void StringStateVisitor::visit(const IfStmt *state) {
     }
 }
 void StringStateVisitor::visit(const LoopStmt *state) {
-    SetStub();
     str << "while(true)";
     state->body()->accept(*this);
 }
 void StringStateVisitor::visit(const ExprStmt *state) {
-    Tracker t(this);
     state->expression()->accept(*this);
     str << ";\n";
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
-    SetStub();
     str << "switch(";
     state->expression()->accept(*this);
     str << ")";
@@ -318,7 +265,6 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 }
 
 void StringStateVisitor::visit(const AssignStmt *state) {
-    Tracker t(this);
     {
         AssignSetter setter;
         state->lhs()->accept(*this);
@@ -328,7 +274,6 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     str << ";\n";
 }
 void StringStateVisitor::visit(const ForStmt *state) {
-    SetStub();
     str << "for(";
 
     //    state->variable()->accept(*this);
@@ -353,7 +298,6 @@ void StringStateVisitor::visit(const MetaStmt *stmt) {
         CodegenUtility::GetVariableName(v, str);
         str << ";\n";
     }
-    SetStub();
     stmt->scope()->accept(*this);
 }
 StringStateVisitor::~StringStateVisitor() = default;
