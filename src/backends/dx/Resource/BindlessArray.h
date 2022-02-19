@@ -20,9 +20,13 @@ public:
         uint buffer;
         uint tex2D;
         uint tex3D;
-        uint tex2DSize;
-        uint tex3DSizeXY;
-        uint tex3DSizeZSamp;
+        uint16_t tex2DX;
+        uint16_t tex2DY;
+        uint16_t tex3DX;
+        uint16_t tex3DY;
+        uint16_t tex3DZ;
+        vbyte samp2D;
+        vbyte samp3D;
     };
 
 private:

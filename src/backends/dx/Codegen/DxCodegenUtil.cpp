@@ -487,7 +487,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "any"sv;
             break;
         case CallOp::SELECT: {
-            str << "select"sv;
+            auto type = args[2]->type();
+            str << "selectVec"sv;
+            if (type->tag() == Type::Tag::VECTOR) {
+                vstd::to_string(type->dimension(), str);
+            }
         } break;
         case CallOp::CLAMP:
             str << "clamp"sv;
@@ -818,11 +822,7 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
         case Type::Tag::ARRAY:
             return GetTypeAlign(*t.element());
         case Type::Tag::STRUCTURE: {
-            size_t maxAlign = 1;
-            for (auto &&i : t.members()) {
-                maxAlign = std::max(maxAlign, GetTypeAlign(*i));
-            }
-            return maxAlign;
+            return 16;
         }
         case Type::Tag::BUFFER:
         case Type::Tag::TEXTURE:
@@ -835,40 +835,6 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     }
 }
 
-size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
-    switch (t.tag()) {
-        case Type::Tag::BOOL:
-            return 1;
-        case Type::Tag::FLOAT:
-        case Type::Tag::INT:
-        case Type::Tag::UINT:
-            return 4;
-        case Type::Tag::VECTOR:
-        case Type::Tag::ARRAY:
-            return GetTypeSize(*t.element()) * t.dimension();
-        case Type::Tag::MATRIX:
-            return GetTypeSize(*t.element()) * t.dimension() * t.dimension();
-        case Type::Tag::STRUCTURE: {
-            size_t sz = 0;
-            size_t maxAlign = 1;
-            for (auto &&i : t.members()) {
-                auto a = GetTypeAlign(*i);
-                maxAlign = std::max(maxAlign, a);
-                sz = CalcAlign(sz, a);
-                sz += GetTypeSize(*i);
-            }
-            return CalcAlign(sz, maxAlign);
-        }
-        case Type::Tag::BUFFER:
-        case Type::Tag::TEXTURE:
-        case Type::Tag::ACCEL:
-        case Type::Tag::BINDLESS_ARRAY:
-            return 8;
-    }
-    LUISA_ERROR_WITH_LOCATION(
-        "Invalid type: {}.",
-        t.description());
-}
 
 template<typename T>
 struct TypeNameStruct {
