@@ -94,4 +94,10 @@ public:
     }
 };
 
+template<typename F>
+    requires std::is_invocable_v<F>
+inline auto async(F &&f) noexcept {
+    return ThreadPool::global().async(std::forward<F>(f));
+}
+
 }// namespace luisa
