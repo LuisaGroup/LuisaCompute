@@ -112,11 +112,14 @@ T selectVec4(T a, T b, bool4 c){
 	selectVec(a.y, b.y, c.y),
 	selectVec(a.z, b.z, c.z),
 	selectVec(a.w, b.w, c.w));
-}
+}	
 
-float4 FMul(float4 vec, float4x3 mat){
-	return float4(mul(vec, mat).xyz,0);
-}
+float4x4 Mul(float4x4 a, float4x4 b){ return mul(a, b);}
+float4x3 Mul(float4x3 a, float4x3 b){ return mul(a, b);}
+float2x2 Mul(float2x2 a, float2x2 b){ return mul(a, b);}
+float4 Mul(float4 a, float4x4 b){ return mul(b, a);}
+float3 Mul(float3 a, float4x3 b){ return mul(b, a);}
+float2 Mul(float2 a, float2x2 b){ return mul(b, a);}
 
 #define bfread(bf,idx) (bf[(idx)])
 #define bfreadVec3(bf,idx) (bf[(idx)].xyz)

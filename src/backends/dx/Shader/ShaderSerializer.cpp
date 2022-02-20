@@ -7,6 +7,7 @@
 namespace toolhub::directx {
 namespace shader_ser {
 struct Header {
+    vstd::MD5 md5;
     uint64 rootSigBytes;
     uint64 codeBytes;
     uint3 blockSize;
@@ -16,16 +17,18 @@ vstd::vector<vbyte>
 ShaderSerializer::Serialize(
     vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
     vstd::span<vbyte> binByte,
+    vstd::MD5 md5,
     uint3 blockSize) {
     using namespace shader_ser;
     vstd::vector<vbyte> result;
     result.reserve(65500);
     result.resize(sizeof(Header));
     Header header{
+        md5,
         (uint64)SerializeRootSig(properties, result),
         (uint64)binByte.size(),
         blockSize};
-    *reinterpret_cast<Header *>(result.data()) = header;
+    memcpy(result.data(), &header, sizeof(Header));
     result.push_back_all(binByte);
     return result;
 }
@@ -41,6 +44,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
         return *reinterpret_cast<T const *>(ptr);
     };
     auto header = Get.operator()<Header>();
+    if (header.md5 != md5) return nullptr;
     ptr = visitor.ReadFile(header.rootSigBytes);
     auto rootSig = DeSerializeRootSig(
         device->device.Get(),

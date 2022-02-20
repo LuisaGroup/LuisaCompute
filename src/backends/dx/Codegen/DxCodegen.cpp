@@ -4,9 +4,7 @@
 #include <Codegen/StructGenerator.h>
 #include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
-static bool IsFloat3x3(Type const &t) {
-    return t.is_matrix() && t.dimension() == 3;
-}
+
 void StringStateVisitor::visit(const UnaryExpr *expr) {
 
     switch (expr->op()) {
@@ -36,11 +34,7 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         return false;
     };
     if (IsMulFuncCall()) {
-        if (IsFloat3x3(*expr->lhs()->type()) || IsFloat3x3(*expr->rhs()->type())) {
-            str << "mul("sv;
-        } else {
-            str << "FMul("sv;
-        }
+        str << "Mul("sv;
         expr->rhs()->accept(*this);//Reverse matrix
         str << ',';
         expr->lhs()->accept(*this);

@@ -31,6 +31,9 @@ public:
             argVec->resize(sz + sizeof(T));
             *reinterpret_cast<T *>(argVec->data() + sz) = data;
         }
+        void EmplaceEmpty(size_t size) {
+            argVec->resize(argVec->size() + size);
+        }
         template<typename T>
         void EmplaceData(T const *data, size_t size) {
             size_t sz = argVec->size();
@@ -117,19 +120,23 @@ public:
                         PushArray(align);
                     } break;
                     case Type::Tag::MATRIX:
+                        UniformAlign(16);
                         switch (type->dimension()) {
-                            case 2:
-                                UniformAlign(8);
-                                EmplaceData(*(float2x2 const *)bf.data());
+                            case 2: {
+                                float2 const *ptr = reinterpret_cast<float2 const *>(bf.data());
+                                // float2x2 = float4x2
+                                EmplaceData(*ptr);
+                                EmplaceEmpty(sizeof(float2));
+                                ptr++;
+                                EmplaceData(*ptr);
+                                EmplaceEmpty(sizeof(float2));
                                 PushArray(sizeof(float2x2));
-                                break;
+                            } break;
                             case 3:
-                                UniformAlign(16);
                                 EmplaceData(*(float3x3 const *)bf.data());
                                 PushArray(sizeof(float3x3));
                                 break;
                             case 4:
-                                UniformAlign(16);
                                 EmplaceData(*(float4x4 const *)bf.data());
                                 PushArray(sizeof(float4x4));
                         }

@@ -801,6 +801,45 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
     PrintArgs();
     str << ')';
 }
+size_t CodegenUtility::GetTypeSize(Type const &t) {
+    switch (t.tag()) {
+        case Type::Tag::BOOL:
+        case Type::Tag::FLOAT:
+        case Type::Tag::INT:
+        case Type::Tag::UINT:
+            return 4;
+        case Type::Tag::VECTOR:
+            switch (t.dimension()) {
+                case 1:
+                    return 4;
+                case 2:
+                    return 8;
+                default:
+                    return 16;
+            }
+        case Type::Tag::MATRIX: {
+            return 4 * t.dimension() * sizeof(float);
+        }
+        case Type::Tag::STRUCTURE: {
+            size_t v = 0;
+            size_t maxAlign = 0;
+            for (auto &&i : t.members()) {
+                auto align = GetTypeAlign(*i);
+                v = CalcAlign(v, align);
+                maxAlign = std::max(align, align);
+                v += GetTypeSize(*i);
+            }
+            v = CalcAlign(v, maxAlign);
+            return v;
+        }
+        case Type::Tag::ARRAY: {
+            return GetTypeSize(*t.element()) * t.dimension();
+        }
+        default:
+            return 0;
+    }
+}
+
 size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     switch (t.tag()) {
         case Type::Tag::BOOL:
@@ -810,7 +849,6 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
             return 4;
             // TODO: incorrect
         case Type::Tag::VECTOR:
-        case Type::Tag::MATRIX:
             switch (t.dimension()) {
                 case 1:
                     return 4;
@@ -819,8 +857,12 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
                 default:
                     return 16;
             }
-        case Type::Tag::ARRAY:
+        case Type::Tag::MATRIX: {
+            return 16;
+        }
+        case Type::Tag::ARRAY: {
             return GetTypeAlign(*t.element());
+        }
         case Type::Tag::STRUCTURE: {
             return 16;
         }
@@ -834,7 +876,6 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
                 "Invalid type: {}.", t.description());
     }
 }
-
 
 template<typename T>
 struct TypeNameStruct {
@@ -965,6 +1006,7 @@ uint3 dsp_c;
             structSize,
             alignCount,
             result);
+        structSize += GetTypeSize(*i.type());
         GetTypeName(*i.type(), result, f.variable_usage(i.uid()));
         result << ' ';
         GetVariableName(i, result);

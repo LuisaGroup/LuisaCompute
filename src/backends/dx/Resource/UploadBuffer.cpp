@@ -38,7 +38,7 @@ void UploadBuffer::CopyData(uint64 offset, vstd::span<vbyte const> data) const {
 	void* mappedPtr;
 	D3D12_RANGE range;
 	range.Begin = offset;
-	range.End = std::min(byteSize, offset + data.size());
+    range.End = offset + data.size();
 	ThrowIfFailed(allocHandle.resource->Map(0, &range, reinterpret_cast<void**>(&mappedPtr)));
 	auto disp = vstd::create_disposer([&] {
 		allocHandle.resource->Unmap(0, &range);
