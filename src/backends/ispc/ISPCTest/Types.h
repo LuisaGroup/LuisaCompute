@@ -128,9 +128,9 @@ float4 texture_read(Texture2D *tex, uint2 p, uint level)
 
 void texture_view_write(TextureView view, uint2 p, float4 value)
 {
-    print("% % %\n",p.x,p.y,view.level);
+    // print("% % %\n",p.x,p.y,view.level);
     texture_write(view.tex, p, view.level, value);
-    print("% % %\n",p.x,p.y,view.level);
+    // print("% % %\n",p.x,p.y,view.level);
 
 }
 float4 texture_view_read(TextureView view, uint2 p)

@@ -246,7 +246,7 @@ void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
             // // }
             // // str << '>';
             // str << "D *";
-            str << "TextureView";
+            str << "uniform TextureView";
             break;
         }
         case Type::Tag::BINDLESS_ARRAY: {
