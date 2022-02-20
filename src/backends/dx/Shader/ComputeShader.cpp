@@ -74,7 +74,7 @@ ComputeShader *ComputeShader::CompileCompute(
     psoPath = path;
     path << ".cso";
     psoPath << ".pso";
-    static constexpr bool USE_CACHE = 0;
+    static constexpr bool USE_CACHE = 1;
     if constexpr (USE_CACHE) {
         SerializeVisitor visitor(
             path,
@@ -105,10 +105,10 @@ ComputeShader *ComputeShader::CompileCompute(
             true,
             shaderModel);
     }();
-    std::cout
+    /*std::cout
         << "\n===============================\n"
         << compileString
-        << "\n===============================\n";
+        << "\n===============================\n";*/
     str.properties.emplace_back(
         "samplers"sv,
         Shader::Property{
