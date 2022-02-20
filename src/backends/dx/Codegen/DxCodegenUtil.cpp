@@ -12,7 +12,6 @@ namespace toolhub::directx {
 static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
 static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
 struct CodegenGlobal {
-    size_t isAssigning = 0;
     int64 scopeCount = -1;
     vstd::HashMap<Type const *, uint64> structTypes;
     vstd::HashMap<uint64, uint64> constTypes;
@@ -46,7 +45,6 @@ struct CodegenGlobal {
     void Clear() {
         rayDesc = nullptr;
         hitDesc = nullptr;
-        isAssigning = 0;
         scopeCount = -1;
         structTypes.Clear();
         constTypes.Clear();
@@ -75,14 +73,16 @@ struct CodegenGlobal {
         if (ite) {
             return ite.Value().get();
         }
+        auto sz = customStructVector.size();
+        customStructVector.emplace_back(nullptr);
         auto newPtr = new StructGenerator(
             t,
-            customStructVector.size(),
+            sz,
             generateStruct);
         customStruct.ForceEmplace(
             t,
             vstd::create_unique(newPtr));
-        customStructVector.emplace_back(newPtr);
+        customStructVector[sz] = newPtr;
         if (t->description() == rayTypeDesc) {
             rayDesc = newPtr;
         } else if (t->description() == hitTypeDesc) {
@@ -142,15 +142,6 @@ vstd::string CodegenUtility::GetNewTempVarName() {
     vstd::to_string(opt->tempCount, name);
     opt->tempCount++;
     return name;
-}
-AssignSetter::AssignSetter() {
-    opt->isAssigning += 1;
-}
-AssignSetter::~AssignSetter() {
-    opt->isAssigning -= 1;
-}
-bool AssignSetter::IsAssigning() {
-    return opt->isAssigning;
 }
 StructGenerator const *CodegenUtility::GetStruct(
     Type const *type) {
@@ -723,12 +714,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                 str << "Vec3"sv;
             }
             break;
-        case CallOp::BUFFER_WRITE:
+        case CallOp::BUFFER_WRITE: {
             str << "bfwrite"sv;
             if (IsNumVec3(*args[0]->type()->element())) {
                 str << "Vec3"sv;
             }
-            break;
+        } break;
         case CallOp::TRACE_CLOSEST:
             str << "TraceClosest"sv;
             break;
@@ -1036,7 +1027,8 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     vstd::string finalResult;
     finalResult.reserve(65500);
     if (!opt->customStructVector.empty()) {
-        for (auto &&v : opt->customStructVector) {
+        for (auto ite = opt->customStructVector.rbegin(); ite != opt->customStructVector.rend(); --ite) {
+            auto &&v = *ite;
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
         }

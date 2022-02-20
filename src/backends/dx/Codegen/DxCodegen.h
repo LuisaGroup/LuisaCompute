@@ -21,12 +21,6 @@ struct CodegenResult {
         : result(std::forward<A>(a)),
           properties(std::forward<B>(b)) {}
 };
-class AssignSetter {
-public:
-    AssignSetter();
-    ~AssignSetter();
-    static bool IsAssigning();
-};
 class CodegenUtility {
 public:
     static constexpr uint64 INLINE_STMT_LIMIT = 5;
