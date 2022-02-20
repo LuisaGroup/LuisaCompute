@@ -122,7 +122,7 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
         _instance_buffer = _heap->allocate(_instance_buffer_size);
     }
     auto instance_buffer = stream->upload_pool()->allocate(_instance_buffer_size);
-    auto instances = reinterpret_cast<OptixInstance *>(instance_buffer.address());
+    auto instances = reinterpret_cast<OptixInstance *>(instance_buffer->address());
     for (auto i = 0u; i < _instance_meshes.size(); i++) {
         instances[i] = make_optix_instance(
             i, _instance_meshes[i]->handle(),
@@ -131,11 +131,9 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream) noexcept {
     }
     LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
         CUDAHeap::buffer_address(_instance_buffer),
-        instance_buffer.address(),
+        instance_buffer->address(),
         _instance_buffer_size, stream->handle()));
-    stream->emplace_callback(
-        CUDARingBuffer::RecycleContext::create(
-            instance_buffer, stream->upload_pool()));
+    stream->emplace_callback(instance_buffer);
 
     // build IAS
     auto build_input = _make_build_input();
@@ -228,7 +226,7 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream) noexcept {
     if (!_dirty_range.empty()) {
         auto dirty_update_buffer_size = _dirty_range.size() * sizeof(OptixInstance);
         auto dirty_update_buffer = stream->upload_pool()->allocate(dirty_update_buffer_size);
-        auto instances = reinterpret_cast<OptixInstance *>(dirty_update_buffer.address());
+        auto instances = reinterpret_cast<OptixInstance *>(dirty_update_buffer->address());
         for (auto i = 0u; i < _dirty_range.size(); i++) {
             auto index = i + _dirty_range.offset();
             instances[i] = make_optix_instance(
@@ -239,11 +237,9 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream) noexcept {
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             CUDAHeap::buffer_address(_instance_buffer) +
                 _dirty_range.offset() * sizeof(OptixInstance),
-            dirty_update_buffer.address(), dirty_update_buffer_size,
+            dirty_update_buffer->address(), dirty_update_buffer_size,
             stream->handle()));
-        stream->emplace_callback(
-            CUDARingBuffer::RecycleContext::create(
-                dirty_update_buffer, stream->upload_pool()));
+        stream->emplace_callback(dirty_update_buffer);
         _dirty_range.clear();
     }
 
