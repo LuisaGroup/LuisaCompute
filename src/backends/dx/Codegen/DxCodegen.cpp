@@ -259,11 +259,9 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 }
 
 void StringStateVisitor::visit(const AssignStmt *state) {
-    {
-        AssignSetter setter;
-        state->lhs()->accept(*this);
-        str << '=';
-    }
+    state->lhs()->accept(*this);
+    str << '=';
+
     state->rhs()->accept(*this);
     str << ";\n";
 }
@@ -287,10 +285,18 @@ StringStateVisitor::StringStateVisitor(
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
     for (auto &&v : stmt->variables()) {
-        CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
-        str << ' ';
-        CodegenUtility::GetVariableName(v, str);
-        str << ";\n";
+        if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
+            vstd::string typeName;
+            CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+            str << typeName << ' ';
+            CodegenUtility::GetVariableName(v, str);
+            str << "=("sv << typeName << ")0;\n";
+        } else {
+            CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
+            str << ' ';
+            CodegenUtility::GetVariableName(v, str);
+            str << ";\n";
+        }
     }
     stmt->scope()->accept(*this);
 }
