@@ -3,7 +3,6 @@
 //
 
 #include <utility>
-#include <vector>
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/command_reorder_visitor.h>
@@ -22,11 +21,9 @@ void Stream::_dispatch(CommandList commands) noexcept {
             command->accept(visitor);
         }
         auto commandLists = visitor.getCommandLists();
-        for (auto &commandList : commandLists) {
-            device()->dispatch(handle(), std::move(commandList));
-        }
+        device()->dispatch(handle(), commandLists);
     } else {
-        device()->dispatch(handle(), std::move(commands));
+        device()->dispatch(handle(), commands);
     }
 }
 

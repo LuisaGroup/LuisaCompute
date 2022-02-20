@@ -13,7 +13,7 @@ class StringStateVisitor;
 class StructVariableTracker;
 class StructGenerator;
 struct CodegenResult {
-    using Properties = vstd::vector<std::pair<vstd::string_view, Shader::Property>>;
+    using Properties = vstd::vector<std::pair<vstd::string, Shader::Property>>;
     vstd::string result;
     Properties properties;
     template<typename A, typename B>
@@ -42,7 +42,6 @@ public:
     static void GetConstantStruct(ConstantData const &data, vstd::string &str);
     //static void
     static void GetConstantData(ConstantData const &data, vstd::string &str);
-    static size_t GetTypeSize(Type const &t);
     static size_t GetTypeAlign(Type const &t);
     static vstd::string GetBasicTypeName(uint64 typeIndex) {
         vstd::string s;
@@ -98,17 +97,9 @@ public:
         Function f,
         vstd::string &str);
     ~StringStateVisitor();
-    void InsertString();
-    void SetStub();
-    struct Tracker {
-        StringStateVisitor *self;
-        Tracker(StringStateVisitor* self);
-        ~Tracker();
-    };
 
 protected:
     vstd::string &str;
-    vstd::string preprocStr;
     size_t lastIdx = 0;
 };
 template<typename T>
@@ -142,6 +133,7 @@ template<>
 struct PrintValue<uint> {
     void operator()(uint const &v, vstd::string &str) {
         vstd::to_string(v, str);
+        str << 'u';
     }
 };
 

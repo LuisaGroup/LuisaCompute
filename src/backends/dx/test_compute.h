@@ -124,7 +124,7 @@ _Result[inputId] = float3(uv, 1);
 			{BindProperty{"_Result", &outputBuffer}});
 		stateTracker.RecordState(
 			&outputBuffer,
-			D3D12_RESOURCE_STATE_COPY_SOURCE);
+            VEngineShaderResourceState);
 		stateTracker.UpdateState(bf);
 		bf.Readback(
 			&outputBuffer,

@@ -49,7 +49,12 @@ int main(int argc, char *argv[]) {
     buffer = std::move(buffer2);
     std::vector<float> data(16384u);
     std::vector<float> results(16384u);
+    std::vector<float> volume_data(64u * 64u * 64u * 4u);
+    std::vector<float> volume_data_download(64u * 64u * 64u * 4u);
     std::iota(data.begin(), data.end(), 1.0f);
+    std::iota(volume_data.begin(), volume_data.end(), 1.0f);
+    auto volume_buffer = device.create_buffer<float>(64u * 64u * 64u * 4u);
+    auto volume = device.create_volume<float>(PixelStorage::FLOAT4, make_uint3(64u), 1u);
 
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
@@ -147,10 +152,20 @@ int main(int argc, char *argv[]) {
     Clock clock;
     stream << buffer.copy_from(data.data())
            << buffer.copy_to(results.data())
+           << volume.view(0).copy_from(volume_data.data())
+           << volume.view(0).copy_to(volume_data_download.data())
            << synchronize();
     LUISA_INFO("Finished in {} ms.", clock.toc());
 
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[16382], results[16383]);
+
+    for (auto i = 0u; i < volume_data.size(); i++) {
+        if (volume_data[i] != volume_data_download[i]) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Bad: i = {}, origin = {}, download = {}.",
+                i, volume_data[i], volume_data_download[i]);
+        }
+    }
 }

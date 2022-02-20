@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
     luisa::log_level_verbose();
 
     Context context{argv[0]};
-    auto device = FakeDevice::create(context);
+    auto device = context.create_device("ispc");
 
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
@@ -145,12 +145,12 @@ int main(int argc, char *argv[]) {
     command->recycle();
     launch_command->recycle();
 
-    clock.tic();
-    Codegen::Scratch scratch;
-    CppCodegen codegen{scratch};
-    codegen.emit(launch_command->kernel());
-    auto t2 = clock.toc();
-
-    std::cout << scratch.view() << std::endl;
-    LUISA_INFO("AST: {} ms, Codegen: {} ms", t1, t2);
+//    clock.tic();
+//    Codegen::Scratch scratch;
+//    CppCodegen codegen{scratch};
+//    codegen.emit(launch_command->kernel());
+//    auto t2 = clock.toc();
+//
+//    std::cout << scratch.view() << std::endl;
+//    LUISA_INFO("AST: {} ms, Codegen: {} ms", t1, t2);
 }

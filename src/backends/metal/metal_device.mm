@@ -24,8 +24,7 @@ namespace luisa::compute::metal {
 uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     Clock clock;
     auto buffer = [_handle newBufferWithLength:size_bytes
-                                       options:MTLResourceStorageModePrivate |
-                                               MTLResourceHazardTrackingModeUntracked];
+                                       options:MTLResourceStorageModePrivate];
     LUISA_VERBOSE_WITH_LOCATION(
         "Created buffer with size {} in {} ms.",
         size_bytes, clock.toc());
@@ -222,11 +221,11 @@ void MetalDevice::synchronize_event(uint64_t handle) noexcept {
     reinterpret_cast<MetalEvent *>(handle)->synchronize();
 }
 
-void MetalDevice::dispatch(uint64_t stream_handle, CommandList cmd_list) noexcept {
+void MetalDevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
     @autoreleasepool {
         auto s = reinterpret_cast<MetalStream *>(stream_handle);
         MetalCommandEncoder encoder{this, s};
-        for (auto command : cmd_list) { command->accept(encoder); }
+        for (auto command : list) { command->accept(encoder); }
         s->dispatch(encoder.command_buffer());
     }
 }
@@ -467,6 +466,10 @@ bool MetalDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) c
 
 bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return reinterpret_cast<MetalBindlessArray *>(array)->has_texture(handle);
+}
+
+bool MetalDevice::requires_command_reordering() const noexcept {
+    return false;
 }
 
 }

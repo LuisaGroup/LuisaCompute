@@ -127,12 +127,14 @@ public:
             : data(std::forward<Args>(a)...) {
         }
     };
+    using KeyWordMap = vstd::HashMap<vstd::string, Field*>;
+	using FieldPool = vstd::Pool<Field, false>;
 
 private:
     vstd::vector<SimpleJsonParser> *subParsers;
-    vstd::Pool<Field, false> *fieldPool;
+    FieldPool *fieldPool;
 
-    vstd::HashMap<std::string_view, Field *> keywords;
+    KeyWordMap *keywords;
     std::string_view keywordName;
     vstd::vector<Field *> fieldStack;
     enum class StreamState : uint8_t {
@@ -183,7 +185,7 @@ private:
             streamer = StreamState::None;
             //set keyword
             if (keywordName.data() != nullptr) {
-                auto iteValue = keywords.TryEmplace(
+                auto iteValue = keywords->TryEmplace(
                     keywordName,
                     lastField);
                 if (!iteValue.second) {
@@ -295,7 +297,7 @@ private:
         switch (streamer) {
             case StreamState::SearchKeyword: {
 
-                auto iteValue = keywords.TryEmplace(
+                auto iteValue = keywords->TryEmplace(
                     keywordName,
                     vstd::MakeLazyEval([&]() {
                         return fieldPool->New(std::forward<T>(str));
@@ -708,7 +710,7 @@ private:
             } break;
             case StreamState::SearchKey:
             case StreamState::SearchElement: {
-                auto ite = keywords.Find(var);
+                auto ite = keywords->Find(var);
                 if (!ite) {
                     errorStr << "Illegal keyword: " << var;
                     return false;
@@ -800,17 +802,16 @@ public:
         return true;
     }
     SimpleJsonParser(
-        decltype(fieldPool) poolPtr,
-        vstd::vector<SimpleJsonParser> *subParserPtr) {
+        KeyWordMap *keywords,
+        FieldPool *poolPtr,
+        vstd::vector<SimpleJsonParser> *subParserPtr)
+        : keywords(keywords) {
         {
             std::lock_guard lck(recorderIsInited);
             recorders.New();
         }
         fieldPool = poolPtr;
         subParsers = subParserPtr;
-        keywords.Emplace("null", fieldPool->New(nullptr));
-        keywords.Emplace("true", fieldPool->New(true));
-        keywords.Emplace("false", fieldPool->New(false));
     }
     ~SimpleJsonParser() {
     }
@@ -847,7 +848,7 @@ bool SimpleJsonParser::BeginPath(char const *&ptr, char const *const end, vstd::
     switch (streamer) {
         case StreamState::SearchKeyword: {
             if (!GenerateSub()) return false;
-            auto iteValue = keywords.TryEmplace(
+            auto iteValue = keywords->TryEmplace(
                 keywordName,
                 subParser->rootField);
             if (!iteValue.second) {
@@ -885,7 +886,7 @@ bool SimpleJsonParser::BeginPath(char const *&ptr, char const *const end, vstd::
 }
 }// namespace parser
 template<typename T>
-vstd::optional<ParsingException> RunParse(
+eastl::optional<ParsingException> RunParse(
     T *ptr,
     IJsonDatabase *db,
     std::string_view str, bool clearLast) {
@@ -894,21 +895,25 @@ vstd::optional<ParsingException> RunParse(
     }
     using namespace parser;
     vstd::vector<SimpleJsonParser> subParsers;
-    vstd::Pool<SimpleJsonParser::Field, false> fieldPool(32, false);
-    SimpleJsonParser parser(&fieldPool, &subParsers);
+    SimpleJsonParser::FieldPool fieldPool(32, false);
+    SimpleJsonParser::KeyWordMap keywords;
+    keywords.Emplace("null", fieldPool.New(nullptr));
+    keywords.Emplace("true", fieldPool.New(true));
+    keywords.Emplace("false", fieldPool.New(false));
+    SimpleJsonParser parser(&keywords, &fieldPool, &subParsers);
     vstd::string msg;
     if (!parser.Parse(str, db, ptr, msg)) {
         return ParsingException(std::move(msg));
     }
-    return vstd::optional<ParsingException>();
+    return {};
 }
-vstd::optional<ParsingException> SimpleJsonValueDict::Parse(
+eastl::optional<ParsingException> SimpleJsonValueDict::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<SimpleJsonValueDict>(
         this, db, str, clearLast);
 }
-vstd::optional<ParsingException> SimpleJsonValueArray::Parse(
+eastl::optional<ParsingException> SimpleJsonValueArray::Parse(
     std::string_view str, bool clearLast) {
     using namespace parser;
     return RunParse<SimpleJsonValueArray>(

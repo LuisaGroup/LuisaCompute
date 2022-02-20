@@ -40,21 +40,21 @@ CompileResult DXShaderCompiler::Compile(
         code.size(),
         CP_UTF8};
     ComPtr<IDxcResult> compileResult;
-    comp->Compile(
+    ThrowIfFailed(comp->Compile(
         &buffer,
         args.data(),
         args.size(),
         nullptr,
-        IID_PPV_ARGS(compileResult.GetAddressOf()));
+        IID_PPV_ARGS(compileResult.GetAddressOf())));
     HRESULT status;
     ThrowIfFailed(compileResult->GetStatus(&status));
     if (status == 0) {
         ComPtr<IDxcBlob> resultBlob;
-        compileResult->GetResult(resultBlob.GetAddressOf());
+        ThrowIfFailed(compileResult->GetResult(resultBlob.GetAddressOf()));
         return vstd::unique_ptr<DXByteBlob>(new DXByteBlob(std::move(resultBlob), std::move(compileResult)));
     } else {
         ComPtr<IDxcBlobEncoding> errBuffer;
-        compileResult->GetErrorBuffer(errBuffer.GetAddressOf());
+        ThrowIfFailed(compileResult->GetErrorBuffer(errBuffer.GetAddressOf()));
         auto errStr = vstd::string_view(
             reinterpret_cast<char const *>(errBuffer->GetBufferPointer()),
             errBuffer->GetBufferSize());
@@ -74,7 +74,10 @@ CompileResult DXShaderCompiler::CompileCompute(
     args.push_back(L"/T");
     args.push_back(smStr.c_str());
     args.push_back_all(
-        {L"/enable_unbounded_descriptor_tables",
+        {L"-Qstrip_debug",
+         L"-Qstrip_reflect",
+         L"/enable_unbounded_descriptor_tables",
+         L"-HV 2021",
          L"/all_resources_bound"});
     if (optimize) {
         args.push_back(L"/O3");
@@ -94,7 +97,10 @@ CompileResult DXShaderCompiler::CompileRayTracing(
     args.push_back(L"/T");
     args.push_back(smStr.c_str());
     args.push_back_all(
-        {L"/enable_unbounded_descriptor_tables",
+        {L"-Qstrip_debug",
+         L"-Qstrip_reflect",
+         L"/enable_unbounded_descriptor_tables",
+         L"-HV 2021",
          L"/all_resources_bound"});
     if (optimize) {
         args.push_back(L"/O3");

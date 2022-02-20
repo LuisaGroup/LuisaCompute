@@ -1,53 +1,38 @@
 #pragma vengine_package vengine_directx
 #include <DXRuntime/CommandAllocator.h>
+#include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
-namespace detail {
-
-}// namespace detail
-void CommandAllocator::CollectBuffer(CommandBuffer *buffer) {
-    bufferPool.push_back(buffer);
-}
 void CommandAllocator::Execute(
-    ID3D12CommandQueue *queue,
+    CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
-    queue->ExecuteCommandLists(
-        executeCache.size(),
-        executeCache.data());
-    ThrowIfFailed(queue->Signal(fence, fenceIndex));
-    ThrowIfFailed(queue->Wait(fence, fenceIndex));
+    ID3D12CommandList *cmdList = cbuffer->CmdList();
+    queue->Queue()->ExecuteCommandLists(
+        1,
+        &cmdList);
+    ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
 }
 void CommandAllocator::Complete(
+    CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
-    if (fence->GetCompletedValue() < fenceIndex) {
-        LPCWSTR falseValue = 0;
-        HANDLE eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-        auto disp = vstd::create_disposer([&] { CloseHandle(eventHandle); });
-        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
-        WaitForSingleObject(eventHandle, INFINITE);
+    uint64 completeValue;
+    if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, device->EventHandle()));
+        WaitForSingleObject(device->EventHandle(), INFINITE);
     }
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
     }
-    tempEvent.Clear();
 }
-vstd::unique_ptr<CommandBuffer> CommandAllocator::GetBuffer() {
-    auto dev = [&] {
-        if (bufferPool.empty())
-            return bufferAllocator.New(device, this);
-        else
-            return bufferPool.erase_last();
-    }();
-    executeCache.push_back(dev->CmdList());
-    return vstd::create_unique(dev);
+CommandBuffer *CommandAllocator::GetBuffer() const {
+    return cbuffer.get();
 }
 CommandAllocator::CommandAllocator(
     Device *device,
     IGpuAllocator *resourceAllocator,
     D3D12_COMMAND_LIST_TYPE type)
-    : bufferAllocator(32, false),
-      type(type),
+    : type(type),
       resourceAllocator(resourceAllocator),
       device(device),
       uploadAllocator(TEMP_SIZE, &ubVisitor),
@@ -55,19 +40,18 @@ CommandAllocator::CommandAllocator(
       defaultAllocator(TEMP_SIZE, &dbVisitor) {
     rbVisitor.self = this;
     ubVisitor.self = this;
+    dbVisitor.self = this;
     ThrowIfFailed(
         device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
+    cbuffer = vstd::create_unique(
+        new CommandBuffer(
+            device,
+            this));
 }
 CommandAllocator::~CommandAllocator() {
-    for (auto &&i : bufferPool) {
-        i->~CommandBuffer();
-    }
+    cbuffer = nullptr;
 }
-IPipelineEvent *CommandAllocator::AddOrGetTempEvent(void const *ptr, vstd::move_only_func<IPipelineEvent *()> const &func) {
-    auto ite = tempEvent.Emplace(ptr, vstd::MakeLazyEval(func));
-    return ite.Value().get();
-}
-void CommandAllocator::Reset() {
+void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();
     uploadAllocator.Clear();
     defaultAllocator.Clear();
@@ -106,25 +90,36 @@ template<typename Pack>
 void CommandAllocator::Visitor<Pack>::DeAllocate(uint64 handle) {
     delete reinterpret_cast<Pack *>(handle);
 }
-BufferView CommandAllocator::GetTempReadbackBuffer(uint64 size) {
-    auto chunk = readbackAllocator.Allocate(size);
+vstd::StackAllocator::Chunk CommandAllocator::Allocate(
+    vstd::StackAllocator &allocator,
+    uint64 size,
+    size_t align) {
+    if (align <= 1) {
+        return allocator.Allocate(size);
+    }
+    return allocator.Allocate(size, align);
+}
+
+BufferView CommandAllocator::GetTempReadbackBuffer(uint64 size, size_t align) {
+    auto chunk = Allocate(readbackAllocator, size, align);
     auto package = reinterpret_cast<ReadbackBuffer *>(chunk.handle);
     return {
         package,
         chunk.offset,
         size};
 }
-BufferView CommandAllocator::GetTempUploadBuffer(uint64 size) {
-    auto chunk = uploadAllocator.Allocate(size);
+
+BufferView CommandAllocator::GetTempUploadBuffer(uint64 size, size_t align) {
+    auto chunk = Allocate(uploadAllocator, size, align);
     auto package = reinterpret_cast<UploadBuffer *>(chunk.handle);
     return {
         package,
         chunk.offset,
         size};
 }
-BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size) {
-    auto chunk = defaultAllocator.Allocate(size);
-    auto package = reinterpret_cast<UploadBuffer *>(chunk.handle);
+BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size, size_t align) {
+    auto chunk = Allocate(defaultAllocator, size, align);
+    auto package = reinterpret_cast<DefaultBuffer *>(chunk.handle);
     return {
         package,
         chunk.offset,

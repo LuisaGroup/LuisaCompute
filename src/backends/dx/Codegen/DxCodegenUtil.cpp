@@ -9,6 +9,8 @@
 #include <Codegen/ShaderHeader.h>
 #include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
+static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
+static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
 struct CodegenGlobal {
     size_t isAssigning = 0;
     int64 scopeCount = -1;
@@ -16,6 +18,7 @@ struct CodegenGlobal {
     vstd::HashMap<uint64, uint64> constTypes;
     vstd::HashMap<uint64, uint64> funcTypes;
     vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
+    vstd::HashMap<Type const *, uint64> bindlessBufferTypes;
     vstd::vector<StructGenerator *> customStructVector;
     vstd::optional<vstd::move_only_func<void()>> assignFunc;
     StructVariableTracker tracker;
@@ -23,19 +26,32 @@ struct CodegenGlobal {
     uint64 constCount = 0;
     uint64 funcCount = 0;
     uint64 tempCount = 0;
+    uint64 bindlessBufferCount = 0;
     vstd::function<StructGenerator *(Type const *)> generateStruct;
+    StructGenerator *rayDesc = nullptr;
+    StructGenerator *hitDesc = nullptr;
+    vstd::HashMap<vstd::string, vstd::string> structReplaceName;
     CodegenGlobal()
         : generateStruct(
               [this](Type const *t) {
                   return CreateStruct(t);
               }) {
+        structReplaceName.Emplace(
+            "float3"sv, "float4"sv);
+        structReplaceName.Emplace(
+            "int3"sv, "int4"sv);
+        structReplaceName.Emplace(
+            "uint3"sv, "uint4"sv);
     }
     void Clear() {
+        rayDesc = nullptr;
+        hitDesc = nullptr;
         isAssigning = 0;
         scopeCount = -1;
         structTypes.Clear();
         constTypes.Clear();
         funcTypes.Clear();
+        bindlessBufferTypes.Clear();
         customStruct.Clear();
         customStructVector.clear();
         tracker.Clear();
@@ -43,6 +59,16 @@ struct CodegenGlobal {
         count = 0;
         funcCount = 0;
         tempCount = 0;
+        bindlessBufferCount = 0;
+    }
+    uint AddBindlessType(Type const *type) {
+        return bindlessBufferTypes
+            .Emplace(
+                type,
+                vstd::MakeLazyEval([&] {
+                    return bindlessBufferCount++;
+                }))
+            .Value();
     }
     StructGenerator *CreateStruct(Type const *t) {
         auto ite = customStruct.Find(t);
@@ -57,6 +83,11 @@ struct CodegenGlobal {
             t,
             vstd::create_unique(newPtr));
         customStructVector.emplace_back(newPtr);
+        if (t->description() == rayTypeDesc) {
+            rayDesc = newPtr;
+        } else if (t->description() == hitTypeDesc) {
+            hitDesc = newPtr;
+        }
         return newPtr;
     }
     uint64 GetConstCount(uint64 data) {
@@ -266,17 +297,34 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             return;
         case Type::Tag::ARRAY:
         case Type::Tag::STRUCTURE: {
-            auto customType = opt->CreateStruct(&type);
-            str << customType->GetStructName();
+            if (type.description() == hitTypeDesc) {
+                str << "RayPayload";
+                return;
+            } else if (type.description() == rayTypeDesc) {
+                str << "LCRayDesc";
+                return;
+            } else {
+                auto customType = opt->CreateStruct(&type);
+                str << customType->GetStructName();
+            }
         }
             return;
-        case Type::Tag::BUFFER:
+        case Type::Tag::BUFFER: {
+
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
                 str << "RW"sv;
             str << "StructuredBuffer<"sv;
-            GetTypeName(*type.element(), str, usage);
+            auto ele = type.element();
+            vstd::string typeName;
+            GetTypeName(*type.element(), typeName, usage);
+            auto ite = opt->structReplaceName.Find(typeName);
+            if (ite) {
+                str << ite.Value();
+            } else {
+                str << typeName;
+            }
             str << '>';
-            break;
+        } break;
         case Type::Tag::TEXTURE: {
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0)
                 str << "RW"sv;
@@ -291,7 +339,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             break;
         }
         case Type::Tag::BINDLESS_ARRAY: {
-            str << "StructuredBuffer<BdlsStruct>"sv;
+            str << "BINDLESS_ARRAY"sv;
         } break;
         case Type::Tag::ACCEL: {
             str << "RaytracingAccelerationStructure"sv;
@@ -330,16 +378,67 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                 data[data.size() - 1] = ')';
             }
         } break;
-        default:
-            //TODO
-            break;
     }
 }
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, StringStateVisitor &vis) {
+    auto args = expr->arguments();
+    auto GenMakeFunc = [&]() {
+        uint tarDim = [&]() -> uint {
+            switch (expr->type()->tag()) {
+                case Type::Tag::VECTOR:
+                    return expr->type()->dimension();
+                case Type::Tag::MATRIX:
+                    return expr->type()->dimension() * expr->type()->dimension();
+                default:
+                    return 1;
+            }
+        }();
+        if (args.size() == 1 && args[0]->type()->is_scalar()) {
+            str << '(';
+            str << '(';
+            GetTypeName(*expr->type(), str, Usage::READ);
+            str << ')';
+            str << '(';
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            *(str.end() - 1) = ')';
+            str << ')';
+        } else {
+            GetTypeName(*expr->type(), str, Usage::READ);
+            str << '(';
+            uint count = 0;
+            for (auto &&i : args) {
+                i->accept(vis);
+                if (i->type()->is_vector()) {
+                    auto dim = i->type()->dimension();
+                    auto ele = i->type()->element();
+                    auto leftEle = tarDim - count;
+                    //More lefted
+                    if (dim <= leftEle) {
+                    } else {
+                        auto swizzle = "xyzw";
+                        str << '.' << vstd::string_view(swizzle, leftEle);
+                    }
+                    count += dim;
+                } else if (i->type()->is_scalar()) {
+                    count++;
+                }
+                str << ',';
+                if (count >= tarDim) break;
+            }
+            if (count < tarDim) {
+                for (auto i : vstd::range(tarDim - count)) {
+                    str << "0,"sv;
+                }
+            }
+            *(str.end() - 1) = ')';
+        }
+    };
     auto getPointer = [&]() {
         str << '(';
         uint64 sz = 1;
-        auto args = expr->arguments();
         if (args.size() >= 1) {
             str << "&(";
             args[0]->accept(vis);
@@ -354,16 +453,26 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         }
         str << ')';
     };
-
-    auto IsType = [](Type const *const type, Type::Tag const tag, uint const vecEle) {
-        if (type->tag() == Type::Tag::VECTOR) {
-            if (vecEle > 1) {
-                return type->element()->tag() == tag && type->dimension() == vecEle;
-            } else {
-                return type->tag() == tag;
+    auto IsNumVec3 = [&](Type const &t) {
+        if (t.tag() != Type::Tag::VECTOR || t.dimension() != 3) return false;
+        auto &&ele = *t.element();
+        switch (ele.tag()) {
+            case Type::Tag::INT:
+            case Type::Tag::UINT:
+            case Type::Tag::FLOAT:
+                return true;
+            default:
+                return false;
+        }
+    };
+    auto PrintArgs = [&] {
+        uint64 sz = 0;
+        for (auto &&i : args) {
+            ++sz;
+            i->accept(vis);
+            if (sz != args.size()) {
+                str << ',';
             }
-        } else {
-            return vecEle == 1;
         }
     };
     switch (expr->op()) {
@@ -378,10 +487,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "any"sv;
             break;
         case CallOp::SELECT: {
-            if (expr->arguments()[2]->type()->tag() == Type::Tag::BOOL)
-                str << "select_scale"sv;
-            else
-                str << "select"sv;
+            auto type = args[2]->type();
+            str << "selectVec"sv;
+            if (type->tag() == Type::Tag::VECTOR) {
+                vstd::to_string(type->dimension(), str);
+            }
         } break;
         case CallOp::CLAMP:
             str << "clamp"sv;
@@ -516,7 +626,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "length"sv;
             break;
         case CallOp::LENGTH_SQUARED:
-            str << "length_sqr"sv;
+            str << "_length_sqr"sv;
             break;
         case CallOp::NORMALIZE:
             str << "normalize"sv;
@@ -531,44 +641,54 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "transpose"sv;
             break;
         case CallOp::INVERSE:
-            str << "inverse"sv;
+            str << "_inverse"sv;
             break;
-        case CallOp::ATOMIC_EXCHANGE:
+        case CallOp::ATOMIC_EXCHANGE: {
             str << "_atomic_exchange"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE:
+        }
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: {
             str << "_atomic_compare_exchange"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_ADD:
+        }
+        case CallOp::ATOMIC_FETCH_ADD: {
             str << "_atomic_add"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_SUB:
+        }
+        case CallOp::ATOMIC_FETCH_SUB: {
             str << "_atomic_sub"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_AND:
+        }
+        case CallOp::ATOMIC_FETCH_AND: {
             str << "_atomic_and"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_OR:
+        }
+        case CallOp::ATOMIC_FETCH_OR: {
             str << "_atomic_or"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_XOR:
+        }
+        case CallOp::ATOMIC_FETCH_XOR: {
             str << "_atomic_xor"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_MIN:
+        }
+        case CallOp::ATOMIC_FETCH_MIN: {
             str << "_atomic_min"sv;
             getPointer();
             return;
-        case CallOp::ATOMIC_FETCH_MAX:
+        }
+        case CallOp::ATOMIC_FETCH_MAX: {
+
             str << "_atomic_max"sv;
             getPointer();
             return;
+        }
         case CallOp::TEXTURE_READ:
             str << "Smptx";
             break;
@@ -576,80 +696,101 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "Writetx";
             break;
         case CallOp::MAKE_BOOL2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
-                str << "make_bool2"sv;
-
-            break;
         case CallOp::MAKE_BOOL3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 3))
-                str << "make_bool3"sv;
-
-            break;
         case CallOp::MAKE_BOOL4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 4))
-                str << "make_bool4"sv;
-
-            break;
         case CallOp::MAKE_UINT2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 2))
-                str << "make_uint2"sv;
-
-            break;
         case CallOp::MAKE_UINT3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 3))
-                str << "make_uint3"sv;
-            break;
         case CallOp::MAKE_UINT4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::UINT, 4))
-                str << "make_uint4"sv;
-
-            break;
         case CallOp::MAKE_INT2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 2))
-                str << "make_int2"sv;
-
-            break;
         case CallOp::MAKE_INT3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 3))
-                str << "make_int3"sv;
-
-            break;
         case CallOp::MAKE_INT4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::INT, 4))
-                str << "make_int4"sv;
-
-            break;
         case CallOp::MAKE_FLOAT2:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 2))
-                str << "make_float2"sv;
-
-            break;
         case CallOp::MAKE_FLOAT3:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 3))
-                str << "make_float3"sv;
-
-            break;
         case CallOp::MAKE_FLOAT4:
-            if (!IsType(expr->arguments()[0]->type(), Type::Tag::FLOAT, 4))
-                str << "make_float4"sv;
-
-            break;
         case CallOp::MAKE_FLOAT2X2:
-            str << "make_float2x2"sv;
-            break;
         case CallOp::MAKE_FLOAT3X3:
-            str << "make_float3x3"sv;
-            break;
-        case CallOp::MAKE_FLOAT4X4:
-            str << "make_float4x4"sv;
-            break;
+        case CallOp::MAKE_FLOAT4X4: {
+            if (args.size() == 1 && (args[0]->type() == expr->type())) {
+                args[0]->accept(vis);
+            } else {
+                GenMakeFunc();
+            }
+            return;
+        }
         case CallOp::BUFFER_READ:
-            str << "bfread";
-            //TODO
+            str << "bfread"sv;
+            if (IsNumVec3(*args[0]->type()->element())) {
+                str << "Vec3"sv;
+            }
             break;
         case CallOp::BUFFER_WRITE:
-            str << "bfwrite";
+            str << "bfwrite"sv;
+            if (IsNumVec3(*args[0]->type()->element())) {
+                str << "Vec3"sv;
+            }
             break;
+        case CallOp::TRACE_CLOSEST:
+            str << "TraceClosest"sv;
+            break;
+        case CallOp::TRACE_ANY:
+            str << "TraceAny"sv;
+            break;
+        case CallOp::BINDLESS_BUFFER_READ: {
+            str << "READ_BUFFER"sv;
+            if (IsNumVec3(*expr->type())) {
+                str << "Vec3"sv;
+            }
+            auto index = opt->AddBindlessType(expr->type());
+            str << '(';
+            auto args = expr->arguments();
+            for (auto &&i : args) {
+                i->accept(vis);
+                str << ',';
+            }
+            str << "bdls"sv
+                << vstd::to_string(index)
+                << ')';
+            return;
+        }
+        case CallOp::ASSUME:
+        case CallOp::UNREACHABLE: {
+            return;
+        }
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
+            str << "SampleTex2D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE:
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
+            str << "SampleTex3D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_READ:
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+            str << "ReadTex2D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE3D_READ:
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL:
+            str << "ReadTex3D"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE:
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
+            str << "Tex2DSize"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE:
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
+            str << "Tex3DSize"sv;
+            break;
+        //case CallOp::SYNCHRONIZE_BLOCK:
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: {
+            str << "InstMatrix("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            args[1]->accept(vis);
+            str << ')';
+            return;
+        }
         default: {
             auto errorType = expr->op();
             VEngine_Log("Function Not Implemented"sv);
@@ -657,15 +798,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         }
     }
     str << '(';
-    uint64 sz = 0;
-    auto args = expr->arguments();
-    for (auto &&i : args) {
-        ++sz;
-        i->accept(vis);
-        if (sz != args.size()) {
-            str << ',';
-        }
-    }
+    PrintArgs();
     str << ')';
 }
 size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
@@ -689,11 +822,7 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
         case Type::Tag::ARRAY:
             return GetTypeAlign(*t.element());
         case Type::Tag::STRUCTURE: {
-            size_t maxAlign = 1;
-            for (auto &&i : t.members()) {
-                maxAlign = std::max(maxAlign, GetTypeAlign(*i));
-            }
-            return maxAlign;
+            return 16;
         }
         case Type::Tag::BUFFER:
         case Type::Tag::TEXTURE:
@@ -706,40 +835,6 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     }
 }
 
-size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
-    switch (t.tag()) {
-        case Type::Tag::BOOL:
-            return 1;
-        case Type::Tag::FLOAT:
-        case Type::Tag::INT:
-        case Type::Tag::UINT:
-            return 4;
-        case Type::Tag::VECTOR:
-        case Type::Tag::ARRAY:
-            return GetTypeSize(*t.element()) * t.dimension();
-        case Type::Tag::MATRIX:
-            return GetTypeSize(*t.element()) * t.dimension() * t.dimension();
-        case Type::Tag::STRUCTURE: {
-            size_t sz = 0;
-            size_t maxAlign = 1;
-            for (auto &&i : t.members()) {
-                auto a = GetTypeAlign(*i);
-                maxAlign = std::max(maxAlign, a);
-                sz = CalcAlign(sz, a);
-                sz += GetTypeSize(*i);
-            }
-            return CalcAlign(sz, maxAlign);
-        }
-        case Type::Tag::BUFFER:
-        case Type::Tag::TEXTURE:
-        case Type::Tag::ACCEL:
-        case Type::Tag::BINDLESS_ARRAY:
-            return 8;
-    }
-    LUISA_ERROR_WITH_LOCATION(
-        "Invalid type: {}.",
-        t.description());
-}
 
 template<typename T>
 struct TypeNameStruct {
@@ -796,12 +891,12 @@ void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
                << vstd::to_string(func.block_size().y)
                << ','
                << vstd::to_string(func.block_size().z)
-               << ")]\n"
-               << "void main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId)";
+               << ")]\nvoid main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId){\nif(any(dspId >= dsp_c)) return;\n";
+
     } else {
         GetFunctionDecl(func, result);
+        result << "{\n"sv;
     }
-    result << "{\n"sv;
     auto constants = func.constants();
     for (auto &&i : constants) {
         GetTypeName(*i.type, result, Usage::READ);
@@ -882,27 +977,61 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     if (kernel.tag() != Function::Tag::KERNEL) return {};
     ClearStructType();
     vstd::string codegenData;
-    auto callable = [&](auto &&callable, Function func) -> void {
-        for (auto &&i : func.custom_callables()) {
-            Function f(i.get());
-            callable(callable, f);
-        }
-        CodegenFunction(func, codegenData);
-    };
-    callable(callable, kernel);
+    // Custom callable
+    {
+        vstd::HashMap<void const *> callableMap;
+        auto callable = [&](auto &&callable, Function func) -> void {
+            for (auto &&i : func.custom_callables()) {
+                if (callableMap.TryEmplace(i.get()).second) {
+                    Function f(i.get());
+                    callable(callable, f);
+                }
+            }
+            CodegenFunction(func, codegenData);
+        };
+        callable(callable, kernel);
+    }
     vstd::string finalResult;
-    finalResult.reserve(65536);
+    finalResult.reserve(65500);
     if (!opt->customStructVector.empty()) {
-        for (auto ite = opt->customStructVector.end() - 1; ite != opt->customStructVector.begin() - 1; --ite) {
-            auto &&v = *ite;
+        for (auto &&v : opt->customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
         }
     }
-    //TODO: print custom struct
+    if (kernel.raytracing()) {
+        if (!opt->rayDesc) {
+            finalResult << R"(
+struct FLOATV3{
+    float v[3];
+};
+struct LCRayDesc{
+    FLOATV3 v0;
+    float v1;
+    FLOATV3 v2;
+    float v3;
+};
+)"sv;
+        }
+        if (!opt->hitDesc) {
+            finalResult << R"(
+struct RayPayload{
+    uint v0;
+    uint v1;
+    float2 v2;
+};
+)"sv;
+        }
+    }
     GenerateCBuffer(kernel, kernel.arguments(), finalResult);
-
-    finalResult << "Texture2D<float4> _BindlessTex:register(t0,space1);\n"sv;
+    // Bindless Buffers;
+    for (auto &&i : opt->bindlessBufferTypes) {
+        finalResult << "StructuredBuffer<"sv;
+        GetTypeName(*i.first, finalResult, Usage::READ);
+        finalResult << "> bdls"sv
+                    << vstd::to_string(i.second)
+                    << "[]:register(t0,space1);\n"sv;
+    }
     CodegenResult::Properties properties;
     properties.reserve(kernel.arguments().size() + 2);
     properties.emplace_back(
@@ -937,14 +1066,29 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             finalResult << varName;
             return varName;
         };
-        auto genArg = [&](RegisterType regisT, ShaderVariableType sT, char v) {
+        auto printInstBuffer = [&] {
+            finalResult
+                << "StructuredBuffer<float4x3>"sv
+                << ' ';
+            vstd::string varName;
+            GetVariableName(i, varName);
+            varName << "Inst"sv;
+            finalResult << varName;
+            return varName;
+        };
+        auto genArg = [&]<bool rtBuffer = false>(RegisterType regisT, ShaderVariableType sT, char v) {
             auto &&r = registerCount[(vbyte)regisT];
             Shader::Property prop = {
                 .type = sT,
                 .spaceIndex = 0,
                 .registerIndex = r,
                 .arrSize = 0};
-            properties.emplace_back(print(), prop);
+            if constexpr (rtBuffer) {
+                properties.emplace_back(printInstBuffer(), prop);
+
+            } else {
+                properties.emplace_back(print(), prop);
+            }
             finalResult << ":register("sv << v;
             vstd::to_string(r, finalResult);
             finalResult << ");\n"sv;
@@ -958,6 +1102,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                 } else {
                     genArg(RegisterType::SRV, ShaderVariableType::SRVDescriptorHeap, 't');
                 }
+                break;
             case Type::Tag::BUFFER: {
                 if (Writable(i)) {
                     genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
@@ -966,12 +1111,23 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                 }
             } break;
             case Type::Tag::BINDLESS_ARRAY:
-            case Type::Tag::ACCEL: {
-                //TODO
-            } break;
+                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                break;
+            case Type::Tag::ACCEL:
+                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                break;
         }
     }
-
+    if (kernel.raytracing()) {
+        if (opt->rayDesc) {
+            finalResult << "#define LCRayDesc "sv << opt->rayDesc->GetStructName() << '\n';
+        }
+        if (opt->hitDesc) {
+            finalResult << "#define RayPayload "sv << opt->hitDesc->GetStructName() << '\n';
+        }
+        finalResult << GetRayTracingHeader();
+    }
     finalResult << codegenData;
     return {std::move(finalResult), std::move(properties)};
 }

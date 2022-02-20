@@ -6,13 +6,12 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RTShader.h>
 namespace toolhub::directx {
-void CommandBufferBuilder::SetDescHeap(DescriptorHeap const *heap) {
-    if (currentDesc == heap) return;
-    currentDesc = heap;
-    ID3D12DescriptorHeap *h = heap->GetHeap();
-    cb->cmdList->SetDescriptorHeaps(1, &h);
-}
 ID3D12GraphicsCommandList4 *CommandBufferBuilder::CmdList() const { return cb->cmdList.Get(); }
+CommandBuffer::CommandBuffer(CommandBuffer &&v)
+    : cmdList(std::move(v.cmdList)),
+      alloc(v.alloc) {
+    v.alloc = nullptr;
+}
 
 CommandBuffer::CommandBuffer(
     Device *device,
@@ -27,7 +26,7 @@ CommandBuffer::CommandBuffer(
     ThrowIfFailed(cmdList->Close());
 }
 void CommandBufferBuilder::SetResources(
-    Shader *s,
+    Shader const *s,
     vstd::span<const BindProperty> resources) {
     for (auto &&r : resources) {
         r.prop.visit(
@@ -40,7 +39,7 @@ void CommandBufferBuilder::SetResources(
     }
 }
 void CommandBufferBuilder::DispatchCompute(
-    ComputeShader *cs,
+    ComputeShader const *cs,
     uint3 dispatchId,
     vstd::span<const BindProperty> resources) {
     auto calc = [](uint disp, uint thd) {
@@ -58,7 +57,7 @@ void CommandBufferBuilder::DispatchCompute(
     c->Dispatch(dispId.x, dispId.y, dispId.z);
 }
 void CommandBufferBuilder::DispatchRT(
-    RTShader *rt,
+    RTShader const *rt,
     uint3 dispatchId,
     vstd::span<const BindProperty> resources) {
     auto c = cb->cmdList.Get();
@@ -84,18 +83,45 @@ void CommandBufferBuilder::CopyBuffer(
         srcOffset,
         byteSize);
 }
-void CommandBufferBuilder::CopyBufferToTexture(
-    BufferView const &sourceBuffer,
+CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
+    TextureBase *texture,
+    uint targetMip) {
+    uint width = texture->Width();
+    uint height = texture->Height();
+    uint depth = texture->Depth();
+    auto GetValue = [&](uint &v) {
+        v = std::max<uint>(1, v >> targetMip);
+    };
+    GetValue(width);
+    GetValue(height);
+    GetValue(depth);
+    auto pureLineSize = width * Resource::GetTexturePixelSize(texture->Format());
+    auto lineSize = CalcConstantBufferByteSize(pureLineSize);
+    return {
+        pureLineSize * height * depth,
+        lineSize * height * depth,
+        lineSize,
+        pureLineSize};
+}
+void CommandBufferBuilder::CopyBufferTexture(
+    BufferView const &buffer,
     TextureBase *texture,
     uint targetMip,
-    uint width,
-    uint height,
-    uint depth) {
+    BufferTextureCopy ope) {
+    uint width = texture->Width();
+    uint height = texture->Height();
+    uint depth = texture->Depth();
+    auto GetValue = [&](uint &v) {
+        v = std::max<uint>(1, v >> targetMip);
+    };
+    GetValue(width);
+    GetValue(height);
+    GetValue(depth);
     auto c = cb->cmdList.Get();
     D3D12_TEXTURE_COPY_LOCATION sourceLocation;
-    sourceLocation.pResource = sourceBuffer.buffer->GetResource();
+    sourceLocation.pResource = buffer.buffer->GetResource();
     sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    sourceLocation.PlacedFootprint.Offset = sourceBuffer.offset;
+    sourceLocation.PlacedFootprint.Offset = buffer.offset;
     sourceLocation.PlacedFootprint.Footprint =
         {
             (DXGI_FORMAT)texture->Format(),//DXGI_FORMAT Format;
@@ -104,17 +130,25 @@ void CommandBufferBuilder::CopyBufferToTexture(
             depth,                         //uint Depth;
             static_cast<uint>(
                 CalcConstantBufferByteSize(
-                    texture->Width() * Resource::GetTexturePixelSize(texture->Format())))//uint RowPitch;
+                    width * Resource::GetTexturePixelSize(texture->Format())))//uint RowPitch;
         };
     D3D12_TEXTURE_COPY_LOCATION destLocation;
     destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     destLocation.SubresourceIndex = targetMip;
     destLocation.pResource = texture->GetResource();
-    c->CopyTextureRegion(
-        &destLocation,
-        0, 0, 0,
-        &sourceLocation,
-        nullptr);
+    if (ope == BufferTextureCopy::BufferToTexture) {
+        c->CopyTextureRegion(
+            &destLocation,
+            0, 0, 0,
+            &sourceLocation,
+            nullptr);
+    } else {
+        c->CopyTextureRegion(
+            &sourceLocation,
+            0, 0, 0,
+            &destLocation,
+            nullptr);
+    }
 }
 void CommandBufferBuilder::Upload(BufferView const &buffer, void const *src) {
     auto uBuffer = cb->alloc->GetTempUploadBuffer(buffer.byteSize);
@@ -129,10 +163,28 @@ void CommandBufferBuilder::Upload(BufferView const &buffer, void const *src) {
         buffer.offset,
         buffer.byteSize);
 }
-BufferView CommandBufferBuilder::GetTempBuffer(size_t size) {
-    return cb->alloc->GetTempDefaultBuffer(size);
+void CommandBufferBuilder::CopyTexture(
+    TextureBase const* source, uint sourceSlice, uint sourceMipLevel,
+    TextureBase const* dest, uint destSlice, uint destMipLevel) {
+    if (source->Dimension() == TextureDimension::Tex2D) sourceSlice = 0;
+    if (dest->Dimension() == TextureDimension::Tex2D) destSlice = 0;
+    D3D12_TEXTURE_COPY_LOCATION sourceLocation;
+    sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    sourceLocation.SubresourceIndex = sourceSlice * source->Mip() + sourceMipLevel;
+    D3D12_TEXTURE_COPY_LOCATION destLocation;
+    destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    destLocation.SubresourceIndex = destSlice * dest->Mip() + destMipLevel;
+    sourceLocation.pResource = source->GetResource();
+    destLocation.pResource = dest->GetResource();
+    cb->cmdList->CopyTextureRegion(
+        &destLocation,
+        0, 0, 0,
+        &sourceLocation,
+        nullptr);
 }
-
+BufferView CommandBufferBuilder::GetTempBuffer(size_t size, size_t align) {
+    return cb->alloc->GetTempDefaultBuffer(size, align);
+}
 void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
     auto rBuffer = cb->alloc->GetTempReadbackBuffer(buffer.byteSize);
     CopyBuffer(
@@ -155,17 +207,19 @@ void CommandBuffer::Reset() const {
 void CommandBuffer::Close() const {
     ThrowIfFailed(cmdList->Close());
 }
-
-void CommandBuffer::Dispose() {
-    alloc->CollectBuffer(this);
-}
 CommandBufferBuilder::CommandBufferBuilder(CommandBuffer const *cb)
     : cb(cb) {
     cb->Reset();
 }
 CommandBufferBuilder::~CommandBufferBuilder() {
-    cb->Close();
+    if (cb)
+        cb->Close();
 }
+CommandBufferBuilder::CommandBufferBuilder(CommandBufferBuilder &&v)
+    : cb(v.cb) {
+    v.cb = nullptr;
+}
+
 CommandBuffer::~CommandBuffer() {
 }
 

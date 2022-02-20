@@ -6,27 +6,24 @@
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
+#import <core/first_fit.h>
 
 namespace luisa::compute::metal {
 
-class alignas(16u) MetalBufferView {
+class MetalBufferView {
 
 private:
     id<MTLBuffer> _handle;
-    uint32_t _offset;
-    uint32_t _size;
-    bool _is_pooled;
+    FirstFit::Node *_node;
 
 public:
-    MetalBufferView(id<MTLBuffer> handle, size_t offset, size_t size, bool is_pooled = true) noexcept
-        : _handle{handle},
-          _offset{static_cast<uint32_t>(offset)},
-          _size{static_cast<uint32_t>(size)},
-          _is_pooled{is_pooled} {}
+    MetalBufferView(id<MTLBuffer> handle, FirstFit::Node *node) noexcept
+        : _handle{handle}, _node{node} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
-    [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto is_pooled() const noexcept { return _is_pooled; }
+    [[nodiscard]] auto offset() const noexcept { return _node == nullptr ? 0u : _node->offset(); }
+    [[nodiscard]] auto size() const noexcept { return _node == nullptr ? _handle.length : _node->size(); }
+    [[nodiscard]] auto is_pooled() const noexcept { return _node != nullptr; }
+    [[nodiscard]] auto node() const noexcept { return _node; }
 };
 
 }// namespace luisa::compute::metal

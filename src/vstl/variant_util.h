@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/MetaLib.h>
-#include <variant>
 #include <tuple>
+#include <EASTL/variant.h>
 namespace vstd {
 namespace detail {
 template<typename Func, typename PtrType>
@@ -38,10 +38,52 @@ public:
             detail::VisitVariant<Func, Args...>(std::forward<Func>(func), idx);
         }
     }
+    template<typename T>
+    static T get_or(eastl::variant<Args...> const &v, T &&def) {
+        if (IndexOf<T> == v.index()) {
+            return eastl::get<T>(v);
+        }
+        return std::forward<T>(def);
+    }
+    template<typename T>
+    static T get_or(eastl::variant<Args...> &v, T &&def) {
+        if (IndexOf<T> == v.index()) {
+            return eastl::get<T>(v);
+        }
+        return std::forward<T>(def);
+    }
+    template<typename T>
+    static T get_or(eastl::variant<Args...> &&v, T &&def) {
+        if (IndexOf<T> == v.index()) {
+            return std::move(eastl::get<T>(v));
+        }
+        return std::forward<T>(def);
+    }
+    template<typename T>
+    static T const *try_get(eastl::variant<Args...> const &v) {
+        if (IndexOf<T> == v.index()) {
+            return &eastl::get<T>(v);
+        }
+        return nullptr;
+    }
+    template<typename T>
+    static T *try_get(eastl::variant<Args...> &v) {
+        if (IndexOf<T> == v.index()) {
+            return &eastl::get<T>(v);
+        }
+        return nullptr;
+    }
+    template<typename T>
+    static vstd::optional<T> try_get(eastl::variant<Args...> &&v) {
+        if (IndexOf<T> == v.index()) {
+            return {std::move(eastl::get<T>(v))};
+        }
+        return {};
+    }
 };
 
 template<typename... Args>
-class VariantVisitor<std::variant<Args...>> {
+class VariantVisitor<eastl::variant<Args...>> {
 public:
     using Type = VariantVisitor<Args...>;
 };

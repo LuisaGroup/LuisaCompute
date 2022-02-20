@@ -367,7 +367,6 @@ void *luisa_compute_ast_for_stmt(const void *var, const void *cond, const void *
 
 void luisa_compute_ast_assign_stmt(uint32_t op, const void *lhs, const void *rhs) LUISA_NOEXCEPT {
     FunctionBuilder::current()->assign(
-        static_cast<AssignOp>(op),
         static_cast<const Expression *>(lhs),
         static_cast<const Expression *>(rhs));
 }

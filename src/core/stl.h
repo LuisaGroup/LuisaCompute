@@ -31,6 +31,7 @@
 #include <EASTL/functional.h>
 #include <EASTL/vector_map.h>
 #include <EASTL/vector_set.h>
+#include <EASTL/shared_array.h>
 #include <EASTL/unordered_map.h>
 #include <EASTL/unordered_set.h>
 #include <EASTL/fixed_hash_map.h>
@@ -88,64 +89,66 @@ inline void delete_with_allocator(T *p) noexcept {
     }
 }
 
-using eastl::function;
-using eastl::unique_ptr;
-using eastl::shared_ptr;
-using eastl::weak_ptr;
-using eastl::enable_shared_from_this;
-using eastl::make_unique;
-using eastl::make_shared;
 using eastl::const_pointer_cast;
-using eastl::reinterpret_pointer_cast;
-using eastl::static_pointer_cast;
 using eastl::dynamic_pointer_cast;
+using eastl::enable_shared_from_this;
+using eastl::function;
+using eastl::make_shared;
+using eastl::make_unique;
+using eastl::reinterpret_pointer_cast;
+using eastl::shared_ptr;
+using eastl::static_pointer_cast;
+using eastl::unique_ptr;
+using eastl::weak_ptr;
+using eastl::shared_array;
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
 using std::string_view;
 
-using eastl::vector;
 using eastl::span;
+using eastl::vector;
 
-using eastl::map;
-using eastl::set;
-using eastl::list;
-using eastl::slist;
 using eastl::deque;
-using eastl::queue;
+using eastl::list;
+using eastl::map;
 using eastl::multimap;
 using eastl::multiset;
+using eastl::queue;
+using eastl::set;
+using eastl::slist;
 using eastl::unordered_map;
-using eastl::unordered_set;
 using eastl::unordered_multimap;
 using eastl::unordered_multiset;
+using eastl::unordered_set;
 
-using eastl::variant;
-using eastl::optional;
 using eastl::monostate;
 using eastl::nullopt;
+using eastl::optional;
+using eastl::variant;
 
-using eastl::get;
-using eastl::visit;
-using eastl::get_if;
 using eastl::bit_cast;
+using eastl::get;
+using eastl::get_if;
 using eastl::holds_alternative;
+using eastl::visit;
 
+using eastl::fixed_hash_map;
+using eastl::fixed_hash_multimap;
 using eastl::fixed_map;
-using eastl::fixed_set;
 using eastl::fixed_multimap;
 using eastl::fixed_multiset;
-using eastl::fixed_hash_map;
-using eastl::fixed_hash_map;
-using eastl::fixed_hash_multimap;
-using eastl::fixed_hash_multimap;
+using eastl::fixed_set;
 
-using eastl::lru_cache;
 using eastl::bitvector;
+using eastl::lru_cache;
 
 using eastl::vector_map;
-using eastl::vector_set;
 using eastl::vector_multimap;
 using eastl::vector_multiset;
+using eastl::vector_set;
+
+struct default_sentinel_t {};
+inline constexpr default_sentinel_t default_sentinel{};
 
 namespace detail {
 
@@ -155,11 +158,11 @@ private:
     mutable F _ctor;
 
 public:
-    explicit LazyConstructor(F _ctor) noexcept: _ctor{_ctor} {}
+    explicit LazyConstructor(F _ctor) noexcept : _ctor{_ctor} {}
     [[nodiscard]] operator auto() const noexcept { return _ctor(); }
 };
 
-}
+}// namespace detail
 
 template<typename F>
 [[nodiscard]] auto lazy_construct(F ctor) noexcept {

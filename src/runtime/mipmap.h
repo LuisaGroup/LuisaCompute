@@ -6,6 +6,14 @@
 
 #include <runtime/command.h>
 
+#ifdef min
+#undef min
+#endif
+
+#ifdef max
+#undef max
+#endif
+
 namespace luisa::compute {
 
 template<typename T>

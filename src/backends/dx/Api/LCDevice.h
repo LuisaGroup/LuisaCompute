@@ -1,10 +1,10 @@
 #pragma once
 #include <vstl/Common.h>
-#include <runtime/device.h>
+#include <runtime/ext/dx_device.h>
 #include <DXRuntime/Device.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
-using LCDeviceInterface = luisa::compute::Device::Interface;
+using LCDeviceInterface = luisa::compute::DxDevice;
 class LCDevice : public LCDeviceInterface, public vstd::IOperatorNewBase {
 public:
     Device nativeDevice;
@@ -40,11 +40,13 @@ public:
     uint64_t create_stream() noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
-    void dispatch(uint64_t stream_handle, CommandList) noexcept override;
+    void dispatch(uint64_t stream_handle, CommandList const &) noexcept override;
+    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept;
     void *stream_native_handle(uint64_t handle) const noexcept override;
 
     // kernel
     uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override;
+    uint64_t create_shader(Function kernel, std::string_view meta_options, uint64_t psolib) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
 
     // event
@@ -71,5 +73,9 @@ public:
     uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
+    uint64_t create_psolib(eastl::span<uint64_t> shaders) noexcept override;
+    void destroy_psolib(uint64_t lib_handle) noexcept override;
+    bool deser_psolib(uint64_t lib_handle, eastl::span<std::byte const> data) noexcept override;
+    size_t ser_psolib(uint64_t lib_handle, eastl::vector<std::byte> &result) noexcept override;
 };
 }// namespace toolhub::directx

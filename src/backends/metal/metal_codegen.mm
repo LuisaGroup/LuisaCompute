@@ -147,7 +147,6 @@ public:
     }
 
     void operator()(const LiteralExpr::MetaValue &s) const noexcept {
-
     }
 };
 
@@ -293,6 +292,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT2X2: _scratch << "make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "make_float4x4"; break;
+        case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
+        case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
@@ -390,12 +391,12 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     stmt->true_branch()->accept(*this);
     if (auto fb = stmt->false_branch(); !fb->statements().empty()) {
         _scratch << " else ";
-//        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
-//            fb->statements().size() == 1u && elif != nullptr) {
-//            elif->accept(*this);
-//        } else {
-            fb->accept(*this);
-//        }
+        //        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
+        //            fb->statements().size() == 1u && elif != nullptr) {
+        //            elif->accept(*this);
+        //        } else {
+        fb->accept(*this);
+        //        }
     }
 }
 
@@ -430,19 +431,7 @@ void MetalCodegen::visit(const SwitchDefaultStmt *stmt) {
 
 void MetalCodegen::visit(const AssignStmt *stmt) {
     stmt->lhs()->accept(*this);
-    switch (stmt->op()) {
-        case AssignOp::ASSIGN: _scratch << " = "; break;
-        case AssignOp::ADD_ASSIGN: _scratch << " += "; break;
-        case AssignOp::SUB_ASSIGN: _scratch << " -= "; break;
-        case AssignOp::MUL_ASSIGN: _scratch << " *= "; break;
-        case AssignOp::DIV_ASSIGN: _scratch << " /= "; break;
-        case AssignOp::MOD_ASSIGN: _scratch << " %= "; break;
-        case AssignOp::BIT_AND_ASSIGN: _scratch << " &= "; break;
-        case AssignOp::BIT_OR_ASSIGN: _scratch << " |= "; break;
-        case AssignOp::BIT_XOR_ASSIGN: _scratch << " ^= "; break;
-        case AssignOp::SHL_ASSIGN: _scratch << " <<= "; break;
-        case AssignOp::SHR_ASSIGN: _scratch << " >>= "; break;
-    }
+    _scratch << " = ";
     stmt->rhs()->accept(*this);
     _scratch << ";";
 }
@@ -478,20 +467,18 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << f.block_size().x << ", "
                  << f.block_size().y << ", "
                  << f.block_size().z << ")\n"
-                 << "void kernel_" << hash_to_string(f.hash()) << "(";
+                 << "void kernel_" << hash_to_string(f.hash()) << "(\n";
 
         // arguments
         for (auto arg : f.arguments()) {
-            _scratch << "\n    ";
+            _scratch << "    ";
             _emit_argument_decl(arg);
-            _scratch << ",";
+            _scratch << ",\n";
         }
-        for (auto builtin : f.builtin_variables()) {
-            _scratch << "\n    ";
-            _emit_argument_decl(builtin);
-            _scratch << ",";
-        }
-        _scratch.pop_back();
+        _scratch << "    const uint3 tid [[thread_position_in_threadgroup]],\n"
+                 << "    const uint3 bid [[threadgroup_position_in_grid]],\n"
+                 << "    const uint3 did [[thread_position_in_grid]],\n"
+                 << "    constant uint3 &ls";
     } else if (f.tag() == Function::Tag::CALLABLE) {
         // emit templated access specifier for textures
         if (std::any_of(f.arguments().begin(), f.arguments().end(), [](auto v) noexcept {
@@ -533,21 +520,20 @@ void MetalCodegen::_emit_function(Function f) noexcept {
 
     // emit shared or "mutable" uniform variables for kernel
     if (f.tag() == Function::Tag::KERNEL) {
-        auto has_mutable_args = false;
+        _scratch << "\n"
+                 << "  if (any(did >= ls)) { return; };\n";
         for (auto v : f.arguments()) {
             if (v.tag() == Variable::Tag::LOCAL) {
                 if (auto usage = f.variable_usage(v.uid());
                     usage == Usage::WRITE || usage == Usage::READ_WRITE) {
-                    has_mutable_args = true;
-                    _scratch << "\n  auto ";
+                    _scratch << "  auto ";
                     _emit_variable_name(v);
                     _scratch << " = u";
                     _emit_variable_name(v);
-                    _scratch << ";";
+                    _scratch << ";\n";
                 }
             }
         }
-        if (has_mutable_args) { _scratch << "\n"; }
     }
     // emit body
     _scratch << "\n";
@@ -698,25 +684,6 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             break;
         case Variable::Tag::ACCEL:
             _scratch << "const Accel ";
-            _emit_variable_name(v);
-            break;
-        case Variable::Tag::THREAD_ID:
-            _scratch << "const uint3 ";
-            _emit_variable_name(v);
-            _scratch << " [[thread_position_in_threadgroup]]";
-            break;
-        case Variable::Tag::BLOCK_ID:
-            _scratch << "const uint3 ";
-            _emit_variable_name(v);
-            _scratch << " [[threadgroup_position_in_grid]]";
-            break;
-        case Variable::Tag::DISPATCH_ID:
-            _scratch << "const uint3 ";
-            _emit_variable_name(v);
-            _scratch << " [[thread_position_in_grid]]";
-            break;
-        case Variable::Tag::DISPATCH_SIZE:
-            _scratch << "constant uint3 &";
             _emit_variable_name(v);
             break;
         default:
@@ -1148,25 +1115,25 @@ struct alignas(16) BindlessItem {
 };
 
 [[nodiscard, gnu::always_inline]] constexpr sampler get_sampler(uint code) {
-  switch (code) {
-    case 0: return sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none);
-    case 1: return sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none);
-    case 2: return sampler(coord::normalized, address::mirrored_repeat, filter::nearest, mip_filter::none);
-    case 3: return sampler(coord::normalized, address::clamp_to_zero, filter::nearest, mip_filter::none);
-    case 4: return sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::none);
-    case 5: return sampler(coord::normalized, address::repeat, filter::linear, mip_filter::none);
-    case 6: return sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::none);
-    case 7: return sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::none);
-    case 8: return sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 9: return sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 10: return sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 11: return sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(1));
-    case 12: return sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(16));
-    case 13: return sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(16));
-    case 14: return sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(16));
-    case 15: return sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(16));
-    default: return sampler();
-  }
+  constexpr const array<sampler, 16u> samplers{
+    sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::mirrored_repeat, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_zero, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(16)),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(16)),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(16)),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(16))};
+  __builtin_assume(code < 16u);
+  return samplers[code];
 }
 
 struct alignas(16) Ray {

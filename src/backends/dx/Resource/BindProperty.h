@@ -4,7 +4,7 @@
 namespace toolhub::directx {
 class TopAccel;
 struct BindProperty {
-	vstd::string_view name;
+	vstd::string name;
 	vstd::variant<
 		BufferView,
 		DescriptorHeapView,

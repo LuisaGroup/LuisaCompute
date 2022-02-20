@@ -3,8 +3,13 @@
 //
 
 #include <core/logging.h>
+#include <core/platform.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
+
+#ifdef LUISA_PLATFORM_WINDOWS
+#include <windows.h>
+#endif
 
 namespace luisa::compute {
 
@@ -37,6 +42,9 @@ Context::Context(const std::filesystem::path &program) noexcept
         std::filesystem::create_directories(_impl->cache_directory);
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
+#ifdef LUISA_PLATFORM_WINDOWS
+    SetDllDirectoryW((_impl->runtime_directory / "backends").wstring().c_str());
+#endif
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {

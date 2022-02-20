@@ -33,23 +33,26 @@ int main(int argc, char *argv[]) {
     auto device = FakeDevice::create(context);
 #endif
 
-    auto buffer = device.create_buffer<uint>(1u);
-    Kernel1D count_kernel = [](BufferUInt buffer) noexcept {
+    auto buffer = device.create_buffer<uint>(4u);
+    Kernel1D count_kernel = [&]() noexcept {
         Constant<uint> constant{1u};
-        Var x = buffer.atomic(0).fetch_add(constant[0]);
+        Var x = buffer.atomic(3u).fetch_add(constant[0]);
+        if_(x == 0u, [&]{
+            buffer.write(0u, 1u);
+        });
     };
     auto count = device.compile(count_kernel);
 
-    auto host_buffer = 0u;
+    auto host_buffer = make_uint4(0u);
     auto stream = device.create_stream();
 
     Clock clock;
     clock.tic();
     stream << buffer.copy_from(&host_buffer)
-           << count(buffer).dispatch(102400u)
+           << count().dispatch(102400u)
            << buffer.copy_to(&host_buffer)
            << synchronize();
     auto time = clock.toc();
 
-    LUISA_INFO("Count: {}, Time: {} ms", host_buffer, time);
+    LUISA_INFO("Count: {} {}, Time: {} ms", host_buffer.x, host_buffer.w, time);
 }
