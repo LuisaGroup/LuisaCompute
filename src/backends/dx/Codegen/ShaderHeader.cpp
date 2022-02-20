@@ -112,10 +112,28 @@ T selectVec4(T a, T b, bool4 c){
 	selectVec(a.y, b.y, c.y),
 	selectVec(a.z, b.z, c.z),
 	selectVec(a.w, b.w, c.w));
-}	
+}
+
+float copysign(float a, float b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
+float2 copysign(float2 a, float2 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
+float3 copysign(float3 a, float3 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
+float4 copysign(float4 a, float4 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
+
+float fma(float a, float b, float c) { return a * b + c; }
+float2 fma(float2 a, float2 b, float2 c) { return a * b + c; }
+float3 fma(float3 a, float3 b, float3 c) { return a * b + c; }
+float4 fma(float4 a, float4 b, float4 c) { return a * b + c; }
+
+float4x3 make_float4x3(float3 c0, float3 c1, float3 c2) { return float4x3(float4(c0, 0.f), float4(c1, 0.f), float4(c2, 0.f)); }
+float2x2 my_transpose(float2x2 m) { return transpose(m); }
+float4x3 my_transpose(float4x3 m) {
+  float3x4 mm = transpose(m);
+  return make_float4x3(mm[0], mm[1], mm[2]);
+}
+float4x4 my_transpose(float4x4 m) { return transpose(m); }
 
 float4x4 Mul(float4x4 a, float4x4 b){ return mul(a, b);}
-float4x3 Mul(float4x3 a, float4x3 b){ return mul(a, b);}
+float4x3 Mul(float4x3 a, float4x3 b){ return mul(float4x4(a, 0.f, 0.f, 0.f, 0.f), b);}
 float2x2 Mul(float2x2 a, float2x2 b){ return mul(a, b);}
 float4 Mul(float4 a, float4x4 b){ return mul(b, a);}
 float3 Mul(float3 a, float4x3 b){ return mul(b, a);}

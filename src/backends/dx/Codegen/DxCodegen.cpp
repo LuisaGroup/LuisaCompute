@@ -27,7 +27,10 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
 
     auto IsMulFuncCall = [&]() -> bool {
         if (expr->op() == BinaryOp::MUL) {
-            if ((expr->lhs()->type()->is_matrix() && (!expr->rhs()->type()->is_scalar())) || (expr->rhs()->type()->is_matrix() && (!expr->lhs()->type()->is_scalar()))) {
+            if ((expr->lhs()->type()->is_matrix() &&
+                 (!expr->rhs()->type()->is_scalar())) ||
+                (expr->rhs()->type()->is_matrix() &&
+                 (!expr->lhs()->type()->is_scalar()))) {
                 return true;
             }
         }
@@ -122,14 +125,24 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
     }
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
-    expr->range()->accept(*this);
     auto t = expr->range()->type();
-    if (t && (t->is_buffer() || t->is_vector()))
+    if (t->is_buffer() || t->is_vector() || t->is_matrix()) {
+        expr->range()->accept(*this);
         str << '[';
-    else
+        expr->index()->accept(*this);
+        str << ']';
+//    } else if (t->is_matrix()) {
+//        str << "access(";
+//        expr->range()->accept(*this);
+//        str << ",";
+//        expr->index()->accept(*this);
+//        str << ")";
+    } else {
+        expr->range()->accept(*this);
         str << ".v[";
-    expr->index()->accept(*this);
-    str << ']';
+        expr->index()->accept(*this);
+        str << ']';
+    }
 }
 void StringStateVisitor::visit(const RefExpr *expr) {
 

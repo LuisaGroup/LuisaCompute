@@ -384,9 +384,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                     return 1;
             }
         }();
+        auto is_make_float3x3 = expr->type()->is_matrix() &&
+                                expr->type()->dimension() == 3u;
         if (args.size() == 1 && args[0]->type()->is_scalar()) {
             str << '(';
             str << '(';
+            if (is_make_float3x3) { str << "make_"; }
             GetTypeName(*expr->type(), str, Usage::READ);
             str << ')';
             str << '(';
@@ -397,6 +400,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             *(str.end() - 1) = ')';
             str << ')';
         } else {
+            if (is_make_float3x3) { str << "make_"; }
             GetTypeName(*expr->type(), str, Usage::READ);
             str << '(';
             uint count = 0;
@@ -629,7 +633,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "determinant"sv;
             break;
         case CallOp::TRANSPOSE:
-            str << "transpose"sv;
+            str << "my_transpose"sv;
             break;
         case CallOp::INVERSE:
             str << "_inverse"sv;
