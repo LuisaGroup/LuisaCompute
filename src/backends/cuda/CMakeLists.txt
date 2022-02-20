@@ -8,7 +8,7 @@ if (CUDAToolkit_FOUND)
             cuda_bindless_array.cpp cuda_bindless_array.h
             cuda_stream.cpp cuda_stream.h
             cuda_device.cpp cuda_device.h
-            cuda_ring_buffer.cpp cuda_ring_buffer.h
+            cuda_host_buffer_pool.cpp cuda_host_buffer_pool.h
             cuda_command_encoder.cpp cuda_command_encoder.h
             cuda_mipmap_array.cpp cuda_mipmap_array.h
             cuda_device_math_embedded.inl.h

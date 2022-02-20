@@ -223,12 +223,12 @@ void CUDABindlessArray::upload(CUDAStream *stream) noexcept {
                     upload_buffer, size_bytes));
             }
         };
-        do_upload(_handle._buffer_slots, _buffer_slots.data(), upload_buffer.address() + buffer_slots_upload_offset, _buffer_dirty_range);
-        do_upload(_handle._tex2d_slots, _tex2d_slots.data(), upload_buffer.address() + tex2d_slots_upload_offset, _tex2d_dirty_range);
-        do_upload(_handle._tex3d_slots, _tex3d_slots.data(), upload_buffer.address() + tex3d_slots_upload_offset, _tex3d_dirty_range);
-        do_upload(_handle._tex2d_sizes, _tex2d_sizes.data(), upload_buffer.address() + tex2d_sizes_upload_offset, _tex2d_dirty_range);
-        do_upload(_handle._tex3d_sizes, _tex3d_sizes.data(), upload_buffer.address() + tex3d_sizes_upload_offset, _tex3d_dirty_range);
-        stream->emplace_callback(CUDARingBuffer::RecycleContext::create(upload_buffer, stream->upload_pool()));
+        do_upload(_handle._buffer_slots, _buffer_slots.data(), upload_buffer->address() + buffer_slots_upload_offset, _buffer_dirty_range);
+        do_upload(_handle._tex2d_slots, _tex2d_slots.data(), upload_buffer->address() + tex2d_slots_upload_offset, _tex2d_dirty_range);
+        do_upload(_handle._tex3d_slots, _tex3d_slots.data(), upload_buffer->address() + tex3d_slots_upload_offset, _tex3d_dirty_range);
+        do_upload(_handle._tex2d_sizes, _tex2d_sizes.data(), upload_buffer->address() + tex2d_sizes_upload_offset, _tex2d_dirty_range);
+        do_upload(_handle._tex3d_sizes, _tex3d_sizes.data(), upload_buffer->address() + tex3d_sizes_upload_offset, _tex3d_dirty_range);
+        stream->emplace_callback(upload_buffer);
     }
     _buffer_dirty_range.clear();
     _tex2d_dirty_range.clear();
