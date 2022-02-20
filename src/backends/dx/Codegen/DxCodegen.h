@@ -43,6 +43,7 @@ public:
     //static void
     static void GetConstantData(ConstantData const &data, vstd::string &str);
     static size_t GetTypeAlign(Type const &t);
+    static size_t GetTypeSize(Type const &t);
     static vstd::string GetBasicTypeName(uint64 typeIndex) {
         vstd::string s;
         GetBasicTypeName(typeIndex, s);
