@@ -18,8 +18,7 @@ MetalBindlessArray::MetalBindlessArray(MetalDevice *device, size_t size) noexcep
                                                          MTLResourceStorageModeShared |
                                                          MTLResourceHazardTrackingModeUntracked];
     _device_buffer = [device->handle() newBufferWithLength:buffer_size
-                                                   options:MTLResourceStorageModePrivate |
-                                                           MTLResourceHazardTrackingModeUntracked];
+                                                   options:MTLResourceStorageModePrivate];
 }
 
 namespace detail {
@@ -91,7 +90,7 @@ void MetalBindlessArray::remove_tex3d(size_t index) noexcept {
 void MetalBindlessArray::update(MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept {
     if (!_dirty_range.empty()) {
         auto command_encoder = [command_buffer blitCommandEncoder];
-        auto pool = &stream->upload_ring_buffer();
+        auto pool = &stream->upload_host_buffer_pool();
         auto temp_buffer = pool->allocate(_dirty_range.size() * slot_size);
         std::memcpy(
             static_cast<uint8_t *>([temp_buffer.handle() contents]) + temp_buffer.offset(),

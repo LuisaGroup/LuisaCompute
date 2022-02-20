@@ -128,25 +128,25 @@ enum struct CallOp : uint32_t {
 
     BUFFER_READ,
     BUFFER_WRITE,
-    TEXTURE_READ,
-    TEXTURE_WRITE,
+    TEXTURE_READ, //(texture, coord: uint_vec)
+    TEXTURE_WRITE,//(texture, coord: uint_vec, value: float4)
 
-    BINDLESS_TEXTURE2D_SAMPLE,
-    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD,
-    BINDLESS_TEXTURE3D_SAMPLE,
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD,
-    BINDLESS_TEXTURE2D_READ,
-    BINDLESS_TEXTURE3D_READ,
-    BINDLESS_TEXTURE2D_READ_LEVEL,
-    BINDLESS_TEXTURE3D_READ_LEVEL,
-    BINDLESS_TEXTURE2D_SIZE,
-    BINDLESS_TEXTURE3D_SIZE,
-    BINDLESS_TEXTURE2D_SIZE_LEVEL,
-    BINDLESS_TEXTURE3D_SIZE_LEVEL,
+    BINDLESS_TEXTURE2D_SAMPLE,      //(bindless_array, index: uint, uv: float2): float4
+    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float2, level: float): float4
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+    BINDLESS_TEXTURE3D_SAMPLE,      //(bindless_array, index: uint, uv: float3): float4
+    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float3, level: float): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+    BINDLESS_TEXTURE2D_READ,        //(bindless_array, index: uint, coord: uint2): float4
+    BINDLESS_TEXTURE3D_READ,        //(bindless_array, index: uint, coord: uint3): float4
+    BINDLESS_TEXTURE2D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint2, level: uint): float4
+    BINDLESS_TEXTURE3D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint3, level: uint): float4
+    BINDLESS_TEXTURE2D_SIZE,        //(bindless_array, index: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE,        //(bindless_array, index: uint): uint3
+    BINDLESS_TEXTURE2D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,
+    BINDLESS_BUFFER_READ,//(bindless_array, index: uint): expr->type()
 
     MAKE_BOOL2,
     MAKE_BOOL3,
@@ -164,6 +164,10 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT2X2,
     MAKE_FLOAT3X3,
     MAKE_FLOAT4X4,
+
+    // optimization hints
+    ASSUME,
+    UNREACHABLE,
 
     INSTANCE_TO_WORLD_MATRIX,
 
@@ -192,7 +196,7 @@ public:
         [[nodiscard]] CallOp operator*() const noexcept;
         Iterator &operator++() noexcept;
         Iterator operator++(int) noexcept;
-        [[nodiscard]] bool operator==(std::default_sentinel_t) const noexcept;
+        [[nodiscard]] bool operator==(luisa::default_sentinel_t) const noexcept;
     };
 
 private:
@@ -204,21 +208,7 @@ public:
     void mark(CallOp op) noexcept { _bits.set(to_underlying(op)); }
     [[nodiscard]] auto test(CallOp op) const noexcept { return _bits.test(to_underlying(op)); }
     [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
-    [[nodiscard]] auto end() const noexcept { return std::default_sentinel; }
-};
-
-enum struct AssignOp {
-    ASSIGN,
-    ADD_ASSIGN,
-    SUB_ASSIGN,
-    MUL_ASSIGN,
-    DIV_ASSIGN,
-    MOD_ASSIGN,
-    BIT_AND_ASSIGN,
-    BIT_OR_ASSIGN,
-    BIT_XOR_ASSIGN,
-    SHL_ASSIGN,
-    SHR_ASSIGN
+    [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
 };
 
 }// namespace luisa::compute

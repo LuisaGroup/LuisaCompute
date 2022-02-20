@@ -12,7 +12,7 @@
 #import <core/dirty_range.h>
 #import <runtime/resource_tracker.h>
 #import <runtime/bindless_array.h>
-#import <backends/metal/metal_ring_buffer.h>
+#import <backends/metal/metal_host_buffer_pool.h>
 
 namespace luisa::compute::metal {
 

@@ -119,8 +119,8 @@ SwitchDefaultStmt *FunctionBuilder::default_() noexcept {
     return _create_and_append_statement<SwitchDefaultStmt>();
 }
 
-void FunctionBuilder::assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept {
-    _create_and_append_statement<AssignStmt>(op, lhs, rhs);
+void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexcept {
+    _create_and_append_statement<AssignStmt>(lhs, rhs);
 }
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {

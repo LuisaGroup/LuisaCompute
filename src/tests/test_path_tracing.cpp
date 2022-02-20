@@ -33,29 +33,21 @@ struct Onb {
     float3 normal;
 };
 
-LUISA_STRUCT(Material, albedo, emission){};
-LUISA_STRUCT(Onb, tangent, binormal, normal){
+// clang-format off
+LUISA_STRUCT(Material, albedo, emission) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
-}
-}
-;
+    }
+};
+// clang-format on
 
 int main(int argc, char *argv[]) {
     
     log_level_info();
 
     Context context{argv[0]};
-
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal", {{"index", 1}});
-#elif defined(LUISA_BACKEND_DX_ENABLED)
     auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -326,7 +318,7 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 64u;
+        static constexpr auto spp_per_dispatch = 16u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                            << accumulate_shader(accum_image, framebuffer).dispatch(resolution);

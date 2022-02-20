@@ -3,7 +3,7 @@
 #include <vstl/functional.h>
 #include <serde/IJsonDatabase.h>
 #include <serde/IJsonObject.h>
-
+#include <vstl/variant_util.h>
 namespace toolhub::db {
 class SimpleBinaryJson;
 class ConcurrentBinaryJson;
@@ -59,6 +59,7 @@ void PushDataToVector(T&& v, vstd::vector<uint8_t>& serData) {
 
 class SimpleJsonLoader {
 public:
+	using WriteVar = vstd::VariantVisitor_t<WriteJsonVariant>;
 	static bool Check(IJsonDatabase* db, SimpleJsonVariant const& var);
 	static SimpleJsonVariant DeSerialize(vstd::span<uint8_t const>& arr, SimpleBinaryJson* db);
 	static SimpleJsonVariant DeSerialize_DiffEnding(vstd::span<uint8_t const>& arr, SimpleBinaryJson* db);

@@ -169,53 +169,54 @@ static void PrintString(vstd::string const &str, vstd::string &result) {
 }
 template<typename Dict, typename Array>
 static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::string &str, bool emptySpaceBeforeOb) {
+    using WriteVar = SimpleJsonLoader::WriteVar;
     auto func = [&](auto &&v) {
         //str.append(valueLayer, '\t');
         auto a = vstd::to_string(v);
         vstd::to_string(v, str);
     };
-    switch (v.value.GetType()) {
-        case WriteJsonVariant::IndexOf<int64>:
-            func(v.value.force_get<int64>());
+    switch (v.value.index()) {
+        case WriteVar::IndexOf<int64>:
+            func(eastl::get<int64>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<double>:
-            func(v.value.force_get<double>());
+        case WriteVar::IndexOf<double>:
+            func(eastl::get<double>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::string>:
+        case WriteVar::IndexOf<vstd::string>:
             [&](vstd::string const &s) {
                 //str.append(valueLayer, '\t');
                 auto &&ss = str;
                 PrintString(s, str);
-            }(v.value.force_get<vstd::string>());
+            }(eastl::get<vstd::string>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
+        case WriteVar::IndexOf<vstd::unique_ptr<IJsonDict>>:
             [&](vstd::unique_ptr<IJsonDict> const &ptr) {
                 if (emptySpaceBeforeOb)
                     str << '\n';
                 auto &&ss = str;
                 static_cast<Dict *>(ptr.get())->M_Print(str);
-            }(v.value.force_get<vstd::unique_ptr<IJsonDict>>());
+            }(eastl::get<vstd::unique_ptr<IJsonDict>>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
+        case WriteVar::IndexOf<vstd::unique_ptr<IJsonArray>>:
             [&](vstd::unique_ptr<IJsonArray> const &ptr) {
                 auto &&ssr = str;
                 if (emptySpaceBeforeOb)
                     str << '\n';
                 auto &&ss = str;
                 static_cast<Array *>(ptr.get())->M_Print(str);
-            }(v.value.force_get<vstd::unique_ptr<IJsonArray>>());
+            }(eastl::get<vstd::unique_ptr<IJsonArray>>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::Guid>:
+        case WriteVar::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
                 //str.append(valueLayer, '\t');
                 str << '$';
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.force_get<vstd::Guid>());
+            }(eastl::get<vstd::Guid>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<bool>:
-            if (v.value.force_get<bool>())
+        case WriteVar::IndexOf<bool>:
+            if (eastl::get<bool>(v.value))
                 str += "true";
             else
                 str += "false";
@@ -227,86 +228,88 @@ static void PrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::string &str
 }
 template<typename Dict, typename Array>
 static void CompressPrintSimpleJsonVariant(SimpleJsonVariant const &v, vstd::string &str) {
+    using WriteVar = SimpleJsonLoader::WriteVar;
     auto func = [&](auto &&v) {
         vstd::to_string(v, str);
     };
-    switch (v.value.GetType()) {
-        case WriteJsonVariant::IndexOf<int64>:
-            func(v.value.force_get<int64>());
+    switch (v.value.index()) {
+        case WriteVar::IndexOf<int64>:
+            func(eastl::get<int64>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<double>:
-            func(v.value.force_get<double>());
+        case WriteVar::IndexOf<double>:
+            func(eastl::get<double>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::string>:
+        case WriteVar::IndexOf<vstd::string>:
             [&](vstd::string const &s) {
                 PrintString(s, str);
-            }(v.value.force_get<vstd::string>());
+            }(eastl::get<vstd::string>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
+        case WriteVar::IndexOf<vstd::unique_ptr<IJsonDict>>:
             [&](vstd::unique_ptr<IJsonDict> const &ptr) {
                 static_cast<Dict *>(ptr.get())->M_Print_Compress(str);
-            }(v.value.force_get<vstd::unique_ptr<IJsonDict>>());
+            }(eastl::get<vstd::unique_ptr<IJsonDict>>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
+        case WriteVar::IndexOf<vstd::unique_ptr<IJsonArray>>:
             [&](vstd::unique_ptr<IJsonArray> const &ptr) {
                 static_cast<Array *>(ptr.get())->M_Print_Compress(str);
-            }(v.value.force_get<vstd::unique_ptr<IJsonArray>>());
+            }(eastl::get<vstd::unique_ptr<IJsonArray>>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::Guid>:
+        case WriteVar::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
                 str << '$';
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.force_get<vstd::Guid>());
+            }(eastl::get<vstd::Guid>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<bool>:
-            if (v.value.force_get<bool>())
+        case WriteVar::IndexOf<bool>:
+            if (eastl::get<bool>(v.value))
                 str += "true";
             else
                 str += "false";
             break;
-        case WriteJsonVariant::IndexOf<std::nullptr_t>:
+        case WriteVar::IndexOf<std::nullptr_t>:
             str += "null";
             break;
     }
 }
 template<typename Dict, typename Array>
 static void PrintSimpleJsonVariantYaml(SimpleJsonVariant const &v, vstd::string &str, size_t space) {
+    using WriteVar = SimpleJsonLoader::WriteVar;
     auto func = [&](auto &&v) {
         vstd::to_string(v, str);
     };
-    switch (v.value.GetType()) {
-        case WriteJsonVariant::IndexOf<int64>:
-            func(v.value.force_get<int64>());
+    switch (v.value.index()) {
+        case WriteVar::IndexOf<int64>:
+            func(eastl::get<int64>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<double>:
-            func(v.value.force_get<double>());
+        case WriteVar::IndexOf<double>:
+            func(eastl::get<double>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::string>:
+        case WriteVar::IndexOf<vstd::string>:
             [&](vstd::string const &s) {
                 PrintString(s, str);
-            }(v.value.force_get<vstd::string>());
+            }(eastl::get<vstd::string>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonDict>>:
+        case WriteVar::IndexOf<vstd::unique_ptr<IJsonDict>>:
             [&](vstd::unique_ptr<IJsonDict> const &ptr) {
                 static_cast<Dict *>(ptr.get())->PrintYaml(str, space + 2);
-            }(v.value.force_get<vstd::unique_ptr<IJsonDict>>());
+            }(eastl::get<vstd::unique_ptr<IJsonDict>>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::unique_ptr<IJsonArray>>:
+        case WriteVar::IndexOf<vstd::unique_ptr<IJsonArray>>:
             [&](vstd::unique_ptr<IJsonArray> const &ptr) {
                 static_cast<Array *>(ptr.get())->PrintYaml(str, space + 2);
-            }(v.value.force_get<vstd::unique_ptr<IJsonArray>>());
+            }(eastl::get<vstd::unique_ptr<IJsonArray>>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<vstd::Guid>:
+        case WriteVar::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.force_get<vstd::Guid>());
+            }(eastl::get<vstd::Guid>(v.value));
             break;
-        case WriteJsonVariant::IndexOf<bool>:
-            if (v.value.force_get<bool>())
+        case WriteVar::IndexOf<bool>:
+            if (eastl::get<bool>(v.value))
                 str += "true";
             else
                 str += "false";
@@ -321,20 +324,20 @@ static void PrintKeyVariant(SimpleJsonKey const &v, vstd::string &str) {
     auto func = [&](auto &&v) {
         vstd::to_string(v, str);
     };
-    switch (v.value.GetType()) {
-        case SimpleJsonKey::ValueType::IndexOf<int64>:
-            vstd::to_string(v.value.force_get<int64>(), str);
+    switch (v.value.index()) {
+        case SimpleJsonKey::VarType::IndexOf<int64>:
+            vstd::to_string(eastl::get<int64>(v.value), str);
             break;
-        case SimpleJsonKey::ValueType::IndexOf<vstd::string>:
-            PrintString(v.value.force_get<vstd::string>(), str);
+        case SimpleJsonKey::VarType::IndexOf<vstd::string>:
+            PrintString(eastl::get<vstd::string>(v.value), str);
             break;
-        case SimpleJsonKey::ValueType::IndexOf<vstd::Guid>:
+        case SimpleJsonKey::VarType::IndexOf<vstd::Guid>:
             [&](vstd::Guid const &guid) {
                 str << '$';
                 size_t offst = str.size();
                 str.resize(offst + 32);
                 guid.ToString(str.data() + offst, true);
-            }(v.value.force_get<vstd::Guid>());
+            }(eastl::get<vstd::Guid>(v.value));
             break;
     }
 }
@@ -448,7 +451,7 @@ void SimpleJsonValueDict::TryReplace(Key const &key, vstd::function<WriteJsonVar
 void SimpleJsonValueDict::Remove(Key const &key) {
     vars.Remove(key);
 }
-vstd::optional<WriteJsonVariant> SimpleJsonValueDict::GetAndRemove(Key const &key) {
+eastl::optional<WriteJsonVariant> SimpleJsonValueDict::GetAndRemove(Key const &key) {
     auto ite = vars.Find(key);
     if (!ite) return {};
     auto d = vstd::create_disposer([&] {
@@ -456,7 +459,7 @@ vstd::optional<WriteJsonVariant> SimpleJsonValueDict::GetAndRemove(Key const &ke
     });
     return std::move(ite.Value().value);
 }
-vstd::optional<WriteJsonVariant> SimpleJsonValueDict::GetAndSet(Key const &key, WriteJsonVariant &&newValue) {
+eastl::optional<WriteJsonVariant> SimpleJsonValueDict::GetAndSet(Key const &key, WriteJsonVariant &&newValue) {
     auto ite = vars.Find(key);
     if (!ite) {
         vars.Emplace(key, std::move(newValue));
@@ -501,8 +504,8 @@ void SimpleJsonValueDict::LoadFromSer(vstd::span<uint8_t const> &sp) {
         auto key = PopValue<SimpleJsonKey::ValueType>(sp);
 
         auto value = SimpleJsonLoader::DeSerialize(sp, db);
-        if (key.GetType() == 1) {
-            auto &&s = key.force_get<vstd::string>();
+        if (key.index() == 1) {
+            auto &&s = eastl::get<vstd::string>(key);
             int x = 0;
         }
         vars.Emplace(std::move(key), std::move(value));
@@ -607,14 +610,14 @@ void SimpleJsonValueArray::Remove(size_t index) {
         arr.erase(arr.begin() + index);
     }
 }
-vstd::optional<WriteJsonVariant> SimpleJsonValueArray::GetAndRemove(size_t index) {
+eastl::optional<WriteJsonVariant> SimpleJsonValueArray::GetAndRemove(size_t index) {
     if (index >= arr.size()) return {};
     auto d = vstd::create_disposer([&] {
         arr.erase(arr.begin() + index);
     });
     return std::move(arr[index].value);
 }
-vstd::optional<WriteJsonVariant> SimpleJsonValueArray::GetAndSet(size_t index, WriteJsonVariant &&newValue) {
+eastl::optional<WriteJsonVariant> SimpleJsonValueArray::GetAndSet(size_t index, WriteJsonVariant &&newValue) {
     if (index >= arr.size()) return {};
     auto d = vstd::create_disposer([&] {
         arr.erase(arr.begin() + index);
@@ -695,191 +698,6 @@ vstd::Iterator<WriteJsonVariant> SimpleJsonValueArray::begin() && {
 }
 IJsonDatabase *SimpleJsonValueDict::GetDB() const { return db; }
 IJsonDatabase *SimpleJsonValueArray::GetDB() const { return db; }
-vstd::string SimpleJsonValueDict::PrintYaml() const {
-    vstd::string str;
-    str << "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n";
-    for (auto &&i : vars) {
-        auto printKey = [&] {
-            bool b = i.first.value.multi_visit_or(
-                false,
-                [&](auto &&i) { return false; },
-                [&](auto &&i) { str << i; return true; },
-                [&](auto &&i) { return false; });
-            str << ": ";
-            return b;
-        };
-        if (i.second.value.valid()) {
-            i.second.value.multi_visit(
-                [&](auto &&v) { if(!printKey()) return; str << vstd::to_string(v) << '\n'; },
-                [&](auto &&v) { if(!printKey()) return; str << vstd::to_string(v) << '\n'; },
-                [&](auto &&v) {  if(!printKey()) return; str << v << '\n'; },
-                [&](auto &&v) {
-                    static_cast<SimpleJsonValueDict *>(v.get())->PrintYaml(str, i.first.value, 0);
-                },
-                [&](auto &&v) {
-                    if (!printKey()) return;
-                    if (v->Length() == 0) {
-                        str << "[]";
-                    } else {
-                        if (!str.empty() && *(str.end() - 1) != '\n') str << '\n';
-                        static_cast<SimpleJsonValueArray *>(v.get())->PrintYaml(str, 0);
-                    }
-                },
-                [&](auto &&v) { if(!printKey()) return; str << v.ToString() << '\n'; },
-                [&](auto &&v) {  if(!printKey()) return;str << (v ? "true" : "false")<< '\n'; });
-        } else {
-            if (printKey()) str << "null\n";
-        }
-    }
-    return str;
-}
-static void YamlPrintValue(vstd::string &str, WriteJsonVariant const &var) {
-    if (!var.valid()) {
-        str << "null";
-        return;
-    }
-    var.multi_visit(
-        [&](auto &&v) { str << vstd::to_string(v); },
-        [&](auto &&v) { str << vstd::to_string(v); },
-        [&](auto &&v) { str << v; },
-        [&](auto &&v) {
-            static_cast<SimpleJsonValueDict *>(v.get())->PrintYaml(str);
-        },
-        [&](auto &&v) {
-            static_cast<SimpleJsonValueArray *>(v.get())->PrintYaml(str);
-        },
-        [&](auto &&v) { str << v.ToString(); },
-        [&](auto &&v) { str << (v ? "true" : "false"); });
-}
-
-static void YamlPrintValue_Value(vstd::string &str, WriteJsonVariant const &var, size_t space) {
-    if (!var.valid()) {
-        str << "null";
-        return;
-    }
-    var.multi_visit(
-        [&](auto &&v) { str << vstd::to_string(v); },
-        [&](auto &&v) { str << vstd::to_string(v); },
-        [&](auto &&v) { str << v; },
-        [&](auto &&v) {
-            static_cast<SimpleJsonValueDict *>(v.get())->PrintYaml(str, space);
-        },
-        [&](auto &&v) {
-            if (v->Length() == 0) {
-                str << "[]";
-            } else {
-                str << "\n";
-                static_cast<SimpleJsonValueArray *>(v.get())->PrintYaml(str, space);
-            }
-        },
-        [&](auto &&v) { str << v.ToString(); },
-        [&](auto &&v) { str << (v ? "true" : "false"); });
-}
-static void YamlPrintValue_Array(vstd::string &str, WriteJsonVariant const &var, size_t space) {
-    if (!var.valid()) {
-        str << "null";
-        return;
-    }
-    var.multi_visit(
-        [&](auto &&v) { str << vstd::to_string(v); },
-        [&](auto &&v) { str << vstd::to_string(v); },
-        [&](auto &&v) { str << v; },
-        [&](auto &&v) {
-            static_cast<SimpleJsonValueDict *>(v.get())->PrintYaml(str, space + 2);
-        },
-        [&](auto &&v) {
-            auto &&arr = static_cast<SimpleJsonValueArray *>(v.get())->arr;
-            if (arr.size() != 2) return;
-            YamlPrintValue(str, arr[0].value);
-            str << ": ";
-            YamlPrintValue_Value(str, arr[1].value, space + 2);
-            //static_cast<SimpleJsonValueArray*>(v.get())->PrintYaml(str, space);
-        },
-        [&](auto &&v) { str << v.ToString(); },
-        [&](auto &&v) { str << (v ? "true" : "false"); });
-}
-
-template<bool isArray>
-static void Yaml_AddSpace(vstd::string &str, size_t space) {
-    if constexpr (isArray) {
-        if (space > 2) {
-            str.append(space - 2, ' ');
-        }
-        str << "- ";
-    } else {
-        str.append(space, ' ');
-    }
-}
-void SimpleJsonValueDict::PrintYaml(vstd::string &str, size_t space) const {
-    if (vars.Find(int64(0))) {
-        PrintYaml(str);
-    } else {
-        if (!str.empty() && *(str.end() - 1) != '\n') str << '\n';
-        size_t sz = 0;
-        for (auto &&kv : vars) {
-            if (!kv.first.value.IsTypeOf<vstd::string>()) {
-                continue;
-            }
-            Yaml_AddSpace<false>(str, space);
-            str << kv.first.value.force_get<vstd::string>() << ": ";
-            YamlPrintValue_Value(str, kv.second.value, space + 2);
-            sz++;
-            if (sz != vars.size())
-                if (!str.empty() && *(str.end() - 1) != '\n') str << '\n';
-        }
-    }
-}
-void SimpleJsonValueDict::PrintYaml(vstd::string &str, SimpleJsonKey::ValueType const &key, size_t space) const {
-    if (key.IsTypeOf<vstd::string>()) {
-        if (!str.empty() && *(str.end() - 1) != '\n') str << '\n';
-        auto &&keyStr = key.force_get<vstd::string>();
-        auto idx = vstd::StringUtil::GetFirstIndexOf(keyStr, '|');
-        if (idx == -1) {
-            str << keyStr << ": ";
-        } else {
-            str << "--- "
-                << std::string_view(keyStr.data(), idx)
-                << "\n"
-                << std::string_view(keyStr.data() + idx + 1, keyStr.size() - idx - 1)
-                << ": ";
-        }
-        PrintYaml(str, space + 2);
-    }
-}
-void SimpleJsonValueDict::PrintYaml(vstd::string &str) const {
-    str << '{';
-    size_t sz = 0;
-    for (auto &&kv : vars) {
-        if (!kv.first.value.IsTypeOf<vstd::string>()) {
-            continue;
-        }
-        str << kv.first.value.force_get<vstd::string>() << ": ";
-        YamlPrintValue(str, kv.second.value);
-        sz++;
-        if (sz != vars.size() - 1)
-            str << ", ";
-    }
-    str << '}';
-}
-void SimpleJsonValueArray::PrintYaml(vstd::string &str) const {
-    str << '[';
-    size_t sz = 0;
-    for (auto &&i : arr) {
-        YamlPrintValue(str, i.value);
-        sz++;
-        if (sz != arr.size())
-            str << ", ";
-    }
-    str << ']';
-}
-void SimpleJsonValueArray::PrintYaml(vstd::string &str, size_t space) const {
-    for (auto &&i : arr) {
-        Yaml_AddSpace<true>(str, space);
-        YamlPrintValue_Array(str, i.value, space);
-        if (!str.empty() && *(str.end() - 1) != '\n') str << '\n';
-    }
-}
-
 vstd::vector<ReadJsonVariant> SimpleJsonValueDict::Get(vstd::span<Key> keys) const {
     vstd::vector<ReadJsonVariant> vec(keys.size());
     for (auto i : vstd::range(keys.size())) {

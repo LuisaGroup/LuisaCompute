@@ -16,6 +16,11 @@ public:
         uint registerIndex;
         uint arrSize;
     };
+    enum class Tag : vbyte {
+        ComputeShader,
+        RayTracingShader
+    };
+    virtual Tag GetTag() const = 0;
 
 protected:
     struct InsideProperty : public Property {
@@ -25,28 +30,31 @@ protected:
     };
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSig;
     vstd::HashMap<vstd::string, InsideProperty> properties;
-    vstd::optional<InsideProperty> GetProperty(vstd::string_view str);
+    vstd::optional<InsideProperty> GetProperty(vstd::string_view str) const;
 
 public:
     Shader(
-        std::span<std::pair<vstd::string, Property>>&& properties,
+        vstd::span<std::pair<vstd::string, Property> const> properties,
         ID3D12Device *device);
-    Shader(Shader &&v) = default;
+    Shader(
+        vstd::span<std::pair<vstd::string, Property> const> properties,
+        ComPtr<ID3D12RootSignature> &&rootSig);
     ID3D12RootSignature *RootSig() const { return rootSig.Get(); }
+
     bool SetComputeResource(
         vstd::string_view propertyName,
         CommandBufferBuilder *cmdList,
-        BufferView buffer);
+        BufferView buffer) const;
     bool SetComputeResource(
         vstd::string_view propertyName,
         CommandBufferBuilder *cmdList,
-        DescriptorHeapView view);
+        DescriptorHeapView view) const;
     bool SetComputeResource(
         vstd::string_view propertyName,
         CommandBufferBuilder *cmdList,
-        TopAccel const *bAccel);
+        TopAccel const *bAccel) const;
 
     KILL_COPY_CONSTRUCT(Shader)
-    virtual ~Shader() = default;
+    KILL_MOVE_CONSTRUCT(Shader)
 };
 }// namespace toolhub::directx

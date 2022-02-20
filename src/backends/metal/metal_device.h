@@ -51,7 +51,7 @@ public:
     void destroy_buffer(uint64_t handle) noexcept override;
     uint64_t create_stream() noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
-    void dispatch(uint64_t stream_handle, CommandList buffer) noexcept override;
+    void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
@@ -89,6 +89,7 @@ public:
     void pop_back_instance_from_accel(uint64_t accel) noexcept override;
     void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
     void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
+    bool requires_command_reordering() const noexcept override;
 };
 
 }// namespace luisa::compute::metal

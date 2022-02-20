@@ -23,6 +23,7 @@ struct vector_stack_obj<T, 0> {
 template<typename T, VEngine_AllocType allocType = VEngine_AllocType::VEngine, size_t stackCount = 0>
     requires(!(std::is_const_v<T> || std::is_reference_v<T>))
 class vector {
+public:
     using value_type = T;
     using reference = T &;
     using pointer = T *;

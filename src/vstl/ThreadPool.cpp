@@ -17,10 +17,9 @@ ThreadPool::ThreadPool(size_t workerThreadCount)
     threads.reserve(workerThreadCount);
     auto LockThread = [this](std::mutex &mtx, std::condition_variable &cv, auto &&beforeLock, auto &&afterLock) {
         beforeLock();
-
+        std::unique_lock lck(mtx);
         while (
             enabled.test(std::memory_order_acquire) && taskList.Length() == 0) {
-            std::unique_lock lck(mtx);
             cv.wait(lck);
         }
         afterLock();
@@ -56,12 +55,9 @@ ThreadPool::ThreadPool(size_t workerThreadCount)
 
 void ThreadPool::ActiveOneBackupThread() {
     if (!vengineTpool_isWorkerThread) return;
-    {
-        std::lock_guard lck(backupThreadLock);
-        if (waitingBackupThread > 0) {
-            backupCV.notify_one();
-            return;
-        }
+    if (waitingBackupThread > 0) {
+        backupCV.notify_one();
+        return;
     }
     std::lock_guard ll(threadVectorLock);
     auto sz = backupThreads.size();
@@ -85,10 +81,7 @@ void ThreadPool::ThreadExecute(ThreadTaskHandle::TaskData *ptr) {
     ptr->state.store(static_cast<uint8_t>(ThreadTaskHandle::TaskState::Finished), std::memory_order_release);
     if (ptr->isWaitable) {
         auto &&mtxPtr = ptr->mainThreadLocker;
-        {
-            std::lock_guard lck(mtxPtr->first);
-            mtxPtr->second.notify_all();
-        }
+        mtxPtr->second.notify_all();
         ptr->ReleaseThreadLocker();
     }
     int64 needNotifyThread = -1;
@@ -103,26 +96,18 @@ void ThreadPool::ThreadExecute(ThreadTaskHandle::TaskData *ptr) {
     ptr->dependedJobs.clear();
     if (needNotifyThread > 0) {
         if (needNotifyThread < workerThreadCount) {
-            std::lock_guard lck(threadLock);
             for (auto i : vstd::range(needNotifyThread))
                 cv.notify_one();
         } else {
-            std::lock_guard lck(threadLock);
             cv.notify_all();
         }
     }
 }
 
 ThreadPool::~ThreadPool() {
-    {
-        std::lock_guard lck(threadLock);
-        enabled.clear(std::memory_order_release);
-        cv.notify_all();
-    }
-    {
-        std::lock_guard lck(backupThreadLock);
-        backupCV.notify_all();
-    }
+    enabled.clear(std::memory_order_release);
+    cv.notify_all();
+    backupCV.notify_all();
     for (auto &i : backupThreads) {
         i.join();
     }
@@ -185,11 +170,9 @@ void ThreadPool::EnableThread(int64 enableCount) {
     if (enableCount <= 0)
         return;
     if (enableCount < workerThreadCount) {
-        std::lock_guard lck(threadLock);
         for (auto i : vstd::range(enableCount))
             cv.notify_one();
     } else {
-        std::lock_guard lck(threadLock);
         cv.notify_all();
     }
 }

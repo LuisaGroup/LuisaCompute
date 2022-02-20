@@ -31,15 +31,15 @@ public:
         return *this;
     }
 
-//    template<typename Body>
-//    [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
-//        return FunctionBuilder::current()->with(
-//                   _stmt->false_branch(),
-//                   [condition] {
-//                       return IfStmtBuilder{condition};
-//                   }) %
-//               std::forward<Body>(body);
-//    }
+    //    template<typename Body>
+    //    [[nodiscard]] auto elif (Expr<bool> condition, Body &&body) &&noexcept {
+    //        return FunctionBuilder::current()->with(
+    //                   _stmt->false_branch(),
+    //                   [condition] {
+    //                       return IfStmtBuilder{condition};
+    //                   }) %
+    //               std::forward<Body>(body);
+    //    }
 
     template<typename False>
     void operator/(False &&f) &&noexcept {
@@ -263,9 +263,11 @@ inline namespace dsl {
 
 template<typename Lhs, typename Rhs>
 inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept {
+    static_assert(
+        std::tuple_size_v<linear_layout_t<expr_value_t<Lhs>>> ==
+        std::tuple_size_v<linear_layout_t<expr_value_t<Rhs>>>);
     if constexpr (concepts::assignable<expr_value_t<Lhs>, expr_value_t<Rhs>>) {
         detail::FunctionBuilder::current()->assign(
-            AssignOp::ASSIGN,
             detail::extract_expression(std::forward<Lhs>(lhs)),
             detail::extract_expression(std::forward<Rhs>(rhs)));
     } else if (is_tuple_v<std::remove_cvref_t<Rhs>>) {

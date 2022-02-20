@@ -8,8 +8,8 @@ namespace luisa::compute::metal {
 
 MetalStream::MetalStream(id<MTLDevice> device, uint max_command_buffers) noexcept
     : _handle{[device newCommandQueueWithMaxCommandBufferCount:max_command_buffers]},
-      _upload_ring_buffer{device, ring_buffer_size, true},
-      _download_ring_buffer{device, ring_buffer_size, false},
+      _upload_host_buffer_pool{device, host_buffer_size, true},
+      _download_host_buffer_pool{device, host_buffer_size, false},
       _sem{dispatch_semaphore_create(max_command_buffers)} {}
 
 MetalStream::~MetalStream() noexcept {

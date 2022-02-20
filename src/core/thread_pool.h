@@ -48,7 +48,7 @@ public:
     void synchronize() noexcept;
 
     template<typename F>
-        requires std::invocable<F>
+        requires std::is_invocable_v<F>
     auto async(F f) noexcept {
         using R = std::invoke_result_t<F>;
         auto promise = luisa::make_shared<std::promise<R>>(
@@ -66,6 +66,7 @@ public:
     }
 
     template<typename F>
+        requires std::is_invocable_v<F, uint>
     void parallel(uint n, F f) noexcept {
         if (n > 0u) {
             auto counter = luisa::make_shared<std::atomic_uint>(0u);
@@ -80,6 +81,7 @@ public:
     }
 
     template<typename F>
+        requires std::is_invocable_v<F, uint, uint>
     void parallel(uint nx, uint ny, F f) noexcept {
         parallel(nx * ny, [=, f = std::move(f)](auto i) mutable noexcept {
             f(i % nx, i / nx);
@@ -87,11 +89,18 @@ public:
     }
 
     template<typename F>
+        requires std::is_invocable_v<F, uint, uint, uint>
     void parallel(uint nx, uint ny, uint nz, F f) noexcept {
         parallel(nx * ny * nz, [=, f = std::move(f)](auto i) mutable noexcept {
             f(i % nx, i / nx % ny, i / nx / ny);
         });
     }
 };
+
+template<typename F>
+    requires std::is_invocable_v<F>
+inline auto async(F &&f) noexcept {
+    return ThreadPool::global().async(std::forward<F>(f));
+}
 
 }// namespace luisa

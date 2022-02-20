@@ -8,6 +8,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <dsl/syntax.h>
+#include <dsl/printer.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -19,9 +20,12 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
     auto device = context.create_device("ispc");
 
+    Printer printer{device};
+
     // __device__
-    Callable linear_to_srgb = [](Float3 linear) noexcept {
+    Callable linear_to_srgb = [&](Float3 linear) noexcept {
         auto x = linear.xyz();
+        printer.log("Linear: (", x.x, ", ", x.y, ", ", x.z, ")");
         auto srgb = make_uint3(
             round(saturate(
                       select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -38,9 +42,11 @@ int main(int argc, char *argv[]) {
     //   auto rg = float2(coord) / float2(dis_size.xy());
     //   image[coord.x + coord.y  * dis_size.x] = value;
     // }
-    Kernel2D fill_image_kernel = [&linear_to_srgb](BufferUInt image) noexcept {
+    Kernel2D fill_image_kernel = [&](BufferUInt image) noexcept {
         auto coord = dispatch_id().xy();
         auto rg = make_float2(coord) / make_float2(dispatch_size().xy());
+        printer.log_with_location(2333, "YES");
+        printer.log(1, 1.f, true, "Hello, coord = (", coord.x, ", ", coord.y, ")");
         image.write(coord.x + coord.y * dispatch_size_x(), linear_to_srgb(make_float3(rg, 0.5f)));
     };
 
@@ -54,10 +60,11 @@ int main(int argc, char *argv[]) {
 
     // cuStreamCreate
     auto stream = device.create_stream();
+    printer.reset(stream);
 
     // dispatch
     stream << fill_image(device_buffer).dispatch(1024u, 1024u)
-           << device_buffer.copy_to(download_image.data())
-           << synchronize();
+           << device_buffer.copy_to(download_image.data());
+    std::cout << printer.retrieve(stream);
     stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
 }

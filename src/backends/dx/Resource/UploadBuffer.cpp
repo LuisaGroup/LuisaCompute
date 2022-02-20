@@ -43,7 +43,7 @@ void UploadBuffer::CopyData(uint64 offset, vstd::span<vbyte const> data) const {
 	auto disp = vstd::create_disposer([&] {
 		allocHandle.resource->Unmap(0, &range);
 	});
-	memcpy(reinterpret_cast<vbyte*>(mappedPtr) + offset, data.data(), range.End - range.Begin);
+    memcpy(reinterpret_cast<vbyte *>(mappedPtr) + offset, data.data(), data.size());
 }
 
 }// namespace toolhub::directx

@@ -38,11 +38,11 @@ namespace luisa::compute::cuda {
             texture_desc.filterMode = CU_TR_FILTER_MODE_POINT;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;
             break;
-        case Sampler::Filter::BILINEAR:
+        case Sampler::Filter::LINEAR_POINT:
             texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_POINT;
             break;
-        case Sampler::Filter::TRILINEAR:
+        case Sampler::Filter::LINEAR_LINEAR:
             texture_desc.filterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.mipmapFilterMode = CU_TR_FILTER_MODE_LINEAR;
             texture_desc.maxMipmapLevelClamp = 999.0f;

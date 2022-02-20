@@ -7,6 +7,7 @@ enum class ShaderVariableType : uint8_t {
 	SRVDescriptorHeap,
 	UAVDescriptorHeap,
 	CBVDescriptorHeap,
+	SampDescriptorHeap,
 	StructuredBuffer,
 	RWStructuredBuffer
 };

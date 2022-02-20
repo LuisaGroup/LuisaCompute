@@ -325,12 +325,8 @@ CMakeSettings.json
 .vscode/
 
 #white list
-!src/backends/dx/VEngineCompiler/*.*
-!src/backends/dx/VEngineCompiler/CompilerToolkit/*.*
-!out/build/x64-Release/bin/DXCompiledShader/*.*
-!out/build/x64-Release/bin/DXCompiledShader/Internal/*.*
-!out/build/x64-Release/bin/HLSLCompiler/*.*
-
+!src/backends/dx/dx_support/dxcompiler.dll
+!src/backends/dx/dx_support/dxil.dll
 *.png
 **/imgui.ini
 *.vcxproj

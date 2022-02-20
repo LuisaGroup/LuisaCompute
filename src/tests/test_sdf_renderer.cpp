@@ -17,7 +17,7 @@
 #include <dsl/sugar.h>
 #include <tests/fake_device.h>
 
-//#define ENABLE_DISPLAY
+#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -40,15 +40,10 @@ int main(int argc, char *argv[]) {
     Callable intersect_light = [](Float3 pos, Float3 d) noexcept {
         auto cos_w = dot(-d, light_normal);
         auto dist = dot(d, light_pos - pos);
-        auto dist_to_light = def(inf);
-        $if(cos_w > 0.0f & dist > 0.0f) {
-            auto D = dist / cos_w;
-            auto dist_to_center = distance_squared(light_pos, pos + D * d);
-            $if(dist_to_center < light_radius * light_radius) {
-                dist_to_light = D;
-            };
-        };
-        return dist_to_light;
+        auto D = dist / cos_w;
+        auto dist_to_center = distance_squared(light_pos, pos + D * d);
+        auto valid = cos_w > 0.0f & dist > 0.0f & dist_to_center < light_radius * light_radius;
+        return ite(valid, D, inf);
     };
 
     Callable tea = [](UInt v0, UInt v1) noexcept {
@@ -69,10 +64,10 @@ int main(int argc, char *argv[]) {
     };
 
     Callable out_dir = [&rand](Float3 n, UInt &seed) noexcept {
-        auto u = def<float3>(1.0f, 0.0f, 0.0f);
-        $if(abs(n.y) < 1.0f - eps) {
-            u = normalize(cross(n, make_float3(0.0f, 1.0f, 0.0f)));
-        };
+        auto u = ite(
+            abs(n.y) < 1.0f - eps,
+            normalize(cross(n, make_float3(0.0f, 1.0f, 0.0f))),
+            make_float3(1.f, 0.f, 0.f));
         auto v = cross(n, u);
         auto phi = 2.0f * std::numbers::pi_v<float> * rand(seed);
         auto ay = sqrt(rand(seed));
@@ -83,10 +78,7 @@ int main(int argc, char *argv[]) {
     Callable make_nested = [](Float f) noexcept {
         static constexpr auto freq = 40.0f;
         f *= freq;
-        $if(f < 0.0f) {
-            auto ff = floor(f);
-            f = select(f - ff, ff + 1.0f - f, f.cast<int>() % 2 == 0);
-        };
+        f = ite(f < 0.f, ite(cast<int>(f) % 2 == 0, 1.f - fract(f), fract(f)), f);
         return (f - 0.2f) * (1.0f / freq);
     };
 
@@ -157,7 +149,7 @@ int main(int argc, char *argv[]) {
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
         auto seed = seed_image.read(global_id);
-//        auto seed = frame_index + 1u;
+        //        auto seed = frame_index + 1u;
         auto ux = rand(seed);
         auto uy = rand(seed);
         auto uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1u - dispatch_id().y + uy);
@@ -190,15 +182,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_ISPC_ENABLED)
-    auto device = context.create_device("ispc");
-#else
-    auto device = FakeDevice::create(context);
-#endif
+    auto device = context.create_device("dx");
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
@@ -206,18 +190,17 @@ int main(int argc, char *argv[]) {
     auto accum_image = device.create_buffer<float4>(width * height);
     auto render = device.compile(render_kernel);
     auto stream = device.create_stream();
-    auto swap_event = device.create_event();
     auto copy_event = device.create_event();
 
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
     cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
 
-    static constexpr auto interval = 32u;
+    static constexpr auto interval = 64u;
 
 #ifdef ENABLE_DISPLAY
     static constexpr auto total_spp = 500000u;
 #else
-    static constexpr auto total_spp = 1024u;
+    static constexpr auto total_spp = 4096u;
 #endif
 
     auto t0 = clock.toc();
@@ -229,7 +212,6 @@ int main(int argc, char *argv[]) {
         // swap buffers
         copy_event.synchronize();
         std::swap(cv_image, cv_back_image);
-        stream << swap_event.signal();
 #endif
 
         // render
@@ -241,8 +223,7 @@ int main(int argc, char *argv[]) {
         command_buffer << commit();
 
 #ifdef ENABLE_DISPLAY
-        command_buffer << swap_event.wait()
-                       << accum_image.copy_to(cv_back_image.data)
+        command_buffer << accum_image.copy_to(cv_back_image.data)
                        << copy_event.signal();
 
         // display

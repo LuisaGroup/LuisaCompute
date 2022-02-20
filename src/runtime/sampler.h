@@ -14,8 +14,8 @@ class Sampler {
 public:
     enum struct Filter : uint32_t {
         POINT,
-        BILINEAR,
-        TRILINEAR,
+        LINEAR_POINT,
+        LINEAR_LINEAR,
         ANISOTROPIC
     };
 
@@ -45,14 +45,14 @@ public:
     [[nodiscard]] static constexpr auto point_repeat() noexcept { return Sampler{Filter::POINT, Address::REPEAT}; }
     [[nodiscard]] static constexpr auto point_mirror() noexcept { return Sampler{Filter::POINT, Address::MIRROR}; }
     [[nodiscard]] static constexpr auto point_zero() noexcept { return Sampler{Filter::POINT, Address::ZERO}; }
-    [[nodiscard]] static constexpr auto bilinear_edge() noexcept { return Sampler{Filter::BILINEAR, Address::EDGE}; }
-    [[nodiscard]] static constexpr auto bilinear_repeat() noexcept { return Sampler{Filter::BILINEAR, Address::REPEAT}; }
-    [[nodiscard]] static constexpr auto bilinear_mirror() noexcept { return Sampler{Filter::BILINEAR, Address::MIRROR}; }
-    [[nodiscard]] static constexpr auto bilinear_zero() noexcept { return Sampler{Filter::BILINEAR, Address::ZERO}; }
-    [[nodiscard]] static constexpr auto trilinear_edge() noexcept { return Sampler{Filter::TRILINEAR, Address::EDGE}; }
-    [[nodiscard]] static constexpr auto trilinear_repeat() noexcept { return Sampler{Filter::TRILINEAR, Address::REPEAT}; }
-    [[nodiscard]] static constexpr auto trilinear_mirror() noexcept { return Sampler{Filter::TRILINEAR, Address::MIRROR}; }
-    [[nodiscard]] static constexpr auto trilinear_zero() noexcept { return Sampler{Filter::TRILINEAR, Address::ZERO}; }
+    [[nodiscard]] static constexpr auto linear_point_edge() noexcept { return Sampler{Filter::LINEAR_POINT, Address::EDGE}; }
+    [[nodiscard]] static constexpr auto linear_point_repeat() noexcept { return Sampler{Filter::LINEAR_POINT, Address::REPEAT}; }
+    [[nodiscard]] static constexpr auto linear_point_mirror() noexcept { return Sampler{Filter::LINEAR_POINT, Address::MIRROR}; }
+    [[nodiscard]] static constexpr auto linear_point_zero() noexcept { return Sampler{Filter::LINEAR_POINT, Address::ZERO}; }
+    [[nodiscard]] static constexpr auto linear_linear_edge() noexcept { return Sampler{Filter::LINEAR_LINEAR, Address::EDGE}; }
+    [[nodiscard]] static constexpr auto linear_linear_repeat() noexcept { return Sampler{Filter::LINEAR_LINEAR, Address::REPEAT}; }
+    [[nodiscard]] static constexpr auto linear_linear_mirror() noexcept { return Sampler{Filter::LINEAR_LINEAR, Address::MIRROR}; }
+    [[nodiscard]] static constexpr auto linear_linear_zero() noexcept { return Sampler{Filter::LINEAR_LINEAR, Address::ZERO}; }
     [[nodiscard]] static constexpr auto anisotropic_edge() noexcept { return Sampler{Filter::ANISOTROPIC, Address::EDGE}; }
     [[nodiscard]] static constexpr auto anisotropic_repeat() noexcept { return Sampler{Filter::ANISOTROPIC, Address::REPEAT}; }
     [[nodiscard]] static constexpr auto anisotropic_mirror() noexcept { return Sampler{Filter::ANISOTROPIC, Address::MIRROR}; }

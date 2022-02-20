@@ -17,7 +17,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_event.h
             metal_stream.h metal_stream.mm
             metal_buffer_view.h
-            metal_ring_buffer.mm metal_ring_buffer.h
+            metal_host_buffer_pool.mm metal_host_buffer_pool.h
             metal_bindless_array.mm metal_bindless_array.h
             metal_shader.h)
 

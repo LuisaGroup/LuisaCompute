@@ -8,24 +8,24 @@ namespace toolhub::db {
 class IJsonDict;
 class IJsonArray;
 
-using ReadJsonVariant = vstd::variant<int64,
-                                      double,
-                                      std::string_view,
-                                      IJsonDict *,
-                                      IJsonArray *,
-                                      vstd::Guid,
-                                      bool,
-                                      std::nullptr_t>;
-using WriteJsonVariant = vstd::variant<int64,
+using ReadJsonVariant = eastl::variant<int64,
                                        double,
-                                       vstd::string,
-                                       vstd::unique_ptr<IJsonDict>,
-                                       vstd::unique_ptr<IJsonArray>,
+                                       std::string_view,
+                                       IJsonDict *,
+                                       IJsonArray *,
                                        vstd::Guid,
-                                       bool>;
-using Key = vstd::variant<int64,
-                          std::string_view,
-                          vstd::Guid>;
+                                       bool,
+                                       std::nullptr_t>;
+using WriteJsonVariant = eastl::variant<int64,
+                                        double,
+                                        vstd::string,
+                                        vstd::unique_ptr<IJsonDict>,
+                                        vstd::unique_ptr<IJsonArray>,
+                                        vstd::Guid,
+                                        bool>;
+using Key = eastl::variant<int64,
+                           std::string_view,
+                           vstd::Guid>;
 struct JsonKeyPair {
     Key key;
     ReadJsonVariant value;
@@ -59,7 +59,7 @@ public:
     virtual bool Read(vstd::span<uint8_t const> sp,
                       bool clearLast) = 0;
     virtual void Reserve(size_t capacity) = 0;
-    virtual vstd::optional<ParsingException> Parse(
+    virtual eastl::optional<ParsingException> Parse(
         std::string_view str,
         bool clearLast) = 0;
     virtual vstd::MD5 GetMD5() const = 0;
@@ -82,17 +82,12 @@ public:
     virtual ReadJsonVariant TrySet(Key const &key, vstd::function<WriteJsonVariant()> const &value) = 0;
     virtual void TryReplace(Key const &key, vstd::function<WriteJsonVariant(ReadJsonVariant const &)> const &value) = 0;
     virtual void Remove(Key const &key) = 0;
-    virtual vstd::optional<WriteJsonVariant> GetAndRemove(Key const &key) = 0;
-    virtual vstd::optional<WriteJsonVariant> GetAndSet(Key const &key, WriteJsonVariant &&newValue) = 0;
+    virtual eastl::optional<WriteJsonVariant> GetAndRemove(Key const &key) = 0;
+    virtual eastl::optional<WriteJsonVariant> GetAndSet(Key const &key, WriteJsonVariant &&newValue) = 0;
     virtual void Remove(vstd::span<Key> keys) = 0;
     virtual vstd::vector<std::pair<Key, ReadJsonVariant>> ToVector() const = 0;
     virtual vstd::Iterator<JsonKeyPair> begin() const & = 0;
     virtual vstd::Iterator<MoveJsonKeyPair> begin() && = 0;
-    virtual vstd::optional<ParsingException> ParseYaml(
-        std::string_view str,
-        bool clearLast) = 0;
-    virtual vstd::string PrintYaml() const = 0;
-
     IJsonDict &operator<<(std::pair<Key, WriteJsonVariant> &&value) {
         Set(value.first, std::move(value.second));
         return *this;
@@ -115,8 +110,8 @@ public:
     virtual void Set(vstd::span<std::pair<size_t, WriteJsonVariant>> values) = 0;
     virtual void Remove(size_t index) = 0;
     virtual void Remove(vstd::span<size_t> indices) = 0;
-    virtual vstd::optional<WriteJsonVariant> GetAndRemove(size_t index) = 0;
-    virtual vstd::optional<WriteJsonVariant> GetAndSet(size_t key, WriteJsonVariant &&newValue) = 0;
+    virtual eastl::optional<WriteJsonVariant> GetAndRemove(size_t index) = 0;
+    virtual eastl::optional<WriteJsonVariant> GetAndSet(size_t key, WriteJsonVariant &&newValue) = 0;
     virtual void Add(WriteJsonVariant &&value) = 0;
     virtual void Add(vstd::span<WriteJsonVariant> values) = 0;
     virtual vstd::vector<ReadJsonVariant> ToVector() const = 0;

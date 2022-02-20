@@ -195,15 +195,7 @@ public:
     // build primitives
     template<typename Def>
     static auto define_kernel(Def &&def) noexcept {
-        return _define(Function::Tag::KERNEL, [&def] {
-            auto f = current();
-            auto gid = f->dispatch_id();
-            auto gs = f->dispatch_size();
-            auto less = f->binary(Type::of<bool3>(), BinaryOp::LESS, gid, gs);
-            auto cond = f->call(Type::of<bool>(), CallOp::ALL, {less});
-            auto if_stmt = f->if_(cond);
-            f->with(if_stmt->true_branch(), [&def] { def(); });
-        });
+        return _define(Function::Tag::KERNEL, std::forward<Def>(def));
     }
 
     template<typename Def>
@@ -260,7 +252,7 @@ public:
     void continue_() noexcept;
     void return_(const Expression *expr = nullptr /* nullptr for void */) noexcept;
     void comment_(luisa::string comment) noexcept;
-    void assign(AssignOp op, const Expression *lhs, const Expression *rhs) noexcept;
+    void assign(const Expression *lhs, const Expression *rhs) noexcept;
 
     [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;
     [[nodiscard]] LoopStmt *loop_() noexcept;

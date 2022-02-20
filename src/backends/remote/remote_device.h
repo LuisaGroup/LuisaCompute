@@ -35,7 +35,7 @@ public:
     uint64_t create_stream() noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
-    void dispatch(uint64_t stream_handle, CommandList list) noexcept override;
+    void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override;
     void *stream_native_handle(uint64_t handle) const noexcept override;
     uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

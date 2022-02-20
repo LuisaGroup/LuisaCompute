@@ -206,12 +206,13 @@ struct ExprEnableStaticCast {
     template<typename Dest>
         requires concepts::static_convertible<expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto cast() const noexcept {
+        auto src = def(*static_cast<const T *>(this));
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
             FunctionBuilder::current()->cast(
                 Type::of<TrueDest>(),
                 CastOp::STATIC,
-                static_cast<const T *>(this)->expression()));
+                src.expression()));
     }
 };
 
@@ -220,12 +221,13 @@ struct ExprEnableBitwiseCast {
     template<typename Dest>
         requires concepts::bitwise_convertible<expr_value_t<T>, expr_value_t<Dest>>
     [[nodiscard]] auto as() const noexcept {
+        auto src = def(*static_cast<const T *>(this));
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
             FunctionBuilder::current()->cast(
                 Type::of<TrueDest>(),
                 CastOp::BITWISE,
-                static_cast<const T *>(this)->expression()));
+                src.expression()));
     }
 };
 
