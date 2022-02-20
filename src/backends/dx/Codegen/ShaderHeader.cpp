@@ -133,11 +133,23 @@ float4x3 my_transpose(float4x3 m) {
 float4x4 my_transpose(float4x4 m) { return transpose(m); }
 
 float4x4 Mul(float4x4 a, float4x4 b){ return mul(a, b);}
+float4x3 Mul(float3x3 a, float3x3 b){
+  float3x3 m = mul(a, b);
+  return make_float4x3(m[0], m[1], m[2]);
+}
+float4x3 Mul(float4x3 a, float3x3 b){ return mul(a, b);}
+float4x3 Mul(float3x3 a, float4x3 b){
+  float3x3 m = mul(float3x4(a, 0.f, 0.f, 0.f), b);
+  return make_float4x3(m[0], m[1], m[2]);
+}
 float4x3 Mul(float4x3 a, float4x3 b){ return mul(float4x4(a, 0.f, 0.f, 0.f, 0.f), b);}
 float2x2 Mul(float2x2 a, float2x2 b){ return mul(a, b);}
-float4 Mul(float4 a, float4x4 b){ return mul(b, a);}
-float3 Mul(float3 a, float4x3 b){ return mul(b, a);}
-float2 Mul(float2 a, float2x2 b){ return mul(b, a);}
+
+// Note: do not swap a and b: already swapped in codegen
+float4 Mul(float4 a, float4x4 b){ return mul(a, b);}
+float3 Mul(float3 a, float4x3 b){ return mul(float4(a, 0.f), b);}
+float3 Mul(float3 a, float3x3 b){ return mul(a, b);}
+float2 Mul(float2 a, float2x2 b){ return mul(a, b);}
 
 #define bfread(bf,idx) (bf[(idx)])
 #define bfreadVec3(bf,idx) (bf[(idx)].xyz)
