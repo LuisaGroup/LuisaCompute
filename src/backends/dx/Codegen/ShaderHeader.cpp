@@ -309,7 +309,6 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
 }
-
 float4x4 InstMatrix(StructuredBuffer<WrappedFloat3x3> instBuffer, uint index){
 	float3x4 m = instBuffer[index].m;
 	return float4x4(m, float4(0, 0, 0, 1));
