@@ -124,10 +124,17 @@ float2 fma(float2 a, float2 b, float2 c) { return a * b + c; }
 float3 fma(float3 a, float3 b, float3 c) { return a * b + c; }
 float4 fma(float4 a, float4 b, float4 c) { return a * b + c; }
 
-float4x3 make_float4x3(float3 c0, float3 c1, float3 c2) { return float4x3(float4(c0, 0.f), float4(c1, 0.f), float4(c2, 0.f)); }
+float4x3 make_float4x3(float3 c0, float3 c1, float3 c2) {
+  return float4x3(float4(c0, 0.f), float4(c1, 0.f), float4(c2, 0.f));
+}
+
 float2x2 my_transpose(float2x2 m) { return transpose(m); }
 float4x3 my_transpose(float4x3 m) {
   float3x4 mm = transpose(m);
+  return make_float4x3(mm[0], mm[1], mm[2]);
+}
+float4x3 my_transpose(float3x3 m) {
+  float3x3 mm = transpose(m);
   return make_float4x3(mm[0], mm[1], mm[2]);
 }
 float4x4 my_transpose(float4x4 m) { return transpose(m); }
