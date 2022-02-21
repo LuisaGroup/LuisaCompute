@@ -338,3 +338,6 @@ BuildTools/
 llvm-c/
 opencv2/
 doc/
+
+# Doxygen output
+doxygen_output
