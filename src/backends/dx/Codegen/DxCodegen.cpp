@@ -141,12 +141,6 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
         str << '[';
         expr->index()->accept(*this);
         str << ']';
-//    } else if (t->is_matrix()) {
-//        str << "access(";
-//        expr->range()->accept(*this);
-//        str << ",";
-//        expr->index()->accept(*this);
-//        str << ")";
     } else {
         expr->range()->accept(*this);
         str << ".v[";
