@@ -203,8 +203,8 @@ struct BdlsStruct{
 #define Smptx(tex, uv) (tex[uv])
 #define Writetx(tex, uv, value) (tex[uv] = value)
 #define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
-Texture3D<float4> _BindlessTex3D[]:register(t0,space1);
 Texture2D<float4> _BindlessTex[]:register(t0,space1);
+Texture3D<float4> _BindlessTex3D[]:register(t0,space2);
 template <typename T>
 T fract(T x){ return x - floor(x);}
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float level){
