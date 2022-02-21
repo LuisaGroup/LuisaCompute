@@ -1083,6 +1083,8 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
 
     vstd::string propertyResult;
     GenerateCBuffer(kernel, kernel.arguments(), propertyResult);
+    CodegenResult::Properties properties;
+    properties.reserve(kernel.arguments().size() + 2);
     // Bindless Buffers;
     for (auto &&i : opt->bindlessBufferTypes) {
         propertyResult << "StructuredBuffer<"sv;
@@ -1091,12 +1093,16 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         } else {
             GetTypeName(*i.first, propertyResult, Usage::READ);
         }
-        propertyResult << "> bdls"sv
-                       << vstd::to_string(i.second)
-                       << "[]:register(t0,space1);\n"sv;
+        propertyResult << luisa::format(
+            "> bdls{}[]:register(t0,space{});\n",
+            i.second, i.second + 3u);
+        properties.emplace_back(
+            luisa::format("bdls{}", i.second),
+            Shader::Property{
+                ShaderVariableType::SRVDescriptorHeap,
+                static_cast<uint>(i.second + 3u),
+                0u, 0u});
     }
-    CodegenResult::Properties properties;
-    properties.reserve(kernel.arguments().size() + 2);
     properties.emplace_back(
         "_Global"sv,
         Shader::Property{
@@ -1109,6 +1115,13 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         Shader::Property{
             ShaderVariableType::SRVDescriptorHeap,
             1,
+            0,
+            0});
+    properties.emplace_back(
+        "_BindlessTex3D"sv,
+        Shader::Property{
+            ShaderVariableType::SRVDescriptorHeap,
+            2,
             0,
             0});
     enum class RegisterType : vbyte {
