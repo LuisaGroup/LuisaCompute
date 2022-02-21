@@ -166,10 +166,10 @@ public:
                                 EmplaceEmpty(sizeof(float2));
                                 PushArray(sizeof(float2x2));
                             } break;
-                            case 3: {
+                            case 3:
                                 EmplaceData(*(float3x3 const *)bf.data());
                                 PushArray(sizeof(float3x3));
-                            } break;
+                                break;
                             case 4:
                                 EmplaceData(*(float4x4 const *)bf.data());
                                 PushArray(sizeof(float4x4));
