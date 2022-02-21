@@ -179,7 +179,7 @@ struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
     void operator()(T const &v, vstd::string &varName) {
-        varName << "make_float"sv;
+        varName << "make_float";
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';
         PrintValue<Vector<EleType, N>> vecPrinter;

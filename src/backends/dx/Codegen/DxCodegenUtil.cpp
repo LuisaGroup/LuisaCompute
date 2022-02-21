@@ -291,11 +291,11 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             str << "uint"sv;
             return;
         case Type::Tag::MATRIX: {
-            //str << "row_major ";
+            str << "row_major ";
             CodegenUtility::GetTypeName(*type.element(), str, usage);
-            vstd::to_string((type.dimension() == 3) ? 4 : type.dimension(), str);
-            str << 'x';
             vstd::to_string(type.dimension(), str);
+            str << 'x';
+            vstd::to_string((type.dimension() == 3) ? 4 : type.dimension(), str);
         }
             return;
         case Type::Tag::VECTOR: {
