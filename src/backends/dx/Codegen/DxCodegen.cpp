@@ -25,8 +25,9 @@ void StringStateVisitor::visit(const UnaryExpr *expr) {
 }
 void StringStateVisitor::visit(const BinaryExpr *expr) {
 
+    auto op = expr->op();
     auto IsMulFuncCall = [&]() -> bool {
-        if (expr->op() == BinaryOp::MUL) {
+        if (op == BinaryOp::MUL) {
             if ((expr->lhs()->type()->is_matrix() &&
                  (!expr->rhs()->type()->is_scalar())) ||
                 (expr->rhs()->type()->is_matrix() &&
@@ -43,10 +44,22 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         expr->rhs()->accept(*this);//Reverse matrix
         str << ')';
 
+    } else if (op == BinaryOp::AND) {
+        str << "and(";
+        expr->lhs()->accept(*this);
+        str << ",";
+        expr->rhs()->accept(*this);
+        str << ")";
+    } else if (op == BinaryOp::OR) {
+        str << "or(";
+        expr->lhs()->accept(*this);
+        str << ",";
+        expr->rhs()->accept(*this);
+        str << ")";
     } else {
 
         expr->lhs()->accept(*this);
-        switch (expr->op()) {
+        switch (op) {
             case BinaryOp::ADD:
                 str << '+';
                 break;
@@ -77,12 +90,6 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
             case BinaryOp::SHR:
                 str << ">>"sv;
                 break;
-            case BinaryOp::AND:
-                str << "&&"sv;
-                break;
-            case BinaryOp::OR:
-                str << "||"sv;
-                break;
             case BinaryOp::LESS:
                 str << '<';
                 break;
@@ -101,6 +108,9 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
             case BinaryOp::NOT_EQUAL:
                 str << "!="sv;
                 break;
+            default:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Not implemented.");
         }
         expr->rhs()->accept(*this);
     }

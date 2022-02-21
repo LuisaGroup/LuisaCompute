@@ -30,6 +30,7 @@ struct CodegenGlobal {
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;
     vstd::HashMap<vstd::string, vstd::string> structReplaceName;
+    luisa::unordered_set<uint64_t> generatedConstants;
     CodegenGlobal()
         : generateStruct(
               [this](Type const *t) {
@@ -52,6 +53,7 @@ struct CodegenGlobal {
         bindlessBufferTypes.Clear();
         customStruct.Clear();
         customStructVector.clear();
+        generatedConstants.clear();
         tracker.Clear();
         constCount = 0;
         count = 0;
@@ -522,22 +524,22 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "reverse"sv;
             break;
         case CallOp::ISINF:
-            str << "isinf"sv;
+            str << "_isinf"sv;
             break;
         case CallOp::ISNAN:
-            str << "isnan"sv;
+            str << "_isnan"sv;
             break;
         case CallOp::ACOS:
             str << "acos"sv;
             break;
         case CallOp::ACOSH:
-            str << "acosh"sv;
+            str << "_acosh"sv;
             break;
         case CallOp::ASIN:
             str << "asin"sv;
             break;
         case CallOp::ASINH:
-            str << "asinh"sv;
+            str << "_asinh"sv;
             break;
         case CallOp::ATAN:
             str << "atan"sv;
@@ -546,7 +548,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "atan2"sv;
             break;
         case CallOp::ATANH:
-            str << "atanh"sv;
+            str << "_atanh"sv;
             break;
         case CallOp::COS:
             str << "cos"sv;
@@ -573,7 +575,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "exp2"sv;
             break;
         case CallOp::EXP10:
-            str << "exp10"sv;
+            str << "_exp10"sv;
             break;
         case CallOp::LOG:
             str << "log"sv;
@@ -942,6 +944,9 @@ void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
     }
     auto constants = func.constants();
     for (auto &&i : constants) {
+        if (!opt->generatedConstants.emplace(i.hash()).second) {
+            continue;
+        }
         GetTypeName(*i.type, result, Usage::READ);
         result << ' ';
         vstd::string constName;
