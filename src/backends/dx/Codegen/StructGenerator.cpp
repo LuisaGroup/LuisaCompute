@@ -99,7 +99,6 @@ void StructGenerator::InitAsStruct(
     vstd::function<StructGenerator *(Type const *)> const &visitor) {
     structName = "S";
     vstd::to_string(structIdx, structName);
-    size_t alignCount = 0;
     structDesc.reserve(1024);
     auto szOpt = vars.Get()->Length();
     vstd::string varName;
@@ -110,6 +109,7 @@ void StructGenerator::InitAsStruct(
         vstd::to_string(structTypes.size(), varName);
     };
     auto Align = [&](size_t tarAlign) {
+        alignSize = std::max(alignSize, tarAlign);
         ProvideAlignVariable(tarAlign, structSize, alignCount, structDesc);
     };
 
@@ -161,6 +161,7 @@ void StructGenerator::InitAsStruct(
             case Type::Tag::ARRAY:
             case Type::Tag::STRUCTURE: {
                 auto subStruct = visitor(i);
+                Align(subStruct->alignSize);
                 structSize += subStruct->GetStructSize();
                 ele = subStruct;
             } break;

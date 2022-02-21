@@ -40,6 +40,7 @@ public:
     Serialize(
         vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
         vstd::span<vbyte> binByte,
+        vstd::MD5 md5,
         uint3 blockSize);
     static ComputeShader *DeSerialize(
         vstd::span<std::pair<vstd::string, Shader::Property> const> properties,

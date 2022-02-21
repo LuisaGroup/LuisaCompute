@@ -8,7 +8,7 @@
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_shader.h>
-#include <backends/cuda/cuda_ring_buffer.h>
+#include <backends/cuda/cuda_host_buffer_pool.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
@@ -19,19 +19,17 @@ template<typename F>
 inline void CUDACommandEncoder::with_upload_buffer(size_t size, F &&f) noexcept {
     auto upload_buffer = _stream->upload_pool()->allocate(size);
     f(upload_buffer);
-    _stream->emplace_callback(
-        CUDARingBuffer::RecycleContext::create(
-            upload_buffer, _stream->upload_pool()));
+    _stream->emplace_callback(upload_buffer);
 }
 
 void CUDACommandEncoder::visit(const BufferUploadCommand *command) noexcept {
     auto buffer = CUDAHeap::buffer_address(command->handle()) + command->offset();
     auto data = command->data();
     auto size = command->size();
-    with_upload_buffer(size, [&](CUDARingBuffer::View upload_buffer) noexcept {
-        std::memcpy(upload_buffer.address(), data, size);
+    with_upload_buffer(size, [&](auto upload_buffer) noexcept {
+        std::memcpy(upload_buffer->address(), data, size);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            buffer, upload_buffer.address(),
+            buffer, upload_buffer->address(),
             size, _stream->handle()));
     });
 }
@@ -83,10 +81,10 @@ void CUDACommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto pitch = pixel_size * command->size().x;
     auto data = command->data();
     auto size_bytes = pitch * command->size().y * command->size().z;
-    with_upload_buffer(size_bytes, [&](CUDARingBuffer::View upload_buffer) noexcept {
-        std::memcpy(upload_buffer.address(), data, size_bytes);
+    with_upload_buffer(size_bytes, [&](auto upload_buffer) noexcept {
+        std::memcpy(upload_buffer->address(), data, size_bytes);
         copy.srcMemoryType = CU_MEMORYTYPE_HOST;
-        copy.srcHost = upload_buffer.address();
+        copy.srcHost = upload_buffer->address();
         copy.srcPitch = pitch;
         copy.srcHeight = command->size().y;
         copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
