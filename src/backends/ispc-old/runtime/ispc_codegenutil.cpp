@@ -602,7 +602,6 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
                 str << "_float4"sv;
 
             break;
-<<<<<<< HEAD:src/backends/ispc/runtime/ispc_codegenutil.cpp
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
             str << "lc_bindless_texture2d_sample"sv;
             // str << expr->type()->description();
@@ -617,10 +616,8 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
             str << "lc_bindless_buffer_read_"sv;
             str << expr->type()->description();
             break;
-=======
         case CallOp::ASSUME: str << "lc_builtin_assume"; break;
         case CallOp::UNREACHABLE: str << "lc_builtin_unreachable"; break;
->>>>>>> origin:src/backends/ispc-old/runtime/ispc_codegenutil.cpp
         case CallOp::TRACE_CLOSEST:
             str << "trace_closest"sv;
             break;
