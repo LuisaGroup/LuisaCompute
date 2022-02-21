@@ -1181,8 +1181,18 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         }
     }
     if (!opt->customStructVector.empty()) {
-        for (auto ite = opt->customStructVector.rbegin(); ite != opt->customStructVector.rend(); --ite) {
-            auto &&v = *ite;
+        luisa::vector<const StructGenerator *> structures(
+            opt->customStructVector.begin(),
+            opt->customStructVector.end());
+        std::sort(structures.begin(), structures.end(), [](auto lhs, auto rhs) noexcept {
+            return lhs->GetType()->index() < rhs->GetType()->index();
+        });
+        structures.erase(
+            std::unique(structures.begin(), structures.end(), [](auto lhs, auto rhs) noexcept {
+                return lhs->GetType()->hash() == rhs->GetType()->hash();
+            }),
+            structures.end());
+        for (auto v : structures) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
         }
