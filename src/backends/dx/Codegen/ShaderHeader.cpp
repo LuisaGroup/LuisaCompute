@@ -175,7 +175,7 @@ float2x2 Mul(float2x2 a, float2x2 b){ return mul(a, b);}
 
 // Note: do not swap a and b: already swapped in codegen
 float4 Mul(float4x4 b, float4 a){ return mul(a, b);}
-float3 Mul(float3x4 b, float3 a){ return mul(a, b);}
+float3 Mul(float3x4 b, float3 a){ return mul(a, b).xyz;}
 float2 Mul(float2x2 b, float2 a){ return mul(a, b);}
 
 struct WrappedFloat3x3 {
