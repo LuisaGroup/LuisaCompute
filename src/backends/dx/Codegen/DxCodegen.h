@@ -22,6 +22,7 @@ struct CodegenResult {
           properties(std::forward<B>(b)) {}
 };
 class CodegenUtility {
+
 public:
     static constexpr uint64 INLINE_STMT_LIMIT = 5;
     static StructVariableTracker *GetTracker();

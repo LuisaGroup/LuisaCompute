@@ -37,7 +37,7 @@ class StructGenerator : public vstd::IOperatorNewBase {
     vstd::string structName;
     size_t structSize = 0;
     size_t alignCount = 0;
-    size_t alignSize = 0;
+    size_t alignSize = 1;
     size_t idx;
     void InitAsStruct(
         vstd::Iterator<Type const *const> const &vars,
