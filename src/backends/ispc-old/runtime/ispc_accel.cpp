@@ -16,24 +16,25 @@ void ISPCAccel::addMesh(ISPCMesh* mesh, float4x4 transform, bool visible) noexce
     _meshes.emplace_back(mesh);
     _mesh_transforms.emplace_back(transform);
     _mesh_visibilities.emplace_back(visible);
-    // _dirty.emplace(_meshes.size() - 1);
 }
 
 void ISPCAccel::setMesh(size_t index, ISPCMesh* mesh, float4x4 transform, bool visible) noexcept {
     if(_meshes[index] != mesh) {
-        // TODO: detach instance
+        rtcDetachGeometry(_scene, index);
+        rtcReleaseGeometry(_mesh_instances[index]);
     }
     _meshes[index] = mesh;
     _mesh_transforms[index] = transform;
     _mesh_visibilities[index] = visible;
-    // _dirty.emplace(index);
 }
 
 void ISPCAccel::popMesh() noexcept {
+    rtcDetachGeometry(_scene, _meshes.size() - 1);
+    rtcReleaseGeometry(_mesh_instances[_mesh_instances.size() - 1]);
     _meshes.pop_back();
     _mesh_transforms.pop_back();
     _mesh_visibilities.pop_back();
-    // TODO: detach instance
+    _mesh_instances.pop_back();
 }
 
 void ISPCAccel::setVisibility(size_t index, bool visible) noexcept {
@@ -56,7 +57,7 @@ void ISPCAccel::setTransform(size_t index, float4x4 transform) noexcept {
 }
 
 inline void ISPCAccel::buildAllGeometry() noexcept {
-    for(int k=0;k<_meshes.size();k++){
+    for(uint k=0;k<_meshes.size();k++){
         auto& scene = _meshes[k]->scene;
         auto instance = rtcNewGeometry(_device, RTC_GEOMETRY_TYPE_INSTANCE);
         rtcSetGeometryInstancedScene(instance, scene);
@@ -67,7 +68,7 @@ inline void ISPCAccel::buildAllGeometry() noexcept {
         );
         rtcSetGeometryMask(instance, _mesh_visibilities[k] ? 0xffffu : 0x0000u);
         rtcCommitGeometry(instance);
-        rtcAttachGeometry(_scene, instance);
+        rtcAttachGeometryByID(_scene, instance, k);
         _mesh_instances.push_back(instance);
         LUISA_INFO("Build {}", k);
     }
