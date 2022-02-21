@@ -58,6 +58,7 @@ public:
     size_t GetStructSize() const { return structSize; }
     size_t Index() const { return idx; }
     size_t AlignCount() const { return alignCount; }
+    size_t AlignSize() const { return alignSize; }
     StructGenerator(
         Type const *structureType,
         size_t structIdx,

@@ -703,7 +703,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::MAKE_FLOAT3:
         case CallOp::MAKE_FLOAT4:
         case CallOp::MAKE_FLOAT2X2:
-        case CallOp::MAKE_FLOAT3X3:
         case CallOp::MAKE_FLOAT4X4: {
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
@@ -712,6 +711,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
             return;
         }
+        case CallOp::MAKE_FLOAT3X3: {
+            if (args.size() == 1 && (args[0]->type() == expr->type())) {
+                args[0]->accept(vis);
+                return;
+            } else {
+                str << "make_float4x3";
+            }
+        } break;
         case CallOp::BUFFER_READ:
             str << "bfread"sv;
             if (IsNumVec3(*args[0]->type()->element())) {
@@ -1014,6 +1021,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     if (kernel.tag() != Function::Tag::KERNEL) return {};
     ClearStructType();
     vstd::string codegenData;
+    vstd::string beforeStructData;
     // Custom callable
     {
         vstd::HashMap<void const *> callableMap;
@@ -1030,6 +1038,104 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     }
     vstd::string finalResult;
     finalResult.reserve(65500);
+  
+    vstd::string propertyResult;
+    GenerateCBuffer(kernel, kernel.arguments(), propertyResult);
+    // Bindless Buffers;
+    for (auto &&i : opt->bindlessBufferTypes) {
+        propertyResult << "StructuredBuffer<"sv;
+        GetTypeName(*i.first, propertyResult, Usage::READ);
+        propertyResult << "> bdls"sv
+                    << vstd::to_string(i.second)
+                    << "[]:register(t0,space1);\n"sv;
+    }
+    CodegenResult::Properties properties;
+    properties.reserve(kernel.arguments().size() + 2);
+    properties.emplace_back(
+        "_Global"sv,
+        Shader::Property{
+            ShaderVariableType::ConstantBuffer,
+            0,
+            0,
+            0});
+    properties.emplace_back(
+        "_BindlessTex"sv,
+        Shader::Property{
+            ShaderVariableType::SRVDescriptorHeap,
+            1,
+            0,
+            0});
+    enum class RegisterType : vbyte {
+        CBV,
+        UAV,
+        SRV
+    };
+    uint registerCount[3] = {0, 0, 0};
+    auto Writable = [&](Variable const &v) {
+        return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
+    };
+    for (auto &&i : kernel.arguments()) {
+        auto print = [&] {
+            GetTypeName(*i.type(), propertyResult, kernel.variable_usage(i.uid()));
+            propertyResult << ' ';
+            vstd::string varName;
+            GetVariableName(i, varName);
+            propertyResult << varName;
+            return varName;
+        };
+        auto printInstBuffer = [&] {
+            propertyResult
+                << "StructuredBuffer<float4x3>"sv
+                << ' ';
+            vstd::string varName;
+            GetVariableName(i, varName);
+            varName << "Inst"sv;
+            propertyResult << varName;
+            return varName;
+        };
+        auto genArg = [&]<bool rtBuffer = false>(RegisterType regisT, ShaderVariableType sT, char v) {
+            auto &&r = registerCount[(vbyte)regisT];
+            Shader::Property prop = {
+                .type = sT,
+                .spaceIndex = 0,
+                .registerIndex = r,
+                .arrSize = 0};
+            if constexpr (rtBuffer) {
+                properties.emplace_back(printInstBuffer(), prop);
+
+            } else {
+                properties.emplace_back(print(), prop);
+            }
+            propertyResult << ":register("sv << v;
+            vstd::to_string(r, propertyResult);
+            propertyResult << ");\n"sv;
+            r++;
+        };
+
+        switch (i.type()->tag()) {
+            case Type::Tag::TEXTURE:
+                if (Writable(i)) {
+                    genArg(RegisterType::UAV, ShaderVariableType::UAVDescriptorHeap, 'u');
+                } else {
+                    genArg(RegisterType::SRV, ShaderVariableType::SRVDescriptorHeap, 't');
+                }
+                break;
+            case Type::Tag::BUFFER: {
+                if (Writable(i)) {
+                    genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
+                } else {
+                    genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                }
+            } break;
+            case Type::Tag::BINDLESS_ARRAY:
+                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                break;
+            case Type::Tag::ACCEL:
+                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                break;
+        }
+    }
     if (!opt->customStructVector.empty()) {
         for (auto ite = opt->customStructVector.rbegin(); ite != opt->customStructVector.rend(); --ite) {
             auto &&v = *ite;
@@ -1061,102 +1167,7 @@ struct RayPayload{
 )"sv;
         }
     }
-    GenerateCBuffer(kernel, kernel.arguments(), finalResult);
-    // Bindless Buffers;
-    for (auto &&i : opt->bindlessBufferTypes) {
-        finalResult << "StructuredBuffer<"sv;
-        GetTypeName(*i.first, finalResult, Usage::READ);
-        finalResult << "> bdls"sv
-                    << vstd::to_string(i.second)
-                    << "[]:register(t0,space1);\n"sv;
-    }
-    CodegenResult::Properties properties;
-    properties.reserve(kernel.arguments().size() + 2);
-    properties.emplace_back(
-        "_Global"sv,
-        Shader::Property{
-            ShaderVariableType::ConstantBuffer,
-            0,
-            0,
-            0});
-    properties.emplace_back(
-        "_BindlessTex"sv,
-        Shader::Property{
-            ShaderVariableType::SRVDescriptorHeap,
-            1,
-            0,
-            0});
-    enum class RegisterType : vbyte {
-        CBV,
-        UAV,
-        SRV
-    };
-    uint registerCount[3] = {0, 0, 0};
-    auto Writable = [&](Variable const &v) {
-        return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
-    };
-    for (auto &&i : kernel.arguments()) {
-        auto print = [&] {
-            GetTypeName(*i.type(), finalResult, kernel.variable_usage(i.uid()));
-            finalResult << ' ';
-            vstd::string varName;
-            GetVariableName(i, varName);
-            finalResult << varName;
-            return varName;
-        };
-        auto printInstBuffer = [&] {
-            finalResult
-                << "StructuredBuffer<float4x3>"sv
-                << ' ';
-            vstd::string varName;
-            GetVariableName(i, varName);
-            varName << "Inst"sv;
-            finalResult << varName;
-            return varName;
-        };
-        auto genArg = [&]<bool rtBuffer = false>(RegisterType regisT, ShaderVariableType sT, char v) {
-            auto &&r = registerCount[(vbyte)regisT];
-            Shader::Property prop = {
-                .type = sT,
-                .spaceIndex = 0,
-                .registerIndex = r,
-                .arrSize = 0};
-            if constexpr (rtBuffer) {
-                properties.emplace_back(printInstBuffer(), prop);
-
-            } else {
-                properties.emplace_back(print(), prop);
-            }
-            finalResult << ":register("sv << v;
-            vstd::to_string(r, finalResult);
-            finalResult << ");\n"sv;
-            r++;
-        };
-
-        switch (i.type()->tag()) {
-            case Type::Tag::TEXTURE:
-                if (Writable(i)) {
-                    genArg(RegisterType::UAV, ShaderVariableType::UAVDescriptorHeap, 'u');
-                } else {
-                    genArg(RegisterType::SRV, ShaderVariableType::SRVDescriptorHeap, 't');
-                }
-                break;
-            case Type::Tag::BUFFER: {
-                if (Writable(i)) {
-                    genArg(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
-                } else {
-                    genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
-                }
-            } break;
-            case Type::Tag::BINDLESS_ARRAY:
-                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
-                break;
-            case Type::Tag::ACCEL:
-                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
-                genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
-                break;
-        }
-    }
+    finalResult << propertyResult;
     if (kernel.raytracing()) {
         if (opt->rayDesc) {
             finalResult << "#define LCRayDesc "sv << opt->rayDesc->GetStructName() << '\n';

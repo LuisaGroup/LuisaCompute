@@ -179,9 +179,13 @@ struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
     void operator()(T const &v, vstd::string &varName) {
-        varName << "float";
-        auto ss = vstd::to_string(N);
-        varName << ss << 'x' << ss << '(';
+        if constexpr (N == 3) {
+            varName << "make_float4x3("sv;
+        } else {
+            varName << "float";
+            auto ss = vstd::to_string(N);
+            varName << ss << 'x' << ss << '(';
+        }
         PrintValue<Vector<EleType, N>> vecPrinter;
         for (uint64 i = 0; i < N; ++i) {
             vecPrinter.PureRun(v[i], varName);
