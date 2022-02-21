@@ -46,7 +46,6 @@ public:
     }
     static void GetFunctionDecl(Function func, vstd::string &str);
     static void GetFunctionName(CallExpr const *expr, vstd::string &result, StringStateVisitor &visitor);
-    static void ClearStructType();
     static void RegistStructType(Type const *type);
 
     static void CodegenFunction(
@@ -180,7 +179,7 @@ struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
     void operator()(T const &v, vstd::string &varName) {
-        varName << "make_float";
+        varName << "make_float"sv;
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';
         PrintValue<Vector<EleType, N>> vecPrinter;
