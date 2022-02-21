@@ -266,18 +266,17 @@ public:
                                      OPTIX_SBT_RECORD_ALIGNMENT *
                                      OPTIX_SBT_RECORD_ALIGNMENT;
             auto sbt_buffer = _argument_and_sbt_buffer + sbt_buffer_offset;
-            auto sbt_record_buffer = stream->upload_pool()->allocate(sizeof(SBTRecord) * 4u);
-            auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer.address());
+            constexpr auto sbt_buffer_size = sizeof(SBTRecord) * 4u;
+            auto sbt_record_buffer = stream->upload_pool()->allocate(sbt_buffer_size);
+            auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer->address());
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_any, &sbt_records[2]));
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-                sbt_buffer, sbt_record_buffer.address(),
-                sbt_record_buffer.size(), stream->handle()));
-            stream->emplace_callback(
-                CUDARingBuffer::RecycleContext::create(
-                    sbt_record_buffer, stream->upload_pool()));
+                sbt_buffer, sbt_record_buffer->address(),
+                sbt_buffer_size, stream->handle()));
+            stream->emplace_callback(sbt_record_buffer);
             _sbt.raygenRecord = sbt_buffer;
             _sbt.hitgroupRecordBase = sbt_buffer + sizeof(SBTRecord);
             _sbt.hitgroupRecordCount = 2u;
@@ -298,7 +297,7 @@ public:
                 LUISA_ERROR_WITH_LOCATION(
                     "Too many arguments in ShaderDispatchCommand");
             }
-            return argument_buffer.address() + offset;
+            return argument_buffer->address() + offset;
         };
 
         command->decode([&](auto, auto argument) noexcept -> void {
@@ -330,11 +329,9 @@ public:
             }
         });
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            _argument_and_sbt_buffer, argument_buffer.address(),
-            argument_buffer.size(), stream->handle()));
-        stream->emplace_callback(
-            CUDARingBuffer::RecycleContext::create(
-                argument_buffer, stream->upload_pool()));
+            _argument_and_sbt_buffer, argument_buffer->address(),
+            _argument_buffer_size, stream->handle()));
+        stream->emplace_callback(argument_buffer);
         LUISA_CHECK_OPTIX(optixLaunch(
             _pipeline, stream->handle(),
             _argument_and_sbt_buffer, _argument_buffer_size, &_sbt,

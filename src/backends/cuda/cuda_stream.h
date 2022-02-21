@@ -11,7 +11,7 @@
 #include <core/stl.h>
 #include <core/spin_mutex.h>
 #include <backends/cuda/cuda_callback_context.h>
-#include <backends/cuda/cuda_ring_buffer.h>
+#include <backends/cuda/cuda_host_buffer_pool.h>
 
 namespace luisa::compute::cuda {
 
@@ -21,7 +21,7 @@ class CUDAStream {
 
 private:
     CUstream _handle;
-    CUDARingBuffer _upload_pool;
+    CUDAHostBufferPool _upload_pool;
     luisa::queue<luisa::vector<CUDACallbackContext *>> _callback_lists;
     luisa::vector<CUDACallbackContext *> _current_callbacks;
     std::mutex _mutex;

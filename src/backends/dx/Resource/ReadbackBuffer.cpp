@@ -40,10 +40,10 @@ void ReadbackBuffer::CopyData(
 	void* mapPtr;
 	D3D12_RANGE range;
 	range.Begin = offset;
-	range.End = std::min(byteSize, offset + data.size());
+    range.End = offset + data.size();
 	ThrowIfFailed(allocHandle.resource->Map(0, &range, (void**)(&mapPtr)));
 	auto d = vstd::create_disposer([&] { allocHandle.resource->Unmap(0, nullptr); });
-	memcpy(data.data(), reinterpret_cast<vbyte const*>(mapPtr) + offset, range.End - range.Begin);
+    memcpy(data.data(), reinterpret_cast<vbyte const *>(mapPtr) + offset, data.size());
 }
 
 }// namespace toolhub::directx

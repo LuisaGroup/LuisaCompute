@@ -4,9 +4,7 @@
 #include <Codegen/StructGenerator.h>
 #include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
-static bool IsFloat3x3(Type const &t) {
-    return t.is_matrix() && t.dimension() == 3;
-}
+
 void StringStateVisitor::visit(const UnaryExpr *expr) {
 
     switch (expr->op()) {
@@ -27,29 +25,41 @@ void StringStateVisitor::visit(const UnaryExpr *expr) {
 }
 void StringStateVisitor::visit(const BinaryExpr *expr) {
 
+    auto op = expr->op();
     auto IsMulFuncCall = [&]() -> bool {
-        if (expr->op() == BinaryOp::MUL) {
-            if ((expr->lhs()->type()->is_matrix() && (!expr->rhs()->type()->is_scalar())) || (expr->rhs()->type()->is_matrix() && (!expr->lhs()->type()->is_scalar()))) {
+        if (op == BinaryOp::MUL) {
+            if ((expr->lhs()->type()->is_matrix() &&
+                 (!expr->rhs()->type()->is_scalar())) ||
+                (expr->rhs()->type()->is_matrix() &&
+                 (!expr->lhs()->type()->is_scalar()))) {
                 return true;
             }
         }
         return false;
     };
     if (IsMulFuncCall()) {
-        if (IsFloat3x3(*expr->lhs()->type()) || IsFloat3x3(*expr->rhs()->type())) {
-            str << "mul("sv;
-        } else {
-            str << "FMul("sv;
-        }
-        expr->rhs()->accept(*this);//Reverse matrix
-        str << ',';
+        str << "Mul("sv;
         expr->lhs()->accept(*this);
+        str << ',';
+        expr->rhs()->accept(*this);//Reverse matrix
         str << ')';
 
+    } else if (op == BinaryOp::AND) {
+        str << "and(";
+        expr->lhs()->accept(*this);
+        str << ",";
+        expr->rhs()->accept(*this);
+        str << ")";
+    } else if (op == BinaryOp::OR) {
+        str << "or(";
+        expr->lhs()->accept(*this);
+        str << ",";
+        expr->rhs()->accept(*this);
+        str << ")";
     } else {
 
         expr->lhs()->accept(*this);
-        switch (expr->op()) {
+        switch (op) {
             case BinaryOp::ADD:
                 str << '+';
                 break;
@@ -80,12 +90,6 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
             case BinaryOp::SHR:
                 str << ">>"sv;
                 break;
-            case BinaryOp::AND:
-                str << "&&"sv;
-                break;
-            case BinaryOp::OR:
-                str << "||"sv;
-                break;
             case BinaryOp::LESS:
                 str << '<';
                 break;
@@ -104,6 +108,9 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
             case BinaryOp::NOT_EQUAL:
                 str << "!="sv;
                 break;
+            default:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Not implemented.");
         }
         expr->rhs()->accept(*this);
     }
@@ -128,14 +135,24 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
     }
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
-    expr->range()->accept(*this);
     auto t = expr->range()->type();
-    if (t && (t->is_buffer() || t->is_vector()))
+    if (t->is_buffer() || t->is_vector() || t->is_matrix()) {
+        expr->range()->accept(*this);
         str << '[';
-    else
+        expr->index()->accept(*this);
+        str << ']';
+//    } else if (t->is_matrix()) {
+//        str << "access(";
+//        expr->range()->accept(*this);
+//        str << ",";
+//        expr->index()->accept(*this);
+//        str << ")";
+    } else {
+        expr->range()->accept(*this);
         str << ".v[";
-    expr->index()->accept(*this);
-    str << ']';
+        expr->index()->accept(*this);
+        str << ']';
+    }
 }
 void StringStateVisitor::visit(const RefExpr *expr) {
 
@@ -265,11 +282,9 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 }
 
 void StringStateVisitor::visit(const AssignStmt *state) {
-    {
-        AssignSetter setter;
-        state->lhs()->accept(*this);
-        str << '=';
-    }
+    state->lhs()->accept(*this);
+    str << '=';
+
     state->rhs()->accept(*this);
     str << ";\n";
 }
@@ -293,10 +308,18 @@ StringStateVisitor::StringStateVisitor(
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
     for (auto &&v : stmt->variables()) {
-        CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
-        str << ' ';
-        CodegenUtility::GetVariableName(v, str);
-        str << ";\n";
+        if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
+            vstd::string typeName;
+            CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+            str << typeName << ' ';
+            CodegenUtility::GetVariableName(v, str);
+            str << "=("sv << typeName << ")0;\n";
+        } else {
+            CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
+            str << ' ';
+            CodegenUtility::GetVariableName(v, str);
+            str << ";\n";
+        }
     }
     stmt->scope()->accept(*this);
 }

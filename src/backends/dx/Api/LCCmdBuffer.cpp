@@ -29,7 +29,12 @@ public:
         void EmplaceData(T const &data) {
             size_t sz = argVec->size();
             argVec->resize(sz + sizeof(T));
-            *reinterpret_cast<T *>(argVec->data() + sz) = data;
+            using PlaceHolder = std::aligned_storage_t<sizeof(T), 1>;
+            *reinterpret_cast<PlaceHolder *>(argVec->data() + sz) =
+                *reinterpret_cast<PlaceHolder const *>(&data);
+        }
+        void EmplaceEmpty(size_t size) {
+            argVec->resize(argVec->size() + size);
         }
         template<typename T>
         void EmplaceData(T const *data, size_t size) {
@@ -77,10 +82,18 @@ public:
             ++arg;
         }
         void operator()(uint uid, vstd::span<std::byte const> bf) {
+            size_t originPtrValue = reinterpret_cast<size_t>(bf.data());
             auto PushArray = [&](size_t sz) {
                 bf = {bf.data() + sz, bf.size() - sz};
             };
-            auto AddArg = [&](auto &AddArg, Type const *type) -> void {
+            size_t end = reinterpret_cast<size_t>(bf.data() + bf.size());
+            auto AlignBuffer = [&](size_t align) {
+                size_t ptrValue = reinterpret_cast<size_t>(bf.data()) - originPtrValue;
+                ptrValue = CalcAlign(ptrValue, align);
+                bf = {reinterpret_cast<std::byte const *>(originPtrValue + ptrValue),
+                      (end - ptrValue)};
+            };
+            auto AddArg = [&](auto &AddArg, Type const *type, bool needAlign) -> void {
                 switch (type->tag()) {
                     case Type::Tag::BOOL: {
 
@@ -95,6 +108,9 @@ public:
                     case Type::Tag::UINT:
                     case Type::Tag::INT:
                     case Type::Tag::FLOAT:
+                        if (needAlign) {
+                            AlignBuffer(4);
+                        }
                         EmplaceData<uint>(*(uint const *)bf.data());
                         PushArray(4);
                         break;
@@ -112,43 +128,71 @@ public:
                                 align = 16;
                                 break;
                         }
+                        if (needAlign) {
+                            AlignBuffer(align);
+                        }
                         UniformAlign(align);
                         EmplaceData<uint>((uint const *)bf.data(), type->dimension());
                         PushArray(align);
                     } break;
-                    case Type::Tag::MATRIX:
+                    case Type::Tag::MATRIX: {
+                        {
+                            size_t align = 1;
+                            switch (type->dimension()) {
+                                case 1:
+                                    align = 4;
+                                    break;
+                                case 2:
+                                    align = 8;
+                                    break;
+                                case 3:
+                                case 4:
+                                    align = 16;
+                                    break;
+                            }
+                            if (needAlign) {
+                                AlignBuffer(align);
+                            }
+                        }
+                        UniformAlign(16);
                         switch (type->dimension()) {
-                            case 2:
-                                UniformAlign(8);
-                                EmplaceData(*(float2x2 const *)bf.data());
+                            case 2: {
+                                float2 const *ptr = reinterpret_cast<float2 const *>(bf.data());
+                                // float2x2 = float4x2
+                                EmplaceData(*ptr);
+                                EmplaceEmpty(sizeof(float2));
+                                ptr++;
+                                EmplaceData(*ptr);
+                                EmplaceEmpty(sizeof(float2));
                                 PushArray(sizeof(float2x2));
-                                break;
+                            } break;
                             case 3:
-                                UniformAlign(16);
                                 EmplaceData(*(float3x3 const *)bf.data());
                                 PushArray(sizeof(float3x3));
                                 break;
                             case 4:
-                                UniformAlign(16);
                                 EmplaceData(*(float4x4 const *)bf.data());
                                 PushArray(sizeof(float4x4));
                         }
-                        break;
+                    } break;
                     case Type::Tag::ARRAY:
                         for (auto i : vstd::range(type->dimension())) {
                             UniformAlign(16);
-                            AddArg(AddArg, type->element());
+                            AlignBuffer(type->element()->alignment());
+                            AddArg(AddArg, type->element(), true);
                         }
                         break;
-                    case Type::Tag::STRUCTURE:
+                    case Type::Tag::STRUCTURE: {
+
                         UniformAlign(16);
-                        argVec->push_back_all(
-                            (vbyte const *)bf.data(),
-                            bf.size());
-                        break;
+                        AlignBuffer(type->alignment());
+                        for (auto &&i : type->members()) {
+                            AddArg(AddArg, i, true);
+                        }
+                    } break;
                 }
             };
-            AddArg(AddArg, arg->type());
+            AddArg(AddArg, arg->type(), false);
             ++arg;
         }
         void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {

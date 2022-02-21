@@ -59,16 +59,8 @@ ComputeShader *ComputeShader::CompileCompute(
     };
     static DXShaderCompiler dxCompiler;
     auto md5 = vstd::MD5(vstd::span<vbyte const>((vbyte const *)str.result.data(), str.result.size()));
-
     vstd::string path;
     vstd::string psoPath;
-    path << ".cache/" << md5.ToString();
-    psoPath = path;
-    path << ".cso";
-    psoPath << ".pso";
-    SerializeVisitor visitor(
-        path,
-        psoPath);
     auto savePso = [&](ComputeShader const *cs) {
         auto f = fopen(psoPath.c_str(), "wb");
         if (f) {
@@ -78,69 +70,81 @@ ComputeShader *ComputeShader::CompileCompute(
             fwrite(psoCache->GetBufferPointer(), psoCache->GetBufferSize(), 1, f);
         }
     };
-    //Cached
-    if (visitor.csoReader) {
-        auto result = ShaderSerializer::DeSerialize(
-            str.properties,
-            device,
-            md5,
-            visitor);
-        //std::cout << "Read cache success!"sv << '\n';
-        if (visitor.oldDeleted) {
-            savePso(result);
+    path << ".cache/" << md5.ToString();
+    psoPath = path;
+    path << ".cso";
+    psoPath << ".pso";
+    static constexpr bool USE_CACHE = 0;
+    if constexpr (USE_CACHE) {
+        SerializeVisitor visitor(
+            path,
+            psoPath);
+
+        //Cached
+        if (visitor.csoReader) {
+            auto result = ShaderSerializer::DeSerialize(
+                str.properties,
+                device,
+                md5,
+                visitor);   
+            if (result) {
+                //std::cout << "Read cache success!"sv << '\n';
+                if (visitor.oldDeleted) {
+                    savePso(result);
+                }
+                return result;
+            }
         }
-        return result;
     }
     // Not Cached
-    else {
-        vstd::string compileString(GetHLSLHeader());
-        auto compResult = [&] {
-            compileString << str.result;
-            return dxCompiler.CompileCompute(
-                compileString,
-                true,
-                shaderModel);
-        }();
-        /*std::cout
+    vstd::string compileString(GetHLSLHeader());  
+    auto compResult = [&] {
+        compileString << str.result;
+        std::cout
             << "\n===============================\n"
             << compileString
-            << "\n===============================\n";*/
-        str.properties.emplace_back(
-            "samplers"sv,
-            Shader::Property{
-                ShaderVariableType::SampDescriptorHeap,
-                1u,
-                0u,
-                16u});
-        return compResult.multi_visit_or(
-            (ComputeShader *)nullptr,
-            [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
-                auto f = fopen(path.c_str(), "wb");
-                if (f) {
-                    auto disp = vstd::create_disposer([&] { fclose(f); });
-                    auto serData = ShaderSerializer::Serialize(
-                        str.properties,
-                        {buffer->GetBufferPtr(), buffer->GetBufferSize()},
-                        blockSize);
-                    fwrite(serData.data(), serData.size(), 1, f);
-                    //std::cout << "Save cache success!"sv << '\n';
-                }
-                auto cs = new ComputeShader(
-                    blockSize,
+            << "\n===============================\n";
+        return dxCompiler.CompileCompute(
+            compileString,
+            true,
+            shaderModel);
+    }();
+    str.properties.emplace_back(
+        "samplers"sv,
+        Shader::Property{
+            ShaderVariableType::SampDescriptorHeap,
+            1u,
+            0u,
+            16u});
+    return compResult.multi_visit_or(
+        (ComputeShader *)nullptr,
+        [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
+            auto f = fopen(path.c_str(), "wb");
+            if (f) {
+                auto disp = vstd::create_disposer([&] { fclose(f); });
+                auto serData = ShaderSerializer::Serialize(
                     str.properties,
-                    {buffer->GetBufferPtr(),
-                     buffer->GetBufferSize()},
-                    device,
-                    md5);
-                savePso(cs);
-                return cs;
-            },
-            [](auto &&err) {
-                std::cout << err << '\n';
-                VSTL_ABORT();
-                return nullptr;
-            });
-    }
+                    {buffer->GetBufferPtr(), buffer->GetBufferSize()},
+                    md5,
+                    blockSize);
+                fwrite(serData.data(), serData.size(), 1, f);
+                //std::cout << "Save cache success!"sv << '\n';
+            }
+            auto cs = new ComputeShader(
+                blockSize,
+                str.properties,
+                {buffer->GetBufferPtr(),
+                 buffer->GetBufferSize()},
+                device,
+                md5);
+            savePso(cs);
+            return cs;
+        },
+        [](auto &&err) {
+            std::cout << err << '\n';
+            VSTL_ABORT();
+            return nullptr;
+        });
 }
 ComputeShader::ComputeShader(
     uint3 blockSize,

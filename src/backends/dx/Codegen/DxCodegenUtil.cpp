@@ -12,7 +12,6 @@ namespace toolhub::directx {
 static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
 static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
 struct CodegenGlobal {
-    size_t isAssigning = 0;
     int64 scopeCount = -1;
     vstd::HashMap<Type const *, uint64> structTypes;
     vstd::HashMap<uint64, uint64> constTypes;
@@ -31,6 +30,7 @@ struct CodegenGlobal {
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;
     vstd::HashMap<vstd::string, vstd::string> structReplaceName;
+    luisa::unordered_set<uint64_t> generatedConstants;
     CodegenGlobal()
         : generateStruct(
               [this](Type const *t) {
@@ -46,7 +46,6 @@ struct CodegenGlobal {
     void Clear() {
         rayDesc = nullptr;
         hitDesc = nullptr;
-        isAssigning = 0;
         scopeCount = -1;
         structTypes.Clear();
         constTypes.Clear();
@@ -54,6 +53,7 @@ struct CodegenGlobal {
         bindlessBufferTypes.Clear();
         customStruct.Clear();
         customStructVector.clear();
+        generatedConstants.clear();
         tracker.Clear();
         constCount = 0;
         count = 0;
@@ -75,14 +75,16 @@ struct CodegenGlobal {
         if (ite) {
             return ite.Value().get();
         }
+        auto sz = customStructVector.size();
+        customStructVector.emplace_back(nullptr);
         auto newPtr = new StructGenerator(
             t,
-            customStructVector.size(),
+            sz,
             generateStruct);
         customStruct.ForceEmplace(
             t,
             vstd::create_unique(newPtr));
-        customStructVector.emplace_back(newPtr);
+        customStructVector[sz] = newPtr;
         if (t->description() == rayTypeDesc) {
             rayDesc = newPtr;
         } else if (t->description() == hitTypeDesc) {
@@ -142,15 +144,6 @@ vstd::string CodegenUtility::GetNewTempVarName() {
     vstd::to_string(opt->tempCount, name);
     opt->tempCount++;
     return name;
-}
-AssignSetter::AssignSetter() {
-    opt->isAssigning += 1;
-}
-AssignSetter::~AssignSetter() {
-    opt->isAssigning -= 1;
-}
-bool AssignSetter::IsAssigning() {
-    return opt->isAssigning;
 }
 StructGenerator const *CodegenUtility::GetStruct(
     Type const *type) {
@@ -393,9 +386,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                     return 1;
             }
         }();
+        auto is_make_float3x3 = expr->type()->is_matrix() &&
+                                expr->type()->dimension() == 3u;
         if (args.size() == 1 && args[0]->type()->is_scalar()) {
             str << '(';
             str << '(';
+            if (is_make_float3x3) { str << "make_"; }
             GetTypeName(*expr->type(), str, Usage::READ);
             str << ')';
             str << '(';
@@ -406,6 +402,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             *(str.end() - 1) = ')';
             str << ')';
         } else {
+            if (is_make_float3x3) { str << "make_"; }
             GetTypeName(*expr->type(), str, Usage::READ);
             str << '(';
             uint count = 0;
@@ -527,22 +524,22 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "reverse"sv;
             break;
         case CallOp::ISINF:
-            str << "isinf"sv;
+            str << "_isinf"sv;
             break;
         case CallOp::ISNAN:
-            str << "isnan"sv;
+            str << "_isnan"sv;
             break;
         case CallOp::ACOS:
             str << "acos"sv;
             break;
         case CallOp::ACOSH:
-            str << "acosh"sv;
+            str << "_acosh"sv;
             break;
         case CallOp::ASIN:
             str << "asin"sv;
             break;
         case CallOp::ASINH:
-            str << "asinh"sv;
+            str << "_asinh"sv;
             break;
         case CallOp::ATAN:
             str << "atan"sv;
@@ -551,7 +548,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "atan2"sv;
             break;
         case CallOp::ATANH:
-            str << "atanh"sv;
+            str << "_atanh"sv;
             break;
         case CallOp::COS:
             str << "cos"sv;
@@ -578,7 +575,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "exp2"sv;
             break;
         case CallOp::EXP10:
-            str << "exp10"sv;
+            str << "_exp10"sv;
             break;
         case CallOp::LOG:
             str << "log"sv;
@@ -638,7 +635,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "determinant"sv;
             break;
         case CallOp::TRANSPOSE:
-            str << "transpose"sv;
+            str << "my_transpose"sv;
             break;
         case CallOp::INVERSE:
             str << "_inverse"sv;
@@ -708,7 +705,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::MAKE_FLOAT3:
         case CallOp::MAKE_FLOAT4:
         case CallOp::MAKE_FLOAT2X2:
-        case CallOp::MAKE_FLOAT3X3:
         case CallOp::MAKE_FLOAT4X4: {
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
@@ -717,18 +713,26 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
             return;
         }
+        case CallOp::MAKE_FLOAT3X3: {
+            if (args.size() == 1 && (args[0]->type() == expr->type())) {
+                args[0]->accept(vis);
+                return;
+            } else {
+                str << "make_float4x3";
+            }
+        } break;
         case CallOp::BUFFER_READ:
             str << "bfread"sv;
             if (IsNumVec3(*args[0]->type()->element())) {
                 str << "Vec3"sv;
             }
             break;
-        case CallOp::BUFFER_WRITE:
+        case CallOp::BUFFER_WRITE: {
             str << "bfwrite"sv;
             if (IsNumVec3(*args[0]->type()->element())) {
                 str << "Vec3"sv;
             }
-            break;
+        } break;
         case CallOp::TRACE_CLOSEST:
             str << "TraceClosest"sv;
             break;
@@ -801,6 +805,45 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
     PrintArgs();
     str << ')';
 }
+size_t CodegenUtility::GetTypeSize(Type const &t) {
+    switch (t.tag()) {
+        case Type::Tag::BOOL:
+        case Type::Tag::FLOAT:
+        case Type::Tag::INT:
+        case Type::Tag::UINT:
+            return 4;
+        case Type::Tag::VECTOR:
+            switch (t.dimension()) {
+                case 1:
+                    return 4;
+                case 2:
+                    return 8;
+                default:
+                    return 16;
+            }
+        case Type::Tag::MATRIX: {
+            return 4 * t.dimension() * sizeof(float);
+        }
+        case Type::Tag::STRUCTURE: {
+            size_t v = 0;
+            size_t maxAlign = 0;
+            for (auto &&i : t.members()) {
+                auto align = GetTypeAlign(*i);
+                v = CalcAlign(v, align);
+                maxAlign = std::max(align, align);
+                v += GetTypeSize(*i);
+            }
+            v = CalcAlign(v, maxAlign);
+            return v;
+        }
+        case Type::Tag::ARRAY: {
+            return GetTypeSize(*t.element()) * t.dimension();
+        }
+        default:
+            return 0;
+    }
+}
+
 size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     switch (t.tag()) {
         case Type::Tag::BOOL:
@@ -810,7 +853,6 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
             return 4;
             // TODO: incorrect
         case Type::Tag::VECTOR:
-        case Type::Tag::MATRIX:
             switch (t.dimension()) {
                 case 1:
                     return 4;
@@ -819,8 +861,12 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
                 default:
                     return 16;
             }
-        case Type::Tag::ARRAY:
+        case Type::Tag::MATRIX: {
+            return 16;
+        }
+        case Type::Tag::ARRAY: {
             return GetTypeAlign(*t.element());
+        }
         case Type::Tag::STRUCTURE: {
             return 16;
         }
@@ -834,7 +880,6 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
                 "Invalid type: {}.", t.description());
     }
 }
-
 
 template<typename T>
 struct TypeNameStruct {
@@ -899,6 +944,9 @@ void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
     }
     auto constants = func.constants();
     for (auto &&i : constants) {
+        if (!opt->generatedConstants.emplace(i.hash()).second) {
+            continue;
+        }
         GetTypeName(*i.type, result, Usage::READ);
         result << ' ';
         vstd::string constName;
@@ -965,6 +1013,7 @@ uint3 dsp_c;
             structSize,
             alignCount,
             result);
+        structSize += GetTypeSize(*i.type());
         GetTypeName(*i.type(), result, f.variable_usage(i.uid()));
         result << ' ';
         GetVariableName(i, result);
@@ -977,6 +1026,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     if (kernel.tag() != Function::Tag::KERNEL) return {};
     ClearStructType();
     vstd::string codegenData;
+    vstd::string beforeStructData;
     // Custom callable
     {
         vstd::HashMap<void const *> callableMap;
@@ -993,42 +1043,14 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     }
     vstd::string finalResult;
     finalResult.reserve(65500);
-    if (!opt->customStructVector.empty()) {
-        for (auto &&v : opt->customStructVector) {
-            finalResult << "struct " << v->GetStructName() << "{\n"
-                        << v->GetStructDesc() << "};\n";
-        }
-    }
-    if (kernel.raytracing()) {
-        if (!opt->rayDesc) {
-            finalResult << R"(
-struct FLOATV3{
-    float v[3];
-};
-struct LCRayDesc{
-    FLOATV3 v0;
-    float v1;
-    FLOATV3 v2;
-    float v3;
-};
-)"sv;
-        }
-        if (!opt->hitDesc) {
-            finalResult << R"(
-struct RayPayload{
-    uint v0;
-    uint v1;
-    float2 v2;
-};
-)"sv;
-        }
-    }
-    GenerateCBuffer(kernel, kernel.arguments(), finalResult);
+  
+    vstd::string propertyResult;
+    GenerateCBuffer(kernel, kernel.arguments(), propertyResult);
     // Bindless Buffers;
     for (auto &&i : opt->bindlessBufferTypes) {
-        finalResult << "StructuredBuffer<"sv;
-        GetTypeName(*i.first, finalResult, Usage::READ);
-        finalResult << "> bdls"sv
+        propertyResult << "StructuredBuffer<"sv;
+        GetTypeName(*i.first, propertyResult, Usage::READ);
+        propertyResult << "> bdls"sv
                     << vstd::to_string(i.second)
                     << "[]:register(t0,space1);\n"sv;
     }
@@ -1059,21 +1081,21 @@ struct RayPayload{
     };
     for (auto &&i : kernel.arguments()) {
         auto print = [&] {
-            GetTypeName(*i.type(), finalResult, kernel.variable_usage(i.uid()));
-            finalResult << ' ';
+            GetTypeName(*i.type(), propertyResult, kernel.variable_usage(i.uid()));
+            propertyResult << ' ';
             vstd::string varName;
             GetVariableName(i, varName);
-            finalResult << varName;
+            propertyResult << varName;
             return varName;
         };
         auto printInstBuffer = [&] {
-            finalResult
+            propertyResult
                 << "StructuredBuffer<float4x3>"sv
                 << ' ';
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;
-            finalResult << varName;
+            propertyResult << varName;
             return varName;
         };
         auto genArg = [&]<bool rtBuffer = false>(RegisterType regisT, ShaderVariableType sT, char v) {
@@ -1089,9 +1111,9 @@ struct RayPayload{
             } else {
                 properties.emplace_back(print(), prop);
             }
-            finalResult << ":register("sv << v;
-            vstd::to_string(r, finalResult);
-            finalResult << ");\n"sv;
+            propertyResult << ":register("sv << v;
+            vstd::to_string(r, propertyResult);
+            propertyResult << ");\n"sv;
             r++;
         };
 
@@ -1119,6 +1141,38 @@ struct RayPayload{
                 break;
         }
     }
+    if (!opt->customStructVector.empty()) {
+        for (auto ite = opt->customStructVector.rbegin(); ite != opt->customStructVector.rend(); --ite) {
+            auto &&v = *ite;
+            finalResult << "struct " << v->GetStructName() << "{\n"
+                        << v->GetStructDesc() << "};\n";
+        }
+    }
+    if (kernel.raytracing()) {
+        if (!opt->rayDesc) {
+            finalResult << R"(
+struct FLOATV3{
+    float v[3];
+};
+struct LCRayDesc{
+    FLOATV3 v0;
+    float v1;
+    FLOATV3 v2;
+    float v3;
+};
+)"sv;
+        }
+        if (!opt->hitDesc) {
+            finalResult << R"(
+struct RayPayload{
+    uint v0;
+    uint v1;
+    float2 v2;
+};
+)"sv;
+        }
+    }
+    finalResult << propertyResult;
     if (kernel.raytracing()) {
         if (opt->rayDesc) {
             finalResult << "#define LCRayDesc "sv << opt->rayDesc->GetStructName() << '\n';
