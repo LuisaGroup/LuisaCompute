@@ -178,10 +178,16 @@ float4 Mul(float4x4 b, float4 a){ return mul(b, a);}
 float3 Mul(float3x4 b, float3 a){ return mul(b, float4(a, 0.f));}
 float2 Mul(float2x2 b, float2 a){ return mul(b, a);}
 
+struct WrappedFloat3x3 {
+    row_major float3x4 m;
+};
+
 #define bfread(bf,idx) (bf[(idx)])
 #define bfreadVec3(bf,idx) (bf[(idx)].xyz)
+#define bfreadMat3(bf,idx) (bf[idx].m)
 #define bfwrite(bf,idx,value) (bf[(idx)]=(value))
 #define bfwriteVec3(bf,idx,value) (bf[(idx)]=float4((value), 0))
+#define bfwriteMat3(bf,idx,value) (bf[idx].m=value)
 struct BdlsStruct{
 	uint buffer;
 	uint tex2D;
@@ -303,8 +309,8 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
 }
-float4x4 InstMatrix(StructuredBuffer<row_major float3x4> instBuffer, uint index){
-	float3x4 m = instBuffer[index];
+float4x4 InstMatrix(StructuredBuffer<WrappedFloat3x3> instBuffer, uint index){
+	float3x4 m = instBuffer[index].m;
 	return float4x4(m, float4(0, 0, 0, 1));
 }
 )"sv;

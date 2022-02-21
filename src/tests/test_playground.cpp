@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto scalar_buffer = device.create_buffer<float>(18u);
 
-    Kernel1D test_kernel = [&](Float3x3 m) {
+    Kernel1D test_kernel = [&](Float3x3 _, ArrayVar<float3x3, 1u> m) {
         set_block_size(1u, 1u, 1u);
         auto m2 = buffer.read(0u);
         auto one = def(1.f);
@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
             7.f, 8.f, 9.f);
         for (auto i = 0u; i < 3u; i++) {
             for (auto j = 0u; j < 3u; j++) {
-                scalar_buffer.write(i * 3u + j, m[i][j]);
+                scalar_buffer.write(i * 3u + j, m[0][i][j]);
                 // FIXME: incorrect
                 scalar_buffer.write(i * 3u + j + 9u, m2[i][j]);
             }
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
     // dispatch
     std::array<float, 18u> download{};
     stream << buffer.copy_from(&m0)
-           << test(m0).dispatch(1u)
+           << test(m0, std::array{m0}).dispatch(1u)
            << scalar_buffer.copy_to(download.data())
            << synchronize();
     std::cout << "cbuffer:";

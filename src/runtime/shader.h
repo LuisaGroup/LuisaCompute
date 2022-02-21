@@ -152,7 +152,7 @@ public:
     ShaderInvokeBase &operator<<(T data) noexcept {
         _encode_pending_bindings();
         if (auto t = _kernel.arguments()[_argument_index].type();
-            (!t->is_basic() && !t->is_structure()) ||
+            (!t->is_basic() && !t->is_structure() && !t->is_array()) ||
             t->size() != sizeof(T)) {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid uniform (size = {}) at index {}, "
