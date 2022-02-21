@@ -136,11 +136,19 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
     auto t = expr->range()->type();
-    if (t->is_buffer() || t->is_vector() || t->is_matrix()) {
+    if (t->is_buffer() || t->is_vector()) {
         expr->range()->accept(*this);
         str << '[';
         expr->index()->accept(*this);
         str << ']';
+    } else if (t->is_matrix()) {
+        expr->range()->accept(*this);
+        str << '[';
+        expr->index()->accept(*this);
+        str << ']';
+        if (t->dimension() == 3u) {
+            str << ".xyz";
+        }
     } else {
         expr->range()->accept(*this);
         str << ".v[";
