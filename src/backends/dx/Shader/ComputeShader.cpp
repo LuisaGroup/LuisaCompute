@@ -74,7 +74,7 @@ ComputeShader *ComputeShader::CompileCompute(
     psoPath = path;
     path << ".cso";
     psoPath << ".pso";
-    static constexpr bool USE_CACHE = 1;
+    static constexpr bool USE_CACHE = 0;
     if constexpr (USE_CACHE) {
         SerializeVisitor visitor(
             path,
@@ -86,7 +86,7 @@ ComputeShader *ComputeShader::CompileCompute(
                 str.properties,
                 device,
                 md5,
-                visitor);
+                visitor);   
             if (result) {
                 //std::cout << "Read cache success!"sv << '\n';
                 if (visitor.oldDeleted) {
@@ -97,18 +97,18 @@ ComputeShader *ComputeShader::CompileCompute(
         }
     }
     // Not Cached
-    vstd::string compileString(GetHLSLHeader());
+    vstd::string compileString(GetHLSLHeader());  
     auto compResult = [&] {
         compileString << str.result;
+        std::cout
+            << "\n===============================\n"
+            << compileString
+            << "\n===============================\n";
         return dxCompiler.CompileCompute(
             compileString,
             true,
             shaderModel);
     }();
-    /*std::cout
-        << "\n===============================\n"
-        << compileString
-        << "\n===============================\n";*/
     str.properties.emplace_back(
         "samplers"sv,
         Shader::Property{

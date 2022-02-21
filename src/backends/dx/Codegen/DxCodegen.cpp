@@ -38,9 +38,9 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
     };
     if (IsMulFuncCall()) {
         str << "Mul("sv;
-        expr->rhs()->accept(*this);//Reverse matrix
-        str << ',';
         expr->lhs()->accept(*this);
+        str << ',';
+        expr->rhs()->accept(*this);//Reverse matrix
         str << ')';
 
     } else {

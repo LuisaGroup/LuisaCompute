@@ -178,15 +178,18 @@ public:
                     case Type::Tag::ARRAY:
                         for (auto i : vstd::range(type->dimension())) {
                             UniformAlign(16);
+                            AlignBuffer(type->element()->alignment());
                             AddArg(AddArg, type->element(), true);
                         }
                         break;
-                    case Type::Tag::STRUCTURE:
+                    case Type::Tag::STRUCTURE: {
+
                         UniformAlign(16);
+                        AlignBuffer(type->alignment());
                         for (auto &&i : type->members()) {
                             AddArg(AddArg, i, true);
                         }
-                        break;
+                    } break;
                 }
             };
             AddArg(AddArg, arg->type(), false);
