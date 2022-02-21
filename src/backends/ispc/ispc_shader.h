@@ -13,6 +13,10 @@ class Context;
 
 namespace luisa::compute::ispc {
 
+/**
+ * @brief Shader of ISPC
+ * 
+ */
 class ISPCShader {
 
 private:
@@ -21,9 +25,31 @@ private:
     size_t _argument_buffer_size{};
 
 public:
+    /**
+     * @brief Construct a new ISPCShader object
+     * 
+     * @param ctx context
+     * @param func kernel of shader
+     */
     ISPCShader(const Context &ctx, Function func) noexcept;
+    /**
+     * @brief Return module
+     * 
+     * @return auto 
+     */
     [[nodiscard]] auto module() const noexcept { return _module.get(); }
+    /**
+     * @brief Return size of argument buffer
+     * 
+     * @return size of argument buffer
+     */
     [[nodiscard]] auto argument_buffer_size() const noexcept { return _argument_buffer_size; }
+    /**
+     * @brief Return offset of argument
+     * 
+     * @param uid argument uid
+     * @return offset of argument
+     */
     [[nodiscard]] size_t argument_offset(uint uid) const noexcept;
 };
 

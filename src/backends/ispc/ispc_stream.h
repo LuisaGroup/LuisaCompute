@@ -11,6 +11,10 @@ namespace luisa::compute::ispc {
 
 class ISPCEvent;
 
+/**
+ * @brief Stream of ISPC
+ * 
+ */
 class ISPCStream final : public CommandVisitor {
 
 private:
@@ -18,9 +22,28 @@ private:
 
 public:
     ISPCStream() noexcept = default;
+    /**
+     * @brief Synchronize
+     * 
+     */
     void synchronize() noexcept { _pool.synchronize(); }
+    /**
+     * @brief Dispatch list of commands
+     * 
+     * @param cmd_list list of commands
+     */
     void dispatch(const CommandList &cmd_list) noexcept;
+    /**
+     * @brief Signal event
+     * 
+     * @param event event
+     */
     void signal(ISPCEvent *event) noexcept;
+    /**
+     * @brief Wait event
+     * 
+     * @param event event
+     */
     void wait(ISPCEvent *event) noexcept;
 
 public:

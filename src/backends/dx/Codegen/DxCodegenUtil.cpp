@@ -291,10 +291,11 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             str << "uint"sv;
             return;
         case Type::Tag::MATRIX: {
+            str << "row_major ";
             CodegenUtility::GetTypeName(*type.element(), str, usage);
-            vstd::to_string((type.dimension() == 3) ? 4 : type.dimension(), str);
-            str << 'x';
             vstd::to_string(type.dimension(), str);
+            str << 'x';
+            vstd::to_string((type.dimension() == 3) ? 4 : type.dimension(), str);
         }
             return;
         case Type::Tag::VECTOR: {
@@ -400,13 +401,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                     return 1;
             }
         }();
-        auto is_make_float3x3 = expr->type()->is_matrix() &&
-                                expr->type()->dimension() == 3u;
+        auto is_make_matrix = expr->type()->is_matrix();
+        auto n = luisa::format("{}", expr->type()->dimension());
         if (args.size() == 1 && args[0]->type()->is_scalar()) {
             str << '(';
             str << '(';
-            if (is_make_float3x3) { str << "make_"; }
-            GetTypeName(*expr->type(), str, Usage::READ);
+            if (is_make_matrix) {
+                str << "make_float" << n << "x" << n;
+            } else {
+                GetTypeName(*expr->type(), str, Usage::READ);
+            }
             str << ')';
             str << '(';
             for (auto &&i : args) {
@@ -416,8 +420,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             *(str.end() - 1) = ')';
             str << ')';
         } else {
-            if (is_make_float3x3) { str << "make_"; }
-            GetTypeName(*expr->type(), str, Usage::READ);
+            if (is_make_matrix) {
+                str << "make_float" << n << "x" << n;
+            } else {
+                GetTypeName(*expr->type(), str, Usage::READ);
+            }
             str << '(';
             uint count = 0;
             for (auto &&i : args) {
@@ -732,7 +739,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                 args[0]->accept(vis);
                 return;
             } else {
-                str << "make_float4x3";
+                str << "make_float3x3";
             }
         } break;
         case CallOp::BUFFER_READ:
@@ -1106,7 +1113,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         };
         auto printInstBuffer = [&] {
             propertyResult
-                << "StructuredBuffer<float4x3>"sv
+                << "StructuredBuffer<row_major float3x4>"sv
                 << ' ';
             vstd::string varName;
             GetVariableName(i, varName);
