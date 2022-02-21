@@ -46,7 +46,6 @@ public:
     }
     static void GetFunctionDecl(Function func, vstd::string &str);
     static void GetFunctionName(CallExpr const *expr, vstd::string &result, StringStateVisitor &visitor);
-    static void ClearStructType();
     static void RegistStructType(Type const *type);
 
     static void CodegenFunction(
