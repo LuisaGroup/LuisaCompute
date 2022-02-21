@@ -8,6 +8,10 @@
 
 namespace luisa::compute::ispc {
 
+/**
+ * @brief ISPC event
+ * 
+ */
 class ISPCEvent {
 
 private:
@@ -15,7 +19,16 @@ private:
     std::shared_future<void> _future;
 
 public:
+    /**
+     * @brief wait
+     * 
+     */
     void wait() noexcept;
+    /**
+     * @brief signal
+     * 
+     * @param future 
+     */
     void signal(std::shared_future<void> future) noexcept;
 };
 

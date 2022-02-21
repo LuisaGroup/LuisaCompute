@@ -19,9 +19,6 @@ target_link_libraries(test_simple PRIVATE luisa::compute)
 add_executable(test_texture_io test_texture_io.cpp)
 target_link_libraries(test_texture_io PRIVATE luisa::compute)
 
-add_executable(test_ispc_texture_io test_ispc_texture_io.cpp)
-target_link_libraries(test_ispc_texture_io PRIVATE luisa::compute)
-
 add_executable(test_builtin test_builtin.cpp)
 target_link_libraries(test_builtin PRIVATE luisa::compute)
 
