@@ -41,9 +41,13 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
     };
 #else
     auto emit_opt = "--emit-obj";
+#ifdef LUISA_PLATFORM_WINDOWS
     auto object_ext = "obj";
+#else
+    auto object_ext = "o";
+#endif
     auto load_module = [&ctx](const std::filesystem::path &obj_path) noexcept {
-        return DLLModule::load(ctx, obj_path);
+        return ISPCDLLModule::load(ctx, obj_path);
     };
 #endif
 

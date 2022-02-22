@@ -1214,7 +1214,7 @@ struct TextureView {
 
 
 
-void texture_write(uniform LCTexture *tex, uint2 p, uint level, float4 value)
+inline void texture_write(uniform LCTexture *uniform tex, uint2 p, uint level, float4 value)
 {
     if (p.v[0] >= tex->width || p.v[1] >= tex->height)
         // throw "texture write out of bound";
@@ -1228,7 +1228,7 @@ void texture_write(uniform LCTexture *tex, uint2 p, uint level, float4 value)
     // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 3] = value.v[3];
 }
 
-float4 texture_read(uniform LCTexture *tex, uint2 p, uint level)
+inline float4 texture_read(uniform LCTexture *uniform tex, uint2 p, uint level)
 {
     if (p.v[0] >= tex->width || p.v[1] >= tex->height)
         print("texture read out of bound %u %u, %u %u\\n", p.v[0], p.v[1], tex->width, tex->height);
@@ -1241,12 +1241,12 @@ float4 texture_read(uniform LCTexture *tex, uint2 p, uint level)
     return value;
 }
 
-float4 surf2d_read_float(uniform TextureView view, uint2 p)
+inline float4 surf2d_read_float(uniform TextureView view, uint2 p)
 {
     return texture_read((uniform LCTexture *)view.ptr, p, view.level);
 }
 
-void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)
+inline void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)
 {
     print("123\\n");
     // print("ptr= %llu\\n", (uint64)view.ptr);;
