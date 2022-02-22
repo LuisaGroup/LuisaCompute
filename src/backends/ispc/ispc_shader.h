@@ -20,7 +20,7 @@ namespace luisa::compute::ispc {
 class ISPCShader {
 
 private:
-    luisa::unique_ptr<ISPCModule> _module;
+    luisa::shared_ptr<ISPCModule> _module;
     luisa::unordered_map<uint, size_t> _argument_offsets;
     size_t _argument_buffer_size{};
 
@@ -35,9 +35,16 @@ public:
     /**
      * @brief Return module
      * 
-     * @return auto 
+     * @return const ISPCModule *
      */
     [[nodiscard]] auto module() const noexcept { return _module.get(); }
+
+    /**
+     * @brief Get module with shared ownership
+     *
+     * @return shared_ptr<ISPCModule>
+     */
+    [[nodiscard]] auto shared_module() const noexcept { return _module; }
     /**
      * @brief Return size of argument buffer
      * 
