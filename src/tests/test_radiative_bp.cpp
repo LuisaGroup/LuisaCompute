@@ -1,5 +1,5 @@
 //
-// Created by Mike Smith on 2021/6/23.
+// Created by ChenXin on 2022/2/22.
 //
 
 #include <iostream>
@@ -12,7 +12,6 @@
 #include <rtx/accel.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
-#include <tests/fake_device.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
 
@@ -47,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("dx");
+    auto device = context.create_device("cuda");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -239,6 +238,8 @@ int main(int argc, char *argv[]) {
                 auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
                 auto bsdf = material.albedo * inv_pi * cos_wi_light;
                 radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+
+                //                auto bsdf_diff = make_float3(1, 1, 1) * inv_pi * cos_wi_light;
             };
 
             // sample BSDF
