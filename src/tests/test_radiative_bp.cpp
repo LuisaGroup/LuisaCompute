@@ -195,7 +195,6 @@ int main(int argc, char *argv[]) {
         auto light_normal = normalize(cross(light_u, light_v));
 
         $for(depth, 10u) {
-
             // trace
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
@@ -209,18 +208,18 @@ int main(int argc, char *argv[]) {
             $if(cos_wi < 1e-4f) { $break; };
             auto material = material_buffer.read(hit.inst);
 
-            // hit light
-            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                $if(depth == 0u) {
-                    radiance += light_emission;
-                }
-                $else {
-                    auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
-                    auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-                    radiance += mis_weight * beta * light_emission;
-                };
-                $break;
-            };
+            //            // hit light
+            //            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+            //                $if(depth == 0u) {
+            //                    radiance += light_emission;
+            //                }
+            //                $else {
+            //                    auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+            //                    auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+            //                    radiance += mis_weight * beta * light_emission;
+            //                };
+            //                $break;
+            //            };
 
             // sample light
             auto ux_light = lcg(state);
@@ -236,10 +235,15 @@ int main(int argc, char *argv[]) {
                 auto pdf_light = (d_light * d_light) / (light_area * cos_light);
                 auto pdf_bsdf = cos_wi_light * inv_pi;
                 auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                auto bsdf = material.albedo * inv_pi * cos_wi_light;
-                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
 
-                //                auto bsdf_diff = make_float3(1, 1, 1) * inv_pi * cos_wi_light;
+                //                auto bsdf = material.albedo * inv_pi * cos_wi_light;
+                //                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+
+                $if(hit.inst == 3) {
+                    auto bsdf_diff = make_float3(1, 1, 1);
+                    auto li = 1.f;
+                    radiance += li * bsdf_diff;
+                };
             };
 
             // sample BSDF
@@ -337,5 +341,5 @@ int main(int argc, char *argv[]) {
         ImGui::Text("FPS: %.1f", framerate.report());
         ImGui::End();
     });
-    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
+    stbi_write_png("test_radiative_bp.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
