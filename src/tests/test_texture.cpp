@@ -63,7 +63,8 @@ int test_texture_upload_download(Device& device, int width, int height, int lod,
         auto shader = device.compile(rw_kernel);
         auto shader1 = device.compile(fill_kernel);
         for (int i=0, offset=0; i<lod; ++i)
-            stream << shader( image0.view(i), image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
+            // stream << shader( image0.view(i), image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
+            stream << shader1(image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
         LUISA_WARNING("=====3");
     }
 
@@ -94,7 +95,7 @@ int main(int argc, char* argv[])
     Context context{argv[0]};
     auto device = context.create_device("ispc");
 
-    for (int i=0; i<3; ++i) {
+    for (int i=3; i<4; ++i) {
         TestType test_type = (TestType)i;
         test_texture_upload_download(device, 1024, 1024, 1, test_type) ||
         test_texture_upload_download(device, 346, 987, 1, test_type) ||

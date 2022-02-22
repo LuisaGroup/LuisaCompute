@@ -4,6 +4,7 @@
 
 #include <backends/ispc/ispc_texture.h>
 
+
 namespace luisa::compute::ispc {
 
 ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept:
@@ -24,6 +25,7 @@ ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_leve
         h = std::max(h/2, 1);
     }
     lods[0] = new float[offset[lodLevel]*4];
+    LUISA_WARNING("new float array{}", offset[lodLevel]);
     for (int i=1; i<lodLevel; ++i)
         lods[i] = lods[0] + offset[i];
 }

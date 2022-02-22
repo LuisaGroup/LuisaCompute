@@ -764,7 +764,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "uniform const LCSurface ";
+            _scratch << "uniform const TextureView ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
