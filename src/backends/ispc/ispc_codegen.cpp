@@ -619,6 +619,8 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
                  << "bx * " << f.block_size().x << " + i, "
                  << "by * " << f.block_size().y << " + j, "
                  << "bz * " << f.block_size().z << " + k);\n";
+//        _scratch << R"(  print("tid = (%, %, %)\n", tid._x, tid._y, tid._z);
+//)";
         _scratch << "    kernel_" << hash_to_string(f.hash()) << "(";
         for (auto arg : f.arguments()) {
             _scratch << "params->";

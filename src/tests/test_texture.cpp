@@ -65,6 +65,7 @@ int test_texture_upload_download(Device& device, int width, int height, int lod,
         for (int i=0, offset=0; i<lod; ++i)
             // stream << shader( image0.view(i), image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
             stream << shader1(image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
+        stream << synchronize();
         LUISA_WARNING("=====3");
     }
 

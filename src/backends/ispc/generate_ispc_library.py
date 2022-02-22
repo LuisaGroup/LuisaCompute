@@ -1243,7 +1243,7 @@ inline float4 texture_read(uniform LCTexture *uniform tex, uint2 p, uint level)
 
 inline float4 surf2d_read_float(uniform TextureView view, uint2 p)
 {
-    return texture_read((uniform LCTexture *)view.ptr, p, view.level);
+    return texture_read((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
 inline void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)

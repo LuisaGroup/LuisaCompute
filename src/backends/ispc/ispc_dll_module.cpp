@@ -10,7 +10,7 @@
 
 namespace luisa::compute::ispc {
 
-luisa::unique_ptr<ISPCModule> ISPCDLLModule::load(
+luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     const Context &ctx, const std::filesystem::path &obj_path) noexcept {
 
 #if LUISA_PLATFORM_WINDOWS
@@ -47,10 +47,15 @@ luisa::unique_ptr<ISPCModule> ISPCDLLModule::load(
     auto output_folder = obj_path.parent_path();
     auto dll_path = output_folder / luisa::format("lib{}.so", file_name);
 
+#ifndef NDEBUG
+    auto link_opt = "-g -O3";
+#else
+    auto link_opt = "-O3";
+#endif
+
     auto command = luisa::format(
-        R"(CC -shared -o "{}" "{}")",
-        dll_path.string(),
-        obj_path.string());
+        R"(CC -shared {} -o "{}" "{}")",
+        link_opt, dll_path.string(), obj_path.string());
     LUISA_INFO("Generating DLL for ISPC kernel: {}", command);
     if (auto exit_code = system(command.c_str()); exit_code != 0) {
         LUISA_ERROR_WITH_LOCATION(
@@ -58,7 +63,7 @@ luisa::unique_ptr<ISPCModule> ISPCDLLModule::load(
             "Linker exit with 0x{:02x}.",
             exit_code);
     }
-    return luisa::make_unique<ISPCDLLModule>(ISPCDLLModule{
+    return luisa::make_shared<ISPCDLLModule>(ISPCDLLModule{
         DynamicModule{output_folder, file_name}});
 #endif
 }

@@ -27,7 +27,7 @@ private:
     }
 
 public:
-    [[nodiscard]] static luisa::unique_ptr<ISPCModule> load(
+    [[nodiscard]] static luisa::shared_ptr<ISPCModule> load(
         const Context &ctx, const std::filesystem::path &obj_path) noexcept;
 };
 
