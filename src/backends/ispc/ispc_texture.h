@@ -8,7 +8,6 @@
 
 namespace luisa::compute::ispc {
 
-// TODO
 /**
  * @brief Texture of ISPC
  * 
@@ -25,6 +24,10 @@ public:
         // `generate_ispc_library.py`
         // script as well
         const void *ptr;// TODO
+    };
+    struct TextureView {
+        const void* ptr;
+        uint32_t level, dummy;
     };
 
 public:
@@ -43,6 +46,14 @@ public:
      * @return Handle 
      */
     [[nodiscard]] Handle handle() const noexcept;
+
+public:
+    static const unsigned MAXLOD = 20;
+    uint width;
+    uint height;
+    uint lodLevel;
+    float* lods[MAXLOD];
+
 };
 
 }// namespace luisa::compute::ispc

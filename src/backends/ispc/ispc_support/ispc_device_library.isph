@@ -6288,13 +6288,62 @@ inline float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
 }
 
 struct LCTexture {
-    const void *uniform ptr; // TODO
+    uint width;
+    uint height;
+    uint lodLevel;
+    float* lods[20];
 };
+
+struct TextureView {
+    const void* uniform ptr;
+    uniform const uint level, dummy;
+};
+
+
+
+inline void texture_write(uniform LCTexture *uniform tex, uint2 p, uint level, float4 value)
+{
+    if (p.v[0] >= tex->width || p.v[1] >= tex->height)
+        // throw "texture write out of bound";
+        print("texture write out of bound %u %u, %u %u\n", p.v[0], p.v[1], tex->width, tex->height);
+    print("tex %u %u\n", tex->width, tex->height);
+    return;
+    print("TEX WRITE %u %u %u\n", p.v[0], p.v[1], level);
+    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 0] = value.v[0];
+    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 1] = value.v[1];
+    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 2] = value.v[2];
+    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 3] = value.v[3];
+}
+
+inline float4 texture_read(uniform LCTexture *uniform tex, uint2 p, uint level)
+{
+    if (p.v[0] >= tex->width || p.v[1] >= tex->height)
+        print("texture read out of bound %u %u, %u %u\n", p.v[0], p.v[1], tex->width, tex->height);
+    print("TEX READ %u %u %u @ %u %u\n", p.v[0], p.v[1], level, tex->width, tex->height);
+    float4 value;
+    value.v[0] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 0];
+    value.v[1] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 1];
+    value.v[2] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 2];
+    value.v[3] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 3];
+    return value;
+}
+
+inline float4 surf2d_read_float(uniform TextureView view, uint2 p)
+{
+    return texture_read((uniform LCTexture *uniform)view.ptr, p, view.level);
+}
+
+inline void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)
+{
+    print("123\n");
+    // print("ptr= %llu\n", (uint64)view.ptr);;
+    // texture_write((LCTexture*)view.ptr, p, view.level, value);
+}
 
 struct LCBindlessItem {
     uniform const uint *uniform buffer;
-    uniform const LCTexture tex2d;
-    uniform const LCTexture tex3d;
+    uniform const LCTexture *tex2d;
+    uniform const LCTexture *tex3d;
     uniform const uint16 sampler2d;
     uniform const uint16 sampler3d;
 };
