@@ -71,7 +71,7 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
 #endif
 
     auto command = luisa::format(
-        R"(CC {} -o "{}" "{}")",
+        R"(cc {} -o "{}" "{}")",
         link_opt, dll_path.string(), obj_path.string());
     if (!embree_name.empty()) {
         command.append(luisa::format(
