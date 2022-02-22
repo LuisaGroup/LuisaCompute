@@ -13,6 +13,20 @@ namespace luisa::compute::ispc {
 luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     const Context &ctx, const std::filesystem::path &obj_path) noexcept {
 
+    auto embree_name = [&ctx] {
+        std::filesystem::directory_iterator runtime_files{ctx.runtime_directory()};
+        for (auto &&file : runtime_files) {
+            if (auto name = file.path().stem().string();
+                name.find("embree3") != std::string::npos) {
+                return name.starts_with("lib") ?
+                           name.substr(3u) :
+                           name;
+            }
+        }
+        LUISA_WARNING_WITH_LOCATION("Failed to find embree3.");
+        return std::string{};
+    }();
+
 #if LUISA_PLATFORM_WINDOWS
     auto support_dir = ctx.runtime_directory() / "backends" / "ispc_support";
     auto link_exe = support_dir / "link.exe";
@@ -25,7 +39,7 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     exp_path.replace_extension("exp");
 
     auto command = luisa::format(
-        R"({} /DLL /NOLOGO /OUT:"{}" /DYNAMICBASE "{}" /DEBUG:NONE /NOENTRY /EXPORT:run /NODEFAULTLIB "{}")",
+        R"({} /DLL /NOLOGO /OUT:"{}" /DYNAMICBASE "{}" /DEBUG:NONE /NOENTRY /EXPORT:kernel_main /NODEFAULTLIB "{}")",
         link_exe.string(),
         dll_path.string(),
         crt_path.string(),
@@ -48,14 +62,20 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     auto dll_path = output_folder / luisa::format("lib{}.so", file_name);
 
 #ifndef NDEBUG
-    auto link_opt = "-g -O3";
+    auto link_opt = "-shared -g -O3";
 #else
-    auto link_opt = "-O3";
+    auto link_opt = "-shared -O3";
 #endif
 
     auto command = luisa::format(
-        R"(CC -shared {} -o "{}" "{}")",
+        R"(CC {} -o "{}" "{}")",
         link_opt, dll_path.string(), obj_path.string());
+    if (!embree_name.empty()) {
+        command.append(luisa::format(
+            R"( -L"{}" -l{})",
+            ctx.runtime_directory().string(),
+            embree_name));
+    }
     LUISA_INFO("Generating DLL for ISPC kernel: {}", command);
     if (auto exit_code = system(command.c_str()); exit_code != 0) {
         LUISA_ERROR_WITH_LOCATION(

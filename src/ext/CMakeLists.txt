@@ -71,7 +71,24 @@ target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
     find_package(embree 3)
-    if (NOT embree_FOUND)
+    if (embree_FOUND)
+        if (CMAKE_BUILD_TYPE)
+            add_custom_target(lc-ext-copy-embree ALL
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:embree>"
+                    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
+            add_dependencies(luisa-compute-ext lc-ext-copy-embree)
+        endif ()
+        foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
+            string(TOLOWER ${CONFIG} config_lower)
+            string(TOUPPER ${CONFIG} CONFIG_UPPER)
+            add_custom_target(lc-ext-copy-embree-${config_lower} ALL
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:embree>"
+                    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/")
+            add_dependencies(luisa-compute-ext lc-ext-copy-embree-${config_lower})
+        endforeach ()
+    else ()
         set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
         set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
         set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
