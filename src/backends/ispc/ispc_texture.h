@@ -8,7 +8,8 @@
 
 namespace luisa::compute::ispc {
 
-// TODO
+
+// Make sure layout matches ISPC
 class ISPCTexture {
 
 public:
@@ -17,6 +18,10 @@ public:
         // `generate_ispc_library.py`
         // script as well
         const void *ptr;// TODO
+    };
+    struct TextureView {
+        const void* ptr;
+        uint32_t level, dummy;
     };
 
 public:

@@ -95,7 +95,7 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
             std::memcpy(ptr, &buffer, sizeof(buffer));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
             auto texture = reinterpret_cast<const ISPCTexture *>(argument.handle);
-            auto handle = texture->handle();
+            auto handle = ISPCTexture::TextureView{texture->handle().ptr, argument.level, 0};
             std::memcpy(ptr, &handle, sizeof(handle));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
             auto array = reinterpret_cast<const ISPCBindlessArray *>(argument.handle);
