@@ -7,147 +7,15 @@
 #include <ast/constant_data.h>
 #include <Codegen/StructGenerator.h>
 #include <Codegen/ShaderHeader.h>
-#include <Codegen/StructVariableTracker.h>
+#include <Codegen/CodegenStackData.h>
 namespace toolhub::directx {
-static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
-static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
+static thread_local vstd::unique_ptr<CodegenStackData> opt;
 
-struct CodegenGlobal : public vstd::IOperatorNewBase {
-    int64 scopeCount = -1;
-    vstd::HashMap<Type const *, uint64> structTypes;
-    vstd::HashMap<uint64, uint64> constTypes;
-    vstd::HashMap<uint64, uint64> funcTypes;
-    vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
-    vstd::HashMap<Type const *, uint64> bindlessBufferTypes;
-    vstd::vector<StructGenerator *> customStructVector;
-    vstd::optional<vstd::move_only_func<void()>> assignFunc;
-    StructVariableTracker tracker;
-    uint64 count = 0;
-    uint64 constCount = 0;
-    uint64 funcCount = 0;
-    uint64 tempCount = 0;
-    uint64 bindlessBufferCount = 0;
-    vstd::function<StructGenerator *(Type const *)> generateStruct;
-    StructGenerator *rayDesc = nullptr;
-    StructGenerator *hitDesc = nullptr;
-    vstd::HashMap<vstd::string, vstd::string> structReplaceName;
-    vstd::HashMap<uint64_t> generatedConstants;
-    CodegenGlobal()
-        : generateStruct(
-              [this](Type const *t) {
-                  return CreateStruct(t);
-              }) {
-        structReplaceName.Emplace(
-            "float3"sv, "float4"sv);
-        structReplaceName.Emplace(
-            "int3"sv, "int4"sv);
-        structReplaceName.Emplace(
-            "uint3"sv, "uint4"sv);
-    }
-    void Clear() {
-        rayDesc = nullptr;
-        hitDesc = nullptr;
-        scopeCount = -1;
-        structTypes.Clear();
-        constTypes.Clear();
-        funcTypes.Clear();
-        bindlessBufferTypes.Clear();
-        customStruct.Clear();
-        customStructVector.clear();
-        generatedConstants.Clear();
-        tracker.Clear();
-        constCount = 0;
-        count = 0;
-        funcCount = 0;
-        tempCount = 0;
-        bindlessBufferCount = 0;
-    }
-    uint AddBindlessType(Type const *type) {
-        return bindlessBufferTypes
-            .Emplace(
-                type,
-                vstd::MakeLazyEval([&] {
-                    return bindlessBufferCount++;
-                }))
-            .Value();
-    }
-    StructGenerator *CreateStruct(Type const *t) {
-        auto ite = customStruct.Find(t);
-        if (ite) {
-            return ite.Value().get();
-        }
-        auto sz = customStructVector.size();
-        customStructVector.emplace_back(nullptr);
-        auto newPtr = new StructGenerator(
-            t,
-            sz,
-            generateStruct);
-        customStruct.ForceEmplace(
-            t,
-            vstd::create_unique(newPtr));
-        customStructVector[sz] = newPtr;
-        if (t->description() == rayTypeDesc) {
-            rayDesc = newPtr;
-        } else if (t->description() == hitTypeDesc) {
-            hitDesc = newPtr;
-        }
-        return newPtr;
-    }
-    uint64 GetConstCount(uint64 data) {
-        auto ite = constTypes.Emplace(
-            data,
-            vstd::MakeLazyEval(
-                [&] {
-                    return constCount++;
-                }));
-        return ite.Value();
-    }
-    uint64 GetFuncCount(uint64 data) {
-        auto ite = funcTypes.Emplace(
-            data,
-            vstd::MakeLazyEval(
-                [&] {
-                    return funcCount++;
-                }));
-        return ite.Value();
-    }
-    uint64 GetTypeCount(Type const *t) {
-        auto ite = structTypes.Emplace(
-            t,
-            vstd::MakeLazyEval(
-                [&] {
-                    return count++;
-                }));
-        return ite.Value();
-    }
-};
-static thread_local vstd::unique_ptr<CodegenGlobal> opt;
-struct CodegenGlobalPool {
-    std::mutex mtx;
-    vstd::vector<vstd::unique_ptr<CodegenGlobal>> allCodegen;
-    vstd::unique_ptr<CodegenGlobal> Allocate() {
-        std::lock_guard lck(mtx);
-        if (!allCodegen.empty()) {
-            auto ite = allCodegen.erase_last();
-            ite->Clear();
-            return ite;
-        }
-        return vstd::unique_ptr<CodegenGlobal>(new CodegenGlobal());
-    }
-    void DeAllocate(vstd::unique_ptr<CodegenGlobal> &&v) {
-        std::lock_guard lck(mtx);
-        allCodegen.emplace_back(std::move(v));
-    }
-};
-static CodegenGlobalPool codegenGlobalPool;
 void CodegenUtility::AddScope(int32 v) {
     opt->scopeCount += v;
 }
 int64 CodegenUtility::GetScope() {
     return opt->scopeCount;
-}
-StructVariableTracker *CodegenUtility::GetTracker() {
-    return &opt->tracker;
 }
 uint CodegenUtility::IsBool(Type const &type) {
     if (type.tag() == Type::Tag::BOOL) {
@@ -1059,9 +927,9 @@ uint3 dsp_c;
 vstd::optional<CodegenResult> CodegenUtility::Codegen(
     Function kernel) {
     if (kernel.tag() != Function::Tag::KERNEL) return {};
-    opt = codegenGlobalPool.Allocate();
+    opt = CodegenStackData::Allocate();
     auto disposeOpt = vstd::create_disposer([&] {
-        codegenGlobalPool.DeAllocate(std::move(opt));
+        CodegenStackData::DeAllocate(std::move(opt));
     });
     vstd::string codegenData;
     // Custom callable
@@ -1084,7 +952,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     vstd::string propertyResult;
     GenerateCBuffer(kernel, kernel.arguments(), propertyResult);
     CodegenResult::Properties properties;
-    properties.reserve(kernel.arguments().size() + 2);
+    properties.reserve(kernel.arguments().size() + opt->bindlessBufferCount + 4);
     // Bindless Buffers;
     for (auto &&i : opt->bindlessBufferTypes) {
         propertyResult << "StructuredBuffer<"sv;
@@ -1093,11 +961,14 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         } else {
             GetTypeName(*i.first, propertyResult, Usage::READ);
         }
-        propertyResult << luisa::format(
-            "> bdls{}[]:register(t0,space{});\n",
-            i.second, i.second + 3u);
+        vstd::string instName("bdls"sv);
+        vstd::to_string(i.second, instName);
+        propertyResult << "> " << instName << "[]:register(t0,space"sv;
+        vstd::to_string(i.second + 3, propertyResult);
+        propertyResult << ");\n"sv;
+
         properties.emplace_back(
-            luisa::format("bdls{}", i.second),
+            std::move(instName),
             Shader::Property{
                 ShaderVariableType::SRVDescriptorHeap,
                 static_cast<uint>(i.second + 3u),
@@ -1124,6 +995,13 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             2,
             0,
             0});
+    properties.emplace_back(
+        "samplers"sv,
+        Shader::Property{
+            ShaderVariableType::SampDescriptorHeap,
+            1u,
+            0u,
+            16u});
     enum class RegisterType : vbyte {
         CBV,
         UAV,
@@ -1244,6 +1122,6 @@ struct RayPayload{
         finalResult << GetRayTracingHeader();
     }
     finalResult << propertyResult << codegenData;
-    return {std::move(finalResult), std::move(properties)};
+    return {std::move(finalResult), std::move(properties), opt->bindlessBufferCount};
 }
 }// namespace toolhub::directx

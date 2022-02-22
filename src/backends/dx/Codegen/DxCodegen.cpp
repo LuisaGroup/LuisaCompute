@@ -2,7 +2,6 @@
 
 #include <Codegen/DxCodegen.h>
 #include <Codegen/StructGenerator.h>
-#include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
 
 void StringStateVisitor::visit(const UnaryExpr *expr) {
@@ -242,7 +241,6 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
     for (auto &&i : state->statements()) {
         i->accept(*this);
     }
-    CodegenUtility::GetTracker()->RemoveStack(str);
     CodegenUtility::AddScope(-1);
     str << "}\n";
 }
