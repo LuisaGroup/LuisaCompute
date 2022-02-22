@@ -5,11 +5,11 @@ Api/LCCmdBuffer.cpp
 Api/LCDevice.cpp
 Api/LCEvent.cpp
 Codegen/ArgumentPacker.cpp
+Codegen/CodegenStackData.cpp
 Codegen/DxCodegen.cpp
 Codegen/DxCodegenUtil.cpp
 Codegen/ShaderHeader.cpp
 Codegen/StructGenerator.cpp
-Codegen/StructVariableTracker.cpp
 DXRuntime/AccelStructure.cpp
 DXRuntime/CommandAllocator.cpp
 DXRuntime/CommandBuffer.cpp
@@ -41,10 +41,10 @@ Api/LCCmdBuffer.h
 Api/LCDevice.h
 Api/LCEvent.h
 Codegen/ArgumentPacker.h
+Codegen/CodegenStackData.h
 Codegen/DxCodegen.h
 Codegen/ShaderHeader.h
 Codegen/StructGenerator.h
-Codegen/StructVariableTracker.h
 d3dx12.h
 dxc/dxcapi.h
 DXRuntime/AccelStructure.h
@@ -53,6 +53,7 @@ DXRuntime/CommandBuffer.h
 DXRuntime/CommandQueue.h
 DXRuntime/Device.h
 DXRuntime/GlobalSamplers.h
+DXRuntime/IUpdateState.h
 DXRuntime/ResourceStateTracker.h
 Resource/AllocHandle.h
 Resource/BindlessArray.h
@@ -85,30 +86,28 @@ test_rtx.h
     luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-    if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        target_compile_options(luisa-compute-backend-dx PRIVATE
-                /JMC
-                /permissive-
-                /GS /TP /Qpar /GL /W0 /Gy
-                /Zi /Gm-
-                /sdl- /GT
-                /QIntel-jcc-erratum
-                /WX- /Zc:forScope
-                /Zc:inline /fp:precise
-                /arch:AVX2 /Gr /Oy /Oi
-                /FC
-                /nologo /GF
-                /Ot)
+    target_compile_options(luisa-compute-backend-dx PRIVATE
+    /JMC
+    /permissive-
+    /GS /TP /Qpar /GL /W0 /Gy
+    /Zi /Gm-
+    /sdl- /GT
+    /QIntel-jcc-erratum
+    /WX- /Zc:forScope
+    /Zc:inline /fp:precise
+    /arch:AVX2 /Gr /Oy /Oi
+    /FC
+    /nologo /GF
+    /Ot)
 
-        target_link_options(luisa-compute-backend-dx PRIVATE
-                /MANIFEST
-                $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/LTCG:incremental>
-                /NXCOMPAT
-                /OPT:REF /INCREMENTAL:NO
-                /NOLOGO
-                /TLBID:1
-                /OPT:ICF /ERRORREPORT:PROMPT)
-    endif ()
+    target_link_options(luisa-compute-backend-dx PRIVATE
+    /MANIFEST
+    $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/LTCG:incremental>
+    /NXCOMPAT
+    /OPT:REF /INCREMENTAL:NO
+    /NOLOGO
+    /TLBID:1
+    /OPT:ICF /ERRORREPORT:PROMPT)  
     target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi)
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")

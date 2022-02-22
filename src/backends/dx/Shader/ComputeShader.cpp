@@ -74,7 +74,7 @@ ComputeShader *ComputeShader::CompileCompute(
     psoPath = path;
     path << ".cso";
     psoPath << ".pso";
-    static constexpr bool USE_CACHE = 0;
+    static constexpr bool USE_CACHE = 1;
     if constexpr (USE_CACHE) {
         SerializeVisitor visitor(
             path,
@@ -86,8 +86,9 @@ ComputeShader *ComputeShader::CompileCompute(
                 str.properties,
                 device,
                 md5,
-                visitor);   
+                visitor);
             if (result) {
+                result->bindlessCount = str.bdlsBufferCount;
                 //std::cout << "Read cache success!"sv << '\n';
                 if (visitor.oldDeleted) {
                     savePso(result);
@@ -97,25 +98,20 @@ ComputeShader *ComputeShader::CompileCompute(
         }
     }
     // Not Cached
-    vstd::string compileString(GetHLSLHeader());  
+    vstd::string compileString(GetHLSLHeader());
     auto compResult = [&] {
         compileString << str.result;
-        std::cout
-            << "\n===============================\n"
-            << compileString
-            << "\n===============================\n";
+        if constexpr (!USE_CACHE) {
+            std::cout
+                << "\n===============================\n"
+                << compileString
+                << "\n===============================\n";
+        }
         return dxCompiler.CompileCompute(
             compileString,
             true,
             shaderModel);
     }();
-    str.properties.emplace_back(
-        "samplers"sv,
-        Shader::Property{
-            ShaderVariableType::SampDescriptorHeap,
-            1u,
-            0u,
-            16u});
     return compResult.multi_visit_or(
         (ComputeShader *)nullptr,
         [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
@@ -137,6 +133,7 @@ ComputeShader *ComputeShader::CompileCompute(
                  buffer->GetBufferSize()},
                 device,
                 md5);
+            cs->bindlessCount = str.bdlsBufferCount;
             savePso(cs);
             return cs;
         },

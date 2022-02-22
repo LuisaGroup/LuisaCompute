@@ -432,8 +432,13 @@ public:
         auto &&tempBuffer = *bufferVec;
         bufferVec++;
         bindProps.emplace_back("_Global"sv, tempBuffer.second);
-        bindProps.emplace_back("_BindlessTex", DescriptorHeapView(device->globalHeap.get()));
-        bindProps.emplace_back("samplers", DescriptorHeapView(device->samplerHeap.get()));
+        DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
+        bindProps.emplace_back("_BindlessTex"sv, globalHeapView);
+        bindProps.emplace_back("_BindlessTex3D"sv, globalHeapView);
+        for (auto i : vstd::range(shader->BindlessCount())) {
+            bindProps.emplace_back(std::move(vstd::string("bdls") + vstd::to_string(i)), globalHeapView);
+        }
+        bindProps.emplace_back("samplers"sv, DescriptorHeapView(device->samplerHeap.get()));
         accelStateTracker->UpdateState(*bd);
         switch (shader->GetTag()) {
             case Shader::Tag::ComputeShader: {
