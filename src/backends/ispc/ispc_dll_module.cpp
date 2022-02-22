@@ -17,7 +17,10 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
         std::filesystem::directory_iterator runtime_files{ctx.runtime_directory()};
         for (auto &&file : runtime_files) {
             if (auto name = file.path().stem().string();
-                name.find("embree3") != std::string::npos) {
+                name.find("embree3") != std::string::npos &&
+                (name.ends_with(".dll") ||
+                 name.ends_with(".so") ||
+                 name.ends_with(".dylib"))) {
                 return name.starts_with("lib") ?
                            name.substr(3u) :
                            name;
