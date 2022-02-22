@@ -70,7 +70,18 @@ void ISPCStream::visit(const BufferCopyCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const BufferToTextureCopyCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented."); // TODO
+    _pool.async([cmd = *command] {
+        ISPCTexture* tex = reinterpret_cast<ISPCTexture*>(cmd.texture());
+        check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+        // copy data
+        // data is void*; tex->lods is float* for now
+        int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+        int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+        for (int i=0; i<cmd.size().y; ++i)
+            memcpy(tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4,
+                (unsigned char*)cmd.buffer() + cmd.buffer_offset() + i*target_stride,
+                cmd.size().x * 4*sizeof(float)); 
+    });
 }
 
 void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
@@ -137,11 +148,35 @@ void ISPCStream::visit(const TextureDownloadCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const TextureCopyCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented."); // TODO
+    _pool.async([cmd = *command] {
+        ISPCTexture* src_tex = reinterpret_cast<ISPCTexture*>(cmd.src_handle());
+        ISPCTexture* dst_tex = reinterpret_cast<ISPCTexture*>(cmd.dst_handle());
+        check_texture_boundary(src_tex, cmd.src_level(), cmd.size(), cmd.src_offset());
+        check_texture_boundary(dst_tex, cmd.dst_level(), cmd.size(), cmd.dst_offset());
+        // copy data
+        int src_stride = max(src_tex->width>>cmd.src_level(), 1u) * 4; // TODO support for other data type
+        int dst_stride = max(dst_tex->width>>cmd.dst_level(), 1u) * 4; // TODO support for other data type
+        for (int i=0; i<cmd.size().y; ++i) {
+            memcpy(dst_tex->lods[cmd.dst_level()] + dst_stride * (i+cmd.dst_offset().y) + cmd.dst_offset().x*4,
+                   src_tex->lods[cmd.src_level()] + src_stride * (i+cmd.src_offset().y) + cmd.src_offset().x*4,
+                   cmd.size().x * 4*sizeof(float));
+        }
+    });
 }
 
 void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented."); // TODO
+    _pool.async([cmd = *command] {
+        ISPCTexture* tex = reinterpret_cast<ISPCTexture*>(cmd.texture());
+        check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+        // copy data
+        // data is void*; tex->lods is float* for now
+        int target_stride = cmd.size().x * 4*sizeof(float); // TODO support for other data type
+        int tex_stride = max(tex->width>>cmd.level(), 1u) * 4; // TODO support for other data type
+        for (int i=0; i<cmd.size().y; ++i)
+            memcpy((unsigned char*)cmd.buffer() + cmd.buffer_offset() + i*target_stride,
+                tex->lods[cmd.level()] + (i+cmd.offset().y) * tex_stride + cmd.offset().x*4,
+                cmd.size().x * 4*sizeof(float)); 
+    });
 }
 
 void ISPCStream::visit(const AccelUpdateCommand *command) noexcept {
