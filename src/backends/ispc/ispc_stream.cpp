@@ -114,9 +114,15 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
     auto dispatch_size = command->dispatch_size();
     auto block_size = command->kernel().block_size();
     auto grid_size = (dispatch_size + block_size - 1u) / block_size;
+//    LUISA_INFO(
+//        "Dispatching ISPC kernel "
+//        "with ({}, {}, {}) blocks, "
+//        "each with ({}, {}, {}) threads.",
+//        grid_size.x, grid_size.y, grid_size.z,
+//        block_size.x, block_size.y, block_size.z);
     _pool.parallel(
         grid_size.x, grid_size.y, grid_size.z,
-        [shared_buffer, dispatch_size, module = shader->module()](auto bx, auto by, auto bz) noexcept {
+        [shared_buffer, dispatch_size, module = shader->shared_module()](auto bx, auto by, auto bz) noexcept {
             module->invoke(shared_buffer->data(), luisa::make_uint3(bx, by, bz), dispatch_size);
         });
 }

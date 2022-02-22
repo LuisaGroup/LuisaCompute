@@ -71,7 +71,7 @@ ISPCJITModule::~ISPCJITModule() noexcept = default;
     return machine;
 }
 
-luisa::unique_ptr<ISPCModule> ISPCJITModule::load(
+luisa::shared_ptr<ISPCModule> ISPCJITModule::load(
     const Context &ctx, const std::filesystem::path &ir_path) noexcept {
     // load
     auto context = luisa::make_unique<llvm::LLVMContext>();
@@ -144,7 +144,7 @@ luisa::unique_ptr<ISPCModule> ISPCJITModule::load(
             "Failed to create execution engine: {}.",
             err);
     }
-    return luisa::make_unique<ISPCJITModule>(
+    return luisa::make_shared<ISPCJITModule>(
         ISPCJITModule{std::move(context), std::move(engine)});
 }
 
