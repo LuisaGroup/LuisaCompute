@@ -13,24 +13,7 @@ namespace luisa::compute::ispc {
 luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     const Context &ctx, const std::filesystem::path &obj_path) noexcept {
 
-    auto embree_name = [&ctx] {
-        std::filesystem::directory_iterator runtime_files{ctx.runtime_directory()};
-        for (auto &&file : runtime_files) {
-            if (auto name = file.path().stem().string();
-                name.find("embree3") != std::string::npos &&
-                (name.ends_with(".dll") ||
-                 name.ends_with(".so") ||
-                 name.ends_with(".dylib"))) {
-                return name.starts_with("lib") ?
-                           name.substr(3u) :
-                           name;
-            }
-        }
-        LUISA_WARNING_WITH_LOCATION("Failed to find embree3.");
-        return std::string{};
-    }();
-
-#if LUISA_PLATFORM_WINDOWS
+#ifdef LUISA_PLATFORM_WINDOWS
     auto support_dir = ctx.runtime_directory() / "backends" / "ispc_support";
     auto link_exe = support_dir / "link.exe";
     auto crt_path = support_dir / "msvcrt.lib";
@@ -43,10 +26,7 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
 
     auto command = luisa::format(
         R"({} /DLL /NOLOGO /OUT:"{}" /DYNAMICBASE "{}" /DEBUG:NONE /NOENTRY /EXPORT:kernel_main /NODEFAULTLIB "{}")",
-        link_exe.string(),
-        dll_path.string(),
-        crt_path.string(),
-        obj_path.string());
+        link_exe.string(), dll_path.string(), crt_path.string(), obj_path.string());
     LUISA_INFO("Generating DLL for ISPC kernel: {}", command);
     if (auto exit_code = system(command.c_str()); exit_code != 0) {
         LUISA_ERROR_WITH_LOCATION(
@@ -59,6 +39,22 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     return luisa::make_unique<ISPCDLLModule>(ISPCDLLModule{
         DynamicModule{dll_path.parent_path(), dll_path.stem().string()}});
 #else
+
+    auto embree_name = [&ctx] {
+        std::filesystem::directory_iterator runtime_files{ctx.runtime_directory()};
+        for (auto &&file : runtime_files) {
+            if (auto name = file.path().stem().string();
+                name.find("embree3") != std::string::npos &&
+                (name.ends_with(".dll") || name.ends_with(".so"))) {
+                return name.starts_with("lib") ?
+                           name.substr(3u) :
+                           name;
+            }
+        }
+        LUISA_WARNING_WITH_LOCATION("Failed to find embree3.");
+        return std::string{};
+    }();
+
     auto support_dir = ctx.runtime_directory() / "backends" / "ispc_support";
     auto file_name = obj_path.filename().stem().string();
     auto output_folder = obj_path.parent_path();
