@@ -22,6 +22,14 @@ public:
 public:
     ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept;
     [[nodiscard]] Handle handle() const noexcept;
+
+public:
+    static const unsigned MAXLOD = 20;
+    uint width;
+    uint height;
+    uint lodLevel;
+    float* lods[MAXLOD];
+
 };
 
 }// namespace luisa::compute::ispc
