@@ -1,4 +1,3 @@
-// RW_TEXTURE FAILS (maybe due to issues with parameter offsetting)
 
 #include <algorithm>
 #include <runtime/context.h>
