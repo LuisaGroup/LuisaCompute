@@ -11,6 +11,10 @@
 
 namespace luisa::compute::cuda {
 
+/**
+ * @brief Kernel compiler of CUDA
+ * 
+ */
 class CUDACompiler {
 
 public:
@@ -28,7 +32,20 @@ public:
     CUDACompiler(const CUDACompiler &) noexcept = delete;
     CUDACompiler &operator=(CUDACompiler &&) noexcept = delete;
     CUDACompiler &operator=(const CUDACompiler &) noexcept = delete;
+    /**
+     * @brief Return singleton
+     * 
+     * @return CUDACompiler& 
+     */
     [[nodiscard]] static CUDACompiler &instance() noexcept;
+    /**
+     * @brief Compile kernel function
+     * 
+     * @param ctx context
+     * @param function function
+     * @param sm // TODO
+     * @return compile result
+     */
     [[nodiscard]] luisa::string compile(const Context &ctx, Function function, uint32_t sm) noexcept;
 };
 

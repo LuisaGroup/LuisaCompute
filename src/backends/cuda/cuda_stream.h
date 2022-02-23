@@ -17,6 +17,10 @@ namespace luisa::compute::cuda {
 
 class CUDACallbackContext;
 
+/**
+ * @brief Stream on CUDA
+ * 
+ */
 class CUDAStream {
 
 private:
@@ -29,9 +33,28 @@ private:
 public:
     CUDAStream() noexcept;
     ~CUDAStream() noexcept;
+    /**
+     * @brief Return handle of stream on CUDA
+     * 
+     * @return CUstream
+     */
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    /**
+     * @brief Return CUDAHostBufferPool
+     * 
+     * @return pointer of CUDAHostBufferPool
+     */
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
+    /**
+     * @brief Emplace callback context
+     * 
+     * @param cb callback context
+     */
     void emplace_callback(CUDACallbackContext *cb) noexcept;
+    /**
+     * @brief Dispatch callbacks
+     * 
+     */
     void dispatch_callbacks() noexcept;
 };
 

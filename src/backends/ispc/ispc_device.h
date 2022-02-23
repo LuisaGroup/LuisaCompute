@@ -321,14 +321,14 @@ public:
      */
     bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
     /**
-     * @brief Get the vertex buffer from mesh object
+     * @brief Return the vertex buffer from mesh object
      * 
      * @param mesh_handle handle of mesh
      * @return handle of vertex buffer
      */
     uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     /**
-     * @brief Get the triangle buffer from mesh object
+     * @brief Return the triangle buffer from mesh object
      * 
      * @param mesh_handle handle of mesh
      * @return handle of triangle buffer
