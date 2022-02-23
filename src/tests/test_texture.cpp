@@ -162,7 +162,7 @@ int test_texture_crop(Device& device, int width, int height, int lod, TestType t
     std::vector<float> output(total_size * 4);
     for (int i=0, offset=0; i<lod; ++i) {
         stream << (test_type? image1: image0).view(i).region((test_type? ro1: ro0)[i],rs[i]).copy_to(output.data() + offset*4);
-        offset += max(1, width>>i) * max(1, height>>i);
+        offset += rs[i].x * rs[i].y;
     }
     stream << synchronize();
     // check correctness
