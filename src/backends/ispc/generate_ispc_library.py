@@ -1216,28 +1216,30 @@ struct TextureView {
 
 inline void texture_write(uniform LCTexture *uniform tex, uint2 p, uint level, float4 value)
 {
-    if (p.v[0] >= tex->width || p.v[1] >= tex->height)
+    uint width = max(tex->width >> level, 1);
+    uint height = max(tex->height >> level, 1);
+    if (p.v[0] >= width || p.v[1] >= height)
         // throw "texture write out of bound";
-        print("texture write out of bound %u %u, %u %u\\n", p.v[0], p.v[1], tex->width, tex->height);
-    print("tex %u %u\\n", tex->width, tex->height);
-    return;
-    print("TEX WRITE %u %u %u\\n", p.v[0], p.v[1], level);
-    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 0] = value.v[0];
-    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 1] = value.v[1];
-    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 2] = value.v[2];
-    // tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 3] = value.v[3];
+        print("texture write out of bound %u %u, %u %u\\n", p.v[0], p.v[1], width, height);
+    // print("TEX WRITE %u %u %u\\n", p.v[0], p.v[1], level);
+    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 0] = value.v[0];
+    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 1] = value.v[1];
+    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 2] = value.v[2];
+    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 3] = value.v[3];
 }
 
 inline float4 texture_read(uniform LCTexture *uniform tex, uint2 p, uint level)
 {
-    if (p.v[0] >= tex->width || p.v[1] >= tex->height)
-        print("texture read out of bound %u %u, %u %u\\n", p.v[0], p.v[1], tex->width, tex->height);
-    print("TEX READ %u %u %u @ %u %u\\n", p.v[0], p.v[1], level, tex->width, tex->height);
+    uint width = max(tex->width >> level, 1);
+    uint height = max(tex->height >> level, 1);
+    if (p.v[0] >= width || p.v[1] >= height)
+        print("texture read out of bound %u %u, %u %u\\n", p.v[0], p.v[1], width, height);
+    // print("TEX READ %u %u %u @ %u %u\\n", p.v[0], p.v[1], level, width, height);
     float4 value;
-    value.v[0] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 0];
-    value.v[1] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 1];
-    value.v[2] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 2];
-    value.v[3] = tex->lods[level][(p.v[1] * tex->width + p.v[0]) * 4 + 3];
+    value.v[0] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 0];
+    value.v[1] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 1];
+    value.v[2] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 2];
+    value.v[3] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 3];
     return value;
 }
 
@@ -1248,9 +1250,8 @@ inline float4 surf2d_read_float(uniform TextureView view, uint2 p)
 
 inline void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)
 {
-    print("123\\n");
     // print("ptr= %llu\\n", (uint64)view.ptr);;
-    // texture_write((LCTexture*)view.ptr, p, view.level, value);
+    texture_write((LCTexture*)view.ptr, p, view.level, value);
 }
 
 struct LCBindlessItem {

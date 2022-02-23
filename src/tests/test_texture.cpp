@@ -22,17 +22,21 @@ enum TestType {
 // test 2D texture of float4  (without offset & region)
 int test_texture_upload_download(Device& device, int width, int height, int lod, TestType test_type)
 {
+    LUISA_INFO("===================================================");
     LUISA_INFO("test_texture_upload_download {}x{}, lod={}, test={}", width, height, lod, test_type);
     auto image0 = device.create_image<float>(PixelStorage::FLOAT4, width, height, lod);
     auto image1 = device.create_image<float>(PixelStorage::FLOAT4, width, height, lod);
     int total_size = 0;
-    for (int i=0; i<lod; ++i)
+    for (int i=0; i<lod; ++i) {
+        // LUISA_INFO("i={} A:{} B:{}", i, max(1, width>>i), max(1, height>>i));
         total_size += max(1, width>>i) * max(1, height>>i);
+    }
+    LUISA_INFO("total_size = {}", total_size);
 
     // random generate data
     std::vector<float> input(total_size * 4);
     for (int i=0; i<total_size*4; ++i)
-        input[i] = (float)rand()/RAND_MAX*100;
+        input[i] = (float)rand()*1e-6;
     // upload texture
     auto stream = device.create_stream();
     for (int i=0, offset=0; i<lod; ++i) {
@@ -63,9 +67,9 @@ int test_texture_upload_download(Device& device, int width, int height, int lod,
         auto shader = device.compile(rw_kernel);
         auto shader1 = device.compile(fill_kernel);
         for (int i=0, offset=0; i<lod; ++i)
-            // stream << shader( image0.view(i), image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
-            stream << shader1(image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
-        stream << synchronize();
+            stream << shader( image0.view(i), image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
+            // stream << shader1(image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
+        // stream << synchronize();
         LUISA_WARNING("=====3");
     }
 
@@ -79,7 +83,7 @@ int test_texture_upload_download(Device& device, int width, int height, int lod,
     // check correctness
     for (int i=0; i<total_size*4; ++i) {
         if (input[i] != output[i]) {
-            LUISA_ERROR("ERROR: data mismatch");
+            LUISA_ERROR("data mismatch at i={}", i);
             return -1;
         }
     }
@@ -103,6 +107,7 @@ int main(int argc, char* argv[])
         test_texture_upload_download(device, 4567, 4575, 1, test_type) ||
         test_texture_upload_download(device, 1234567, 3, 1, test_type) ||
         test_texture_upload_download(device, 1234567, 1, 1, test_type) ||
+        test_texture_upload_download(device, 1024, 1024, 5, test_type) ||
         test_texture_upload_download(device, 1234, 1234, 5, test_type) ||
         test_texture_upload_download(device, 1234567, 1, 20, test_type) ||
         test_texture_upload_download(device, 1234, 1234, 11, test_type);
