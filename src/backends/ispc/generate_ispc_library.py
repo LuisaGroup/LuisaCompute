@@ -1233,7 +1233,7 @@ inline float4 texture_read(uniform LCTexture *uniform tex, uint2 p, uint level)
     uint width = max(tex->width >> level, 1);
     uint height = max(tex->height >> level, 1);
     if (p.v[0] >= width || p.v[1] >= height)
-        print("texture read out of bound %u %u, %u %u\\n", p.v[0], p.v[1], width, height);
+        print("texture@%u read out of bound %u %u, %u %u\\n", level, p.v[0], p.v[1], width, height);
     // print("TEX READ %u %u %u @ %u %u\\n", p.v[0], p.v[1], level, width, height);
     float4 value;
     value.v[0] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 0];

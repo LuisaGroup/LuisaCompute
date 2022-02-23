@@ -53,6 +53,7 @@ int test_texture_upload_download(Device& device, int width, int height, int lod,
             stream << image0.view(i).copy_to(buf.view());
             stream << image1.view(i).copy_from(buf.view());
         }
+        stream << synchronize();
     }
     if (test_type == RW_TEXTURE) {
         Kernel2D rw_kernel = [](ImageVar<float> image0, ImageVar<float> image1) noexcept {
@@ -138,6 +139,7 @@ int test_texture_crop(Device& device, int width, int height, int lod, TestType t
             stream << image0.view(i).region(ro0[i],rs[i]).copy_to(buf.view());
             stream << image1.view(i).region(ro1[i],rs[i]).copy_from(buf.view());
         }
+        stream << synchronize();
     }
     if (test_type == RW_TEXTURE) {
         Kernel2D rw_kernel = [](ImageVar<float> image0, ImageVar<float> image1) noexcept {
@@ -151,9 +153,8 @@ int test_texture_crop(Device& device, int width, int height, int lod, TestType t
         auto shader = device.compile(rw_kernel);
         auto shader1 = device.compile(fill_kernel);
         for (int i=0, offset=0; i<lod; ++i)
-            stream << shader( image0.view(i).region(ro0[i],rs[i]), image1.view(i).region(ro1[i],rs[i])).dispatch(max(width>>i,1), max(height>>i,1));
-            // stream << shader1(image1.view(i)).dispatch(max(width>>i,1), max(height>>i,1));
-        // stream << synchronize();
+            stream << shader( image0.view(i).region(ro0[i],rs[i]), image1.view(i).region(ro1[i],rs[i])).dispatch(rs[i].x, rs[i].y);
+        stream << synchronize();
         LUISA_WARNING("=====3");
     }
 
@@ -184,12 +185,8 @@ int main(int argc, char* argv[])
     Context context{argv[0]};
     auto device = context.create_device("ispc");
 
-    test_texture_upload_download(device, 1024, 1024, 1, COPY_BUFFER);
-    test_texture_upload_download(device, 256, 256, 1, COPY_BUFFER);
-    test_texture_upload_download(device, 64, 64, 1, COPY_BUFFER);
-    test_texture_upload_download(device, 16, 16, 1, COPY_BUFFER);
 
-
+    // test copy & r/w with LoD
     // for (int i=0; i<4; ++i) {
     //     TestType test_type = (TestType)i;
     //     test_texture_upload_download(device, 1024, 1024, 1, test_type) ||
@@ -202,33 +199,48 @@ int main(int argc, char* argv[])
     //     test_texture_upload_download(device, 1234567, 1, 20, test_type) ||
     //     test_texture_upload_download(device, 1234, 1234, 11, test_type);
     // }
+    
+    // for (int i=0; i<4; ++i) {
+    //     TestType test_type = (TestType)i;
+    //     test_texture_upload_download(device, 16, 16, 1, test_type) ||
+    //     test_texture_upload_download(device, 7, 9, 1, test_type) ||
+    //     test_texture_upload_download(device, 45, 2, 1, test_type) ||
+    //     test_texture_upload_download(device, 321, 3, 1, test_type) ||
+    //     test_texture_upload_download(device, 16, 16, 3, test_type) ||
+    //     test_texture_upload_download(device, 8, 17, 5, test_type) ||
+    //     test_texture_upload_download(device, 17, 1, 5, test_type) ||
+    //     test_texture_upload_download(device, 20, 20, 5, test_type);
+    // }
 
 
+    // tmp DEBUG
     for (int i=0; i<4; ++i) {
         TestType test_type = (TestType)i;
-        test_texture_upload_download(device, 16, 16, 1, test_type) ||
-        test_texture_upload_download(device, 7, 9, 1, test_type) ||
-        test_texture_upload_download(device, 45, 2, 1, test_type) ||
-        test_texture_upload_download(device, 321, 3, 1, test_type) ||
-        test_texture_upload_download(device, 16, 16, 3, test_type) ||
-        test_texture_upload_download(device, 8, 17, 5, test_type) ||
-        test_texture_upload_download(device, 17, 1, 5, test_type) ||
-        test_texture_upload_download(device, 20, 20, 5, test_type);
+        test_texture_crop(device, 16, 16, 3, test_type);
+        test_texture_crop(device, 16, 16, 3, test_type);
+        test_texture_crop(device, 16, 16, 3, test_type);
+        test_texture_crop(device, 16, 16, 3, test_type);
     }
+    return 0;
 
+
+    // test region
     for (int round = 0; round < 20; ++round) {
         for (int i=0; i<4; ++i) {
             TestType test_type = (TestType)i;
             test_texture_crop(device, 16, 16, 1, test_type) ||
             test_texture_crop(device, 7, 9, 1, test_type) ||
             test_texture_crop(device, 45, 2, 1, test_type) ||
-            test_texture_crop(device, 321, 3, 1, test_type) ||
-            test_texture_crop(device, 16, 16, 3, test_type) ||
-            test_texture_crop(device, 8, 17, 5, test_type) ||
-            test_texture_crop(device, 17, 1, 5, test_type) ||
-            test_texture_crop(device, 20, 20, 5, test_type);
+            test_texture_crop(device, 321, 3, 1, test_type);
+            // test_texture_crop(device, 16, 16, 3, test_type) ||
+            // test_texture_crop(device, 8, 17, 5, test_type) ||
+            // test_texture_crop(device, 17, 1, 5, test_type) ||
+            // test_texture_crop(device, 20, 20, 5, test_type);
         }
     }
+
+    return 0;
+
     for (int round = 0; round < 3; ++round) {
         for (int i=0; i<4; ++i) {
             TestType test_type = (TestType)i;
