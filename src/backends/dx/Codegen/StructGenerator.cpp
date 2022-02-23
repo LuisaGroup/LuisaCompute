@@ -208,20 +208,13 @@ StructGenerator::StructGenerator(
     Type const *structureType,
     size_t structIdx,
     vstd::function<StructGenerator *(Type const *)> const &visitor)
-    : idx(structIdx) {
+    : idx(structIdx),
+      structureType{structureType} {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
         InitAsStruct(vstd::GetIterator(structureType->members()), structIdx, visitor);
     } else {
         InitAsArray(structureType, structIdx, visitor);
     }
 }
-StructGenerator::StructGenerator(
-    vstd::Iterator<Type const *const> const &vars,
-    size_t structIdx,
-    vstd::function<StructGenerator *(Type const *)> const &visitor)
-    : idx(structIdx) {
-    InitAsStruct(vars, structIdx, visitor);
-}
-StructGenerator::~StructGenerator() {
-}
+StructGenerator::~StructGenerator() = default;
 }// namespace toolhub::directx

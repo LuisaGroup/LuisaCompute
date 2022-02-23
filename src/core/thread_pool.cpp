@@ -126,4 +126,8 @@ ThreadPool &ThreadPool::global() noexcept {
     return pool;
 }
 
+uint ThreadPool::task_count() const noexcept {
+    return _task_count.load();
+}
+
 }// namespace luisa

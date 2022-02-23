@@ -45,7 +45,6 @@ int main(int argc, char *argv[]) {
     Kernel2D fill_image_kernel = [&](BufferUInt image) noexcept {
         auto coord = dispatch_id().xy();
         auto rg = make_float2(coord) / make_float2(dispatch_size().xy());
-        printer.log_with_location(2333, "YES");
         printer.log(1, 1.f, true, "Hello, coord = (", coord.x, ", ", coord.y, ")");
         image.write(coord.x + coord.y * dispatch_size_x(), linear_to_srgb(make_float3(rg, 0.5f)));
     };
