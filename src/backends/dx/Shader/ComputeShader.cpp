@@ -117,14 +117,15 @@ ComputeShader *ComputeShader::CompileCompute(
         [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
             auto f = fopen(path.c_str(), "wb");
             if (f) {
-                auto disp = vstd::create_disposer([&] { fclose(f); });
-                auto serData = ShaderSerializer::Serialize(
-                    str.properties,
-                    {buffer->GetBufferPtr(), buffer->GetBufferSize()},
-                    md5,
-                    blockSize);
-                fwrite(serData.data(), serData.size(), 1, f);
-                //std::cout << "Save cache success!"sv << '\n';
+                if constexpr (USE_CACHE) {
+                    auto disp = vstd::create_disposer([&] { fclose(f); });
+                    auto serData = ShaderSerializer::Serialize(
+                        str.properties,
+                        {buffer->GetBufferPtr(), buffer->GetBufferSize()},
+                        md5,
+                        blockSize);
+                    fwrite(serData.data(), serData.size(), 1, f);
+                }
             }
             auto cs = new ComputeShader(
                 blockSize,
@@ -134,7 +135,9 @@ ComputeShader *ComputeShader::CompileCompute(
                 device,
                 md5);
             cs->bindlessCount = str.bdlsBufferCount;
-            savePso(cs);
+            if constexpr (USE_CACHE) {
+                savePso(cs);
+            }
             return cs;
         },
         [](auto &&err) {
