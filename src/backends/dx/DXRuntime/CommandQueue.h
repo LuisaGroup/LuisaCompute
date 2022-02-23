@@ -37,7 +37,7 @@ public:
         IGpuAllocator *resourceAllocator,
         D3D12_COMMAND_LIST_TYPE type);
     ~CommandQueue();
-    AllocatorPtr CreateAllocator();
+    AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
     uint64 Execute(AllocatorPtr &&alloc);
     void Complete(uint64 fence);
