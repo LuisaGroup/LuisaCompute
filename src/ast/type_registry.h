@@ -61,8 +61,8 @@ private:
     mutable std::recursive_mutex _mutex;
 
 private:
-    [[nodiscard]] static uint64_t _hash(std::string_view desc) noexcept;
-    [[nodiscard]] const Type *_decode(std::string_view desc) noexcept;
+    [[nodiscard]] static uint64_t _hash(luisa::string_view desc) noexcept;
+    [[nodiscard]] const Type *_decode(luisa::string_view desc) noexcept;
 
 public:
     [[nodiscard]] static TypeRegistry &instance() noexcept;
@@ -82,28 +82,28 @@ struct TypeDesc {
 #define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, tag) \
     template<>                                                        \
     struct TypeDesc<S> {                                              \
-        static constexpr std::string_view description() noexcept {    \
+        static constexpr luisa::string_view description() noexcept {  \
             using namespace std::string_view_literals;                \
             return #S##sv;                                            \
         }                                                             \
     };                                                                \
     template<>                                                        \
     struct TypeDesc<Vector<S, 2>> {                                   \
-        static constexpr std::string_view description() noexcept {    \
+        static constexpr luisa::string_view description() noexcept {  \
             using namespace std::string_view_literals;                \
             return "vector<" #S ",2>"sv;                              \
         }                                                             \
     };                                                                \
     template<>                                                        \
     struct TypeDesc<Vector<S, 3>> {                                   \
-        static constexpr std::string_view description() noexcept {    \
+        static constexpr luisa::string_view description() noexcept {  \
             using namespace std::string_view_literals;                \
             return "vector<" #S ",3>"sv;                              \
         }                                                             \
     };                                                                \
     template<>                                                        \
     struct TypeDesc<Vector<S, 4>> {                                   \
-        static constexpr std::string_view description() noexcept {    \
+        static constexpr luisa::string_view description() noexcept {  \
             using namespace std::string_view_literals;                \
             return "vector<" #S ",4>"sv;                              \
         }                                                             \
@@ -120,7 +120,7 @@ LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, UINT32)
 template<typename T, size_t N>
 struct TypeDesc<std::array<T, N>> {
     static_assert(alignof(T) >= 4u);
-    static std::string_view description() noexcept {
+    static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
             FMT_STRING("array<{},{}>"),
             TypeDesc<T>::description(), N);
@@ -130,7 +130,7 @@ struct TypeDesc<std::array<T, N>> {
 
 template<typename T, size_t N>
 struct TypeDesc<T[N]> {
-    static std::string_view description() noexcept {
+    static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
             FMT_STRING("array<{},{}>"),
             TypeDesc<T>::description(), N);
@@ -140,7 +140,7 @@ struct TypeDesc<T[N]> {
 
 template<typename T>
 struct TypeDesc<Buffer<T>> {
-    static std::string_view description() noexcept {
+    static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
             FMT_STRING("buffer<{}>"),
             TypeDesc<T>::description());
@@ -153,7 +153,7 @@ struct TypeDesc<BufferView<T>> : TypeDesc<Buffer<T>> {};
 
 template<typename T>
 struct TypeDesc<Image<T>> {
-    static std::string_view description() noexcept {
+    static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
             FMT_STRING("texture<2,{}>"),
             TypeDesc<T>::description());
@@ -166,7 +166,7 @@ struct TypeDesc<ImageView<T>> : TypeDesc<Image<T>> {};
 
 template<typename T>
 struct TypeDesc<Volume<T>> {
-    static std::string_view description() noexcept {
+    static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
             FMT_STRING("texture<3,{}>"),
             TypeDesc<T>::description());
@@ -176,14 +176,14 @@ struct TypeDesc<Volume<T>> {
 
 template<>
 struct TypeDesc<BindlessArray> {
-    static constexpr std::string_view description() noexcept {
+    static constexpr luisa::string_view description() noexcept {
         return "bindless_array";
     }
 };
 
 template<>
 struct TypeDesc<Accel> {
-    static constexpr std::string_view description() noexcept {
+    static constexpr luisa::string_view description() noexcept {
         return "accel";
     }
 };
@@ -194,7 +194,7 @@ struct TypeDesc<VolumeView<T>> : TypeDesc<Volume<T>> {};
 // matrices
 template<>
 struct TypeDesc<float2x2> {
-    static constexpr std::string_view description() noexcept {
+    static constexpr luisa::string_view description() noexcept {
         using namespace std::string_view_literals;
         return "matrix<2>"sv;
     }
@@ -202,7 +202,7 @@ struct TypeDesc<float2x2> {
 
 template<>
 struct TypeDesc<float3x3> {
-    static constexpr std::string_view description() noexcept {
+    static constexpr luisa::string_view description() noexcept {
         using namespace std::string_view_literals;
         return "matrix<3>"sv;
     }
@@ -210,7 +210,7 @@ struct TypeDesc<float3x3> {
 
 template<>
 struct TypeDesc<float4x4> {
-    static constexpr std::string_view description() noexcept {
+    static constexpr luisa::string_view description() noexcept {
         using namespace std::string_view_literals;
         return "matrix<4>"sv;
     }
@@ -218,7 +218,7 @@ struct TypeDesc<float4x4> {
 
 template<typename... T>
 struct TypeDesc<std::tuple<T...>> {
-    static std::string_view description() noexcept {
+    static luisa::string_view description() noexcept {
         static thread_local auto s = [] {
             auto s = luisa::format("struct<{}", alignof(std::tuple<T...>));
             (s.append(",").append(TypeDesc<T>::description()), ...);
@@ -328,8 +328,8 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
     template<>                                                \
     struct TypeDesc<S> {                                      \
         using this_type = S;                                  \
-        static std::string_view description() noexcept {      \
-            static auto s = fmt::format(                      \
+        static luisa::string_view description() noexcept {    \
+            static auto s = luisa::format(                    \
                 FMT_STRING("struct<{}" LUISA_MAP(             \
                     LUISA_STRUCTURE_MAP_MEMBER_TO_FMT,        \
                     ##__VA_ARGS__) ">"),                      \

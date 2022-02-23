@@ -10,7 +10,6 @@
 #include <ast/function_builder.h>
 #include <runtime/buffer.h>
 #include <runtime/event.h>
-#include <dsl/operators.h>
 #include <dsl/expr.h>
 #include <dsl/var.h>
 
@@ -69,15 +68,6 @@ public:
 
     template<typename... Args>
     void log(Args &&...args) noexcept;
-
-    template<typename... Args>
-    void log_with_location(Args &&...args) noexcept {
-        log(luisa::format("[#{}:", _uid++),
-            dispatch_x(), ",",
-            dispatch_y(), ",",
-            dispatch_z(), "] ",
-            std::forward<Args>(args)...);
-    }
 };
 
 template<typename... Args>
