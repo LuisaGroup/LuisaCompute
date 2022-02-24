@@ -75,7 +75,8 @@ public:
         size_t newCapacity);
     void Build(
         ResourceStateTracker &tracker,
-        CommandBufferBuilder &builder);
+        CommandBufferBuilder &builder,
+        bool update);
     ~TopAccel();
 };
 }// namespace toolhub::directx

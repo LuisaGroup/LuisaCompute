@@ -53,7 +53,6 @@ DXRuntime/CommandBuffer.h
 DXRuntime/CommandQueue.h
 DXRuntime/Device.h
 DXRuntime/GlobalSamplers.h
-DXRuntime/IUpdateState.h
 DXRuntime/ResourceStateTracker.h
 Resource/AllocHandle.h
 Resource/BindlessArray.h
