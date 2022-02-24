@@ -208,42 +208,42 @@ int main(int argc, char *argv[]) {
             $if(cos_wi < 1e-4f) { $break; };
             auto material = material_buffer.read(hit.inst);
 
-            //            // hit light
-            //            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-            //                $if(depth == 0u) {
-            //                    radiance += light_emission;
-            //                }
-            //                $else {
-            //                    auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
-            //                    auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-            //                    radiance += mis_weight * beta * light_emission;
-            //                };
-            //                $break;
+            // hit light
+            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                //                            $if(depth == 0u) {
+                //                                radiance += light_emission;
+                //                            }
+                //                            $else {
+                //                                auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                //                                auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                //                                radiance += mis_weight * beta * light_emission;
+                //                            };
+                $break;
+            };
+
+            //            // sample light
+            //            auto ux_light = lcg(state);
+            //            auto uy_light = lcg(state);
+            //            auto p_light = light_position + ux_light * light_u + uy_light * light_v;
+            //            auto d_light = distance(p, p_light);
+            //            auto wi_light = normalize(p_light - p);
+            //            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+            //            auto occluded = accel.trace_any(shadow_ray);
+            //            auto cos_wi_light = dot(wi_light, n);
+            //            auto cos_light = -dot(light_normal, wi_light);
+            //            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+            //                auto pdf_light = (d_light * d_light) / (light_area * cos_light);
+            //                auto pdf_bsdf = cos_wi_light * inv_pi;
+            //                auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+            //
+            //                auto bsdf = material.albedo * inv_pi * cos_wi_light;
+            //                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
             //            };
 
-            // sample light
-            auto ux_light = lcg(state);
-            auto uy_light = lcg(state);
-            auto p_light = light_position + ux_light * light_u + uy_light * light_v;
-            auto d_light = distance(p, p_light);
-            auto wi_light = normalize(p_light - p);
-            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
-            auto occluded = accel.trace_any(shadow_ray);
-            auto cos_wi_light = dot(wi_light, n);
-            auto cos_light = -dot(light_normal, wi_light);
-            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
-                auto pdf_light = (d_light * d_light) / (light_area * cos_light);
-                auto pdf_bsdf = cos_wi_light * inv_pi;
-                auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-
-                //                auto bsdf = material.albedo * inv_pi * cos_wi_light;
-                //                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-
-                $if(hit.inst == 3) {
-                    auto bsdf_diff = make_float3(1, 1, 1);
-                    auto li = 1.f;
-                    radiance += li * bsdf_diff;
-                };
+            $if(hit.inst == 3) {
+                auto bsdf_diff = make_float3(0.0f, 1.0f, 0.0f);
+                auto li = 1.f;
+                radiance += beta * bsdf_diff;
             };
 
             // sample BSDF
@@ -252,8 +252,8 @@ int main(int argc, char *argv[]) {
             auto uy = lcg(state);
             auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
             ray = make_ray_robust(p, n, new_direction);
-            beta *= material.albedo;
             pdf_bsdf = cos_wi * inv_pi;
+            beta *= material.albedo;
 
             // rr
             auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
