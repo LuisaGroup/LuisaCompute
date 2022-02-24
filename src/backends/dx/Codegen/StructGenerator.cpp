@@ -160,7 +160,7 @@ void StructGenerator::InitAsStruct(
             } break;
             case Type::Tag::STRUCTURE: {
                 auto subStruct = visitor(i);
-                Align(i->element()->alignment());
+                Align(i->alignment());
                 structSize += i->size();
                 ele = subStruct;
             } break;
