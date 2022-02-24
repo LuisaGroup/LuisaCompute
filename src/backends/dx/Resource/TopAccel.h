@@ -1,7 +1,6 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <EASTL/shared_ptr.h>
-#include <Resource/MeshInstance.h>
 #include <runtime/command.h>
 namespace toolhub::directx {
 class DefaultBuffer;
@@ -33,7 +32,7 @@ class TopAccel : public vstd::IOperatorNewBase {
     };
     struct UpdateCommand {
         D3D12_RAYTRACING_INSTANCE_DESC ist;
-        MeshInstance meshInst;
+        float4x4 meshInst;
         BufferView buffer;
         BufferView customBuffer;
     };
