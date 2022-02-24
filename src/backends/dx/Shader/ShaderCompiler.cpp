@@ -40,6 +40,7 @@ CompileResult DXShaderCompiler::Compile(
         code.size(),
         CP_UTF8};
     ComPtr<IDxcResult> compileResult;
+
     ThrowIfFailed(comp->Compile(
         &buffer,
         args.data(),
@@ -77,7 +78,6 @@ CompileResult DXShaderCompiler::CompileCompute(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
          L"/enable_unbounded_descriptor_tables",
-         L"/W0",
          L"-HV 2021"});
     if (optimize) {
         args.push_back(L"/O3");
@@ -100,7 +100,6 @@ CompileResult DXShaderCompiler::CompileRayTracing(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
          L"/enable_unbounded_descriptor_tables",
-         L"/W0",
          L"-HV 2021"});
     if (optimize) {
         args.push_back(L"/O3");

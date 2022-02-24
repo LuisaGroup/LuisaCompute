@@ -236,15 +236,21 @@ void CodegenUtility::GetTypeName(Type const &type, luisa::string &str) {
             str << '*';
             break;
         case Type::Tag::TEXTURE: {
-            str << "Texture"sv;
+            // str << "Texture"sv;
 
-            vstd::to_string((type.dimension()), str);
-            str << "D<"sv;
-            GetTypeName(*type.element(), str);
-            if (type.tag() != Type::Tag::VECTOR) {
-                str << '4';
-            }
-            str << '>';
+            // vstd::to_string((type.dimension()), str);
+            // // str << "D<"sv;
+            // // GetTypeName(*type.element(), str);
+            // // if (type.tag() != Type::Tag::VECTOR) {
+            // //     str << '4';
+            // // }
+            // // str << '>';
+            // str << "D *";
+            str << "uniform TextureView";
+            break;
+        }
+        case Type::Tag::BINDLESS_ARRAY: {
+            str << "uniform LCBindlessArray"sv;
             break;
         }
         case Type::Tag::ACCEL: {
@@ -532,10 +538,10 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
         case CallOp::BUFFER_READ: str << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: str << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
-            str << "Smptx";
+            str << "texture_view_read";
             break;
         case CallOp::TEXTURE_WRITE:
-            str << "Writetx";
+            str << "texture_view_write";
             break;
         case CallOp::MAKE_BOOL2:
             if (!IsType(expr->arguments()[0]->type(), Type::Tag::BOOL, 2))
@@ -596,15 +602,33 @@ vstd::function<void(StringExprVisitor &)> CodegenUtility::GetFunctionName(CallEx
                 str << "_float4"sv;
 
             break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
+            str << "lc_bindless_texture2d_sample"sv;
+            // str << expr->type()->description();
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_READ:
+            str << "lc_bindless_texture2d_read"sv;
+            break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE:
+            str << "lc_bindless_texture2d_size"sv;
+            break;
+        case CallOp::BINDLESS_BUFFER_READ:
+            str << "lc_bindless_buffer_read_"sv;
+            str << expr->type()->description();
+            break;
         case CallOp::ASSUME: str << "lc_builtin_assume"; break;
         case CallOp::UNREACHABLE: str << "lc_builtin_unreachable"; break;
         case CallOp::TRACE_CLOSEST:
             str << "trace_closest"sv;
             break;
+        case CallOp::TRACE_ANY:
+            str << "trace_any"sv;
+            break;
         default: {
+            LUISA_ERROR_WITH_LOCATION("Call Op code: {}", (int)expr->op());
             auto errorType = expr->op();
             VEngine_Log("Function Not Implemented"sv);
-            VSTL_ABORT();
+            // VSTL_ABORT();
         }
     }
     return defaultArgs;
@@ -665,10 +689,13 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {// TODO: use t.size()
             return Shader::CalcAlign(sz, maxAlign);
         }
         case Type::Tag::BUFFER:
-        case Type::Tag::TEXTURE:
-        case Type::Tag::ACCEL:
-        case Type::Tag::BINDLESS_ARRAY:
             return 8;
+        case Type::Tag::TEXTURE:
+            return 16; // sizeof TextureView
+        case Type::Tag::ACCEL:
+            return 8;
+        case Type::Tag::BINDLESS_ARRAY:
+            return 40;
     }
     LUISA_ERROR_WITH_LOCATION(
         "Invalid type: {}.",

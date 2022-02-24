@@ -15,9 +15,17 @@
 
 namespace luisa::compute::cuda {
 
+/**
+ * @brief Heap of CUDA
+ * 
+ */
 class CUDAHeap {
 
 public:
+    /**
+     * @brief Small buffer struct
+     * 
+     */
     struct SmallBuffer {
         CUdeviceptr address{};
         FirstFit *list{nullptr};
@@ -25,6 +33,10 @@ public:
         Pool<SmallBuffer> *pool{nullptr};
     };
 
+    /**
+     * @brief Buffer free context
+     * 
+     */
     class BufferFreeContext : public CUDACallbackContext {
 
     private:
@@ -59,8 +71,25 @@ public:
     CUDAHeap(const CUDAHeap &) noexcept = delete;
     CUDAHeap &operator=(CUDAHeap &&) noexcept = delete;
     CUDAHeap &operator=(const CUDAHeap &) noexcept = delete;
+    /**
+     * @brief Allocate space in heap
+     * 
+     * @param size size of allocated bytes
+     * @return handle of allocated buffer
+     */
     [[nodiscard]] uint64_t allocate(size_t size) noexcept;
+    /**
+     * @brief Free buffer
+     * 
+     * @param buffer handle of buffer
+     */
     void free(uint64_t buffer) noexcept;
+    /**
+     * @brief Return buffer address
+     * 
+     * @param handle handle of buffer
+     * @return CUdeviceptr 
+     */
     [[nodiscard]] static CUdeviceptr buffer_address(uint64_t handle) noexcept;
 };
 

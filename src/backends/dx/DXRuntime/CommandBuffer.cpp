@@ -29,13 +29,20 @@ void CommandBufferBuilder::SetResources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
     for (auto &&r : resources) {
-        r.prop.visit(
+        auto result = r.prop.visit_or(
+            false,
             [&](auto &&b) {
-                s->SetComputeResource(
+                return s->SetComputeResource(
                     r.name,
                     this,
                     b);
             });
+#ifdef _DEBUG
+        if (!result) {
+            VEngine_Log("Illegal resource setted"sv);
+            VSTL_ABORT();
+        }
+#endif
     }
 }
 void CommandBufferBuilder::DispatchCompute(
@@ -164,8 +171,8 @@ void CommandBufferBuilder::Upload(BufferView const &buffer, void const *src) {
         buffer.byteSize);
 }
 void CommandBufferBuilder::CopyTexture(
-    TextureBase const* source, uint sourceSlice, uint sourceMipLevel,
-    TextureBase const* dest, uint destSlice, uint destMipLevel) {
+    TextureBase const *source, uint sourceSlice, uint sourceMipLevel,
+    TextureBase const *dest, uint destSlice, uint destMipLevel) {
     if (source->Dimension() == TextureDimension::Tex2D) sourceSlice = 0;
     if (dest->Dimension() == TextureDimension::Tex2D) destSlice = 0;
     D3D12_TEXTURE_COPY_LOCATION sourceLocation;

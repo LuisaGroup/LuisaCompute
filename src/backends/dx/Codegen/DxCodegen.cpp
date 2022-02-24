@@ -2,7 +2,6 @@
 
 #include <Codegen/DxCodegen.h>
 #include <Codegen/StructGenerator.h>
-#include <Codegen/StructVariableTracker.h>
 namespace toolhub::directx {
 
 void StringStateVisitor::visit(const UnaryExpr *expr) {
@@ -25,8 +24,9 @@ void StringStateVisitor::visit(const UnaryExpr *expr) {
 }
 void StringStateVisitor::visit(const BinaryExpr *expr) {
 
+    auto op = expr->op();
     auto IsMulFuncCall = [&]() -> bool {
-        if (expr->op() == BinaryOp::MUL) {
+        if (op == BinaryOp::MUL) {
             if ((expr->lhs()->type()->is_matrix() &&
                  (!expr->rhs()->type()->is_scalar())) ||
                 (expr->rhs()->type()->is_matrix() &&
@@ -38,15 +38,27 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
     };
     if (IsMulFuncCall()) {
         str << "Mul("sv;
-        expr->rhs()->accept(*this);//Reverse matrix
-        str << ',';
         expr->lhs()->accept(*this);
+        str << ',';
+        expr->rhs()->accept(*this);//Reverse matrix
         str << ')';
 
+    } else if (op == BinaryOp::AND) {
+        str << "and(";
+        expr->lhs()->accept(*this);
+        str << ",";
+        expr->rhs()->accept(*this);
+        str << ")";
+    } else if (op == BinaryOp::OR) {
+        str << "or(";
+        expr->lhs()->accept(*this);
+        str << ",";
+        expr->rhs()->accept(*this);
+        str << ")";
     } else {
 
         expr->lhs()->accept(*this);
-        switch (expr->op()) {
+        switch (op) {
             case BinaryOp::ADD:
                 str << '+';
                 break;
@@ -77,12 +89,6 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
             case BinaryOp::SHR:
                 str << ">>"sv;
                 break;
-            case BinaryOp::AND:
-                str << "&&"sv;
-                break;
-            case BinaryOp::OR:
-                str << "||"sv;
-                break;
             case BinaryOp::LESS:
                 str << '<';
                 break;
@@ -101,6 +107,9 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
             case BinaryOp::NOT_EQUAL:
                 str << "!="sv;
                 break;
+            default:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Not implemented.");
         }
         expr->rhs()->accept(*this);
     }
@@ -126,17 +135,19 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
     auto t = expr->range()->type();
-    if (t->is_buffer() || t->is_vector() || t->is_matrix()) {
+    if (t->is_buffer() || t->is_vector()) {
         expr->range()->accept(*this);
         str << '[';
         expr->index()->accept(*this);
         str << ']';
-//    } else if (t->is_matrix()) {
-//        str << "access(";
-//        expr->range()->accept(*this);
-//        str << ",";
-//        expr->index()->accept(*this);
-//        str << ")";
+    } else if (t->is_matrix()) {
+        expr->range()->accept(*this);
+        str << '[';
+        expr->index()->accept(*this);
+        str << ']';
+        if (t->dimension() == 3u) {
+            str << ".xyz";
+        }
     } else {
         expr->range()->accept(*this);
         str << ".v[";
@@ -226,12 +237,9 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
     str << "{\n";
-    CodegenUtility::AddScope(1);
     for (auto &&i : state->statements()) {
         i->accept(*this);
     }
-    CodegenUtility::GetTracker()->RemoveStack(str);
-    CodegenUtility::AddScope(-1);
     str << "}\n";
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
