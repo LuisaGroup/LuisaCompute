@@ -1,5 +1,5 @@
 //
-// Created by Mike Smith on 2021/6/23.
+// Created by ChenXin on 2022/2/22.
 //
 
 #include <iostream>
@@ -12,7 +12,6 @@
 #include <rtx/accel.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
-#include <tests/fake_device.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
 
@@ -47,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("dx");
+    auto device = context.create_device("cuda");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -196,7 +195,6 @@ int main(int argc, char *argv[]) {
         auto light_normal = normalize(cross(light_u, light_v));
 
         $for(depth, 10u) {
-
             // trace
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
@@ -212,33 +210,40 @@ int main(int argc, char *argv[]) {
 
             // hit light
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                $if(depth == 0u) {
-                    radiance += light_emission;
-                }
-                $else {
-                    auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
-                    auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-                    radiance += mis_weight * beta * light_emission;
-                };
+                //                            $if(depth == 0u) {
+                //                                radiance += light_emission;
+                //                            }
+                //                            $else {
+                //                                auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                //                                auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                //                                radiance += mis_weight * beta * light_emission;
+                //                            };
                 $break;
             };
 
-            // sample light
-            auto ux_light = lcg(state);
-            auto uy_light = lcg(state);
-            auto p_light = light_position + ux_light * light_u + uy_light * light_v;
-            auto d_light = distance(p, p_light);
-            auto wi_light = normalize(p_light - p);
-            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
-            auto occluded = accel.trace_any(shadow_ray);
-            auto cos_wi_light = dot(wi_light, n);
-            auto cos_light = -dot(light_normal, wi_light);
-            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
-                auto pdf_light = (d_light * d_light) / (light_area * cos_light);
-                auto pdf_bsdf = cos_wi_light * inv_pi;
-                auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                auto bsdf = material.albedo * inv_pi * cos_wi_light;
-                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+            //            // sample light
+            //            auto ux_light = lcg(state);
+            //            auto uy_light = lcg(state);
+            //            auto p_light = light_position + ux_light * light_u + uy_light * light_v;
+            //            auto d_light = distance(p, p_light);
+            //            auto wi_light = normalize(p_light - p);
+            //            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+            //            auto occluded = accel.trace_any(shadow_ray);
+            //            auto cos_wi_light = dot(wi_light, n);
+            //            auto cos_light = -dot(light_normal, wi_light);
+            //            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+            //                auto pdf_light = (d_light * d_light) / (light_area * cos_light);
+            //                auto pdf_bsdf = cos_wi_light * inv_pi;
+            //                auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+            //
+            //                auto bsdf = material.albedo * inv_pi * cos_wi_light;
+            //                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+            //            };
+
+            $if(hit.inst == 3) {
+                auto bsdf_diff = make_float3(0.0f, 1.0f, 0.0f);
+                auto li = 1.f;
+                radiance += beta * bsdf_diff;
             };
 
             // sample BSDF
@@ -247,8 +252,8 @@ int main(int argc, char *argv[]) {
             auto uy = lcg(state);
             auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
             ray = make_ray_robust(p, n, new_direction);
-            beta *= material.albedo;
             pdf_bsdf = cos_wi * inv_pi;
+            beta *= material.albedo;
 
             // rr
             auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
@@ -336,5 +341,5 @@ int main(int argc, char *argv[]) {
         ImGui::Text("FPS: %.1f", framerate.report());
         ImGui::End();
     });
-    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
+    stbi_write_png("test_radiative_bp.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
