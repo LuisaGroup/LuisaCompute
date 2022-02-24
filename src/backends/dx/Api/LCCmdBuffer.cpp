@@ -430,25 +430,28 @@ public:
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
             *accelStateTracker,
-            *bd);
+            *bd, true);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
             *accelStateTracker,
-            *bd);
+            *bd, false);
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
-            *accelStateTracker);
+            *accelStateTracker,
+            //TODO: driver's bug, do not support update mesh's accel
+            false);
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
-            *accelStateTracker);
+            *accelStateTracker,
+            false);
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());

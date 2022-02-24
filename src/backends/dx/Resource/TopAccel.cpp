@@ -14,8 +14,8 @@ void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
                    inst.Transform[2]};
     for (auto i : vstd::range(4))
         for (auto j : vstd::range(3)) {
-            auto ptr = reinterpret_cast<float const *>(&tr.cols[j]);
-            x[j][i] = ptr[i];
+            auto ptr = reinterpret_cast<float const *>(&tr.cols[i]);
+            x[j][i] = ptr[j];
         }
 }
 }// namespace detail
@@ -224,7 +224,8 @@ void TopAccel::Reserve(
 }
 void TopAccel::Build(
     ResourceStateTracker &tracker,
-    CommandBufferBuilder &builder) {
+    CommandBufferBuilder &builder,
+    bool update) {
     std::lock_guard lck(mtx);
     vstd::vector<UpdateCommand> cmdCache;
     auto alloc = builder.GetCB()->GetAlloc();
@@ -284,12 +285,18 @@ void TopAccel::Build(
         topLevelBuildDesc.SourceAccelerationStructureData == 0 ? topLevelPrebuildInfo.ScratchDataSizeInBytes : topLevelPrebuildInfo.UpdateScratchDataSizeInBytes);
     topLevelBuildDesc.ScratchAccelerationStructureData = scratchBuffer->GetAddress();
     tracker.UpdateState(builder);
+    if (update) {
+        topLevelBuildDesc.SourceAccelerationStructureData = topLevelBuildDesc.DestAccelerationStructureData;
+        topLevelBuildDesc.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+    } else {
+        topLevelBuildDesc.SourceAccelerationStructureData = 0;
+        topLevelBuildDesc.Inputs.Flags =
+            (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)topLevelBuildDesc.Inputs.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
+    }
     builder.CmdList()->BuildRaytracingAccelerationStructure(
         &topLevelBuildDesc,
         0,
         nullptr);
-    topLevelBuildDesc.SourceAccelerationStructureData = topLevelBuildDesc.DestAccelerationStructureData;
-    topLevelBuildDesc.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
     tracker.RecordState(
         scratchBuffer,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
