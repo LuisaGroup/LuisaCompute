@@ -19,9 +19,17 @@ namespace luisa::compute::cuda {
 class CUDADevice;
 class CUDAStream;
 
+/**
+ * @brief Bindless array of CUDA
+ * 
+ */
 class CUDABindlessArray {
 
 public:
+    /**
+     * @brief Slot struct on device
+     * 
+     */
     struct SlotSOA {
         CUdeviceptr _buffer_slots;
         CUdeviceptr _tex2d_slots;
@@ -45,17 +53,82 @@ private:
     luisa::unordered_map<CUtexObject, uint64_t> _texture_resources;
 
 public:
+    /**
+     * @brief Construct a new CUDABindlessArray object
+     * 
+     * @param capacity capacity of bindless array
+     */
     explicit CUDABindlessArray(size_t capacity) noexcept;
     ~CUDABindlessArray() noexcept;
+    /**
+     * @brief Return SlotSOA handle
+     * 
+     * @return SlotSOA
+     */
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    /**
+     * @brief Emplace a buffer
+     * 
+     * @param index place to emplace
+     * @param buffer handle of buffer
+     * @param offset offset of buffer
+     */
     void emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept;
+    /**
+     * @brief Emplace a 2D texture
+     * 
+     * @param index place to emplace
+     * @param array pointer of 2D texture
+     * @param sampler sampler of texture
+     */
     void emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
+    /**
+     * @brief Emplace a 3D texture
+     * 
+     * @param index index to emplace
+     * @param array pointer of 3D texture
+     * @param sampler sampler of texture
+     */
     void emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
+    /**
+     * @brief Remove buffer
+     * 
+     * @param index place to remove
+     */
     void remove_buffer(size_t index) noexcept;
+    /**
+     * @brief Remove 2D texture
+     * 
+     * @param index place to remove
+     */
     void remove_tex2d(size_t index) noexcept;
+    /**
+     * @brief Remove 3D texture
+     * 
+     * @param index place to remove
+     */
     void remove_tex3d(size_t index) noexcept;
+    /**
+     * @brief If buffer is used
+     * 
+     * @param handle handle of buffer
+     * @return true 
+     * @return false 
+     */
     [[nodiscard]] bool uses_buffer(uint64_t handle) const noexcept;
+    /**
+     * @brief If texture is used
+     * 
+     * @param handle handle of texture
+     * @return true 
+     * @return false 
+     */
     [[nodiscard]] bool uses_texture(uint64_t handle) const noexcept;
+    /**
+     * @brief Upload bindless array to CUDA device
+     * 
+     * @param stream CUDAStream
+     */
     void upload(CUDAStream *stream) noexcept;
 };
 

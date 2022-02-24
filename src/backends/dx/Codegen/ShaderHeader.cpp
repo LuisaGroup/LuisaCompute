@@ -3,6 +3,9 @@
 namespace toolhub::directx {
 vstd::string_view GetHLSLHeader() {
     return R"(
+
+#pragma pack_matrix(row_major)
+
 #define INFINITY_f 3.40282347e+37
 SamplerState samplers[16] : register(s0, space1);
 
@@ -41,7 +44,7 @@ float4x4 _inverse(float4x4 m) {
 	return ret;
 }
 
-float3x3 _inverse(float3x3 m) {
+float3x4 _inverse(float3x4 m) {
 	float3 c = float3(m[0][0], m[1][0], m[2][0]);
 	float3 c2 = float3(m[0][1], m[1][1], m[2][1]);
 	float3 c3 = float3(m[0][2], m[1][2], m[2][2]);
@@ -52,7 +55,7 @@ float3x3 _inverse(float3x3 m) {
 	float3 c4 = lhs.yzx * rhs - lhs * rhs.yzx;
 	float3 c5 = lhs * flt.yzx - lhs.yzx * flt;
 	float rhs2 = 1.0 / dot(lhs.zxy * flt2, 1);
-	return float3x3(flt2, c4, c5) * rhs2;
+	return float3x4(float4(flt2, 0), float4(c4, 0), float4(c5, 0)) * rhs2;
 }
 template<typename T>
 T _acosh(T v) { return log(v + sqrt(v * v - 1)); }
@@ -89,8 +92,9 @@ bool4 _isinf(float4 x) {
 	return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 template <typename T>
-T selectVec(T a, T b, bool c){
-	return c ? b : a;
+T selectVec(T a, T b, bool c) {
+	if (c) return b;
+	else return a;
 }
 template <typename T>
 T selectVec2(T a, T b, bool2 c){
@@ -107,7 +111,7 @@ T selectVec3(T a, T b, bool3 c){
 }
 template <typename T>
 T selectVec4(T a, T b, bool4 c){
-	return T(
+	return T(	
 	selectVec(a.x, b.x, c.x),
 	selectVec(a.y, b.y, c.y),
 	selectVec(a.z, b.z, c.z),
@@ -124,44 +128,66 @@ float2 fma(float2 a, float2 b, float2 c) { return a * b + c; }
 float3 fma(float3 a, float3 b, float3 c) { return a * b + c; }
 float4 fma(float4 a, float4 b, float4 c) { return a * b + c; }
 
-float4x3 make_float4x3(float3 c0, float3 c1, float3 c2) {
-  return float4x3(float4(c0, 0.f), float4(c1, 0.f), float4(c2, 0.f));
+float2x2 make_float2x2(float m00, float m01,
+                       float m10, float m11) {
+	return float2x2(
+		m00, m01,
+        m10, m11);
 }
 
-float2x2 my_transpose(float2x2 m) { return transpose(m); }
-float4x3 my_transpose(float4x3 m) {
-  float3x4 mm = transpose(m);
-  return make_float4x3(mm[0], mm[1], mm[2]);
+float3x4 make_float3x3(float m00, float m01, float m02,
+                       float m10, float m11, float m12,
+                       float m20, float m21, float m22) {
+	return float3x4(
+		m00, m01, m02, 0.f,
+        m10, m11, m12, 0.f,
+        m20, m21, m22, 0.f);
 }
-float4x3 my_transpose(float3x3 m) {
-  float3x3 mm = transpose(m);
-  return make_float4x3(mm[0], mm[1], mm[2]);
+
+float4x4 make_float4x4(float m00, float m01, float m02, float m03,
+                       float m10, float m11, float m12, float m13,
+                       float m20, float m21, float m22, float m23,
+                       float m30, float m31, float m32, float m33) {
+	return float4x4(
+		m00, m01, m02, m03,
+        m10, m11, m12, m13,
+        m20, m21, m22, m23,
+        m30, m31, m32, m33);
+}
+
+float3x4 make_float3x3(float3 c0, float3 c1, float3 c2) {
+	return float3x4(float4(c0, 0.f), float4(c1, 0.f), float4(c2, 0.f));
+}
+
+float2x2 make_float2x2(float2 c0, float2 c1) { return float2x2(c0, c1); }
+float4x4 make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) { return float4x4(c0, c1, c2, c3); }
+
+float2x2 my_transpose(float2x2 m) { return transpose(m); }
+float3x4 my_transpose(float3x4 m) {
+  float4x3 mm = transpose(m);
+  return make_float3x3(mm[0], mm[1], mm[2]);
 }
 float4x4 my_transpose(float4x4 m) { return transpose(m); }
 
 float4x4 Mul(float4x4 a, float4x4 b){ return mul(a, b);}
-float4x3 Mul(float3x3 a, float3x3 b){
-  float3x3 m = mul(a, b);
-  return make_float4x3(m[0], m[1], m[2]);
-}
-float4x3 Mul(float4x3 a, float3x3 b){ return mul(a, b);}
-float4x3 Mul(float3x3 a, float4x3 b){
-  float3x3 m = mul(float3x4(a, 0.f, 0.f, 0.f), b);
-  return make_float4x3(m[0], m[1], m[2]);
-}
-float4x3 Mul(float4x3 a, float4x3 b){ return mul(float4x4(a, 0.f, 0.f, 0.f, 0.f), b);}
+float3x4 Mul(float3x4 a, float3x4 b){ return mul(a, float4x4(b, 0.f, 0.f, 0.f, 0.f));}
 float2x2 Mul(float2x2 a, float2x2 b){ return mul(a, b);}
 
 // Note: do not swap a and b: already swapped in codegen
-float4 Mul(float4 a, float4x4 b){ return mul(a, b);}
-float3 Mul(float3 a, float4x3 b){ return mul(float4(a, 0.f), b);}
-float3 Mul(float3 a, float3x3 b){ return mul(a, b);}
-float2 Mul(float2 a, float2x2 b){ return mul(a, b);}
+float4 Mul(float4x4 b, float4 a){ return mul(a, b);}
+float3 Mul(float3x4 b, float3 a){ return mul(a, b).xyz;}
+float2 Mul(float2x2 b, float2 a){ return mul(a, b);}
+
+struct WrappedFloat3x3 {
+    row_major float3x4 m;
+};
 
 #define bfread(bf,idx) (bf[(idx)])
 #define bfreadVec3(bf,idx) (bf[(idx)].xyz)
+#define bfreadMat3(bf,idx) (bf[idx].m)
 #define bfwrite(bf,idx,value) (bf[(idx)]=(value))
 #define bfwriteVec3(bf,idx,value) (bf[(idx)]=float4((value), 0))
+#define bfwriteMat3(bf,idx,value) (bf[idx].m=value)
 struct BdlsStruct{
 	uint buffer;
 	uint tex2D;
@@ -177,8 +203,8 @@ struct BdlsStruct{
 #define Smptx(tex, uv) (tex[uv])
 #define Writetx(tex, uv, value) (tex[uv] = value)
 #define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
-Texture3D<float4> _BindlessTex3D[]:register(t0,space1);
 Texture2D<float4> _BindlessTex[]:register(t0,space1);
+Texture3D<float4> _BindlessTex3D[]:register(t0,space2);
 template <typename T>
 T fract(T x){ return x - floor(x);}
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float level){
@@ -258,12 +284,12 @@ RayPayload TraceClosest(RaytracingAccelerationStructure accel, LCRayDesc rayDesc
 	RayPayload payload;
 	q.Proceed();
 	if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-    {
+	{
 		payload.v0 = q.CommittedInstanceIndex();
 		payload.v1 = q.CommittedPrimitiveIndex();
 		payload.v2 = q.CommittedTriangleBarycentrics();
-    }
-    else {
+	}
+	else {
 		payload.v0 = 4294967295u;
 	}
 	return payload;
@@ -283,8 +309,8 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
 }
-float4x4 InstMatrix(StructuredBuffer<float4x3> instBuffer, uint index){
-	float4x3 m = instBuffer[index];
+float4x4 InstMatrix(StructuredBuffer<WrappedFloat3x3> instBuffer, uint index){
+	float3x4 m = instBuffer[index].m;
 	return float4x4(m, float4(0, 0, 0, 1));
 }
 )"sv;

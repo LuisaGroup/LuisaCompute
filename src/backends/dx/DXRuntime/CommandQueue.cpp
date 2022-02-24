@@ -21,7 +21,13 @@ CommandQueue::CommandQueue(
         D3D12_FENCE_FLAG_NONE,
         IID_PPV_ARGS(&cmdFence)));
 }
-CommandQueue::AllocatorPtr CommandQueue::CreateAllocator() {
+CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
+    if (maxAllocCount != std::numeric_limits<size_t>::max()) {
+        std::unique_lock lck(mtx);
+        while (lastFrame - executedFrame > maxAllocCount) {
+            mainCv.wait(lck);
+        }
+    }
     auto newPtr = allocatorPool.Pop();
     if (newPtr) {
         return std::move(*newPtr);

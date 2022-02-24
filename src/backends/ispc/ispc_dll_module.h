@@ -15,6 +15,10 @@ class Context;
 
 namespace luisa::compute::ispc {
 
+/**
+ * @brief DLL moudle of ispc
+ * 
+ */
 class ISPCDLLModule final : public ISPCModule {
 
 private:
@@ -27,6 +31,13 @@ private:
     }
 
 public:
+    /**
+     * @brief load object
+     * 
+     * @param ctx context
+     * @param obj_path object path
+     * @return luisa::unique_ptr<ISPCModule> 
+     */
     [[nodiscard]] static luisa::shared_ptr<ISPCModule> load(
         const Context &ctx, const std::filesystem::path &obj_path) noexcept;
 };

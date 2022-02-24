@@ -30,7 +30,13 @@ void check_texture_boundary(ISPCTexture* tex, uint level, uint3 size, uint3 offs
 };
 
 void ISPCStream::dispatch(const CommandList &cmd_list) noexcept {
-    for (auto cmd : cmd_list) { cmd->accept(*this); }
+    for (auto cmd : cmd_list) {
+        while (_pool.task_count() > _pool.size() * 4u) {
+            using namespace std::chrono_literals;
+            std::this_thread::sleep_for(1ms);
+        }
+        cmd->accept(*this);
+    }
     _pool.barrier();
 }
 

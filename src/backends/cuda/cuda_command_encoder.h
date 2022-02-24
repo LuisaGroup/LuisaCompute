@@ -12,6 +12,10 @@ namespace luisa::compute::cuda {
 class CUDADevice;
 class CUDAStream;
 
+/**
+ * @brief Command encoder of CUDA
+ * 
+ */
 class CUDACommandEncoder : public CommandVisitor {
 
 private:

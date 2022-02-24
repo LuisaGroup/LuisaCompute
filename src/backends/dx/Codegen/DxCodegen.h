@@ -16,17 +16,17 @@ struct CodegenResult {
     using Properties = vstd::vector<std::pair<vstd::string, Shader::Property>>;
     vstd::string result;
     Properties properties;
+    uint64 bdlsBufferCount;
     template<typename A, typename B>
-    CodegenResult(A &&a, B &&b)
+    CodegenResult(A &&a, B &&b, uint64 c)
         : result(std::forward<A>(a)),
-          properties(std::forward<B>(b)) {}
+          properties(std::forward<B>(b)), bdlsBufferCount(c) {}
 };
 class CodegenUtility {
+
 public:
-    static constexpr uint64 INLINE_STMT_LIMIT = 5;
-    static StructVariableTracker *GetTracker();
-    static void AddScope(int32 v);
-    static int64 GetScope();
+    static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
+    static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
     static uint IsBool(Type const &type);
     static void GetConstName(ConstantData const &data, vstd::string &str);
     static void GetVariableName(Variable const &type, vstd::string &str);
@@ -45,7 +45,6 @@ public:
     }
     static void GetFunctionDecl(Function func, vstd::string &str);
     static void GetFunctionName(CallExpr const *expr, vstd::string &result, StringStateVisitor &visitor);
-    static void ClearStructType();
     static void RegistStructType(Type const *type);
 
     static void CodegenFunction(
@@ -179,7 +178,7 @@ struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
     void operator()(T const &v, vstd::string &varName) {
-        varName << "float";
+        varName << "make_float";
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';
         PrintValue<Vector<EleType, N>> vecPrinter;

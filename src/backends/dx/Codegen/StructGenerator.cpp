@@ -97,6 +97,7 @@ void StructGenerator::InitAsStruct(
     vstd::Iterator<Type const *const> const &vars,
     size_t structIdx,
     vstd::function<StructGenerator *(Type const *)> const &visitor) {
+    size_t structSize = 0;
     structName = "S";
     vstd::to_string(structIdx, structName);
     structDesc.reserve(1024);
@@ -109,7 +110,6 @@ void StructGenerator::InitAsStruct(
         vstd::to_string(structTypes.size(), varName);
     };
     auto Align = [&](size_t tarAlign) {
-        alignSize = std::max(alignSize, tarAlign);
         ProvideAlignVariable(tarAlign, structSize, alignCount, structDesc);
     };
 
@@ -158,11 +158,16 @@ void StructGenerator::InitAsStruct(
                 structSize += 4 * alignDim * i->dimension();
                 ele = StructureType::GetMatrix(i->dimension());
             } break;
-            case Type::Tag::ARRAY:
             case Type::Tag::STRUCTURE: {
                 auto subStruct = visitor(i);
-                Align(subStruct->alignSize);
-                structSize += subStruct->GetStructSize();
+                Align(i->element()->alignment());
+                structSize += i->size();
+                ele = subStruct;
+            } break;
+            case Type::Tag::ARRAY: {
+                auto subStruct = visitor(i);
+                Align(i->element()->alignment());
+                structSize += i->size() * i->dimension();
                 ele = subStruct;
             } break;
         }
@@ -208,20 +213,13 @@ StructGenerator::StructGenerator(
     Type const *structureType,
     size_t structIdx,
     vstd::function<StructGenerator *(Type const *)> const &visitor)
-    : idx(structIdx) {
+    : idx(structIdx),
+      structureType{structureType} {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
         InitAsStruct(vstd::GetIterator(structureType->members()), structIdx, visitor);
     } else {
         InitAsArray(structureType, structIdx, visitor);
     }
 }
-StructGenerator::StructGenerator(
-    vstd::Iterator<Type const *const> const &vars,
-    size_t structIdx,
-    vstd::function<StructGenerator *(Type const *)> const &visitor)
-    : idx(structIdx) {
-    InitAsStruct(vars, structIdx, visitor);
-}
-StructGenerator::~StructGenerator() {
-}
+StructGenerator::~StructGenerator() = default;
 }// namespace toolhub::directx

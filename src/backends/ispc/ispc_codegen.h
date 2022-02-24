@@ -13,6 +13,10 @@
 
 namespace luisa::compute::ispc {
 
+/**
+ * @brief Device code generator
+ * 
+ */
 class ISPCCodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 public:
@@ -66,7 +70,17 @@ private:
     virtual void _emit_variable_declarations(const MetaStmt *meta) noexcept;
 
 public:
+    /**
+     * @brief Construct a new ISPCCodegen object
+     * 
+     * @param scratch generated code
+     */
     explicit ISPCCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}
+    /**
+     * @brief Emit a function
+     * 
+     * @param f function
+     */
     void emit(Function f) override;
 };
 
