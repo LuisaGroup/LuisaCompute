@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 
 #if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda");
+    auto device = context.create_device("ispc");
 #elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
 #elif defined(LUISA_BACKEND_DX_ENABLED)
@@ -39,8 +39,8 @@ int main(int argc, char *argv[]) {
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
         // return make_float4(0);
-        // return heap.tex2d(0u).sample(uv, mip);
-        return heap.tex2d(0u).sample(uv, make_float2(), make_float2());
+        return heap.tex2d(0u).sample(uv);
+        // return heap.tex2d(0u).sample(uv, make_float2(), make_float2());
     };
 
     Kernel1D useless_kernel = [](BindlessVar heap) noexcept {
@@ -99,6 +99,8 @@ int main(int argc, char *argv[]) {
     }
     cmd //<< event.signal()
         << commit();
+
+
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
         //    << event.wait()
