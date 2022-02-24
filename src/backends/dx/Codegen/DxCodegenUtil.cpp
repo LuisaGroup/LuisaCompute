@@ -531,7 +531,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "my_transpose"sv;
             break;
         case CallOp::INVERSE:
-            str << "_inverse"sv;
+            str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
             str << "_atomic_exchange"sv;

@@ -38,6 +38,11 @@ int main(int argc, char *argv[]) {
         set_block_size(1u, 1u, 1u);
         auto m2 = buffer.read(0u);
         auto one = def(1.f);
+        auto s = make_float3x3(
+            one, 0.f, 0.f,
+            0.f, one * 2.f, 0.f,
+            0.f, 0.f, one * 3.f);
+        auto im2 = inverse(s);
         auto m3 = make_float3x3(
             one, 2.f, 3.f,
             4.f, 5.f, 6.f,
@@ -45,8 +50,7 @@ int main(int argc, char *argv[]) {
         for (auto i = 0u; i < 3u; i++) {
             for (auto j = 0u; j < 3u; j++) {
                 scalar_buffer.write(i * 3u + j, m[0][i][j]);
-                // FIXME: incorrect
-                scalar_buffer.write(i * 3u + j + 9u, m2[i][j]);
+                scalar_buffer.write(i * 3u + j + 9u, im2[i][j]);
             }
         }
     };

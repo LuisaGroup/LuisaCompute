@@ -9,54 +9,130 @@ vstd::string_view GetHLSLHeader() {
 #define INFINITY_f 3.40282347e+37
 SamplerState samplers[16] : register(s0, space1);
 
-float4x4 _inverse(float4x4 m) {
-	float n11 = m[0][0], n12 = m[1][0], n13 = m[2][0], n14 = m[3][0];
-	float n21 = m[0][1], n22 = m[1][1], n23 = m[2][1], n24 = m[3][1];
-	float n31 = m[0][2], n32 = m[1][2], n33 = m[2][2], n34 = m[3][2];
-	float n41 = m[0][3], n42 = m[1][3], n43 = m[2][3], n44 = m[3][3];
-	float t11 = n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44;
-	float t12 = n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44;
-	float t13 = n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44;
-	float t14 = n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34;
-	float det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
-	float idet = 1.0f / det;
-	float4x4 ret;
-	ret[0][0] = t11 * idet;
-	ret[0][1] = (n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44 - n21 * n33 * n44) * idet;
-	ret[0][2] = (n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44 + n21 * n32 * n44) * idet;
-	ret[0][3] = (n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43 - n21 * n32 * n43) * idet;
-
-	ret[1][0] = t12 * idet;
-	ret[1][1] = (n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44 + n11 * n33 * n44) * idet;
-	ret[1][2] = (n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44 - n11 * n32 * n44) * idet;
-	ret[1][3] = (n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43 + n11 * n32 * n43) * idet;
-
-	ret[2][0] = t13 * idet;
-	ret[2][1] = (n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44 - n11 * n23 * n44) * idet;
-	ret[2][2] = (n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44 + n11 * n22 * n44) * idet;
-	ret[2][3] = (n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43 - n11 * n22 * n43) * idet;
-
-	ret[3][0] = t14 * idet;
-	ret[3][1] = (n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34 + n11 * n23 * n34) * idet;
-	ret[3][2] = (n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34 - n11 * n22 * n34) * idet;
-	ret[3][3] = (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33) * idet;
-
-	return ret;
+float determinant(float2x2 m) {
+    return m[0][0] * m[1][1] - m[1][0] * m[0][1];
+}
+float determinant(float3x4 m) {
+    return m[0][0] * (m[1][1] * m[2][2] - m[2][1] * m[1][2])
+         - m[1][0] * (m[0][1] * m[2][2] - m[2][1] * m[0][2])
+         + m[2][0] * (m[0][1] * m[1][2] - m[1][1] * m[0][2]);
+}
+float determinant(float4x4 m) {
+    float coef00 = m[2][2] * m[3][3] - m[3][2] * m[2][3];
+    float coef02 = m[1][2] * m[3][3] - m[3][2] * m[1][3];
+    float coef03 = m[1][2] * m[2][3] - m[2][2] * m[1][3];
+    float coef04 = m[2][1] * m[3][3] - m[3][1] * m[2][3];
+    float coef06 = m[1][1] * m[3][3] - m[3][1] * m[1][3];
+    float coef07 = m[1][1] * m[2][3] - m[2][1] * m[1][3];
+    float coef08 = m[2][1] * m[3][2] - m[3][1] * m[2][2];
+    float coef10 = m[1][1] * m[3][2] - m[3][1] * m[1][2];
+    float coef11 = m[1][1] * m[2][2] - m[2][1] * m[1][2];
+    float coef12 = m[2][0] * m[3][3] - m[3][0] * m[2][3];
+    float coef14 = m[1][0] * m[3][3] - m[3][0] * m[1][3];
+    float coef15 = m[1][0] * m[2][3] - m[2][0] * m[1][3];
+    float coef16 = m[2][0] * m[3][2] - m[3][0] * m[2][2];
+    float coef18 = m[1][0] * m[3][2] - m[3][0] * m[1][2];
+    float coef19 = m[1][0] * m[2][2] - m[2][0] * m[1][2];
+    float coef20 = m[2][0] * m[3][1] - m[3][0] * m[2][1];
+    float coef22 = m[1][0] * m[3][1] - m[3][0] * m[1][1];
+    float coef23 = m[1][0] * m[2][1] - m[2][0] * m[1][1];
+    float4 fac0 = float4(coef00, coef00, coef02, coef03);
+    float4 fac1 = float4(coef04, coef04, coef06, coef07);
+    float4 fac2 = float4(coef08, coef08, coef10, coef11);
+    float4 fac3 = float4(coef12, coef12, coef14, coef15);
+    float4 fac4 = float4(coef16, coef16, coef18, coef19);
+    float4 fac5 = float4(coef20, coef20, coef22, coef23);
+    float4 Vec0 = float4(m[1][0], m[0][0], m[0][0], m[0][0]);
+    float4 Vec1 = float4(m[1][1], m[0][1], m[0][1], m[0][1]);
+    float4 Vec2 = float4(m[1][2], m[0][2], m[0][2], m[0][2]);
+    float4 Vec3 = float4(m[1][3], m[0][3], m[0][3], m[0][3]);
+    float4 inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+    float4 inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+    float4 inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+    float4 inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+    float4 sign_a = float4(+1.0f, -1.0f, +1.0f, -1.0f);
+    float4 sign_b = float4(-1.0f, +1.0f, -1.0f, +1.0f);
+    float4 inv_0 = inv0 * sign_a;
+    float4 inv_1 = inv1 * sign_b;
+    float4 inv_2 = inv2 * sign_a;
+    float4 inv_3 = inv3 * sign_b;
+    float4 dot0 = m[0] * float4(inv_0[0], inv_1[0], inv_2[0], inv_3[0]);
+    return dot0[0] + dot0[1] + dot0[2] + dot0[3];
 }
 
-float3x4 _inverse(float3x4 m) {
-	float3 c = float3(m[0][0], m[1][0], m[2][0]);
-	float3 c2 = float3(m[0][1], m[1][1], m[2][1]);
-	float3 c3 = float3(m[0][2], m[1][2], m[2][2]);
-	float3 lhs = float3(c2.x, c3.x, c.x);
-	float3 flt = float3(c2.y, c3.y, c.y);
-	float3 rhs = float3(c2.z, c3.z, c.z);
-	float3 flt2 = flt * rhs.yzx - flt.yzx * rhs;
-	float3 c4 = lhs.yzx * rhs - lhs * rhs.yzx;
-	float3 c5 = lhs * flt.yzx - lhs.yzx * flt;
-	float rhs2 = 1.0 / dot(lhs.zxy * flt2, 1);
-	return float3x4(float4(flt2, 0), float4(c4, 0), float4(c5, 0)) * rhs2;
+float2x2 inverse(float2x2 m) {
+    float one_over_determinant = 1.f / determinant(m);
+    return float2x2(m[1][1] * one_over_determinant,
+                   -m[0][1] * one_over_determinant,
+                   -m[1][0] * one_over_determinant,
+                   +m[0][0] * one_over_determinant);
 }
+
+float3x4 inverse(float3x4 m) {
+    float one_over_determinant = 1.f / determinant(m);
+    return float3x4(
+        (m[1][1] * m[2][2] - m[2][1] * m[1][2]) * one_over_determinant,
+        (m[2][1] * m[0][2] - m[0][1] * m[2][2]) * one_over_determinant,
+        (m[0][1] * m[1][2] - m[1][1] * m[0][2]) * one_over_determinant,
+        0.f,
+        (m[2][0] * m[1][2] - m[1][0] * m[2][2]) * one_over_determinant,
+        (m[0][0] * m[2][2] - m[2][0] * m[0][2]) * one_over_determinant,
+        (m[1][0] * m[0][2] - m[0][0] * m[1][2]) * one_over_determinant,
+        0.f,
+        (m[1][0] * m[2][1] - m[2][0] * m[1][1]) * one_over_determinant,
+        (m[2][0] * m[0][1] - m[0][0] * m[2][1]) * one_over_determinant,
+        (m[0][0] * m[1][1] - m[1][0] * m[0][1]) * one_over_determinant,
+        0.f);
+}
+
+float4x4 inverse(float4x4 m) {
+    float coef00 = m[2][2] * m[3][3] - m[3][2] * m[2][3];
+    float coef02 = m[1][2] * m[3][3] - m[3][2] * m[1][3];
+    float coef03 = m[1][2] * m[2][3] - m[2][2] * m[1][3];
+    float coef04 = m[2][1] * m[3][3] - m[3][1] * m[2][3];
+    float coef06 = m[1][1] * m[3][3] - m[3][1] * m[1][3];
+    float coef07 = m[1][1] * m[2][3] - m[2][1] * m[1][3];
+    float coef08 = m[2][1] * m[3][2] - m[3][1] * m[2][2];
+    float coef10 = m[1][1] * m[3][2] - m[3][1] * m[1][2];
+    float coef11 = m[1][1] * m[2][2] - m[2][1] * m[1][2];
+    float coef12 = m[2][0] * m[3][3] - m[3][0] * m[2][3];
+    float coef14 = m[1][0] * m[3][3] - m[3][0] * m[1][3];
+    float coef15 = m[1][0] * m[2][3] - m[2][0] * m[1][3];
+    float coef16 = m[2][0] * m[3][2] - m[3][0] * m[2][2];
+    float coef18 = m[1][0] * m[3][2] - m[3][0] * m[1][2];
+    float coef19 = m[1][0] * m[2][2] - m[2][0] * m[1][2];
+    float coef20 = m[2][0] * m[3][1] - m[3][0] * m[2][1];
+    float coef22 = m[1][0] * m[3][1] - m[3][0] * m[1][1];
+    float coef23 = m[1][0] * m[2][1] - m[2][0] * m[1][1];
+    float4 fac0 = float4(coef00, coef00, coef02, coef03);
+    float4 fac1 = float4(coef04, coef04, coef06, coef07);
+    float4 fac2 = float4(coef08, coef08, coef10, coef11);
+    float4 fac3 = float4(coef12, coef12, coef14, coef15);
+    float4 fac4 = float4(coef16, coef16, coef18, coef19);
+    float4 fac5 = float4(coef20, coef20, coef22, coef23);
+    float4 Vec0 = float4(m[1][0], m[0][0], m[0][0], m[0][0]);
+    float4 Vec1 = float4(m[1][1], m[0][1], m[0][1], m[0][1]);
+    float4 Vec2 = float4(m[1][2], m[0][2], m[0][2], m[0][2]);
+    float4 Vec3 = float4(m[1][3], m[0][3], m[0][3], m[0][3]);
+    float4 inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+    float4 inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+    float4 inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+    float4 inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+    float4 sign_a = float4(+1.0f, -1.0f, +1.0f, -1.0f);
+    float4 sign_b = float4(-1.0f, +1.0f, -1.0f, +1.0f);
+    float4 inv_0 = inv0 * sign_a;
+    float4 inv_1 = inv1 * sign_b;
+    float4 inv_2 = inv2 * sign_a;
+    float4 inv_3 = inv3 * sign_b;
+    float4 dot0 = m[0] * float4(inv_0[0], inv_1[0], inv_2[0], inv_3[0]);
+    float dot1 = dot0[0] + dot0[1] + dot0[2] + dot0[3];
+    float one_over_determinant = 1.0f / dot1;
+    return float4x4(inv_0 * one_over_determinant,
+                    inv_1 * one_over_determinant,
+                    inv_2 * one_over_determinant,
+                    inv_3 * one_over_determinant);
+}
+
 template<typename T>
 T _acosh(T v) { return log(v + sqrt(v * v - 1)); }
 template<typename T>
