@@ -11,12 +11,15 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::HashMap<uint64, uint64> funcTypes;
     vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::HashMap<Type const *, uint64> bindlessBufferTypes;
+    vstd::HashMap<uint> arguments;
+    bool isKernel = false;
     vstd::vector<StructGenerator *> customStructVector;
     uint64 count = 0;
     uint64 constCount = 0;
     uint64 funcCount = 0;
     uint64 tempCount = 0;
     uint64 bindlessBufferCount = 0;
+    
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;

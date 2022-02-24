@@ -2,7 +2,6 @@
 #include <Resource/Mesh.h>
 #include <Resource/Buffer.h>
 #include <Resource/DescriptorHeap.h>
-#include <Resource/MeshInstance.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/ResourceStateTracker.h>

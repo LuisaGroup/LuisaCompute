@@ -16,6 +16,7 @@ CodegenStackData::CodegenStackData()
 void CodegenStackData::Clear() {
     rayDesc = nullptr;
     hitDesc = nullptr;
+    arguments.Clear();
     scopeCount = -1;
     structTypes.Clear();
     constTypes.Clear();

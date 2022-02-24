@@ -8,6 +8,8 @@ using LCDeviceInterface = luisa::compute::DxDevice;
 class LCDevice : public LCDeviceInterface, public vstd::IOperatorNewBase {
 public:
     Device nativeDevice;
+    size_t maxAllocatorCount = 2;
+    //std::numeric_limits<size_t>::max();
     LCDevice(const Context &ctx);
     void *native_handle() const noexcept override;
 

@@ -118,11 +118,11 @@ void LCDevice::synchronize_stream(uint64_t stream_handle) noexcept {
 }
 void LCDevice::dispatch(uint64_t stream_handle, CommandList const &v) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
-        ->Execute({&v, 1});
+        ->Execute({&v, 1}, maxAllocatorCount);
 }
 void LCDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
-        ->Execute(lists);
+        ->Execute(lists, maxAllocatorCount);
 }
 
 void *LCDevice::stream_native_handle(uint64_t handle) const noexcept {

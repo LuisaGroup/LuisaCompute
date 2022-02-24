@@ -10,13 +10,6 @@
 #include <Codegen/CodegenStackData.h>
 namespace toolhub::directx {
 static thread_local vstd::unique_ptr<CodegenStackData> opt;
-
-void CodegenUtility::AddScope(int32 v) {
-    opt->scopeCount += v;
-}
-int64 CodegenUtility::GetScope() {
-    return opt->scopeCount;
-}
 uint CodegenUtility::IsBool(Type const &type) {
     if (type.tag() == Type::Tag::BOOL) {
         return 1;
@@ -58,9 +51,12 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::string &
             str << "grpId"sv;
             break;
         case Variable::Tag::DISPATCH_SIZE:
-            str << "dsp_c"sv;
+            str << "a.dsp_c"sv;
             break;
         case Variable::Tag::LOCAL:
+            if (opt->isKernel && opt->arguments.Find(id)) {
+                str << "a."sv;
+            }
             str << 'l';
             vstd::to_string(id, str);
             break;
@@ -711,6 +707,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
 size_t CodegenUtility::GetTypeSize(Type const &t) {
     switch (t.tag()) {
         case Type::Tag::BOOL:
+            return 1;
         case Type::Tag::FLOAT:
         case Type::Tag::INT:
         case Type::Tag::UINT:
@@ -839,7 +836,11 @@ void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
                << vstd::to_string(func.block_size().y)
                << ','
                << vstd::to_string(func.block_size().z)
-               << ")]\nvoid main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId){\nif(any(dspId >= dsp_c)) return;\n";
+               << R"()]
+void main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId){
+Args a = _Global[0];
+if(any(dspId >= a.dsp_c)) return;
+)"sv;
 
     } else {
         GetFunctionDecl(func, result);
@@ -882,6 +883,16 @@ void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
                << constValueName
                << ";\n"sv;
     }
+    if (func.tag() == Function::Tag::KERNEL) {
+        opt->isKernel = true;
+        opt->arguments.Clear();
+        opt->arguments.reserve(func.arguments().size());
+        for (auto &&i : func.arguments()) {
+            opt->arguments.Emplace(i.uid());
+        }
+    } else {
+        opt->isKernel = false;
+    }
     StringStateVisitor vis(func, result);
     func.body()->accept(vis);
     result << "}\n"sv;
@@ -890,10 +901,9 @@ void CodegenUtility::GenerateCBuffer(
     Function f,
     std::span<const Variable> vars,
     vstd::string &result) {
-    result << R"(cbuffer _Global:register(b0){
+    result << R"(struct Args{
 uint3 dsp_c;
 )"sv;
-    size_t structSize = 12;
     size_t alignCount = 0;
     auto isCBuffer = [&](Variable::Tag t) {
         switch (t) {
@@ -911,18 +921,14 @@ uint3 dsp_c;
     };
     for (auto &&i : vars) {
         if (!isCBuffer(i.tag())) continue;
-        StructGenerator::ProvideAlignVariable(
-            GetTypeAlign(*i.type()),
-            structSize,
-            alignCount,
-            result);
-        structSize += GetTypeSize(*i.type());
         GetTypeName(*i.type(), result, f.variable_usage(i.uid()));
         result << ' ';
         GetVariableName(i, result);
         result << ";\n"sv;
     }
-    result << "}\n";
+    result << R"(};
+StructuredBuffer<Args> _Global:register(t0);
+)"sv;
 }
 vstd::optional<CodegenResult> CodegenUtility::Codegen(
     Function kernel) {
@@ -950,6 +956,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     finalResult.reserve(65500);
 
     vstd::string propertyResult;
+    opt->isKernel = false;
     GenerateCBuffer(kernel, kernel.arguments(), propertyResult);
     CodegenResult::Properties properties;
     properties.reserve(kernel.arguments().size() + opt->bindlessBufferCount + 4);
@@ -977,7 +984,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     properties.emplace_back(
         "_Global"sv,
         Shader::Property{
-            ShaderVariableType::ConstantBuffer,
+            ShaderVariableType::StructuredBuffer,
             0,
             0,
             0});
@@ -1007,7 +1014,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         UAV,
         SRV
     };
-    uint registerCount[3] = {0, 0, 0};
+    uint registerCount[3] = {0, 0, 1};
     auto Writable = [&](Variable const &v) {
         return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
     };
@@ -1021,7 +1028,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             return varName;
         };
         auto printInstBuffer = [&] {
-            propertyResult << "StructuredBuffer<WrappedFloat3x3> ";
+            propertyResult << "StructuredBuffer<float4x4> ";
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;
