@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("dx");
+    auto device = context.create_device("cuda");
 
     auto m0 = make_float3x3(
         1.f, 2.f, 3.f,
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
             one, 0.f, 0.f,
             0.f, one * 2.f, 0.f,
             0.f, 0.f, one * 3.f);
-        auto im2 = inverse(s);
+        auto im2 = inverse(m2);
         auto m3 = make_float3x3(
             one, 2.f, 3.f,
             4.f, 5.f, 6.f,
