@@ -1,6 +1,8 @@
 #pragma vengine_package vengine_directx
 #include <vstl/Common.h>
 namespace toolhub::directx {
+
+// TODO: workaround bindless floatnxn buffers?
 vstd::string_view GetHLSLHeader() {
     return R"(
 
@@ -257,16 +259,24 @@ float4 Mul(float4x4 b, float4 a){ return mul(a, b);}
 float3 Mul(float3x4 b, float3 a){ return mul(a, b).xyz;}
 float2 Mul(float2x2 b, float2 a){ return mul(a, b);}
 
+struct WrappedFloat2x2 {
+    row_major float2x2 m;
+};
+
 struct WrappedFloat3x3 {
     row_major float3x4 m;
 };
 
+struct WrappedFloat4x4 {
+    row_major float4x4 m;
+};
+
 #define bfread(bf,idx) (bf[(idx)])
 #define bfreadVec3(bf,idx) (bf[(idx)].xyz)
-#define bfreadMat3(bf,idx) (bf[idx].m)
+#define bfreadMat(bf,idx) (bf[idx].m)
 #define bfwrite(bf,idx,value) (bf[(idx)]=(value))
 #define bfwriteVec3(bf,idx,value) (bf[(idx)]=float4((value), 0))
-#define bfwriteMat3(bf,idx,value) (bf[idx].m=value)
+#define bfwriteMat(bf,idx,value) (bf[idx].m=value)
 struct BdlsStruct{
 	uint buffer;
 	uint tex2D;
@@ -388,8 +398,8 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
 }
-float4x4 InstMatrix(StructuredBuffer<row_major float4x4> instBuffer, uint index){
-	return instBuffer[index];
+float4x4 InstMatrix(StructuredBuffer<WrappedFloat4x4> instBuffer, uint index){
+	return instBuffer[index].m;
 }
 )"sv;
 }
