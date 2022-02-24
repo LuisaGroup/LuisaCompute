@@ -48,11 +48,14 @@ public:
     [[nodiscard]] Handle handle() const noexcept;
 
 public:
+
+    PixelFormat format;
+    uint dim;
+    uint3 size;
+
     static const unsigned MAXLOD = 20;
-    uint width;
-    uint height;
     uint lodLevel;
-    float* lods[MAXLOD];
+    void* lods[MAXLOD];
 
 };
 

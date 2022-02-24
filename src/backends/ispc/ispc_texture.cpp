@@ -8,26 +8,26 @@
 namespace luisa::compute::ispc {
 
 ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept:
-    width(size.x),
-    height(size.y),
+    format(format),
+    size(size),
     lodLevel(mip_levels)
 {
-    if (format != PixelFormat::RGBA32F) LUISA_ERROR_WITH_LOCATION("unsupported format");
     if (dim != 2) LUISA_ERROR_WITH_LOCATION("unsupported dimension");
     if (lodLevel > MAXLOD) LUISA_ERROR_WITH_LOCATION("maximal LoD exceeded");
     // mipmap allocate
+    uint pxsize = pixel_format_size(format);
     int offset[MAXLOD+1];
     offset[0] = 0;
-    for (int i=1, w=width, h=height; i<=lodLevel; ++i)
+    for (int i=0; i<lodLevel; ++i)
     {
-        offset[i] = offset[i-1] + w*h*4;
-        w = std::max(w/2, 1);
-        h = std::max(h/2, 1);
+        uint w = std::max(size.x >> i, 1u);
+        uint h = std::max(size.y >> i, 1u);
+        offset[i+1] = offset[i-1] + w*h * pxsize;
     }
-    lods[0] = new float[offset[lodLevel]*4];
+    lods[0] = (void*) new uint8_t[offset[lodLevel]];
     LUISA_WARNING("new float array{}", offset[lodLevel]);
     for (int i=1; i<lodLevel; ++i)
-        lods[i] = lods[0] + offset[i];
+        lods[i] = (void*)( (uint8_t*)lods[0] + offset[i]);
 }
 
 ISPCTexture::Handle ISPCTexture::handle() const noexcept {

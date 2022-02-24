@@ -1211,6 +1211,7 @@ struct LCTexture {
     uint height;
     uint lodLevel;
     float* lods[20];
+    // TODO change
 };
 
 struct TextureView {
