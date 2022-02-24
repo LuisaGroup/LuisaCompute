@@ -27,9 +27,6 @@ class CodegenUtility {
 public:
     static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
     static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
-    static constexpr uint64 INLINE_STMT_LIMIT = 5;
-    static void AddScope(int32 v);
-    static int64 GetScope();
     static uint IsBool(Type const &type);
     static void GetConstName(ConstantData const &data, vstd::string &str);
     static void GetVariableName(Variable const &type, vstd::string &str);

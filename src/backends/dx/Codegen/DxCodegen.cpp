@@ -237,11 +237,9 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
     str << "{\n";
-    CodegenUtility::AddScope(1);
     for (auto &&i : state->statements()) {
         i->accept(*this);
     }
-    CodegenUtility::AddScope(-1);
     str << "}\n";
 }
 void StringStateVisitor::visit(const CommentStmt *state) {

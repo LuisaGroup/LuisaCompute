@@ -15,34 +15,32 @@ class LCPreProcessVisitor : public CommandVisitor {
 public:
     CommandBufferBuilder *bd;
     ResourceStateTracker stateTracker;
-    vstd::vector<std::pair<vstd::vector<vbyte>, BufferView>> argVecs;
+    vstd::vector<std::pair<size_t, size_t>> argVecs;
+    vstd::vector<vbyte> argBuffer;
     vstd::vector<std::pair<Resource const *, D3D12_RESOURCE_STATES>> writeArgs;
+    void UniformAlign(size_t align) {
+        argBuffer.resize(CalcAlign(argBuffer.size(), align));
+    }
+    template<typename T>
+    void EmplaceData(T const &data) {
+        size_t sz = argBuffer.size();
+        argBuffer.resize(sz + sizeof(T));
+        using PlaceHolder = std::aligned_storage_t<sizeof(T), 1>;
+        *reinterpret_cast<PlaceHolder *>(argBuffer.data() + sz) =
+            *reinterpret_cast<PlaceHolder const *>(&data);
+    }
+    template<typename T>
+    void EmplaceData(T const *data, size_t size) {
+        size_t sz = argBuffer.size();
+        auto byteSize = size * sizeof(T);
+        argBuffer.resize(sz + byteSize);
+        memcpy(argBuffer.data() + sz, data, byteSize);
+    }
     struct Visitor {
         LCPreProcessVisitor *self;
         Function f;
         Variable const *arg;
-        vstd::vector<vbyte> *argVec;
-        void UniformAlign(size_t align) {
-            argVec->resize(CalcAlign(argVec->size(), align));
-        }
-        template<typename T>
-        void EmplaceData(T const &data) {
-            size_t sz = argVec->size();
-            argVec->resize(sz + sizeof(T));
-            using PlaceHolder = std::aligned_storage_t<sizeof(T), 1>;
-            *reinterpret_cast<PlaceHolder *>(argVec->data() + sz) =
-                *reinterpret_cast<PlaceHolder const *>(&data);
-        }
-        void EmplaceEmpty(size_t size) {
-            argVec->resize(argVec->size() + size);
-        }
-        template<typename T>
-        void EmplaceData(T const *data, size_t size) {
-            size_t sz = argVec->size();
-            auto byteSize = size * sizeof(T);
-            argVec->resize(sz + byteSize);
-            memcpy(argVec->data() + sz, data, byteSize);
-        }
+
         void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)f.variable_usage(arg->uid()) | (uint)Usage::WRITE) != 0) {
@@ -82,117 +80,7 @@ public:
             ++arg;
         }
         void operator()(uint uid, vstd::span<std::byte const> bf) {
-            size_t originPtrValue = reinterpret_cast<size_t>(bf.data());
-            auto PushArray = [&](size_t sz) {
-                bf = {bf.data() + sz, bf.size() - sz};
-            };
-            size_t end = reinterpret_cast<size_t>(bf.data() + bf.size());
-            auto AlignBuffer = [&](size_t align) {
-                size_t ptrValue = reinterpret_cast<size_t>(bf.data()) - originPtrValue;
-                ptrValue = CalcAlign(ptrValue, align);
-                bf = {reinterpret_cast<std::byte const *>(originPtrValue + ptrValue),
-                      (end - ptrValue)};
-            };
-            auto AddArg = [&](auto &AddArg, Type const *type, bool needAlign) -> void {
-                switch (type->tag()) {
-                    case Type::Tag::BOOL: {
-
-                        bool v = ((vbyte)bf[0] != 0);
-                        if (v) {
-                            EmplaceData(std::numeric_limits<uint>::max());
-                        } else {
-                            EmplaceData<uint>(0);
-                        }
-                        PushArray(1);
-                    } break;
-                    case Type::Tag::UINT:
-                    case Type::Tag::INT:
-                    case Type::Tag::FLOAT:
-                        if (needAlign) {
-                            AlignBuffer(4);
-                        }
-                        EmplaceData<uint>(*(uint const *)bf.data());
-                        PushArray(4);
-                        break;
-                    case Type::Tag::VECTOR: {
-                        size_t align = 1;
-                        switch (type->dimension()) {
-                            case 1:
-                                align = 4;
-                                break;
-                            case 2:
-                                align = 8;
-                                break;
-                            case 3:
-                            case 4:
-                                align = 16;
-                                break;
-                        }
-                        if (needAlign) {
-                            AlignBuffer(align);
-                        }
-                        UniformAlign(align);
-                        EmplaceData<uint>((uint const *)bf.data(), type->dimension());
-                        PushArray(align);
-                    } break;
-                    case Type::Tag::MATRIX: {
-                        {
-                            size_t align = 1;
-                            switch (type->dimension()) {
-                                case 1:
-                                    align = 4;
-                                    break;
-                                case 2:
-                                    align = 8;
-                                    break;
-                                case 3:
-                                case 4:
-                                    align = 16;
-                                    break;
-                            }
-                            if (needAlign) {
-                                AlignBuffer(align);
-                            }
-                        }
-                        UniformAlign(16);
-                        switch (type->dimension()) {
-                            case 2: {
-                                float2 const *ptr = reinterpret_cast<float2 const *>(bf.data());
-                                // float2x2 = float4x2
-                                EmplaceData(*ptr);
-                                EmplaceEmpty(sizeof(float2));
-                                ptr++;
-                                EmplaceData(*ptr);
-                                EmplaceEmpty(sizeof(float2));
-                                PushArray(sizeof(float2x2));
-                            } break;
-                            case 3:
-                                EmplaceData(*(float3x3 const *)bf.data());
-                                PushArray(sizeof(float3x3));
-                                break;
-                            case 4:
-                                EmplaceData(*(float4x4 const *)bf.data());
-                                PushArray(sizeof(float4x4));
-                        }
-                    } break;
-                    case Type::Tag::ARRAY:
-                        for (auto i : vstd::range(type->dimension())) {
-                            UniformAlign(16);
-                            AlignBuffer(type->element()->alignment());
-                            AddArg(AddArg, type->element(), true);
-                        }
-                        break;
-                    case Type::Tag::STRUCTURE: {
-
-                        UniformAlign(16);
-                        AlignBuffer(type->alignment());
-                        for (auto &&i : type->members()) {
-                            AddArg(AddArg, i, true);
-                        }
-                    } break;
-                }
-            };
-            AddArg(AddArg, arg->type(), false);
+            self->EmplaceData(bf.data(), bf.size());
             ++arg;
         }
         void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
@@ -266,16 +154,12 @@ public:
             D3D12_RESOURCE_STATE_COPY_DEST);
     }
     void visit(const ShaderDispatchCommand *cmd) noexcept override {
-        auto &&lastArgVec = argVecs.emplace_back();
-        auto &&argVec = lastArgVec.first;
-
-        argVec.resize(12);
-        memcpy(argVec.data(), vstd::get_rvalue_ptr(cmd->dispatch_size()), 12);
-        cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data(), &argVec});
-        lastArgVec.second = bd->GetTempBuffer(argVec.size(), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-        stateTracker.RecordState(
-            lastArgVec.second.buffer,
-            D3D12_RESOURCE_STATE_COPY_DEST);
+        size_t beforeSize = argBuffer.size();
+        EmplaceData((vbyte const*)vstd::get_rvalue_ptr(cmd->dispatch_size()), 12);
+        cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data()});
+        UniformAlign(16);
+        size_t afterSize = argBuffer.size();
+        argVecs.emplace_back(beforeSize, afterSize - beforeSize);
     }
     void visit(const AccelUpdateCommand *cmd) noexcept override {
     }
@@ -305,7 +189,8 @@ public:
     Device *device;
     CommandBufferBuilder *bd;
     ResourceStateTracker *accelStateTracker;
-    std::pair<vstd::vector<vbyte>, BufferView> *bufferVec;
+    BufferView argBuffer;
+    std::pair<size_t, size_t> *bufferVec;
     vstd::vector<BindProperty> bindProps;
     void visit(const BufferUploadCommand *cmd) noexcept override {
         BufferView bf(
@@ -431,7 +316,7 @@ public:
         cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data()});
         auto &&tempBuffer = *bufferVec;
         bufferVec++;
-        bindProps.emplace_back("_Global"sv, tempBuffer.second);
+        bindProps.emplace_back("_Global"sv, BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
         DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
         bindProps.emplace_back("_BindlessTex"sv, globalHeapView);
         bindProps.emplace_back("_BindlessTex3D"sv, globalHeapView);
@@ -583,8 +468,8 @@ LCCmdBuffer::LCCmdBuffer(
           type),
       device(device) {
 }
-void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
-    auto allocator = queue.CreateAllocator();
+void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c, size_t maxAlloc) {
+    auto allocator = queue.CreateAllocator(maxAlloc);
     {
         LCPreProcessVisitor ppVisitor;
         LCCmdVisitor visitor;
@@ -602,28 +487,29 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c) {
         for (auto &&lst : c) {
             // Clear caches
             ppVisitor.argVecs.clear();
+            ppVisitor.argBuffer.clear();
             ppVisitor.writeArgs.clear();
             // Preprocess: record resources' states
             for (auto &&i : lst)
                 i->accept(ppVisitor);
+            // Upload CBuffers
+            auto uploadBuffer = allocator->GetTempDefaultBuffer(ppVisitor.argBuffer.size(), 16);
+            ppVisitor.stateTracker.RecordState(
+                uploadBuffer.buffer,
+                D3D12_RESOURCE_STATE_COPY_DEST);
             // Update recorded states
             ppVisitor.stateTracker.UpdateState(
                 cmdBuilder);
-            // Upload CBuffers
-            for (auto &&i : ppVisitor.argVecs) {
-                cmdBuilder.Upload(
-                    i.second,
-                    i.first.data());
-            }
-            // Update CBuffers' state to read
-            for (auto &&i : ppVisitor.argVecs) {
-                ppVisitor.stateTracker.RecordState(
-                    i.second.buffer,
-                    VEngineShaderResourceState);
-            }
+            cmdBuilder.Upload(
+                uploadBuffer,
+                ppVisitor.argBuffer.data());
+            ppVisitor.stateTracker.RecordState(
+                uploadBuffer.buffer,
+                VEngineShaderResourceState);
             ppVisitor.stateTracker.UpdateState(
                 cmdBuilder);
             visitor.bufferVec = ppVisitor.argVecs.data();
+            visitor.argBuffer = uploadBuffer;
             // Execute commands
             for (auto &&i : lst)
                 i->accept(visitor);
