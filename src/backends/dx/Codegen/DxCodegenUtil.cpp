@@ -51,7 +51,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::string &
             str << "grpId"sv;
             break;
         case Variable::Tag::DISPATCH_SIZE:
-            str << "dsp_c"sv;
+            str << "a.dsp_c"sv;
             break;
         case Variable::Tag::LOCAL:
             if (opt->isKernel && opt->arguments.Find(id)) {
@@ -1028,7 +1028,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             return varName;
         };
         auto printInstBuffer = [&] {
-            propertyResult << "StructuredBuffer<WrappedFloat3x3> ";
+            propertyResult << "StructuredBuffer<float4x4> ";
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;
