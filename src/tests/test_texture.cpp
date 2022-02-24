@@ -185,6 +185,7 @@ int main(int argc, char* argv[])
     Context context{argv[0]};
     auto device = context.create_device("ispc");
 
+    test_texture_upload_download(device, 1024, 1024, 1, RW_TEXTURE);
 
     // test copy & r/w with LoD
     for (int i=0; i<4; ++i) {
