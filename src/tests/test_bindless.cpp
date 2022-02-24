@@ -38,8 +38,8 @@ int main(int argc, char *argv[]) {
     };
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return make_float4(0);
-        // return heap.tex2d(0u).sample(uv);
+        // return make_float4(0);
+        return heap.tex2d(0u).sample(uv);
         // return heap.tex2d(0u).sample(uv, make_float2(), make_float2());
     };
 
@@ -71,14 +71,14 @@ int main(int argc, char *argv[]) {
 
     // auto event = device.create_event();
     auto stream = device.create_stream();
-    auto upload_stream = device.create_stream();
+    // auto upload_stream = device.create_stream();
 
     std::vector<float> mipmaps(image_width * image_height * 4u);
     auto in_pixels = image_pixels;
     auto out_pixels = mipmaps.data();
 
     // generate mip-maps
-    auto cmd = upload_stream.command_buffer();
+    auto cmd = stream.command_buffer();
     cmd << heap.emplace(0u, texture, Sampler::linear_linear_edge()).update()
         << texture.copy_from(image_pixels);
     for (auto i = 1u; i < texture.mip_levels(); i++) {
@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
             4);
         image_width = half_w;
         image_height = half_h;
-        stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
+        stbi_write_hdr(fmt::format("level-{}.hdr", i).c_str(), image_width, image_height, 4, out_pixels);
         cmd << texture.view(i).copy_from(out_pixels);
         in_pixels = out_pixels;
         out_pixels += image_width * image_height * 4u;
@@ -100,16 +100,18 @@ int main(int argc, char *argv[]) {
     cmd //<< event.signal()
         << commit();
 
-    stream //<< clear_image(device_image).dispatch(1024u, 1024u)
+
+
+    stream << clear_image(device_image).dispatch(1024u, 1024u)
         //    << event.wait()
            << fill_image(heap,
                          device_image.region(make_uint2(128u), make_uint2(1024u - 256u)))
                   .dispatch(make_uint2(1024u - 256u))
-        //    << device_image.copy_to(host_image.data())
+            << device_image.copy_to(host_image.data())
         //    << event.signal()
            << synchronize();
 
     LUISA_INFO("Finish");
 
-    stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
+    stbi_write_hdr("result.hdr", 1024u, 1024u, 4u, host_image.data());
 }
