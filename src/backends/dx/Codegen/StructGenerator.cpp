@@ -109,27 +109,15 @@ void StructGenerator::InitAsStruct(
         varName << 'v';
         vstd::to_string(structTypes.size(), varName);
     };
+    size_t maxAlign = 4;
     auto Align = [&](size_t tarAlign) {
+        maxAlign = std::max(maxAlign, tarAlign);
         ProvideAlignVariable(tarAlign, structSize, alignCount, structDesc);
     };
 
     for (; vars; vars++) {
         auto &&i = *vars;
         updateVarName();
-        switch (i->tag()) {
-            case Type::Tag::VECTOR:
-            case Type::Tag::MATRIX: {
-                switch (i->dimension()) {
-                    case 2:
-                        Align(8);
-                        break;
-                    case 3:
-                    case 4:
-                        Align(16);
-                        break;
-                }
-            } break;
-        }
         vstd::variant<StructureType, StructGenerator *> ele;
         switch (i->tag()) {
             case Type::Tag::BOOL:
@@ -137,30 +125,35 @@ void StructGenerator::InitAsStruct(
                 ele = StructureType::GetScalar();
                 break;
             case Type::Tag::FLOAT:
+                Align(4);
                 structSize += 4;
                 ele = StructureType::GetScalar();
                 break;
             case Type::Tag::INT:
+                Align(4);
                 structSize += 4;
                 ele = StructureType::GetScalar();
                 break;
             case Type::Tag::UINT:
+                Align(4);
                 structSize += 4;
                 ele = StructureType::GetScalar();
                 break;
             case Type::Tag::VECTOR:
+                Align(i->alignment());
                 structSize += 4 * i->dimension();
                 ele = StructureType::GetVector(i->dimension());
                 break;
             case Type::Tag::MATRIX: {
+                Align(i->alignment());
                 auto alignDim = i->dimension();
                 alignDim = (alignDim == 3) ? 4 : alignDim;
                 structSize += 4 * alignDim * i->dimension();
                 ele = StructureType::GetMatrix(i->dimension());
             } break;
             case Type::Tag::STRUCTURE: {
-                auto subStruct = visitor(i);
                 Align(i->alignment());
+                auto subStruct = visitor(i);
                 structSize += i->size();
                 ele = subStruct;
             } break;
@@ -180,24 +173,10 @@ void StructGenerator::InitAsStruct(
         structTypes.emplace_back(
             std::move(varName),
             ele);
-        switch (i->tag()) {
-            case Type::Tag::VECTOR:
-            case Type::Tag::MATRIX: {
-                switch (i->dimension()) {
-                    case 2:
-                        Align(8);
-                        break;
-                    case 3:
-                    case 4:
-                        Align(16);
-                        break;
-                }
-            } break;
-        }
     }
 
     updateVarName();
-    Align(4);
+    Align(maxAlign);
 }
 void StructGenerator::InitAsArray(
     Type const *t,

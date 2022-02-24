@@ -192,7 +192,11 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
                 str << luisa::format("WrappedFloat{}x{}", n, n);
             } else {
                 vstd::string typeName;
-                GetTypeName(*ele, typeName, usage);
+                if (ele->is_vector() && ele->dimension() == 3) {
+                    typeName << "float4"sv;
+                } else {
+                    GetTypeName(*ele, typeName, usage);
+                }
                 auto ite = opt->structReplaceName.Find(typeName);
                 if (ite) {
                     str << ite.Value();
@@ -962,9 +966,12 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         propertyResult << "StructuredBuffer<"sv;
         if (i.first->is_matrix()) {
             auto n = i.first->dimension();
-            propertyResult <<
-                luisa::format("WrappedFloat{}x{}", n, n);
-        } else {
+            propertyResult << luisa::format("WrappedFloat{}x{}", n, n);
+        } 
+        else if (i.first->is_vector() && i.first->dimension() == 3) {
+            propertyResult << "float4"sv;
+        }    
+        else {
             GetTypeName(*i.first, propertyResult, Usage::READ);
         }
         vstd::string instName("bdls"sv);
