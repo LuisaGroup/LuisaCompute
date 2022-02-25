@@ -352,7 +352,69 @@ uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level){
 }
 #define READ_BUFFER(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx])
 #define READ_BUFFERVec3(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx].xyz)
+struct MeshInst{
+    float3 cols[4];
+};
+float4x4 InstMatrix(StructuredBuffer<MeshInst> instBuffer, uint index){
+    MeshInst v = instBuffer[index];
+    return float4x4(float4(v.cols[0], 0), float4(v.cols[1], 0), float4(v.cols[2], 0), float4(v.cols[3], 1));
+}
+template <typename T>
+T _atomic_exchange(inout T a, T b){
+T r;
+InterlockedExchange(a, b, r);
+return r;
+}
+template <typename T>
+T _atomic_compare_exchange(inout T a, T b, T c){
+T r;
+InterlockedCompareExchange(a, b, c, r);
+return r;
+}
+template <typename T>
+T _atomic_add(inout T a, T b){
+T r;
+InterlockedAdd(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_sub(inout T a, T b){
+T r;
+InterlockedAdd(a,-b,r);
+return r;
+}
+template <typename T>
+T _atomic_and(inout T a, T b){
+T r;
+InterlockedAnd(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_or(inout T a, T b){
+T r;
+InterlockedOr(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_xor(inout T a, T b){
+T r;
+InterlockedXor(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_min(inout T a, T b){
+T r;
+InterlockedMin(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_max(inout T a, T b){
+T r;
+InterlockedMax(a,b,r);
+return r;
+}
 )"sv;
+
 }
 vstd::string_view GetRayTracingHeader() {
     return R"(
@@ -397,9 +459,6 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	ray);
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
-}
-float4x4 InstMatrix(StructuredBuffer<WrappedFloat4x4> instBuffer, uint index){
-	return instBuffer[index].m;
 }
 )"sv;
 }

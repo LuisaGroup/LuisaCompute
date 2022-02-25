@@ -19,6 +19,15 @@ void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
         }
 }
 }// namespace detail
+TopAccel::MeshInstance::MeshInstance(float4x4 const &m) {
+    size_t idx = 0;
+    for (auto &&i : m.cols)
+        for (auto j : vstd::range(3)) {
+            v[idx] = i[j];
+            ++idx;
+        }
+}
+
 TopAccel::TopAccel(Device *device, luisa::compute::AccelBuildHint hint)
     : device(device) {
     auto GetPreset = [&] {
@@ -97,7 +106,7 @@ bool TopAccel::Update(
             .ist = ist,
             .meshInst = localToWorld,
             .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
-            .customBuffer = BufferView(customInstBuffer.get(), sizeof(float4x4) * idx, sizeof(float4x4))});
+            .customBuffer = BufferView(customInstBuffer.get(), sizeof(MeshInstance) * idx, sizeof(MeshInstance))});
     return true;
 }
 bool TopAccel::Update(
@@ -127,7 +136,7 @@ bool TopAccel::Update(
             .ist = ist,
             .meshInst = localToWorld,
             .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
-            .customBuffer = BufferView(customInstBuffer.get(), sizeof(float4x4) * idx, sizeof(float4x4))});
+            .customBuffer = BufferView(customInstBuffer.get(), sizeof(MeshInstance) * idx, sizeof(MeshInstance))});
     return true;
 }
 bool TopAccel::Update(
@@ -150,7 +159,7 @@ bool TopAccel::Update(
             .ist = ist,
             .meshInst = c.transform,
             .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
-            .customBuffer = BufferView(customInstBuffer.get(), sizeof(float4x4) * idx, sizeof(float4x4))});
+            .customBuffer = BufferView(customInstBuffer.get(), sizeof(MeshInstance) * idx, sizeof(MeshInstance))});
     return true;
 }
 void TopAccel::Emplace(
@@ -214,7 +223,7 @@ void TopAccel::Reserve(
     if (RebuildBuffer(instBuffer, sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * newCapacity, D3D12_RESOURCE_STATE_COMMON, true)) {
         input.InstanceDescs = instBuffer->GetAddress();
     }
-    RebuildBuffer(customInstBuffer, sizeof(float4x4) * newCapacity, D3D12_RESOURCE_STATE_COMMON, true);
+    RebuildBuffer(customInstBuffer, sizeof(MeshInstance) * newCapacity, D3D12_RESOURCE_STATE_COMMON, true);
     if (RebuildBuffer(accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, false)) {
         topLevelBuildDesc.SourceAccelerationStructureData = 0;
         topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
