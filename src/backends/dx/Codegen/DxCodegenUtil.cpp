@@ -1034,7 +1034,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             return varName;
         };
         auto printInstBuffer = [&] {
-            propertyResult << "StructuredBuffer<WrappedFloat4x4> ";
+            propertyResult << "StructuredBuffer<MeshInst> ";
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;

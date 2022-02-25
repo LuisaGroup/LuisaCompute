@@ -30,9 +30,13 @@ class TopAccel : public vstd::IOperatorNewBase {
         vstd::unique_ptr<DefaultBuffer> srcBuffer;
         DefaultBuffer const *dstBuffer;
     };
+    struct MeshInstance {
+        float v[12];
+        MeshInstance(float4x4 const &m);
+    };
     struct UpdateCommand {
         D3D12_RAYTRACING_INSTANCE_DESC ist;
-        float4x4 meshInst;
+        MeshInstance meshInst;
         BufferView buffer;
         BufferView customBuffer;
     };
