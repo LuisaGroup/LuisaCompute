@@ -199,15 +199,10 @@ T selectVec4(T a, T b, bool4 c){
 	selectVec(a.w, b.w, c.w));
 }
 
-float copysign(float a, float b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-float2 copysign(float2 a, float2 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-float3 copysign(float3 a, float3 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-float4 copysign(float4 a, float4 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-
-float fma(float a, float b, float c) { return a * b + c; }
-float2 fma(float2 a, float2 b, float2 c) { return a * b + c; }
-float3 fma(float3 a, float3 b, float3 c) { return a * b + c; }
-float4 fma(float4 a, float4 b, float4 c) { return a * b + c; }
+template <typename T>
+T copysign(T a, T b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
+template <typename T>
+T fma(T a, T b, T c) { return a * b + c; }
 
 float2x2 make_float2x2(float m00, float m01,
                        float m10, float m11) {
