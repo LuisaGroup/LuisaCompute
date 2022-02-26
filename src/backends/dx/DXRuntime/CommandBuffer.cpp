@@ -24,6 +24,7 @@ CommandBuffer::CommandBuffer(
         nullptr,           // Initial PipelineStateObject
         IID_PPV_ARGS(&cmdList)));
     ThrowIfFailed(cmdList->Close());
+    isOpened = false;
 }
 void CommandBufferBuilder::SetResources(
     Shader const *s,
@@ -209,9 +210,11 @@ void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
         });
 }
 void CommandBuffer::Reset() const {
+    if (isOpened.exchange(true)) return;
     ThrowIfFailed(cmdList->Reset(alloc->Allocator(), nullptr));
 }
 void CommandBuffer::Close() const {
+    if (!isOpened.exchange(false)) return;
     ThrowIfFailed(cmdList->Close());
 }
 CommandBufferBuilder::CommandBufferBuilder(CommandBuffer const *cb)
@@ -228,6 +231,7 @@ CommandBufferBuilder::CommandBufferBuilder(CommandBufferBuilder &&v)
 }
 
 CommandBuffer::~CommandBuffer() {
+    Close();
 }
 
 }// namespace toolhub::directx
