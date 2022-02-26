@@ -12,9 +12,9 @@ class BottomAccel;
 class TopAccel : public vstd::IOperatorNewBase {
     struct Element {
         BottomAccel const *mesh = nullptr;
-        float4x4 transform;
-        uint mask;
+        D3D12_RAYTRACING_INSTANCE_DESC inst;
     };
+
     friend class BottomAccel;
     vstd::unique_ptr<DefaultBuffer> instBuffer;
     vstd::unique_ptr<DefaultBuffer> accelBuffer;
@@ -25,22 +25,11 @@ class TopAccel : public vstd::IOperatorNewBase {
     mutable std::mutex mtx;
     size_t capacity = 0;
     vstd::vector<Element> accelMap;
-    struct CopyCommand {
-        vstd::unique_ptr<DefaultBuffer> srcBuffer;
-        DefaultBuffer const *dstBuffer;
-    };
     struct MeshInstance {
         float v[12];
         MeshInstance(float4x4 const &m);
     };
-    struct UpdateCommand {
-        D3D12_RAYTRACING_INSTANCE_DESC ist;
-        BufferView buffer;
-    };
-    using Command = vstd::variant<
-        CopyCommand,
-        UpdateCommand>;
-    vstd::vector<Command> delayCommands;
+    vstd::vector<size_t> delayCommands;
     void UpdateBottomAccel(uint idx, BottomAccel const *c);
     void IncreRef(Buffer const *bf);
     void DecreRef(Buffer const *bf);
@@ -72,8 +61,9 @@ public:
     DefaultBuffer const* GetInstBuffer() const {
         return instBuffer ? (DefaultBuffer const *)instBuffer.get() : (DefaultBuffer const *)nullptr;
     }
-    void Reserve(
-        size_t newCapacity);
+    void PreProcess(
+        ResourceStateTracker &tracker,
+        CommandBufferBuilder &builder);
     void Build(
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
