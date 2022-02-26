@@ -253,8 +253,15 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                     RegistStructType(i.type());
                     CodegenUtility::GetTypeName(*i.type(), data, func.variable_usage(i.uid()));
                     data << ' ';
-                    CodegenUtility::GetVariableName(i, data);
-                    data += ',';
+                    if (i.type()->is_accel()) {
+                        vstd::string varName;
+                        CodegenUtility::GetVariableName(i, varName);
+                        data << varName << ",StructuredBuffer<MeshInst> " << varName << "Inst"sv << ',';
+                    } else {
+
+                        CodegenUtility::GetVariableName(i, data);
+                        data += ',';
+                    }
                 }
                 data[data.size() - 1] = ')';
             }
@@ -366,10 +373,28 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
         }
     };
+    auto PrintArgsAccelPossible = [&] {
+        uint64 sz = 0;
+        for (auto &&i : args) {
+            ++sz;
+            i->accept(vis);
+            if (i->type()->is_accel()) {
+                str << ',';
+                i->accept(vis);
+                str << "Inst"sv;
+            }
+            if (sz != args.size()) {
+                str << ',';
+            }
+        }
+    };
     switch (expr->op()) {
         case CallOp::CUSTOM:
             str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().hash())));
-            break;
+            str << '(';
+            PrintArgsAccelPossible();
+            str << ')';
+            return;
 
         case CallOp::ALL:
             str << "all"sv;
