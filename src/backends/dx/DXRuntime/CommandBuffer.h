@@ -9,6 +9,7 @@ class DescriptorHeap;
 class Shader;
 class RTShader;
 class CommandBuffer;
+class CommandQueue;
 class CommandBufferBuilder {
     friend class CommandBuffer;
 
@@ -87,6 +88,7 @@ public:
 class CommandBuffer : public vstd::IOperatorNewBase{
     friend class CommandBufferBuilder;
     friend class CommandAllocator;
+    mutable std::atomic_bool isOpened;
     void Reset() const;
     void Close() const;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> cmdList;

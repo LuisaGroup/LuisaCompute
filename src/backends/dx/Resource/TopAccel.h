@@ -17,7 +17,6 @@ class TopAccel : public vstd::IOperatorNewBase {
     };
     friend class BottomAccel;
     vstd::unique_ptr<DefaultBuffer> instBuffer;
-    vstd::unique_ptr<DefaultBuffer> customInstBuffer;
     vstd::unique_ptr<DefaultBuffer> accelBuffer;
     vstd::HashMap<Buffer const *, size_t> resourceRefMap;
     Device *device;
@@ -36,9 +35,7 @@ class TopAccel : public vstd::IOperatorNewBase {
     };
     struct UpdateCommand {
         D3D12_RAYTRACING_INSTANCE_DESC ist;
-        MeshInstance meshInst;
         BufferView buffer;
-        BufferView customBuffer;
     };
     using Command = vstd::variant<
         CopyCommand,
@@ -73,7 +70,7 @@ public:
         return accelBuffer ? (DefaultBuffer const *)accelBuffer.get() : (DefaultBuffer const *)nullptr;
     }
     DefaultBuffer const* GetInstBuffer() const {
-        return customInstBuffer ? (DefaultBuffer const *)customInstBuffer.get() : (DefaultBuffer const *)nullptr;
+        return instBuffer ? (DefaultBuffer const *)instBuffer.get() : (DefaultBuffer const *)nullptr;
     }
     void Reserve(
         size_t newCapacity);

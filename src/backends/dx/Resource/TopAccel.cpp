@@ -104,9 +104,7 @@ bool TopAccel::Update(
     delayCommands.emplace_back(
         UpdateCommand{
             .ist = ist,
-            .meshInst = localToWorld,
-            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
-            .customBuffer = BufferView(customInstBuffer.get(), sizeof(MeshInstance) * idx, sizeof(MeshInstance))});
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
     return true;
 }
 bool TopAccel::Update(
@@ -134,9 +132,7 @@ bool TopAccel::Update(
     delayCommands.emplace_back(
         UpdateCommand{
             .ist = ist,
-            .meshInst = localToWorld,
-            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
-            .customBuffer = BufferView(customInstBuffer.get(), sizeof(MeshInstance) * idx, sizeof(MeshInstance))});
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
     return true;
 }
 bool TopAccel::Update(
@@ -157,9 +153,7 @@ bool TopAccel::Update(
     delayCommands.emplace_back(
         UpdateCommand{
             .ist = ist,
-            .meshInst = c.transform,
-            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist)),
-            .customBuffer = BufferView(customInstBuffer.get(), sizeof(MeshInstance) * idx, sizeof(MeshInstance))});
+            .buffer = BufferView(instBuffer.get(), sizeof(ist) * idx, sizeof(ist))});
     return true;
 }
 void TopAccel::Emplace(
@@ -220,10 +214,9 @@ void TopAccel::Reserve(
         buffer = std::move(newBuffer);
         return true;
     };
-    if (RebuildBuffer(instBuffer, sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * newCapacity, D3D12_RESOURCE_STATE_COMMON, true)) {
+    if (RebuildBuffer(instBuffer, sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * newCapacity, VEngineShaderResourceState, true)) {
         input.InstanceDescs = instBuffer->GetAddress();
     }
-    RebuildBuffer(customInstBuffer, sizeof(MeshInstance) * newCapacity, D3D12_RESOURCE_STATE_COMMON, true);
     if (RebuildBuffer(accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, false)) {
         topLevelBuildDesc.SourceAccelerationStructureData = 0;
         topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
@@ -267,9 +260,6 @@ void TopAccel::Build(
                 tracker.RecordState(
                     update.buffer.buffer,
                     D3D12_RESOURCE_STATE_COPY_DEST);
-                tracker.RecordState(
-                    update.customBuffer.buffer,
-                    D3D12_RESOURCE_STATE_COPY_DEST);
                 cmdCache.emplace_back(update);
             });
     }
@@ -277,16 +267,10 @@ void TopAccel::Build(
     for (auto &&i : cmdCache) {
         auto d = vstd::create_disposer([&] {
             tracker.RecordState(i.buffer.buffer);
-            tracker.RecordState(
-                i.customBuffer.buffer,
-                VEngineShaderResourceState);
         });
         builder.Upload(
             i.buffer,
             &i.ist);
-        builder.Upload(
-            i.customBuffer,
-            &i.meshInst);
     }
     delayCommands.clear();
     if (Length() == 0) return;

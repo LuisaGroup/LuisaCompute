@@ -348,11 +348,23 @@ uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level){
 #define READ_BUFFER(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx])
 #define READ_BUFFERVec3(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx].xyz)
 struct MeshInst{
-    float3 cols[4];
+    float4 p0;
+    float4 p1;
+    float4 p2;
+    uint InstanceID : 24;
+    uint InstanceMask : 8;
+    uint InstanceContributionToHitGroupIndex : 24;
+    uint Flags : 8;
+    uint2 accelStructPtr;
 };
 float4x4 InstMatrix(StructuredBuffer<MeshInst> instBuffer, uint index){
     MeshInst v = instBuffer[index];
-    return float4x4(float4(v.cols[0], 0), float4(v.cols[1], 0), float4(v.cols[2], 0), float4(v.cols[3], 1));
+    return float4x4(
+float4(v.p0.x, v.p1.x, v.p2.x, 0),
+float4(v.p0.y, v.p1.y, v.p2.y, 0),
+float4(v.p0.z, v.p1.z, v.p2.z, 0),
+float4(v.p0.w, v.p1.w, v.p2.w, 1)
+);
 }
 template <typename T>
 T _atomic_exchange(inout T a, T b){
