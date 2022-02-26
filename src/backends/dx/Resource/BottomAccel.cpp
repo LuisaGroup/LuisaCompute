@@ -94,6 +94,5 @@ void BottomAccel::UpdateStates(
     tracker.RecordState(
         scratchBuffer,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    tracker.UpdateState(builder);
 }
 }// namespace toolhub::directx

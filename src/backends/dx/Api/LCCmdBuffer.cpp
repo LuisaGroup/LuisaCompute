@@ -155,15 +155,23 @@ public:
     }
     void visit(const ShaderDispatchCommand *cmd) noexcept override {
         size_t beforeSize = argBuffer.size();
-        EmplaceData((vbyte const*)vstd::get_rvalue_ptr(cmd->dispatch_size()), 12);
+        EmplaceData((vbyte const *)vstd::get_rvalue_ptr(cmd->dispatch_size()), 12);
         cmd->decode(Visitor{this, cmd->kernel(), cmd->kernel().arguments().data()});
         UniformAlign(16);
         size_t afterSize = argBuffer.size();
         argVecs.emplace_back(beforeSize, afterSize - beforeSize);
     }
     void visit(const AccelUpdateCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
+        accel->PreProcess(
+            stateTracker,
+            *bd);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
+        auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
+        accel->PreProcess(
+            stateTracker,
+            *bd);
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
@@ -188,7 +196,7 @@ class LCCmdVisitor : public CommandVisitor {
 public:
     Device *device;
     CommandBufferBuilder *bd;
-    ResourceStateTracker *accelStateTracker;
+    ResourceStateTracker *stateTracker;
     BufferView argBuffer;
     std::pair<size_t, size_t> *bufferVec;
     vstd::vector<BindProperty> bindProps;
@@ -198,7 +206,7 @@ public:
             cmd->offset(),
             cmd->size());
         bd->Upload(bf, cmd->data());
-        accelStateTracker->RecordState(
+        stateTracker->RecordState(
             bf.buffer,
             VEngineShaderResourceState);
     }
@@ -220,7 +228,7 @@ public:
             cmd->src_offset(),
             cmd->dst_offset(),
             cmd->size());
-        accelStateTracker->RecordState(
+        stateTracker->RecordState(
             dstBf,
             VEngineShaderResourceState);
     }
@@ -232,7 +240,7 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-        accelStateTracker->RecordState(
+        stateTracker->RecordState(
             rt,
             VEngineShaderResourceRTState);
     }
@@ -324,7 +332,7 @@ public:
             bindProps.emplace_back(std::move(vstd::string("bdls") + vstd::to_string(i)), globalHeapView);
         }
         bindProps.emplace_back("samplers"sv, DescriptorHeapView(device->samplerHeap.get()));
-        accelStateTracker->UpdateState(*bd);
+        stateTracker->UpdateState(*bd);
         switch (shader->GetTag()) {
             case Shader::Tag::ComputeShader: {
                 auto cs = static_cast<ComputeShader const *>(shader);
@@ -366,7 +374,7 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-        accelStateTracker->RecordState(
+        stateTracker->RecordState(
             rt,
             VEngineShaderResourceRTState);
     }
@@ -410,7 +418,7 @@ public:
             dst,
             0,
             cmd->dst_level());
-        accelStateTracker->RecordState(
+        stateTracker->RecordState(
             dst,
             VEngineShaderResourceRTState);
     }
@@ -422,27 +430,27 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
-        accelStateTracker->RecordState(
+        stateTracker->RecordState(
             bf,
             VEngineShaderResourceState);
     }
     void visit(const AccelUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
-            *accelStateTracker,
+            *stateTracker,
             *bd, true);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
-            *accelStateTracker,
+            *stateTracker,
             *bd, false);
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
-            *accelStateTracker,
+            *stateTracker,
             //TODO: driver's bug, do not support update mesh's accel
             false);
     }
@@ -450,14 +458,14 @@ public:
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
-            *accelStateTracker,
+            *stateTracker,
             false);
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
         arr->UpdateStates(
             *bd,
-            *accelStateTracker);
+            *stateTracker);
     }
 };
 
@@ -477,7 +485,7 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c, size_t maxAllo
         LCPreProcessVisitor ppVisitor;
         LCCmdVisitor visitor;
         visitor.device = device;
-        visitor.accelStateTracker = &ppVisitor.stateTracker;
+        visitor.stateTracker = &ppVisitor.stateTracker;
         auto cmdBuffer = allocator->GetBuffer();
         auto cmdBuilder = cmdBuffer->Build();
         visitor.bd = &cmdBuilder;
