@@ -6293,11 +6293,274 @@ inline float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
     return accel.transforms[index];
 }
 
-struct LCTexture {
-    uint width;
-    uint height;
+
+
+// pixel format
+
+enum PixelStorage {
+
+    BYTE1,
+    BYTE2,
+    BYTE4,
+
+    SHORT1,
+    SHORT2,
+    SHORT4,
+
+    INT1,
+    INT2,
+    INT4,
+
+    HALF1,
+    HALF2,
+    HALF4,
+
+    FLOAT1,
+    FLOAT2,
+    FLOAT4
+};
+
+enum PixelFormat {
+
+    R8SInt,
+    R8UInt,
+    R8UNorm,
+
+    RG8SInt,
+    RG8UInt,
+    RG8UNorm,
+
+    RGBA8SInt,
+    RGBA8UInt,
+    RGBA8UNorm,
+
+    R16SInt,
+    R16UInt,
+    R16UNorm,
+
+    RG16SInt,
+    RG16UInt,
+    RG16UNorm,
+
+    RGBA16SInt,
+    RGBA16UInt,
+    RGBA16UNorm,
+
+    R32SInt,
+    R32UInt,
+
+    RG32SInt,
+    RG32UInt,
+
+    RGBA32SInt,
+    RGBA32UInt,
+
+    R16F,
+    RG16F,
+    RGBA16F,
+
+    R32F,
+    RG32F,
+    RGBA32F
+};
+
+PixelStorage pixel_format_to_storage(PixelFormat format) {
+    switch (format) {
+        case R8SInt:
+        case R8UInt:
+        case R8UNorm:
+            return BYTE1;
+        case RG8SInt:
+        case RG8UInt:
+        case RG8UNorm:
+            return BYTE2;
+        case RGBA8SInt:
+        case RGBA8UInt:
+        case RGBA8UNorm:
+            return BYTE4;
+        case R16SInt:
+        case R16UInt:
+        case R16UNorm:
+            return SHORT1;
+        case RG16SInt:
+        case RG16UInt:
+        case RG16UNorm:
+            return SHORT2;
+        case RGBA16SInt:
+        case RGBA16UInt:
+        case RGBA16UNorm:
+            return SHORT4;
+        case R32SInt:
+        case R32UInt:
+            return INT1;
+        case RG32SInt:
+        case RG32UInt:
+            return INT2;
+        case RGBA32SInt:
+        case RGBA32UInt:
+            return INT4;
+        case R16F:
+            return HALF1;
+        case RG16F:
+            return HALF2;
+        case RGBA16F:
+            return HALF4;
+        case R32F:
+            return FLOAT1;
+        case RG32F:
+            return FLOAT2;
+        case RGBA32F:
+            return FLOAT4;
+        default:
+            break;
+    }
+    return BYTE1;
+}
+
+uint pixel_storage_size(PixelStorage storage) {
+    switch (storage) {
+        case BYTE1: return sizeof(uint8) * 1u;
+        case BYTE2: return sizeof(uint8) * 2u;
+        case BYTE4: return sizeof(uint8) * 4u;
+        case SHORT1: return sizeof(uint16) * 1u;
+        case SHORT2: return sizeof(uint16) * 2u;
+        case SHORT4: return sizeof(uint16) * 4u;
+        case INT1: return sizeof(int) * 1u;
+        case INT2: return sizeof(int) * 2u;
+        case INT4: return sizeof(int) * 4u;
+        case HALF1: return sizeof(int16) * 1u;
+        case HALF2: return sizeof(int16) * 2u;
+        case HALF4: return sizeof(int16) * 4u;
+        case FLOAT1: return sizeof(float) * 1u;
+        case FLOAT2: return sizeof(float) * 2u;
+        case FLOAT4: return sizeof(float) * 4u;
+        default: break;
+    }
+    return 0u;
+}
+
+uint pixel_storage_channel_count(PixelStorage storage) {
+    switch (storage) {
+        case BYTE1: return 1u;
+        case BYTE2: return 2u;
+        case BYTE4: return 4u;
+        case SHORT1: return 1u;
+        case SHORT2: return 2u;
+        case SHORT4: return 4u;
+        case INT1: return 1u;
+        case INT2: return 2u;
+        case INT4: return 4u;
+        case HALF1: return 1u;
+        case HALF2: return 2u;
+        case HALF4: return 4u;
+        case FLOAT1: return 1u;
+        case FLOAT2: return 2u;
+        case FLOAT4: return 4u;
+        default: break;
+    }
+    return 0u;
+}
+
+
+uint pixel_format_size(PixelFormat format) {
+    return pixel_storage_size(pixel_format_to_storage(format));
+}
+
+
+void pixel_write(PixelFormat format, void* data, float4 value)
+{
+    switch (format) {
+        case R8SInt: for (int i=0; i<1; ++i) ((int8*)data)[i] = (int8)clamp(value.v[i],-128,127); break;
+        case R8UInt: for (int i=0; i<1; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i],0,255); break;
+        case R8UNorm: for (int i=0; i<1; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i]*255,0,255); break;
+        case RG8SInt: for (int i=0; i<2; ++i) ((int8*)data)[i] = (int8)clamp(value.v[i],-128,127); break;
+        case RG8UInt: for (int i=0; i<2; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i],0,255); break;
+        case RG8UNorm: for (int i=0; i<2; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i]*255,0,255); break;
+        case RGBA8SInt: for (int i=0; i<4; ++i) ((int8*)data)[i] = (int8)clamp(value.v[i],-128,127); break;
+        case RGBA8UInt: for (int i=0; i<4; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i],0,255); break;
+        case RGBA8UNorm: for (int i=0; i<4; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i]*255,0,255); break;
+
+        case R16SInt: for (int i=0; i<1; ++i) ((int16*)data)[i] = (int16)clamp(value.v[i],-32768,32767); break;
+        case R16UInt: for (int i=0; i<1; ++i) ((uint16*)data)[i] = (uint16)clamp(value.v[i],0,65535); break;
+        case R16UNorm: for (int i=0; i<1; ++i) ((uint16*)data)[i] = (uint16)clamp(value.v[i]*65535,0,65535); break;
+        case RG16SInt: for (int i=0; i<2; ++i) ((int16*)data)[i] = (int16)clamp(value.v[i],-32768,32767); break;
+        case RG16UInt: for (int i=0; i<2; ++i) ((uint16*)data)[i] = (uint16)clamp(value.v[i],0,65535); break;
+        case RG16UNorm: for (int i=0; i<2; ++i) ((uint16*)data)[i] = (uint16)clamp(value.v[i]*65535,0,65535); break;
+        case RGBA16SInt: for (int i=0; i<4; ++i) ((int16*)data)[i] = (int16)clamp(value.v[i],-32768,32767); break;
+        case RGBA16UInt: for (int i=0; i<4; ++i) ((uint16*)data)[i] = (uint16)clamp(value.v[i],0,65535); break;
+        case RGBA16UNorm: for (int i=0; i<4; ++i) ((uint16*)data)[i] = (uint16)clamp(value.v[i]*65535,0,65535); break;
+
+        case R32SInt: for (int i=0; i<1; ++i) ((int*)data)[i] = (int)clamp(value.v[i],-2147483520,2147483520); break;
+        case R32UInt: for (int i=0; i<1; ++i) ((uint*)data)[i] = (uint)clamp(value.v[i],0,4294967040); break;
+        case RG32SInt: for (int i=0; i<2; ++i) ((int*)data)[i] = (int)clamp(value.v[i],-2147483520,2147483520); break;
+        case RG32UInt: for (int i=0; i<2; ++i) ((uint*)data)[i] = (uint)clamp(value.v[i],0,4294967040); break;
+        case RGBA32SInt: for (int i=0; i<4; ++i) ((int*)data)[i] = (int)clamp(value.v[i],-2147483520,2147483520); break;
+        case RGBA32UInt: for (int i=0; i<4; ++i) ((uint*)data)[i] = (uint)clamp(value.v[i],0,4294967040); break;
+
+        case R16F: for (int i=0; i<1; ++i) ((int16*)data)[i] = float_to_half(value.v[i]); break;
+        case RG16F: for (int i=0; i<2; ++i) ((int16*)data)[i] = float_to_half(value.v[i]); break;
+        case RGBA16F: for (int i=0; i<4; ++i) ((int16*)data)[i] = float_to_half(value.v[i]); break;
+        case R32F: for (int i=0; i<1; ++i) ((float*)data)[i] = value.v[i]; break;
+        case RG32F: for (int i=0; i<2; ++i) ((float*)data)[i] = value.v[i]; break;
+        case RGBA32F: for (int i=0; i<4; ++i) ((float*)data)[i] = value.v[i]; break;
+
+        default: break;
+    }
+
+}
+
+float4 pixel_read(PixelFormat format, void* data)
+{
+    float4 value = make_float4(0.0f);
+    switch (format) {
+        case R8SInt: for (int i=0; i<1; ++i) value.v[i] = ((int8*)data)[i]; break;
+        case R8UInt: for (int i=0; i<1; ++i) value.v[i] = ((uint8*)data)[i]; break;
+        case R8UNorm: for (int i=0; i<1; ++i) value.v[i] = ((uint8*)data)[i]/255; break;
+        case RG8SInt: for (int i=0; i<2; ++i) value.v[i] = ((int8*)data)[i]; break;
+        case RG8UInt: for (int i=0; i<2; ++i) value.v[i] = ((uint8*)data)[i]; break;
+        case RG8UNorm: for (int i=0; i<2; ++i) value.v[i] = ((uint8*)data)[i]/255; break;
+        case RGBA8SInt: for (int i=0; i<4; ++i) value.v[i] = ((int8*)data)[i]; break;
+        case RGBA8UInt: for (int i=0; i<4; ++i) value.v[i] = ((uint8*)data)[i]; break;
+        case RGBA8UNorm: for (int i=0; i<4; ++i) value.v[i] = ((uint8*)data)[i]/255; break;
+
+        case R16SInt: for (int i=0; i<1; ++i) value.v[i] = ((int16*)data)[i]; break;
+        case R16UInt: for (int i=0; i<1; ++i) value.v[i] = ((uint16*)data)[i]; break;
+        case R16UNorm: for (int i=0; i<1; ++i) value.v[i] = ((uint16*)data)[i]/65535; break;
+        case RG16SInt: for (int i=0; i<2; ++i) value.v[i] = ((int16*)data)[i]; break;
+        case RG16UInt: for (int i=0; i<2; ++i) value.v[i] = ((uint16*)data)[i]; break;
+        case RG16UNorm: for (int i=0; i<2; ++i) value.v[i] = ((uint16*)data)[i]/65535; break;
+        case RGBA16SInt: for (int i=0; i<4; ++i) value.v[i] = ((int16*)data)[i]; break;
+        case RGBA16UInt: for (int i=0; i<4; ++i) value.v[i] = ((uint16*)data)[i]; break;
+        case RGBA16UNorm: for (int i=0; i<4; ++i) value.v[i] = ((uint16*)data)[i]/65535; break;
+
+        case R32SInt: for (int i=0; i<1; ++i) value.v[i] = ((int*)data)[i]; break;
+        case R32UInt: for (int i=0; i<1; ++i) value.v[i] = ((uint*)data)[i]; break;
+        case RG32SInt: for (int i=0; i<2; ++i) value.v[i] = ((int*)data)[i]; break;
+        case RG32UInt: for (int i=0; i<2; ++i) value.v[i] = ((uint*)data)[i]; break;
+        case RGBA32SInt: for (int i=0; i<4; ++i) value.v[i] = ((int*)data)[i]; break;
+        case RGBA32UInt: for (int i=0; i<4; ++i) value.v[i] = ((uint*)data)[i]; break;
+
+        case R16F: for (int i=0; i<1; ++i) value.v[i] = half_to_float(((int16*)data)[i]); break;
+        case RG16F: for (int i=0; i<2; ++i) value.v[i] = half_to_float(((int16*)data)[i]); break;
+        case RGBA16F: for (int i=0; i<4; ++i) value.v[i] = half_to_float(((int16*)data)[i]); break;
+        case R32F: for (int i=0; i<1; ++i) value.v[i] = ((float*)data)[i]; break;
+        case RG32F: for (int i=0; i<2; ++i) value.v[i] = ((float*)data)[i]; break;
+        case RGBA32F: for (int i=0; i<4; ++i) value.v[i] = ((float*)data)[i]; break;
+
+        default: break;
+    }
+    return value;
+}
+
+
+
+struct LCTexture
+{
+    PixelFormat format;
+    uint dim;
+    uint3 size;
     uint lodLevel;
-    float* lods[20];
+    void* lods[20];
 };
 
 struct TextureView {
@@ -6306,33 +6569,29 @@ struct TextureView {
 };
 
 
+
 inline void texture_write(uniform LCTexture * tex, uint2 p, uint level, float4 value)
 {
-    uint width = max(tex->width >> level, 1);
-    uint height = max(tex->height >> level, 1);
+    uint pxsize = pixel_format_size(tex->format);
+    uint width = max(tex->size._x >> level, 1);
+    uint height = max(tex->size._y >> level, 1);
     if (p.v[0] >= width || p.v[1] >= height)
-        // throw "texture write out of bound";
         print("texture write out of bound %u %u, %u %u\n", p.v[0], p.v[1], width, height);
-    // print("TEX WRITE %u %u %u\n", p.v[0], p.v[1], level);
-    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 0] = value.v[0];
-    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 1] = value.v[1];
-    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 2] = value.v[2];
-    tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 3] = value.v[3];
+    void* data = (uint8*)tex->lods[level] + (p.v[1] * width + p.v[0]) * pxsize;
+    pixel_write(tex->format, data, value);
 }
 
 inline float4 texture_read(uniform LCTexture * tex, uint2 p, uint level)
 {
-    uint width = max(tex->width >> level, 1);
-    uint height = max(tex->height >> level, 1);
-    if (p.v[0] >= width || p.v[1] >= height)
+    uint pxsize = pixel_format_size(tex->format);
+    uint width = max(tex->size._x >> level, 1);
+    uint height = max(tex->size._y >> level, 1);
+    if (p.v[0] >= width || p.v[1] >= height) {
+        print("format %u dim %u size %u %u %u\n", (uint)tex->format, tex->dim, tex->size._x, tex->size._y, tex->size._z);
         print("texture@%u read out of bound %u %u, %u %u\n", level, p.v[0], p.v[1], width, height);
-    // print("TEX READ %u %u %u @ %u %u\n", p.v[0], p.v[1], level, width, height);
-    float4 value;
-    value.v[0] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 0];
-    value.v[1] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 1];
-    value.v[2] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 2];
-    value.v[3] = tex->lods[level][(p.v[1] * width + p.v[0]) * 4 + 3];
-    return value;
+    }
+    void* data = (uint8*)tex->lods[level] + (p.v[1] * width + p.v[0]) * pxsize;
+    return pixel_read(tex->format, data);
 }
 
 // TODO support other data types & 3D
@@ -6344,7 +6603,6 @@ inline float4 surf2d_read_float(uniform TextureView view, uint2 p)
 
 inline void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)
 {
-    // print("ptr= %llu\n", (uint64)view.ptr);;
     texture_write((LCTexture*)view.ptr, p, view.level, value);
 }
 
@@ -6376,8 +6634,8 @@ float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint in
     if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1)
         return make_float4(0.0f);
     // bilinear
-    uint w = max(tex->width>>level, 1u);
-    uint h = max(tex->height>>level, 1u);
+    uint w = max(tex->size._x>>level, 1u);
+    uint h = max(tex->size._y>>level, 1u);
     float x = uv._x * w - 0.5f;
     float y = uv._y * h - 0.5f;
     float fx = fract(x);
@@ -6425,11 +6683,11 @@ uint3 bindless_texture_size3d_level(uniform LCBindlessArray array, uint index, u
 
 uint2 bindless_texture_size2d(uniform LCBindlessArray array, uint index) {
     uniform const LCTexture *tex = array.items[index].tex2d;
-    return make_uint2(tex->width, tex->height);
+    return make_uint2(tex->size._x, tex->size._y);
 }
 uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint index, uint level) {
     uniform const LCTexture *tex = array.items[index].tex2d;
-    return make_uint2(max(tex->width >> level, 1u), max(tex->height >> level, 1u));
+    return make_uint2(max(tex->size._x >> level, 1u), max(tex->size._y >> level, 1u));
 }
 
 #ifdef LC_ISPC_RAYTRACING

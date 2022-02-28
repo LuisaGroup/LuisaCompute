@@ -9,6 +9,7 @@ namespace luisa::compute::ispc {
 
 ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept:
     format(format),
+    dim(dim),
     size(size),
     lodLevel(mip_levels)
 {
@@ -32,6 +33,10 @@ ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_leve
 
 ISPCTexture::Handle ISPCTexture::handle() const noexcept {
     return {(void*)this};
+}
+
+ISPCTexture::~ISPCTexture(){
+    delete[] (uint8_t*)lods[0];
 }
 
 }// namespace luisa::compute::ispc
