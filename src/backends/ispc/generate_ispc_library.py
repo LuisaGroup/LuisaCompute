@@ -1332,21 +1332,21 @@ PixelStorage pixel_format_to_storage(PixelFormat format) {
 
 uint pixel_storage_size(PixelStorage storage) {
     switch (storage) {
-        case BYTE1: return sizeof(uint8) * 1u;
-        case BYTE2: return sizeof(uint8) * 2u;
-        case BYTE4: return sizeof(uint8) * 4u;
-        case SHORT1: return sizeof(uint16) * 1u;
-        case SHORT2: return sizeof(uint16) * 2u;
-        case SHORT4: return sizeof(uint16) * 4u;
-        case INT1: return sizeof(int) * 1u;
-        case INT2: return sizeof(int) * 2u;
-        case INT4: return sizeof(int) * 4u;
-        case HALF1: return sizeof(int16) * 1u;
-        case HALF2: return sizeof(int16) * 2u;
-        case HALF4: return sizeof(int16) * 4u;
-        case FLOAT1: return sizeof(float) * 1u;
-        case FLOAT2: return sizeof(float) * 2u;
-        case FLOAT4: return sizeof(float) * 4u;
+        case BYTE1: return sizeof(uniform uint8) * 1u;
+        case BYTE2: return sizeof(uniform uint8) * 2u;
+        case BYTE4: return sizeof(uniform uint8) * 4u;
+        case SHORT1: return sizeof(uniform uint16) * 1u;
+        case SHORT2: return sizeof(uniform uint16) * 2u;
+        case SHORT4: return sizeof(uniform uint16) * 4u;
+        case INT1: return sizeof(uniform int) * 1u;
+        case INT2: return sizeof(uniform int) * 2u;
+        case INT4: return sizeof(uniform int) * 4u;
+        case HALF1: return sizeof(uniform int16) * 1u;
+        case HALF2: return sizeof(uniform int16) * 2u;
+        case HALF4: return sizeof(uniform int16) * 4u;
+        case FLOAT1: return sizeof(uniform float) * 1u;
+        case FLOAT2: return sizeof(uniform float) * 2u;
+        case FLOAT4: return sizeof(uniform float) * 4u;
         default: break;
     }
     return 0u;
@@ -1471,7 +1471,7 @@ struct LCTexture
 {
     PixelFormat format;
     uint dim;
-    uint3 size;
+    uint size[3];
     uint lodLevel;
     void* lods[20];
 };
@@ -1486,8 +1486,8 @@ struct TextureView {
 inline void texture_write(uniform LCTexture * tex, uint2 p, uint level, float4 value)
 {
     uint pxsize = pixel_format_size(tex->format);
-    uint width = max(tex->size._x >> level, 1);
-    uint height = max(tex->size._y >> level, 1);
+    uint width = max(tex->size[0] >> level, 1);
+    uint height = max(tex->size[1] >> level, 1);
     if (p.v[0] >= width || p.v[1] >= height)
         print("texture write out of bound %u %u, %u %u\\n", p.v[0], p.v[1], width, height);
     void* data = (uint8*)tex->lods[level] + (p.v[1] * width + p.v[0]) * pxsize;
@@ -1497,10 +1497,9 @@ inline void texture_write(uniform LCTexture * tex, uint2 p, uint level, float4 v
 inline float4 texture_read(uniform LCTexture * tex, uint2 p, uint level)
 {
     uint pxsize = pixel_format_size(tex->format);
-    uint width = max(tex->size._x >> level, 1);
-    uint height = max(tex->size._y >> level, 1);
+    uint width = max(tex->size[0] >> level, 1);
+    uint height = max(tex->size[1] >> level, 1);
     if (p.v[0] >= width || p.v[1] >= height) {
-        print("format %u dim %u size %u %u %u\\n", (uint)tex->format, tex->dim, tex->size._x, tex->size._y, tex->size._z);
         print("texture@%u read out of bound %u %u, %u %u\\n", level, p.v[0], p.v[1], width, height);
     }
     void* data = (uint8*)tex->lods[level] + (p.v[1] * width + p.v[0]) * pxsize;
@@ -1547,8 +1546,8 @@ float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint in
     if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1)
         return make_float4(0.0f);
     // bilinear
-    uint w = max(tex->size._x>>level, 1u);
-    uint h = max(tex->size._y>>level, 1u);
+    uint w = max(tex->size[0]>>level, 1u);
+    uint h = max(tex->size[1]>>level, 1u);
     float x = uv._x * w - 0.5f;
     float y = uv._y * h - 0.5f;
     float fx = fract(x);
@@ -1596,11 +1595,11 @@ uint3 bindless_texture_size3d_level(uniform LCBindlessArray array, uint index, u
 
 uint2 bindless_texture_size2d(uniform LCBindlessArray array, uint index) {
     uniform const LCTexture *tex = array.items[index].tex2d;
-    return make_uint2(tex->size._x, tex->size._y);
+    return make_uint2(tex->size[0], tex->size[1]);
 }
 uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint index, uint level) {
     uniform const LCTexture *tex = array.items[index].tex2d;
-    return make_uint2(max(tex->size._x >> level, 1u), max(tex->size._y >> level, 1u));
+    return make_uint2(max(tex->size[0] >> level, 1u), max(tex->size[1] >> level, 1u));
 }
 
 #ifdef LC_ISPC_RAYTRACING

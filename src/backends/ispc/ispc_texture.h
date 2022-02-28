@@ -52,7 +52,7 @@ public:
 
     PixelFormat format;
     uint dim;
-    uint3 size;
+    uint size[3];
 
     static const unsigned MAXLOD = 20;
     uint lodLevel;
