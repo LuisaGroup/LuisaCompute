@@ -215,7 +215,7 @@ int main(int argc, char* argv[])
 
 
     // test region
-    for (int round = 0; round < 10; ++round) {
+    for (int round = 0; round < 1; ++round) {
         for (int i=0; i<4; ++i) {
             TestType test_type = (TestType)i;
             test_texture_crop(device, 16, 16, 1, test_type) ||
@@ -229,18 +229,18 @@ int main(int argc, char* argv[])
         }
     }
 
-    for (int round = 0; round < 3; ++round) {
-        for (int i=0; i<4; ++i) {
-            TestType test_type = (TestType)i;
-            test_texture_crop(device, 1024, 1024, 1, test_type) ||
-            test_texture_crop(device, 346, 987, 1, test_type) ||
-            test_texture_crop(device, 4567, 4575, 1, test_type) ||
-            test_texture_crop(device, 1234567, 3, 1, test_type) ||
-            test_texture_crop(device, 1234567, 1, 1, test_type) ||
-            test_texture_crop(device, 1024, 1024, 5, test_type) ||
-            test_texture_crop(device, 1234, 1234, 5, test_type) ||
-            test_texture_crop(device, 1234567, 1, 20, test_type) ||
-            test_texture_crop(device, 1234, 1234, 11, test_type);
-        }
-    }
+    // for (int round = 0; round < 1; ++round) {
+    //     for (int i=0; i<4; ++i) {
+    //         TestType test_type = (TestType)i;
+    //         test_texture_crop(device, 1024, 1024, 1, test_type) ||
+    //         test_texture_crop(device, 346, 987, 1, test_type) ||
+    //         test_texture_crop(device, 4567, 4575, 1, test_type) ||
+    //         test_texture_crop(device, 1234567, 3, 1, test_type) ||
+    //         test_texture_crop(device, 1234567, 1, 1, test_type) ||
+    //         test_texture_crop(device, 1024, 1024, 5, test_type) ||
+    //         test_texture_crop(device, 1234, 1234, 5, test_type) ||
+    //         test_texture_crop(device, 1234567, 1, 20, test_type) ||
+    //         test_texture_crop(device, 1234, 1234, 11, test_type);
+    //     }
+    // }
 }
