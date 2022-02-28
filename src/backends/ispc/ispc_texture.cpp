@@ -25,7 +25,7 @@ ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_leve
     {
         uint w = std::max(size.x >> i, 1u);
         uint h = std::max(size.y >> i, 1u);
-        offset[i+1] = offset[i-1] + w*h * pxsize;
+        offset[i+1] = offset[i] + w*h * pxsize;
     }
     lods[0] = (void*) new uint8_t[offset[lodLevel]];
     LUISA_WARNING("new float array{}", offset[lodLevel]);
