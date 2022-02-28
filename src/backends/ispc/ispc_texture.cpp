@@ -10,9 +10,11 @@ namespace luisa::compute::ispc {
 ISPCTexture::ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept:
     format(format),
     dim(dim),
-    size(size),
     lodLevel(mip_levels)
 {
+    this->size[0] = size.x;
+    this->size[1] = size.y;
+    this->size[2] = size.z;
     if (dim != 2) LUISA_ERROR_WITH_LOCATION("unsupported dimension");
     if (lodLevel > MAXLOD) LUISA_ERROR_WITH_LOCATION("maximal LoD exceeded");
     // mipmap allocate
