@@ -22,15 +22,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
     auto device = context.create_device("ispc");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     Kernel2D clear_image_kernel = [](ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
@@ -69,16 +61,20 @@ int main(int argc, char *argv[]) {
     auto device_image = device.create_image<float>(PixelStorage::FLOAT4, 1024u, 1024u);
     std::vector<float> host_image(1024u * 1024u * 4u);
 
-    // auto event = device.create_event();
+    auto event = device.create_event();
     auto stream = device.create_stream();
-    // auto upload_stream = device.create_stream();
+    auto upload_stream = device.create_stream();
 
+    ABC* abc = ((ABC*)texture.handle());
+    LUISA_INFO("handle: {}", (void*)abc);
+    LUISA_INFO("size: {} {}", abc->size[0], abc->size[1]);
+    LUISA_INFO("lodLvel: {}", abc->lodLevel);
     std::vector<float> mipmaps(image_width * image_height * 4u);
     auto in_pixels = image_pixels;
     auto out_pixels = mipmaps.data();
 
     // generate mip-maps
-    auto cmd = stream.command_buffer();
+    auto cmd = upload_stream.command_buffer();
     cmd << heap.emplace(0u, texture, Sampler::linear_linear_edge()).update()
         << texture.copy_from(image_pixels);
     for (auto i = 1u; i < texture.mip_levels(); i++) {
@@ -97,18 +93,17 @@ int main(int argc, char *argv[]) {
         in_pixels = out_pixels;
         out_pixels += image_width * image_height * 4u;
     }
-    cmd //<< event.signal()
+    cmd << event.signal()
         << commit();
 
 
-
     stream << clear_image(device_image).dispatch(1024u, 1024u)
-        //    << event.wait()
+           << event.wait()
            << fill_image(heap,
                          device_image.region(make_uint2(128u), make_uint2(1024u - 256u)))
                   .dispatch(make_uint2(1024u - 256u))
             << device_image.copy_to(host_image.data())
-        //    << event.signal()
+           << event.signal()
            << synchronize();
 
     LUISA_INFO("Finish");

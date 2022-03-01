@@ -185,24 +185,27 @@ int main(int argc, char* argv[])
     Context context{argv[0]};
     auto device = context.create_device("ispc");
 
-    for (int i=0; i<4; ++i) {
-        TestType test_type = (TestType)i;
-        test_texture_upload_download(device, 1024, 1024, 1, test_type);
-    }
+    // for (int i=0; i<4; ++i) {
+    //     TestType test_type = (TestType)i;
+    //     test_texture_upload_download(device, 1024, 1024, 1, test_type);
+    // }
 
     // test copy & r/w with LoD
     for (int i=0; i<4; ++i) {
         TestType test_type = (TestType)i;
-        test_texture_upload_download(device, 1024, 1024, 1, test_type) ||
+        // test_texture_upload_download(device, 1024, 1024, 1, test_type) ||
         test_texture_upload_download(device, 346, 987, 1, test_type) ||
-        test_texture_upload_download(device, 4567, 4575, 1, test_type) ||
+        // test_texture_upload_download(device, 4567, 4575, 1, test_type) ||
         test_texture_upload_download(device, 1234567, 3, 1, test_type) ||
-        test_texture_upload_download(device, 1234567, 1, 1, test_type) ||
-        test_texture_upload_download(device, 1024, 1024, 5, test_type) ||
+        // test_texture_upload_download(device, 1234567, 1, 1, test_type) ||
+        // test_texture_upload_download(device, 1024, 1024, 5, test_type) ||
         test_texture_upload_download(device, 1234, 1234, 5, test_type) ||
         test_texture_upload_download(device, 1234567, 1, 20, test_type) ||
-        test_texture_upload_download(device, 1234, 1234, 11, test_type);
+        // test_texture_upload_download(device, 1234, 1234, 11, test_type);
+        1;
     }
+
+    return 0;
     
     for (int i=0; i<4; ++i) {
         TestType test_type = (TestType)i;
