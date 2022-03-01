@@ -15,7 +15,7 @@ namespace luisa::compute::ispc {
 class ISPCEvent {
 
 private:
-    std::mutex _mutex;
+    mutable std::mutex _mutex;
     std::shared_future<void> _future;
 
 public:
@@ -23,13 +23,17 @@ public:
      * @brief wait
      * 
      */
-    void wait() noexcept;
+    void wait() const noexcept;
     /**
      * @brief signal
      * 
      * @param future 
      */
     void signal(std::shared_future<void> future) noexcept;
+    /**
+     * @brief future
+     */
+     [[nodiscard]] std::shared_future<void> future() const noexcept;
 };
 
 }// namespace luisa::compute::ispc
