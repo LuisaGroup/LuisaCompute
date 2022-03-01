@@ -1409,7 +1409,7 @@ struct TextureView {
 
         texrw_template = '''
 
-inline void texture_write_{T}(uniform LCTexture * tex, uint2 p, uint level, {T}4 value)
+inline void texture2d_write_{T}(uniform LCTexture * tex, uint2 p, uint level, {T}4 value)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -1420,7 +1420,7 @@ inline void texture_write_{T}(uniform LCTexture * tex, uint2 p, uint level, {T}4
     pixel_write_{T}(tex->storage, data, value);
 }
 
-inline {T}4 texture_read_{T}(uniform LCTexture * tex, uint2 p, uint level)
+inline {T}4 texture2d_read_{T}(uniform LCTexture * tex, uint2 p, uint level)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -1432,14 +1432,51 @@ inline {T}4 texture_read_{T}(uniform LCTexture * tex, uint2 p, uint level)
     return pixel_read_{T}(tex->storage, data);
 }
 
+inline void texture3d_write_{T}(uniform LCTexture * tex, uint3 p, uint level, {T}4 value)
+{
+    uint pxsize = pixel_storage_size(tex->storage);
+    uint sx = max(tex->size[0] >> level, 1);
+    uint sy = max(tex->size[1] >> level, 1);
+    uint sz = max(tex->size[2] >> level, 1);
+    if (p.v[0] >= sx || p.v[1] >= sy || p.v[2] >= sz)
+        print("texture write out of bound %u %u %u, %u %u %u\\n", p.v[0], p.v[1], p.v[2], sx, sy, sz);
+
+    void* data = (uint8*)tex->lods[level] + ((p.v[2] * sy + p.v[1]) * sx + p.v[0]) * pxsize;
+    pixel_write_{T}(tex->storage, data, value);
+}
+
+inline {T}4 texture3d_read_{T}(uniform LCTexture * tex, uint3 p, uint level)
+{
+    uint pxsize = pixel_storage_size(tex->storage);
+    uint sx = max(tex->size[0] >> level, 1);
+    uint sy = max(tex->size[1] >> level, 1);
+    uint sz = max(tex->size[2] >> level, 1);
+    if (p.v[0] >= sx || p.v[1] >= sy || p.v[2] >= sz)
+        print("texture read out of bound %u %u %u, %u %u %u\\n", p.v[0], p.v[1], p.v[2], sx, sy, sz);
+
+    void* data = (uint8*)tex->lods[level] + ((p.v[2] * sy + p.v[1]) * sx + p.v[0]) * pxsize;
+    return pixel_read_{T}(tex->storage, data);
+}
+
+
 inline {T}4 surf2d_read_{T}(uniform TextureView view, uint2 p)
 {
-    return texture_read_{T}((uniform LCTexture *uniform)view.ptr, p, view.level);
+    return texture2d_read_{T}((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
 inline void surf2d_write_{T}(uniform TextureView view, uint2 p, {T}4 value)
 {
-    texture_write_{T}((LCTexture*)view.ptr, p, view.level, value);
+    texture2d_write_{T}((LCTexture*)view.ptr, p, view.level, value);
+}
+
+inline {T}4 surf3d_read_{T}(uniform TextureView view, uint3 p)
+{
+    return texture3d_read_{T}((uniform LCTexture *uniform)view.ptr, p, view.level);
+}
+
+inline void surf3d_write_{T}(uniform TextureView view, uint3 p, {T}4 value)
+{
+    texture3d_write_{T}((LCTexture*)view.ptr, p, view.level, value);
 }
 
 '''
@@ -1489,10 +1526,10 @@ float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint in
     uint y0 = (uint)max((int)0, (int)y);
     uint y1 = (uint)min((int)h-1, (int)y+1);
     return
-    binary_add(binary_mul((1-fx)*(1-fy), texture_read_float(tex, make_uint2(x0,y0), level)),
-    binary_add(binary_mul((1-fx)*(fy), texture_read_float(tex, make_uint2(x0,y1), level)),
-    binary_add(binary_mul((fx)*(1-fy), texture_read_float(tex, make_uint2(x1,y0), level)),
-               binary_mul((fx)*(fy), texture_read_float(tex, make_uint2(x1,y1), level)))));
+    binary_add(binary_mul((1-fx)*(1-fy), texture2d_read_float(tex, make_uint2(x0,y0), level)),
+    binary_add(binary_mul((1-fx)*(fy), texture2d_read_float(tex, make_uint2(x0,y1), level)),
+    binary_add(binary_mul((fx)*(1-fy), texture2d_read_float(tex, make_uint2(x1,y0), level)),
+               binary_mul((fx)*(fy), texture2d_read_float(tex, make_uint2(x1,y1), level)))));
 }
 
 float4 bindless_texture_sample2d(uniform LCBindlessArray array, uint index, float2 uv)
@@ -1504,17 +1541,25 @@ float4 bindless_texture_sample2d(uniform LCBindlessArray array, uint index, floa
 float4 bindless_texture_read2d(uniform LCBindlessArray array, uint index, uint2 coord)
 {
     uniform const LCTexture * tex = array.items[index].tex2d;
-    return texture_read_float(tex, coord, 0);
+    return texture2d_read_float(tex, coord, 0);
 }
 float4 bindless_texture_read2d_level(uniform LCBindlessArray array, uint index, uint2 coord, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex2d;
-    return texture_read_float(tex, coord, level);
+    return texture2d_read_float(tex, coord, level);
 }
 
+float4 bindless_texture_read3d(uniform LCBindlessArray array, uint index, uint3 coord)
+{
+    uniform const LCTexture * tex = array.items[index].tex3d;
+    return texture3d_read_float(tex, coord, 0);
+}
+float4 bindless_texture_read3d_level(uniform LCBindlessArray array, uint index, uint3 coord, uint level)
+{
+    uniform const LCTexture * tex = array.items[index].tex3d;
+    return texture3d_read_float(tex, coord, level);
+}
 
-float4 bindless_texture_read3d(uniform LCBindlessArray array, uint index, uint3 coord);
-float4 bindless_texture_read3d_level(uniform LCBindlessArray array, uint index, uint3 coord, uint level);
 
 uint2 bindless_texture_size2d(uniform LCBindlessArray array, uint index);
 uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint index, uint level);
