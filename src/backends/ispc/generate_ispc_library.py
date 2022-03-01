@@ -1437,9 +1437,9 @@ inline {T}4 surf2d_read_{T}(uniform TextureView view, uint2 p)
     return texture_read_{T}((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-inline void surf2d_write_{T}(uniform TextureView view, uint2 p, float4 value)
+inline void surf2d_write_{T}(uniform TextureView view, uint2 p, {T}4 value)
 {
-    texture_write_float((LCTexture*)view.ptr, p, view.level, value);
+    texture_write_{T}((LCTexture*)view.ptr, p, view.level, value);
 }
 
 '''

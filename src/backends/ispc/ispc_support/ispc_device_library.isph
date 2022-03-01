@@ -6559,9 +6559,9 @@ inline uint4 surf2d_read_uint(uniform TextureView view, uint2 p)
     return texture_read_uint((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-inline void surf2d_write_uint(uniform TextureView view, uint2 p, float4 value)
+inline void surf2d_write_uint(uniform TextureView view, uint2 p, uint4 value)
 {
-    texture_write_float((LCTexture*)view.ptr, p, view.level, value);
+    texture_write_uint((LCTexture*)view.ptr, p, view.level, value);
 }
 
 
@@ -6595,9 +6595,9 @@ inline int4 surf2d_read_int(uniform TextureView view, uint2 p)
     return texture_read_int((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-inline void surf2d_write_int(uniform TextureView view, uint2 p, float4 value)
+inline void surf2d_write_int(uniform TextureView view, uint2 p, int4 value)
 {
-    texture_write_float((LCTexture*)view.ptr, p, view.level, value);
+    texture_write_int((LCTexture*)view.ptr, p, view.level, value);
 }
 
 
