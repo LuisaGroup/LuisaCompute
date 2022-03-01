@@ -2,13 +2,12 @@
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
 #include <Resource/Mesh.h>
-#include <DXRuntime/IUpdateState.h>
 namespace toolhub::directx {
 class Mesh;
 class CommandBufferBuilder;
 class ResourceStateTracker;
 class TopAccel;
-class BottomAccel : public vstd::IOperatorNewBase, public IUpdateState {
+class BottomAccel : public vstd::IOperatorNewBase{
     friend class TopAccel;
     vstd::optional<DefaultBuffer> accelBuffer;
     Device *device;
@@ -25,10 +24,11 @@ public:
         Buffer const *iHandle, size_t iOffset, size_t iCount);
     void PreProcessStates(
         CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const override;
+        ResourceStateTracker &tracker) const;
     void UpdateStates(
         CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const override;
+        ResourceStateTracker &tracker,
+        bool update) const;
     ~BottomAccel();
 };
 }// namespace toolhub::directx
