@@ -64,11 +64,6 @@ int main(int argc, char *argv[]) {
     auto event = device.create_event();
     auto stream = device.create_stream();
     auto upload_stream = device.create_stream();
-
-    ABC* abc = ((ABC*)texture.handle());
-    LUISA_INFO("handle: {}", (void*)abc);
-    LUISA_INFO("size: {} {}", abc->size[0], abc->size[1]);
-    LUISA_INFO("lodLvel: {}", abc->lodLevel);
     std::vector<float> mipmaps(image_width * image_height * 4u);
     auto in_pixels = image_pixels;
     auto out_pixels = mipmaps.data();
