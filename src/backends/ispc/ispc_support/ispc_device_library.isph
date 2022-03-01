@@ -6422,12 +6422,12 @@ float4 pixel_read_float(PixelStorage storage, void* data)
 {
     float4 value = make_float4(0.0f);
     switch (storage) {
-        case BYTE1: for (int i=0; i<1; ++i) value.v[i] = ((uint8*)data)[i]/255; break;
-        case BYTE2: for (int i=0; i<2; ++i) value.v[i] = ((uint8*)data)[i]/255; break;
-        case BYTE4: for (int i=0; i<4; ++i) value.v[i] = ((uint8*)data)[i]/255; break;
-        case SHORT1: for (int i=0; i<1; ++i) value.v[i] = ((uint16*)data)[i]/65535; break;
-        case SHORT2: for (int i=0; i<2; ++i) value.v[i] = ((uint16*)data)[i]/65535; break;
-        case SHORT4: for (int i=0; i<4; ++i) value.v[i] = ((uint16*)data)[i]/65535; break;
+        case BYTE1: for (int i=0; i<1; ++i) value.v[i] = (1.0f/255) * ((uint8*)data)[i]; break;
+        case BYTE2: for (int i=0; i<2; ++i) value.v[i] = (1.0f/255) * ((uint8*)data)[i]; break;
+        case BYTE4: for (int i=0; i<4; ++i) value.v[i] = (1.0f/255) * ((uint8*)data)[i]; break;
+        case SHORT1: for (int i=0; i<1; ++i) value.v[i] = (1.0f/65535) * ((uint16*)data)[i]; break;
+        case SHORT2: for (int i=0; i<2; ++i) value.v[i] = (1.0f/65535) * ((uint16*)data)[i]; break;
+        case SHORT4: for (int i=0; i<4; ++i) value.v[i] = (1.0f/65535) * ((uint16*)data)[i]; break;
         case HALF1: for (int i=0; i<1; ++i) value.v[i] = half_to_float(((int16*)data)[i]); break;
         case HALF2: for (int i=0; i<2; ++i) value.v[i] = half_to_float(((int16*)data)[i]); break;
         case HALF4: for (int i=0; i<4; ++i) value.v[i] = half_to_float(((int16*)data)[i]); break;
