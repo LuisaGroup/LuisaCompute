@@ -1532,9 +1532,47 @@ float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint in
                binary_mul((fx)*(fy), texture2d_read_float(tex, make_uint2(x1,y1), level)))));
 }
 
+float4 bindless_texture_sample3d_intlevel(uniform LCBindlessArray array, uint index, float3 uv, uint level)
+{
+    uniform const LCTexture * tex = array.items[index].tex3d;
+    if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1 || uv._z < 0 || uv._z > 1)
+        return make_float4(0.0f);
+    // trilinear
+    uint w = max(tex->size[0]>>level, 1u);
+    uint h = max(tex->size[1]>>level, 1u);
+    uint d = max(tex->size[2]>>level, 1u);
+    float x = uv._x * w - 0.5f;
+    float y = uv._y * h - 0.5f;
+    float z = uv._z * d - 0.5f;
+    float fx = fract(x);
+    float fy = fract(y);
+    float fz = fract(z);
+    uint x0 = (uint)max((int)0, (int)x);
+    uint x1 = (uint)min((int)w-1, (int)x+1);
+    uint y0 = (uint)max((int)0, (int)y);
+    uint y1 = (uint)min((int)h-1, (int)y+1);
+    uint z0 = (uint)max((int)0, (int)z);
+    uint z1 = (uint)min((int)d-1, (int)z+1);
+    return
+    binary_add(binary_mul((1-fx)*(1-fy)*(1-fz), texture3d_read_float(tex, make_uint3(x0,y0,z0), level)),
+    binary_add(binary_mul((1-fx)*(1-fy)*(  fz), texture3d_read_float(tex, make_uint3(x0,y0,z1), level)),
+    binary_add(binary_mul((1-fx)*(  fy)*(1-fz), texture3d_read_float(tex, make_uint3(x0,y1,z0), level)),
+    binary_add(binary_mul((1-fx)*(  fy)*(  fz), texture3d_read_float(tex, make_uint3(x0,y1,z1), level)),
+    binary_add(binary_mul((  fx)*(1-fy)*(1-fz), texture3d_read_float(tex, make_uint3(x1,y0,z0), level)),
+    binary_add(binary_mul((  fx)*(1-fy)*(  fz), texture3d_read_float(tex, make_uint3(x1,y0,z1), level)),
+    binary_add(binary_mul((  fx)*(  fy)*(1-fz), texture3d_read_float(tex, make_uint3(x1,y1,z0), level)),
+               binary_mul((  fx)*(  fy)*(  fz), texture3d_read_float(tex, make_uint3(x1,y1,z1), level))
+    )))))));
+}
+
 float4 bindless_texture_sample2d(uniform LCBindlessArray array, uint index, float2 uv)
 {
     return bindless_texture_sample2d_intlevel(array, index, uv, 0);
+}
+
+float4 bindless_texture_sample3d(uniform LCBindlessArray array, uint index, float3 uv)
+{
+    return bindless_texture_sample3d_intlevel(array, index, uv, 0);
 }
 
 
