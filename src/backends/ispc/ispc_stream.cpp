@@ -78,7 +78,7 @@ void ISPCStream::visit(const BufferCopyCommand *command) noexcept {
 void ISPCStream::visit(const BufferToTextureCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture* tex = reinterpret_cast<ISPCTexture*>(cmd.texture());
-        uint pxsize = pixel_format_size(tex->format);
+        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
         // copy data (void* -> void*)
         int target_stride = cmd.size().x * pxsize;
@@ -136,7 +136,7 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
 void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture* tex = reinterpret_cast<ISPCTexture*>(cmd.handle());
-        uint pxsize = pixel_format_size(tex->format);
+        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
         // copy data
         int target_stride = cmd.size().x * pxsize;
@@ -151,7 +151,7 @@ void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
 void ISPCStream::visit(const TextureDownloadCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture* tex = reinterpret_cast<ISPCTexture*>(cmd.handle());
-        uint pxsize = pixel_format_size(tex->format);
+        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
         // copy data
         int target_stride = cmd.size().x * pxsize;
@@ -169,7 +169,7 @@ void ISPCStream::visit(const TextureCopyCommand *command) noexcept {
         ISPCTexture* dst_tex = reinterpret_cast<ISPCTexture*>(cmd.dst_handle());
         check_texture_boundary(src_tex, cmd.src_level(), cmd.size(), cmd.src_offset());
         check_texture_boundary(dst_tex, cmd.dst_level(), cmd.size(), cmd.dst_offset());
-        uint pxsize = pixel_format_size(src_tex->format);
+        uint pxsize = pixel_storage_size(src_tex->storage);
         // copy data
         int src_stride = max(src_tex->size[0] >> cmd.src_level(), 1u) * pxsize;
         int dst_stride = max(dst_tex->size[0] >> cmd.dst_level(), 1u) * pxsize;
@@ -184,7 +184,7 @@ void ISPCStream::visit(const TextureCopyCommand *command) noexcept {
 void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture* tex = reinterpret_cast<ISPCTexture*>(cmd.texture());
-        uint pxsize = pixel_format_size(tex->format);
+        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
         // copy data (void* -> void*)
         int target_stride = cmd.size().x * pxsize;

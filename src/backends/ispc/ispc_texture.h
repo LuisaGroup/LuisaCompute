@@ -50,7 +50,7 @@ public:
 
 public:
 
-    PixelFormat format;
+    PixelStorage storage;
     uint dim;
     uint size[3];
 
