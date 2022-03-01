@@ -16,15 +16,15 @@ namespace luisa::compute::ispc {
 using std::max;
 
 void check_texture_boundary(ISPCTexture *tex, uint level, uint3 size, uint3 offset) {
-    if (offset.z != 0 || size.z != 1)
-        LUISA_ERROR_WITH_LOCATION("TextureDownloadCommand: unimplemented");// TODO
     // debug: check boundary
     if (level >= tex->lodLevel)
-        LUISA_ERROR_WITH_LOCATION("TextureDownloadCommand: lod={} out of bound", level);
+        LUISA_ERROR_WITH_LOCATION("check texture boundary: lod={} out of bound", level);
     if (size.x + offset.x > max(tex->size[0] >> level, 1u))
-        LUISA_ERROR_WITH_LOCATION("TextureDownloadCommand: out of bound");
+        LUISA_ERROR_WITH_LOCATION("check texture boundary: out of bound");
     if (size.y + offset.y > max(tex->size[1] >> level, 1u))
-        LUISA_ERROR_WITH_LOCATION("TextureDownloadCommand: out of bound");
+        LUISA_ERROR_WITH_LOCATION("check texture boundary: out of bound");
+    if (size.z + offset.z > max(tex->size[2] >> level, 1u))
+        LUISA_ERROR_WITH_LOCATION("check texture boundary: out of bound");
 };
 
 void ISPCStream::dispatch(const CommandList &cmd_list) noexcept {
@@ -75,14 +75,25 @@ void ISPCStream::visit(const BufferCopyCommand *command) noexcept {
 void ISPCStream::visit(const BufferToTextureCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.texture());
-        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
-        // copy data (void* -> void*)
-        int target_stride = cmd.size().x * pxsize;
-        int tex_stride = max(tex->size[0] >> cmd.level(), 1u) * pxsize;
-        for (int i = 0; i < cmd.size().y; ++i)
-            memcpy((unsigned char *)tex->lods[cmd.level()] + (i + cmd.offset().y) * tex_stride + cmd.offset().x * pxsize,
-                   (unsigned char *)cmd.buffer() + cmd.buffer_offset() + i * target_stride,
+        // calc stride
+        uint pxsize = pixel_storage_size(tex->storage);
+        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        int tex_r_stride = texsizex * pxsize;
+        int tex_p_stride = texsizex * texsizey * pxsize;
+        int target_r_stride = cmd.size().x * pxsize;
+        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        // copy data
+        for (int dz = 0; dz < cmd.size().z; ++dz)
+        for (int dy = 0; dy < cmd.size().y; ++dy)
+            memcpy((unsigned char *)tex->lods[cmd.level()]
+                    + (dz + cmd.offset().z) * tex_p_stride
+                    + (dy + cmd.offset().y) * tex_r_stride
+                    + cmd.offset().x * pxsize,
+                   (unsigned char *)cmd.buffer() + cmd.buffer_offset()
+                    + dz * target_p_stride
+                    + dy * target_r_stride,
                    cmd.size().x * pxsize);
     });
 }
@@ -133,14 +144,25 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
 void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.handle());
-        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+        // calc stride
+        uint pxsize = pixel_storage_size(tex->storage);
+        int target_r_stride = cmd.size().x * pxsize;
+        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        int tex_r_stride = texsizex * pxsize;
+        int tex_p_stride = texsizex * texsizey * pxsize;
         // copy data
-        int target_stride = cmd.size().x * pxsize;
-        int tex_stride = max(tex->size[0] >> cmd.level(), 1u) * pxsize;
-        for (int i = 0; i < cmd.size().y; ++i)
-            memcpy((unsigned char *)tex->lods[cmd.level()] + (i + cmd.offset().y) * tex_stride + cmd.offset().x * pxsize,
-                   (unsigned char *)cmd.data() + i * target_stride,
+        for (int dz = 0; dz < cmd.size().z; ++dz)
+        for (int dy = 0; dy < cmd.size().y; ++dy)
+            memcpy((unsigned char *)tex->lods[cmd.level()]
+                    + (dz + cmd.offset().z) * tex_p_stride
+                    + (dy + cmd.offset().y) * tex_r_stride
+                    + cmd.offset().x * pxsize,
+                   (unsigned char *)cmd.data()
+                    + dz * target_p_stride
+                    + dy * target_r_stride,
                    cmd.size().x * pxsize);
     });
 }
@@ -148,14 +170,25 @@ void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
 void ISPCStream::visit(const TextureDownloadCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.handle());
-        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
+        // calc stride
+        uint pxsize = pixel_storage_size(tex->storage);
+        int target_r_stride = cmd.size().x * pxsize;
+        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        int tex_r_stride = texsizex * pxsize;
+        int tex_p_stride = texsizex * texsizey * pxsize;
         // copy data
-        int target_stride = cmd.size().x * pxsize;
-        int tex_stride = max(tex->size[0] >> cmd.level(), 1u) * pxsize;
-        for (int i = 0; i < cmd.size().y; ++i)
-            memcpy((unsigned char *)cmd.data() + i * target_stride,
-                   (unsigned char *)tex->lods[cmd.level()] + (i + cmd.offset().y) * tex_stride + cmd.offset().x * pxsize,
+        for (int dz = 0; dz < cmd.size().z; ++dz)
+        for (int dy = 0; dy < cmd.size().y; ++dy)
+            memcpy((unsigned char *)cmd.data()
+                    + dz * target_p_stride
+                    + dy * target_r_stride,
+                   (unsigned char *)tex->lods[cmd.level()]
+                    + (dz + cmd.offset().z) * tex_p_stride
+                    + (dy + cmd.offset().y) * tex_r_stride
+                    + cmd.offset().x * pxsize,
                    cmd.size().x * pxsize);
     });
 }
@@ -166,29 +199,53 @@ void ISPCStream::visit(const TextureCopyCommand *command) noexcept {
         ISPCTexture *dst_tex = reinterpret_cast<ISPCTexture *>(cmd.dst_handle());
         check_texture_boundary(src_tex, cmd.src_level(), cmd.size(), cmd.src_offset());
         check_texture_boundary(dst_tex, cmd.dst_level(), cmd.size(), cmd.dst_offset());
+        // calc stride
         uint pxsize = pixel_storage_size(src_tex->storage);
+        uint src_sizex = max(src_tex->size[0] >> cmd.src_level(), 1u);
+        uint dst_sizex = max(dst_tex->size[0] >> cmd.dst_level(), 1u);
+        uint src_sizey = max(src_tex->size[1] >> cmd.src_level(), 1u);
+        uint dst_sizey = max(dst_tex->size[1] >> cmd.dst_level(), 1u);
+        int src_r_stride = src_sizex * pxsize;
+        int src_p_stride = src_sizex * src_sizey * pxsize;
+        int dst_r_stride = dst_sizex * pxsize;
+        int dst_p_stride = dst_sizex * dst_sizey * pxsize;
         // copy data
-        int src_stride = max(src_tex->size[0] >> cmd.src_level(), 1u) * pxsize;
-        int dst_stride = max(dst_tex->size[0] >> cmd.dst_level(), 1u) * pxsize;
-        for (int i = 0; i < cmd.size().y; ++i) {
-            memcpy((unsigned char *)dst_tex->lods[cmd.dst_level()] + dst_stride * (i + cmd.dst_offset().y) + cmd.dst_offset().x * pxsize,
-                   (unsigned char *)src_tex->lods[cmd.src_level()] + src_stride * (i + cmd.src_offset().y) + cmd.src_offset().x * pxsize,
+        for (int dz = 0; dz < cmd.size().z; ++dz)
+        for (int dy = 0; dy < cmd.size().y; ++dy)
+            memcpy((unsigned char *)dst_tex->lods[cmd.dst_level()]
+                    + (dz + cmd.dst_offset().z) * dst_p_stride
+                    + (dy + cmd.dst_offset().y) * dst_r_stride
+                    + cmd.dst_offset().x * pxsize,
+                   (unsigned char *)src_tex->lods[cmd.src_level()]
+                    + (dz + cmd.src_offset().z) * src_p_stride
+                    + (dy + cmd.src_offset().y) * src_r_stride
+                    + cmd.src_offset().x * pxsize,
                    cmd.size().x * pxsize);
-        }
     });
 }
 
 void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
         ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.texture());
-        uint pxsize = pixel_storage_size(tex->storage);
         check_texture_boundary(tex, cmd.level(), cmd.size(), cmd.offset());
-        // copy data (void* -> void*)
-        int target_stride = cmd.size().x * pxsize;
-        int tex_stride = max(tex->size[0] >> cmd.level(), 1u) * pxsize;
-        for (int i = 0; i < cmd.size().y; ++i)
-            memcpy((unsigned char *)cmd.buffer() + cmd.buffer_offset() + i * target_stride,
-                   (unsigned char *)tex->lods[cmd.level()] + (i + cmd.offset().y) * tex_stride + cmd.offset().x * pxsize,
+        // calc stride
+        uint pxsize = pixel_storage_size(tex->storage);
+        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        int tex_r_stride = texsizex * pxsize;
+        int tex_p_stride = texsizex * texsizey * pxsize;
+        int target_r_stride = cmd.size().x * pxsize;
+        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        // copy data
+        for (int dz = 0; dz < cmd.size().z; ++dz)
+        for (int dy = 0; dy < cmd.size().y; ++dy)
+            memcpy((unsigned char *)cmd.buffer() + cmd.buffer_offset()
+                    + dz * target_p_stride
+                    + dy * target_r_stride,
+                   (unsigned char *)tex->lods[cmd.level()]
+                    + (dz + cmd.offset().z) * tex_p_stride
+                    + (dy + cmd.offset().y) * tex_r_stride
+                    + cmd.offset().x * pxsize,
                    cmd.size().x * pxsize);
     });
 }
