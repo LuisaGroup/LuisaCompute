@@ -74,7 +74,7 @@ ComputeShader *ComputeShader::CompileCompute(
     psoPath = path;
     path << ".cso";
     psoPath << ".pso";
-    static constexpr bool USE_CACHE = 1;
+    static constexpr bool USE_CACHE = true;
     if constexpr (USE_CACHE) {
         SerializeVisitor visitor(
             path,

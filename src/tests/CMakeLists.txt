@@ -67,3 +67,6 @@ endif ()
 
 add_executable(test_playground test_playground.cpp)
 target_link_libraries(test_playground PRIVATE luisa::compute)
+
+add_executable(test_radiative_bp test_radiative_bp.cpp)
+target_link_libraries(test_radiative_bp PRIVATE luisa::compute)
