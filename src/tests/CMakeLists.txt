@@ -31,6 +31,9 @@ target_link_libraries(test_atomic PRIVATE luisa::compute)
 add_executable(test_bindless test_bindless.cpp)
 target_link_libraries(test_bindless PRIVATE luisa::compute)
 
+add_executable(test_sampler test_sampler.cpp)
+target_link_libraries(test_sampler PRIVATE luisa::compute)
+
 add_executable(test_bindless_buffer test_bindless_buffer.cpp)
 target_link_libraries(test_bindless_buffer PRIVATE luisa::compute)
 
