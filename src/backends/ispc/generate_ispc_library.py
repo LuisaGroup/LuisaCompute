@@ -28,9 +28,11 @@ if __name__ == "__main__":
 #define _y v[1]
 #define _z v[2]
 #define _w v[3]
+
+typedef uint8 char;
 ''', file=file)
         # vector types
-        scalar_types = ["int", "uint", "float", "bool"]
+        scalar_types = ["int", "uint", "float", "char"]
         for t in scalar_types:
             print(f'''
 struct {t}2 {{ {t} v[2]; }};
@@ -243,12 +245,12 @@ static inline {U}4 make_{T}4({other}4 v) {
         # unary operators
         for type in scalar_types:
             print(
-                f"static bool unary_not({type} s) {{ return !s; }}",
+                f"static char unary_not({type} s) {{ return !s; }}",
                 file=file)
             print(
-                f"static uniform bool unary_not(uniform {type} s) {{ return !s; }}",
+                f"static uniform char unary_not(uniform {type} s) {{ return !s; }}",
                 file=file)
-            if type != "bool":
+            if type != "char":
                 print(
                     f"static {type} unary_plus({type} s) {{ return +s; }}",
                     file=file)
@@ -271,12 +273,12 @@ static inline {U}4 make_{T}4({other}4 v) {
             for i in range(2, 5):
                 elements = ["v[0]", "v[1]", "v[2]", "v[3]"][:i]
                 print(
-                    f"static bool{i} unary_not({type}{i} v) {{ return make_bool{i}({', '.join(f'!v.{m}' for m in elements)}); }}",
+                    f"static char{i} unary_not({type}{i} v) {{ return make_char{i}({', '.join(f'!v.{m}' for m in elements)}); }}",
                     file=file)
                 print(
-                    f"static uniform bool{i} unary_not(uniform {type}{i} v) {{ return make_bool{i}({', '.join(f'!v.{m}' for m in elements)}); }}",
+                    f"static uniform char{i} unary_not(uniform {type}{i} v) {{ return make_char{i}({', '.join(f'!v.{m}' for m in elements)}); }}",
                     file=file)
-                if type != "bool":
+                if type != "char":
                     print(
                         f"static {type}{i} unary_plus({type}{i} v) {{ return make_{type}{i}({', '.join(f'+v.{m}' for m in elements)}); }}",
                         file=file)
@@ -379,11 +381,11 @@ static inline {U}4 make_{T}4({other}4 v) {
         # binary operators
         for op in ["==", "!="]:
             for type in scalar_types:
-                gen_binary_op(type, "bool", op)
+                gen_binary_op(type, "char", op)
             print(file=file)
         for op in ["<", ">", "<=", ">="]:
             for type in ["int", "uint", "float"]:
-                gen_binary_op(type, "bool", op)
+                gen_binary_op(type, "char", op)
             print(file=file)
         for op in ["+", "-", "*", "/"]:
             for type in ["int", "uint", "float"]:
@@ -394,21 +396,21 @@ static inline {U}4 make_{T}4({other}4 v) {
                 gen_binary_op(type, type, op)
             print(file=file)
         for op in ["|", "&", "^"]:
-            for type in ["int", "uint", "bool"]:
+            for type in ["int", "uint", "char"]:
                 gen_binary_op(type, type, op)
             print(file=file)
         for op in ["||", "&&"]:
-            gen_binary_op("bool", "bool", op)
+            gen_binary_op("char", "char", op)
         print(file=file)
         # any, all, none
         for f, uop, bop in [("any", "", "||"), ("all", "", "&&"), ("none", "!", "&&")]:
             for i in range(2, 5):
                 elements = ["v[0]", "v[1]", "v[2]", "v[3]"][:i]
                 print(
-                    f"static uniform bool {f}(uniform bool{i} v) {{ return {f' {bop} '.join(f'{uop}v.{m}' for m in elements)}; }}",
+                    f"static uniform char {f}(uniform char{i} v) {{ return {f' {bop} '.join(f'{uop}v.{m}' for m in elements)}; }}",
                     file=file)
                 print(
-                    f"static bool {f}(bool{i} v) {{ return {f' {bop} '.join(f'{uop}v.{m}' for m in elements)}; }}",
+                    f"static char {f}(char{i} v) {{ return {f' {bop} '.join(f'{uop}v.{m}' for m in elements)}; }}",
                     file=file)
         print(file=file)
 
@@ -417,7 +419,7 @@ static inline {U}4 make_{T}4({other}4 v) {
             types = [{"i": "int",
                       "u": "uint",
                       "f": "float",
-                      "b": "bool"}[t] for t in types]
+                      "b": "char"}[t] for t in types]
 
             def call(i):
                 e = ["v[0]", "v[1]", "v[2]", "v[3]"][i]
@@ -425,7 +427,7 @@ static inline {U}4 make_{T}4({other}4 v) {
 
             for t in types:
                 for n in range(2, 5):
-                    ret_t = f"{t if name not in ['is_nan', 'is_inf'] else 'bool'}{n}"
+                    ret_t = f"{t if name not in ['is_nan', 'is_inf'] else 'char'}{n}"
                     print(
                         f"static {ret_t} {name}({', '.join(f'{t}{n} {a}' for a in args)}) {{ return make_{ret_t}({', '.join(call(i) for i in range(n))}); }}",
                         file=file)
@@ -442,13 +444,13 @@ static inline {U}4 make_{T}4({other}4 v) {
         for t in ["int", "uint", "float"]:
             for n in range(2, 5):
                 print(
-                    f"static {t}{n} select({t}{n} f, {t}{n} t, bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
+                    f"static {t}{n} select({t}{n} f, {t}{n} t, char{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
                     file=file)
                 print(
-                    f"static {t}{n} select({t}{n} f, {t}{n} t, uniform bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
+                    f"static {t}{n} select({t}{n} f, {t}{n} t, uniform char{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
                     file=file)
                 print(
-                    f"static uniform {t}{n} select(uniform {t}{n} f, uniform {t}{n} t, uniform bool{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
+                    f"static uniform {t}{n} select(uniform {t}{n} f, uniform {t}{n} t, uniform char{n} p) {{ return make_{t}{n}({', '.join(f'select_scalar(f.{e}, t.{e}, p.{e})' for e in ['v[0]', 'v[1]', 'v[2]', 'v[3]'][:n])}); }}",
                     file=file)
 
         print('''
@@ -464,19 +466,19 @@ static inline float exp2(float x) { return pow(2.f, x); }
 static inline uniform float exp2(uniform float x) { return pow(2.f, x); }
 static inline float exp10(float x) { return pow(10.f, x); }
 static inline uniform float exp10(uniform float x) { return pow(10.f, x); }
-static inline bool is_nan(float x) {
+static inline char is_nan(float x) {
   uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
 }
-static inline bool is_inf(float x) {
+static inline char is_inf(float x) {
   uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
 }
-static inline uniform bool is_nan(uniform float x) {
+static inline uniform char is_nan(uniform float x) {
   uniform uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
 }
-static inline uniform bool is_inf(uniform float x) {
+static inline uniform char is_inf(uniform float x) {
   uniform uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
 }
@@ -1631,7 +1633,7 @@ static inline uint2 bindless_texture_size2d_level(uniform LCBindlessArray array,
 
 #include <embree3/rtcore.isph>
 
-static inline bool trace_any(uniform LCAccel accel, LCRay ray) {
+static inline char trace_any(uniform LCAccel accel, LCRay ray) {
     uniform RTCIntersectContext ctx;
     rtcInitIntersectContext(&ctx);
     RTCRay r;
@@ -1681,8 +1683,8 @@ static inline LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
 
 #endif
 
-static inline void lc_assume(bool) {}
-static inline void lc_assume(uniform bool pred) { assume(pred); }
+static inline void lc_assume(char) {}
+static inline void lc_assume(uniform char pred) { assume(pred); }
 static inline void lc_unreachable() { assert(false); }
 
 #define make_array_type(name, T, N) struct name { T a[N]; }

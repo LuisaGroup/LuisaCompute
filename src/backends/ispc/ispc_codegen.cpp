@@ -91,7 +91,7 @@ void ISPCCodegen::visit(const MemberExpr *expr) {
             _scratch << "make_";
             auto elem = expr->type()->element();
             switch (elem->tag()) {
-                case Type::Tag::BOOL: _scratch << "bool"; break;
+                case Type::Tag::BOOL: _scratch << "char"; break;
                 case Type::Tag::INT: _scratch << "int"; break;
                 case Type::Tag::UINT: _scratch << "uint"; break;
                 case Type::Tag::FLOAT: _scratch << "float"; break;
@@ -352,9 +352,9 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
         case CallOp::BINDLESS_BUFFER_READ: _scratch << "bindless_buffer_read_" << luisa::format("{:016X}", expr->type()->hash()); break;
-        case CallOp::MAKE_BOOL2: _scratch << "make_bool2"; break;
-        case CallOp::MAKE_BOOL3: _scratch << "make_bool3"; break;
-        case CallOp::MAKE_BOOL4: _scratch << "make_bool4"; break;
+        case CallOp::MAKE_BOOL2: _scratch << "make_char2"; break;
+        case CallOp::MAKE_BOOL3: _scratch << "make_char3"; break;
+        case CallOp::MAKE_BOOL4: _scratch << "make_char4"; break;
         case CallOp::MAKE_INT2: _scratch << "make_int2"; break;
         case CallOp::MAKE_INT3: _scratch << "make_int3"; break;
         case CallOp::MAKE_INT4: _scratch << "make_int4"; break;
@@ -595,11 +595,11 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << "  assume((uniform uint64)params % 16u == 0u);\n";
         for (auto arg : f.arguments()) {
             if (arg.type()->is_buffer()) {
-                _scratch << "assume((uniform uint64)params->";
+                _scratch << "  assume((uniform uint64)params->";
                 _emit_variable_name(arg);
                 _scratch << " % 16u == 0u);\n";
             } else if (arg.type()->is_bindless_array()) {
-                _scratch << "assume((uniform uint64)(params->";
+                _scratch << "  assume((uniform uint64)(params->";
                 _emit_variable_name(arg);
                 _scratch << ".items) % 16u == 0u);\n";
             }
@@ -720,7 +720,7 @@ void ISPCCodegen::visit(const Type *type) noexcept {
 
 void ISPCCodegen::_emit_type_name(const Type *type) noexcept {
     switch (type->tag()) {
-        case Type::Tag::BOOL: _scratch << "bool"; break;
+        case Type::Tag::BOOL: _scratch << "char"; break;
         case Type::Tag::FLOAT: _scratch << "float"; break;
         case Type::Tag::INT: _scratch << "int"; break;
         case Type::Tag::UINT: _scratch << "uint"; break;
