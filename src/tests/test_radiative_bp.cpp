@@ -208,15 +208,15 @@ int main(int argc, char *argv[]) {
             $if(cos_wi < 1e-4f) { $break; };
             auto material = material_buffer.read(hit.inst);
 
-            // hit light
-            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                $break;
-            };
+            //            // hit light
+            //            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+            //                $break;
+            //            };
 
             $if(hit.inst == 3) {
                 auto bsdf_diff = make_float3(0.0f, 1.0f, 0.0f);
-                auto li = 1.f;
-                radiance += beta * bsdf_diff;
+                auto li = make_float3(1.0f, 1.0f, 1.0f);
+                radiance += beta * li * bsdf_diff;
             };
 
             // sample BSDF
