@@ -18,6 +18,8 @@
 #define _z v[2]
 #define _w v[3]
 
+#define LUISA_INLINE static
+
 typedef uint8 char;
 
 
@@ -37,92 +39,92 @@ struct char2 { char v[2]; };
 struct char3 { char v[4]; };
 struct char4 { char v[4]; };
 
-static uniform int2 make_int2() {
+LUISA_INLINE uniform int2 make_int2() {
     uniform int2 v;
     v.v[0] = v.v[1] = 0;
     return v;
 }
-static uniform int3 make_int3() {
+LUISA_INLINE uniform int3 make_int3() {
     uniform int3 v;
     v.v[0] = v.v[1] = v.v[2] = 0;
     return v;
 }
-static uniform int4 make_int4() {
+LUISA_INLINE uniform int4 make_int4() {
     uniform int4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = 0;
     return v;
 }
 
-static uniform uint2 make_uint2() {
+LUISA_INLINE uniform uint2 make_uint2() {
     uniform uint2 v;
     v.v[0] = v.v[1] = 0;
     return v;
 }
-static uniform uint3 make_uint3() {
+LUISA_INLINE uniform uint3 make_uint3() {
     uniform uint3 v;
     v.v[0] = v.v[1] = v.v[2] = 0;
     return v;
 }
-static uniform uint4 make_uint4() {
+LUISA_INLINE uniform uint4 make_uint4() {
     uniform uint4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = 0;
     return v;
 }
 
-static uniform float2 make_float2() {
+LUISA_INLINE uniform float2 make_float2() {
     uniform float2 v;
     v.v[0] = v.v[1] = 0;
     return v;
 }
-static uniform float3 make_float3() {
+LUISA_INLINE uniform float3 make_float3() {
     uniform float3 v;
     v.v[0] = v.v[1] = v.v[2] = 0;
     return v;
 }
-static uniform float4 make_float4() {
+LUISA_INLINE uniform float4 make_float4() {
     uniform float4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = 0;
     return v;
 }
 
-static uniform char2 make_char2() {
+LUISA_INLINE uniform char2 make_char2() {
     uniform char2 v;
     v.v[0] = v.v[1] = 0;
     return v;
 }
-static uniform char3 make_char3() {
+LUISA_INLINE uniform char3 make_char3() {
     uniform char3 v;
     v.v[0] = v.v[1] = v.v[2] = 0;
     return v;
 }
-static uniform char4 make_char4() {
+LUISA_INLINE uniform char4 make_char4() {
     uniform char4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = 0;
     return v;
 }
 
 // make_int2 functions
-static int2 make_int2(int s) {
+LUISA_INLINE int2 make_int2(int s) {
     int2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static int2 make_int2(int x, int y) {
+LUISA_INLINE int2 make_int2(int x, int y) {
     int2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static int2 make_int2(int2 v) {
+LUISA_INLINE int2 make_int2(int2 v) {
     return v;
 }
-static int2 make_int2(int3 v) {
+LUISA_INLINE int2 make_int2(int3 v) {
     int2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static int2 make_int2(int4 v) {
+LUISA_INLINE int2 make_int2(int4 v) {
     int2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -130,36 +132,36 @@ static int2 make_int2(int4 v) {
 }
 
 // make_int3 functions
-static int3 make_int3(int s) {
+LUISA_INLINE int3 make_int3(int s) {
     int3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static int3 make_int3(int x, int y, int z) {
+LUISA_INLINE int3 make_int3(int x, int y, int z) {
     int3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static int3 make_int3(int x, int2 yz) {
+LUISA_INLINE int3 make_int3(int x, int2 yz) {
     int3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static int3 make_int3(int2 xy, int z) {
+LUISA_INLINE int3 make_int3(int2 xy, int z) {
     int3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static int3 make_int3(int3 v) {
+LUISA_INLINE int3 make_int3(int3 v) {
     return v;
 }
-static int3 make_int3(int4 v) {
+LUISA_INLINE int3 make_int3(int4 v) {
     int3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -168,12 +170,12 @@ static int3 make_int3(int4 v) {
 }
 
 // make_int4 functions
-static int4 make_int4(int s) {
+LUISA_INLINE int4 make_int4(int s) {
     int4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static int4 make_int4(int x, int y, int z, int w) {
+LUISA_INLINE int4 make_int4(int x, int y, int z, int w) {
     int4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -181,7 +183,7 @@ static int4 make_int4(int x, int y, int z, int w) {
     v.v[3] = w;
     return v;
 }
-static int4 make_int4(int x, int y, int2 zw) {
+LUISA_INLINE int4 make_int4(int x, int y, int2 zw) {
     int4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -189,7 +191,7 @@ static int4 make_int4(int x, int y, int2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static int4 make_int4(int x, int2 yz, int w) {
+LUISA_INLINE int4 make_int4(int x, int2 yz, int w) {
     int4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -197,7 +199,7 @@ static int4 make_int4(int x, int2 yz, int w) {
     v.v[3] = w;
     return v;
 }
-static int4 make_int4(int2 xy, int z, int w) {
+LUISA_INLINE int4 make_int4(int2 xy, int z, int w) {
     int4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -205,7 +207,7 @@ static int4 make_int4(int2 xy, int z, int w) {
     v.v[3] = w;
     return v;
 }
-static int4 make_int4(int2 xy, int2 zw) {
+LUISA_INLINE int4 make_int4(int2 xy, int2 zw) {
     int4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -213,7 +215,7 @@ static int4 make_int4(int2 xy, int2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static int4 make_int4(int x, int3 yzw) {
+LUISA_INLINE int4 make_int4(int x, int3 yzw) {
     int4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -221,7 +223,7 @@ static int4 make_int4(int x, int3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static int4 make_int4(int3 xyz, int w) {
+LUISA_INLINE int4 make_int4(int3 xyz, int w) {
     int4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -229,32 +231,32 @@ static int4 make_int4(int3 xyz, int w) {
     v.v[3] = w;
     return v;
 }
-static int4 make_int4(int4 v) {
+LUISA_INLINE int4 make_int4(int4 v) {
     return v;
 }
 
 // make_int2 functions
-static uniform int2 make_int2(uniform int s) {
+LUISA_INLINE uniform int2 make_int2(uniform int s) {
     uniform int2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static uniform int2 make_int2(uniform int x, uniform int y) {
+LUISA_INLINE uniform int2 make_int2(uniform int x, uniform int y) {
     uniform int2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static uniform int2 make_int2(uniform int2 v) {
+LUISA_INLINE uniform int2 make_int2(uniform int2 v) {
     return v;
 }
-static uniform int2 make_int2(uniform int3 v) {
+LUISA_INLINE uniform int2 make_int2(uniform int3 v) {
     uniform int2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static uniform int2 make_int2(uniform int4 v) {
+LUISA_INLINE uniform int2 make_int2(uniform int4 v) {
     uniform int2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -262,36 +264,36 @@ static uniform int2 make_int2(uniform int4 v) {
 }
 
 // make_int3 functions
-static uniform int3 make_int3(uniform int s) {
+LUISA_INLINE uniform int3 make_int3(uniform int s) {
     uniform int3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static uniform int3 make_int3(uniform int x, uniform int y, uniform int z) {
+LUISA_INLINE uniform int3 make_int3(uniform int x, uniform int y, uniform int z) {
     uniform int3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static uniform int3 make_int3(uniform int x, uniform int2 yz) {
+LUISA_INLINE uniform int3 make_int3(uniform int x, uniform int2 yz) {
     uniform int3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static uniform int3 make_int3(uniform int2 xy, uniform int z) {
+LUISA_INLINE uniform int3 make_int3(uniform int2 xy, uniform int z) {
     uniform int3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static uniform int3 make_int3(uniform int3 v) {
+LUISA_INLINE uniform int3 make_int3(uniform int3 v) {
     return v;
 }
-static uniform int3 make_int3(uniform int4 v) {
+LUISA_INLINE uniform int3 make_int3(uniform int4 v) {
     uniform int3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -300,12 +302,12 @@ static uniform int3 make_int3(uniform int4 v) {
 }
 
 // make_int4 functions
-static uniform int4 make_int4(uniform int s) {
+LUISA_INLINE uniform int4 make_int4(uniform int s) {
     uniform int4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static uniform int4 make_int4(uniform int x, uniform int y, uniform int z, uniform int w) {
+LUISA_INLINE uniform int4 make_int4(uniform int x, uniform int y, uniform int z, uniform int w) {
     uniform int4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -313,7 +315,7 @@ static uniform int4 make_int4(uniform int x, uniform int y, uniform int z, unifo
     v.v[3] = w;
     return v;
 }
-static uniform int4 make_int4(uniform int x, uniform int y, uniform int2 zw) {
+LUISA_INLINE uniform int4 make_int4(uniform int x, uniform int y, uniform int2 zw) {
     uniform int4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -321,7 +323,7 @@ static uniform int4 make_int4(uniform int x, uniform int y, uniform int2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform int4 make_int4(uniform int x, uniform int2 yz, uniform int w) {
+LUISA_INLINE uniform int4 make_int4(uniform int x, uniform int2 yz, uniform int w) {
     uniform int4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -329,7 +331,7 @@ static uniform int4 make_int4(uniform int x, uniform int2 yz, uniform int w) {
     v.v[3] = w;
     return v;
 }
-static uniform int4 make_int4(uniform int2 xy, uniform int z, uniform int w) {
+LUISA_INLINE uniform int4 make_int4(uniform int2 xy, uniform int z, uniform int w) {
     uniform int4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -337,7 +339,7 @@ static uniform int4 make_int4(uniform int2 xy, uniform int z, uniform int w) {
     v.v[3] = w;
     return v;
 }
-static uniform int4 make_int4(uniform int2 xy, uniform int2 zw) {
+LUISA_INLINE uniform int4 make_int4(uniform int2 xy, uniform int2 zw) {
     uniform int4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -345,7 +347,7 @@ static uniform int4 make_int4(uniform int2 xy, uniform int2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform int4 make_int4(uniform int x, uniform int3 yzw) {
+LUISA_INLINE uniform int4 make_int4(uniform int x, uniform int3 yzw) {
     uniform int4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -353,7 +355,7 @@ static uniform int4 make_int4(uniform int x, uniform int3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static uniform int4 make_int4(uniform int3 xyz, uniform int w) {
+LUISA_INLINE uniform int4 make_int4(uniform int3 xyz, uniform int w) {
     uniform int4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -361,32 +363,32 @@ static uniform int4 make_int4(uniform int3 xyz, uniform int w) {
     v.v[3] = w;
     return v;
 }
-static uniform int4 make_int4(uniform int4 v) {
+LUISA_INLINE uniform int4 make_int4(uniform int4 v) {
     return v;
 }
 
 // make_uint2 functions
-static uint2 make_uint2(uint s) {
+LUISA_INLINE uint2 make_uint2(uint s) {
     uint2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static uint2 make_uint2(uint x, uint y) {
+LUISA_INLINE uint2 make_uint2(uint x, uint y) {
     uint2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static uint2 make_uint2(uint2 v) {
+LUISA_INLINE uint2 make_uint2(uint2 v) {
     return v;
 }
-static uint2 make_uint2(uint3 v) {
+LUISA_INLINE uint2 make_uint2(uint3 v) {
     uint2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static uint2 make_uint2(uint4 v) {
+LUISA_INLINE uint2 make_uint2(uint4 v) {
     uint2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -394,36 +396,36 @@ static uint2 make_uint2(uint4 v) {
 }
 
 // make_uint3 functions
-static uint3 make_uint3(uint s) {
+LUISA_INLINE uint3 make_uint3(uint s) {
     uint3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static uint3 make_uint3(uint x, uint y, uint z) {
+LUISA_INLINE uint3 make_uint3(uint x, uint y, uint z) {
     uint3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static uint3 make_uint3(uint x, uint2 yz) {
+LUISA_INLINE uint3 make_uint3(uint x, uint2 yz) {
     uint3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static uint3 make_uint3(uint2 xy, uint z) {
+LUISA_INLINE uint3 make_uint3(uint2 xy, uint z) {
     uint3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static uint3 make_uint3(uint3 v) {
+LUISA_INLINE uint3 make_uint3(uint3 v) {
     return v;
 }
-static uint3 make_uint3(uint4 v) {
+LUISA_INLINE uint3 make_uint3(uint4 v) {
     uint3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -432,12 +434,12 @@ static uint3 make_uint3(uint4 v) {
 }
 
 // make_uint4 functions
-static uint4 make_uint4(uint s) {
+LUISA_INLINE uint4 make_uint4(uint s) {
     uint4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static uint4 make_uint4(uint x, uint y, uint z, uint w) {
+LUISA_INLINE uint4 make_uint4(uint x, uint y, uint z, uint w) {
     uint4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -445,7 +447,7 @@ static uint4 make_uint4(uint x, uint y, uint z, uint w) {
     v.v[3] = w;
     return v;
 }
-static uint4 make_uint4(uint x, uint y, uint2 zw) {
+LUISA_INLINE uint4 make_uint4(uint x, uint y, uint2 zw) {
     uint4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -453,7 +455,7 @@ static uint4 make_uint4(uint x, uint y, uint2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static uint4 make_uint4(uint x, uint2 yz, uint w) {
+LUISA_INLINE uint4 make_uint4(uint x, uint2 yz, uint w) {
     uint4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -461,7 +463,7 @@ static uint4 make_uint4(uint x, uint2 yz, uint w) {
     v.v[3] = w;
     return v;
 }
-static uint4 make_uint4(uint2 xy, uint z, uint w) {
+LUISA_INLINE uint4 make_uint4(uint2 xy, uint z, uint w) {
     uint4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -469,7 +471,7 @@ static uint4 make_uint4(uint2 xy, uint z, uint w) {
     v.v[3] = w;
     return v;
 }
-static uint4 make_uint4(uint2 xy, uint2 zw) {
+LUISA_INLINE uint4 make_uint4(uint2 xy, uint2 zw) {
     uint4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -477,7 +479,7 @@ static uint4 make_uint4(uint2 xy, uint2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static uint4 make_uint4(uint x, uint3 yzw) {
+LUISA_INLINE uint4 make_uint4(uint x, uint3 yzw) {
     uint4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -485,7 +487,7 @@ static uint4 make_uint4(uint x, uint3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static uint4 make_uint4(uint3 xyz, uint w) {
+LUISA_INLINE uint4 make_uint4(uint3 xyz, uint w) {
     uint4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -493,32 +495,32 @@ static uint4 make_uint4(uint3 xyz, uint w) {
     v.v[3] = w;
     return v;
 }
-static uint4 make_uint4(uint4 v) {
+LUISA_INLINE uint4 make_uint4(uint4 v) {
     return v;
 }
 
 // make_uint2 functions
-static uniform uint2 make_uint2(uniform uint s) {
+LUISA_INLINE uniform uint2 make_uint2(uniform uint s) {
     uniform uint2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static uniform uint2 make_uint2(uniform uint x, uniform uint y) {
+LUISA_INLINE uniform uint2 make_uint2(uniform uint x, uniform uint y) {
     uniform uint2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static uniform uint2 make_uint2(uniform uint2 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform uint2 v) {
     return v;
 }
-static uniform uint2 make_uint2(uniform uint3 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform uint3 v) {
     uniform uint2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static uniform uint2 make_uint2(uniform uint4 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform uint4 v) {
     uniform uint2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -526,36 +528,36 @@ static uniform uint2 make_uint2(uniform uint4 v) {
 }
 
 // make_uint3 functions
-static uniform uint3 make_uint3(uniform uint s) {
+LUISA_INLINE uniform uint3 make_uint3(uniform uint s) {
     uniform uint3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static uniform uint3 make_uint3(uniform uint x, uniform uint y, uniform uint z) {
+LUISA_INLINE uniform uint3 make_uint3(uniform uint x, uniform uint y, uniform uint z) {
     uniform uint3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static uniform uint3 make_uint3(uniform uint x, uniform uint2 yz) {
+LUISA_INLINE uniform uint3 make_uint3(uniform uint x, uniform uint2 yz) {
     uniform uint3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static uniform uint3 make_uint3(uniform uint2 xy, uniform uint z) {
+LUISA_INLINE uniform uint3 make_uint3(uniform uint2 xy, uniform uint z) {
     uniform uint3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static uniform uint3 make_uint3(uniform uint3 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform uint3 v) {
     return v;
 }
-static uniform uint3 make_uint3(uniform uint4 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform uint4 v) {
     uniform uint3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -564,12 +566,12 @@ static uniform uint3 make_uint3(uniform uint4 v) {
 }
 
 // make_uint4 functions
-static uniform uint4 make_uint4(uniform uint s) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint s) {
     uniform uint4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static uniform uint4 make_uint4(uniform uint x, uniform uint y, uniform uint z, uniform uint w) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint x, uniform uint y, uniform uint z, uniform uint w) {
     uniform uint4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -577,7 +579,7 @@ static uniform uint4 make_uint4(uniform uint x, uniform uint y, uniform uint z, 
     v.v[3] = w;
     return v;
 }
-static uniform uint4 make_uint4(uniform uint x, uniform uint y, uniform uint2 zw) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint x, uniform uint y, uniform uint2 zw) {
     uniform uint4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -585,7 +587,7 @@ static uniform uint4 make_uint4(uniform uint x, uniform uint y, uniform uint2 zw
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform uint4 make_uint4(uniform uint x, uniform uint2 yz, uniform uint w) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint x, uniform uint2 yz, uniform uint w) {
     uniform uint4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -593,7 +595,7 @@ static uniform uint4 make_uint4(uniform uint x, uniform uint2 yz, uniform uint w
     v.v[3] = w;
     return v;
 }
-static uniform uint4 make_uint4(uniform uint2 xy, uniform uint z, uniform uint w) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint2 xy, uniform uint z, uniform uint w) {
     uniform uint4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -601,7 +603,7 @@ static uniform uint4 make_uint4(uniform uint2 xy, uniform uint z, uniform uint w
     v.v[3] = w;
     return v;
 }
-static uniform uint4 make_uint4(uniform uint2 xy, uniform uint2 zw) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint2 xy, uniform uint2 zw) {
     uniform uint4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -609,7 +611,7 @@ static uniform uint4 make_uint4(uniform uint2 xy, uniform uint2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform uint4 make_uint4(uniform uint x, uniform uint3 yzw) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint x, uniform uint3 yzw) {
     uniform uint4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -617,7 +619,7 @@ static uniform uint4 make_uint4(uniform uint x, uniform uint3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static uniform uint4 make_uint4(uniform uint3 xyz, uniform uint w) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint3 xyz, uniform uint w) {
     uniform uint4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -625,32 +627,32 @@ static uniform uint4 make_uint4(uniform uint3 xyz, uniform uint w) {
     v.v[3] = w;
     return v;
 }
-static uniform uint4 make_uint4(uniform uint4 v) {
+LUISA_INLINE uniform uint4 make_uint4(uniform uint4 v) {
     return v;
 }
 
 // make_float2 functions
-static float2 make_float2(float s) {
+LUISA_INLINE float2 make_float2(float s) {
     float2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static float2 make_float2(float x, float y) {
+LUISA_INLINE float2 make_float2(float x, float y) {
     float2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static float2 make_float2(float2 v) {
+LUISA_INLINE float2 make_float2(float2 v) {
     return v;
 }
-static float2 make_float2(float3 v) {
+LUISA_INLINE float2 make_float2(float3 v) {
     float2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static float2 make_float2(float4 v) {
+LUISA_INLINE float2 make_float2(float4 v) {
     float2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -658,36 +660,36 @@ static float2 make_float2(float4 v) {
 }
 
 // make_float3 functions
-static float3 make_float3(float s) {
+LUISA_INLINE float3 make_float3(float s) {
     float3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static float3 make_float3(float x, float y, float z) {
+LUISA_INLINE float3 make_float3(float x, float y, float z) {
     float3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static float3 make_float3(float x, float2 yz) {
+LUISA_INLINE float3 make_float3(float x, float2 yz) {
     float3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static float3 make_float3(float2 xy, float z) {
+LUISA_INLINE float3 make_float3(float2 xy, float z) {
     float3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static float3 make_float3(float3 v) {
+LUISA_INLINE float3 make_float3(float3 v) {
     return v;
 }
-static float3 make_float3(float4 v) {
+LUISA_INLINE float3 make_float3(float4 v) {
     float3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -696,12 +698,12 @@ static float3 make_float3(float4 v) {
 }
 
 // make_float4 functions
-static float4 make_float4(float s) {
+LUISA_INLINE float4 make_float4(float s) {
     float4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static float4 make_float4(float x, float y, float z, float w) {
+LUISA_INLINE float4 make_float4(float x, float y, float z, float w) {
     float4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -709,7 +711,7 @@ static float4 make_float4(float x, float y, float z, float w) {
     v.v[3] = w;
     return v;
 }
-static float4 make_float4(float x, float y, float2 zw) {
+LUISA_INLINE float4 make_float4(float x, float y, float2 zw) {
     float4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -717,7 +719,7 @@ static float4 make_float4(float x, float y, float2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static float4 make_float4(float x, float2 yz, float w) {
+LUISA_INLINE float4 make_float4(float x, float2 yz, float w) {
     float4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -725,7 +727,7 @@ static float4 make_float4(float x, float2 yz, float w) {
     v.v[3] = w;
     return v;
 }
-static float4 make_float4(float2 xy, float z, float w) {
+LUISA_INLINE float4 make_float4(float2 xy, float z, float w) {
     float4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -733,7 +735,7 @@ static float4 make_float4(float2 xy, float z, float w) {
     v.v[3] = w;
     return v;
 }
-static float4 make_float4(float2 xy, float2 zw) {
+LUISA_INLINE float4 make_float4(float2 xy, float2 zw) {
     float4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -741,7 +743,7 @@ static float4 make_float4(float2 xy, float2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static float4 make_float4(float x, float3 yzw) {
+LUISA_INLINE float4 make_float4(float x, float3 yzw) {
     float4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -749,7 +751,7 @@ static float4 make_float4(float x, float3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static float4 make_float4(float3 xyz, float w) {
+LUISA_INLINE float4 make_float4(float3 xyz, float w) {
     float4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -757,32 +759,32 @@ static float4 make_float4(float3 xyz, float w) {
     v.v[3] = w;
     return v;
 }
-static float4 make_float4(float4 v) {
+LUISA_INLINE float4 make_float4(float4 v) {
     return v;
 }
 
 // make_float2 functions
-static uniform float2 make_float2(uniform float s) {
+LUISA_INLINE uniform float2 make_float2(uniform float s) {
     uniform float2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static uniform float2 make_float2(uniform float x, uniform float y) {
+LUISA_INLINE uniform float2 make_float2(uniform float x, uniform float y) {
     uniform float2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static uniform float2 make_float2(uniform float2 v) {
+LUISA_INLINE uniform float2 make_float2(uniform float2 v) {
     return v;
 }
-static uniform float2 make_float2(uniform float3 v) {
+LUISA_INLINE uniform float2 make_float2(uniform float3 v) {
     uniform float2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static uniform float2 make_float2(uniform float4 v) {
+LUISA_INLINE uniform float2 make_float2(uniform float4 v) {
     uniform float2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -790,36 +792,36 @@ static uniform float2 make_float2(uniform float4 v) {
 }
 
 // make_float3 functions
-static uniform float3 make_float3(uniform float s) {
+LUISA_INLINE uniform float3 make_float3(uniform float s) {
     uniform float3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static uniform float3 make_float3(uniform float x, uniform float y, uniform float z) {
+LUISA_INLINE uniform float3 make_float3(uniform float x, uniform float y, uniform float z) {
     uniform float3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static uniform float3 make_float3(uniform float x, uniform float2 yz) {
+LUISA_INLINE uniform float3 make_float3(uniform float x, uniform float2 yz) {
     uniform float3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static uniform float3 make_float3(uniform float2 xy, uniform float z) {
+LUISA_INLINE uniform float3 make_float3(uniform float2 xy, uniform float z) {
     uniform float3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static uniform float3 make_float3(uniform float3 v) {
+LUISA_INLINE uniform float3 make_float3(uniform float3 v) {
     return v;
 }
-static uniform float3 make_float3(uniform float4 v) {
+LUISA_INLINE uniform float3 make_float3(uniform float4 v) {
     uniform float3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -828,12 +830,12 @@ static uniform float3 make_float3(uniform float4 v) {
 }
 
 // make_float4 functions
-static uniform float4 make_float4(uniform float s) {
+LUISA_INLINE uniform float4 make_float4(uniform float s) {
     uniform float4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static uniform float4 make_float4(uniform float x, uniform float y, uniform float z, uniform float w) {
+LUISA_INLINE uniform float4 make_float4(uniform float x, uniform float y, uniform float z, uniform float w) {
     uniform float4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -841,7 +843,7 @@ static uniform float4 make_float4(uniform float x, uniform float y, uniform floa
     v.v[3] = w;
     return v;
 }
-static uniform float4 make_float4(uniform float x, uniform float y, uniform float2 zw) {
+LUISA_INLINE uniform float4 make_float4(uniform float x, uniform float y, uniform float2 zw) {
     uniform float4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -849,7 +851,7 @@ static uniform float4 make_float4(uniform float x, uniform float y, uniform floa
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform float4 make_float4(uniform float x, uniform float2 yz, uniform float w) {
+LUISA_INLINE uniform float4 make_float4(uniform float x, uniform float2 yz, uniform float w) {
     uniform float4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -857,7 +859,7 @@ static uniform float4 make_float4(uniform float x, uniform float2 yz, uniform fl
     v.v[3] = w;
     return v;
 }
-static uniform float4 make_float4(uniform float2 xy, uniform float z, uniform float w) {
+LUISA_INLINE uniform float4 make_float4(uniform float2 xy, uniform float z, uniform float w) {
     uniform float4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -865,7 +867,7 @@ static uniform float4 make_float4(uniform float2 xy, uniform float z, uniform fl
     v.v[3] = w;
     return v;
 }
-static uniform float4 make_float4(uniform float2 xy, uniform float2 zw) {
+LUISA_INLINE uniform float4 make_float4(uniform float2 xy, uniform float2 zw) {
     uniform float4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -873,7 +875,7 @@ static uniform float4 make_float4(uniform float2 xy, uniform float2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform float4 make_float4(uniform float x, uniform float3 yzw) {
+LUISA_INLINE uniform float4 make_float4(uniform float x, uniform float3 yzw) {
     uniform float4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -881,7 +883,7 @@ static uniform float4 make_float4(uniform float x, uniform float3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static uniform float4 make_float4(uniform float3 xyz, uniform float w) {
+LUISA_INLINE uniform float4 make_float4(uniform float3 xyz, uniform float w) {
     uniform float4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -889,32 +891,32 @@ static uniform float4 make_float4(uniform float3 xyz, uniform float w) {
     v.v[3] = w;
     return v;
 }
-static uniform float4 make_float4(uniform float4 v) {
+LUISA_INLINE uniform float4 make_float4(uniform float4 v) {
     return v;
 }
 
 // make_char2 functions
-static char2 make_char2(char s) {
+LUISA_INLINE char2 make_char2(char s) {
     char2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static char2 make_char2(char x, char y) {
+LUISA_INLINE char2 make_char2(char x, char y) {
     char2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static char2 make_char2(char2 v) {
+LUISA_INLINE char2 make_char2(char2 v) {
     return v;
 }
-static char2 make_char2(char3 v) {
+LUISA_INLINE char2 make_char2(char3 v) {
     char2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static char2 make_char2(char4 v) {
+LUISA_INLINE char2 make_char2(char4 v) {
     char2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -922,36 +924,36 @@ static char2 make_char2(char4 v) {
 }
 
 // make_char3 functions
-static char3 make_char3(char s) {
+LUISA_INLINE char3 make_char3(char s) {
     char3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static char3 make_char3(char x, char y, char z) {
+LUISA_INLINE char3 make_char3(char x, char y, char z) {
     char3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static char3 make_char3(char x, char2 yz) {
+LUISA_INLINE char3 make_char3(char x, char2 yz) {
     char3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static char3 make_char3(char2 xy, char z) {
+LUISA_INLINE char3 make_char3(char2 xy, char z) {
     char3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static char3 make_char3(char3 v) {
+LUISA_INLINE char3 make_char3(char3 v) {
     return v;
 }
-static char3 make_char3(char4 v) {
+LUISA_INLINE char3 make_char3(char4 v) {
     char3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -960,12 +962,12 @@ static char3 make_char3(char4 v) {
 }
 
 // make_char4 functions
-static char4 make_char4(char s) {
+LUISA_INLINE char4 make_char4(char s) {
     char4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static char4 make_char4(char x, char y, char z, char w) {
+LUISA_INLINE char4 make_char4(char x, char y, char z, char w) {
     char4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -973,7 +975,7 @@ static char4 make_char4(char x, char y, char z, char w) {
     v.v[3] = w;
     return v;
 }
-static char4 make_char4(char x, char y, char2 zw) {
+LUISA_INLINE char4 make_char4(char x, char y, char2 zw) {
     char4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -981,7 +983,7 @@ static char4 make_char4(char x, char y, char2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static char4 make_char4(char x, char2 yz, char w) {
+LUISA_INLINE char4 make_char4(char x, char2 yz, char w) {
     char4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -989,7 +991,7 @@ static char4 make_char4(char x, char2 yz, char w) {
     v.v[3] = w;
     return v;
 }
-static char4 make_char4(char2 xy, char z, char w) {
+LUISA_INLINE char4 make_char4(char2 xy, char z, char w) {
     char4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -997,7 +999,7 @@ static char4 make_char4(char2 xy, char z, char w) {
     v.v[3] = w;
     return v;
 }
-static char4 make_char4(char2 xy, char2 zw) {
+LUISA_INLINE char4 make_char4(char2 xy, char2 zw) {
     char4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -1005,7 +1007,7 @@ static char4 make_char4(char2 xy, char2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static char4 make_char4(char x, char3 yzw) {
+LUISA_INLINE char4 make_char4(char x, char3 yzw) {
     char4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -1013,7 +1015,7 @@ static char4 make_char4(char x, char3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static char4 make_char4(char3 xyz, char w) {
+LUISA_INLINE char4 make_char4(char3 xyz, char w) {
     char4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -1021,32 +1023,32 @@ static char4 make_char4(char3 xyz, char w) {
     v.v[3] = w;
     return v;
 }
-static char4 make_char4(char4 v) {
+LUISA_INLINE char4 make_char4(char4 v) {
     return v;
 }
 
 // make_char2 functions
-static uniform char2 make_char2(uniform char s) {
+LUISA_INLINE uniform char2 make_char2(uniform char s) {
     uniform char2 v;
     v.v[0] = v.v[1] = s;
     return v;
 }
-static uniform char2 make_char2(uniform char x, uniform char y) {
+LUISA_INLINE uniform char2 make_char2(uniform char x, uniform char y) {
     uniform char2 v;
     v.v[0] = x;
     v.v[1] = y;
     return v;
 }
-static uniform char2 make_char2(uniform char2 v) {
+LUISA_INLINE uniform char2 make_char2(uniform char2 v) {
     return v;
 }
-static uniform char2 make_char2(uniform char3 v) {
+LUISA_INLINE uniform char2 make_char2(uniform char3 v) {
     uniform char2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
     return u;
 }
-static uniform char2 make_char2(uniform char4 v) {
+LUISA_INLINE uniform char2 make_char2(uniform char4 v) {
     uniform char2 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -1054,36 +1056,36 @@ static uniform char2 make_char2(uniform char4 v) {
 }
 
 // make_char3 functions
-static uniform char3 make_char3(uniform char s) {
+LUISA_INLINE uniform char3 make_char3(uniform char s) {
     uniform char3 v;
     v.v[0] = v.v[1] = v.v[2] = s;
     return v;
 }
-static uniform char3 make_char3(uniform char x, uniform char y, uniform char z) {
+LUISA_INLINE uniform char3 make_char3(uniform char x, uniform char y, uniform char z) {
     uniform char3 v;
     v.v[0] = x;
     v.v[1] = y;
     v.v[2] = z;
     return v;
 }
-static uniform char3 make_char3(uniform char x, uniform char2 yz) {
+LUISA_INLINE uniform char3 make_char3(uniform char x, uniform char2 yz) {
     uniform char3 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
     v.v[2] = yz.v[1];
     return v;
 }
-static uniform char3 make_char3(uniform char2 xy, uniform char z) {
+LUISA_INLINE uniform char3 make_char3(uniform char2 xy, uniform char z) {
     uniform char3 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
     v.v[2] = z;
     return v;
 }
-static uniform char3 make_char3(uniform char3 v) {
+LUISA_INLINE uniform char3 make_char3(uniform char3 v) {
     return v;
 }
-static uniform char3 make_char3(uniform char4 v) {
+LUISA_INLINE uniform char3 make_char3(uniform char4 v) {
     uniform char3 u;
     u.v[0] = v.v[0];
     u.v[1] = v.v[1];
@@ -1092,12 +1094,12 @@ static uniform char3 make_char3(uniform char4 v) {
 }
 
 // make_char4 functions
-static uniform char4 make_char4(uniform char s) {
+LUISA_INLINE uniform char4 make_char4(uniform char s) {
     uniform char4 v;
     v.v[0] = v.v[1] = v.v[2] = v.v[3] = s;
     return v;
 }
-static uniform char4 make_char4(uniform char x, uniform char y, uniform char z, uniform char w) {
+LUISA_INLINE uniform char4 make_char4(uniform char x, uniform char y, uniform char z, uniform char w) {
     uniform char4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -1105,7 +1107,7 @@ static uniform char4 make_char4(uniform char x, uniform char y, uniform char z, 
     v.v[3] = w;
     return v;
 }
-static uniform char4 make_char4(uniform char x, uniform char y, uniform char2 zw) {
+LUISA_INLINE uniform char4 make_char4(uniform char x, uniform char y, uniform char2 zw) {
     uniform char4 v;
     v.v[0] = x;
     v.v[1] = y;
@@ -1113,7 +1115,7 @@ static uniform char4 make_char4(uniform char x, uniform char y, uniform char2 zw
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform char4 make_char4(uniform char x, uniform char2 yz, uniform char w) {
+LUISA_INLINE uniform char4 make_char4(uniform char x, uniform char2 yz, uniform char w) {
     uniform char4 v;
     v.v[0] = x;
     v.v[1] = yz.v[0];
@@ -1121,7 +1123,7 @@ static uniform char4 make_char4(uniform char x, uniform char2 yz, uniform char w
     v.v[3] = w;
     return v;
 }
-static uniform char4 make_char4(uniform char2 xy, uniform char z, uniform char w) {
+LUISA_INLINE uniform char4 make_char4(uniform char2 xy, uniform char z, uniform char w) {
     uniform char4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -1129,7 +1131,7 @@ static uniform char4 make_char4(uniform char2 xy, uniform char z, uniform char w
     v.v[3] = w;
     return v;
 }
-static uniform char4 make_char4(uniform char2 xy, uniform char2 zw) {
+LUISA_INLINE uniform char4 make_char4(uniform char2 xy, uniform char2 zw) {
     uniform char4 v;
     v.v[0] = xy.v[0];
     v.v[1] = xy.v[1];
@@ -1137,7 +1139,7 @@ static uniform char4 make_char4(uniform char2 xy, uniform char2 zw) {
     v.v[3] = zw.v[1];
     return v;
 }
-static uniform char4 make_char4(uniform char x, uniform char3 yzw) {
+LUISA_INLINE uniform char4 make_char4(uniform char x, uniform char3 yzw) {
     uniform char4 v;
     v.v[0] = x;
     v.v[1] = yzw.v[0];
@@ -1145,7 +1147,7 @@ static uniform char4 make_char4(uniform char x, uniform char3 yzw) {
     v.v[3] = yzw.v[2];
     return v;
 }
-static uniform char4 make_char4(uniform char3 xyz, uniform char w) {
+LUISA_INLINE uniform char4 make_char4(uniform char3 xyz, uniform char w) {
     uniform char4 v;
     v.v[0] = xyz.v[0];
     v.v[1] = xyz.v[1];
@@ -1153,44 +1155,44 @@ static uniform char4 make_char4(uniform char3 xyz, uniform char w) {
     v.v[3] = w;
     return v;
 }
-static uniform char4 make_char4(uniform char4 v) {
+LUISA_INLINE uniform char4 make_char4(uniform char4 v) {
     return v;
 }
 
 // conversions
-static int2 make_int2(uint2 v) {
+LUISA_INLINE int2 make_int2(uint2 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int2 make_int2(uint3 v) {
+LUISA_INLINE int2 make_int2(uint3 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int2 make_int2(uint4 v) {
+LUISA_INLINE int2 make_int2(uint4 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int3 make_int3(uint3 v) {
+LUISA_INLINE int3 make_int3(uint3 v) {
     int3 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     u.v[2] = (int)v.v[2];
     return u;
 }
-static int3 make_int3(uint4 v) {
+LUISA_INLINE int3 make_int3(uint4 v) {
     int3 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     u.v[2] = (int)v.v[2];
     return u;
 }
-static int4 make_int4(uint4 v) {
+LUISA_INLINE int4 make_int4(uint4 v) {
     int4 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
@@ -1200,39 +1202,39 @@ static int4 make_int4(uint4 v) {
 }
 
 // conversions
-static uniform int2 make_int2(uniform uint2 v) {
+LUISA_INLINE uniform int2 make_int2(uniform uint2 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int2 make_int2(uniform uint3 v) {
+LUISA_INLINE uniform int2 make_int2(uniform uint3 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int2 make_int2(uniform uint4 v) {
+LUISA_INLINE uniform int2 make_int2(uniform uint4 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int3 make_int3(uniform uint3 v) {
+LUISA_INLINE uniform int3 make_int3(uniform uint3 v) {
     uniform int3 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     u.v[2] = (uniform int)v.v[2];
     return u;
 }
-static uniform int3 make_int3(uniform uint4 v) {
+LUISA_INLINE uniform int3 make_int3(uniform uint4 v) {
     uniform int3 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     u.v[2] = (uniform int)v.v[2];
     return u;
 }
-static uniform int4 make_int4(uniform uint4 v) {
+LUISA_INLINE uniform int4 make_int4(uniform uint4 v) {
     uniform int4 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
@@ -1242,39 +1244,39 @@ static uniform int4 make_int4(uniform uint4 v) {
 }
 
 // conversions
-static int2 make_int2(float2 v) {
+LUISA_INLINE int2 make_int2(float2 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int2 make_int2(float3 v) {
+LUISA_INLINE int2 make_int2(float3 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int2 make_int2(float4 v) {
+LUISA_INLINE int2 make_int2(float4 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int3 make_int3(float3 v) {
+LUISA_INLINE int3 make_int3(float3 v) {
     int3 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     u.v[2] = (int)v.v[2];
     return u;
 }
-static int3 make_int3(float4 v) {
+LUISA_INLINE int3 make_int3(float4 v) {
     int3 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     u.v[2] = (int)v.v[2];
     return u;
 }
-static int4 make_int4(float4 v) {
+LUISA_INLINE int4 make_int4(float4 v) {
     int4 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
@@ -1284,39 +1286,39 @@ static int4 make_int4(float4 v) {
 }
 
 // conversions
-static uniform int2 make_int2(uniform float2 v) {
+LUISA_INLINE uniform int2 make_int2(uniform float2 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int2 make_int2(uniform float3 v) {
+LUISA_INLINE uniform int2 make_int2(uniform float3 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int2 make_int2(uniform float4 v) {
+LUISA_INLINE uniform int2 make_int2(uniform float4 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int3 make_int3(uniform float3 v) {
+LUISA_INLINE uniform int3 make_int3(uniform float3 v) {
     uniform int3 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     u.v[2] = (uniform int)v.v[2];
     return u;
 }
-static uniform int3 make_int3(uniform float4 v) {
+LUISA_INLINE uniform int3 make_int3(uniform float4 v) {
     uniform int3 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     u.v[2] = (uniform int)v.v[2];
     return u;
 }
-static uniform int4 make_int4(uniform float4 v) {
+LUISA_INLINE uniform int4 make_int4(uniform float4 v) {
     uniform int4 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
@@ -1326,39 +1328,39 @@ static uniform int4 make_int4(uniform float4 v) {
 }
 
 // conversions
-static int2 make_int2(char2 v) {
+LUISA_INLINE int2 make_int2(char2 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int2 make_int2(char3 v) {
+LUISA_INLINE int2 make_int2(char3 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int2 make_int2(char4 v) {
+LUISA_INLINE int2 make_int2(char4 v) {
     int2 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     return u;
 }
-static int3 make_int3(char3 v) {
+LUISA_INLINE int3 make_int3(char3 v) {
     int3 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     u.v[2] = (int)v.v[2];
     return u;
 }
-static int3 make_int3(char4 v) {
+LUISA_INLINE int3 make_int3(char4 v) {
     int3 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
     u.v[2] = (int)v.v[2];
     return u;
 }
-static int4 make_int4(char4 v) {
+LUISA_INLINE int4 make_int4(char4 v) {
     int4 u;
     u.v[0] = (int)v.v[0];
     u.v[1] = (int)v.v[1];
@@ -1368,39 +1370,39 @@ static int4 make_int4(char4 v) {
 }
 
 // conversions
-static uniform int2 make_int2(uniform char2 v) {
+LUISA_INLINE uniform int2 make_int2(uniform char2 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int2 make_int2(uniform char3 v) {
+LUISA_INLINE uniform int2 make_int2(uniform char3 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int2 make_int2(uniform char4 v) {
+LUISA_INLINE uniform int2 make_int2(uniform char4 v) {
     uniform int2 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     return u;
 }
-static uniform int3 make_int3(uniform char3 v) {
+LUISA_INLINE uniform int3 make_int3(uniform char3 v) {
     uniform int3 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     u.v[2] = (uniform int)v.v[2];
     return u;
 }
-static uniform int3 make_int3(uniform char4 v) {
+LUISA_INLINE uniform int3 make_int3(uniform char4 v) {
     uniform int3 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
     u.v[2] = (uniform int)v.v[2];
     return u;
 }
-static uniform int4 make_int4(uniform char4 v) {
+LUISA_INLINE uniform int4 make_int4(uniform char4 v) {
     uniform int4 u;
     u.v[0] = (uniform int)v.v[0];
     u.v[1] = (uniform int)v.v[1];
@@ -1410,39 +1412,39 @@ static uniform int4 make_int4(uniform char4 v) {
 }
 
 // conversions
-static uint2 make_uint2(int2 v) {
+LUISA_INLINE uint2 make_uint2(int2 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint2 make_uint2(int3 v) {
+LUISA_INLINE uint2 make_uint2(int3 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint2 make_uint2(int4 v) {
+LUISA_INLINE uint2 make_uint2(int4 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint3 make_uint3(int3 v) {
+LUISA_INLINE uint3 make_uint3(int3 v) {
     uint3 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     u.v[2] = (uint)v.v[2];
     return u;
 }
-static uint3 make_uint3(int4 v) {
+LUISA_INLINE uint3 make_uint3(int4 v) {
     uint3 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     u.v[2] = (uint)v.v[2];
     return u;
 }
-static uint4 make_uint4(int4 v) {
+LUISA_INLINE uint4 make_uint4(int4 v) {
     uint4 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
@@ -1452,39 +1454,39 @@ static uint4 make_uint4(int4 v) {
 }
 
 // conversions
-static uniform uint2 make_uint2(uniform int2 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform int2 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint2 make_uint2(uniform int3 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform int3 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint2 make_uint2(uniform int4 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform int4 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint3 make_uint3(uniform int3 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform int3 v) {
     uniform uint3 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     u.v[2] = (uniform uint)v.v[2];
     return u;
 }
-static uniform uint3 make_uint3(uniform int4 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform int4 v) {
     uniform uint3 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     u.v[2] = (uniform uint)v.v[2];
     return u;
 }
-static uniform uint4 make_uint4(uniform int4 v) {
+LUISA_INLINE uniform uint4 make_uint4(uniform int4 v) {
     uniform uint4 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
@@ -1494,39 +1496,39 @@ static uniform uint4 make_uint4(uniform int4 v) {
 }
 
 // conversions
-static uint2 make_uint2(float2 v) {
+LUISA_INLINE uint2 make_uint2(float2 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint2 make_uint2(float3 v) {
+LUISA_INLINE uint2 make_uint2(float3 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint2 make_uint2(float4 v) {
+LUISA_INLINE uint2 make_uint2(float4 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint3 make_uint3(float3 v) {
+LUISA_INLINE uint3 make_uint3(float3 v) {
     uint3 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     u.v[2] = (uint)v.v[2];
     return u;
 }
-static uint3 make_uint3(float4 v) {
+LUISA_INLINE uint3 make_uint3(float4 v) {
     uint3 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     u.v[2] = (uint)v.v[2];
     return u;
 }
-static uint4 make_uint4(float4 v) {
+LUISA_INLINE uint4 make_uint4(float4 v) {
     uint4 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
@@ -1536,39 +1538,39 @@ static uint4 make_uint4(float4 v) {
 }
 
 // conversions
-static uniform uint2 make_uint2(uniform float2 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform float2 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint2 make_uint2(uniform float3 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform float3 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint2 make_uint2(uniform float4 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform float4 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint3 make_uint3(uniform float3 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform float3 v) {
     uniform uint3 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     u.v[2] = (uniform uint)v.v[2];
     return u;
 }
-static uniform uint3 make_uint3(uniform float4 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform float4 v) {
     uniform uint3 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     u.v[2] = (uniform uint)v.v[2];
     return u;
 }
-static uniform uint4 make_uint4(uniform float4 v) {
+LUISA_INLINE uniform uint4 make_uint4(uniform float4 v) {
     uniform uint4 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
@@ -1578,39 +1580,39 @@ static uniform uint4 make_uint4(uniform float4 v) {
 }
 
 // conversions
-static uint2 make_uint2(char2 v) {
+LUISA_INLINE uint2 make_uint2(char2 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint2 make_uint2(char3 v) {
+LUISA_INLINE uint2 make_uint2(char3 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint2 make_uint2(char4 v) {
+LUISA_INLINE uint2 make_uint2(char4 v) {
     uint2 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     return u;
 }
-static uint3 make_uint3(char3 v) {
+LUISA_INLINE uint3 make_uint3(char3 v) {
     uint3 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     u.v[2] = (uint)v.v[2];
     return u;
 }
-static uint3 make_uint3(char4 v) {
+LUISA_INLINE uint3 make_uint3(char4 v) {
     uint3 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
     u.v[2] = (uint)v.v[2];
     return u;
 }
-static uint4 make_uint4(char4 v) {
+LUISA_INLINE uint4 make_uint4(char4 v) {
     uint4 u;
     u.v[0] = (uint)v.v[0];
     u.v[1] = (uint)v.v[1];
@@ -1620,39 +1622,39 @@ static uint4 make_uint4(char4 v) {
 }
 
 // conversions
-static uniform uint2 make_uint2(uniform char2 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform char2 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint2 make_uint2(uniform char3 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform char3 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint2 make_uint2(uniform char4 v) {
+LUISA_INLINE uniform uint2 make_uint2(uniform char4 v) {
     uniform uint2 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     return u;
 }
-static uniform uint3 make_uint3(uniform char3 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform char3 v) {
     uniform uint3 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     u.v[2] = (uniform uint)v.v[2];
     return u;
 }
-static uniform uint3 make_uint3(uniform char4 v) {
+LUISA_INLINE uniform uint3 make_uint3(uniform char4 v) {
     uniform uint3 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
     u.v[2] = (uniform uint)v.v[2];
     return u;
 }
-static uniform uint4 make_uint4(uniform char4 v) {
+LUISA_INLINE uniform uint4 make_uint4(uniform char4 v) {
     uniform uint4 u;
     u.v[0] = (uniform uint)v.v[0];
     u.v[1] = (uniform uint)v.v[1];
@@ -1662,39 +1664,39 @@ static uniform uint4 make_uint4(uniform char4 v) {
 }
 
 // conversions
-static float2 make_float2(int2 v) {
+LUISA_INLINE float2 make_float2(int2 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float2 make_float2(int3 v) {
+LUISA_INLINE float2 make_float2(int3 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float2 make_float2(int4 v) {
+LUISA_INLINE float2 make_float2(int4 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float3 make_float3(int3 v) {
+LUISA_INLINE float3 make_float3(int3 v) {
     float3 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     u.v[2] = (float)v.v[2];
     return u;
 }
-static float3 make_float3(int4 v) {
+LUISA_INLINE float3 make_float3(int4 v) {
     float3 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     u.v[2] = (float)v.v[2];
     return u;
 }
-static float4 make_float4(int4 v) {
+LUISA_INLINE float4 make_float4(int4 v) {
     float4 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
@@ -1704,39 +1706,39 @@ static float4 make_float4(int4 v) {
 }
 
 // conversions
-static uniform float2 make_float2(uniform int2 v) {
+LUISA_INLINE uniform float2 make_float2(uniform int2 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float2 make_float2(uniform int3 v) {
+LUISA_INLINE uniform float2 make_float2(uniform int3 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float2 make_float2(uniform int4 v) {
+LUISA_INLINE uniform float2 make_float2(uniform int4 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float3 make_float3(uniform int3 v) {
+LUISA_INLINE uniform float3 make_float3(uniform int3 v) {
     uniform float3 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     u.v[2] = (uniform float)v.v[2];
     return u;
 }
-static uniform float3 make_float3(uniform int4 v) {
+LUISA_INLINE uniform float3 make_float3(uniform int4 v) {
     uniform float3 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     u.v[2] = (uniform float)v.v[2];
     return u;
 }
-static uniform float4 make_float4(uniform int4 v) {
+LUISA_INLINE uniform float4 make_float4(uniform int4 v) {
     uniform float4 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
@@ -1746,39 +1748,39 @@ static uniform float4 make_float4(uniform int4 v) {
 }
 
 // conversions
-static float2 make_float2(uint2 v) {
+LUISA_INLINE float2 make_float2(uint2 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float2 make_float2(uint3 v) {
+LUISA_INLINE float2 make_float2(uint3 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float2 make_float2(uint4 v) {
+LUISA_INLINE float2 make_float2(uint4 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float3 make_float3(uint3 v) {
+LUISA_INLINE float3 make_float3(uint3 v) {
     float3 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     u.v[2] = (float)v.v[2];
     return u;
 }
-static float3 make_float3(uint4 v) {
+LUISA_INLINE float3 make_float3(uint4 v) {
     float3 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     u.v[2] = (float)v.v[2];
     return u;
 }
-static float4 make_float4(uint4 v) {
+LUISA_INLINE float4 make_float4(uint4 v) {
     float4 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
@@ -1788,39 +1790,39 @@ static float4 make_float4(uint4 v) {
 }
 
 // conversions
-static uniform float2 make_float2(uniform uint2 v) {
+LUISA_INLINE uniform float2 make_float2(uniform uint2 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float2 make_float2(uniform uint3 v) {
+LUISA_INLINE uniform float2 make_float2(uniform uint3 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float2 make_float2(uniform uint4 v) {
+LUISA_INLINE uniform float2 make_float2(uniform uint4 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float3 make_float3(uniform uint3 v) {
+LUISA_INLINE uniform float3 make_float3(uniform uint3 v) {
     uniform float3 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     u.v[2] = (uniform float)v.v[2];
     return u;
 }
-static uniform float3 make_float3(uniform uint4 v) {
+LUISA_INLINE uniform float3 make_float3(uniform uint4 v) {
     uniform float3 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     u.v[2] = (uniform float)v.v[2];
     return u;
 }
-static uniform float4 make_float4(uniform uint4 v) {
+LUISA_INLINE uniform float4 make_float4(uniform uint4 v) {
     uniform float4 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
@@ -1830,39 +1832,39 @@ static uniform float4 make_float4(uniform uint4 v) {
 }
 
 // conversions
-static float2 make_float2(char2 v) {
+LUISA_INLINE float2 make_float2(char2 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float2 make_float2(char3 v) {
+LUISA_INLINE float2 make_float2(char3 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float2 make_float2(char4 v) {
+LUISA_INLINE float2 make_float2(char4 v) {
     float2 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     return u;
 }
-static float3 make_float3(char3 v) {
+LUISA_INLINE float3 make_float3(char3 v) {
     float3 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     u.v[2] = (float)v.v[2];
     return u;
 }
-static float3 make_float3(char4 v) {
+LUISA_INLINE float3 make_float3(char4 v) {
     float3 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
     u.v[2] = (float)v.v[2];
     return u;
 }
-static float4 make_float4(char4 v) {
+LUISA_INLINE float4 make_float4(char4 v) {
     float4 u;
     u.v[0] = (float)v.v[0];
     u.v[1] = (float)v.v[1];
@@ -1872,39 +1874,39 @@ static float4 make_float4(char4 v) {
 }
 
 // conversions
-static uniform float2 make_float2(uniform char2 v) {
+LUISA_INLINE uniform float2 make_float2(uniform char2 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float2 make_float2(uniform char3 v) {
+LUISA_INLINE uniform float2 make_float2(uniform char3 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float2 make_float2(uniform char4 v) {
+LUISA_INLINE uniform float2 make_float2(uniform char4 v) {
     uniform float2 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     return u;
 }
-static uniform float3 make_float3(uniform char3 v) {
+LUISA_INLINE uniform float3 make_float3(uniform char3 v) {
     uniform float3 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     u.v[2] = (uniform float)v.v[2];
     return u;
 }
-static uniform float3 make_float3(uniform char4 v) {
+LUISA_INLINE uniform float3 make_float3(uniform char4 v) {
     uniform float3 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
     u.v[2] = (uniform float)v.v[2];
     return u;
 }
-static uniform float4 make_float4(uniform char4 v) {
+LUISA_INLINE uniform float4 make_float4(uniform char4 v) {
     uniform float4 u;
     u.v[0] = (uniform float)v.v[0];
     u.v[1] = (uniform float)v.v[1];
@@ -1914,39 +1916,39 @@ static uniform float4 make_float4(uniform char4 v) {
 }
 
 // conversions
-static char2 make_char2(int2 v) {
+LUISA_INLINE char2 make_char2(int2 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char2 make_char2(int3 v) {
+LUISA_INLINE char2 make_char2(int3 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char2 make_char2(int4 v) {
+LUISA_INLINE char2 make_char2(int4 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char3 make_char3(int3 v) {
+LUISA_INLINE char3 make_char3(int3 v) {
     char3 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     u.v[2] = (char)v.v[2];
     return u;
 }
-static char3 make_char3(int4 v) {
+LUISA_INLINE char3 make_char3(int4 v) {
     char3 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     u.v[2] = (char)v.v[2];
     return u;
 }
-static char4 make_char4(int4 v) {
+LUISA_INLINE char4 make_char4(int4 v) {
     char4 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
@@ -1956,39 +1958,39 @@ static char4 make_char4(int4 v) {
 }
 
 // conversions
-static uniform char2 make_char2(uniform int2 v) {
+LUISA_INLINE uniform char2 make_char2(uniform int2 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char2 make_char2(uniform int3 v) {
+LUISA_INLINE uniform char2 make_char2(uniform int3 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char2 make_char2(uniform int4 v) {
+LUISA_INLINE uniform char2 make_char2(uniform int4 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char3 make_char3(uniform int3 v) {
+LUISA_INLINE uniform char3 make_char3(uniform int3 v) {
     uniform char3 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     u.v[2] = (uniform char)v.v[2];
     return u;
 }
-static uniform char3 make_char3(uniform int4 v) {
+LUISA_INLINE uniform char3 make_char3(uniform int4 v) {
     uniform char3 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     u.v[2] = (uniform char)v.v[2];
     return u;
 }
-static uniform char4 make_char4(uniform int4 v) {
+LUISA_INLINE uniform char4 make_char4(uniform int4 v) {
     uniform char4 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
@@ -1998,39 +2000,39 @@ static uniform char4 make_char4(uniform int4 v) {
 }
 
 // conversions
-static char2 make_char2(uint2 v) {
+LUISA_INLINE char2 make_char2(uint2 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char2 make_char2(uint3 v) {
+LUISA_INLINE char2 make_char2(uint3 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char2 make_char2(uint4 v) {
+LUISA_INLINE char2 make_char2(uint4 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char3 make_char3(uint3 v) {
+LUISA_INLINE char3 make_char3(uint3 v) {
     char3 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     u.v[2] = (char)v.v[2];
     return u;
 }
-static char3 make_char3(uint4 v) {
+LUISA_INLINE char3 make_char3(uint4 v) {
     char3 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     u.v[2] = (char)v.v[2];
     return u;
 }
-static char4 make_char4(uint4 v) {
+LUISA_INLINE char4 make_char4(uint4 v) {
     char4 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
@@ -2040,39 +2042,39 @@ static char4 make_char4(uint4 v) {
 }
 
 // conversions
-static uniform char2 make_char2(uniform uint2 v) {
+LUISA_INLINE uniform char2 make_char2(uniform uint2 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char2 make_char2(uniform uint3 v) {
+LUISA_INLINE uniform char2 make_char2(uniform uint3 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char2 make_char2(uniform uint4 v) {
+LUISA_INLINE uniform char2 make_char2(uniform uint4 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char3 make_char3(uniform uint3 v) {
+LUISA_INLINE uniform char3 make_char3(uniform uint3 v) {
     uniform char3 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     u.v[2] = (uniform char)v.v[2];
     return u;
 }
-static uniform char3 make_char3(uniform uint4 v) {
+LUISA_INLINE uniform char3 make_char3(uniform uint4 v) {
     uniform char3 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     u.v[2] = (uniform char)v.v[2];
     return u;
 }
-static uniform char4 make_char4(uniform uint4 v) {
+LUISA_INLINE uniform char4 make_char4(uniform uint4 v) {
     uniform char4 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
@@ -2082,39 +2084,39 @@ static uniform char4 make_char4(uniform uint4 v) {
 }
 
 // conversions
-static char2 make_char2(float2 v) {
+LUISA_INLINE char2 make_char2(float2 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char2 make_char2(float3 v) {
+LUISA_INLINE char2 make_char2(float3 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char2 make_char2(float4 v) {
+LUISA_INLINE char2 make_char2(float4 v) {
     char2 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     return u;
 }
-static char3 make_char3(float3 v) {
+LUISA_INLINE char3 make_char3(float3 v) {
     char3 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     u.v[2] = (char)v.v[2];
     return u;
 }
-static char3 make_char3(float4 v) {
+LUISA_INLINE char3 make_char3(float4 v) {
     char3 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
     u.v[2] = (char)v.v[2];
     return u;
 }
-static char4 make_char4(float4 v) {
+LUISA_INLINE char4 make_char4(float4 v) {
     char4 u;
     u.v[0] = (char)v.v[0];
     u.v[1] = (char)v.v[1];
@@ -2124,39 +2126,39 @@ static char4 make_char4(float4 v) {
 }
 
 // conversions
-static uniform char2 make_char2(uniform float2 v) {
+LUISA_INLINE uniform char2 make_char2(uniform float2 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char2 make_char2(uniform float3 v) {
+LUISA_INLINE uniform char2 make_char2(uniform float3 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char2 make_char2(uniform float4 v) {
+LUISA_INLINE uniform char2 make_char2(uniform float4 v) {
     uniform char2 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     return u;
 }
-static uniform char3 make_char3(uniform float3 v) {
+LUISA_INLINE uniform char3 make_char3(uniform float3 v) {
     uniform char3 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     u.v[2] = (uniform char)v.v[2];
     return u;
 }
-static uniform char3 make_char3(uniform float4 v) {
+LUISA_INLINE uniform char3 make_char3(uniform float4 v) {
     uniform char3 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
     u.v[2] = (uniform char)v.v[2];
     return u;
 }
-static uniform char4 make_char4(uniform float4 v) {
+LUISA_INLINE uniform char4 make_char4(uniform float4 v) {
     uniform char4 u;
     u.v[0] = (uniform char)v.v[0];
     u.v[1] = (uniform char)v.v[1];
@@ -4290,71 +4292,71 @@ static float4 select(float4 f, float4 t, char4 p) { return make_float4(select_sc
 static float4 select(float4 f, float4 t, uniform char4 p) { return make_float4(select_scalar(f.v[0], t.v[0], p.v[0]), select_scalar(f.v[1], t.v[1], p.v[1]), select_scalar(f.v[2], t.v[2], p.v[2]), select_scalar(f.v[3], t.v[3], p.v[3])); }
 static uniform float4 select(uniform float4 f, uniform float4 t, uniform char4 p) { return make_float4(select_scalar(f.v[0], t.v[0], p.v[0]), select_scalar(f.v[1], t.v[1], p.v[1]), select_scalar(f.v[2], t.v[2], p.v[2]), select_scalar(f.v[3], t.v[3], p.v[3])); }
 
-static float fma(float a, float b, float c) { return a * b + c; }
-static uniform float fma(uniform float a, uniform float b, uniform float c) { return a * b + c; }
-static float copysign(float a, float b) { return floatbits((intbits(a) & 0x7fffffffu) | signbits(b)); }
-static uniform float copysign(uniform float a, uniform float b) { return floatbits((intbits(a) & 0x7fffffffu) | signbits(b)); }
-static float log2(float x) { return log(x) / log(2.f); }
-static uniform float log2(uniform float x) { return log(x) / log(2.f); }
-static float log10(float x) { return log(x) / log(10.f); }
-static uniform float log10(uniform float x) { return log(x) / log(10.f); }
-static float exp2(float x) { return pow(2.f, x); }
-static uniform float exp2(uniform float x) { return pow(2.f, x); }
-static float exp10(float x) { return pow(10.f, x); }
-static uniform float exp10(uniform float x) { return pow(10.f, x); }
-static char is_nan(float x) {
+LUISA_INLINE float fma(float a, float b, float c) { return a * b + c; }
+LUISA_INLINE uniform float fma(uniform float a, uniform float b, uniform float c) { return a * b + c; }
+LUISA_INLINE float copysign(float a, float b) { return floatbits((intbits(a) & 0x7fffffffu) | signbits(b)); }
+LUISA_INLINE uniform float copysign(uniform float a, uniform float b) { return floatbits((intbits(a) & 0x7fffffffu) | signbits(b)); }
+LUISA_INLINE float log2(float x) { return log(x) / log(2.f); }
+LUISA_INLINE uniform float log2(uniform float x) { return log(x) / log(2.f); }
+LUISA_INLINE float log10(float x) { return log(x) / log(10.f); }
+LUISA_INLINE uniform float log10(uniform float x) { return log(x) / log(10.f); }
+LUISA_INLINE float exp2(float x) { return pow(2.f, x); }
+LUISA_INLINE uniform float exp2(uniform float x) { return pow(2.f, x); }
+LUISA_INLINE float exp10(float x) { return pow(10.f, x); }
+LUISA_INLINE uniform float exp10(uniform float x) { return pow(10.f, x); }
+LUISA_INLINE char is_nan(float x) {
   uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
 }
-static char is_inf(float x) {
+LUISA_INLINE char is_inf(float x) {
   uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
 }
-static uniform char is_nan(uniform float x) {
+LUISA_INLINE uniform char is_nan(uniform float x) {
   uniform uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && (u & 0x7FFFFFu);
 }
-static uniform char is_inf(uniform float x) {
+LUISA_INLINE uniform char is_inf(uniform float x) {
   uniform uint u = intbits(x);
   return (u & 0x7F800000u) == 0x7F800000u && !(u & 0x7FFFFFu);
 }
-static float sinh(float x) { return .5f * (exp(x) - exp(-x)); }
-static uniform float sinh(uniform float x) { return .5f * (exp(x) - exp(-x)); }
-static float cosh(float x) { return .5f * (exp(x) + exp(-x)); }
-static uniform float cosh(uniform float x) { return .5f * (exp(x) + exp(-x)); }
-static float tanh(float x) { return sinh(x) / cosh(x); }
-static uniform float tanh(uniform float x) { return sinh(x) / cosh(x); }
-static float asinh(float x) { return log(x + sqrt(x * x + 1.f)); }
-static uniform float asinh(uniform float x) { return log(x + sqrt(x * x + 1.f)); }
-static float acosh(float x) { return log(x + sqrt(x * x - 1.f)); }
-static uniform float acosh(uniform float x) { return log(x + sqrt(x * x - 1.f)); }
-static float atanh(float x) { return .5f * log((1.f + x) / (1.f - x)); }
-static uniform float atanh(uniform float x) { return .5f * log((1.f + x) / (1.f - x)); }
-static float saturate(float x) { return clamp(x, 0.f, 1.f); }
-static uniform float saturate(uniform float x) { return clamp(x, 0.f, 1.f); }
-static float lerp(float a, float b, float t) { return fma(t, b - a, a); }
-static uniform float lerp(uniform float a, uniform float b, uniform float t) { return fma(t, b - a, a); }
-static float degrees(float x) { return x * (180.f * M_1_PI); }
-static uniform float degrees(uniform float x) { return x * (180.f * M_1_PI); }
-static float radians(float x) { return x * (M_PI / 180.f); }
-static uniform float radians(uniform float x) { return x * (M_PI / 180.f); }
-static float step(float edge, float x) { return x < edge ? 0.0f : 1.0f; }
-static uniform float step(uniform float edge, uniform float x) { return x < edge ? 0.0f : 1.0f; }
-static float smoothstep(float edge0, float edge1, float x) {
+LUISA_INLINE float sinh(float x) { return .5f * (exp(x) - exp(-x)); }
+LUISA_INLINE uniform float sinh(uniform float x) { return .5f * (exp(x) - exp(-x)); }
+LUISA_INLINE float cosh(float x) { return .5f * (exp(x) + exp(-x)); }
+LUISA_INLINE uniform float cosh(uniform float x) { return .5f * (exp(x) + exp(-x)); }
+LUISA_INLINE float tanh(float x) { return sinh(x) / cosh(x); }
+LUISA_INLINE uniform float tanh(uniform float x) { return sinh(x) / cosh(x); }
+LUISA_INLINE float asinh(float x) { return log(x + sqrt(x * x + 1.f)); }
+LUISA_INLINE uniform float asinh(uniform float x) { return log(x + sqrt(x * x + 1.f)); }
+LUISA_INLINE float acosh(float x) { return log(x + sqrt(x * x - 1.f)); }
+LUISA_INLINE uniform float acosh(uniform float x) { return log(x + sqrt(x * x - 1.f)); }
+LUISA_INLINE float atanh(float x) { return .5f * log((1.f + x) / (1.f - x)); }
+LUISA_INLINE uniform float atanh(uniform float x) { return .5f * log((1.f + x) / (1.f - x)); }
+LUISA_INLINE float saturate(float x) { return clamp(x, 0.f, 1.f); }
+LUISA_INLINE uniform float saturate(uniform float x) { return clamp(x, 0.f, 1.f); }
+LUISA_INLINE float lerp(float a, float b, float t) { return fma(t, b - a, a); }
+LUISA_INLINE uniform float lerp(uniform float a, uniform float b, uniform float t) { return fma(t, b - a, a); }
+LUISA_INLINE float degrees(float x) { return x * (180.f * M_1_PI); }
+LUISA_INLINE uniform float degrees(uniform float x) { return x * (180.f * M_1_PI); }
+LUISA_INLINE float radians(float x) { return x * (M_PI / 180.f); }
+LUISA_INLINE uniform float radians(uniform float x) { return x * (M_PI / 180.f); }
+LUISA_INLINE float step(float edge, float x) { return x < edge ? 0.0f : 1.0f; }
+LUISA_INLINE uniform float step(uniform float edge, uniform float x) { return x < edge ? 0.0f : 1.0f; }
+LUISA_INLINE float smoothstep(float edge0, float edge1, float x) {
     float t = saturate((x - edge0) / (edge1 - edge0));
     return t * t * (3.0f - 2.0f * t);
 }
-static uniform float smoothstep(uniform float edge0, uniform float edge1, uniform float x) {
+LUISA_INLINE uniform float smoothstep(uniform float edge0, uniform float edge1, uniform float x) {
     uniform float t = saturate((x - edge0) / (edge1 - edge0));
     return t * t * (3.0f - 2.0f * t);
 }
-static uint ctz(uint x) { return count_trailing_zeros((int)x); }
-static uniform uint ctz(uniform uint x) { return count_trailing_zeros((int)x); }
-static uint clz(uint x) { return count_leading_zeros((int)x); }
-static uniform uint clz(uniform uint x) { return count_leading_zeros((int)x); }
-static uint popcount(uint x) { return popcnt((int)x); }
-static uniform uint popcount(uniform uint x) { return popcnt((int)x); }
-static uniform uint reverse(uniform uint n) {
+LUISA_INLINE uint ctz(uint x) { return count_trailing_zeros((int)x); }
+LUISA_INLINE uniform uint ctz(uniform uint x) { return count_trailing_zeros((int)x); }
+LUISA_INLINE uint clz(uint x) { return count_leading_zeros((int)x); }
+LUISA_INLINE uniform uint clz(uniform uint x) { return count_leading_zeros((int)x); }
+LUISA_INLINE uint popcount(uint x) { return popcnt((int)x); }
+LUISA_INLINE uniform uint popcount(uniform uint x) { return popcnt((int)x); }
+LUISA_INLINE uniform uint reverse(uniform uint n) {
     n = (n << 16u) | (n >> 16u);
     n = ((n & 0x00ff00ffu) << 8u) | ((n & 0xff00ff00u) >> 8u);
     n = ((n & 0x0f0f0f0fu) << 4u) | ((n & 0xf0f0f0f0u) >> 4u);
@@ -4362,7 +4364,7 @@ static uniform uint reverse(uniform uint n) {
     n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
     return n;
 }
-static uint reverse(uint n) {
+LUISA_INLINE uint reverse(uint n) {
     n = (n << 16u) | (n >> 16u);
     n = ((n & 0x00ff00ffu) << 8u) | ((n & 0xff00ff00u) >> 8u);
     n = ((n & 0x0f0f0f0fu) << 4u) | ((n & 0xf0f0f0f0u) >> 4u);
@@ -4370,46 +4372,46 @@ static uint reverse(uint n) {
     n = ((n & 0x55555555u) << 1u) | ((n & 0xaaaaaaaau) >> 1u);
     return n;
 }
-static uniform float fract(uniform float x) { return x - floor(x); }
-static float fract(float x) { return x - floor(x); }
-static float3 cross(float3 u, float3 v) {
+LUISA_INLINE uniform float fract(uniform float x) { return x - floor(x); }
+LUISA_INLINE float fract(float x) { return x - floor(x); }
+LUISA_INLINE float3 cross(float3 u, float3 v) {
     return make_float3(
         u.v[1] * v.v[2] - v.v[1] * u.v[2],
         u.v[2] * v.v[0] - v.v[2] * u.v[0],
         u.v[0] * v.v[1] - v.v[0] * u.v[1]);
 }
-static uniform float3 cross(uniform float3 u, uniform float3 v) {
+LUISA_INLINE uniform float3 cross(uniform float3 u, uniform float3 v) {
     return make_float3(
         u.v[1] * v.v[2] - v.v[1] * u.v[2],
         u.v[2] * v.v[0] - v.v[2] * u.v[0],
         u.v[0] * v.v[1] - v.v[0] * u.v[1]);
 }
-static float dot(float2 a, float2 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1]; }
-static float dot(float3 a, float3 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]; }
-static float dot(float4 a, float4 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2] + a.v[3] * b.v[3]; }
-static uniform float dot(uniform float2 a, uniform float2 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1]; }
-static uniform float dot(uniform float3 a, uniform float3 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]; }
-static uniform float dot(uniform float4 a, uniform float4 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2] + a.v[3] * b.v[3]; }
-static float length(float2 v) { return sqrt(dot(v, v)); }
-static float length(float3 v) { return sqrt(dot(v, v)); }
-static float length(float4 v) { return sqrt(dot(v, v)); }
-static uniform float length(uniform float2 v) { return sqrt(dot(v, v)); }
-static uniform float length(uniform float3 v) { return sqrt(dot(v, v)); }
-static uniform float length(uniform float4 v) { return sqrt(dot(v, v)); }
-static float length_squared(float2 v) { return dot(v, v); }
-static float length_squared(float3 v) { return dot(v, v); }
-static float length_squared(float4 v) { return dot(v, v); }
-static uniform float length_squared(uniform float2 v) { return dot(v, v); }
-static uniform float length_squared(uniform float3 v) { return dot(v, v); }
-static uniform float length_squared(uniform float4 v) { return dot(v, v); }
-static float2 normalize(float2 v) { return binary_mul(v, rsqrt(length_squared(v))); }
-static float3 normalize(float3 v) { return binary_mul(v, rsqrt(length_squared(v))); }
-static float4 normalize(float4 v) { return binary_mul(v, rsqrt(length_squared(v))); }
-static uniform float2 normalize(uniform float2 v) { return binary_mul(v, rsqrt(length_squared(v))); }
-static uniform float3 normalize(uniform float3 v) { return binary_mul(v, rsqrt(length_squared(v))); }
-static uniform float4 normalize(uniform float4 v) { return binary_mul(v, rsqrt(length_squared(v))); }
-static float3 faceforward(float3 n, float3 i, float3 n_ref) { return dot(n_ref, i) < 0.f ? n : unary_minus(n); }
-static uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform float3 n_ref) { return dot(n_ref, i) < 0.f ? n : unary_minus(n); }
+LUISA_INLINE float dot(float2 a, float2 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1]; }
+LUISA_INLINE float dot(float3 a, float3 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]; }
+LUISA_INLINE float dot(float4 a, float4 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2] + a.v[3] * b.v[3]; }
+LUISA_INLINE uniform float dot(uniform float2 a, uniform float2 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1]; }
+LUISA_INLINE uniform float dot(uniform float3 a, uniform float3 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2]; }
+LUISA_INLINE uniform float dot(uniform float4 a, uniform float4 b) { return a.v[0] * b.v[0] + a.v[1] * b.v[1] + a.v[2] * b.v[2] + a.v[3] * b.v[3]; }
+LUISA_INLINE float length(float2 v) { return sqrt(dot(v, v)); }
+LUISA_INLINE float length(float3 v) { return sqrt(dot(v, v)); }
+LUISA_INLINE float length(float4 v) { return sqrt(dot(v, v)); }
+LUISA_INLINE uniform float length(uniform float2 v) { return sqrt(dot(v, v)); }
+LUISA_INLINE uniform float length(uniform float3 v) { return sqrt(dot(v, v)); }
+LUISA_INLINE uniform float length(uniform float4 v) { return sqrt(dot(v, v)); }
+LUISA_INLINE float length_squared(float2 v) { return dot(v, v); }
+LUISA_INLINE float length_squared(float3 v) { return dot(v, v); }
+LUISA_INLINE float length_squared(float4 v) { return dot(v, v); }
+LUISA_INLINE uniform float length_squared(uniform float2 v) { return dot(v, v); }
+LUISA_INLINE uniform float length_squared(uniform float3 v) { return dot(v, v); }
+LUISA_INLINE uniform float length_squared(uniform float4 v) { return dot(v, v); }
+LUISA_INLINE float2 normalize(float2 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+LUISA_INLINE float3 normalize(float3 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+LUISA_INLINE float4 normalize(float4 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+LUISA_INLINE uniform float2 normalize(uniform float2 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+LUISA_INLINE uniform float3 normalize(uniform float3 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+LUISA_INLINE uniform float4 normalize(uniform float4 v) { return binary_mul(v, rsqrt(length_squared(v))); }
+LUISA_INLINE float3 faceforward(float3 n, float3 i, float3 n_ref) { return dot(n_ref, i) < 0.f ? n : unary_minus(n); }
+LUISA_INLINE uniform float3 faceforward(uniform float3 n, uniform float3 i, uniform float3 n_ref) { return dot(n_ref, i) < 0.f ? n : unary_minus(n); }
 
 static int2 min(int2 a, int2 b) { return make_int2(min(a.v[0], b.v[0]), min(a.v[1], b.v[1])); }
 static uniform int2 min(uniform int2 a, uniform int2 b) { return make_int2(min(a.v[0], b.v[0]), min(a.v[1], b.v[1])); }
@@ -4772,20 +4774,20 @@ struct float4x4 {
     float4 cols[4];
 };
 
-static uniform float2x2 make_float2x2() {
+LUISA_INLINE uniform float2x2 make_float2x2() {
     uniform float2x2 m;
     m.cols[0] = make_float2();
     m.cols[1] = make_float2();
     return m;
 }
-static uniform float3x3 make_float3x3() {
+LUISA_INLINE uniform float3x3 make_float3x3() {
     uniform float3x3 m;
     m.cols[0] = make_float3();
     m.cols[1] = make_float3();
     m.cols[2] = make_float3();
     return m;
 }
-static uniform float4x4 make_float4x4() {
+LUISA_INLINE uniform float4x4 make_float4x4() {
     uniform float4x4 m;
     m.cols[0] = make_float4();
     m.cols[1] = make_float4();
@@ -4795,19 +4797,19 @@ static uniform float4x4 make_float4x4() {
 }
 
 // make_float2x2 functions
-static uniform float2x2 make_float2x2(uniform float s) {
+LUISA_INLINE uniform float2x2 make_float2x2(uniform float s) {
     uniform float2x2 m;
     m.cols[0] = make_float2(s);
     m.cols[1] = make_float2(s);
     return m;
 }
-static uniform float2x2 make_float2x2(uniform float2 c0, uniform float2 c1) {
+LUISA_INLINE uniform float2x2 make_float2x2(uniform float2 c0, uniform float2 c1) {
     uniform float2x2 m;
     m.cols[0] = c0;
     m.cols[1] = c1;
     return m;
 }
-static uniform float2x2 make_float2x2(
+LUISA_INLINE uniform float2x2 make_float2x2(
         uniform float m00, uniform float m01,
         uniform float m10, uniform float m11) {
     uniform float2x2 m;
@@ -4815,24 +4817,24 @@ static uniform float2x2 make_float2x2(
     m.cols[1] = make_float2(m10, m11);
     return m;
 }
-static uniform float2x2 make_float2x2(uniform float2x2 m) { return m; }
+LUISA_INLINE uniform float2x2 make_float2x2(uniform float2x2 m) { return m; }
 
 // make_float3x3 functions
-static uniform float3x3 make_float3x3(uniform float s) {
+LUISA_INLINE uniform float3x3 make_float3x3(uniform float s) {
     uniform float3x3 m;
     m.cols[0] = make_float3(s);
     m.cols[1] = make_float3(s);
     m.cols[2] = make_float3(s);
     return m;
 }
-static uniform float3x3 make_float3x3(uniform float3 c0, uniform float3 c1, uniform float3 c2) {
+LUISA_INLINE uniform float3x3 make_float3x3(uniform float3 c0, uniform float3 c1, uniform float3 c2) {
     uniform float3x3 m;
     m.cols[0] = c0;
     m.cols[1] = c1;
     m.cols[2] = c2;
     return m;
 }
-static uniform float3x3 make_float3x3(
+LUISA_INLINE uniform float3x3 make_float3x3(
         uniform float m00, uniform float m01, uniform float m02,
         uniform float m10, uniform float m11, uniform float m12,
         uniform float m20, uniform float m21, uniform float m22) {
@@ -4842,10 +4844,10 @@ static uniform float3x3 make_float3x3(
     m.cols[2] = make_float3(m20, m21, m22);
     return m;
 }
-static uniform float3x3 make_float3x3(uniform float3x3 m) { return m; }
+LUISA_INLINE uniform float3x3 make_float3x3(uniform float3x3 m) { return m; }
 
 // make_float4x4 functions
-static uniform float4x4 make_float4x4(uniform float s) {
+LUISA_INLINE uniform float4x4 make_float4x4(uniform float s) {
     uniform float4x4 m;
     m.cols[0] = make_float4(s);
     m.cols[1] = make_float4(s);
@@ -4853,7 +4855,7 @@ static uniform float4x4 make_float4x4(uniform float s) {
     m.cols[3] = make_float4(s);
     return m;
 }
-static uniform float4x4 make_float4x4(uniform float4 c0, uniform float4 c1, uniform float4 c2, uniform float4 c3) {
+LUISA_INLINE uniform float4x4 make_float4x4(uniform float4 c0, uniform float4 c1, uniform float4 c2, uniform float4 c3) {
     uniform float4x4 m;
     m.cols[0] = c0;
     m.cols[1] = c1;
@@ -4861,7 +4863,7 @@ static uniform float4x4 make_float4x4(uniform float4 c0, uniform float4 c1, unif
     m.cols[3] = c3;
     return m;
 }
-static uniform float4x4 make_float4x4(
+LUISA_INLINE uniform float4x4 make_float4x4(
         uniform float m00, uniform float m01, uniform float m02, uniform float m03,
         uniform float m10, uniform float m11, uniform float m12, uniform float m13,
         uniform float m20, uniform float m21, uniform float m22, uniform float m23,
@@ -4873,36 +4875,36 @@ static uniform float4x4 make_float4x4(
     m.cols[3] = make_float4(m30, m31, m32, m33);
     return m;
 }
-static uniform float4x4 make_float4x4(uniform float4x4 m) { return m; }
+LUISA_INLINE uniform float4x4 make_float4x4(uniform float4x4 m) { return m; }
 
 // conversions
-static uniform float2x2 make_float2x2(uniform float3x3 m) {
+LUISA_INLINE uniform float2x2 make_float2x2(uniform float3x3 m) {
     uniform float2x2 n;
     n.cols[0] = make_float2(m.cols[0]);
     n.cols[1] = make_float2(m.cols[1]);
     return n;
 }
-static uniform float2x2 make_float2x2(uniform float4x4 m) {
+LUISA_INLINE uniform float2x2 make_float2x2(uniform float4x4 m) {
     uniform float2x2 n;
     n.cols[0] = make_float2(m.cols[0]);
     n.cols[1] = make_float2(m.cols[1]);
     return n;
 }
-static uniform float3x3 make_float3x3(uniform float2x2 m) {
+LUISA_INLINE uniform float3x3 make_float3x3(uniform float2x2 m) {
     uniform float3x3 n;
     n.cols[0] = make_float3(m.cols[0], 0.f);
     n.cols[1] = make_float3(m.cols[1], 0.f);
     n.cols[2] = make_float3(0.f, 0.f, 1.f);
     return n;
 }
-static uniform float3x3 make_float3x3(uniform float4x4 m) {
+LUISA_INLINE uniform float3x3 make_float3x3(uniform float4x4 m) {
     uniform float3x3 n;
     n.cols[0] = make_float3(m.cols[0]);
     n.cols[1] = make_float3(m.cols[1]);
     n.cols[2] = make_float3(m.cols[2]);
     return n;
 }
-static uniform float4x4 make_float4x4(uniform float2x2 m) {
+LUISA_INLINE uniform float4x4 make_float4x4(uniform float2x2 m) {
     uniform float4x4 n;
     n.cols[0] = make_float4(m.cols[0], 0.f, 0.f);
     n.cols[1] = make_float4(m.cols[1], 0.f, 0.f);
@@ -4910,7 +4912,7 @@ static uniform float4x4 make_float4x4(uniform float2x2 m) {
     n.cols[3] = make_float4(0.f, 0.f, 0.f, 1.f);
     return n;
 }
-static uniform float4x4 make_float4x4(uniform float3x3 m) {
+LUISA_INLINE uniform float4x4 make_float4x4(uniform float3x3 m) {
     uniform float4x4 n;
     n.cols[0] = make_float4(m.cols[0], 0.f);
     n.cols[1] = make_float4(m.cols[1], 0.f);
@@ -4920,21 +4922,21 @@ static uniform float4x4 make_float4x4(uniform float3x3 m) {
 }
 
 // unary operators
-static uniform float2x2 unary_plus(uniform float2x2 m) { return m; }
-static uniform float3x3 unary_plus(uniform float3x3 m) { return m; }
-static uniform float4x4 unary_plus(uniform float4x4 m) { return m; }
-static uniform float2x2 unary_minus(uniform float2x2 m) {
+LUISA_INLINE uniform float2x2 unary_plus(uniform float2x2 m) { return m; }
+LUISA_INLINE uniform float3x3 unary_plus(uniform float3x3 m) { return m; }
+LUISA_INLINE uniform float4x4 unary_plus(uniform float4x4 m) { return m; }
+LUISA_INLINE uniform float2x2 unary_minus(uniform float2x2 m) {
     return make_float2x2(
         unary_minus(m.cols[0]),
         unary_minus(m.cols[1]));
 }
-static uniform float3x3 unary_minus(uniform float3x3 m) {
+LUISA_INLINE uniform float3x3 unary_minus(uniform float3x3 m) {
     return make_float3x3(
         unary_minus(m.cols[0]),
         unary_minus(m.cols[1]),
         unary_minus(m.cols[2]));
 }
-static uniform float4x4 unary_minus(uniform float4x4 m) {
+LUISA_INLINE uniform float4x4 unary_minus(uniform float4x4 m) {
     return make_float4x4(
         unary_minus(m.cols[0]),
         unary_minus(m.cols[1]),
@@ -4943,19 +4945,19 @@ static uniform float4x4 unary_minus(uniform float4x4 m) {
 }
 
 // make_float2x2 functions
-static float2x2 make_float2x2(float s) {
+LUISA_INLINE float2x2 make_float2x2(float s) {
     float2x2 m;
     m.cols[0] = make_float2(s);
     m.cols[1] = make_float2(s);
     return m;
 }
-static float2x2 make_float2x2(float2 c0, float2 c1) {
+LUISA_INLINE float2x2 make_float2x2(float2 c0, float2 c1) {
     float2x2 m;
     m.cols[0] = c0;
     m.cols[1] = c1;
     return m;
 }
-static float2x2 make_float2x2(
+LUISA_INLINE float2x2 make_float2x2(
         float m00, float m01,
         float m10, float m11) {
     float2x2 m;
@@ -4963,24 +4965,24 @@ static float2x2 make_float2x2(
     m.cols[1] = make_float2(m10, m11);
     return m;
 }
-static float2x2 make_float2x2(float2x2 m) { return m; }
+LUISA_INLINE float2x2 make_float2x2(float2x2 m) { return m; }
 
 // make_float3x3 functions
-static float3x3 make_float3x3(float s) {
+LUISA_INLINE float3x3 make_float3x3(float s) {
     float3x3 m;
     m.cols[0] = make_float3(s);
     m.cols[1] = make_float3(s);
     m.cols[2] = make_float3(s);
     return m;
 }
-static float3x3 make_float3x3(float3 c0, float3 c1, float3 c2) {
+LUISA_INLINE float3x3 make_float3x3(float3 c0, float3 c1, float3 c2) {
     float3x3 m;
     m.cols[0] = c0;
     m.cols[1] = c1;
     m.cols[2] = c2;
     return m;
 }
-static float3x3 make_float3x3(
+LUISA_INLINE float3x3 make_float3x3(
         float m00, float m01, float m02,
         float m10, float m11, float m12,
         float m20, float m21, float m22) {
@@ -4990,10 +4992,10 @@ static float3x3 make_float3x3(
     m.cols[2] = make_float3(m20, m21, m22);
     return m;
 }
-static float3x3 make_float3x3(float3x3 m) { return m; }
+LUISA_INLINE float3x3 make_float3x3(float3x3 m) { return m; }
 
 // make_float4x4 functions
-static float4x4 make_float4x4(float s) {
+LUISA_INLINE float4x4 make_float4x4(float s) {
     float4x4 m;
     m.cols[0] = make_float4(s);
     m.cols[1] = make_float4(s);
@@ -5001,7 +5003,7 @@ static float4x4 make_float4x4(float s) {
     m.cols[3] = make_float4(s);
     return m;
 }
-static float4x4 make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) {
+LUISA_INLINE float4x4 make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) {
     float4x4 m;
     m.cols[0] = c0;
     m.cols[1] = c1;
@@ -5009,7 +5011,7 @@ static float4x4 make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) {
     m.cols[3] = c3;
     return m;
 }
-static float4x4 make_float4x4(
+LUISA_INLINE float4x4 make_float4x4(
         float m00, float m01, float m02, float m03,
         float m10, float m11, float m12, float m13,
         float m20, float m21, float m22, float m23,
@@ -5021,36 +5023,36 @@ static float4x4 make_float4x4(
     m.cols[3] = make_float4(m30, m31, m32, m33);
     return m;
 }
-static float4x4 make_float4x4(float4x4 m) { return m; }
+LUISA_INLINE float4x4 make_float4x4(float4x4 m) { return m; }
 
 // conversions
-static float2x2 make_float2x2(float3x3 m) {
+LUISA_INLINE float2x2 make_float2x2(float3x3 m) {
     float2x2 n;
     n.cols[0] = make_float2(m.cols[0]);
     n.cols[1] = make_float2(m.cols[1]);
     return n;
 }
-static float2x2 make_float2x2(float4x4 m) {
+LUISA_INLINE float2x2 make_float2x2(float4x4 m) {
     float2x2 n;
     n.cols[0] = make_float2(m.cols[0]);
     n.cols[1] = make_float2(m.cols[1]);
     return n;
 }
-static float3x3 make_float3x3(float2x2 m) {
+LUISA_INLINE float3x3 make_float3x3(float2x2 m) {
     float3x3 n;
     n.cols[0] = make_float3(m.cols[0], 0.f);
     n.cols[1] = make_float3(m.cols[1], 0.f);
     n.cols[2] = make_float3(0.f, 0.f, 1.f);
     return n;
 }
-static float3x3 make_float3x3(float4x4 m) {
+LUISA_INLINE float3x3 make_float3x3(float4x4 m) {
     float3x3 n;
     n.cols[0] = make_float3(m.cols[0]);
     n.cols[1] = make_float3(m.cols[1]);
     n.cols[2] = make_float3(m.cols[2]);
     return n;
 }
-static float4x4 make_float4x4(float2x2 m) {
+LUISA_INLINE float4x4 make_float4x4(float2x2 m) {
     float4x4 n;
     n.cols[0] = make_float4(m.cols[0], 0.f, 0.f);
     n.cols[1] = make_float4(m.cols[1], 0.f, 0.f);
@@ -5058,7 +5060,7 @@ static float4x4 make_float4x4(float2x2 m) {
     n.cols[3] = make_float4(0.f, 0.f, 0.f, 1.f);
     return n;
 }
-static float4x4 make_float4x4(float3x3 m) {
+LUISA_INLINE float4x4 make_float4x4(float3x3 m) {
     float4x4 n;
     n.cols[0] = make_float4(m.cols[0], 0.f);
     n.cols[1] = make_float4(m.cols[1], 0.f);
@@ -5068,21 +5070,21 @@ static float4x4 make_float4x4(float3x3 m) {
 }
 
 // unary operators
-static float2x2 unary_plus(float2x2 m) { return m; }
-static float3x3 unary_plus(float3x3 m) { return m; }
-static float4x4 unary_plus(float4x4 m) { return m; }
-static float2x2 unary_minus(float2x2 m) {
+LUISA_INLINE float2x2 unary_plus(float2x2 m) { return m; }
+LUISA_INLINE float3x3 unary_plus(float3x3 m) { return m; }
+LUISA_INLINE float4x4 unary_plus(float4x4 m) { return m; }
+LUISA_INLINE float2x2 unary_minus(float2x2 m) {
     return make_float2x2(
         unary_minus(m.cols[0]),
         unary_minus(m.cols[1]));
 }
-static float3x3 unary_minus(float3x3 m) {
+LUISA_INLINE float3x3 unary_minus(float3x3 m) {
     return make_float3x3(
         unary_minus(m.cols[0]),
         unary_minus(m.cols[1]),
         unary_minus(m.cols[2]));
 }
-static float4x4 unary_minus(float4x4 m) {
+LUISA_INLINE float4x4 unary_minus(float4x4 m) {
     return make_float4x4(
         unary_minus(m.cols[0]),
         unary_minus(m.cols[1]),
@@ -5091,144 +5093,144 @@ static float4x4 unary_minus(float4x4 m) {
 }
 
 // matrix-scalar binary operators
-static float2x2 binary_add(float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_add(float2x2 m, float s) {
     return make_float2x2(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s));
 }
-static float2x2 binary_add(float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_add(float s, float2x2 m) {
     return make_float2x2(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]));
 }
-static float2x2 binary_sub(float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_sub(float2x2 m, float s) {
     return make_float2x2(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s));
 }
-static float2x2 binary_sub(float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_sub(float s, float2x2 m) {
     return make_float2x2(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]));
 }
-static float2x2 binary_mul(float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_mul(float2x2 m, float s) {
     return make_float2x2(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s));
 }
-static float2x2 binary_mul(float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_mul(float s, float2x2 m) {
     return make_float2x2(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]));
 }
-static float2x2 binary_div(float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_div(float2x2 m, float s) {
     return make_float2x2(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s));
 }
-static float2x2 binary_div(float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_div(float s, float2x2 m) {
     return make_float2x2(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]));
 }
-static float3x3 binary_add(float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_add(float3x3 m, float s) {
     return make_float3x3(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s));
 }
-static float3x3 binary_add(float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_add(float s, float3x3 m) {
     return make_float3x3(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]));
 }
-static float3x3 binary_sub(float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_sub(float3x3 m, float s) {
     return make_float3x3(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s));
 }
-static float3x3 binary_sub(float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_sub(float s, float3x3 m) {
     return make_float3x3(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]));
 }
-static float3x3 binary_mul(float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_mul(float3x3 m, float s) {
     return make_float3x3(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s));
 }
-static float3x3 binary_mul(float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_mul(float s, float3x3 m) {
     return make_float3x3(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]));
 }
-static float3x3 binary_div(float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_div(float3x3 m, float s) {
     return make_float3x3(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s));
 }
-static float3x3 binary_div(float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_div(float s, float3x3 m) {
     return make_float3x3(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
         binary_div(s, m.cols[2]));
 }
-static float4x4 binary_add(float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_add(float4x4 m, float s) {
     return make_float4x4(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s),
         binary_add(m.cols[3], s));
 }
-static float4x4 binary_add(float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_add(float s, float4x4 m) {
     return make_float4x4(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]),
         binary_add(s, m.cols[3]));
 }
-static float4x4 binary_sub(float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_sub(float4x4 m, float s) {
     return make_float4x4(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s),
         binary_sub(m.cols[3], s));
 }
-static float4x4 binary_sub(float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_sub(float s, float4x4 m) {
     return make_float4x4(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]),
         binary_sub(s, m.cols[3]));
 }
-static float4x4 binary_mul(float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_mul(float4x4 m, float s) {
     return make_float4x4(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s),
         binary_mul(m.cols[3], s));
 }
-static float4x4 binary_mul(float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_mul(float s, float4x4 m) {
     return make_float4x4(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]),
         binary_mul(s, m.cols[3]));
 }
-static float4x4 binary_div(float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_div(float4x4 m, float s) {
     return make_float4x4(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s),
         binary_div(m.cols[3], s));
 }
-static float4x4 binary_div(float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_div(float s, float4x4 m) {
     return make_float4x4(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
@@ -5237,19 +5239,19 @@ static float4x4 binary_div(float s, float4x4 m) {
 }
 
 // matrix-vector binary operators
-static float2 binary_mul(float2x2 m, float2 v) {
+LUISA_INLINE float2 binary_mul(float2x2 m, float2 v) {
     return binary_add(
         binary_mul(m.cols[0], v.v[0]),
         binary_mul(m.cols[1], v.v[1]));
 }
-static float3 binary_mul(float3x3 m, float3 v) {
+LUISA_INLINE float3 binary_mul(float3x3 m, float3 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
             binary_mul(m.cols[1], v.v[1])),
         binary_mul(m.cols[2], v.v[2]));
 }
-static float4 binary_mul(float4x4 m, float4 v) {
+LUISA_INLINE float4 binary_mul(float4x4 m, float4 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
@@ -5260,54 +5262,54 @@ static float4 binary_mul(float4x4 m, float4 v) {
 }
 
 // matrix-matrix binary operators
-static float2x2 binary_add(float2x2 lhs, float2x2 rhs) {
+LUISA_INLINE float2x2 binary_add(float2x2 lhs, float2x2 rhs) {
     return make_float2x2(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]));
 }
-static float2x2 binary_sub(float2x2 lhs, float2x2 rhs) {
+LUISA_INLINE float2x2 binary_sub(float2x2 lhs, float2x2 rhs) {
     return make_float2x2(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]));
 }
-static float3x3 binary_add(float3x3 lhs, float3x3 rhs) {
+LUISA_INLINE float3x3 binary_add(float3x3 lhs, float3x3 rhs) {
     return make_float3x3(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]));
 }
-static float3x3 binary_sub(float3x3 lhs, float3x3 rhs) {
+LUISA_INLINE float3x3 binary_sub(float3x3 lhs, float3x3 rhs) {
     return make_float3x3(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]));
 }
-static float4x4 binary_add(float4x4 lhs, float4x4 rhs) {
+LUISA_INLINE float4x4 binary_add(float4x4 lhs, float4x4 rhs) {
     return make_float4x4(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]),
         binary_add(lhs.cols[3], rhs.cols[3]));
 }
-static float4x4 binary_sub(float4x4 lhs, float4x4 rhs) {
+LUISA_INLINE float4x4 binary_sub(float4x4 lhs, float4x4 rhs) {
     return make_float4x4(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]),
         binary_sub(lhs.cols[3], rhs.cols[3]));
 }
-static float2x2 binary_mul(float2x2 lhs, float2x2 rhs) {
+LUISA_INLINE float2x2 binary_mul(float2x2 lhs, float2x2 rhs) {
     return make_float2x2(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]));
 }
-static float3x3 binary_mul(float3x3 lhs, float3x3 rhs) {
+LUISA_INLINE float3x3 binary_mul(float3x3 lhs, float3x3 rhs) {
     return make_float3x3(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
         binary_mul(lhs, rhs.cols[2]));
 }
-static float4x4 binary_mul(float4x4 lhs, float4x4 rhs) {
+LUISA_INLINE float4x4 binary_mul(float4x4 lhs, float4x4 rhs) {
     return make_float4x4(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
@@ -5316,144 +5318,144 @@ static float4x4 binary_mul(float4x4 lhs, float4x4 rhs) {
 }
 
 // matrix-scalar binary operators
-static float2x2 binary_add(uniform float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_add(uniform float2x2 m, float s) {
     return make_float2x2(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s));
 }
-static float2x2 binary_add(uniform float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_add(uniform float s, float2x2 m) {
     return make_float2x2(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]));
 }
-static float2x2 binary_sub(uniform float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_sub(uniform float2x2 m, float s) {
     return make_float2x2(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s));
 }
-static float2x2 binary_sub(uniform float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_sub(uniform float s, float2x2 m) {
     return make_float2x2(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]));
 }
-static float2x2 binary_mul(uniform float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_mul(uniform float2x2 m, float s) {
     return make_float2x2(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s));
 }
-static float2x2 binary_mul(uniform float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_mul(uniform float s, float2x2 m) {
     return make_float2x2(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]));
 }
-static float2x2 binary_div(uniform float2x2 m, float s) {
+LUISA_INLINE float2x2 binary_div(uniform float2x2 m, float s) {
     return make_float2x2(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s));
 }
-static float2x2 binary_div(uniform float s, float2x2 m) {
+LUISA_INLINE float2x2 binary_div(uniform float s, float2x2 m) {
     return make_float2x2(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]));
 }
-static float3x3 binary_add(uniform float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_add(uniform float3x3 m, float s) {
     return make_float3x3(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s));
 }
-static float3x3 binary_add(uniform float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_add(uniform float s, float3x3 m) {
     return make_float3x3(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]));
 }
-static float3x3 binary_sub(uniform float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_sub(uniform float3x3 m, float s) {
     return make_float3x3(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s));
 }
-static float3x3 binary_sub(uniform float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_sub(uniform float s, float3x3 m) {
     return make_float3x3(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]));
 }
-static float3x3 binary_mul(uniform float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_mul(uniform float3x3 m, float s) {
     return make_float3x3(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s));
 }
-static float3x3 binary_mul(uniform float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_mul(uniform float s, float3x3 m) {
     return make_float3x3(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]));
 }
-static float3x3 binary_div(uniform float3x3 m, float s) {
+LUISA_INLINE float3x3 binary_div(uniform float3x3 m, float s) {
     return make_float3x3(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s));
 }
-static float3x3 binary_div(uniform float s, float3x3 m) {
+LUISA_INLINE float3x3 binary_div(uniform float s, float3x3 m) {
     return make_float3x3(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
         binary_div(s, m.cols[2]));
 }
-static float4x4 binary_add(uniform float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_add(uniform float4x4 m, float s) {
     return make_float4x4(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s),
         binary_add(m.cols[3], s));
 }
-static float4x4 binary_add(uniform float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_add(uniform float s, float4x4 m) {
     return make_float4x4(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]),
         binary_add(s, m.cols[3]));
 }
-static float4x4 binary_sub(uniform float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_sub(uniform float4x4 m, float s) {
     return make_float4x4(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s),
         binary_sub(m.cols[3], s));
 }
-static float4x4 binary_sub(uniform float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_sub(uniform float s, float4x4 m) {
     return make_float4x4(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]),
         binary_sub(s, m.cols[3]));
 }
-static float4x4 binary_mul(uniform float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_mul(uniform float4x4 m, float s) {
     return make_float4x4(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s),
         binary_mul(m.cols[3], s));
 }
-static float4x4 binary_mul(uniform float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_mul(uniform float s, float4x4 m) {
     return make_float4x4(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]),
         binary_mul(s, m.cols[3]));
 }
-static float4x4 binary_div(uniform float4x4 m, float s) {
+LUISA_INLINE float4x4 binary_div(uniform float4x4 m, float s) {
     return make_float4x4(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s),
         binary_div(m.cols[3], s));
 }
-static float4x4 binary_div(uniform float s, float4x4 m) {
+LUISA_INLINE float4x4 binary_div(uniform float s, float4x4 m) {
     return make_float4x4(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
@@ -5462,19 +5464,19 @@ static float4x4 binary_div(uniform float s, float4x4 m) {
 }
 
 // matrix-vector binary operators
-static float2 binary_mul(uniform float2x2 m, float2 v) {
+LUISA_INLINE float2 binary_mul(uniform float2x2 m, float2 v) {
     return binary_add(
         binary_mul(m.cols[0], v.v[0]),
         binary_mul(m.cols[1], v.v[1]));
 }
-static float3 binary_mul(uniform float3x3 m, float3 v) {
+LUISA_INLINE float3 binary_mul(uniform float3x3 m, float3 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
             binary_mul(m.cols[1], v.v[1])),
         binary_mul(m.cols[2], v.v[2]));
 }
-static float4 binary_mul(uniform float4x4 m, float4 v) {
+LUISA_INLINE float4 binary_mul(uniform float4x4 m, float4 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
@@ -5485,54 +5487,54 @@ static float4 binary_mul(uniform float4x4 m, float4 v) {
 }
 
 // matrix-matrix binary operators
-static float2x2 binary_add(uniform float2x2 lhs, float2x2 rhs) {
+LUISA_INLINE float2x2 binary_add(uniform float2x2 lhs, float2x2 rhs) {
     return make_float2x2(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]));
 }
-static float2x2 binary_sub(uniform float2x2 lhs, float2x2 rhs) {
+LUISA_INLINE float2x2 binary_sub(uniform float2x2 lhs, float2x2 rhs) {
     return make_float2x2(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]));
 }
-static float3x3 binary_add(uniform float3x3 lhs, float3x3 rhs) {
+LUISA_INLINE float3x3 binary_add(uniform float3x3 lhs, float3x3 rhs) {
     return make_float3x3(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]));
 }
-static float3x3 binary_sub(uniform float3x3 lhs, float3x3 rhs) {
+LUISA_INLINE float3x3 binary_sub(uniform float3x3 lhs, float3x3 rhs) {
     return make_float3x3(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]));
 }
-static float4x4 binary_add(uniform float4x4 lhs, float4x4 rhs) {
+LUISA_INLINE float4x4 binary_add(uniform float4x4 lhs, float4x4 rhs) {
     return make_float4x4(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]),
         binary_add(lhs.cols[3], rhs.cols[3]));
 }
-static float4x4 binary_sub(uniform float4x4 lhs, float4x4 rhs) {
+LUISA_INLINE float4x4 binary_sub(uniform float4x4 lhs, float4x4 rhs) {
     return make_float4x4(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]),
         binary_sub(lhs.cols[3], rhs.cols[3]));
 }
-static float2x2 binary_mul(uniform float2x2 lhs, float2x2 rhs) {
+LUISA_INLINE float2x2 binary_mul(uniform float2x2 lhs, float2x2 rhs) {
     return make_float2x2(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]));
 }
-static float3x3 binary_mul(uniform float3x3 lhs, float3x3 rhs) {
+LUISA_INLINE float3x3 binary_mul(uniform float3x3 lhs, float3x3 rhs) {
     return make_float3x3(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
         binary_mul(lhs, rhs.cols[2]));
 }
-static float4x4 binary_mul(uniform float4x4 lhs, float4x4 rhs) {
+LUISA_INLINE float4x4 binary_mul(uniform float4x4 lhs, float4x4 rhs) {
     return make_float4x4(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
@@ -5541,144 +5543,144 @@ static float4x4 binary_mul(uniform float4x4 lhs, float4x4 rhs) {
 }
 
 // matrix-scalar binary operators
-static float2x2 binary_add(float2x2 m, uniform float s) {
+LUISA_INLINE float2x2 binary_add(float2x2 m, uniform float s) {
     return make_float2x2(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s));
 }
-static float2x2 binary_add(float s, uniform float2x2 m) {
+LUISA_INLINE float2x2 binary_add(float s, uniform float2x2 m) {
     return make_float2x2(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]));
 }
-static float2x2 binary_sub(float2x2 m, uniform float s) {
+LUISA_INLINE float2x2 binary_sub(float2x2 m, uniform float s) {
     return make_float2x2(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s));
 }
-static float2x2 binary_sub(float s, uniform float2x2 m) {
+LUISA_INLINE float2x2 binary_sub(float s, uniform float2x2 m) {
     return make_float2x2(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]));
 }
-static float2x2 binary_mul(float2x2 m, uniform float s) {
+LUISA_INLINE float2x2 binary_mul(float2x2 m, uniform float s) {
     return make_float2x2(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s));
 }
-static float2x2 binary_mul(float s, uniform float2x2 m) {
+LUISA_INLINE float2x2 binary_mul(float s, uniform float2x2 m) {
     return make_float2x2(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]));
 }
-static float2x2 binary_div(float2x2 m, uniform float s) {
+LUISA_INLINE float2x2 binary_div(float2x2 m, uniform float s) {
     return make_float2x2(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s));
 }
-static float2x2 binary_div(float s, uniform float2x2 m) {
+LUISA_INLINE float2x2 binary_div(float s, uniform float2x2 m) {
     return make_float2x2(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]));
 }
-static float3x3 binary_add(float3x3 m, uniform float s) {
+LUISA_INLINE float3x3 binary_add(float3x3 m, uniform float s) {
     return make_float3x3(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s));
 }
-static float3x3 binary_add(float s, uniform float3x3 m) {
+LUISA_INLINE float3x3 binary_add(float s, uniform float3x3 m) {
     return make_float3x3(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]));
 }
-static float3x3 binary_sub(float3x3 m, uniform float s) {
+LUISA_INLINE float3x3 binary_sub(float3x3 m, uniform float s) {
     return make_float3x3(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s));
 }
-static float3x3 binary_sub(float s, uniform float3x3 m) {
+LUISA_INLINE float3x3 binary_sub(float s, uniform float3x3 m) {
     return make_float3x3(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]));
 }
-static float3x3 binary_mul(float3x3 m, uniform float s) {
+LUISA_INLINE float3x3 binary_mul(float3x3 m, uniform float s) {
     return make_float3x3(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s));
 }
-static float3x3 binary_mul(float s, uniform float3x3 m) {
+LUISA_INLINE float3x3 binary_mul(float s, uniform float3x3 m) {
     return make_float3x3(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]));
 }
-static float3x3 binary_div(float3x3 m, uniform float s) {
+LUISA_INLINE float3x3 binary_div(float3x3 m, uniform float s) {
     return make_float3x3(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s));
 }
-static float3x3 binary_div(float s, uniform float3x3 m) {
+LUISA_INLINE float3x3 binary_div(float s, uniform float3x3 m) {
     return make_float3x3(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
         binary_div(s, m.cols[2]));
 }
-static float4x4 binary_add(float4x4 m, uniform float s) {
+LUISA_INLINE float4x4 binary_add(float4x4 m, uniform float s) {
     return make_float4x4(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s),
         binary_add(m.cols[3], s));
 }
-static float4x4 binary_add(float s, uniform float4x4 m) {
+LUISA_INLINE float4x4 binary_add(float s, uniform float4x4 m) {
     return make_float4x4(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]),
         binary_add(s, m.cols[3]));
 }
-static float4x4 binary_sub(float4x4 m, uniform float s) {
+LUISA_INLINE float4x4 binary_sub(float4x4 m, uniform float s) {
     return make_float4x4(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s),
         binary_sub(m.cols[3], s));
 }
-static float4x4 binary_sub(float s, uniform float4x4 m) {
+LUISA_INLINE float4x4 binary_sub(float s, uniform float4x4 m) {
     return make_float4x4(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]),
         binary_sub(s, m.cols[3]));
 }
-static float4x4 binary_mul(float4x4 m, uniform float s) {
+LUISA_INLINE float4x4 binary_mul(float4x4 m, uniform float s) {
     return make_float4x4(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s),
         binary_mul(m.cols[3], s));
 }
-static float4x4 binary_mul(float s, uniform float4x4 m) {
+LUISA_INLINE float4x4 binary_mul(float s, uniform float4x4 m) {
     return make_float4x4(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]),
         binary_mul(s, m.cols[3]));
 }
-static float4x4 binary_div(float4x4 m, uniform float s) {
+LUISA_INLINE float4x4 binary_div(float4x4 m, uniform float s) {
     return make_float4x4(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s),
         binary_div(m.cols[3], s));
 }
-static float4x4 binary_div(float s, uniform float4x4 m) {
+LUISA_INLINE float4x4 binary_div(float s, uniform float4x4 m) {
     return make_float4x4(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
@@ -5687,19 +5689,19 @@ static float4x4 binary_div(float s, uniform float4x4 m) {
 }
 
 // matrix-vector binary operators
-static float2 binary_mul(float2x2 m, uniform float2 v) {
+LUISA_INLINE float2 binary_mul(float2x2 m, uniform float2 v) {
     return binary_add(
         binary_mul(m.cols[0], v.v[0]),
         binary_mul(m.cols[1], v.v[1]));
 }
-static float3 binary_mul(float3x3 m, uniform float3 v) {
+LUISA_INLINE float3 binary_mul(float3x3 m, uniform float3 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
             binary_mul(m.cols[1], v.v[1])),
         binary_mul(m.cols[2], v.v[2]));
 }
-static float4 binary_mul(float4x4 m, uniform float4 v) {
+LUISA_INLINE float4 binary_mul(float4x4 m, uniform float4 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
@@ -5710,54 +5712,54 @@ static float4 binary_mul(float4x4 m, uniform float4 v) {
 }
 
 // matrix-matrix binary operators
-static float2x2 binary_add(float2x2 lhs, uniform float2x2 rhs) {
+LUISA_INLINE float2x2 binary_add(float2x2 lhs, uniform float2x2 rhs) {
     return make_float2x2(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]));
 }
-static float2x2 binary_sub(float2x2 lhs, uniform float2x2 rhs) {
+LUISA_INLINE float2x2 binary_sub(float2x2 lhs, uniform float2x2 rhs) {
     return make_float2x2(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]));
 }
-static float3x3 binary_add(float3x3 lhs, uniform float3x3 rhs) {
+LUISA_INLINE float3x3 binary_add(float3x3 lhs, uniform float3x3 rhs) {
     return make_float3x3(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]));
 }
-static float3x3 binary_sub(float3x3 lhs, uniform float3x3 rhs) {
+LUISA_INLINE float3x3 binary_sub(float3x3 lhs, uniform float3x3 rhs) {
     return make_float3x3(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]));
 }
-static float4x4 binary_add(float4x4 lhs, uniform float4x4 rhs) {
+LUISA_INLINE float4x4 binary_add(float4x4 lhs, uniform float4x4 rhs) {
     return make_float4x4(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]),
         binary_add(lhs.cols[3], rhs.cols[3]));
 }
-static float4x4 binary_sub(float4x4 lhs, uniform float4x4 rhs) {
+LUISA_INLINE float4x4 binary_sub(float4x4 lhs, uniform float4x4 rhs) {
     return make_float4x4(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]),
         binary_sub(lhs.cols[3], rhs.cols[3]));
 }
-static float2x2 binary_mul(float2x2 lhs, uniform float2x2 rhs) {
+LUISA_INLINE float2x2 binary_mul(float2x2 lhs, uniform float2x2 rhs) {
     return make_float2x2(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]));
 }
-static float3x3 binary_mul(float3x3 lhs, uniform float3x3 rhs) {
+LUISA_INLINE float3x3 binary_mul(float3x3 lhs, uniform float3x3 rhs) {
     return make_float3x3(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
         binary_mul(lhs, rhs.cols[2]));
 }
-static float4x4 binary_mul(float4x4 lhs, uniform float4x4 rhs) {
+LUISA_INLINE float4x4 binary_mul(float4x4 lhs, uniform float4x4 rhs) {
     return make_float4x4(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
@@ -5766,144 +5768,144 @@ static float4x4 binary_mul(float4x4 lhs, uniform float4x4 rhs) {
 }
 
 // matrix-scalar binary operators
-static uniform float2x2 binary_add(uniform float2x2 m, uniform float s) {
+LUISA_INLINE uniform float2x2 binary_add(uniform float2x2 m, uniform float s) {
     return make_float2x2(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s));
 }
-static uniform float2x2 binary_add(uniform float s, uniform float2x2 m) {
+LUISA_INLINE uniform float2x2 binary_add(uniform float s, uniform float2x2 m) {
     return make_float2x2(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]));
 }
-static uniform float2x2 binary_sub(uniform float2x2 m, uniform float s) {
+LUISA_INLINE uniform float2x2 binary_sub(uniform float2x2 m, uniform float s) {
     return make_float2x2(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s));
 }
-static uniform float2x2 binary_sub(uniform float s, uniform float2x2 m) {
+LUISA_INLINE uniform float2x2 binary_sub(uniform float s, uniform float2x2 m) {
     return make_float2x2(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]));
 }
-static uniform float2x2 binary_mul(uniform float2x2 m, uniform float s) {
+LUISA_INLINE uniform float2x2 binary_mul(uniform float2x2 m, uniform float s) {
     return make_float2x2(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s));
 }
-static uniform float2x2 binary_mul(uniform float s, uniform float2x2 m) {
+LUISA_INLINE uniform float2x2 binary_mul(uniform float s, uniform float2x2 m) {
     return make_float2x2(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]));
 }
-static uniform float2x2 binary_div(uniform float2x2 m, uniform float s) {
+LUISA_INLINE uniform float2x2 binary_div(uniform float2x2 m, uniform float s) {
     return make_float2x2(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s));
 }
-static uniform float2x2 binary_div(uniform float s, uniform float2x2 m) {
+LUISA_INLINE uniform float2x2 binary_div(uniform float s, uniform float2x2 m) {
     return make_float2x2(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]));
 }
-static uniform float3x3 binary_add(uniform float3x3 m, uniform float s) {
+LUISA_INLINE uniform float3x3 binary_add(uniform float3x3 m, uniform float s) {
     return make_float3x3(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s));
 }
-static uniform float3x3 binary_add(uniform float s, uniform float3x3 m) {
+LUISA_INLINE uniform float3x3 binary_add(uniform float s, uniform float3x3 m) {
     return make_float3x3(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]));
 }
-static uniform float3x3 binary_sub(uniform float3x3 m, uniform float s) {
+LUISA_INLINE uniform float3x3 binary_sub(uniform float3x3 m, uniform float s) {
     return make_float3x3(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s));
 }
-static uniform float3x3 binary_sub(uniform float s, uniform float3x3 m) {
+LUISA_INLINE uniform float3x3 binary_sub(uniform float s, uniform float3x3 m) {
     return make_float3x3(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]));
 }
-static uniform float3x3 binary_mul(uniform float3x3 m, uniform float s) {
+LUISA_INLINE uniform float3x3 binary_mul(uniform float3x3 m, uniform float s) {
     return make_float3x3(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s));
 }
-static uniform float3x3 binary_mul(uniform float s, uniform float3x3 m) {
+LUISA_INLINE uniform float3x3 binary_mul(uniform float s, uniform float3x3 m) {
     return make_float3x3(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]));
 }
-static uniform float3x3 binary_div(uniform float3x3 m, uniform float s) {
+LUISA_INLINE uniform float3x3 binary_div(uniform float3x3 m, uniform float s) {
     return make_float3x3(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s));
 }
-static uniform float3x3 binary_div(uniform float s, uniform float3x3 m) {
+LUISA_INLINE uniform float3x3 binary_div(uniform float s, uniform float3x3 m) {
     return make_float3x3(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
         binary_div(s, m.cols[2]));
 }
-static uniform float4x4 binary_add(uniform float4x4 m, uniform float s) {
+LUISA_INLINE uniform float4x4 binary_add(uniform float4x4 m, uniform float s) {
     return make_float4x4(
         binary_add(m.cols[0], s),
         binary_add(m.cols[1], s),
         binary_add(m.cols[2], s),
         binary_add(m.cols[3], s));
 }
-static uniform float4x4 binary_add(uniform float s, uniform float4x4 m) {
+LUISA_INLINE uniform float4x4 binary_add(uniform float s, uniform float4x4 m) {
     return make_float4x4(
         binary_add(s, m.cols[0]),
         binary_add(s, m.cols[1]),
         binary_add(s, m.cols[2]),
         binary_add(s, m.cols[3]));
 }
-static uniform float4x4 binary_sub(uniform float4x4 m, uniform float s) {
+LUISA_INLINE uniform float4x4 binary_sub(uniform float4x4 m, uniform float s) {
     return make_float4x4(
         binary_sub(m.cols[0], s),
         binary_sub(m.cols[1], s),
         binary_sub(m.cols[2], s),
         binary_sub(m.cols[3], s));
 }
-static uniform float4x4 binary_sub(uniform float s, uniform float4x4 m) {
+LUISA_INLINE uniform float4x4 binary_sub(uniform float s, uniform float4x4 m) {
     return make_float4x4(
         binary_sub(s, m.cols[0]),
         binary_sub(s, m.cols[1]),
         binary_sub(s, m.cols[2]),
         binary_sub(s, m.cols[3]));
 }
-static uniform float4x4 binary_mul(uniform float4x4 m, uniform float s) {
+LUISA_INLINE uniform float4x4 binary_mul(uniform float4x4 m, uniform float s) {
     return make_float4x4(
         binary_mul(m.cols[0], s),
         binary_mul(m.cols[1], s),
         binary_mul(m.cols[2], s),
         binary_mul(m.cols[3], s));
 }
-static uniform float4x4 binary_mul(uniform float s, uniform float4x4 m) {
+LUISA_INLINE uniform float4x4 binary_mul(uniform float s, uniform float4x4 m) {
     return make_float4x4(
         binary_mul(s, m.cols[0]),
         binary_mul(s, m.cols[1]),
         binary_mul(s, m.cols[2]),
         binary_mul(s, m.cols[3]));
 }
-static uniform float4x4 binary_div(uniform float4x4 m, uniform float s) {
+LUISA_INLINE uniform float4x4 binary_div(uniform float4x4 m, uniform float s) {
     return make_float4x4(
         binary_div(m.cols[0], s),
         binary_div(m.cols[1], s),
         binary_div(m.cols[2], s),
         binary_div(m.cols[3], s));
 }
-static uniform float4x4 binary_div(uniform float s, uniform float4x4 m) {
+LUISA_INLINE uniform float4x4 binary_div(uniform float s, uniform float4x4 m) {
     return make_float4x4(
         binary_div(s, m.cols[0]),
         binary_div(s, m.cols[1]),
@@ -5912,19 +5914,19 @@ static uniform float4x4 binary_div(uniform float s, uniform float4x4 m) {
 }
 
 // matrix-vector binary operators
-static uniform float2 binary_mul(uniform float2x2 m, uniform float2 v) {
+LUISA_INLINE uniform float2 binary_mul(uniform float2x2 m, uniform float2 v) {
     return binary_add(
         binary_mul(m.cols[0], v.v[0]),
         binary_mul(m.cols[1], v.v[1]));
 }
-static uniform float3 binary_mul(uniform float3x3 m, uniform float3 v) {
+LUISA_INLINE uniform float3 binary_mul(uniform float3x3 m, uniform float3 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
             binary_mul(m.cols[1], v.v[1])),
         binary_mul(m.cols[2], v.v[2]));
 }
-static uniform float4 binary_mul(uniform float4x4 m, uniform float4 v) {
+LUISA_INLINE uniform float4 binary_mul(uniform float4x4 m, uniform float4 v) {
     return binary_add(
         binary_add(
             binary_mul(m.cols[0], v.v[0]),
@@ -5935,54 +5937,54 @@ static uniform float4 binary_mul(uniform float4x4 m, uniform float4 v) {
 }
 
 // matrix-matrix binary operators
-static uniform float2x2 binary_add(uniform float2x2 lhs, uniform float2x2 rhs) {
+LUISA_INLINE uniform float2x2 binary_add(uniform float2x2 lhs, uniform float2x2 rhs) {
     return make_float2x2(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]));
 }
-static uniform float2x2 binary_sub(uniform float2x2 lhs, uniform float2x2 rhs) {
+LUISA_INLINE uniform float2x2 binary_sub(uniform float2x2 lhs, uniform float2x2 rhs) {
     return make_float2x2(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]));
 }
-static uniform float3x3 binary_add(uniform float3x3 lhs, uniform float3x3 rhs) {
+LUISA_INLINE uniform float3x3 binary_add(uniform float3x3 lhs, uniform float3x3 rhs) {
     return make_float3x3(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]));
 }
-static uniform float3x3 binary_sub(uniform float3x3 lhs, uniform float3x3 rhs) {
+LUISA_INLINE uniform float3x3 binary_sub(uniform float3x3 lhs, uniform float3x3 rhs) {
     return make_float3x3(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]));
 }
-static uniform float4x4 binary_add(uniform float4x4 lhs, uniform float4x4 rhs) {
+LUISA_INLINE uniform float4x4 binary_add(uniform float4x4 lhs, uniform float4x4 rhs) {
     return make_float4x4(
         binary_add(lhs.cols[0], rhs.cols[0]),
         binary_add(lhs.cols[1], rhs.cols[1]),
         binary_add(lhs.cols[2], rhs.cols[2]),
         binary_add(lhs.cols[3], rhs.cols[3]));
 }
-static uniform float4x4 binary_sub(uniform float4x4 lhs, uniform float4x4 rhs) {
+LUISA_INLINE uniform float4x4 binary_sub(uniform float4x4 lhs, uniform float4x4 rhs) {
     return make_float4x4(
         binary_sub(lhs.cols[0], rhs.cols[0]),
         binary_sub(lhs.cols[1], rhs.cols[1]),
         binary_sub(lhs.cols[2], rhs.cols[2]),
         binary_sub(lhs.cols[3], rhs.cols[3]));
 }
-static uniform float2x2 binary_mul(uniform float2x2 lhs, uniform float2x2 rhs) {
+LUISA_INLINE uniform float2x2 binary_mul(uniform float2x2 lhs, uniform float2x2 rhs) {
     return make_float2x2(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]));
 }
-static uniform float3x3 binary_mul(uniform float3x3 lhs, uniform float3x3 rhs) {
+LUISA_INLINE uniform float3x3 binary_mul(uniform float3x3 lhs, uniform float3x3 rhs) {
     return make_float3x3(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
         binary_mul(lhs, rhs.cols[2]));
 }
-static uniform float4x4 binary_mul(uniform float4x4 lhs, uniform float4x4 rhs) {
+LUISA_INLINE uniform float4x4 binary_mul(uniform float4x4 lhs, uniform float4x4 rhs) {
     return make_float4x4(
         binary_mul(lhs, rhs.cols[0]),
         binary_mul(lhs, rhs.cols[1]),
@@ -5991,18 +5993,18 @@ static uniform float4x4 binary_mul(uniform float4x4 lhs, uniform float4x4 rhs) {
 }
 
 // transpose
-static uniform float2x2 transpose(uniform float2x2 m) {
+LUISA_INLINE uniform float2x2 transpose(uniform float2x2 m) {
     return make_float2x2(
         make_float2(m.cols[0].v[0], m.cols[1].v[0]),
         make_float2(m.cols[0].v[1], m.cols[1].v[1]));
 }
-static uniform float3x3 transpose(uniform float3x3 m) {
+LUISA_INLINE uniform float3x3 transpose(uniform float3x3 m) {
     return make_float3x3(
         make_float3(m.cols[0].v[0], m.cols[1].v[0], m.cols[2].v[0]),
         make_float3(m.cols[0].v[1], m.cols[1].v[1], m.cols[2].v[1]),
         make_float3(m.cols[0].v[2], m.cols[1].v[2], m.cols[2].v[2]));
 }
-static uniform float4x4 transpose(uniform float4x4 m) {
+LUISA_INLINE uniform float4x4 transpose(uniform float4x4 m) {
     return make_float4x4(
         make_float4(m.cols[0].v[0], m.cols[1].v[0], m.cols[2].v[0], m.cols[3].v[0]),
         make_float4(m.cols[0].v[1], m.cols[1].v[1], m.cols[2].v[1], m.cols[3].v[1]),
@@ -6011,15 +6013,15 @@ static uniform float4x4 transpose(uniform float4x4 m) {
 }
 
 // determinant
-static uniform float determinant(uniform float2x2 m) {
+LUISA_INLINE uniform float determinant(uniform float2x2 m) {
     return m.cols[0].v[0] * m.cols[1].v[1] - m.cols[1].v[0] * m.cols[0].v[1];
 }
-static uniform float determinant(uniform float3x3 m) {
+LUISA_INLINE uniform float determinant(uniform float3x3 m) {
     return m.cols[0].v[0] * (m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2])
          - m.cols[1].v[0] * (m.cols[0].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[0].v[2])
          + m.cols[2].v[0] * (m.cols[0].v[1] * m.cols[1].v[2] - m.cols[1].v[1] * m.cols[0].v[2]);
 }
-static uniform float determinant(uniform float4x4 m) {
+LUISA_INLINE uniform float determinant(uniform float4x4 m) {
     const uniform float coef00 = m.cols[2].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[2].v[3];
     const uniform float coef02 = m.cols[1].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[1].v[3];
     const uniform float coef03 = m.cols[1].v[2] * m.cols[2].v[3] - m.cols[2].v[2] * m.cols[1].v[3];
@@ -6063,14 +6065,14 @@ static uniform float determinant(uniform float4x4 m) {
 }
 
 // inverse
-static uniform float2x2 inverse(uniform float2x2 m) {
+LUISA_INLINE uniform float2x2 inverse(uniform float2x2 m) {
     const uniform float one_over_determinant = 1.f / determinant(m);
     return make_float2x2(m.cols[1].v[1] * one_over_determinant,
                         -m.cols[0].v[1] * one_over_determinant,
                         -m.cols[1].v[0] * one_over_determinant,
                         +m.cols[0].v[0] * one_over_determinant);
 }
-static uniform float3x3 inverse(uniform float3x3 m) {
+LUISA_INLINE uniform float3x3 inverse(uniform float3x3 m) {
     const uniform float one_over_determinant = 1.f / determinant(m);
     return make_float3x3(
         (m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2]) * one_over_determinant,
@@ -6083,7 +6085,7 @@ static uniform float3x3 inverse(uniform float3x3 m) {
         (m.cols[2].v[0] * m.cols[0].v[1] - m.cols[0].v[0] * m.cols[2].v[1]) * one_over_determinant,
         (m.cols[0].v[0] * m.cols[1].v[1] - m.cols[1].v[0] * m.cols[0].v[1]) * one_over_determinant);
 }
-static uniform float4x4 inverse(uniform float4x4 m) {
+LUISA_INLINE uniform float4x4 inverse(uniform float4x4 m) {
     const uniform float coef00 = m.cols[2].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[2].v[3];
     const uniform float coef02 = m.cols[1].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[1].v[3];
     const uniform float coef03 = m.cols[1].v[2] * m.cols[2].v[3] - m.cols[2].v[2] * m.cols[1].v[3];
@@ -6132,18 +6134,18 @@ static uniform float4x4 inverse(uniform float4x4 m) {
 }
 
 // transpose
-static float2x2 transpose(float2x2 m) {
+LUISA_INLINE float2x2 transpose(float2x2 m) {
     return make_float2x2(
         make_float2(m.cols[0].v[0], m.cols[1].v[0]),
         make_float2(m.cols[0].v[1], m.cols[1].v[1]));
 }
-static float3x3 transpose(float3x3 m) {
+LUISA_INLINE float3x3 transpose(float3x3 m) {
     return make_float3x3(
         make_float3(m.cols[0].v[0], m.cols[1].v[0], m.cols[2].v[0]),
         make_float3(m.cols[0].v[1], m.cols[1].v[1], m.cols[2].v[1]),
         make_float3(m.cols[0].v[2], m.cols[1].v[2], m.cols[2].v[2]));
 }
-static float4x4 transpose(float4x4 m) {
+LUISA_INLINE float4x4 transpose(float4x4 m) {
     return make_float4x4(
         make_float4(m.cols[0].v[0], m.cols[1].v[0], m.cols[2].v[0], m.cols[3].v[0]),
         make_float4(m.cols[0].v[1], m.cols[1].v[1], m.cols[2].v[1], m.cols[3].v[1]),
@@ -6152,15 +6154,15 @@ static float4x4 transpose(float4x4 m) {
 }
 
 // determinant
-static float determinant(float2x2 m) {
+LUISA_INLINE float determinant(float2x2 m) {
     return m.cols[0].v[0] * m.cols[1].v[1] - m.cols[1].v[0] * m.cols[0].v[1];
 }
-static float determinant(float3x3 m) {
+LUISA_INLINE float determinant(float3x3 m) {
     return m.cols[0].v[0] * (m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2])
          - m.cols[1].v[0] * (m.cols[0].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[0].v[2])
          + m.cols[2].v[0] * (m.cols[0].v[1] * m.cols[1].v[2] - m.cols[1].v[1] * m.cols[0].v[2]);
 }
-static float determinant(float4x4 m) {
+LUISA_INLINE float determinant(float4x4 m) {
     const float coef00 = m.cols[2].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[2].v[3];
     const float coef02 = m.cols[1].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[1].v[3];
     const float coef03 = m.cols[1].v[2] * m.cols[2].v[3] - m.cols[2].v[2] * m.cols[1].v[3];
@@ -6204,14 +6206,14 @@ static float determinant(float4x4 m) {
 }
 
 // inverse
-static float2x2 inverse(float2x2 m) {
+LUISA_INLINE float2x2 inverse(float2x2 m) {
     const float one_over_determinant = 1.f / determinant(m);
     return make_float2x2(m.cols[1].v[1] * one_over_determinant,
                         -m.cols[0].v[1] * one_over_determinant,
                         -m.cols[1].v[0] * one_over_determinant,
                         +m.cols[0].v[0] * one_over_determinant);
 }
-static float3x3 inverse(float3x3 m) {
+LUISA_INLINE float3x3 inverse(float3x3 m) {
     const float one_over_determinant = 1.f / determinant(m);
     return make_float3x3(
         (m.cols[1].v[1] * m.cols[2].v[2] - m.cols[2].v[1] * m.cols[1].v[2]) * one_over_determinant,
@@ -6224,7 +6226,7 @@ static float3x3 inverse(float3x3 m) {
         (m.cols[2].v[0] * m.cols[0].v[1] - m.cols[0].v[0] * m.cols[2].v[1]) * one_over_determinant,
         (m.cols[0].v[0] * m.cols[1].v[1] - m.cols[1].v[0] * m.cols[0].v[1]) * one_over_determinant);
 }
-static float4x4 inverse(float4x4 m) {
+LUISA_INLINE float4x4 inverse(float4x4 m) {
     const float coef00 = m.cols[2].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[2].v[3];
     const float coef02 = m.cols[1].v[2] * m.cols[3].v[3] - m.cols[3].v[2] * m.cols[1].v[3];
     const float coef03 = m.cols[1].v[2] * m.cols[2].v[3] - m.cols[2].v[2] * m.cols[1].v[3];
@@ -6288,17 +6290,14 @@ struct LCHit {
 };
 struct LCAccel {
     void *uniform handle;
-    const float4x4 *uniform transforms;
+    const uniform float4x4 *uniform transforms;
 };
 
-static float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
+LUISA_INLINE float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
     return accel.transforms[index];
 }
 
-
-
 // pixel format
-
 enum PixelStorage {
 
     BYTE1,
@@ -6322,7 +6321,7 @@ enum PixelStorage {
     FLOAT4
 };
 
-static uint pixel_storage_size(PixelStorage storage) {
+LUISA_INLINE uint pixel_storage_size(PixelStorage storage) {
     switch (storage) {
         case BYTE1: return sizeof(uniform uint8) * 1u;
         case BYTE2: return sizeof(uniform uint8) * 2u;
@@ -6344,7 +6343,7 @@ static uint pixel_storage_size(PixelStorage storage) {
     return 0u;
 }
 
-static uint pixel_storage_channel_count(PixelStorage storage) {
+LUISA_INLINE uint pixel_storage_channel_count(PixelStorage storage) {
     switch (storage) {
         case BYTE1: return 1u;
         case BYTE2: return 2u;
@@ -6366,7 +6365,7 @@ static uint pixel_storage_channel_count(PixelStorage storage) {
     return 0u;
 }
 
-static void pixel_write_float(PixelStorage storage, void* data, float4 value)
+LUISA_INLINE void pixel_write_float(PixelStorage storage, void* data, float4 value)
 {
     switch (storage) {
         case BYTE1: for (int i=0; i<1; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i]*255,0,255); break;
@@ -6386,7 +6385,7 @@ static void pixel_write_float(PixelStorage storage, void* data, float4 value)
 
 }
 
-static void pixel_write_int(PixelStorage storage, void* data, int4 value)
+LUISA_INLINE void pixel_write_int(PixelStorage storage, void* data, int4 value)
 {
     switch (storage) {
         case BYTE1: for (int i=0; i<1; ++i) ((int8*)data)[i] = (int8)clamp(value.v[i],-128,127); break;
@@ -6402,7 +6401,7 @@ static void pixel_write_int(PixelStorage storage, void* data, int4 value)
     }
 }
 
-static void pixel_write_uint(PixelStorage storage, void* data, uint4 value)
+LUISA_INLINE void pixel_write_uint(PixelStorage storage, void* data, uint4 value)
 {
     switch (storage) {
         case BYTE1: for (int i=0; i<1; ++i) ((uint8*)data)[i] = (uint8)clamp(value.v[i],0,255); break;
@@ -6418,7 +6417,7 @@ static void pixel_write_uint(PixelStorage storage, void* data, uint4 value)
     }
 }
 
-static float4 pixel_read_float(PixelStorage storage, void* data)
+LUISA_INLINE float4 pixel_read_float(PixelStorage storage, void* data)
 {
     float4 value = make_float4(0.0f);
     switch (storage) {
@@ -6439,7 +6438,7 @@ static float4 pixel_read_float(PixelStorage storage, void* data)
     return value;
 }
 
-static int4 pixel_read_int(PixelStorage storage, void* data)
+LUISA_INLINE int4 pixel_read_int(PixelStorage storage, void* data)
 {
     int4 value = make_int4(0);
     switch (storage) {
@@ -6457,7 +6456,7 @@ static int4 pixel_read_int(PixelStorage storage, void* data)
     return value;
 }
 
-static uint4 pixel_read_uint(PixelStorage storage, void* data)
+LUISA_INLINE uint4 pixel_read_uint(PixelStorage storage, void* data)
 {
     uint4 value = make_uint4(0.0f);
     switch (storage) {
@@ -6492,7 +6491,7 @@ struct TextureView {
 
 
 
-static void texture2d_write_float(uniform LCTexture * tex, uint2 p, uint level, float4 value)
+LUISA_INLINE void texture2d_write_float(uniform LCTexture * tex, uint2 p, uint level, float4 value)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -6503,7 +6502,7 @@ static void texture2d_write_float(uniform LCTexture * tex, uint2 p, uint level, 
     pixel_write_float(tex->storage, data, value);
 }
 
-static float4 texture2d_read_float(uniform LCTexture * tex, uint2 p, uint level)
+LUISA_INLINE float4 texture2d_read_float(uniform LCTexture * tex, uint2 p, uint level)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -6515,7 +6514,7 @@ static float4 texture2d_read_float(uniform LCTexture * tex, uint2 p, uint level)
     return pixel_read_float(tex->storage, data);
 }
 
-static void texture3d_write_float(uniform LCTexture * tex, uint3 p, uint level, float4 value)
+LUISA_INLINE void texture3d_write_float(uniform LCTexture * tex, uint3 p, uint level, float4 value)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint sx = max(tex->size[0] >> level, 1);
@@ -6528,7 +6527,7 @@ static void texture3d_write_float(uniform LCTexture * tex, uint3 p, uint level, 
     pixel_write_float(tex->storage, data, value);
 }
 
-static float4 texture3d_read_float(uniform LCTexture * tex, uint3 p, uint level)
+LUISA_INLINE float4 texture3d_read_float(uniform LCTexture * tex, uint3 p, uint level)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint sx = max(tex->size[0] >> level, 1);
@@ -6542,28 +6541,28 @@ static float4 texture3d_read_float(uniform LCTexture * tex, uint3 p, uint level)
 }
 
 
-static float4 surf2d_read_float(uniform TextureView view, uint2 p)
+LUISA_INLINE float4 surf2d_read_float(uniform TextureView view, uint2 p)
 {
     return texture2d_read_float((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-static void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)
+LUISA_INLINE void surf2d_write_float(uniform TextureView view, uint2 p, float4 value)
 {
     texture2d_write_float((LCTexture*)view.ptr, p, view.level, value);
 }
 
-static float4 surf3d_read_float(uniform TextureView view, uint3 p)
+LUISA_INLINE float4 surf3d_read_float(uniform TextureView view, uint3 p)
 {
     return texture3d_read_float((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-static void surf3d_write_float(uniform TextureView view, uint3 p, float4 value)
+LUISA_INLINE void surf3d_write_float(uniform TextureView view, uint3 p, float4 value)
 {
     texture3d_write_float((LCTexture*)view.ptr, p, view.level, value);
 }
 
 
-static void texture2d_write_uint(uniform LCTexture * tex, uint2 p, uint level, uint4 value)
+LUISA_INLINE void texture2d_write_uint(uniform LCTexture * tex, uint2 p, uint level, uint4 value)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -6574,7 +6573,7 @@ static void texture2d_write_uint(uniform LCTexture * tex, uint2 p, uint level, u
     pixel_write_uint(tex->storage, data, value);
 }
 
-static uint4 texture2d_read_uint(uniform LCTexture * tex, uint2 p, uint level)
+LUISA_INLINE uint4 texture2d_read_uint(uniform LCTexture * tex, uint2 p, uint level)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -6586,7 +6585,7 @@ static uint4 texture2d_read_uint(uniform LCTexture * tex, uint2 p, uint level)
     return pixel_read_uint(tex->storage, data);
 }
 
-static void texture3d_write_uint(uniform LCTexture * tex, uint3 p, uint level, uint4 value)
+LUISA_INLINE void texture3d_write_uint(uniform LCTexture * tex, uint3 p, uint level, uint4 value)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint sx = max(tex->size[0] >> level, 1);
@@ -6599,7 +6598,7 @@ static void texture3d_write_uint(uniform LCTexture * tex, uint3 p, uint level, u
     pixel_write_uint(tex->storage, data, value);
 }
 
-static uint4 texture3d_read_uint(uniform LCTexture * tex, uint3 p, uint level)
+LUISA_INLINE uint4 texture3d_read_uint(uniform LCTexture * tex, uint3 p, uint level)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint sx = max(tex->size[0] >> level, 1);
@@ -6613,28 +6612,28 @@ static uint4 texture3d_read_uint(uniform LCTexture * tex, uint3 p, uint level)
 }
 
 
-static uint4 surf2d_read_uint(uniform TextureView view, uint2 p)
+LUISA_INLINE uint4 surf2d_read_uint(uniform TextureView view, uint2 p)
 {
     return texture2d_read_uint((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-static void surf2d_write_uint(uniform TextureView view, uint2 p, uint4 value)
+LUISA_INLINE void surf2d_write_uint(uniform TextureView view, uint2 p, uint4 value)
 {
     texture2d_write_uint((LCTexture*)view.ptr, p, view.level, value);
 }
 
-static uint4 surf3d_read_uint(uniform TextureView view, uint3 p)
+LUISA_INLINE uint4 surf3d_read_uint(uniform TextureView view, uint3 p)
 {
     return texture3d_read_uint((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-static void surf3d_write_uint(uniform TextureView view, uint3 p, uint4 value)
+LUISA_INLINE void surf3d_write_uint(uniform TextureView view, uint3 p, uint4 value)
 {
     texture3d_write_uint((LCTexture*)view.ptr, p, view.level, value);
 }
 
 
-static void texture2d_write_int(uniform LCTexture * tex, uint2 p, uint level, int4 value)
+LUISA_INLINE void texture2d_write_int(uniform LCTexture * tex, uint2 p, uint level, int4 value)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -6645,7 +6644,7 @@ static void texture2d_write_int(uniform LCTexture * tex, uint2 p, uint level, in
     pixel_write_int(tex->storage, data, value);
 }
 
-static int4 texture2d_read_int(uniform LCTexture * tex, uint2 p, uint level)
+LUISA_INLINE int4 texture2d_read_int(uniform LCTexture * tex, uint2 p, uint level)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
@@ -6657,7 +6656,7 @@ static int4 texture2d_read_int(uniform LCTexture * tex, uint2 p, uint level)
     return pixel_read_int(tex->storage, data);
 }
 
-static void texture3d_write_int(uniform LCTexture * tex, uint3 p, uint level, int4 value)
+LUISA_INLINE void texture3d_write_int(uniform LCTexture * tex, uint3 p, uint level, int4 value)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint sx = max(tex->size[0] >> level, 1);
@@ -6670,7 +6669,7 @@ static void texture3d_write_int(uniform LCTexture * tex, uint3 p, uint level, in
     pixel_write_int(tex->storage, data, value);
 }
 
-static int4 texture3d_read_int(uniform LCTexture * tex, uint3 p, uint level)
+LUISA_INLINE int4 texture3d_read_int(uniform LCTexture * tex, uint3 p, uint level)
 {
     uint pxsize = pixel_storage_size(tex->storage);
     uint sx = max(tex->size[0] >> level, 1);
@@ -6684,32 +6683,32 @@ static int4 texture3d_read_int(uniform LCTexture * tex, uint3 p, uint level)
 }
 
 
-static int4 surf2d_read_int(uniform TextureView view, uint2 p)
+LUISA_INLINE int4 surf2d_read_int(uniform TextureView view, uint2 p)
 {
     return texture2d_read_int((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-static void surf2d_write_int(uniform TextureView view, uint2 p, int4 value)
+LUISA_INLINE void surf2d_write_int(uniform TextureView view, uint2 p, int4 value)
 {
     texture2d_write_int((LCTexture*)view.ptr, p, view.level, value);
 }
 
-static int4 surf3d_read_int(uniform TextureView view, uint3 p)
+LUISA_INLINE int4 surf3d_read_int(uniform TextureView view, uint3 p)
 {
     return texture3d_read_int((uniform LCTexture *uniform)view.ptr, p, view.level);
 }
 
-static void surf3d_write_int(uniform TextureView view, uint3 p, int4 value)
+LUISA_INLINE void surf3d_write_int(uniform TextureView view, uint3 p, int4 value)
 {
     texture3d_write_int((LCTexture*)view.ptr, p, view.level, value);
 }
 
 struct LCBindlessItem {
-    const void *buffer;
-    const LCTexture *tex2d;
-    const LCTexture *tex3d;
-    const uint sampler2d;
-    const uint sampler3d;
+    uniform const uint *buffer;
+    uniform const LCTexture *tex2d;
+    uniform const LCTexture *tex3d;
+    uniform const uint sampler2d;
+    uniform const uint sampler3d;
 };
 
 struct LCBindlessArray {
@@ -6723,7 +6722,7 @@ float4 bindless_texture_sample3d(uniform LCBindlessArray array, uint index, floa
 float4 bindless_texture_sample3d_level(uniform LCBindlessArray array, uint index, float3 uv, float level);
 float4 bindless_texture_sample3d_grad(uniform LCBindlessArray array, uint index, float3 uv, float3 ddx, float3 ddy);
 
-static float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint index, float2 uv, uint level)
+LUISA_INLINE float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint index, float2 uv, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex2d;
     if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1)
@@ -6746,7 +6745,7 @@ static float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, 
                binary_mul((fx)*(fy), texture2d_read_float(tex, make_uint2(x1,y1), level)))));
 }
 
-static float4 bindless_texture_sample3d_intlevel(uniform LCBindlessArray array, uint index, float3 uv, uint level)
+LUISA_INLINE float4 bindless_texture_sample3d_intlevel(uniform LCBindlessArray array, uint index, float3 uv, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex3d;
     if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1 || uv._z < 0 || uv._z > 1)
@@ -6779,17 +6778,17 @@ static float4 bindless_texture_sample3d_intlevel(uniform LCBindlessArray array, 
     )))))));
 }
 
-static float4 bindless_texture_sample2d(uniform LCBindlessArray array, uint index, float2 uv)
+LUISA_INLINE float4 bindless_texture_sample2d(uniform LCBindlessArray array, uint index, float2 uv)
 {
     return bindless_texture_sample2d_intlevel(array, index, uv, 0);
 }
 
-static float4 bindless_texture_sample3d(uniform LCBindlessArray array, uint index, float3 uv)
+LUISA_INLINE float4 bindless_texture_sample3d(uniform LCBindlessArray array, uint index, float3 uv)
 {
     return bindless_texture_sample3d_intlevel(array, index, uv, 0);
 }
 
-static float4 bindless_texture_sample2d_level(uniform LCBindlessArray array, uint index, float2 uv, float level)
+LUISA_INLINE float4 bindless_texture_sample2d_level(uniform LCBindlessArray array, uint index, float2 uv, float level)
 {
     uint l0 = (int)level;
     uint l1 = (int)level+1;
@@ -6799,7 +6798,7 @@ static float4 bindless_texture_sample2d_level(uniform LCBindlessArray array, uin
                binary_mul(  fl, bindless_texture_sample2d_intlevel(array, index, uv, l1)));
 }
 
-static float4 bindless_texture_sample3d_level(uniform LCBindlessArray array, uint index, float3 uv, float level)
+LUISA_INLINE float4 bindless_texture_sample3d_level(uniform LCBindlessArray array, uint index, float3 uv, float level)
 {
     uint l0 = (int)level;
     uint l1 = (int)level+1;
@@ -6808,25 +6807,25 @@ static float4 bindless_texture_sample3d_level(uniform LCBindlessArray array, uin
                binary_mul(  fl, bindless_texture_sample3d_intlevel(array, index, uv, l1)));
 }
 
-static float4 bindless_texture_read2d(uniform LCBindlessArray array, uint index, uint2 coord)
+LUISA_INLINE float4 bindless_texture_read2d(uniform LCBindlessArray array, uint index, uint2 coord)
 {
     uniform const LCTexture * tex = array.items[index].tex2d;
     return texture2d_read_float(tex, coord, 0);
 }
 
-static float4 bindless_texture_read2d_level(uniform LCBindlessArray array, uint index, uint2 coord, uint level)
+LUISA_INLINE float4 bindless_texture_read2d_level(uniform LCBindlessArray array, uint index, uint2 coord, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex2d;
     return texture2d_read_float(tex, coord, level);
 }
 
-static float4 bindless_texture_read3d(uniform LCBindlessArray array, uint index, uint3 coord)
+LUISA_INLINE float4 bindless_texture_read3d(uniform LCBindlessArray array, uint index, uint3 coord)
 {
     uniform const LCTexture * tex = array.items[index].tex3d;
     return texture3d_read_float(tex, coord, 0);
 }
 
-static float4 bindless_texture_read3d_level(uniform LCBindlessArray array, uint index, uint3 coord, uint level)
+LUISA_INLINE float4 bindless_texture_read3d_level(uniform LCBindlessArray array, uint index, uint3 coord, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex3d;
     return texture3d_read_float(tex, coord, level);
@@ -6839,16 +6838,16 @@ uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint index, u
 uint3 bindless_texture_size3d(uniform LCBindlessArray array, uint index);
 uint3 bindless_texture_size3d_level(uniform LCBindlessArray array, uint index, uint level);
 
-static const void *bindless_buffer(uniform LCBindlessArray array, uint buffer_id) {
+LUISA_INLINE const void *bindless_buffer(uniform LCBindlessArray array, uint buffer_id) {
     return array.items[buffer_id].buffer;
 }
 
-static uint2 bindless_texture_size2d(uniform LCBindlessArray array, uint index) {
+LUISA_INLINE uint2 bindless_texture_size2d(uniform LCBindlessArray array, uint index) {
     uniform const LCTexture *tex = array.items[index].tex2d;
     return make_uint2(tex->size[0], tex->size[1]);
 }
 
-static uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint index, uint level) {
+LUISA_INLINE uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint index, uint level) {
     uniform const LCTexture *tex = array.items[index].tex2d;
     return make_uint2(max(tex->size[0] >> level, 1u), max(tex->size[1] >> level, 1u));
 }
@@ -6857,7 +6856,7 @@ static uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint i
 
 #include <embree3/rtcore.isph>
 
-static char trace_any(uniform LCAccel accel, LCRay ray) {
+LUISA_INLINE char trace_any(uniform LCAccel accel, LCRay ray) {
     uniform RTCIntersectContext ctx;
     rtcInitIntersectContext(&ctx);
     RTCRay r;
@@ -6877,7 +6876,7 @@ static char trace_any(uniform LCAccel accel, LCRay ray) {
     return r.tfar < 0.f;
 }
 
-static LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
+LUISA_INLINE LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
     uniform RTCIntersectContext ctx;
     rtcInitIntersectContext(&ctx);
     RTCRayHit rh;
@@ -6907,9 +6906,9 @@ static LCHit trace_closest(uniform LCAccel accel, LCRay ray) {
 
 #endif
 
-static void lc_assume(char) {}
-static void lc_assume(uniform char pred) { assume(pred); }
-static void lc_unreachable() { assert(false); }
+LUISA_INLINE void lc_assume(char) {}
+LUISA_INLINE void lc_assume(uniform char pred) { assume(pred); }
+LUISA_INLINE void lc_unreachable() { assert(false); }
 
 #define make_array_type(name, T, N) struct name { T a[N]; }
 
