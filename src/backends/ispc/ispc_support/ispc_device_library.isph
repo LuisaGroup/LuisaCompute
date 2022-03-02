@@ -6785,10 +6785,8 @@ static inline float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray 
             uv._y = ty%2? ty-uv._y+1: uv._y-ty;
             break;
         case EDGE:
-            if (uv._x < 0) uv._x = 0;
-            if (uv._x > 1) uv._x = 1;
-            if (uv._y < 0) uv._y = 0;
-            if (uv._y > 1) uv._y = 1;
+            uv._x = clamp(uv._x, 0, 1);
+            uv._y = clamp(uv._y, 0, 1);
             break;
         default: break;
     }
@@ -6814,11 +6812,9 @@ static inline float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray 
 LUISA_INLINE float4 bindless_texture_sample3d_intlevel(uniform LCBindlessArray array, uint index, float3 uv, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex3d;
-#ifdef LUISA_DEBUG
     if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1 || uv._z < 0 || uv._z > 1) {
         return make_float4(0.0f);
     }
-#endif
     // trilinear
     uint w = max(tex->size[0]>>level, 1u);
     uint h = max(tex->size[1]>>level, 1u);
