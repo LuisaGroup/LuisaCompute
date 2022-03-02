@@ -711,9 +711,8 @@ void ISPCCodegen::visit(const Type *type) noexcept {
         _scratch << " *)bindless_buffer(array, buffer_id);\n";
         _scratch << "    ";
         _emit_type_name(type);
-        _scratch << " element;\n"
-                 << "    element = buffer[element_id];\n"
-                 << "return element;\n"
+        _scratch << " element = buffer[element_id];\n"
+                 << "    return element;\n"
                  << "}\n\n";
     }
 }
