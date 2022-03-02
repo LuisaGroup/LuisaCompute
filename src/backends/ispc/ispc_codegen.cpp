@@ -514,11 +514,11 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "inline void "
+        _scratch << "static void "
                  << "kernel_"
                  << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
-        _scratch << "inline ";
+        _scratch << "static inline ";
         if (f.return_type() != nullptr) {
             _emit_type_name(f.return_type());
         } else {

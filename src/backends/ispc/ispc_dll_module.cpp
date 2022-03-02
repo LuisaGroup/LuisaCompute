@@ -43,12 +43,12 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     auto embree_name = [&ctx] {
         std::filesystem::directory_iterator runtime_files{ctx.runtime_directory()};
         for (auto &&file : runtime_files) {
-            if (auto name = file.path().stem().string();
-                name.find("embree3") != std::string::npos &&
-                (name.ends_with(".dll") || name.ends_with(".so"))) {
-                return name.starts_with("lib") ?
-                           name.substr(3u) :
-                           name;
+            auto filename = file.path().filename();
+            auto stem = filename.stem().string();
+            auto ext = filename.extension().string();
+            if (stem.find("embree3") != std::string::npos &&
+                (ext == ".dll" || ext == ".so" || ext == ".dylib")) {
+                return stem.starts_with("lib") ? stem.substr(3u) : stem;
             }
         }
         LUISA_WARNING_WITH_LOCATION("Failed to find embree3.");
