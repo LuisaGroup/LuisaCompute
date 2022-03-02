@@ -29,7 +29,7 @@ if __name__ == "__main__":
 #define _z v[2]
 #define _w v[3]
 
-#define LUISA_INLINE static
+#define LUISA_INLINE static inline
 
 typedef uint8 char;
 ''', file=file)
@@ -1410,8 +1410,11 @@ LUISA_INLINE void texture2d_write_{T}(uniform LCTexture * tex, uint2 p, uint lev
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
     uint height = max(tex->size[1] >> level, 1);
-    if (p.v[0] >= width || p.v[1] >= height)
+#ifdef LUISA_DEBUG
+    if (p.v[0] >= width || p.v[1] >= height) {
         print("texture write out of bound %u %u, %u %u\\n", p.v[0], p.v[1], width, height);
+    }
+#endif
     void* data = (uint8*)tex->lods[level] + (p.v[1] * width + p.v[0]) * pxsize;
     pixel_write_{T}(tex->storage, data, value);
 }
@@ -1421,9 +1424,11 @@ LUISA_INLINE {T}4 texture2d_read_{T}(uniform LCTexture * tex, uint2 p, uint leve
     uint pxsize = pixel_storage_size(tex->storage);
     uint width = max(tex->size[0] >> level, 1);
     uint height = max(tex->size[1] >> level, 1);
+#ifdef LUISA_DEBUG
     if (p.v[0] >= width || p.v[1] >= height) {
         print("texture@%u read out of bound %u %u, %u %u\\n", level, p.v[0], p.v[1], width, height);
     }
+#endif
     void* data = (uint8*)tex->lods[level] + (p.v[1] * width + p.v[0]) * pxsize;
     return pixel_read_{T}(tex->storage, data);
 }
@@ -1434,9 +1439,11 @@ LUISA_INLINE void texture3d_write_{T}(uniform LCTexture * tex, uint3 p, uint lev
     uint sx = max(tex->size[0] >> level, 1);
     uint sy = max(tex->size[1] >> level, 1);
     uint sz = max(tex->size[2] >> level, 1);
-    if (p.v[0] >= sx || p.v[1] >= sy || p.v[2] >= sz)
+#ifdef LUISA_DEBUG
+    if (p.v[0] >= sx || p.v[1] >= sy || p.v[2] >= sz) {
         print("texture write out of bound %u %u %u, %u %u %u\\n", p.v[0], p.v[1], p.v[2], sx, sy, sz);
-
+    }
+#endif
     void* data = (uint8*)tex->lods[level] + ((p.v[2] * sy + p.v[1]) * sx + p.v[0]) * pxsize;
     pixel_write_{T}(tex->storage, data, value);
 }
@@ -1447,9 +1454,11 @@ LUISA_INLINE {T}4 texture3d_read_{T}(uniform LCTexture * tex, uint3 p, uint leve
     uint sx = max(tex->size[0] >> level, 1);
     uint sy = max(tex->size[1] >> level, 1);
     uint sz = max(tex->size[2] >> level, 1);
-    if (p.v[0] >= sx || p.v[1] >= sy || p.v[2] >= sz)
+#ifdef LUISA_DEBUG
+    if (p.v[0] >= sx || p.v[1] >= sy || p.v[2] >= sz) {
         print("texture read out of bound %u %u %u, %u %u %u\\n", p.v[0], p.v[1], p.v[2], sx, sy, sz);
-
+    }
+#endif
     void* data = (uint8*)tex->lods[level] + ((p.v[2] * sy + p.v[1]) * sx + p.v[0]) * pxsize;
     return pixel_read_{T}(tex->storage, data);
 }
@@ -1501,8 +1510,11 @@ float4 bindless_texture_sample3d_grad(uniform LCBindlessArray array, uint index,
 LUISA_INLINE float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint index, float2 uv, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex2d;
-    if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1)
+#ifdef LUISA_DEBUG
+    if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1) {
         return make_float4(0.0f);
+    }
+#endif
     // bilinear
     uint w = max(tex->size[0]>>level, 1u);
     uint h = max(tex->size[1]>>level, 1u);
@@ -1524,8 +1536,11 @@ LUISA_INLINE float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray a
 LUISA_INLINE float4 bindless_texture_sample3d_intlevel(uniform LCBindlessArray array, uint index, float3 uv, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex3d;
-    if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1 || uv._z < 0 || uv._z > 1)
+#ifdef LUISA_DEBUG
+    if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1 || uv._z < 0 || uv._z > 1) {
         return make_float4(0.0f);
+    }
+#endif
     // trilinear
     uint w = max(tex->size[0]>>level, 1u);
     uint h = max(tex->size[1]>>level, 1u);
