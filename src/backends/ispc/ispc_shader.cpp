@@ -62,10 +62,11 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             "--addressing=32",
 #ifndef NDEBUG
             "-g",
+            "-D LUISA_DEBUG",
 #else
             "--opt=disable-assertions",
 #endif
-            "-O0",
+            "-O3",
             "--math-lib=fast",
             "--opt=fast-masked-vload",
             "--opt=fast-math",
