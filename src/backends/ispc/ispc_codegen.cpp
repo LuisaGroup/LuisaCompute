@@ -351,7 +351,7 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "bindless_texture_size3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
-        case CallOp::BINDLESS_BUFFER_READ: _scratch << "bindless_buffer_read"; break;
+        case CallOp::BINDLESS_BUFFER_READ: _scratch << "bindless_buffer_read_" << luisa::format("{:016X}", expr->type()->hash()); break;
         case CallOp::MAKE_BOOL2: _scratch << "make_bool2"; break;
         case CallOp::MAKE_BOOL3: _scratch << "make_bool3"; break;
         case CallOp::MAKE_BOOL4: _scratch << "make_bool4"; break;
@@ -384,12 +384,6 @@ void ISPCCodegen::visit(const CallExpr *expr) {
             arg->accept(*this);
         }
     } else if (!args.empty()) {
-        if (expr->op() == CallOp::BINDLESS_BUFFER_READ) {
-            _emit_type_name(expr->type());
-            _scratch << ", "
-                     << expr->type()->alignment()
-                     << ", ";
-        }
         for (auto arg : args) {
             arg->accept(*this);
             _scratch << ", ";
@@ -701,6 +695,26 @@ void ISPCCodegen::visit(const Type *type) noexcept {
             }
         }
         _scratch << "};\n\n";
+    }
+
+    // for bindless buffers
+    if (type->is_basic() || type->is_array() || type->is_structure()) {
+        _scratch << "static inline ";
+        _emit_type_name(type);
+        _scratch << " bindless_buffer_read_"
+                 << luisa::format("{:016X}", type->hash())
+                 << "(uniform const LCBindlessArray array, uint buffer_id, uint element_id) {\n"
+                 << "    const ";
+        _emit_type_name(type);
+        _scratch << " *buffer = (const ";
+        _emit_type_name(type);
+        _scratch << " *)bindless_buffer(array, buffer_id);\n";
+        _scratch << "    ";
+        _emit_type_name(type);
+        _scratch << " element;\n"
+                 << "    element = buffer[element_id];\n"
+                 << "return element;\n"
+                 << "}\n\n";
     }
 }
 

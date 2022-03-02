@@ -27,8 +27,8 @@ public:
         const void *buffer;
         ISPCTexture::Handle tex2d;
         ISPCTexture::Handle tex3d;
-        uint16_t sampler2d;
-        uint16_t sampler3d;
+        uint sampler2d;
+        uint sampler3d;
     };
 
     /**
