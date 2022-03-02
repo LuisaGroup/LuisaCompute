@@ -1499,11 +1499,50 @@ float4 bindless_texture_sample3d(uniform LCBindlessArray array, uint index, floa
 float4 bindless_texture_sample3d_level(uniform LCBindlessArray array, uint index, float3 uv, float level);
 float4 bindless_texture_sample3d_grad(uniform LCBindlessArray array, uint index, float3 uv, float3 ddx, float3 ddy);
 
+
+enum Filter {
+    POINT,
+    LINEAR_POINT,
+    LINEAR_LINEAR,
+    ANISOTROPIC
+};
+
+enum Address {
+    EDGE,
+    REPEAT,
+    MIRROR,
+    ZERO
+};
+
 static inline float4 bindless_texture_sample2d_intlevel(uniform LCBindlessArray array, uint index, float2 uv, uint level)
 {
     uniform const LCTexture * tex = array.items[index].tex2d;
-    if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1)
-        return make_float4(0.0f);
+    const uint sampler2d = array.items[index].sampler2d;
+
+    switch ((Address)(sampler2d & 3)) {
+        case ZERO:
+            if (uv._x < 0 || uv._x > 1 || uv._y < 0 || uv._y > 1)
+                return make_float4(0.0f);
+            break;
+        case REPEAT:
+            uv._x = uv._x - floor(uv._x);
+            uv._y = uv._y - floor(uv._y);
+            break;
+        case MIRROR:
+            int tx = floor(uv._x);
+            int ty = floor(uv._y);
+            uv._x = tx%2? tx-uv._x+1: uv._x-tx;
+            uv._y = ty%2? ty-uv._y+1: uv._y-ty;
+            break;
+        case EDGE:
+            if (uv._x < 0) uv._x = 0;
+            if (uv._x > 1) uv._x = 1;
+            if (uv._y < 0) uv._y = 0;
+            if (uv._y > 1) uv._y = 1;
+            break;
+        default: break;
+    }
+
     // bilinear
     uint w = max(tex->size[0]>>level, 1u);
     uint h = max(tex->size[1]>>level, 1u);

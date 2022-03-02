@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
     auto out_pixels = mipmaps.data();
 
     // generate mip-maps
-    stream << heap.emplace(0u, texture, Sampler::linear_linear_edge()).update()
+    stream << heap.emplace(0u, texture, Sampler::linear_linear_repeat()).update()
         << texture.copy_from(image_pixels);
 
     LUISA_INFO("Mip Level: {}", texture.mip_levels());
