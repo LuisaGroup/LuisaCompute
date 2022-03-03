@@ -8,7 +8,12 @@ namespace luisa::compute::ispc {
 
 void ISPCVariableDefinitionAnalysis::visit(const BreakStmt *stmt) {}
 void ISPCVariableDefinitionAnalysis::visit(const ContinueStmt *stmt) {}
-void ISPCVariableDefinitionAnalysis::visit(const ReturnStmt *stmt) {}
+
+void ISPCVariableDefinitionAnalysis::visit(const ReturnStmt *stmt) {
+    if (auto expr = stmt->expression()) {
+        _define(expr);
+    }
+}
 
 void ISPCVariableDefinitionAnalysis::visit(const ScopeStmt *stmt) {
     // add to parent record
@@ -63,6 +68,7 @@ void ISPCVariableDefinitionAnalysis::visit(const SwitchDefaultStmt *stmt) {
 
 void ISPCVariableDefinitionAnalysis::visit(const AssignStmt *stmt) {
     _define(stmt->lhs());
+    _define(stmt->rhs());
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const ForStmt *stmt) {
