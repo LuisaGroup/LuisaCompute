@@ -42,6 +42,7 @@ void ISPCVariableDefinitionAnalysis::visit(const ScopeStmt *stmt) {
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const IfStmt *stmt) {
+    _define(stmt->condition());
     stmt->true_branch()->accept(*this);
     stmt->false_branch()->accept(*this);
 }
@@ -50,15 +51,19 @@ void ISPCVariableDefinitionAnalysis::visit(const LoopStmt *stmt) {
     stmt->body()->accept(*this);
 }
 
-void ISPCVariableDefinitionAnalysis::visit(const ExprStmt *stmt) {}
+void ISPCVariableDefinitionAnalysis::visit(const ExprStmt *stmt) {
+    _define(stmt->expression());
+}
 
 void ISPCVariableDefinitionAnalysis::visit(const SwitchStmt *stmt) {
+    _define(stmt->expression());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const SwitchCaseStmt *stmt) {
+    _define(stmt->expression());
     stmt->body()->accept(*this);
 }
 
@@ -72,6 +77,9 @@ void ISPCVariableDefinitionAnalysis::visit(const AssignStmt *stmt) {
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const ForStmt *stmt) {
+    _define(stmt->variable());
+    _define(stmt->condition());
+    _define(stmt->step());
     stmt->body()->accept(*this);
 }
 
@@ -103,17 +111,50 @@ void ISPCVariableDefinitionAnalysis::reset() noexcept {
 }
 
 void ISPCVariableDefinitionAnalysis::_define(const Expression *expr) noexcept {
-    if (auto ref = dynamic_cast<const RefExpr *>(expr)) {
-        if (auto v = ref->variable();
-            v.tag() == Variable::Tag::LOCAL &&
-            _arguments.find(v.uid()) == _arguments.cend()) {
-            _scope_stack.back().def(v);
-        }
-    } else if (auto member = dynamic_cast<const MemberExpr *>(expr)) {
-        _define(member->self());
-    } else if (auto access = dynamic_cast<const AccessExpr *>(expr)) {
-        _define(access->range());
+    expr->accept(*this);
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const UnaryExpr *expr) {
+    expr->operand()->accept(*this);
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const BinaryExpr *expr) {
+    expr->lhs()->accept(*this);
+    expr->rhs()->accept(*this);
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const MemberExpr *expr) {
+    expr->self()->accept(*this);
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const AccessExpr *expr) {
+    expr->range()->accept(*this);
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const LiteralExpr *expr) {
+    // does nothing
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const RefExpr *expr) {
+    if (auto v = expr->variable();
+        v.tag() == Variable::Tag::LOCAL &&
+        _arguments.find(v.uid()) == _arguments.cend()) {
+        _scope_stack.back().def(v);
     }
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const ConstantExpr *expr) {
+    // does nothing
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const CallExpr *expr) {
+    for (auto arg : expr->arguments()) {
+        arg->accept(*this);
+    }
+}
+
+void ISPCVariableDefinitionAnalysis::visit(const CastExpr *expr) {
+    expr->expression()->accept(*this);
 }
 
 }// namespace luisa::compute::ispc
