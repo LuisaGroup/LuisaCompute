@@ -255,12 +255,14 @@ struct TypeVisitor {
 
 class AstSerializer;
 
+/// Type class
 class Type {
 
 public:
     friend class AstSerializer;
     friend class detail::TypeRegistry;
 
+    /// Type tags
     enum struct Tag : uint32_t {
 
         BOOL,
@@ -291,18 +293,28 @@ private:
     luisa::vector<const Type *> _members;
 
 public:
+    /// Return Type object of type T
     template<typename T>
     [[nodiscard]] static const Type *of() noexcept;
+    /// Return Type object of type T
     template<typename T>
     [[nodiscard]] static auto of(T &&) noexcept { return of<std::remove_cvref_t<T>>(); }
+    /// Construct Type object from description
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
+    /// Construct Type object from hash
     [[nodiscard]] static const Type *find(uint64_t hash) noexcept;
+    /// Construct Type object from uid
     [[nodiscard]] static const Type *at(uint32_t uid) noexcept;
+    /// Return type count
     [[nodiscard]] static size_t count() noexcept;
+    /// Traverse TypeVisitor
     static void traverse(TypeVisitor &visitor) noexcept;
 
+    /// Compare by hash
     [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }
+    /// Compare by hash
     [[nodiscard]] bool operator!=(const Type &rhs) const noexcept { return !(*this == rhs); }
+    /// Compare by index
     [[nodiscard]] bool operator<(const Type &rhs) const noexcept { return _index < rhs._index; }
     [[nodiscard]] constexpr auto index() const noexcept { return _index; }
     [[nodiscard]] constexpr auto hash() const noexcept { return _hash; }
@@ -316,8 +328,10 @@ public:
     }
 
     [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
+    /// Return pointer to first element
     [[nodiscard]] const Type *element() const noexcept;
 
+    /// Scalar = bool || float || int || uint
     [[nodiscard]] constexpr bool is_scalar() const noexcept {
         return _tag == Tag::BOOL
                || _tag == Tag::FLOAT
@@ -325,6 +339,7 @@ public:
                || _tag == Tag::UINT;
     }
 
+    /// Basic = scalar || vector || matrix
     [[nodiscard]] constexpr auto is_basic() const noexcept {
         return is_scalar() || is_vector() || is_matrix();
     }

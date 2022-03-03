@@ -40,13 +40,16 @@ class Accel;
 
 namespace detail {
 
+/// Type registry class
 class TypeRegistry {
 
 private:
+    /// Hash
     struct TypePtrHash {
         [[nodiscard]] auto operator()(const Type *type) const noexcept { return type->hash(); }
         [[nodiscard]] auto operator()(uint64_t hash) const noexcept { return hash; }
     };
+    /// Equal
     struct TypePtrEqual {
         template<typename Lhs, typename Rhs>
         [[nodiscard]] auto operator()(Lhs &&lhs, Rhs &&rhs) const noexcept {
@@ -65,11 +68,17 @@ private:
     [[nodiscard]] const Type *_decode(luisa::string_view desc) noexcept;
 
 public:
+    /// Get registry instance
     [[nodiscard]] static TypeRegistry &instance() noexcept;
+    /// Construct Type object from description
     [[nodiscard]] const Type *type_from(luisa::string_view desc) noexcept;
+    /// Construct Type object from hash
     [[nodiscard]] const Type *type_from(uint64_t hash) noexcept;
+    /// Get Type object at index i
     [[nodiscard]] const Type *type_at(size_t i) const noexcept;
+    /// Return type count
     [[nodiscard]] size_t type_count() const noexcept;
+    /// Traverse all types using visitor
     void traverse(TypeVisitor &visitor) const noexcept;
 };
 

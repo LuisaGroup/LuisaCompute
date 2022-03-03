@@ -13,6 +13,11 @@
 
 namespace luisa {
 
+/**
+ * @brief Pool class
+ * 
+ * @tparam T type
+ */
 template<typename T>
 class Pool {
 
@@ -37,14 +42,23 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new Pool object.
+     * default constructor 
+     */
     Pool() noexcept = default;
     Pool(Pool &&) noexcept = default;
     Pool(const Pool &) noexcept = delete;
     Pool &operator=(Pool &&) noexcept = default;
     Pool &operator=(const Pool &) noexcept = default;
 
+    /**
+     * @brief Destroy the Pool object.
+     * detect for leaking
+     */
     ~Pool() noexcept {
         if (!_blocks.empty()) {
+            LUISA_INFO("{}", _available_objects.size());
             if (auto available = _available_objects.size(),
                 expected = _blocks.size() * block_size;
                 available != expected) {
@@ -59,6 +73,13 @@ public:
         }
     }
 
+    /**
+     * @brief Construct a T object in pool.
+     * Thread safe. Construct using space in pool.
+     * @tparam Args construct parameters of T
+     * @param args construct parameters of T
+     * @return pointer to constructed object
+     */
     template<typename... Args>
     [[nodiscard]] auto create(Args &&...args) noexcept {
         auto p = [this] {
@@ -71,6 +92,12 @@ public:
         return std::construct_at(p, std::forward<Args>(args)...);
     }
 
+    /**
+     * @brief Recycle a T object to pool.
+     * Will call T's destruct function. Thread safe. Object's address will be saved in pool.
+     * If object is not construct by pool, may cause leak warning.
+     * @param object object to be recycled
+     */
     void recycle(T *object) noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>) { object->~T(); }
         std::scoped_lock lock{_mutex};
