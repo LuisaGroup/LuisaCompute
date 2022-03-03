@@ -2,18 +2,14 @@
 // Created by ChenXin on 2021/12/3.
 //
 #pragma once
-#ifndef LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
-#define LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
 
 #include <runtime/device.h>
 #include <vector>
 #include <core/hash.h>
-#include <vstl/Pool.h>
-#include <vstl/vector.h>
-#include <eastl/unordered_set.h>
+
 namespace luisa::compute {
 
-class CommandReorderVisitor : public CommandVisitor {
+class CommandReorderVisitor : public MutableCommandVisitor {
     enum struct CommandType : uint32_t {
         BUFFER = 0x1u,
         TEXTURE = 0x2u,
@@ -41,9 +37,9 @@ class CommandReorderVisitor : public CommandVisitor {
     };
 
     struct CommandRelation {
-        Command const*command;
+        Command *command;
         luisa::unordered_set<CommandSource, CommandSource::Hash> sourceSet;
-        explicit CommandRelation(Command const *command) noexcept : command{command} {}
+        explicit CommandRelation(Command *command) noexcept : command{command} {}
         void clear() {
             sourceSet.clear();
         }
@@ -70,11 +66,11 @@ private:
     Device::Interface *device;
     static constexpr int windowSize = 16;
     luisa::vector<luisa::vector<CommandRelation*>> _commandRelationData;
-    vstd::Pool<CommandRelation, true> relationPool;
+    Pool<CommandRelation> relationPool;
     luisa::vector<CommandRelation *> pooledRelations;
 
 private:
-    CommandRelation *allocate_relation(Command const* cmd);
+    CommandRelation *allocate_relation(Command *cmd);
     void deallocate_relation(CommandRelation * v);
 
     inline bool Overlap(CommandSource sourceA, CommandSource sourceB);
@@ -88,32 +84,30 @@ public:
     [[nodiscard]] luisa::vector<CommandList> getCommandLists() noexcept;
     void clear() noexcept;
     // Buffer : resource
-    void visit(const BufferUploadCommand *command) noexcept override;
-    void visit(const BufferDownloadCommand *command) noexcept override;
-    void visit(const BufferCopyCommand *command) noexcept override;
-    void visit(const BufferToTextureCopyCommand *command) noexcept override;
+    void visit(BufferUploadCommand *command) noexcept override;
+    void visit(BufferDownloadCommand *command) noexcept override;
+    void visit(BufferCopyCommand *command) noexcept override;
+    void visit(BufferToTextureCopyCommand *command) noexcept override;
 
     // Shader : function, read/write multi resources
-    void visit(const ShaderDispatchCommand *command) noexcept override;
+    void visit(ShaderDispatchCommand *command) noexcept override;
 
     // Texture : resource
-    void visit(const TextureUploadCommand *command) noexcept override;
-    void visit(const TextureDownloadCommand *command) noexcept override;
-    void visit(const TextureCopyCommand *command) noexcept override;
-    void visit(const TextureToBufferCopyCommand *command) noexcept override;
+    void visit(TextureUploadCommand *command) noexcept override;
+    void visit(TextureDownloadCommand *command) noexcept override;
+    void visit(TextureCopyCommand *command) noexcept override;
+    void visit(TextureToBufferCopyCommand *command) noexcept override;
 
     // BindlessArray : read multi resources
-    void visit(const BindlessArrayUpdateCommand *command) noexcept override;
+    void visit(BindlessArrayUpdateCommand *command) noexcept override;
 
     // Accel : conclude meshes and their buffer
-    void visit(const AccelUpdateCommand *command) noexcept override;
-    void visit(const AccelBuildCommand *command) noexcept override;
+    void visit(AccelUpdateCommand *command) noexcept override;
+    void visit(AccelBuildCommand *command) noexcept override;
 
     // Mesh : conclude vertex and triangle buffers
-    void visit(const MeshUpdateCommand *command) noexcept override;
-    void visit(const MeshBuildCommand *command) noexcept override;
+    void visit(MeshUpdateCommand *command) noexcept override;
+    void visit(MeshBuildCommand *command) noexcept override;
 };
 
 }// namespace luisa::compute
-
-#endif//LUISACOMPUTE_COMMAND_REORDER_VISITOR_H

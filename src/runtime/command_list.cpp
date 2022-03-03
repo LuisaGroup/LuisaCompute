@@ -15,9 +15,7 @@ void CommandList::_recycle() noexcept {
 }
 
 void CommandList::append(Command *cmd) noexcept {
-    for (; cmd != nullptr; cmd = cmd->next()) {
-        _commands.emplace_back(cmd);
-    }
+    _commands.emplace_back(cmd);
 }
 
 CommandList::CommandList(CommandList &&another) noexcept = default;
