@@ -11,6 +11,10 @@
 
 namespace luisa::compute::cuda {
 
+/**
+ * @brief CUDA code generator
+ * 
+ */
 class CUDACodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
@@ -57,8 +61,18 @@ private:
     virtual void _emit_variable_declarations(const MetaStmt *meta) noexcept;
 
 public:
+    /**
+     * @brief Construct a new CUDACodegen object
+     * 
+     * @param scratch scratch of generated code
+     */
     explicit CUDACodegen(Codegen::Scratch &scratch) noexcept
         : Codegen{scratch} {}
+    /**
+     * @brief Emit a function
+     * 
+     * @param f function
+     */
     void emit(Function f) override;
 };
 

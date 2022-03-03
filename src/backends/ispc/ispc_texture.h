@@ -8,7 +8,6 @@
 
 namespace luisa::compute::ispc {
 
-// TODO
 /**
  * @brief Texture of ISPC
  * 
@@ -26,6 +25,10 @@ public:
         // script as well
         const void *ptr;// TODO
     };
+    struct TextureView {
+        const void* ptr;
+        uint32_t level, dummy;
+    };
 
 public:
     /**
@@ -37,12 +40,24 @@ public:
      * @param mip_levels mipmap levels 
      */
     ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept;
+    ~ISPCTexture();
     /**
      * @brief Return handle for device usage
      * 
      * @return Handle 
      */
     [[nodiscard]] Handle handle() const noexcept;
+
+public:
+
+    PixelStorage storage;
+    uint dim;
+    uint size[3];
+
+    static const unsigned MAXLOD = 20;
+    uint lodLevel;
+    void* lods[MAXLOD];
+
 };
 
 }// namespace luisa::compute::ispc

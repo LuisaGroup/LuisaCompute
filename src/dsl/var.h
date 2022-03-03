@@ -132,7 +132,7 @@ template<typename... T>
 Var(std::tuple<T...>) -> Var<std::tuple<expr_value_t<T>...>>;
 
 template<typename T, size_t N>
-using ArrayVar = Var<std::array<T, N>>;
+using ArrayVar = Var<std::array<expr_value_t<T>, N>>;
 
 template<typename T>
 using BufferVar = Var<Buffer<T>>;

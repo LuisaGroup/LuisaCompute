@@ -23,7 +23,7 @@ private:
         void DeAllocate(uint64 handle) override;
     };
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
-    vstd::unique_ptr<CommandBuffer> cbuffer;
+    mutable vstd::optional<CommandBuffer> cbuffer;
     vstd::LockFreeArrayQueue<vstd::move_only_func<void()>> executeAfterComplete;
     Visitor<ReadbackBuffer> rbVisitor;
     Visitor<DefaultBuffer> dbVisitor;

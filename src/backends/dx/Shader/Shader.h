@@ -31,8 +31,11 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSig;
     vstd::HashMap<vstd::string, InsideProperty> properties;
     vstd::optional<InsideProperty> GetProperty(vstd::string_view str) const;
+    uint bindlessCount;
 
 public:
+    uint BindlessCount() const { return bindlessCount; }
+
     Shader(
         vstd::span<std::pair<vstd::string, Property> const> properties,
         ID3D12Device *device);

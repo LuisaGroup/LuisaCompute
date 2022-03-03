@@ -1,6 +1,8 @@
 #pragma vengine_package vengine_directx
 #include <vstl/Common.h>
 namespace toolhub::directx {
+
+// TODO: workaround bindless floatnxn buffers?
 vstd::string_view GetHLSLHeader() {
     return R"(
 
@@ -9,54 +11,133 @@ vstd::string_view GetHLSLHeader() {
 #define INFINITY_f 3.40282347e+37
 SamplerState samplers[16] : register(s0, space1);
 
-float4x4 _inverse(float4x4 m) {
-	float n11 = m[0][0], n12 = m[1][0], n13 = m[2][0], n14 = m[3][0];
-	float n21 = m[0][1], n22 = m[1][1], n23 = m[2][1], n24 = m[3][1];
-	float n31 = m[0][2], n32 = m[1][2], n33 = m[2][2], n34 = m[3][2];
-	float n41 = m[0][3], n42 = m[1][3], n43 = m[2][3], n44 = m[3][3];
-	float t11 = n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44;
-	float t12 = n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44;
-	float t13 = n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44;
-	float t14 = n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34;
-	float det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
-	float idet = 1.0f / det;
-	float4x4 ret;
-	ret[0][0] = t11 * idet;
-	ret[0][1] = (n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44 - n21 * n33 * n44) * idet;
-	ret[0][2] = (n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44 + n21 * n32 * n44) * idet;
-	ret[0][3] = (n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43 - n21 * n32 * n43) * idet;
-
-	ret[1][0] = t12 * idet;
-	ret[1][1] = (n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44 + n11 * n33 * n44) * idet;
-	ret[1][2] = (n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44 - n11 * n32 * n44) * idet;
-	ret[1][3] = (n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43 + n11 * n32 * n43) * idet;
-
-	ret[2][0] = t13 * idet;
-	ret[2][1] = (n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44 - n11 * n23 * n44) * idet;
-	ret[2][2] = (n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44 + n11 * n22 * n44) * idet;
-	ret[2][3] = (n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43 - n11 * n22 * n43) * idet;
-
-	ret[3][0] = t14 * idet;
-	ret[3][1] = (n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34 + n11 * n23 * n34) * idet;
-	ret[3][2] = (n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34 - n11 * n22 * n34) * idet;
-	ret[3][3] = (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33) * idet;
-
-	return ret;
+float determinant(float2x2 m) {
+    return m[0][0] * m[1][1] - m[1][0] * m[0][1];
+}
+float determinant(float3x4 m) {
+    return m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
+         - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
+         + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z);
+}
+float determinant(float4x4 m) {
+    const float coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+    const float coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+    const float coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+    const float coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+    const float coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+    const float coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+    const float coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+    const float coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+    const float coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+    const float coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+    const float coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+    const float coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+    const float coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+    const float coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+    const float coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+    const float coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+    const float coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+    const float coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+    const float4 fac0 = float4(coef00, coef00, coef02, coef03);
+    const float4 fac1 = float4(coef04, coef04, coef06, coef07);
+    const float4 fac2 = float4(coef08, coef08, coef10, coef11);
+    const float4 fac3 = float4(coef12, coef12, coef14, coef15);
+    const float4 fac4 = float4(coef16, coef16, coef18, coef19);
+    const float4 fac5 = float4(coef20, coef20, coef22, coef23);
+    const float4 Vec0 = float4(m[1].x, m[0].x, m[0].x, m[0].x);
+    const float4 Vec1 = float4(m[1].y, m[0].y, m[0].y, m[0].y);
+    const float4 Vec2 = float4(m[1].z, m[0].z, m[0].z, m[0].z);
+    const float4 Vec3 = float4(m[1].w, m[0].w, m[0].w, m[0].w);
+    const float4 inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+    const float4 inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+    const float4 inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+    const float4 inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+    const float4 sign_a = float4(+1.0f, -1.0f, +1.0f, -1.0f);
+    const float4 sign_b = float4(-1.0f, +1.0f, -1.0f, +1.0f);
+    const float4 inv_0 = inv0 * sign_a;
+    const float4 inv_1 = inv1 * sign_b;
+    const float4 inv_2 = inv2 * sign_a;
+    const float4 inv_3 = inv3 * sign_b;
+    const float4 dot0 = m[0] * float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x);
+    return dot0.x + dot0.y + dot0.z + dot0.w;
 }
 
-float3x4 _inverse(float3x4 m) {
-	float3 c = float3(m[0][0], m[1][0], m[2][0]);
-	float3 c2 = float3(m[0][1], m[1][1], m[2][1]);
-	float3 c3 = float3(m[0][2], m[1][2], m[2][2]);
-	float3 lhs = float3(c2.x, c3.x, c.x);
-	float3 flt = float3(c2.y, c3.y, c.y);
-	float3 rhs = float3(c2.z, c3.z, c.z);
-	float3 flt2 = flt * rhs.yzx - flt.yzx * rhs;
-	float3 c4 = lhs.yzx * rhs - lhs * rhs.yzx;
-	float3 c5 = lhs * flt.yzx - lhs.yzx * flt;
-	float rhs2 = 1.0 / dot(lhs.zxy * flt2, 1);
-	return float3x4(float4(flt2, 0), float4(c4, 0), float4(c5, 0)) * rhs2;
+float2x2 inverse(float2x2 m) {
+    const float one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
+    return float2x2(m[1][1] * one_over_determinant,
+                   -m[0][1] * one_over_determinant,
+                   -m[1][0] * one_over_determinant,
+                   +m[0][0] * one_over_determinant);
 }
+
+float3x4 inverse(float3x4 m) {
+    const float one_over_determinant = 1.0f /
+        (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) -
+         m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z) +
+         m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
+    return float3x4(
+        (m[1].y * m[2].z - m[2].y * m[1].z) * one_over_determinant,
+        (m[2].y * m[0].z - m[0].y * m[2].z) * one_over_determinant,
+        (m[0].y * m[1].z - m[1].y * m[0].z) * one_over_determinant,
+        0.f,
+        (m[2].x * m[1].z - m[1].x * m[2].z) * one_over_determinant,
+        (m[0].x * m[2].z - m[2].x * m[0].z) * one_over_determinant,
+        (m[1].x * m[0].z - m[0].x * m[1].z) * one_over_determinant,
+        0.f,
+        (m[1].x * m[2].y - m[2].x * m[1].y) * one_over_determinant,
+        (m[2].x * m[0].y - m[0].x * m[2].y) * one_over_determinant,
+        (m[0].x * m[1].y - m[1].x * m[0].y) * one_over_determinant,
+        0.f);
+}
+
+float4x4 inverse(float4x4 m) {
+    const float coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+    const float coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+    const float coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+    const float coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+    const float coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+    const float coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+    const float coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+    const float coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+    const float coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+    const float coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+    const float coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+    const float coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+    const float coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+    const float coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+    const float coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+    const float coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+    const float coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+    const float coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+    const float4 fac0 = float4(coef00, coef00, coef02, coef03);
+    const float4 fac1 = float4(coef04, coef04, coef06, coef07);
+    const float4 fac2 = float4(coef08, coef08, coef10, coef11);
+    const float4 fac3 = float4(coef12, coef12, coef14, coef15);
+    const float4 fac4 = float4(coef16, coef16, coef18, coef19);
+    const float4 fac5 = float4(coef20, coef20, coef22, coef23);
+    const float4 Vec0 = float4(m[1].x, m[0].x, m[0].x, m[0].x);
+    const float4 Vec1 = float4(m[1].y, m[0].y, m[0].y, m[0].y);
+    const float4 Vec2 = float4(m[1].z, m[0].z, m[0].z, m[0].z);
+    const float4 Vec3 = float4(m[1].w, m[0].w, m[0].w, m[0].w);
+    const float4 inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+    const float4 inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+    const float4 inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+    const float4 inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+    const float4 sign_a = float4(+1.0f, -1.0f, +1.0f, -1.0f);
+    const float4 sign_b = float4(-1.0f, +1.0f, -1.0f, +1.0f);
+    const float4 inv_0 = inv0 * sign_a;
+    const float4 inv_1 = inv1 * sign_b;
+    const float4 inv_2 = inv2 * sign_a;
+    const float4 inv_3 = inv3 * sign_b;
+    const float4 dot0 = m[0] * float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x);
+    const float dot1 = dot0.x + dot0.y + dot0.z + dot0.w;
+    const float one_over_determinant = 1.0f / dot1;
+    return float4x4(inv_0 * one_over_determinant,
+                    inv_1 * one_over_determinant,
+                    inv_2 * one_over_determinant,
+                    inv_3 * one_over_determinant);
+}
+
 template<typename T>
 T _acosh(T v) { return log(v + sqrt(v * v - 1)); }
 template<typename T>
@@ -118,15 +199,10 @@ T selectVec4(T a, T b, bool4 c){
 	selectVec(a.w, b.w, c.w));
 }
 
-float copysign(float a, float b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-float2 copysign(float2 a, float2 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-float3 copysign(float3 a, float3 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-float4 copysign(float4 a, float4 b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
-
-float fma(float a, float b, float c) { return a * b + c; }
-float2 fma(float2 a, float2 b, float2 c) { return a * b + c; }
-float3 fma(float3 a, float3 b, float3 c) { return a * b + c; }
-float4 fma(float4 a, float4 b, float4 c) { return a * b + c; }
+template <typename T>
+T copysign(T a, T b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0x80000000u)); }
+template <typename T>
+T fma(T a, T b, T c) { return a * b + c; }
 
 float2x2 make_float2x2(float m00, float m01,
                        float m10, float m11) {
@@ -178,16 +254,24 @@ float4 Mul(float4x4 b, float4 a){ return mul(a, b);}
 float3 Mul(float3x4 b, float3 a){ return mul(a, b).xyz;}
 float2 Mul(float2x2 b, float2 a){ return mul(a, b);}
 
+struct WrappedFloat2x2 {
+    row_major float2x2 m;
+};
+
 struct WrappedFloat3x3 {
     row_major float3x4 m;
 };
 
+struct WrappedFloat4x4 {
+    row_major float4x4 m;
+};
+
 #define bfread(bf,idx) (bf[(idx)])
 #define bfreadVec3(bf,idx) (bf[(idx)].xyz)
-#define bfreadMat3(bf,idx) (bf[idx].m)
+#define bfreadMat(bf,idx) (bf[idx].m)
 #define bfwrite(bf,idx,value) (bf[(idx)]=(value))
 #define bfwriteVec3(bf,idx,value) (bf[(idx)]=float4((value), 0))
-#define bfwriteMat3(bf,idx,value) (bf[idx].m=value)
+#define bfwriteMat(bf,idx,value) (bf[idx].m=value)
 struct BdlsStruct{
 	uint buffer;
 	uint tex2D;
@@ -263,7 +347,81 @@ uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level){
 }
 #define READ_BUFFER(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx])
 #define READ_BUFFERVec3(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx].xyz)
+struct MeshInst{
+    float4 p0;
+    float4 p1;
+    float4 p2;
+    uint InstanceID : 24;
+    uint InstanceMask : 8;
+    uint InstanceContributionToHitGroupIndex : 24;
+    uint Flags : 8;
+    uint2 accelStructPtr;
+};
+float4x4 InstMatrix(StructuredBuffer<MeshInst> instBuffer, uint index){
+    MeshInst v = instBuffer[index];
+    return float4x4(
+float4(v.p0.x, v.p1.x, v.p2.x, 0),
+float4(v.p0.y, v.p1.y, v.p2.y, 0),
+float4(v.p0.z, v.p1.z, v.p2.z, 0),
+float4(v.p0.w, v.p1.w, v.p2.w, 1)
+);
+}
+template <typename T>
+T _atomic_exchange(inout T a, T b){
+T r;
+InterlockedExchange(a, b, r);
+return r;
+}
+template <typename T>
+T _atomic_compare_exchange(inout T a, T b, T c){
+T r;
+InterlockedCompareExchange(a, b, c, r);
+return r;
+}
+template <typename T>
+T _atomic_add(inout T a, T b){
+T r;
+InterlockedAdd(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_sub(inout T a, T b){
+T r;
+InterlockedAdd(a,-b,r);
+return r;
+}
+template <typename T>
+T _atomic_and(inout T a, T b){
+T r;
+InterlockedAnd(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_or(inout T a, T b){
+T r;
+InterlockedOr(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_xor(inout T a, T b){
+T r;
+InterlockedXor(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_min(inout T a, T b){
+T r;
+InterlockedMin(a,b,r);
+return r;
+}
+template <typename T>
+T _atomic_max(inout T a, T b){
+T r;
+InterlockedMax(a,b,r);
+return r;
+}
 )"sv;
+
 }
 vstd::string_view GetRayTracingHeader() {
     return R"(
@@ -308,10 +466,6 @@ bool TraceAny(RaytracingAccelerationStructure accel, LCRayDesc rayDesc){
 	ray);
 	q.Proceed();
 	return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
-}
-float4x4 InstMatrix(StructuredBuffer<WrappedFloat3x3> instBuffer, uint index){
-	float3x4 m = instBuffer[index].m;
-	return float4x4(m, float4(0, 0, 0, 1));
 }
 )"sv;
 }
