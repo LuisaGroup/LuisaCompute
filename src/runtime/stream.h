@@ -26,6 +26,7 @@ public:
     private:
         Stream *_stream;
         CommandList _command_list;
+
     private:
         void _commit() noexcept;
 
@@ -45,10 +46,10 @@ public:
 
 private:
     friend class Device;
-    void _dispatch(CommandList command_buffer) noexcept;
+    void _dispatch(CommandList list) noexcept;
     explicit Stream(Device::Interface *device) noexcept;
     void _synchronize() noexcept;
-    CommandReorderVisitor reorder_visitor;
+    luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
 
 public:
     Stream() noexcept = default;
