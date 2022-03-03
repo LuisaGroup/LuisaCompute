@@ -12,18 +12,18 @@ Stream Device::create_stream() noexcept {
     return _create<Stream>();
 }
 
-void Stream::_dispatch(CommandList list) noexcept {
-    if (auto size = list.size();
+void Stream::_dispatch(CommandList commands) noexcept {
+    if (auto size = commands.size();
         size > 1u && device()->requires_command_reordering()) {
-        reorder_visitor->reserve(size);
-        auto commands = list.steal_commands();
+        reorder_visitor.clear();
+        reorder_visitor.reserve(size);
         for (auto command : commands) {
-            command->accept(*reorder_visitor);
+            command->accept(reorder_visitor);
         }
-        auto lists = reorder_visitor->getCommandLists();
-        device()->dispatch(handle(), lists);
+        auto commandLists = reorder_visitor.getCommandLists();
+        device()->dispatch(handle(), commandLists);
     } else {
-        device()->dispatch(handle(), list);
+        device()->dispatch(handle(), commands);
     }
 }
 
@@ -50,7 +50,7 @@ Stream &Stream::operator<<(Stream::Synchronize) noexcept {
 
 Stream::Stream(Device::Interface *device) noexcept
     : Resource{device, Tag::STREAM, device->create_stream()},
-      reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
+      reorder_visitor(device) {}
 
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
