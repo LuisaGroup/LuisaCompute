@@ -5,7 +5,6 @@
 #include <utility>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/command_reorder_visitor.h>
 
 namespace luisa::compute {
 
@@ -16,11 +15,12 @@ Stream Device::create_stream() noexcept {
 void Stream::_dispatch(CommandList commands) noexcept {
     if (auto size = commands.size();
         size > 1u && device()->requires_command_reordering()) {
-        CommandReorderVisitor visitor(device(), size);
+        reorder_visitor.clear();
+        reorder_visitor.reserve(size);
         for (auto command : commands) {
-            command->accept(visitor);
+            command->accept(reorder_visitor);
         }
-        auto commandLists = visitor.getCommandLists();
+        auto commandLists = reorder_visitor.getCommandLists();
         device()->dispatch(handle(), commandLists);
     } else {
         device()->dispatch(handle(), commands);
@@ -49,7 +49,8 @@ Stream &Stream::operator<<(Stream::Synchronize) noexcept {
 }
 
 Stream::Stream(Device::Interface *device) noexcept
-    : Resource{device, Tag::STREAM, device->create_stream()} {}
+    : Resource{device, Tag::STREAM, device->create_stream()},
+      reorder_visitor(device) {}
 
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 

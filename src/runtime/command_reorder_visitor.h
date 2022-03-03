@@ -1,15 +1,16 @@
 //
 // Created by ChenXin on 2021/12/3.
 //
-
+#pragma once
 #ifndef LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
 #define LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
 
 #include <runtime/device.h>
 #include <vector>
-#include <unordered_set>
 #include <core/hash.h>
-
+#include <vstl/Pool.h>
+#include <vstl/vector.h>
+#include <eastl/unordered_set.h>
 namespace luisa::compute {
 
 class CommandReorderVisitor : public CommandVisitor {
@@ -33,16 +34,19 @@ class CommandReorderVisitor : public CommandVisitor {
         }
 
         struct Hash {
-            [[nodiscard]] auto operator()(CommandSource cs) const {
+            [[nodiscard]] auto operator()(CommandSource const& cs) const {
                 return luisa::detail::xxh3_hash64(&cs, sizeof(cs), 19980810u);
             }
         };
     };
 
     struct CommandRelation {
-        Command *command;
+        Command const*command;
         luisa::unordered_set<CommandSource, CommandSource::Hash> sourceSet;
-        explicit CommandRelation(Command *command) noexcept : command{command} {}
+        explicit CommandRelation(Command const *command) noexcept : command{command} {}
+        void clear() {
+            sourceSet.clear();
+        }
     };
 
     class ShaderDispatchCommandVisitor {
@@ -65,18 +69,24 @@ class CommandReorderVisitor : public CommandVisitor {
 private:
     Device::Interface *device;
     static constexpr int windowSize = 16;
-    static thread_local luisa::vector<luisa::vector<CommandRelation>> _commandRelationData;
+    luisa::vector<luisa::vector<CommandRelation*>> _commandRelationData;
+    vstd::Pool<CommandRelation, true> relationPool;
+    luisa::vector<CommandRelation *> pooledRelations;
 
 private:
+    CommandRelation *allocate_relation(Command const* cmd);
+    void deallocate_relation(CommandRelation * v);
+
     inline bool Overlap(CommandSource sourceA, CommandSource sourceB);
 
-    void processNewCommandRelation(CommandRelation &&commandRelation) noexcept;
+    void processNewCommandRelation(CommandRelation *commandRelation) noexcept;
 
 public:
-    explicit CommandReorderVisitor(Device::Interface *device, size_t size);
-
+    explicit CommandReorderVisitor(Device::Interface *device);
+    ~CommandReorderVisitor();
+    void reserve(size_t size);
     [[nodiscard]] luisa::vector<CommandList> getCommandLists() noexcept;
-
+    void clear() noexcept;
     // Buffer : resource
     void visit(const BufferUploadCommand *command) noexcept override;
     void visit(const BufferDownloadCommand *command) noexcept override;
