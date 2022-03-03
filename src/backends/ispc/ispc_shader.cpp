@@ -62,6 +62,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             "--addressing=32",
 #ifndef NDEBUG
             "-g",
+            "-DLUISA_DEBUG",
 #else
             "--opt=disable-assertions",
 #endif

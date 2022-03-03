@@ -187,11 +187,16 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
                 str << "RW"sv;
             str << "StructuredBuffer<"sv;
             auto ele = type.element();
-            if (ele->is_matrix() && ele->dimension() == 3u) {
-                str << "WrappedFloat3x3";
+            if (ele->is_matrix()) {
+                auto n = ele->dimension();
+                str << luisa::format("WrappedFloat{}x{}", n, n);
             } else {
                 vstd::string typeName;
-                GetTypeName(*ele, typeName, usage);
+                if (ele->is_vector() && ele->dimension() == 3) {
+                    typeName << "float4"sv;
+                } else {
+                    GetTypeName(*ele, typeName, usage);
+                }
                 auto ite = opt->structReplaceName.Find(typeName);
                 if (ite) {
                     str << ite.Value();
@@ -248,8 +253,15 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                     RegistStructType(i.type());
                     CodegenUtility::GetTypeName(*i.type(), data, func.variable_usage(i.uid()));
                     data << ' ';
-                    CodegenUtility::GetVariableName(i, data);
-                    data += ',';
+                    if (i.type()->is_accel()) {
+                        vstd::string varName;
+                        CodegenUtility::GetVariableName(i, varName);
+                        data << varName << ",StructuredBuffer<MeshInst> " << varName << "Inst"sv << ',';
+                    } else {
+
+                        CodegenUtility::GetVariableName(i, data);
+                        data += ',';
+                    }
                 }
                 data[data.size() - 1] = ')';
             }
@@ -351,10 +363,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                 return false;
         }
     };
-    auto IsMat3 = [](const Type *t) {
-        return t->is_matrix() &&
-               t->dimension() == 3u;
-    };
     auto PrintArgs = [&] {
         uint64 sz = 0;
         for (auto &&i : args) {
@@ -365,10 +373,28 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
         }
     };
+    auto PrintArgsAccelPossible = [&] {
+        uint64 sz = 0;
+        for (auto &&i : args) {
+            ++sz;
+            i->accept(vis);
+            if (i->type()->is_accel()) {
+                str << ',';
+                i->accept(vis);
+                str << "Inst"sv;
+            }
+            if (sz != args.size()) {
+                str << ',';
+            }
+        }
+    };
     switch (expr->op()) {
         case CallOp::CUSTOM:
             str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().hash())));
-            break;
+            str << '(';
+            PrintArgsAccelPossible();
+            str << ')';
+            return;
 
         case CallOp::ALL:
             str << "all"sv;
@@ -531,7 +557,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "my_transpose"sv;
             break;
         case CallOp::INVERSE:
-            str << "_inverse"sv;
+            str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
             str << "_atomic_exchange"sv;
@@ -619,8 +645,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
-            } else if (IsMat3(elem)) {
-                str << "Mat3";
+            } else if (elem->is_matrix()) {
+                str << "Mat";
             }
         } break;
         case CallOp::BUFFER_WRITE: {
@@ -628,8 +654,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
-            } else if (IsMat3(elem)) {
-                str << "Mat3";
+            } else if (elem->is_matrix()) {
+                str << "Mat";
             }
         } break;
         case CallOp::TRACE_CLOSEST:
@@ -963,9 +989,14 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     // Bindless Buffers;
     for (auto &&i : opt->bindlessBufferTypes) {
         propertyResult << "StructuredBuffer<"sv;
-        if (i.first->is_matrix() && i.first->dimension() == 3u) {
-            propertyResult << "WrappedFloat3x3";
-        } else {
+        if (i.first->is_matrix()) {
+            auto n = i.first->dimension();
+            propertyResult << luisa::format("WrappedFloat{}x{}", n, n);
+        } 
+        else if (i.first->is_vector() && i.first->dimension() == 3) {
+            propertyResult << "float4"sv;
+        }    
+        else {
             GetTypeName(*i.first, propertyResult, Usage::READ);
         }
         vstd::string instName("bdls"sv);
@@ -1028,7 +1059,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             return varName;
         };
         auto printInstBuffer = [&] {
-            propertyResult << "StructuredBuffer<float4x4> ";
+            propertyResult << "StructuredBuffer<MeshInst> ";
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;
