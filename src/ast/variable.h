@@ -13,10 +13,13 @@ namespace detail {
 class FunctionBuilder;
 }
 class AstSerializer;
+
+/// Variable class
 class Variable {
     friend class AstSerializer;
 
 public:
+    /// Variable tags
     enum struct Tag : uint32_t {
 
         // data

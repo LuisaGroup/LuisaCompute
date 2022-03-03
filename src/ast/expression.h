@@ -28,10 +28,15 @@ namespace detail {
 class FunctionBuilder;
 }
 
+/**
+ * @brief Base expression class
+ * 
+ */
 class Expression : public concepts::Noncopyable {
     friend class AstSerializer;
 
 public:
+    /// Expression type
     enum struct Tag : uint32_t {
         UNARY,
         BINARY,
@@ -56,6 +61,12 @@ protected:
     [[nodiscard]] virtual uint64_t _compute_hash() const noexcept = 0;
 
 public:
+    /**
+     * @brief Construct a new Expression object
+     * 
+     * @param tag type of expression
+     * @param type result type of expression
+     */
     explicit Expression(Tag tag, const Type *type) noexcept : _type{type}, _tag{tag} {}
     virtual ~Expression() noexcept = default;
     [[nodiscard]] auto type() const noexcept { return _type; }
@@ -91,6 +102,7 @@ struct ExprVisitor {
 #define LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR() \
     void accept(ExprVisitor &visitor) const override { visitor.visit(this); }
 
+/// Unary expression
 class UnaryExpr final : public Expression {
     friend class AstSerializer;
 
@@ -105,6 +117,13 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new UnaryExpr object
+     * 
+     * @param type type
+     * @param op UnaryOp
+     * @param operand operand will be mark as Usage::READ
+     */
     UnaryExpr(const Type *type, UnaryOp op, const Expression *operand) noexcept
         : Expression{Tag::UNARY, type}, _operand{operand}, _op{op} { _operand->mark(Usage::READ); }
     [[nodiscard]] auto operand() const noexcept { return _operand; }
@@ -114,6 +133,7 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+/// Binary expression
 class BinaryExpr final : public Expression {
     friend class AstSerializer;
 
@@ -131,6 +151,14 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new BinaryExpr object
+     * 
+     * @param type type
+     * @param op BinaryOp
+     * @param lhs lhs will be marked as Usage::READ
+     * @param rhs rhs will be marked as Usage::READ
+     */
     BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
         : Expression{Tag::BINARY, type}, _lhs{lhs}, _rhs{rhs}, _op{op} {
         _lhs->mark(Usage::READ);
@@ -143,6 +171,7 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+/// Access expression
 class AccessExpr final : public Expression {
     friend class AstSerializer;
 
@@ -157,6 +186,13 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new AccessExpr object
+     * 
+     * @param type type
+     * @param range range will be marked as Usage::READ
+     * @param index index will be marked as Usage::READ
+     */
     AccessExpr(const Type *type, const Expression *range, const Expression *index) noexcept
         : Expression{Tag::ACCESS, type}, _range{range}, _index{index} {
         _range->mark(Usage::READ);
@@ -168,6 +204,7 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+/// Member expression
 class MemberExpr final : public Expression {
     friend class AstSerializer;
 
@@ -186,9 +223,32 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new MemberExpr object accessing by index
+     * 
+     * @param type type
+     * @param self where to get member
+     * @param member_index index of member
+     */
     MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
         : Expression{Tag::MEMBER, type}, _self{self}, _member{member_index} {}
 
+    /**
+     * @brief Construct a new Member Expr object accessing by swizzling
+     * 
+     * Swizzle size must be in [1, 4]. Swizzle code represents orders and indexes to fetch.
+     * 
+     * For example, consider a float4 object whose members named x, y, z and w, its member indexes are 0, 1, 2 and 3.
+     * 
+     * If you need to get float4.xyzw(which returns a float4 (x, y, z, w)), the swizzle code is coded as 0x3210u and swizzle size is 4.
+     * 
+     * Another example is float4.yyw(which returns a float3 (y, y, w)), thw swizzle code is codes as 0x0311u and swizzle size is 3.
+     * 
+     * @param type type
+     * @param self where to get member
+     * @param swizzle_size swizzle size
+     * @param swizzle_code swizzle code
+     */
     MemberExpr(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept
         : Expression{Tag::MEMBER, type}, _self{self}, _member{(static_cast<uint64_t>(swizzle_size) << swizzle_shift) | swizzle_code} {}
 
@@ -238,10 +298,17 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 
 }// namespace detail
 
+/// Literal expression
 class LiteralExpr final : public Expression {
     friend class AstSerializer;
 
 public:
+    /**
+     * @brief Meta value.
+     * 
+     * Valid literal value type together with basic value types.
+     * 
+     */
     class MetaValue {
     private:
         const Type *_type;
@@ -279,12 +346,19 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new LiteralExpr object
+     * 
+     * @param type type
+     * @param v value
+     */
     LiteralExpr(const Type *type, Value v) noexcept
         : Expression{Tag::LITERAL, type}, _value{std::move(v)} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+/// Reference expression
 class RefExpr final : public Expression {
     friend class AstSerializer;
 
@@ -298,12 +372,18 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new RefExpr object
+     * 
+     * @param v variable referenced
+     */
     explicit RefExpr(Variable v) noexcept
         : Expression{Tag::REF, v.type()}, _variable{v} {}
     [[nodiscard]] auto variable() const noexcept { return _variable; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+/// Constant expression
 class ConstantExpr final : public Expression {
     friend class AstSerializer;
 
@@ -317,12 +397,19 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new ConstantExpr object
+     * 
+     * @param type type
+     * @param data const data
+     */
     explicit ConstantExpr(const Type *type, ConstantData data) noexcept
         : Expression{Tag::CONSTANT, type}, _data{data} {}
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+/// Call expression
 class CallExpr final : public Expression {
     friend class AstSerializer;
 
@@ -345,11 +432,25 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new CallExpr object calling custom function
+     * 
+     * @param type type
+     * @param callable function to call
+     * @param args arguments of function
+     */
     CallExpr(const Type *type, Function callable, ArgumentList args) noexcept
         : Expression{Tag::CALL, type},
           _arguments{std::move(args)},
           _custom{callable},
           _op{CallOp::CUSTOM} { _mark(); }
+    /**
+     * @brief Construct a new CallExpr object calling builtin function
+     * 
+     * @param type type
+     * @param builtin builtin function tag
+     * @param args arguments of function
+     */
     CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept
         : Expression{Tag::CALL, type},
           _arguments{std::move(args)},
@@ -367,6 +468,7 @@ enum struct CastOp {
     BITWISE
 };
 
+/// Cast expression
 class CastExpr final : public Expression {
     friend class AstSerializer;
 
@@ -381,6 +483,13 @@ protected:
     }
 
 public:
+    /**
+     * @brief Construct a new CastExpr object
+     * 
+     * @param type type
+     * @param op cast type(static, bitwise)
+     * @param src source expression
+     */
     CastExpr(const Type *type, CastOp op, const Expression *src) noexcept
         : Expression{Tag::CAST, type}, _source{src}, _op{op} { _source->mark(Usage::READ); }
     [[nodiscard]] auto op() const noexcept { return _op; }

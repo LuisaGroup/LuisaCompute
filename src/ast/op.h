@@ -11,14 +11,22 @@
 
 namespace luisa::compute {
 
+/**
+ * @brief Enum of unary operations.
+ * 
+ * Note: We deliberately support *NO* pre and postfix inc/dec operators to avoid possible abuse
+ */
 enum struct UnaryOp : uint32_t {
     PLUS,
     MINUS,  // +x, -x
     NOT,    // !x
     BIT_NOT,// ~x
-    // Note: We deliberately support *NO* pre and postfix inc/dec operators to avoid possible abuse
 };
 
+/**
+ * @brief Enum of binary operations
+ * 
+ */
 enum struct BinaryOp : uint32_t {
 
     // arithmetic
@@ -44,6 +52,10 @@ enum struct BinaryOp : uint32_t {
     NOT_EQUAL
 };
 
+/**
+ * @brief Enum of call operations.
+ * 
+ */
 enum struct CallOp : uint32_t {
 
     CUSTOM,
@@ -177,11 +189,16 @@ enum struct CallOp : uint32_t {
 
 static constexpr size_t call_op_count = to_underlying(CallOp::TRACE_ANY) + 1u;
 
+/**
+ * @brief Set of call operations.
+ * 
+ */
 class CallOpSet {
 
 public:
     using Bitset = std::bitset<call_op_count>;
 
+    /// CallOpSet::Iterator
     class Iterator {
 
     private:
@@ -205,7 +222,9 @@ private:
 public:
     CallOpSet() noexcept = default;
     ~CallOpSet() noexcept = default;
+    /// Mark given CallOp
     void mark(CallOp op) noexcept { _bits.set(to_underlying(op)); }
+    /// Test given CallOp
     [[nodiscard]] auto test(CallOp op) const noexcept { return _bits.test(to_underlying(op)); }
     [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
     [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
