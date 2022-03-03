@@ -54,7 +54,7 @@ public:
 
     /**
      * @brief Destroy the Pool object.
-     * detect for leaking
+     * detect leaking
      */
     ~Pool() noexcept {
         if (!_blocks.empty()) {
