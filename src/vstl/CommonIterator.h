@@ -26,48 +26,32 @@ public:
     }
     ~SpanIterator() {}
 };
-}// namespace detail
-template<typename T, typename FilterFunc>
-    requires(std::is_invocable_r_v<bool, FilterFunc, T const &>)
-class FilterIterator : public vstd::IEnumerable<T> {
-private:
-    T *ptr;
-    T *end;
+template<typename K, typename V, typename Iterator>
+class PairIterator : public IEnumerable<std::pair<K, V>>, public IOperatorNewBase {
+    Iterator ptr;
+    Iterator end;
     size_t size;
-    FilterFunc avaliableFunc;
 
 public:
-    FilterIterator(
-        vstd::span<T> data,
-        FilterFunc &&avaliableFunc) {
-        if (data.empty()) {
-            ptr = nullptr;
-        } else {
-            ptr = data.data() - 1;
-            end = data.data() + data.size();
-            GetNext();
-        }
-        size = data.size();
+    PairIterator(
+        Iterator const &cur,
+        Iterator const &end,
+        size_t size)
+        : ptr(cur), end(end), size(size) {}
+    std::pair<K, V> GetValue() override {
+        return {ptr->first, ptr->second};
     }
-    T GetValue() override {
-        return ptr->type();
-    }
-    bool End() {
-        return ptr == nullptr;
+    bool End() override {
+        return ptr == end;
     }
     void GetNext() override {
-        while (true) {
-            ++ptr;
-            if (ptr == end) {
-                ptr = nullptr;
-                break;
-            }
-            if (avaliableFunc(*ptr))
-                break;
-        }
+        ++ptr;
     }
-    vstd::optional<size_t> Length() override { return size; }
+    optional<size_t> Length() override {
+        return size;
+    }
 };
+}// namespace detail
 template<typename T>
 Iterator<T> GetIterator(vstd::span<T> const &sp) {
     return [&](void *ptr) {
@@ -84,6 +68,16 @@ template<typename T, VEngine_AllocType alloc, size_t stackCount>
 Iterator<T> GetIterator(vstd::vector<T, alloc, stackCount> &vec) {
     return [&](void *ptr) {
         return new (ptr) detail::SpanIterator<T>{vec.data(), vec.size()};
+    };
+}
+template<typename K, typename V, typename Hash, typename Compare, VEngine_AllocType allocType>
+Iterator<std::pair<K, V>> GetIterator(vstd::HashMap<K, V, Hash, Compare, allocType> const &map) {
+    using IteratorType = decltype(std::declval(map).begin());
+    return [&](void *ptr) {
+        return new (ptr) detail::PairIterator<K, V, IteratorType>(
+            map.begin(),
+            map.end(),
+            map.size());
     };
 }
 }// namespace vstd

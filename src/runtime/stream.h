@@ -11,6 +11,7 @@
 #include <runtime/event.h>
 #include <runtime/command_list.h>
 #include <runtime/command_buffer.h>
+#include <runtime/command_reorder_visitor.h>
 
 namespace luisa::compute {
 
@@ -45,9 +46,10 @@ public:
 
 private:
     friend class Device;
-    void _dispatch(CommandList command_buffer) noexcept;
+    void _dispatch(CommandList list) noexcept;
     explicit Stream(Device::Interface *device) noexcept;
     void _synchronize() noexcept;
+    luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
 
 public:
     Stream() noexcept = default;

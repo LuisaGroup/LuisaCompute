@@ -8,11 +8,16 @@ template<typename T>
 struct compare {
 	template<typename V>
 	int32_t operator()(T const& a, V const& b) const {
-		if (a == b)
-			return 0;
-		else if (a < b)
-			return -1;
-		return 1;
+        if constexpr (std::is_arithmetic_v<T> || std::is_pointer_v<T>) {
+            if (a == b)
+                return 0;
+            else if (a < b)
+                return -1;
+            return 1;
+        } else {
+            static_assert(sizeof(T) == sizeof(V), "Same size!");
+            return memcmp(&a, &b, sizeof(T));
+        }
 	}
 };
 template<>

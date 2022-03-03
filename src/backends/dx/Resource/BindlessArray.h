@@ -3,12 +3,12 @@
 #include <Resource/DefaultBuffer.h>
 #include <vstl/LockFreeArrayQueue.h>
 #include <runtime/sampler.h>
-#include <DXRuntime/IUpdateState.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class TextureBase;
 class CommandBufferBuilder;
-class BindlessArray final : public Resource, public IUpdateState {
+class ResourceStateTracker;
+class BindlessArray final : public Resource {
 public:
     enum class BindTag : vbyte {
         Buffer,
@@ -53,10 +53,10 @@ public:
     DefaultBuffer const *Buffer() const { return &buffer; }
     void PreProcessStates(
         CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const override;
+        ResourceStateTracker &tracker) const;
     void UpdateStates(
         CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const override;
+        ResourceStateTracker &tracker) const;
     Tag GetTag() const override { return Tag::BindlessArray; }
     BindlessArray(
         Device *device,

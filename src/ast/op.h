@@ -128,20 +128,20 @@ enum struct CallOp : uint32_t {
 
     SYNCHRONIZE_BLOCK,
 
-    ATOMIC_EXCHANGE,
-    ATOMIC_COMPARE_EXCHANGE,
-    ATOMIC_FETCH_ADD,
-    ATOMIC_FETCH_SUB,
-    ATOMIC_FETCH_AND,
-    ATOMIC_FETCH_OR,
-    ATOMIC_FETCH_XOR,
-    ATOMIC_FETCH_MIN,
-    ATOMIC_FETCH_MAX,
+    ATOMIC_EXCHANGE,        /// [(atomic_ref, desired) -> old]: stores desired, returns old.
+    ATOMIC_COMPARE_EXCHANGE,/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
+    ATOMIC_FETCH_ADD,       /// [(atomic_ref, val) -> old]: stores (old + val), returns old.
+    ATOMIC_FETCH_SUB,       /// [(atomic_ref, val) -> old]: stores (old - val), returns old.
+    ATOMIC_FETCH_AND,       /// [(atomic_ref, val) -> old]: stores (old & val), returns old.
+    ATOMIC_FETCH_OR,        /// [(atomic_ref, val) -> old]: stores (old | val), returns old.
+    ATOMIC_FETCH_XOR,       /// [(atomic_ref, val) -> old]: stores (old ^ val), returns old.
+    ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
+    ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    BUFFER_READ,
-    BUFFER_WRITE,
-    TEXTURE_READ, //(texture, coord: uint_vec)
-    TEXTURE_WRITE,//(texture, coord: uint_vec, value: float4)
+    BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
+    BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+    TEXTURE_READ, /// [(texture, coord) -> value]
+    TEXTURE_WRITE,/// [(texture, coord, value) -> void]
 
     BINDLESS_TEXTURE2D_SAMPLE,      //(bindless_array, index: uint, uv: float2): float4
     BINDLESS_TEXTURE2D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float2, level: float): float4

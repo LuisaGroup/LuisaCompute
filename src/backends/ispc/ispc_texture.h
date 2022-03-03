@@ -40,6 +40,7 @@ public:
      * @param mip_levels mipmap levels 
      */
     ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept;
+    ~ISPCTexture();
     /**
      * @brief Return handle for device usage
      * 
@@ -48,11 +49,14 @@ public:
     [[nodiscard]] Handle handle() const noexcept;
 
 public:
+
+    PixelStorage storage;
+    uint dim;
+    uint size[3];
+
     static const unsigned MAXLOD = 20;
-    uint width;
-    uint height;
     uint lodLevel;
-    float* lods[MAXLOD];
+    void* lods[MAXLOD];
 
 };
 
