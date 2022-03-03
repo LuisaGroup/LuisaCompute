@@ -35,6 +35,7 @@ using constant_data_view_t = typename constant_data_view<T>::type;
 
 class AstSerializer;
 
+/// Constant data
 class ConstantData {
 
 public:
@@ -50,6 +51,12 @@ protected:
 
 public:
     ConstantData() noexcept = default;
+    /**
+     * @brief Construct ConstantData from given data
+     * 
+     * @param data must belong to basic_types
+     * @return ConstantData 
+     */
     [[nodiscard]] static ConstantData create(View data) noexcept;
     [[nodiscard]] auto hash() const noexcept { return _hash; }
     [[nodiscard]] auto view() const noexcept { return _view; }

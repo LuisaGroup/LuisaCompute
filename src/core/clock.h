@@ -8,6 +8,10 @@
 
 namespace luisa {
 
+/**
+ * @brief Clock class
+ * 
+ */
 class Clock {
 
     using SystemClock = std::chrono::high_resolution_clock;
@@ -17,8 +21,21 @@ private:
     Tick _last;
 
 public:
+    /**
+     * @brief Construct a new Clock object
+     * 
+     */
     Clock() noexcept : _last{SystemClock::now()} {}
+    /**
+     * @brief Reset clock time
+     * 
+     */
     void tic() noexcept { _last = SystemClock::now(); }
+    /**
+     * @brief Return time from last tic
+     * 
+     * @return milliseconds
+     */
     [[nodiscard]] auto toc() const noexcept {
         auto curr = SystemClock::now();
         using namespace std::chrono_literals;

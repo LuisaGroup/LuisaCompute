@@ -8,6 +8,8 @@
 
 namespace luisa::compute {
 
+/** @file */
+/// Flags of usage
 enum struct Usage : uint32_t {
     NONE = 0u,
     READ = 0x01u,

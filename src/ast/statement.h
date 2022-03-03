@@ -13,10 +13,15 @@ namespace luisa::compute {
 class AstSerializer;
 struct StmtVisitor;
 
+/**
+ * @brief Base statement class
+ * 
+ */
 class Statement : public concepts::Noncopyable {
     friend class AstSerializer;
 
 public:
+    /// Statement types
     enum struct Tag : uint32_t {
         BREAK,
         CONTINUE,
@@ -87,6 +92,7 @@ struct StmtVisitor {
 #define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \
     void accept(StmtVisitor &visitor) const override { visitor.visit(this); }
 
+/// Break statement
 class BreakStmt final : public Statement {
     friend class AstSerializer;
 
@@ -100,6 +106,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Continue statement
 class ContinueStmt : public Statement {
     friend class AstSerializer;
 
@@ -113,6 +120,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Return statement
 class ReturnStmt : public Statement {
     friend class AstSerializer;
 
@@ -125,6 +133,11 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new ReturnStmt object
+     * 
+     * @param expr return expression, will be marked as Usage::READ
+     */
     explicit ReturnStmt(const Expression *expr) noexcept
         : Statement{Tag::RETURN}, _expr{expr} {
         if (_expr != nullptr) { _expr->mark(Usage::READ); }
@@ -133,6 +146,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Scope statement
 class ScopeStmt : public Statement {
     friend class AstSerializer;
 
@@ -153,6 +167,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Assign statement
 class AssignStmt : public Statement {
     friend class AstSerializer;
 
@@ -168,6 +183,12 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new AssignStmt object
+     * 
+     * @param lhs will be marked as Usage::WRITE
+     * @param rhs will be marked as Usage::READ
+     */
     AssignStmt(const Expression *lhs, const Expression *rhs) noexcept
         : Statement{Tag::ASSIGN}, _lhs{lhs}, _rhs{rhs} {
         _lhs->mark(Usage::WRITE);
@@ -179,6 +200,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// If statement
 class IfStmt : public Statement {
     friend class AstSerializer;
 
@@ -196,6 +218,11 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new IfStmt object
+     * 
+     * @param cond condition expression, will be marked as Usage::READ
+     */
     explicit IfStmt(const Expression *cond) noexcept
         : Statement{Tag::IF},
           _condition{cond} {
@@ -209,6 +236,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Loop statement
 class LoopStmt : public Statement {
     friend class AstSerializer;
 
@@ -227,6 +255,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Expression statement
 class ExprStmt : public Statement {
     friend class AstSerializer;
 
@@ -239,6 +268,11 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new ExprStmt object
+     * 
+     * @param expr will be marked as Usage::READ
+     */
     explicit ExprStmt(const Expression *expr) noexcept
         : Statement{Tag::EXPR}, _expr{expr} {
         _expr->mark(Usage::READ);
@@ -247,6 +281,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Switch statement
 class SwitchStmt : public Statement {
     friend class AstSerializer;
 
@@ -260,6 +295,11 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new SwitchStmt object
+     * 
+     * @param expr expression, will be marked as Usage::READ
+     */
     explicit SwitchStmt(const Expression *expr) noexcept
         : Statement{Tag::SWITCH},
           _expr{expr} {
@@ -271,6 +311,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Case statement of switch
 class SwitchCaseStmt : public Statement {
     friend class AstSerializer;
 
@@ -284,6 +325,11 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new SwitchCaseStmt object
+     * 
+     * @param expr expression, will be marked as Usage::READ
+     */
     explicit SwitchCaseStmt(const Expression *expr) noexcept
         : Statement{Tag::SWITCH_CASE},
           _expr{expr} {
@@ -295,6 +341,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Default statement of switch
 class SwitchDefaultStmt : public Statement {
     friend class AstSerializer;
 
@@ -313,6 +360,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// For statement
 class ForStmt : public Statement {
     friend class AstSerializer;
 
@@ -328,6 +376,13 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new ForStmt object
+     * 
+     * @param var variable expression, will be marked as Usage::READ_WRITE
+     * @param cond condition expression, will be marked as Usage::READ
+     * @param step step expression, will be marked as Usage::READ
+     */
     ForStmt(const Expression *var,
             const Expression *cond,
             const Expression *step) noexcept
@@ -345,6 +400,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Comment statement
 class CommentStmt : public Statement {
     friend class AstSerializer;
 
@@ -357,6 +413,11 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new CommentStmt object
+     * 
+     * @param comment comment content
+     */
     explicit CommentStmt(luisa::string comment) noexcept
         : Statement{Tag::COMMENT},
           _comment{std::move(comment)} {}
@@ -364,6 +425,7 @@ public:
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 
+/// Meta statement
 class MetaStmt : public Statement {
     friend class AstSerializer;
 
@@ -381,6 +443,11 @@ private:
     }
 
 public:
+    /**
+     * @brief Construct a new MetaStmt object
+     * 
+     * @param info information
+     */
     explicit MetaStmt(luisa::string info) noexcept
         : Statement{Tag::META},
           _info{std::move(info)} {}
