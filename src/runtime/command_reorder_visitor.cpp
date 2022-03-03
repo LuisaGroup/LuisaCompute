@@ -148,7 +148,6 @@ luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
     luisa::vector<CommandList> ans;
     for (auto &i : _commandRelationData) {
         CommandList commandList;
-        commandList.mark_no_owner();
         for (auto &j : i) {
             commandList.append(j->command);
         }

@@ -7,7 +7,7 @@
 namespace luisa::compute {
 
 void CommandList::_recycle() noexcept {
-    if (!_commands.empty() && owner) {
+    if (!_commands.empty()) {
         for (auto cmd : _commands) {
             cmd->recycle();
         }
@@ -16,6 +16,10 @@ void CommandList::_recycle() noexcept {
 
 void CommandList::append(Command *cmd) noexcept {
     _commands.emplace_back(cmd);
+}
+
+luisa::vector<Command *> CommandList::steal_commands() noexcept {
+    return std::move(_commands);
 }
 
 CommandList::CommandList(CommandList &&another) noexcept = default;

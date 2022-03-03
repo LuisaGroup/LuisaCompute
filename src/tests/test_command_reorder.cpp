@@ -45,9 +45,9 @@ int main(int argc, char *argv[]) {
                << synchronize();
         LUISA_INFO("End");
 
-        CommandList feed;
-        feed.append(shader(buffer).dispatch(1024u));
-        feed.append(buffer.copy_to(nullptr));
+        luisa::vector<Command *> feed;
+        feed.emplace_back(shader(buffer).dispatch(1024u));
+        feed.emplace_back(buffer.copy_to(nullptr));
         for (auto cmd : feed) { cmd->accept(commandReorderVisitor); }
         auto reordered_lists = commandReorderVisitor.getCommandLists();
         LUISA_INFO("Size: {}.", reordered_lists.size());
@@ -60,8 +60,6 @@ int main(int argc, char *argv[]) {
         bindless_array.emplace(1, buffer1);
         bindless_array.emplace(2, texture1, Sampler());
 
-        CommandList feed;
-
         /*
          *          -- buffer2
          *        /
@@ -71,11 +69,12 @@ int main(int argc, char *argv[]) {
          *        /
          * texture1 -- texture -- texture2
          */
-        feed.append(texture.copy_from(texture1));
-        feed.append(texture2.copy_from(texture));
-        feed.append(buffer1.copy_from(buffer));
-        feed.append(buffer2.copy_from(buffer));
-        feed.append(bindless_array.update());
+        luisa::vector<Command *> feed;
+        feed.emplace_back(texture.copy_from(texture1));
+        feed.emplace_back(texture2.copy_from(texture));
+        feed.emplace_back(buffer1.copy_from(buffer));
+        feed.emplace_back(buffer2.copy_from(buffer));
+        feed.emplace_back(bindless_array.update());
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
@@ -99,8 +98,6 @@ int main(int argc, char *argv[]) {
         bindless_array.emplace(1, buffer1);
         bindless_array.emplace(2, texture1, Sampler());
 
-        CommandList feed;
-
         /*
          *          -- buffer2
          *        /
@@ -110,11 +107,12 @@ int main(int argc, char *argv[]) {
          *        /
          * texture1 -- texture -- texture2
          */
-        feed.append(texture.copy_from(texture1));// 0
-        feed.append(texture2.copy_from(texture));// 1
-        feed.append(buffer1.copy_from(buffer));  // 0
-        feed.append(bindless_array.update());    // 1
-        feed.append(buffer2.copy_from(buffer));  // 0
+        luisa::vector<Command *> feed;
+        feed.emplace_back(texture.copy_from(texture1));// 0
+        feed.emplace_back(texture2.copy_from(texture));// 1
+        feed.emplace_back(buffer1.copy_from(buffer));  // 0
+        feed.emplace_back(bindless_array.update());    // 1
+        feed.emplace_back(buffer2.copy_from(buffer));  // 0
         /*
          * the same with the last test
          * but bindless_array is inserted before buffer2's copy
@@ -141,8 +139,6 @@ int main(int argc, char *argv[]) {
         bindless_array.emplace(0, buffer1);
         bindless_array.emplace(1, texture1, Sampler());
 
-        CommandList feed;
-
         /*
          *          -- buffer2
          *        /
@@ -152,11 +148,12 @@ int main(int argc, char *argv[]) {
          *        /
          * texture1 -- texture -- texture2
          */
-        feed.append(texture.copy_from(texture1));
-        feed.append(texture2.copy_from(texture));
-        feed.append(buffer1.copy_from(buffer));
-        feed.append(bindless_array.update());
-        feed.append(buffer2.copy_from(buffer));
+        luisa::vector<Command *> feed;
+        feed.emplace_back(texture.copy_from(texture1));
+        feed.emplace_back(texture2.copy_from(texture));
+        feed.emplace_back(buffer1.copy_from(buffer));
+        feed.emplace_back(bindless_array.update());
+        feed.emplace_back(buffer2.copy_from(buffer));
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
@@ -175,17 +172,16 @@ int main(int argc, char *argv[]) {
     }
 
     {
-        CommandList feed;
-
         /*
          *                               -- buffer2
          *                             /
          * buffer -- buffer1 -- buffer -- buffer1
          */
-        feed.append(buffer1.copy_from(buffer));
-        feed.append(buffer.copy_from(buffer1));
-        feed.append(buffer1.copy_from(buffer));
-        feed.append(buffer2.copy_from(buffer));
+        luisa::vector<Command *> feed;
+        feed.emplace_back(buffer1.copy_from(buffer));
+        feed.emplace_back(buffer.copy_from(buffer1));
+        feed.emplace_back(buffer1.copy_from(buffer));
+        feed.emplace_back(buffer2.copy_from(buffer));
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
@@ -205,8 +201,6 @@ int main(int argc, char *argv[]) {
     }
 
     {
-        CommandList feed;
-
         /*
          * texture ------           ----- shader2
          *                \       /
@@ -236,9 +230,10 @@ int main(int argc, char *argv[]) {
         auto shader1 = device.compile(kernel1);
         auto shader2 = device.compile(kernel2);
 
-        feed.append(shader(texture, texture1, texture2).dispatch(width, height));
-        feed.append(shader1(texture, texture1).dispatch(width, height));
-        feed.append(shader2(texture, texture2).dispatch(width, height));
+        luisa::vector<Command *> feed;
+        feed.emplace_back(shader(texture, texture1, texture2).dispatch(width, height));
+        feed.emplace_back(shader1(texture, texture1).dispatch(width, height));
+        feed.emplace_back(shader2(texture, texture2).dispatch(width, height));
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
@@ -257,12 +252,12 @@ int main(int argc, char *argv[]) {
     }
 
     {
-        CommandList feed;
         auto bindless_array = device.create_bindless_array();
         bindless_array.emplace(0u, buffer);
 
-        feed.append(buffer.copy_to(nullptr));
-        feed.append(bindless_array.update());
+        luisa::vector<Command *> feed;
+        feed.emplace_back(buffer.copy_to(nullptr));
+        feed.emplace_back(bindless_array.update());
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
@@ -272,8 +267,6 @@ int main(int argc, char *argv[]) {
     }
 
     {
-        CommandList feed;
-
         auto vertex_buffer = device.create_buffer<Vector<float, 3>>(3);
         auto triangle_buffer = device.create_buffer<Triangle>(1);
         auto vertex_buffer1 = device.create_buffer<Vector<float, 3>>(3);
@@ -291,9 +284,10 @@ int main(int argc, char *argv[]) {
          * vertex_buffer1 ---------------------  ------ mesh1
          */
 
-        feed.append(mesh.build()); // 0
-        feed.append(mesh1.build());// 0
-        feed.append(accel.build());// 1
+        luisa::vector<Command *> feed;
+        feed.emplace_back(mesh.build()); // 0
+        feed.emplace_back(mesh1.build());// 0
+        feed.emplace_back(accel.build());// 1
 
         for (auto command : feed) {
             command->accept(commandReorderVisitor);
