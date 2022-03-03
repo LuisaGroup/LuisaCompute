@@ -26,7 +26,7 @@ void CommandAllocator::Complete(
     }
 }
 CommandBuffer *CommandAllocator::GetBuffer() const {
-    return cbuffer.get();
+    return cbuffer;
 }
 CommandAllocator::CommandAllocator(
     Device *device,
@@ -43,13 +43,12 @@ CommandAllocator::CommandAllocator(
     dbVisitor.self = this;
     ThrowIfFailed(
         device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
-    cbuffer = vstd::create_unique(
-        new CommandBuffer(
-            device,
-            this));
+    cbuffer.New(
+        device,
+        this);
 }
 CommandAllocator::~CommandAllocator() {
-    cbuffer = nullptr;
+    cbuffer.Delete();
 }
 void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();
@@ -57,6 +56,7 @@ void CommandAllocator::Reset(CommandQueue *queue) {
     defaultAllocator.Clear();
     ThrowIfFailed(
         allocator->Reset());
+    cbuffer->Reset();
 }
 
 DefaultBuffer const *CommandAllocator::AllocateScratchBuffer(size_t targetSize) {

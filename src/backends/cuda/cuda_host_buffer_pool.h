@@ -18,6 +18,11 @@
 
 namespace luisa::compute::cuda {
 
+// TODO: finish doc
+/**
+ * @brief Host buffer pool of CUDA
+ * 
+ */
 class CUDAHostBufferPool {
 
 public:

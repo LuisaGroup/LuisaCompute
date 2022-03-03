@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
         static_assert(std::is_same_v<decltype(v_int), $int>);
 
         $for(x, 1) {
-            array[x] = v_int.cast<float>();
+            array[x] = cast<float>(v_int);
         };
 
         $ v_float = buffer_float.read(count);
@@ -55,13 +55,12 @@ int main(int argc, char *argv[]) {
 
         $ z = -1 + v_int * v_float + 1.0f;
         z += 1;
-        static_assert(std::is_same_v<decltype(z), $float>);
 
         $ v_vec = make_float3(1.0f);
         $ v2 = make_float3(2.0f) - v_vec * 2.0f;
         v2 *= 5.0f + v_float;
 
-        $float2 w{v_int.cast<float>(), v_float};
+        $float2 w{cast<float>(v_int), v_float};
         w *= float2{1.2f};
 
         $if(w.x < 5) {

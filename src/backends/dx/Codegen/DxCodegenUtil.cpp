@@ -7,148 +7,9 @@
 #include <ast/constant_data.h>
 #include <Codegen/StructGenerator.h>
 #include <Codegen/ShaderHeader.h>
-#include <Codegen/StructVariableTracker.h>
+#include <Codegen/CodegenStackData.h>
 namespace toolhub::directx {
-static constexpr vstd::string_view rayTypeDesc = "struct<16,array<float,3>,float,array<float,3>,float>"sv;
-static constexpr vstd::string_view hitTypeDesc = "struct<16,uint,uint,vector<float,2>>"sv;
-
-struct CodegenGlobal : public vstd::IOperatorNewBase {
-    int64 scopeCount = -1;
-    vstd::HashMap<Type const *, uint64> structTypes;
-    vstd::HashMap<uint64, uint64> constTypes;
-    vstd::HashMap<uint64, uint64> funcTypes;
-    vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
-    vstd::HashMap<Type const *, uint64> bindlessBufferTypes;
-    vstd::vector<StructGenerator *> customStructVector;
-    vstd::optional<vstd::move_only_func<void()>> assignFunc;
-    StructVariableTracker tracker;
-    uint64 count = 0;
-    uint64 constCount = 0;
-    uint64 funcCount = 0;
-    uint64 tempCount = 0;
-    uint64 bindlessBufferCount = 0;
-    vstd::function<StructGenerator *(Type const *)> generateStruct;
-    StructGenerator *rayDesc = nullptr;
-    StructGenerator *hitDesc = nullptr;
-    vstd::HashMap<vstd::string, vstd::string> structReplaceName;
-    vstd::HashMap<uint64_t> generatedConstants;
-    CodegenGlobal()
-        : generateStruct(
-              [this](Type const *t) {
-                  return CreateStruct(t);
-              }) {
-        structReplaceName.Emplace(
-            "float3"sv, "float4"sv);
-        structReplaceName.Emplace(
-            "int3"sv, "int4"sv);
-        structReplaceName.Emplace(
-            "uint3"sv, "uint4"sv);
-    }
-    void Clear() {
-        rayDesc = nullptr;
-        hitDesc = nullptr;
-        scopeCount = -1;
-        structTypes.Clear();
-        constTypes.Clear();
-        funcTypes.Clear();
-        bindlessBufferTypes.Clear();
-        customStruct.Clear();
-        customStructVector.clear();
-        generatedConstants.Clear();
-        tracker.Clear();
-        constCount = 0;
-        count = 0;
-        funcCount = 0;
-        tempCount = 0;
-        bindlessBufferCount = 0;
-    }
-    uint AddBindlessType(Type const *type) {
-        return bindlessBufferTypes
-            .Emplace(
-                type,
-                vstd::MakeLazyEval([&] {
-                    return bindlessBufferCount++;
-                }))
-            .Value();
-    }
-    StructGenerator *CreateStruct(Type const *t) {
-        auto ite = customStruct.Find(t);
-        if (ite) {
-            return ite.Value().get();
-        }
-        auto sz = customStructVector.size();
-        customStructVector.emplace_back(nullptr);
-        auto newPtr = new StructGenerator(
-            t,
-            sz,
-            generateStruct);
-        customStruct.ForceEmplace(
-            t,
-            vstd::create_unique(newPtr));
-        customStructVector[sz] = newPtr;
-        if (t->description() == rayTypeDesc) {
-            rayDesc = newPtr;
-        } else if (t->description() == hitTypeDesc) {
-            hitDesc = newPtr;
-        }
-        return newPtr;
-    }
-    uint64 GetConstCount(uint64 data) {
-        auto ite = constTypes.Emplace(
-            data,
-            vstd::MakeLazyEval(
-                [&] {
-                    return constCount++;
-                }));
-        return ite.Value();
-    }
-    uint64 GetFuncCount(uint64 data) {
-        auto ite = funcTypes.Emplace(
-            data,
-            vstd::MakeLazyEval(
-                [&] {
-                    return funcCount++;
-                }));
-        return ite.Value();
-    }
-    uint64 GetTypeCount(Type const *t) {
-        auto ite = structTypes.Emplace(
-            t,
-            vstd::MakeLazyEval(
-                [&] {
-                    return count++;
-                }));
-        return ite.Value();
-    }
-};
-static thread_local vstd::unique_ptr<CodegenGlobal> opt;
-struct CodegenGlobalPool {
-    std::mutex mtx;
-    vstd::vector<vstd::unique_ptr<CodegenGlobal>> allCodegen;
-    vstd::unique_ptr<CodegenGlobal> Allocate() {
-        std::lock_guard lck(mtx);
-        if (!allCodegen.empty()) {
-            auto ite = allCodegen.erase_last();
-            ite->Clear();
-            return ite;
-        }
-        return vstd::unique_ptr<CodegenGlobal>(new CodegenGlobal());
-    }
-    void DeAllocate(vstd::unique_ptr<CodegenGlobal> &&v) {
-        std::lock_guard lck(mtx);
-        allCodegen.emplace_back(std::move(v));
-    }
-};
-static CodegenGlobalPool codegenGlobalPool;
-void CodegenUtility::AddScope(int32 v) {
-    opt->scopeCount += v;
-}
-int64 CodegenUtility::GetScope() {
-    return opt->scopeCount;
-}
-StructVariableTracker *CodegenUtility::GetTracker() {
-    return &opt->tracker;
-}
+static thread_local vstd::unique_ptr<CodegenStackData> opt;
 uint CodegenUtility::IsBool(Type const &type) {
     if (type.tag() == Type::Tag::BOOL) {
         return 1;
@@ -190,9 +51,12 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::string &
             str << "grpId"sv;
             break;
         case Variable::Tag::DISPATCH_SIZE:
-            str << "dsp_c"sv;
+            str << "a.dsp_c"sv;
             break;
         case Variable::Tag::LOCAL:
+            if (opt->isKernel && opt->arguments.Find(id)) {
+                str << "a."sv;
+            }
             str << 'l';
             vstd::to_string(id, str);
             break;
@@ -323,11 +187,16 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
                 str << "RW"sv;
             str << "StructuredBuffer<"sv;
             auto ele = type.element();
-            if (ele->is_matrix() && ele->dimension() == 3u) {
-                str << "WrappedFloat3x3";
+            if (ele->is_matrix()) {
+                auto n = ele->dimension();
+                str << luisa::format("WrappedFloat{}x{}", n, n);
             } else {
                 vstd::string typeName;
-                GetTypeName(*ele, typeName, usage);
+                if (ele->is_vector() && ele->dimension() == 3) {
+                    typeName << "float4"sv;
+                } else {
+                    GetTypeName(*ele, typeName, usage);
+                }
                 auto ite = opt->structReplaceName.Find(typeName);
                 if (ite) {
                     str << ite.Value();
@@ -384,8 +253,15 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                     RegistStructType(i.type());
                     CodegenUtility::GetTypeName(*i.type(), data, func.variable_usage(i.uid()));
                     data << ' ';
-                    CodegenUtility::GetVariableName(i, data);
-                    data += ',';
+                    if (i.type()->is_accel()) {
+                        vstd::string varName;
+                        CodegenUtility::GetVariableName(i, varName);
+                        data << varName << ",StructuredBuffer<MeshInst> " << varName << "Inst"sv << ',';
+                    } else {
+
+                        CodegenUtility::GetVariableName(i, data);
+                        data += ',';
+                    }
                 }
                 data[data.size() - 1] = ')';
             }
@@ -487,10 +363,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                 return false;
         }
     };
-    auto IsMat3 = [](const Type *t) {
-        return t->is_matrix() &&
-               t->dimension() == 3u;
-    };
     auto PrintArgs = [&] {
         uint64 sz = 0;
         for (auto &&i : args) {
@@ -501,10 +373,28 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
         }
     };
+    auto PrintArgsAccelPossible = [&] {
+        uint64 sz = 0;
+        for (auto &&i : args) {
+            ++sz;
+            i->accept(vis);
+            if (i->type()->is_accel()) {
+                str << ',';
+                i->accept(vis);
+                str << "Inst"sv;
+            }
+            if (sz != args.size()) {
+                str << ',';
+            }
+        }
+    };
     switch (expr->op()) {
         case CallOp::CUSTOM:
             str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().hash())));
-            break;
+            str << '(';
+            PrintArgsAccelPossible();
+            str << ')';
+            return;
 
         case CallOp::ALL:
             str << "all"sv;
@@ -667,7 +557,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "my_transpose"sv;
             break;
         case CallOp::INVERSE:
-            str << "_inverse"sv;
+            str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
             str << "_atomic_exchange"sv;
@@ -755,8 +645,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
-            } else if (IsMat3(elem)) {
-                str << "Mat3";
+            } else if (elem->is_matrix()) {
+                str << "Mat";
             }
         } break;
         case CallOp::BUFFER_WRITE: {
@@ -764,8 +654,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
-            } else if (IsMat3(elem)) {
-                str << "Mat3";
+            } else if (elem->is_matrix()) {
+                str << "Mat";
             }
         } break;
         case CallOp::TRACE_CLOSEST:
@@ -843,6 +733,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
 size_t CodegenUtility::GetTypeSize(Type const &t) {
     switch (t.tag()) {
         case Type::Tag::BOOL:
+            return 1;
         case Type::Tag::FLOAT:
         case Type::Tag::INT:
         case Type::Tag::UINT:
@@ -971,7 +862,11 @@ void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
                << vstd::to_string(func.block_size().y)
                << ','
                << vstd::to_string(func.block_size().z)
-               << ")]\nvoid main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId){\nif(any(dspId >= dsp_c)) return;\n";
+               << R"()]
+void main(uint3 thdId : SV_GroupThreadId, uint3 dspId : SV_DispatchThreadID, uint3 grpId : SV_GroupId){
+Args a = _Global[0];
+if(any(dspId >= a.dsp_c)) return;
+)"sv;
 
     } else {
         GetFunctionDecl(func, result);
@@ -1014,6 +909,16 @@ void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
                << constValueName
                << ";\n"sv;
     }
+    if (func.tag() == Function::Tag::KERNEL) {
+        opt->isKernel = true;
+        opt->arguments.Clear();
+        opt->arguments.reserve(func.arguments().size());
+        for (auto &&i : func.arguments()) {
+            opt->arguments.Emplace(i.uid());
+        }
+    } else {
+        opt->isKernel = false;
+    }
     StringStateVisitor vis(func, result);
     func.body()->accept(vis);
     result << "}\n"sv;
@@ -1022,10 +927,9 @@ void CodegenUtility::GenerateCBuffer(
     Function f,
     std::span<const Variable> vars,
     vstd::string &result) {
-    result << R"(cbuffer _Global:register(b0){
+    result << R"(struct Args{
 uint3 dsp_c;
 )"sv;
-    size_t structSize = 12;
     size_t alignCount = 0;
     auto isCBuffer = [&](Variable::Tag t) {
         switch (t) {
@@ -1043,25 +947,21 @@ uint3 dsp_c;
     };
     for (auto &&i : vars) {
         if (!isCBuffer(i.tag())) continue;
-        StructGenerator::ProvideAlignVariable(
-            GetTypeAlign(*i.type()),
-            structSize,
-            alignCount,
-            result);
-        structSize += GetTypeSize(*i.type());
         GetTypeName(*i.type(), result, f.variable_usage(i.uid()));
         result << ' ';
         GetVariableName(i, result);
         result << ";\n"sv;
     }
-    result << "}\n";
+    result << R"(};
+StructuredBuffer<Args> _Global:register(t0);
+)"sv;
 }
 vstd::optional<CodegenResult> CodegenUtility::Codegen(
     Function kernel) {
     if (kernel.tag() != Function::Tag::KERNEL) return {};
-    opt = codegenGlobalPool.Allocate();
+    opt = CodegenStackData::Allocate();
     auto disposeOpt = vstd::create_disposer([&] {
-        codegenGlobalPool.DeAllocate(std::move(opt));
+        CodegenStackData::DeAllocate(std::move(opt));
     });
     vstd::string codegenData;
     // Custom callable
@@ -1082,22 +982,31 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     finalResult.reserve(65500);
 
     vstd::string propertyResult;
+    opt->isKernel = false;
     GenerateCBuffer(kernel, kernel.arguments(), propertyResult);
     CodegenResult::Properties properties;
-    properties.reserve(kernel.arguments().size() + 2);
+    properties.reserve(kernel.arguments().size() + opt->bindlessBufferCount + 4);
     // Bindless Buffers;
     for (auto &&i : opt->bindlessBufferTypes) {
         propertyResult << "StructuredBuffer<"sv;
-        if (i.first->is_matrix() && i.first->dimension() == 3u) {
-            propertyResult << "WrappedFloat3x3";
-        } else {
+        if (i.first->is_matrix()) {
+            auto n = i.first->dimension();
+            propertyResult << luisa::format("WrappedFloat{}x{}", n, n);
+        } 
+        else if (i.first->is_vector() && i.first->dimension() == 3) {
+            propertyResult << "float4"sv;
+        }    
+        else {
             GetTypeName(*i.first, propertyResult, Usage::READ);
         }
-        propertyResult << luisa::format(
-            "> bdls{}[]:register(t0,space{});\n",
-            i.second, i.second + 3u);
+        vstd::string instName("bdls"sv);
+        vstd::to_string(i.second, instName);
+        propertyResult << "> " << instName << "[]:register(t0,space"sv;
+        vstd::to_string(i.second + 3, propertyResult);
+        propertyResult << ");\n"sv;
+
         properties.emplace_back(
-            luisa::format("bdls{}", i.second),
+            std::move(instName),
             Shader::Property{
                 ShaderVariableType::SRVDescriptorHeap,
                 static_cast<uint>(i.second + 3u),
@@ -1106,7 +1015,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     properties.emplace_back(
         "_Global"sv,
         Shader::Property{
-            ShaderVariableType::ConstantBuffer,
+            ShaderVariableType::StructuredBuffer,
             0,
             0,
             0});
@@ -1124,12 +1033,19 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             2,
             0,
             0});
+    properties.emplace_back(
+        "samplers"sv,
+        Shader::Property{
+            ShaderVariableType::SampDescriptorHeap,
+            1u,
+            0u,
+            16u});
     enum class RegisterType : vbyte {
         CBV,
         UAV,
         SRV
     };
-    uint registerCount[3] = {0, 0, 0};
+    uint registerCount[3] = {0, 0, 1};
     auto Writable = [&](Variable const &v) {
         return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
     };
@@ -1143,7 +1059,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             return varName;
         };
         auto printInstBuffer = [&] {
-            propertyResult << "StructuredBuffer<WrappedFloat3x3> ";
+            propertyResult << "StructuredBuffer<MeshInst> ";
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;
@@ -1244,6 +1160,6 @@ struct RayPayload{
         finalResult << GetRayTracingHeader();
     }
     finalResult << propertyResult << codegenData;
-    return {std::move(finalResult), std::move(properties)};
+    return {std::move(finalResult), std::move(properties), opt->bindlessBufferCount};
 }
 }// namespace toolhub::directx

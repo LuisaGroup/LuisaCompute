@@ -326,7 +326,7 @@ public:
         return def<T>(expr);
     }
 
-    // stores old == compare ? val : old, returns old
+    // stores old == expected ? desired : old, returns old
     auto compare_exchange(Expr<T> expected, Expr<T> desired) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_COMPARE_EXCHANGE,

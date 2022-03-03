@@ -91,7 +91,7 @@ void ISPCCodegen::visit(const MemberExpr *expr) {
             _scratch << "make_";
             auto elem = expr->type()->element();
             switch (elem->tag()) {
-                case Type::Tag::BOOL: _scratch << "bool"; break;
+                case Type::Tag::BOOL: _scratch << "char"; break;
                 case Type::Tag::INT: _scratch << "int"; break;
                 case Type::Tag::UINT: _scratch << "uint"; break;
                 case Type::Tag::FLOAT: _scratch << "float"; break;
@@ -351,10 +351,10 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SIZE: _scratch << "bindless_texture_size3d"; break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: _scratch << "bindless_texture_size2d_level"; break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: _scratch << "bindless_texture_size3d_level"; break;
-        case CallOp::BINDLESS_BUFFER_READ: _scratch << "bindless_buffer_read"; break;
-        case CallOp::MAKE_BOOL2: _scratch << "make_bool2"; break;
-        case CallOp::MAKE_BOOL3: _scratch << "make_bool3"; break;
-        case CallOp::MAKE_BOOL4: _scratch << "make_bool4"; break;
+        case CallOp::BINDLESS_BUFFER_READ: _scratch << "bindless_buffer_read_" << luisa::format("{:016X}", expr->type()->hash()); break;
+        case CallOp::MAKE_BOOL2: _scratch << "make_char2"; break;
+        case CallOp::MAKE_BOOL3: _scratch << "make_char3"; break;
+        case CallOp::MAKE_BOOL4: _scratch << "make_char4"; break;
         case CallOp::MAKE_INT2: _scratch << "make_int2"; break;
         case CallOp::MAKE_INT3: _scratch << "make_int3"; break;
         case CallOp::MAKE_INT4: _scratch << "make_int4"; break;
@@ -384,12 +384,6 @@ void ISPCCodegen::visit(const CallExpr *expr) {
             arg->accept(*this);
         }
     } else if (!args.empty()) {
-        if (expr->op() == CallOp::BINDLESS_BUFFER_READ) {
-            _emit_type_name(expr->type());
-            _scratch << ", "
-                     << expr->type()->alignment()
-                     << ", ";
-        }
         for (auto arg : args) {
             arg->accept(*this);
             _scratch << ", ";
@@ -520,11 +514,11 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
 
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
-        _scratch << "inline void "
+        _scratch << "static void "
                  << "kernel_"
                  << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
-        _scratch << "inline ";
+        _scratch << "static inline ";
         if (f.return_type() != nullptr) {
             _emit_type_name(f.return_type());
         } else {
@@ -601,11 +595,11 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << "  assume((uniform uint64)params % 16u == 0u);\n";
         for (auto arg : f.arguments()) {
             if (arg.type()->is_buffer()) {
-                _scratch << "assume((uniform uint64)params->";
+                _scratch << "  assume((uniform uint64)params->";
                 _emit_variable_name(arg);
                 _scratch << " % 16u == 0u);\n";
             } else if (arg.type()->is_bindless_array()) {
-                _scratch << "assume((uniform uint64)(params->";
+                _scratch << "  assume((uniform uint64)(params->";
                 _emit_variable_name(arg);
                 _scratch << ".items) % 16u == 0u);\n";
             }
@@ -702,11 +696,30 @@ void ISPCCodegen::visit(const Type *type) noexcept {
         }
         _scratch << "};\n\n";
     }
+
+    // for bindless buffers
+    if (type->is_basic() || type->is_array() || type->is_structure()) {
+        _scratch << "static inline ";
+        _emit_type_name(type);
+        _scratch << " bindless_buffer_read_"
+                 << luisa::format("{:016X}", type->hash())
+                 << "(uniform const LCBindlessArray array, uint buffer_id, uint element_id) {\n"
+                 << "    const ";
+        _emit_type_name(type);
+        _scratch << " *buffer = (const ";
+        _emit_type_name(type);
+        _scratch << " *)bindless_buffer(array, buffer_id);\n";
+        _scratch << "    ";
+        _emit_type_name(type);
+        _scratch << " element = buffer[element_id];\n"
+                 << "    return element;\n"
+                 << "}\n\n";
+    }
 }
 
 void ISPCCodegen::_emit_type_name(const Type *type) noexcept {
     switch (type->tag()) {
-        case Type::Tag::BOOL: _scratch << "bool"; break;
+        case Type::Tag::BOOL: _scratch << "char"; break;
         case Type::Tag::FLOAT: _scratch << "float"; break;
         case Type::Tag::INT: _scratch << "int"; break;
         case Type::Tag::UINT: _scratch << "uint"; break;
@@ -764,7 +777,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "uniform const LCSurface ";
+            _scratch << "uniform const TextureView ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:

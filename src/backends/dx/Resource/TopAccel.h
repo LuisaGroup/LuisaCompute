@@ -1,7 +1,6 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <EASTL/shared_ptr.h>
-#include <Resource/MeshInstance.h>
 #include <runtime/command.h>
 namespace toolhub::directx {
 class DefaultBuffer;
@@ -13,12 +12,11 @@ class BottomAccel;
 class TopAccel : public vstd::IOperatorNewBase {
     struct Element {
         BottomAccel const *mesh = nullptr;
-        float4x4 transform;
-        uint mask;
+        D3D12_RAYTRACING_INSTANCE_DESC inst;
     };
+
     friend class BottomAccel;
     vstd::unique_ptr<DefaultBuffer> instBuffer;
-    vstd::unique_ptr<DefaultBuffer> customInstBuffer;
     vstd::unique_ptr<DefaultBuffer> accelBuffer;
     vstd::HashMap<Buffer const *, size_t> resourceRefMap;
     Device *device;
@@ -27,20 +25,11 @@ class TopAccel : public vstd::IOperatorNewBase {
     mutable std::mutex mtx;
     size_t capacity = 0;
     vstd::vector<Element> accelMap;
-    struct CopyCommand {
-        vstd::unique_ptr<DefaultBuffer> srcBuffer;
-        DefaultBuffer const *dstBuffer;
+    struct MeshInstance {
+        float v[12];
+        MeshInstance(float4x4 const &m);
     };
-    struct UpdateCommand {
-        D3D12_RAYTRACING_INSTANCE_DESC ist;
-        MeshInstance meshInst;
-        BufferView buffer;
-        BufferView customBuffer;
-    };
-    using Command = vstd::variant<
-        CopyCommand,
-        UpdateCommand>;
-    vstd::vector<Command> delayCommands;
+    vstd::vector<size_t> delayCommands;
     void UpdateBottomAccel(uint idx, BottomAccel const *c);
     void IncreRef(Buffer const *bf);
     void DecreRef(Buffer const *bf);
@@ -70,13 +59,15 @@ public:
         return accelBuffer ? (DefaultBuffer const *)accelBuffer.get() : (DefaultBuffer const *)nullptr;
     }
     DefaultBuffer const* GetInstBuffer() const {
-        return customInstBuffer ? (DefaultBuffer const *)customInstBuffer.get() : (DefaultBuffer const *)nullptr;
+        return instBuffer ? (DefaultBuffer const *)instBuffer.get() : (DefaultBuffer const *)nullptr;
     }
-    void Reserve(
-        size_t newCapacity);
-    void Build(
+    void PreProcess(
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder);
+    void Build(
+        ResourceStateTracker &tracker,
+        CommandBufferBuilder &builder,
+        bool update);
     ~TopAccel();
 };
 }// namespace toolhub::directx
