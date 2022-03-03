@@ -13,6 +13,7 @@ class CommandList : concepts::Noncopyable {
 
 private:
     luisa::vector<Command *> _commands;
+    bool owner = true;
 
 private:
     void _recycle() noexcept;
@@ -22,7 +23,7 @@ public:
     ~CommandList() noexcept;
     CommandList(CommandList &&) noexcept;
     CommandList &operator=(CommandList &&rhs) noexcept;
-    luisa::vector<Command *> steal_commands() noexcept { return std::move(_commands); }
+    void mark_no_owner() { owner = false; }
     void append(Command *cmd) noexcept;
     [[nodiscard]] auto begin() const noexcept { return _commands.begin(); }
     [[nodiscard]] auto end() const noexcept { return _commands.end(); }

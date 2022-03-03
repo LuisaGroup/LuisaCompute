@@ -7,7 +7,7 @@
 namespace luisa::compute {
 
 void CommandList::_recycle() noexcept {
-    if (!_commands.empty()) {
+    if (!_commands.empty() && owner) {
         for (auto cmd : _commands) {
             cmd->recycle();
         }
