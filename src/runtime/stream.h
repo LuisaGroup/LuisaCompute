@@ -48,7 +48,7 @@ private:
     void _dispatch(CommandList command_buffer) noexcept;
     explicit Stream(Device::Interface *device) noexcept;
     void _synchronize() noexcept;
-    CommandReorderVisitor reorder_visitor;
+    luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
 
 public:
     Stream() noexcept = default;
