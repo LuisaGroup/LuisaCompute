@@ -247,12 +247,12 @@ public:
     TextureCopyCommand(
         PixelStorage storage,
         uint64_t src_handle,
-                       uint64_t dst_handle,
-                       uint src_level,
-                       uint dst_level,
-                       uint3 src_offset,
-                       uint3 dst_offset,
-                       uint3 size) noexcept
+        uint64_t dst_handle,
+        uint src_level,
+        uint dst_level,
+        uint3 src_offset,
+        uint3 dst_offset,
+        uint3 size) noexcept
         : _storage{storage},
           _src_handle{src_handle}, _dst_handle{dst_handle},
           _src_offset{src_offset.x, src_offset.y, src_offset.z},
@@ -511,7 +511,6 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
 };
-
 class AccelBuildCommand final : public Command {
 
 private:
