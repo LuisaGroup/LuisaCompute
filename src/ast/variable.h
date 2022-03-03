@@ -53,7 +53,7 @@ private:
         : _type{type}, _uid{uid}, _tag{tag} {}
 
 public:
-    Variable() {}
+    Variable() noexcept = default;
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
@@ -63,6 +63,7 @@ public:
         using namespace std::string_view_literals;
         return hash64(u0 | (u1 << 32u), hash64(_type->hash(), hash64("__hash_variable"sv)));
     }
+    [[nodiscard]] auto operator==(Variable rhs) const noexcept { return _uid == rhs._uid; }
 };
 
 }// namespace luisa::compute

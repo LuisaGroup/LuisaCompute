@@ -433,6 +433,7 @@ void ISPCCodegen::visit(const ReturnStmt *stmt) {
 
 void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
+    _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
     _scratch << "}";
 }
@@ -501,7 +502,11 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         iter != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f);
 
-    for (auto &&callable : f.custom_callables()) { _emit_function(callable->function()); }
+    for (auto &&callable : f.custom_callables()) {
+        _emit_function(callable->function());
+    }
+
+    _definition_analysis.analyze(f);
 
     _function = f;
     _indent = 0u;
@@ -549,6 +554,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
     }
     _indent = 1;
     _emit_variable_declarations(f.body());
+    _emit_scoped_variables(f.body()->scope());
     _indent = 0;
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
@@ -623,6 +629,8 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << "  }\n"
                  << "}";
     }
+    _definition_analysis.reset();
+    _defined_variables.clear();
 }
 
 void ISPCCodegen::_emit_variable_name(Variable v) noexcept {
@@ -985,7 +993,20 @@ void ISPCCodegen::visit(const MetaStmt *stmt) {
 
 void ISPCCodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        if (_function.variable_usage(v.uid()) != Usage::NONE) {
+        if (v.tag() != Variable::Tag::LOCAL &&
+            _function.variable_usage(v.uid()) != Usage::NONE) {
+            _scratch << "\n";
+            _emit_indent();
+            _emit_variable_decl(v, false);
+            _scratch << ";";
+        }
+    }
+}
+
+void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
+    auto &&vs = _definition_analysis.scoped_variables().at(scope);
+    for (auto v : vs) {
+        if (_defined_variables.try_emplace(v).second) {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(v, false);
