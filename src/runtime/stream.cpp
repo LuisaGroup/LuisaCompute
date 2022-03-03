@@ -16,7 +16,8 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         reorder_visitor->reserve(size);
-        for (auto command : list) {
+        auto commands = list.steal_commands();
+        for (auto command : commands) {
             command->accept(*reorder_visitor);
         }
         auto lists = reorder_visitor->getCommandLists();
