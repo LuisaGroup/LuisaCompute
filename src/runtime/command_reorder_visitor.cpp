@@ -150,6 +150,7 @@ luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
         CommandList commandList;
         for (auto &j : i) {
             commandList.append(j->command);
+            recycle_relation(j);
         }
         if (!commandList.empty()) {
             ans.emplace_back(std::move(commandList));
