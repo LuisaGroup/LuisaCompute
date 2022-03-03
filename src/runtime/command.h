@@ -49,6 +49,13 @@ struct CommandVisitor {
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
 
+struct MutableCommandVisitor {
+#define LUISA_MAKE_MUTABLE_COMMAND_VISITOR_INTERFACE(CMD) \
+    virtual void visit(CMD *) noexcept = 0;
+    LUISA_MAP(LUISA_MAKE_MUTABLE_COMMAND_VISITOR_INTERFACE, LUISA_ALL_COMMANDS)
+#undef LUISA_MAKE_MUTABLE_COMMAND_VISITOR_INTERFACE
+};
+
 class Command;
 class CommandList;
 
@@ -71,8 +78,9 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
         return command;                                                          \
     }
 
-#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
-    void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); }
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)                                             \
+    void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
+    void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
 #define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
@@ -101,6 +109,7 @@ protected:
 
 public:
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
+    virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
     [[nodiscard]] virtual Command *clone() const noexcept = 0;
     [[nodiscard]] auto next() const noexcept { return _next_command; }
     void set_next(Command *cmd) noexcept { _next_command = cmd; }
