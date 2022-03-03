@@ -146,6 +146,7 @@ inline namespace dsl {
 template<typename T, typename... Args>
     requires std::negation_v<std::disjunction<std::is_pointer<std::remove_cvref_t<Args>>...>>
 [[nodiscard]] inline auto def(Args &&...args) noexcept {
+    // TODO: generate default initializer list?
     return Var<expr_value_t<T>>{std::forward<Args>(args)...};
 }
 

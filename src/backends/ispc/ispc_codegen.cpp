@@ -1004,13 +1004,15 @@ void ISPCCodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
 }
 
 void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
-    auto &&vs = _definition_analysis.scoped_variables().at(scope);
-    for (auto v : vs) {
-        if (_defined_variables.try_emplace(v).second) {
-            _scratch << "\n";
-            _emit_indent();
-            _emit_variable_decl(v, false);
-            _scratch << ";";
+    if (auto iter = _definition_analysis.scoped_variables().find(scope);
+        iter != _definition_analysis.scoped_variables().cend()) {
+        for (auto v : iter->second) {
+            if (_defined_variables.try_emplace(v).second) {
+                _scratch << "\n";
+                _emit_indent();
+                _emit_variable_decl(v, false);
+                _scratch << ";";
+            }
         }
     }
 }
