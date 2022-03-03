@@ -105,6 +105,7 @@ bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB
                        device->is_buffer_in_bindless_array(sourceA.handle, sourceB.handle);
             }
             break;
+        default: break;
     }
     return false;
 }
@@ -149,19 +150,18 @@ luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
         CommandList commandList;
         commandList.mark_no_owner();
         for (auto &j : i) {
-            commandList.append(const_cast<Command*>(j->command));
-            deallocate_relation(j);
+            commandList.append(j->command);
         }
         if (!commandList.empty()) {
             ans.push_back(std::move(commandList));
         }
     }
-    _commandRelationData.clear();
     LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
+    clear();
     return ans;
 }
 
-void CommandReorderVisitor::visit(const BufferUploadCommand *command) noexcept {
+void CommandReorderVisitor::visit(BufferUploadCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -172,7 +172,7 @@ void CommandReorderVisitor::visit(const BufferUploadCommand *command) noexcept {
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const BufferDownloadCommand *command) noexcept {
+void CommandReorderVisitor::visit(BufferDownloadCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -183,7 +183,7 @@ void CommandReorderVisitor::visit(const BufferDownloadCommand *command) noexcept
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const BufferCopyCommand *command) noexcept {
+void CommandReorderVisitor::visit(BufferCopyCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -196,7 +196,7 @@ void CommandReorderVisitor::visit(const BufferCopyCommand *command) noexcept {
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const BufferToTextureCopyCommand *command) noexcept {
+void CommandReorderVisitor::visit(BufferToTextureCopyCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -209,7 +209,7 @@ void CommandReorderVisitor::visit(const BufferToTextureCopyCommand *command) noe
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept {
+void CommandReorderVisitor::visit(ShaderDispatchCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -221,7 +221,7 @@ void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const TextureUploadCommand *command) noexcept {
+void CommandReorderVisitor::visit(TextureUploadCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -232,7 +232,7 @@ void CommandReorderVisitor::visit(const TextureUploadCommand *command) noexcept 
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const TextureDownloadCommand *command) noexcept {
+void CommandReorderVisitor::visit(TextureDownloadCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -243,7 +243,7 @@ void CommandReorderVisitor::visit(const TextureDownloadCommand *command) noexcep
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const TextureCopyCommand *command) noexcept {
+void CommandReorderVisitor::visit(TextureCopyCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -256,7 +256,7 @@ void CommandReorderVisitor::visit(const TextureCopyCommand *command) noexcept {
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const TextureToBufferCopyCommand *command) noexcept {
+void CommandReorderVisitor::visit(TextureToBufferCopyCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -269,7 +269,7 @@ void CommandReorderVisitor::visit(const TextureToBufferCopyCommand *command) noe
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const BindlessArrayUpdateCommand *command) noexcept {
+void CommandReorderVisitor::visit(BindlessArrayUpdateCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -280,7 +280,7 @@ void CommandReorderVisitor::visit(const BindlessArrayUpdateCommand *command) noe
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const AccelUpdateCommand *command) noexcept {
+void CommandReorderVisitor::visit(AccelUpdateCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -291,7 +291,7 @@ void CommandReorderVisitor::visit(const AccelUpdateCommand *command) noexcept {
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const AccelBuildCommand *command) noexcept {
+void CommandReorderVisitor::visit(AccelBuildCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -302,7 +302,7 @@ void CommandReorderVisitor::visit(const AccelBuildCommand *command) noexcept {
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
+void CommandReorderVisitor::visit(MeshUpdateCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -320,7 +320,7 @@ void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
     processNewCommandRelation(commandRelation);
 }
 
-void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
+void CommandReorderVisitor::visit(MeshBuildCommand *command) noexcept {
     // generate CommandRelation data
     auto commandRelation = allocate_relation(command);
 
@@ -343,10 +343,9 @@ void CommandReorderVisitor::reserve(size_t size) {
 }
 
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device)
-    : relationPool(64, true) {
-    this->device = device;
-}
-void CommandReorderVisitor::clear() {
+    : device{device} {}
+
+void CommandReorderVisitor::clear() noexcept {
     for (auto &&i : _commandRelationData) {
         for (auto &&j : i) {
             deallocate_relation(j);
@@ -354,13 +353,12 @@ void CommandReorderVisitor::clear() {
     }
     _commandRelationData.clear();
 }
-CommandReorderVisitor::CommandRelation *CommandReorderVisitor::allocate_relation(Command const*cmd) {
+CommandReorderVisitor::CommandRelation *CommandReorderVisitor::allocate_relation(Command *cmd) {
     if (pooledRelations.empty()) {
-        return relationPool.New(cmd);
+        return relationPool.create(cmd);
     }
-    auto last = pooledRelations.end() - 1;
-    auto v = *last;
-    pooledRelations.erase(last);
+    auto v = pooledRelations.back();
+    pooledRelations.pop_back();
     v->command = cmd;
     return v;
 }
@@ -370,7 +368,7 @@ void CommandReorderVisitor::deallocate_relation(CommandRelation *v) {
 }
 CommandReorderVisitor::~CommandReorderVisitor() {
     for (auto &&i : pooledRelations) {
-        i->~CommandRelation();
+        relationPool.recycle(i);
     }
 }
 
