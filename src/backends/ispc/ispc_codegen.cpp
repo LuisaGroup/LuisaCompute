@@ -554,8 +554,8 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
     }
     _indent = 1;
     _emit_variable_declarations(f.body());
-    _emit_scoped_variables(f.body()->scope());
     _indent = 0;
+    _emit_scoped_variables(f.body()->scope());
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 
@@ -1008,7 +1008,7 @@ void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
         iter != _definition_analysis.scoped_variables().cend()) {
         for (auto v : iter->second) {
             if (_defined_variables.try_emplace(v).second) {
-                _scratch << "\n";
+                _scratch << "\n  ";
                 _emit_indent();
                 _emit_variable_decl(v, false);
                 _scratch << ";";
