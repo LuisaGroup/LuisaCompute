@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     };
     auto shader = device.compile(kernel);
 
-    CommandReorderVisitor commandReorderVisitor(device.impl(), 100);
+    CommandReorderVisitor commandReorderVisitor(device.impl());
 
     {
         luisa::vector<float> vec(width * height);
