@@ -9,7 +9,7 @@
 
 namespace luisa::compute::ispc {
 
-class ISPCVariableDefinitionAnalysis final : public StmtVisitor {
+class ISPCVariableDefinitionAnalysis final : public StmtVisitor, public ExprVisitor {
 
 public:
     struct VariableHash {
@@ -66,6 +66,15 @@ public:
     [[nodiscard]] auto &scoped_variables() const noexcept {
         return _scoped_variables;
     }
+    void visit(const UnaryExpr *expr) override;
+    void visit(const BinaryExpr *expr) override;
+    void visit(const MemberExpr *expr) override;
+    void visit(const AccessExpr *expr) override;
+    void visit(const LiteralExpr *expr) override;
+    void visit(const RefExpr *expr) override;
+    void visit(const ConstantExpr *expr) override;
+    void visit(const CallExpr *expr) override;
+    void visit(const CastExpr *expr) override;
 };
 
 }// namespace luisa::compute::ispc
