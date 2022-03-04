@@ -21,14 +21,21 @@ class CommandReorderVisitor : public CommandVisitor {
         int64_t writeLayer = -1;
         ResourceType type;
     };
+    struct ResourceMeshHandle : public ResourceHandle {
+        vstd::vector<ResourceHandle *, VEngine_AllocType::VEngine, 1> belonedAccel;
+    };
     vstd::Pool<ResourceHandle, true> handlePool;
-    eastl::vector<ResourceHandle *> allocatedHandles;
+    vstd::Pool<ResourceMeshHandle, true> meshHandlePool;
     vstd::HashMap<uint64_t, ResourceHandle *> resMap;
     vstd::HashMap<uint64_t, ResourceHandle *> bindlessMap;
     vstd::HashMap<uint64_t, ResourceHandle *> accelMap;
-    vstd::HashMap<uint64_t, ResourceHandle *> meshMap;
+    vstd::HashMap<uint64_t, ResourceMeshHandle *> meshMap;
+    int64_t accelMaxLayer = -1;
+    int64_t bindlessMaxLayer = -1;
     eastl::vector<CommandList> commandLists;
     size_t layerCount = 0;
+    bool useAccelInPass;
+    bool useBindlessInPass;
     ResourceHandle *GetHandle(
         uint64_t target_handle,
         ResourceType target_type);
@@ -95,11 +102,10 @@ public:
     void visit(const MeshUpdateCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
 
-
     void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf);
     void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf);
     void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf);
     void operator()(uint uid, vstd::span<std::byte const> bf);
     void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf);
 };
-}// namespace luisa::compute::maxwell
+}// namespace luisa::compute
