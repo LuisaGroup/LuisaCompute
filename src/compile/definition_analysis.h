@@ -1,15 +1,16 @@
 //
-// Created by Mike Smith on 2022/3/4.
+// Created by Mike on 2022/3/4.
 //
 
 #pragma once
 
+
 #include <core/stl.h>
 #include <ast/interface.h>
 
-namespace luisa::compute::ispc {
+namespace luisa::compute {
 
-class ISPCVariableDefinitionAnalysis final : public StmtVisitor, public ExprVisitor {
+class DefinitionAnalysis final : public StmtVisitor, public ExprVisitor {
 
 public:
     struct VariableHash {
@@ -77,4 +78,4 @@ public:
     void visit(const CastExpr *expr) override;
 };
 
-}// namespace luisa::compute::ispc
+}// namespace luisa::compute

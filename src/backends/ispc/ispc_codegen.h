@@ -10,7 +10,7 @@
 #include <compile/codegen.h>
 #include <backends/ispc/ispc_accel.h>
 #include <backends/ispc/ispc_bindless_array.h>
-#include <backends/ispc/ispc_ast_analysis.h>
+#include <compile/definition_analysis.h>
 
 namespace luisa::compute::ispc {
 
@@ -31,9 +31,7 @@ private:
     luisa::vector<Function> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
-    ISPCVariableDefinitionAnalysis _definition_analysis;
-    ISPCVariableDefinitionAnalysis::VariableSet _defined_variables;
-    ISPCVariableDefinitionAnalysis::VariableSet _scope_defined_variables;
+    DefinitionAnalysis _definition_analysis;
 
 private:
     void visit(const Type *type) noexcept override;

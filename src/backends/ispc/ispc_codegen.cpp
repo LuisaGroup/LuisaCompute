@@ -630,7 +630,6 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
                  << "}";
     }
     _definition_analysis.reset();
-    _defined_variables.clear();
 }
 
 void ISPCCodegen::_emit_variable_name(Variable v) noexcept {
@@ -1007,12 +1006,10 @@ void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
     if (auto iter = _definition_analysis.scoped_variables().find(scope);
         iter != _definition_analysis.scoped_variables().cend()) {
         for (auto v : iter->second) {
-            if (_defined_variables.try_emplace(v).second) {
-                _scratch << "\n  ";
-                _emit_indent();
-                _emit_variable_decl(v, false);
-                _scratch << ";";
-            }
+            _scratch << "\n  ";
+            _emit_indent();
+            _emit_variable_decl(v, false);
+            _scratch << ";";
         }
     }
 }

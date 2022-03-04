@@ -78,7 +78,7 @@ public:
      * @brief Emplace a 2D texture
      * 
      * @param index place to emplace
-     * @param array pointer of 2D texture
+     * @param array address of 2D texture
      * @param sampler sampler of texture
      */
     void emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
@@ -86,7 +86,7 @@ public:
      * @brief Emplace a 3D texture
      * 
      * @param index index to emplace
-     * @param array pointer of 3D texture
+     * @param array address of 3D texture
      * @param sampler sampler of texture
      */
     void emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;

@@ -118,7 +118,7 @@ public:
      */
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
     /**
-     * @brief Return pointer of CUDAHeap
+     * @brief Return address of CUDAHeap
      * 
      * @return CUDAHeap*
      */
@@ -157,28 +157,35 @@ public:
     /**
      * @brief Create a CUDAStream object
      * 
-     * @return pointer of CUDAStream
+     * @return address of CUDAStream
      */
     uint64_t create_stream() noexcept override;
     /**
      * @brief Destroy a CUDAStream object
      * 
-     * @param handle pointer of CUDAStream
+     * @param handle address of CUDAStream
      */
     void destroy_stream(uint64_t handle) noexcept override;
     /**
      * @brief Synchronize a CUDAStream
      * 
-     * @param stream_handle pointer of CUDAStream
+     * @param stream_handle address of CUDAStream
      */
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     /**
      * @brief Dispatch commands to a stream
      * 
-     * @param stream_handle pointer of CUDAStream
+     * @param stream_handle address of CUDAStream
      * @param list list of commands
      */
     void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override;
+    /**
+     * @brief Dispatch multiple command lists
+     *
+     * @param stream_handle address of CUDAStream
+     * @param lists vector of lists of commands
+     */
+    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept override;
     /**
      * @brief Create a shader on device
      * 
@@ -460,9 +467,9 @@ public:
     /**
      * @brief If requires command reordering
      * 
-     * @return false 
+     * @return true
      */
-    bool requires_command_reordering() const noexcept override { return false; }
+    bool requires_command_reordering() const noexcept override { return true; }
 };
 
 }// namespace luisa::compute::cuda

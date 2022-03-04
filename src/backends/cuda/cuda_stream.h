@@ -23,6 +23,8 @@ class CUDACallbackContext;
  */
 class CUDAStream {
 
+    // TODO: parallel compute/copy using multiple streams
+
 private:
     CUstream _handle;
     CUDAHostBufferPool _upload_pool;
@@ -42,7 +44,7 @@ public:
     /**
      * @brief Return CUDAHostBufferPool
      * 
-     * @return pointer of CUDAHostBufferPool
+     * @return address of CUDAHostBufferPool
      */
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
     /**
