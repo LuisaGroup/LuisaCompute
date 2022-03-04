@@ -28,8 +28,8 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
             return func(resMap);
     }
 }
-uint CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
-    uint layer = std::max<int64_t>(handle->readLayer + 1, handle->writeLayer + 1);
+size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
+    size_t layer = std::max<int64_t>(handle->readLayer + 1, handle->writeLayer + 1);
     switch (handle->type) {
         case ResourceType::Buffer:
             for (auto &&i : bindlessMap) {
@@ -67,8 +67,8 @@ uint CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
     }
     return layer;
 }
-uint CommandReorderVisitor::GetLastLayerRead(ResourceHandle *handle) const {
-    uint layer = handle->writeLayer + 1;
+size_t CommandReorderVisitor::GetLastLayerRead(ResourceHandle *handle) const {
+    size_t layer = handle->writeLayer + 1;
     switch (handle->type) {
         case ResourceType::Accel:
             for (auto &&i : meshMap) {
@@ -90,7 +90,7 @@ CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device)
 
 CommandReorderVisitor::~CommandReorderVisitor() {
 }
-uint CommandReorderVisitor::SetRead(
+size_t CommandReorderVisitor::SetRead(
     uint64_t handle,
     ResourceType type) {
     auto srcHandle = GetHandle(
@@ -100,7 +100,7 @@ uint CommandReorderVisitor::SetRead(
     srcHandle->readLayer = layer;
     return layer;
 }
-uint CommandReorderVisitor::SetWrite(
+size_t CommandReorderVisitor::SetWrite(
     uint64_t handle,
     ResourceType type) {
     auto dstHandle = GetHandle(
@@ -110,7 +110,7 @@ uint CommandReorderVisitor::SetWrite(
     dstHandle->writeLayer = layer;
     return layer;
 }
-uint CommandReorderVisitor::SetRW(
+size_t CommandReorderVisitor::SetRW(
     uint64_t read_handle,
     ResourceType read_type,
     uint64_t write_handle,
@@ -191,7 +191,7 @@ void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
                 device->get_vertex_buffer_from_mesh(command->handle()),
                 device->get_triangle_buffer_from_mesh(command->handle())));
 }
-uint CommandReorderVisitor::SetMesh(
+size_t CommandReorderVisitor::SetMesh(
     uint64_t handle,
     uint64_t vb,
     uint64_t ib) {
@@ -236,7 +236,7 @@ void CommandReorderVisitor::clear() {
     layerCount = 0;
 }
 
-void CommandReorderVisitor::AddCommand(Command const *cmd, uint layer) {
+void CommandReorderVisitor::AddCommand(Command const *cmd, size_t layer) {
     if (commandLists.size() <= layer) {
         commandLists.resize(layer + 1);
     }
