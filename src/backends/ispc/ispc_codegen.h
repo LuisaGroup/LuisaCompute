@@ -32,6 +32,7 @@ private:
     luisa::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
     DefinitionAnalysis _definition_analysis;
+    DefinitionAnalysis::VariableSet _defined_variables;
 
 private:
     void visit(const Type *type) noexcept override;
