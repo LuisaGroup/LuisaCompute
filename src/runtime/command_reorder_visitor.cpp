@@ -205,7 +205,7 @@ size_t CommandReorderVisitor::SetMesh(
     layer = std::max<int64_t>(layer, GetLastLayerWrite(meshHandle));
     if (ib != vb) {
         auto ibHandle = GetHandle(
-            vb,
+            ib,
             ResourceType::Buffer);
         layer = std::max<int64_t>(layer, GetLastLayerRead(ibHandle));
         ibHandle->readLayer = layer;
