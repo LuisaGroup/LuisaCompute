@@ -32,21 +32,21 @@ class CommandReorderVisitor : public CommandVisitor {
     ResourceHandle *GetHandle(
         uint64_t target_handle,
         ResourceType target_type);
-    uint GetLastLayerWrite(ResourceHandle *handle) const;
-    uint GetLastLayerRead(ResourceHandle *handle) const;
-    void AddCommand(Command const *cmd, uint layer);
-    uint SetRead(
+    size_t GetLastLayerWrite(ResourceHandle *handle) const;
+    size_t GetLastLayerRead(ResourceHandle *handle) const;
+    void AddCommand(Command const *cmd, size_t layer);
+    size_t SetRead(
         uint64_t handle,
         ResourceType type);
-    uint SetWrite(
+    size_t SetWrite(
         uint64_t handle,
         ResourceType type);
-    uint SetRW(
+    size_t SetRW(
         uint64_t read_handle,
         ResourceType read_type,
         uint64_t write_handle,
         ResourceType write_type);
-    uint SetMesh(
+    size_t SetMesh(
         uint64_t handle,
         uint64_t vb,
         uint64_t ib);
@@ -54,7 +54,7 @@ class CommandReorderVisitor : public CommandVisitor {
     eastl::vector<ResourceHandle *> dispatchWriteHandle;
     Variable const *arg;
     Function f;
-    uint dispatchLayer;
+    size_t dispatchLayer;
     void AddDispatchHandle(
         uint64_t handle,
         ResourceType type,
