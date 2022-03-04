@@ -11,19 +11,53 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
         auto &&value = tryResult.first.Value();
         if (tryResult.second) {
             value = handlePool.New();
-            allocatedHandles.emplace_back(value);
             value->handle = tarGetHandle;
             value->type = target_type;
         }
         return value;
     };
+    auto accelFunc = [&] {
+        auto tryResult = accelMap.TryEmplace(
+            tarGetHandle);
+        auto &&value = tryResult.first.Value();
+        if (tryResult.second) {
+            value = handlePool.New();
+            value->handle = tarGetHandle;
+            value->type = target_type;
+            for (auto &&i : meshMap) {
+                if (device->is_mesh_in_accel(tarGetHandle, i.first)) {
+                    i.second->belonedAccel.emplace_back(value);
+                    value->writeLayer = std::max<int64_t>(value->writeLayer, i.second->writeLayer);
+                }
+            }
+        }
+        return value;
+    };
+    auto meshFunc = [&] {
+        auto tryResult = meshMap.TryEmplace(
+            tarGetHandle);
+        auto &&value = tryResult.first.Value();
+        if (tryResult.second) {
+            auto newMeshValue = meshHandlePool.New();
+            value = newMeshValue;
+            value->handle = tarGetHandle;
+            value->type = target_type;
+            for (auto &&i : accelMap) {
+                if (device->is_mesh_in_accel(i.first, tarGetHandle)) {
+                    newMeshValue->belonedAccel.emplace_back(i.second);
+                    newMeshValue->writeLayer = std::max<int64_t>(newMeshValue->writeLayer, i.second->writeLayer);
+                }
+            }
+        }
+        return value;
+    };
     switch (target_type) {
         case ResourceType::Mesh:
-            return func(meshMap);
+            return meshFunc();
         case ResourceType::Bindless:
             return func(bindlessMap);
         case ResourceType::Accel:
-            return func(accelMap);
+            return accelFunc();
         default:
             return func(resMap);
     }
@@ -32,35 +66,36 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
     size_t layer = std::max<int64_t>(handle->readLayer + 1, handle->writeLayer + 1);
     switch (handle->type) {
         case ResourceType::Buffer:
-            for (auto &&i : bindlessMap) {
-                if (device->is_buffer_in_bindless_array(i.second->handle, handle->handle)) {
-                    layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+            if (bindlessMaxLayer >= layer) {
+                for (auto &&i : bindlessMap) {
+                    if (device->is_buffer_in_bindless_array(i.first, handle->handle)) {
+                        layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+                    }
                 }
             }
-            for (auto &&i : accelMap) {
-                if (device->is_buffer_in_accel(i.second->handle, handle->handle)) {
-                    layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+            if (accelMaxLayer >= layer) {
+                for (auto &&i : accelMap) {
+                    if (device->is_buffer_in_accel(i.first, handle->handle)) {
+                        layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+                    }
                 }
             }
             break;
         case ResourceType::Texture:
             for (auto &&i : bindlessMap) {
-                if (device->is_texture_in_bindless_array(i.second->handle, handle->handle)) {
+                if (device->is_texture_in_bindless_array(i.first, handle->handle)) {
                     layer = std::max<int64_t>(layer, i.second->readLayer + 1);
                 }
             }
             break;
         case ResourceType::Mesh:
-            for (auto &&i : accelMap) {
-                if (device->is_mesh_in_accel(i.second->handle, handle->handle)) {
-                    layer = std::max<int64_t>(layer, i.second->readLayer + 1);
-                }
-            }
-            break;
-        case ResourceType::Accel:
-            for (auto &&i : meshMap) {
-                if (device->is_mesh_in_accel(handle->handle, i.second->handle)) {
-                    layer = std::max<int64_t>(layer, i.second->writeLayer + 1);
+            if (bindlessMaxLayer >= layer) {
+                if (accelMaxLayer >= layer) {
+                    for (auto &&i : accelMap) {
+                        if (device->is_mesh_in_accel(i.first, handle->handle)) {
+                            layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+                        }
+                    }
                 }
             }
             break;
@@ -69,20 +104,12 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
 }
 size_t CommandReorderVisitor::GetLastLayerRead(ResourceHandle *handle) const {
     size_t layer = handle->writeLayer + 1;
-    switch (handle->type) {
-        case ResourceType::Accel:
-            for (auto &&i : meshMap) {
-                if (device->is_mesh_in_accel(handle->handle, i.second->handle)) {
-                    layer = std::max<int64_t>(layer, i.second->writeLayer + 1);
-                }
-            }
-            break;
-    }
     return layer;
 }
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device)
     : device(device),
       handlePool(256, true),
+      meshHandlePool(256, true),
       resMap(256),
       bindlessMap(256),
       accelMap(256),
@@ -144,6 +171,8 @@ void CommandReorderVisitor::visit(const BufferToTextureCopyCommand *command) noe
 void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept {
     dispatchReadHandle.clear();
     dispatchWriteHandle.clear();
+    useAccelInPass = false;
+    useBindlessInPass = false;
     f = command->kernel();
     arg = command->kernel().arguments().data();
     dispatchLayer = 0;
@@ -155,6 +184,12 @@ void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept
         i->writeLayer = dispatchLayer;
     }
     AddCommand(command, dispatchLayer);
+    if (useAccelInPass) {
+        accelMaxLayer = std::max<int64_t>(accelMaxLayer, dispatchLayer);
+    }
+    if (useBindlessInPass) {
+        bindlessMaxLayer = std::max<int64_t>(bindlessMaxLayer, dispatchLayer);
+    }
 }
 // Texture : resource
 void CommandReorderVisitor::visit(const TextureUploadCommand *command) noexcept {
@@ -212,6 +247,9 @@ size_t CommandReorderVisitor::SetMesh(
     }
     vbHandle->readLayer = layer;
     meshHandle->writeLayer = layer;
+    for (auto &&i : static_cast<ResourceMeshHandle *>(meshHandle)->belonedAccel) {
+        i->writeLayer = layer;
+    }
     return layer;
 }
 void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
@@ -222,15 +260,26 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
                 device->get_triangle_buffer_from_mesh(command->handle())));
 }
 void CommandReorderVisitor::clear() {
-    for (auto &&i : allocatedHandles) {
-        handlePool.Delete(i);
+    for (auto &&i : resMap) {
+        handlePool.Delete(i.second);
     }
-    allocatedHandles.clear();
+    for (auto &&i : bindlessMap) {
+        handlePool.Delete(i.second);
+    }
+    for (auto &&i : accelMap) {
+        handlePool.Delete(i.second);
+    }
+    for (auto &&i : meshMap) {
+        meshHandlePool.Delete(i.second);
+    }
     resMap.Clear();
     bindlessMap.Clear();
     accelMap.Clear();
     meshMap.Clear();
-    for (auto &&i : commandLists) {
+    accelMaxLayer = -1;
+    bindlessMaxLayer = -1;
+    eastl::span<CommandList> sp(commandLists.data(), layerCount);
+    for (auto &&i : sp) {
         i.clear();
     }
     layerCount = 0;
@@ -240,7 +289,7 @@ void CommandReorderVisitor::AddCommand(Command const *cmd, size_t layer) {
     if (commandLists.size() <= layer) {
         commandLists.resize(layer + 1);
     }
-    layerCount = std::max<size_t>(layerCount, layer + 1);
+    layerCount = std::max(layerCount, layer + 1);
     commandLists[layer].append(const_cast<Command *>(cmd));
 }
 
@@ -280,6 +329,7 @@ void CommandReorderVisitor::operator()(uint uid, vstd::span<std::byte const> bf)
     arg++;
 }
 void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+    useBindlessInPass = true;
     AddDispatchHandle(
         bf.handle,
         ResourceType::Bindless,
@@ -287,6 +337,7 @@ void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::Bindless
     arg++;
 }
 void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+    useAccelInPass = true;
     AddDispatchHandle(
         bf.handle,
         ResourceType::Accel,
@@ -294,4 +345,4 @@ void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::AccelArg
     arg++;
 }
 
-}// namespace luisa::compute::maxwell
+}// namespace luisa::compute
