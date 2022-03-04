@@ -42,7 +42,7 @@ private:
     ScopedVariableMap _scoped_variables;
 
 private:
-    void _define(const Expression *expr) noexcept;
+    void _require_definition(const Expression *expr) noexcept;
 
 public:
     void visit(const BreakStmt *stmt) override;

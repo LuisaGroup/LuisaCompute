@@ -11,7 +11,7 @@ void ISPCVariableDefinitionAnalysis::visit(const ContinueStmt *stmt) {}
 
 void ISPCVariableDefinitionAnalysis::visit(const ReturnStmt *stmt) {
     if (auto expr = stmt->expression()) {
-        _define(expr);
+        _require_definition(expr);
     }
 }
 
@@ -26,7 +26,6 @@ void ISPCVariableDefinitionAnalysis::visit(const ScopeStmt *stmt) {
     auto record = std::move(_scope_stack.back());
     _scope_stack.pop_back();
     // gather child scope usages
-    auto variables = std::move(record.variables());
     luisa::unordered_map<Variable, size_t, VariableHash> counters;
     for (auto s : record.children()) {
         for (auto &&v : _scoped_variables.at(s)) {
@@ -34,15 +33,20 @@ void ISPCVariableDefinitionAnalysis::visit(const ScopeStmt *stmt) {
         }
     }
     for (auto &&[v, count] : counters) {
-        if (count > 1u) {
-            variables.emplace(v);
+        if (count > 1u) { record.def(v); }
+    }
+    for (auto child : record.children()) {
+        auto &&vs = _scoped_variables.at(child);
+        for (auto v : record.variables()) {
+            vs.erase(v);
         }
     }
-    _scoped_variables.emplace(stmt, std::move(variables));
+    _scoped_variables.emplace(
+        stmt, std::move(record.variables()));
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const IfStmt *stmt) {
-    _define(stmt->condition());
+    _require_definition(stmt->condition());
     stmt->true_branch()->accept(*this);
     stmt->false_branch()->accept(*this);
 }
@@ -52,18 +56,18 @@ void ISPCVariableDefinitionAnalysis::visit(const LoopStmt *stmt) {
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const ExprStmt *stmt) {
-    _define(stmt->expression());
+    _require_definition(stmt->expression());
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const SwitchStmt *stmt) {
-    _define(stmt->expression());
+    _require_definition(stmt->expression());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const SwitchCaseStmt *stmt) {
-    _define(stmt->expression());
+    _require_definition(stmt->expression());
     stmt->body()->accept(*this);
 }
 
@@ -72,14 +76,14 @@ void ISPCVariableDefinitionAnalysis::visit(const SwitchDefaultStmt *stmt) {
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const AssignStmt *stmt) {
-    _define(stmt->lhs());
-    _define(stmt->rhs());
+    _require_definition(stmt->lhs());
+    _require_definition(stmt->rhs());
 }
 
 void ISPCVariableDefinitionAnalysis::visit(const ForStmt *stmt) {
-    _define(stmt->variable());
-    _define(stmt->condition());
-    _define(stmt->step());
+    _require_definition(stmt->variable());
+    _require_definition(stmt->condition());
+    _require_definition(stmt->step());
     stmt->body()->accept(*this);
 }
 
@@ -110,7 +114,7 @@ void ISPCVariableDefinitionAnalysis::reset() noexcept {
     _arguments.clear();
 }
 
-void ISPCVariableDefinitionAnalysis::_define(const Expression *expr) noexcept {
+void ISPCVariableDefinitionAnalysis::_require_definition(const Expression *expr) noexcept {
     expr->accept(*this);
 }
 
@@ -131,9 +135,7 @@ void ISPCVariableDefinitionAnalysis::visit(const AccessExpr *expr) {
     expr->range()->accept(*this);
 }
 
-void ISPCVariableDefinitionAnalysis::visit(const LiteralExpr *expr) {
-    // does nothing
-}
+void ISPCVariableDefinitionAnalysis::visit(const LiteralExpr *expr) {}
 
 void ISPCVariableDefinitionAnalysis::visit(const RefExpr *expr) {
     if (auto v = expr->variable();
@@ -143,9 +145,7 @@ void ISPCVariableDefinitionAnalysis::visit(const RefExpr *expr) {
     }
 }
 
-void ISPCVariableDefinitionAnalysis::visit(const ConstantExpr *expr) {
-    // does nothing
-}
+void ISPCVariableDefinitionAnalysis::visit(const ConstantExpr *expr) {}
 
 void ISPCVariableDefinitionAnalysis::visit(const CallExpr *expr) {
     for (auto arg : expr->arguments()) {
