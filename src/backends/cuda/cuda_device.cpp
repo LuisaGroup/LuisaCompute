@@ -208,6 +208,16 @@ void CUDADevice::dispatch(uint64_t stream_handle, const CommandList &list) noexc
     });
 }
 
+void CUDADevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
+    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), lists] {
+        for (auto &&list : lists) {
+            CUDACommandEncoder encoder{this, stream};
+            for (auto cmd : list) { cmd->accept(encoder); }
+        }
+        stream->dispatch_callbacks();
+    });
+}
+
 uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
