@@ -130,10 +130,6 @@ void *LCDevice::stream_native_handle(uint64_t handle) const noexcept {
         ->queue.Queue();
 }
 uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    return create_shader(kernel, meta_options, 0);
-}
-
-uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options, uint64_t psolib) noexcept {
 
     auto str = CodegenUtility::Codegen(kernel);
     if (str) {
@@ -142,10 +138,12 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options,
                 &nativeDevice,
                 *str,
                 kernel.block_size(),
-                kernel.raytracing() ? 65u : 60u));
+                kernel.raytracing() ? 65u : 60u,
+                {}));
     }
     return 0;
 }
+
 void LCDevice::destroy_shader(uint64_t handle) noexcept {
     auto shader = reinterpret_cast<Shader *>(handle);
     delete shader;
@@ -178,15 +176,16 @@ uint64_t LCDevice::create_mesh(
     size_t t_count,
     AccelBuildHint hint) noexcept {
     return reinterpret_cast<uint64>(
-        new BottomAccel(
-            &nativeDevice,
-            reinterpret_cast<Buffer *>(v_buffer),
-            v_offset * v_stride,
-            v_stride,
-            v_count,
-            reinterpret_cast<Buffer *>(t_buffer),
-            t_offset * 3 * sizeof(uint),
-            t_count * 3));
+        (
+            new BottomAccel(
+                &nativeDevice,
+                reinterpret_cast<Buffer *>(v_buffer),
+                v_offset * v_stride,
+                v_stride,
+                v_count,
+                reinterpret_cast<Buffer *>(t_buffer),
+                t_offset * 3 * sizeof(uint),
+                t_count * 3)));
 }
 void LCDevice::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<BottomAccel *>(handle);
@@ -198,35 +197,20 @@ uint64_t LCDevice::create_accel(AccelBuildHint hint) noexcept {
 }
 void LCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept {
     auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    auto bottomAccel = reinterpret_cast<BottomAccel *>(mesh);
     topAccel->Emplace(
-        bottomAccel,
-        visible ? std::numeric_limits<uint>::max() : 0,
-        transform);
+        reinterpret_cast<BottomAccel *>(mesh),
+        transform,
+        visible);
 }
 void LCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
     auto topAccel = reinterpret_cast<TopAccel *>(accel);
     topAccel->PopBack();
 }
-void LCDevice::set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept {
+void LCDevice::set_instance_mesh_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept {
     auto topAccel = reinterpret_cast<TopAccel *>(accel);
     topAccel->Update(
         index,
-        reinterpret_cast<BottomAccel *>(mesh),
-        visible ? std::numeric_limits<uint>::max() : 0,
-        transform);
-}
-void LCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, luisa::float4x4 transform) noexcept {
-    auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    topAccel->Update(
-        index,
-        transform);
-}
-void LCDevice::set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept {
-    auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    topAccel->Update(
-        index,
-        visible ? std::numeric_limits<uint>::max() : 0);
+        reinterpret_cast<BottomAccel *>(mesh));
 }
 bool LCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
     auto topAccel = reinterpret_cast<TopAccel *>(accel);
@@ -234,43 +218,19 @@ bool LCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcep
 }
 bool LCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
     auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    return topAccel->IsMeshInAccel(reinterpret_cast<BottomAccel *>(mesh)->GetMesh());
+    auto meshAccel = reinterpret_cast<BottomAccel *>(mesh);
+    return topAccel->IsMeshInAccel((meshAccel)->GetMesh());
 }
 uint64_t LCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<uint64>(reinterpret_cast<BottomAccel *>(mesh_handle)->GetMesh()->vHandle);
+    auto meshAccel = reinterpret_cast<BottomAccel *>(mesh_handle);
+    return reinterpret_cast<uint64>((meshAccel)->GetMesh()->vHandle);
 }
 uint64_t LCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<uint64>(reinterpret_cast<BottomAccel *>(mesh_handle)->GetMesh()->iHandle);
+    auto meshAccel = reinterpret_cast<BottomAccel *>(mesh_handle);
+    return reinterpret_cast<uint64>((meshAccel)->GetMesh()->iHandle);
 }
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
-}
-
-uint64_t LCDevice::create_psolib(eastl::span<uint64_t> shaders) noexcept {
-    auto sp = vstd::span<ComputeShader const *>(reinterpret_cast<ComputeShader const **>(shaders.data()), shaders.size());
-    return reinterpret_cast<uint64>(
-        new PipelineLibrary(&nativeDevice, sp));
-}
-void LCDevice::destroy_psolib(uint64_t lib_handle) noexcept {
-    delete reinterpret_cast<PipelineLibrary *>(lib_handle);
-}
-bool LCDevice::deser_psolib(uint64_t lib_handle, eastl::span<std::byte const> data) noexcept {
-    auto psoLib = reinterpret_cast<PipelineLibrary *>(lib_handle);
-    return psoLib->Deserialize(vstd::span<vbyte const>(
-        reinterpret_cast<vbyte const *>(data.data()),
-        data.size()));
-}
-size_t LCDevice::ser_psolib(uint64_t lib_handle, eastl::vector<std::byte> &result) noexcept {
-    auto psoLib = reinterpret_cast<PipelineLibrary *>(lib_handle);
-    auto retSize = 0;
-    psoLib->Serialize(
-        [&](size_t sz) -> void * {
-            retSize = sz;
-            auto lastSize = result.size();
-            result.resize(lastSize + sz);
-            return result.data() + lastSize;
-        });
-    return retSize;
 }
 
 VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view) {

@@ -155,7 +155,6 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             str << "uint"sv;
             return;
         case Type::Tag::MATRIX: {
-            str << "row_major ";
             CodegenUtility::GetTypeName(*type.element(), str, usage);
             vstd::to_string(type.dimension(), str);
             str << 'x';
@@ -169,16 +168,8 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             return;
         case Type::Tag::ARRAY:
         case Type::Tag::STRUCTURE: {
-            if (type.description() == hitTypeDesc) {
-                str << "RayPayload";
-                return;
-            } else if (type.description() == rayTypeDesc) {
-                str << "LCRayDesc";
-                return;
-            } else {
-                auto customType = opt->CreateStruct(&type);
-                str << customType->GetStructName();
-            }
+            auto customType = opt->CreateStruct(&type);
+            str << customType->GetStructName();
         }
             return;
         case Type::Tag::BUFFER: {
@@ -251,16 +242,22 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                         data += "inout ";
                     }
                     RegistStructType(i.type());
-                    CodegenUtility::GetTypeName(*i.type(), data, func.variable_usage(i.uid()));
-                    data << ' ';
-                    if (i.type()->is_accel()) {
-                        vstd::string varName;
-                        CodegenUtility::GetVariableName(i, varName);
-                        data << varName << ",StructuredBuffer<MeshInst> " << varName << "Inst"sv << ',';
-                    } else {
+                    Usage usage = func.variable_usage(i.uid());
 
-                        CodegenUtility::GetVariableName(i, data);
-                        data += ',';
+                    vstd::string varName;
+                    CodegenUtility::GetVariableName(i, varName);
+                    if (i.type()->is_accel()) {
+                        if (usage == Usage::READ) {
+                            CodegenUtility::GetTypeName(*i.type(), data, usage);
+                            data << ' '
+                                 << varName << ",StructuredBuffer<MeshInst> " << varName << "Inst,"sv;
+                        } else {
+                            data << "RWStructuredBuffer<MeshInst> "sv << varName << "Inst,"sv;
+                        }
+                    } else {
+                        CodegenUtility::GetTypeName(*i.type(), data, usage);
+                        data << ' ';
+                        data << varName << ',';
                     }
                 }
                 data[data.size() - 1] = ')';
@@ -376,13 +373,17 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
     auto PrintArgsAccelPossible = [&] {
         uint64 sz = 0;
         for (auto &&i : args) {
-            ++sz;
-            i->accept(vis);
             if (i->type()->is_accel()) {
-                str << ',';
+                if ((static_cast<uint>(expr->custom().variable_usage(expr->custom().arguments()[sz].uid())) & static_cast<uint>(Usage::WRITE)) == 0) {
+                    i->accept(vis);
+                    str << ',';
+                }
                 i->accept(vis);
                 str << "Inst"sv;
+            } else {
+                i->accept(vis);
             }
+            ++sz;
             if (sz != args.size()) {
                 str << ',';
             }
@@ -720,6 +721,45 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
+        case CallOp::SET_ACCEL_TRANFORM: {
+            str << "SetAccelTransform("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            for (auto i : vstd::range(1, args.size())) {
+                args[i]->accept(vis);
+                if (i != (args.size() - 1)) {
+                    str << ',';
+                }
+            }
+            str << ')';
+            return;
+        }
+        case CallOp::SET_ACCEL_TRANSFORM_VISIBILITY: {
+            str << "SetAccelTransformVis("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            for (auto i : vstd::range(1, args.size())) {
+                args[i]->accept(vis);
+                if (i != (args.size() - 1)) {
+                    str << ',';
+                }
+            }
+            str << ')';
+            return;
+        }
+        case CallOp::SET_ACCEL_VISIBILITY: {
+            str << "SetAccelVis("sv;
+            args[0]->accept(vis);
+            str << "Inst,"sv;
+            for (auto i : vstd::range(1, args.size())) {
+                args[i]->accept(vis);
+                if (i != (args.size() - 1)) {
+                    str << ',';
+                }
+            }
+            str << ')';
+            return;
+        }
         default: {
             auto errorType = expr->op();
             VEngine_Log("Function Not Implemented"sv);
@@ -980,30 +1020,33 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     }
     vstd::string finalResult;
     finalResult.reserve(65500);
+    //TODO: include
+    finalResult << GetHeader();
+    if (kernel.raytracing()) {
+        finalResult << GetRayTracingHeader();
+    }
+    size_t unChangedOffset = finalResult.size();
 
-    vstd::string propertyResult;
     opt->isKernel = false;
-    GenerateCBuffer(kernel, kernel.arguments(), propertyResult);
+    GenerateCBuffer(kernel, kernel.arguments(), finalResult);
     CodegenResult::Properties properties;
     properties.reserve(kernel.arguments().size() + opt->bindlessBufferCount + 4);
     // Bindless Buffers;
     for (auto &&i : opt->bindlessBufferTypes) {
-        propertyResult << "StructuredBuffer<"sv;
+        finalResult << "StructuredBuffer<"sv;
         if (i.first->is_matrix()) {
             auto n = i.first->dimension();
-            propertyResult << luisa::format("WrappedFloat{}x{}", n, n);
-        } 
-        else if (i.first->is_vector() && i.first->dimension() == 3) {
-            propertyResult << "float4"sv;
-        }    
-        else {
-            GetTypeName(*i.first, propertyResult, Usage::READ);
+            finalResult << luisa::format("WrappedFloat{}x{}", n, n);
+        } else if (i.first->is_vector() && i.first->dimension() == 3) {
+            finalResult << "float4"sv;
+        } else {
+            GetTypeName(*i.first, finalResult, Usage::READ);
         }
         vstd::string instName("bdls"sv);
         vstd::to_string(i.second, instName);
-        propertyResult << "> " << instName << "[]:register(t0,space"sv;
-        vstd::to_string(i.second + 3, propertyResult);
-        propertyResult << ");\n"sv;
+        finalResult << "> " << instName << "[]:register(t0,space"sv;
+        vstd::to_string(i.second + 3, finalResult);
+        finalResult << ");\n"sv;
 
         properties.emplace_back(
             std::move(instName),
@@ -1051,22 +1094,25 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     };
     for (auto &&i : kernel.arguments()) {
         auto print = [&] {
-            GetTypeName(*i.type(), propertyResult, kernel.variable_usage(i.uid()));
-            propertyResult << ' ';
+            GetTypeName(*i.type(), finalResult, kernel.variable_usage(i.uid()));
+            finalResult << ' ';
             vstd::string varName;
             GetVariableName(i, varName);
-            propertyResult << varName;
+            finalResult << varName;
             return varName;
         };
-        auto printInstBuffer = [&] {
-            propertyResult << "StructuredBuffer<MeshInst> ";
+        auto printInstBuffer = [&]<bool writable>() {
+            if constexpr (writable)
+                finalResult << "RWStructuredBuffer<MeshInst> "sv;
+            else
+                finalResult << "StructuredBuffer<MeshInst> "sv;
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;
-            propertyResult << varName;
+            finalResult << varName;
             return varName;
         };
-        auto genArg = [&]<bool rtBuffer = false>(RegisterType regisT, ShaderVariableType sT, char v) {
+        auto genArg = [&]<bool rtBuffer = false, bool writable = false>(RegisterType regisT, ShaderVariableType sT, char v) {
             auto &&r = registerCount[(vbyte)regisT];
             Shader::Property prop = {
                 .type = sT,
@@ -1074,14 +1120,14 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                 .registerIndex = r,
                 .arrSize = 0};
             if constexpr (rtBuffer) {
-                properties.emplace_back(printInstBuffer(), prop);
+                properties.emplace_back(printInstBuffer.operator()<writable>(), prop);
 
             } else {
                 properties.emplace_back(print(), prop);
             }
-            propertyResult << ":register("sv << v;
-            vstd::to_string(r, propertyResult);
-            propertyResult << ");\n"sv;
+            finalResult << ":register("sv << v;
+            vstd::to_string(r, finalResult);
+            finalResult << ");\n"sv;
             r++;
         };
 
@@ -1104,8 +1150,12 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                 genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
                 break;
             case Type::Tag::ACCEL:
-                genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
-                genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                if (Writable(i)) {
+                    genArg.operator()<true, true>(RegisterType::UAV, ShaderVariableType::RWStructuredBuffer, 'u');
+                } else {
+                    genArg(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                    genArg.operator()<true>(RegisterType::SRV, ShaderVariableType::StructuredBuffer, 't');
+                }
                 break;
         }
     }
@@ -1126,40 +1176,12 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                         << v->GetStructDesc() << "};\n";
         }
     }
-    if (kernel.raytracing()) {
-        if (!opt->rayDesc) {
-            finalResult << R"(
-struct FLOATV3{
-    float v[3];
-};
-struct LCRayDesc{
-    FLOATV3 v0;
-    float v1;
-    FLOATV3 v2;
-    float v3;
-};
-)"sv;
-        }
-        if (!opt->hitDesc) {
-            finalResult << R"(
-struct RayPayload{
-    uint v0;
-    uint v1;
-    float2 v2;
-};
-)"sv;
-        }
-    }
-    if (kernel.raytracing()) {
-        if (opt->rayDesc) {
-            finalResult << "#define LCRayDesc "sv << opt->rayDesc->GetStructName() << '\n';
-        }
-        if (opt->hitDesc) {
-            finalResult << "#define RayPayload "sv << opt->hitDesc->GetStructName() << '\n';
-        }
-        finalResult << GetRayTracingHeader();
-    }
-    finalResult << propertyResult << codegenData;
-    return {std::move(finalResult), std::move(properties), opt->bindlessBufferCount};
+    
+    finalResult << codegenData;
+    return {
+        std::move(finalResult),
+        std::move(properties),
+        opt->bindlessBufferCount, 
+        vstd::MD5(vstd::string_view(finalResult.c_str() + unChangedOffset, finalResult.size() - unChangedOffset))};
 }
 }// namespace toolhub::directx

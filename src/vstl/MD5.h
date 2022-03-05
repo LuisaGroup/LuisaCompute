@@ -19,6 +19,7 @@ private:
 
 public:
 	MD5Data const& ToBinary() const { return data; }
+    MD5() {}
 	MD5(string const& str);
 	MD5(std::string_view str);
 	MD5(eastl::span<uint8_t const> bin);

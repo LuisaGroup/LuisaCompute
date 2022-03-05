@@ -31,6 +31,7 @@ Resource/Resource.cpp
 Resource/TextureBase.cpp
 Resource/TopAccel.cpp
 Resource/UploadBuffer.cpp
+Shader/BuiltinKernel.cpp
 Shader/ComputeShader.cpp
 Shader/PipelineLibrary.cpp
 Shader/RTShader.cpp
@@ -71,6 +72,7 @@ Resource/Resource.h
 Resource/TextureBase.h
 Resource/TopAccel.h
 Resource/UploadBuffer.h
+Shader/BuiltinKernel.h
 Shader/ComputeShader.h
 Shader/PipelineLibrary.h
 Shader/RTShader.h

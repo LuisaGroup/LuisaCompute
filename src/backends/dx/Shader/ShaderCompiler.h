@@ -2,6 +2,7 @@
 #include <DXRuntime/Device.h>
 #include <dxc/dxcapi.h>
 namespace toolhub::directx {
+
 class DXByteBlob final : public vstd::IOperatorNewBase {
 private:
     ComPtr<IDxcBlob> blob;
