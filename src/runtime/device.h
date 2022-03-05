@@ -116,11 +116,9 @@ public:
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
         [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
-        virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept = 0;
+        virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept = 0;
         virtual void pop_back_instance_from_accel(uint64_t accel) noexcept = 0;
-        virtual void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept = 0;
-        virtual void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept = 0;
-        virtual void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept = 0;
+        virtual void set_instance_mesh_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept = 0;
         [[nodiscard]] virtual bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept = 0;
         [[nodiscard]] virtual bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept = 0;
         [[nodiscard]] virtual uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
@@ -156,6 +154,7 @@ public:
     [[nodiscard]] Mesh create_mesh(
         VBuffer &&vertices, TBuffer &&triangles,
         AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
+                 // see definition in rtx/mesh.h
     [[nodiscard]] Accel create_accel(AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
 

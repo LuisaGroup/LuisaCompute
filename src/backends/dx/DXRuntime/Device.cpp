@@ -4,6 +4,7 @@
 #include <Resource/DefaultBuffer.h>
 #include <DXRuntime/GlobalSamplers.h>
 #include <Resource/IGpuAllocator.h>
+#include <Shader/BuiltinKernel.h>
 namespace toolhub::directx {
 Device::~Device() {
     if (defaultAllocator) delete defaultAllocator;
@@ -59,5 +60,6 @@ Device::Device() {
     }
     LPCWSTR falseValue = nullptr;
     eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
+    setAccelKernel = BuiltinKernel::LoadAccelSetKernel(this);
 }
 }// namespace toolhub::directx
