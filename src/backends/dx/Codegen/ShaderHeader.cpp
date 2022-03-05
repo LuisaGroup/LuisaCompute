@@ -4,27 +4,27 @@ namespace toolhub::directx {
 vstd::string_view GetAccelProcessCompute() {
     return R"(
 struct MeshInst{
-	float4 p0;
-	float4 p1;
-	float4 p2;
-	uint InstanceID : 24;
-	uint InstanceMask : 8;
-	uint InstanceContributionToHitGroupIndex : 24;
-	uint Flags : 8;
-	uint2 accelStructPtr;
+float4 p0;
+float4 p1;
+float4 p2;
+uint InstanceID : 24;
+uint InstanceMask : 8;
+uint InstanceContributionToHitGroupIndex : 24;
+uint Flags : 8;
+uint2 accelStructPtr;
 };
 RWStructuredBuffer<MeshInst> _InstBuffer : register(u0);
 StructuredBuffer<uint3> _SetBuffer : register(t0);
 cbuffer _Global : register(b0){
-	uint dsp;
-	uint count;
+uint dsp;
+uint count;
 }
 [numthreads(64,1,1)]
 void main(uint id : SV_DISPATCHTHREADID){
-	if(id >= dsp) return;
-	uint3 v = _SetBuffer[id];
-	if(v.z >= count) return;
-	_InstBuffer[v.z].accelStructPtr = v.xy;
+if(id >= dsp) return;
+uint3 v = _SetBuffer[id];
+if(v.z >= count) return;
+_InstBuffer[v.z].accelStructPtr = v.xy;
 }
 )"sv;
 }
