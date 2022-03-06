@@ -9,9 +9,10 @@
 namespace toolhub::directx {
 ComputeShader *ComputeShader::CompileCompute(
     Device *device,
-    CodegenResult &str,
+    CodegenResult const &str,
     uint3 blockSize,
-    uint shaderModel) {
+    uint shaderModel,
+    vstd::optional<vstd::string> &&cachePath) {
     struct SerializeVisitor : ShaderSerializer::Visitor {
         BinaryReader csoReader;
         vstd::string const &psoPath;
@@ -58,7 +59,6 @@ ComputeShader *ComputeShader::CompileCompute(
         }
     };
     static DXShaderCompiler dxCompiler;
-    auto md5 = vstd::MD5(vstd::span<vbyte const>((vbyte const *)str.result.data(), str.result.size()));
     vstd::string path;
     vstd::string psoPath;
     auto savePso = [&](ComputeShader const *cs) {
@@ -70,9 +70,13 @@ ComputeShader *ComputeShader::CompileCompute(
             fwrite(psoCache->GetBufferPointer(), psoCache->GetBufferSize(), 1, f);
         }
     };
-    path << ".cache/" << md5.ToString();
+    if (cachePath) {
+        path = std::move(*cachePath);
+    } else {
+        path.reserve(64);
+        path << ".cache/" << str.md5.ToString();
+    }
     psoPath = path;
-    path << ".cso";
     psoPath << ".pso";
     static constexpr bool USE_CACHE = true;
     if constexpr (USE_CACHE) {
@@ -85,7 +89,7 @@ ComputeShader *ComputeShader::CompileCompute(
             auto result = ShaderSerializer::DeSerialize(
                 str.properties,
                 device,
-                md5,
+                str.md5,
                 visitor);
             if (result) {
                 result->bindlessCount = str.bdlsBufferCount;
@@ -97,18 +101,16 @@ ComputeShader *ComputeShader::CompileCompute(
             }
         }
     }
-    // Not Cached
-    vstd::string compileString(GetHLSLHeader());
+
     auto compResult = [&] {
-        compileString << str.result;
         if constexpr (!USE_CACHE) {
             std::cout
                 << "\n===============================\n"
-                << compileString
+                << str.result
                 << "\n===============================\n";
         }
         return dxCompiler.CompileCompute(
-            compileString,
+            str.result,
             true,
             shaderModel);
     }();
@@ -122,7 +124,7 @@ ComputeShader *ComputeShader::CompileCompute(
                     auto serData = ShaderSerializer::Serialize(
                         str.properties,
                         {buffer->GetBufferPtr(), buffer->GetBufferSize()},
-                        md5,
+                        str.md5,
                         blockSize);
                     fwrite(serData.data(), serData.size(), 1, f);
                 }
@@ -133,7 +135,7 @@ ComputeShader *ComputeShader::CompileCompute(
                 {buffer->GetBufferPtr(),
                  buffer->GetBufferSize()},
                 device,
-                md5);
+                str.md5);
             cs->bindlessCount = str.bdlsBufferCount;
             if constexpr (USE_CACHE) {
                 savePso(cs);

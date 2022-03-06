@@ -76,7 +76,7 @@ void BottomAccel::UpdateStates(
         &bottomInput,
         &bottomLevelPrebuildInfo);
 
-    auto scratchBuffer = builder.GetCB()->GetAlloc()->AllocateScratchBuffer(bottomLevelPrebuildInfo.ScratchDataSizeInBytes);
+    auto scratchBuffer = builder.GetCB()->GetAlloc()->AllocateScratchBuffer(update ? bottomLevelPrebuildInfo.UpdateScratchDataSizeInBytes : bottomLevelPrebuildInfo.ScratchDataSizeInBytes);
     bottomStruct.DestAccelerationStructureData = accelBuffer->GetAddress();
     bottomStruct.ScratchAccelerationStructureData = scratchBuffer->GetAddress();
     if (update) {

@@ -19,6 +19,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     uint64 funcCount = 0;
     uint64 tempCount = 0;
     uint64 bindlessBufferCount = 0;
+    uint64 structCount = 0;
     
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;

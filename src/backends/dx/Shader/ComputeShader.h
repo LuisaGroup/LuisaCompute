@@ -26,9 +26,10 @@ public:
     uint3 BlockSize() const { return blockSize; }
     static ComputeShader *CompileCompute(
         Device *device,
-        CodegenResult &code,
+        CodegenResult const &code,
         uint3 blockSize,
-        uint shaderModel);
+        uint shaderModel,
+        vstd::optional<vstd::string> &&cachePath);
     ComputeShader(
         uint3 blockSize,
         vstd::span<std::pair<vstd::string, Property> const> properties,

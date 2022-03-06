@@ -21,6 +21,7 @@ public:
     IGpuAllocator *defaultAllocator = nullptr;
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
+    ComputeShader const *setAccelKernel;
     Device();
     Device(Device const &) = delete;
     Device(Device &&) = delete;

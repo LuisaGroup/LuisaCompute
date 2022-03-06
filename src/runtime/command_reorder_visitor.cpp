@@ -1,374 +1,348 @@
-//
-// Created by ChenXin on 2021/12/7.
-//
-
 #include <core/mathematics.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/stream.h>
-
 namespace luisa::compute {
-
-CommandReorderVisitor::ShaderDispatchCommandVisitor::ShaderDispatchCommandVisitor(
-    CommandReorderVisitor::CommandRelation *commandRelation, Function *kernel) {
-    this->commandRelation = commandRelation;
-    this->kernel = kernel;
-}
-
-void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vid,
-                                                                     ShaderDispatchCommand::BufferArgument argument) {
-    commandRelation->sourceSet.insert(
-        CommandSource{argument.handle, argument.offset, size_t(-1),
-                      kernel->variable_usage(vid), CommandType::BUFFER});
-}
-
-void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vid,
-                                                                     ShaderDispatchCommand::TextureArgument argument) {
-    commandRelation->sourceSet.insert(
-        CommandSource{argument.handle, size_t(-1), size_t(-1),
-                      kernel->variable_usage(vid), CommandType::TEXTURE});
-}
-
-void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vid,
-                                                                     ShaderDispatchCommand::BindlessArrayArgument argument) {
-    commandRelation->sourceSet.insert(
-        CommandSource{argument.handle, size_t(-1), size_t(-1),
-                      kernel->variable_usage(vid), CommandType::BINDLESS_ARRAY});
-}
-
-void CommandReorderVisitor::ShaderDispatchCommandVisitor::operator()(uint32_t vid,
-                                                                     ShaderDispatchCommand::AccelArgument argument) {
-    commandRelation->sourceSet.insert(
-        CommandSource{argument.handle, size_t(-1), size_t(-1),
-                      kernel->variable_usage(vid), CommandType::ACCEL});
-}
-
-bool CommandReorderVisitor::Overlap(CommandSource sourceA, CommandSource sourceB) {
-
-    // no Usage::NONE by default
-    if (sourceA.usage == Usage::NONE || sourceB.usage == Usage::NONE) {
-        return false;
-    }
-    if (sourceA.usage == Usage::READ && sourceB.usage == Usage::READ) {
-        return false;
-    }
-
-    if (sourceA.type == sourceB.type) {
-        // the same type
-        return sourceA.handle == sourceB.handle;
-        //        if (sourceA.handle != sourceB.handle) {
-        //            return false;
-        //        }
-        //        if (sourceA.offset == size_t(-1) || sourceB.offset == size_t(-1) || sourceA.size == size_t(-1) || sourceB.size == size_t(-1)) {
-        //            return true;
-        //        }
-        //        return (sourceA.offset >= sourceB.offset && sourceA.offset <= sourceB.offset + sourceB.size) ||
-        //               (sourceA.offset + sourceA.size >= sourceB.offset && sourceA.offset + sourceA.size <= sourceB.offset + sourceB.size) ||
-        //               (sourceB.offset >= sourceA.offset && sourceB.offset <= sourceA.offset + sourceA.size) ||
-        //               (sourceB.offset + sourceB.size >= sourceA.offset && sourceB.offset + sourceB.size <= sourceA.offset + sourceA.size);
-    }
-    // sourceA will be set to higher level
-    if (sourceB.type == CommandType::BINDLESS_ARRAY || sourceB.type == CommandType::ACCEL ||
-        (sourceB.type == CommandType::MESH && (sourceA.type == CommandType::BUFFER || sourceA.type == CommandType::TEXTURE))) {
-        std::swap(sourceA, sourceB);
-    }
-    switch (sourceA.type) {
-        case CommandType::ACCEL:
-            // accel - xxx
-            if (sourceB.type == CommandType::MESH) {
-                // accel - mesh
-                return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
-                       device->is_mesh_in_accel(sourceA.handle, sourceB.handle);
+CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
+    uint64_t tarGetHandle,
+    ResourceType target_type) {
+    auto func = [&](auto &&map) {
+        auto tryResult = map.TryEmplace(
+            tarGetHandle);
+        auto &&value = tryResult.first.Value();
+        if (tryResult.second) {
+            value = handlePool.New();
+            value->handle = tarGetHandle;
+            value->type = target_type;
+        }
+        return value;
+    };
+    auto accelFunc = [&] {
+        auto tryResult = accelMap.TryEmplace(
+            tarGetHandle);
+        auto &&value = tryResult.first.Value();
+        if (tryResult.second) {
+            value = handlePool.New();
+            value->handle = tarGetHandle;
+            value->type = target_type;
+            for (auto &&i : meshMap) {
+                if (device->is_mesh_in_accel(tarGetHandle, i.first)) {
+                    i.second->belonedAccel.emplace_back(value);
+                    value->writeLayer = std::max<int64_t>(value->writeLayer, i.second->writeLayer);
+                }
             }
-            if (sourceB.type == CommandType::BUFFER) {
-                // accel - buffer
-                return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
-                       device->is_buffer_in_accel(sourceA.handle, sourceB.handle);
+        }
+        return value;
+    };
+    auto meshFunc = [&] {
+        auto tryResult = meshMap.TryEmplace(
+            tarGetHandle);
+        auto &&value = tryResult.first.Value();
+        if (tryResult.second) {
+            auto newMeshValue = meshHandlePool.New();
+            value = newMeshValue;
+            value->handle = tarGetHandle;
+            value->type = target_type;
+            for (auto &&i : accelMap) {
+                if (device->is_mesh_in_accel(i.first, tarGetHandle)) {
+                    newMeshValue->belonedAccel.emplace_back(i.second);
+                    newMeshValue->writeLayer = std::max<int64_t>(newMeshValue->writeLayer, i.second->writeLayer);
+                }
             }
-            break;
-        case CommandType::MESH:
-            if (sourceB.type == CommandType::BUFFER) {
-                // mesh - buffer
-                return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
-                       (sourceB.handle == device->get_vertex_buffer_from_mesh(sourceA.handle) ||
-                        sourceB.handle == device->get_triangle_buffer_from_mesh(sourceA.handle));
-            }
-            break;
-        case CommandType::BINDLESS_ARRAY:
-            if (sourceB.type == CommandType::TEXTURE) {
-                // bindless_array - texture
-                return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
-                       device->is_texture_in_bindless_array(sourceA.handle, sourceB.handle);
-            }
-            if (sourceB.type == CommandType::BUFFER) {
-                // bindless_array - buffer
-                return (sourceB.usage == Usage::WRITE || sourceB.usage == Usage::READ_WRITE) &&
-                       device->is_buffer_in_bindless_array(sourceA.handle, sourceB.handle);
-            }
-            break;
-        default: break;
+        }
+        return value;
+    };
+    switch (target_type) {
+        case ResourceType::Mesh:
+            return meshFunc();
+        case ResourceType::Bindless:
+            return func(bindlessMap);
+        case ResourceType::Accel:
+            return accelFunc();
+        default:
+            return func(resMap);
     }
-    return false;
 }
-
-void CommandReorderVisitor::processNewCommandRelation(CommandReorderVisitor::CommandRelation *commandRelation) noexcept {
-    // check all relations by reversed index if they overlap with the command under processing
-    int insertIndex = 0;
-    for (int i = int(_commandRelationData.size()) - 1; i >= std::max(0, int(_commandRelationData.size()) - windowSize); --i) {
-        for (auto &j : _commandRelationData[i]) {
-            CommandRelation *lastCommandRelation = j;
-            bool overlap = false;
-            // check every condition
-            for (const auto &source : commandRelation->sourceSet) {
-                for (const auto &lastSource : lastCommandRelation->sourceSet)
-                    if (Overlap(lastSource, source)) {
-                        overlap = true;
-                        break;
+size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
+    size_t layer = std::max<int64_t>(handle->readLayer + 1, handle->writeLayer + 1);
+    switch (handle->type) {
+        case ResourceType::Buffer:
+            if (bindlessMaxLayer >= layer) {
+                for (auto &&i : bindlessMap) {
+                    if (device->is_buffer_in_bindless_array(i.first, handle->handle)) {
+                        layer = std::max<int64_t>(layer, i.second->readLayer + 1);
                     }
-                if (overlap)
-                    break;
+                }
             }
-            // if overlapping: add relation, tail command is not tail anymore
-            if (overlap) {
-                insertIndex = i + 1;
-                break;
+            if (accelMaxLayer >= layer) {
+                for (auto &&i : accelMap) {
+                    if (device->is_buffer_in_accel(i.first, handle->handle)) {
+                        layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+                    }
+                }
             }
-        }
-        if (insertIndex > 0)
+            break;
+        case ResourceType::Texture:
+            for (auto &&i : bindlessMap) {
+                if (device->is_texture_in_bindless_array(i.first, handle->handle)) {
+                    layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+                }
+            }
+            break;
+        case ResourceType::Mesh:
+            if (bindlessMaxLayer >= layer) {
+                if (accelMaxLayer >= layer) {
+                    for (auto &&i : accelMap) {
+                        if (device->is_mesh_in_accel(i.first, handle->handle)) {
+                            layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+                        }
+                    }
+                }
+            }
             break;
     }
-
-    if (insertIndex == _commandRelationData.size()) {
-        auto &&v = _commandRelationData.emplace_back();
-        v.emplace_back(commandRelation);
-    } else
-        _commandRelationData[insertIndex].push_back(commandRelation);
+    return layer;
 }
-
-luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
-    luisa::vector<CommandList> ans;
-    for (auto &i : _commandRelationData) {
-        CommandList commandList;
-        for (auto &j : i) {
-            commandList.append(j->command);
-        }
-        if (!commandList.empty()) {
-            ans.push_back(std::move(commandList));
-        }
-    }
-    LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
-    clear();
-    return ans;
+size_t CommandReorderVisitor::GetLastLayerRead(ResourceHandle *handle) const {
+    size_t layer = handle->writeLayer + 1;
+    return layer;
 }
-
-void CommandReorderVisitor::visit(BufferUploadCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), command->offset(), command->size(), Usage::WRITE, CommandType::BUFFER});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(BufferDownloadCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), command->offset(), command->size(), Usage::READ, CommandType::BUFFER});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(BufferCopyCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->src_handle(), command->src_offset(), command->size(), Usage::READ, CommandType::BUFFER});
-    commandRelation->sourceSet.insert(CommandSource{
-        command->dst_handle(), command->dst_offset(), command->size(), Usage::WRITE, CommandType::BUFFER});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(BufferToTextureCopyCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->buffer(), size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
-    commandRelation->sourceSet.insert(CommandSource{
-        command->texture(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::TEXTURE});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(ShaderDispatchCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    Function kernel = command->kernel();
-    ShaderDispatchCommandVisitor shaderDispatchCommandVisitor(commandRelation, &kernel);
-    command->decode(shaderDispatchCommandVisitor);
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(TextureUploadCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::TEXTURE});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(TextureDownloadCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::READ, CommandType::TEXTURE});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(TextureCopyCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->src_handle(), size_t(-1), size_t(-1), Usage::READ, CommandType::TEXTURE});
-    commandRelation->sourceSet.insert(CommandSource{
-        command->dst_handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::TEXTURE});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(TextureToBufferCopyCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->texture(), size_t(-1), size_t(-1), Usage::READ, CommandType::TEXTURE});
-    commandRelation->sourceSet.insert(CommandSource{
-        command->buffer(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::BUFFER});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(BindlessArrayUpdateCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::BINDLESS_ARRAY});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(AccelUpdateCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::ACCEL});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(AccelBuildCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::ACCEL});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(MeshUpdateCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::MESH});
-    // TODO : whether triangle and vertex are read ?
-    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
-             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
-    commandRelation->sourceSet.insert(CommandSource{
-        triangle_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
-    commandRelation->sourceSet.insert(CommandSource{
-        vertex_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
-
-    processNewCommandRelation(commandRelation);
-}
-
-void CommandReorderVisitor::visit(MeshBuildCommand *command) noexcept {
-    // generate CommandRelation data
-    auto commandRelation = allocate_relation(command);
-
-    // get source set
-    commandRelation->sourceSet.insert(CommandSource{
-        command->handle(), size_t(-1), size_t(-1), Usage::WRITE, CommandType::MESH});
-    // TODO : whether triangle and vertex are read ?
-    uint64_t triangle_buffer = device->get_triangle_buffer_from_mesh(command->handle()),
-             vertex_buffer = device->get_vertex_buffer_from_mesh(command->handle());
-    commandRelation->sourceSet.insert(CommandSource{
-        triangle_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
-    commandRelation->sourceSet.insert(CommandSource{
-        vertex_buffer, size_t(-1), size_t(-1), Usage::READ, CommandType::BUFFER});
-
-    processNewCommandRelation(commandRelation);
-}
-void CommandReorderVisitor::reserve(size_t size) {
-    if (size > _commandRelationData.capacity())
-        _commandRelationData.reserve(next_pow2(size));
-}
-
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device)
-    : device{device} {}
+    : device(device),
+      handlePool(256, true),
+      meshHandlePool(256, true),
+      resMap(256),
+      bindlessMap(256),
+      accelMap(256),
+      meshMap(256) {}
 
-void CommandReorderVisitor::clear() noexcept {
-    for (auto &&i : _commandRelationData) {
-        for (auto &&j : i) {
-            deallocate_relation(j);
-        }
-    }
-    _commandRelationData.clear();
-}
-CommandReorderVisitor::CommandRelation *CommandReorderVisitor::allocate_relation(Command *cmd) {
-    if (pooledRelations.empty()) {
-        return relationPool.create(cmd);
-    }
-    auto v = pooledRelations.back();
-    pooledRelations.pop_back();
-    v->command = cmd;
-    return v;
-}
-void CommandReorderVisitor::deallocate_relation(CommandRelation *v) {
-    v->clear();
-    pooledRelations.emplace_back(v);
-}
 CommandReorderVisitor::~CommandReorderVisitor() {
-    for (auto &&i : pooledRelations) {
-        relationPool.recycle(i);
+}
+size_t CommandReorderVisitor::SetRead(
+    uint64_t handle,
+    ResourceType type) {
+    auto srcHandle = GetHandle(
+        handle,
+        type);
+    auto layer = GetLastLayerRead(srcHandle);
+    srcHandle->readLayer = layer;
+    return layer;
+}
+size_t CommandReorderVisitor::SetWrite(
+    uint64_t handle,
+    ResourceType type) {
+    auto dstHandle = GetHandle(
+        handle,
+        type);
+    auto layer = GetLastLayerWrite(dstHandle);
+    dstHandle->writeLayer = layer;
+    return layer;
+}
+size_t CommandReorderVisitor::SetRW(
+    uint64_t read_handle,
+    ResourceType read_type,
+    uint64_t write_handle,
+    ResourceType write_type) {
+    auto srcHandle = GetHandle(
+        read_handle,
+        read_type);
+    auto layer = GetLastLayerRead(srcHandle);
+    auto dstHandle = GetHandle(
+        write_handle,
+        write_type);
+    layer = std::max<int64_t>(layer, GetLastLayerWrite(dstHandle));
+    srcHandle->readLayer = layer;
+    dstHandle->writeLayer = layer;
+    return layer;
+}
+void CommandReorderVisitor::visit(const BufferUploadCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), ResourceType::Buffer));
+}
+void CommandReorderVisitor::visit(const BufferDownloadCommand *command) noexcept {
+    AddCommand(command, SetRead(command->handle(), ResourceType::Buffer));
+}
+void CommandReorderVisitor::visit(const BufferCopyCommand *command) noexcept {
+    AddCommand(command, SetRW(command->src_handle(), ResourceType::Buffer, command->dst_handle(), ResourceType::Buffer));
+}
+void CommandReorderVisitor::visit(const BufferToTextureCopyCommand *command) noexcept {
+    AddCommand(command, SetRW(command->buffer(), ResourceType::Buffer, command->texture(), ResourceType::Texture));
+}
+
+// Shader : function, read/write multi resources
+void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept {
+    dispatchReadHandle.clear();
+    dispatchWriteHandle.clear();
+    useAccelInPass = false;
+    useBindlessInPass = false;
+    f = command->kernel();
+    arg = command->kernel().arguments().data();
+    dispatchLayer = 0;
+    command->decode(*this);
+    for (auto &&i : dispatchReadHandle) {
+        i->readLayer = dispatchLayer;
     }
+    for (auto &&i : dispatchWriteHandle) {
+        i->writeLayer = dispatchLayer;
+    }
+    AddCommand(command, dispatchLayer);
+    if (useAccelInPass) {
+        accelMaxLayer = std::max<int64_t>(accelMaxLayer, dispatchLayer);
+    }
+    if (useBindlessInPass) {
+        bindlessMaxLayer = std::max<int64_t>(bindlessMaxLayer, dispatchLayer);
+    }
+}
+// Texture : resource
+void CommandReorderVisitor::visit(const TextureUploadCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), ResourceType::Texture));
+}
+void CommandReorderVisitor::visit(const TextureDownloadCommand *command) noexcept {
+    AddCommand(command, SetRead(command->handle(), ResourceType::Texture));
+}
+void CommandReorderVisitor::visit(const TextureCopyCommand *command) noexcept {
+    AddCommand(command, SetRW(command->src_handle(), ResourceType::Texture, command->dst_handle(), ResourceType::Texture));
+}
+void CommandReorderVisitor::visit(const TextureToBufferCopyCommand *command) noexcept {
+    AddCommand(command, SetRW(command->texture(), ResourceType::Texture, command->buffer(), ResourceType::Buffer));
+}
+
+// BindlessArray : read multi resources
+void CommandReorderVisitor::visit(const BindlessArrayUpdateCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), ResourceType::Bindless));
+}
+
+// Accel : conclude meshes and their buffer
+void CommandReorderVisitor::visit(const AccelUpdateCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), ResourceType::Accel));
+}
+void CommandReorderVisitor::visit(const AccelBuildCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), ResourceType::Accel));
+}
+
+// Mesh : conclude vertex and triangle buffers
+void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
+    AddCommand(
+        command,
+        SetMesh(command->handle(),
+                device->get_vertex_buffer_from_mesh(command->handle()),
+                device->get_triangle_buffer_from_mesh(command->handle())));
+}
+size_t CommandReorderVisitor::SetMesh(
+    uint64_t handle,
+    uint64_t vb,
+    uint64_t ib) {
+    auto vbHandle = GetHandle(
+        vb,
+        ResourceType::Buffer);
+    auto meshHandle = GetHandle(
+        handle,
+        ResourceType::Mesh);
+    auto layer = GetLastLayerRead(vbHandle);
+    layer = std::max<int64_t>(layer, GetLastLayerWrite(meshHandle));
+    if (ib != vb) {
+        auto ibHandle = GetHandle(
+            ib,
+            ResourceType::Buffer);
+        layer = std::max<int64_t>(layer, GetLastLayerRead(ibHandle));
+        ibHandle->readLayer = layer;
+    }
+    vbHandle->readLayer = layer;
+    meshHandle->writeLayer = layer;
+    for (auto &&i : static_cast<ResourceMeshHandle *>(meshHandle)->belonedAccel) {
+        i->writeLayer = layer;
+    }
+    return layer;
+}
+void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
+    AddCommand(
+        command,
+        SetMesh(command->handle(),
+                device->get_vertex_buffer_from_mesh(command->handle()),
+                device->get_triangle_buffer_from_mesh(command->handle())));
+}
+void CommandReorderVisitor::clear() {
+    for (auto &&i : resMap) {
+        handlePool.Delete(i.second);
+    }
+    for (auto &&i : bindlessMap) {
+        handlePool.Delete(i.second);
+    }
+    for (auto &&i : accelMap) {
+        handlePool.Delete(i.second);
+    }
+    for (auto &&i : meshMap) {
+        meshHandlePool.Delete(i.second);
+    }
+    resMap.Clear();
+    bindlessMap.Clear();
+    accelMap.Clear();
+    meshMap.Clear();
+    accelMaxLayer = -1;
+    bindlessMaxLayer = -1;
+    eastl::span<CommandList> sp(commandLists.data(), layerCount);
+    for (auto &&i : sp) {
+        i.clear();
+    }
+    layerCount = 0;
+}
+
+void CommandReorderVisitor::AddCommand(Command const *cmd, size_t layer) {
+    if (commandLists.size() <= layer) {
+        commandLists.resize(layer + 1);
+    }
+    layerCount = std::max(layerCount, layer + 1);
+    commandLists[layer].append(const_cast<Command *>(cmd));
+}
+
+void CommandReorderVisitor::AddDispatchHandle(
+    uint64_t handle,
+    ResourceType type,
+    bool isWrite) {
+    if (isWrite) {
+        auto h = GetHandle(
+            handle,
+            type);
+        dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerWrite(h));
+        dispatchWriteHandle.emplace_back(h);
+    } else {
+        auto h = GetHandle(
+            handle,
+            type);
+        dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerRead(h));
+        dispatchReadHandle.emplace_back(h);
+    }
+}
+void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Texture,
+        ((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0);
+    arg++;
+}
+void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Buffer,
+        ((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0);
+    arg++;
+}
+void CommandReorderVisitor::operator()(uint uid, vstd::span<std::byte const> bf) {
+    arg++;
+}
+void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+    useBindlessInPass = true;
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Bindless,
+        false);
+    arg++;
+}
+void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+    useAccelInPass = true;
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Accel,
+        false);
+    arg++;
 }
 
 }// namespace luisa::compute

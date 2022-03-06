@@ -8,7 +8,7 @@ using LCDeviceInterface = luisa::compute::DxDevice;
 class LCDevice : public LCDeviceInterface, public vstd::IOperatorNewBase {
 public:
     Device nativeDevice;
-    size_t maxAllocatorCount = 2;
+    static constexpr size_t maxAllocatorCount = 2;
     //std::numeric_limits<size_t>::max();
     LCDevice(const Context &ctx);
     void *native_handle() const noexcept override;
@@ -40,6 +40,7 @@ public:
 
     // stream
     uint64_t create_stream() noexcept override;
+
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList const &) noexcept override;
@@ -48,7 +49,6 @@ public:
 
     // kernel
     uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override;
-    uint64_t create_shader(Function kernel, std::string_view meta_options, uint64_t psolib) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
 
     // event
@@ -67,17 +67,11 @@ public:
     uint64_t create_accel(AccelBuildHint hint) noexcept override;
     void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept override;
     void pop_back_instance_from_accel(uint64_t accel) noexcept override;
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept override;
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, luisa::float4x4 transform) noexcept override;
-    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
+    void set_instance_mesh_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept override;
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
     bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
     uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
-    uint64_t create_psolib(eastl::span<uint64_t> shaders) noexcept override;
-    void destroy_psolib(uint64_t lib_handle) noexcept override;
-    bool deser_psolib(uint64_t lib_handle, eastl::span<std::byte const> data) noexcept override;
-    size_t ser_psolib(uint64_t lib_handle, eastl::vector<std::byte> &result) noexcept override;
 };
 }// namespace toolhub::directx

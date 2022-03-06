@@ -12,6 +12,7 @@ namespace toolhub::directx {
 class LCCmdBuffer final : public vstd::IOperatorNewBase {
     uint64 lastFence = 0;
     Device *device;
+    ResourceStateTracker tracker;
 
 public:
     CommandQueue queue;

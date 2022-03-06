@@ -1,6 +1,7 @@
 #pragma vengine_package vengine_directx
 #include <Shader/ShaderCompiler.h>
 #include <core/dynamic_module.h>
+#include <Codegen/ShaderHeader.h>
 namespace toolhub::directx {
 luisa::DynamicModule dxcCompiler("dxcompiler");
 DXByteBlob::DXByteBlob(

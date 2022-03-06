@@ -27,6 +27,7 @@ void CodegenStackData::Clear() {
     generatedConstants.Clear();
     constCount = 0;
     count = 0;
+    structCount = 0;
     funcCount = 0;
     tempCount = 0;
     bindlessBufferCount = 0;
@@ -41,24 +42,28 @@ uint CodegenStackData::AddBindlessType(Type const *type) {
         .Value();
 }
 StructGenerator *CodegenStackData::CreateStruct(Type const *t) {
+    bool isRayType = t->description() == CodegenUtility::rayTypeDesc;
+    bool isHitType = t->description() == CodegenUtility::hitTypeDesc;
     auto ite = customStruct.Find(t);
     if (ite) {
         return ite.Value().get();
     }
-    auto sz = customStructVector.size();
-    customStructVector.emplace_back(nullptr);
     auto newPtr = new StructGenerator(
         t,
-        sz,
+        structCount++,
         generateStruct);
     customStruct.ForceEmplace(
         t,
         vstd::create_unique(newPtr));
-    customStructVector[sz] = newPtr;
-    if (t->description() == CodegenUtility::rayTypeDesc) {
+
+    if (isRayType) {
         rayDesc = newPtr;
-    } else if (t->description() == CodegenUtility::hitTypeDesc) {
+        newPtr->SetStructName(vstd::string("LCRayDesc"sv));
+    } else if (isHitType) {
         hitDesc = newPtr;
+        newPtr->SetStructName(vstd::string("RayPayload"sv));
+    } else {
+        customStructVector.emplace_back(newPtr); 
     }
     return newPtr;
 }
