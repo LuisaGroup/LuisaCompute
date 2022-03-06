@@ -74,10 +74,7 @@ void Accel::set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcep
     Expr<Accel>{*this}.set_visibility(instance_id, vis);
 }
 
-Accel &Accel::emplace_back(
-    Mesh const &mesh,
-    float4x4 transform,
-    bool visible) noexcept {
+Accel &Accel::emplace_back(Mesh const &mesh, float4x4 transform, bool visible) noexcept {
     _rebuild_observer->notify();
     device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform, visible);
     _rebuild_observer->emplace_back(mesh.shared_subject());
@@ -93,18 +90,6 @@ Accel &Accel::pop_back() noexcept {
     _rebuild_observer->notify();
     _rebuild_observer->pop_back();
     device()->pop_back_instance_from_accel(handle());
-    return *this;
-}
-
-Accel& Accel::set_mesh(size_t index, const Mesh& mesh) noexcept {
-    if (index >= size()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid index {} in accel #{}.",
-            index, handle());
-    }
-    _rebuild_observer->notify();
-    _rebuild_observer->set(index, mesh.shared_subject());
-    device()->set_instance_mesh_in_accel(handle(), index, mesh.handle());
     return *this;
 }
 

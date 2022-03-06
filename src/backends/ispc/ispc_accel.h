@@ -26,9 +26,9 @@ public:
      * 
      */
     struct alignas(16) Instance {
-        const ISPCMesh *mesh;
-        std::array<float, 12> transform;
-        bool visible;
+        const ISPCMesh *mesh{nullptr};
+        std::array<float, 12> transform{};
+        bool visible{false};
     };
     static_assert(sizeof(Instance) == 64u);
 

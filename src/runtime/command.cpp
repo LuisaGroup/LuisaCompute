@@ -129,4 +129,29 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_ALL_COMMANDS)
 
 }// namespace detail
 
+Command *CommandBundle::clone() const noexcept {
+    auto bundle = create();
+    for (auto cmd : _commands) {
+        bundle->add(cmd->clone());
+    }
+    return bundle;
+}
+
+void CommandBundle::accept(CommandVisitor &visitor) const noexcept {
+    for (auto cmd : _commands) {
+        cmd->accept(visitor);
+    }
+}
+
+void CommandBundle::accept(MutableCommandVisitor &visitor) noexcept {
+    for (auto cmd : _commands) {
+        cmd->accept(visitor);
+    }
+}
+
+void CommandBundle::_recycle() noexcept {
+    for (auto cmd : _commands) { cmd->recycle(); }
+    detail::pool_CommandBundle().recycle(this);
+}
+
 }// namespace luisa::compute

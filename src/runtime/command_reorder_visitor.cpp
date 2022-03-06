@@ -99,6 +99,7 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
                 }
             }
             break;
+        default: break;
     }
     return layer;
 }
