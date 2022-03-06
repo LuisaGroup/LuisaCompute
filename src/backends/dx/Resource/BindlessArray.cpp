@@ -14,39 +14,48 @@ BindlessArray::BindlessArray(
     : Resource(device),
       buffer(device, arraySize * sizeof(BindlessStruct), device->defaultAllocator, VEngineShaderResourceState) {
     binded.resize(arraySize);
-    memset(binded.data(), std::numeric_limits<int>::max(), binded.byte_size());
-}
-void BindlessArray::AddDepend(uint idx, BindTag tag, size_t ptr) {
-    auto ite = ptrMap.Emplace(ptr, 0);
-    ite.Value()++;
-    indexMap.Emplace(std::pair<uint, BindTag>(idx, tag), ite);
-}
-void BindlessArray::RemoveDepend(uint idx, BindTag tag) {
-    auto ite = indexMap.Find(std::pair<uint, BindTag>(idx, tag));
-    if (!ite) return;
-    auto &&v = ite.Value();
-    auto &&refCount = v.Value();
-    refCount--;
-    if (refCount == 0) {
-        ptrMap.Remove(v);
-    }
-    indexMap.Remove(ite);
 }
 uint BindlessArray::GetNewIndex() {
     return device->globalHeap->AllocateIndex();
 }
 
 BindlessArray::~BindlessArray() {
-}
-void BindlessArray::TryReturnIndex(uint originValue) {
-    if (originValue != BindlessStruct::n_pos) {
-        freeQueue.Push(originValue);
-        // device->globalHeap->ReturnIndex(originValue);
+    auto Return = [&](auto &&i) {
+        if (i != BindlessStruct::n_pos) {
+            device->globalHeap->ReturnIndex(i);
+        }
+    };
+    for (auto &&i : binded) {
+        Return(i.first.buffer);
+        Return(i.first.tex2D);
+        Return(i.first.tex3D);
+    }
+    while (auto i = freeQueue.Pop()) {
+        device->globalHeap->ReturnIndex(*i);
     }
 }
+void BindlessArray::TryReturnIndex(MapIndex &index, uint &originValue) {
+    if (originValue != BindlessStruct::n_pos) {
+        freeQueue.Push(originValue);
+        originValue = BindlessStruct::n_pos;
+        index = {};
+        // device->globalHeap->ReturnIndex(originValue);
+        auto &&v = index.Value();
+        v--;
+        if (v == 0) {
+            ptrMap.Remove(index);
+        }
+    }
+}
+BindlessArray::MapIndex BindlessArray::AddIndex(size_t ptr) {
+    auto ite = ptrMap.Emplace(ptr, 0);
+    ite.Value()++;
+    return ite;
+}
+
 void BindlessArray::Bind(Property const &prop, uint index) {
-    BindlessStruct &bindGrp = binded[index];
-    std::lock_guard lck(globalMtx);
+    auto &bindGrp = binded[index].first;
+    auto &indices = binded[index].second;
     auto dsp = vstd::create_disposer([&] {
         updateMap.ForceEmplace(
             index,
@@ -54,8 +63,7 @@ void BindlessArray::Bind(Property const &prop, uint index) {
     });
     prop.multi_visit(
         [&](BufferView const &v) {
-            AddDepend(index, BindTag::Buffer, reinterpret_cast<size_t>(v.buffer));
-            TryReturnIndex(bindGrp.buffer);
+            TryReturnIndex(indices.buffer, bindGrp.buffer);
             uint newIdx = GetNewIndex();
             auto desc = v.buffer->GetColorSrvDesc(
                 v.offset,
@@ -71,13 +79,14 @@ void BindlessArray::Bind(Property const &prop, uint index) {
                 *desc,
                 newIdx);
             bindGrp.buffer = newIdx;
+            indices.buffer = AddIndex(reinterpret_cast<size_t>(v.buffer));
         },
         [&](std::pair<TextureBase const *, Sampler> const &v) {
             bool isTex2D = (v.first->Dimension() == TextureDimension::Tex2D);
             if (isTex2D)
-                TryReturnIndex(bindGrp.tex2D);
+                TryReturnIndex(indices.tex2D, bindGrp.tex2D);
             else
-                TryReturnIndex(bindGrp.tex3D);
+                TryReturnIndex(indices.tex3D, bindGrp.tex3D);
             uint texIdx = GetNewIndex();
             device->globalHeap->CreateSRV(
                 v.first->GetResource(),
@@ -85,13 +94,14 @@ void BindlessArray::Bind(Property const &prop, uint index) {
                 texIdx);
             auto smpIdx = GlobalSamplers::GetIndex(v.second);
             if (isTex2D) {
-                AddDepend(index, BindTag::Tex2D, reinterpret_cast<size_t>(v.first));
+                indices.tex2D = AddIndex(reinterpret_cast<size_t>(v.first));
+                
                 bindGrp.tex2D = texIdx;
                 bindGrp.tex2DX = v.first->Width();
                 bindGrp.tex2DY = v.first->Height();
                 bindGrp.samp2D = smpIdx;
             } else {
-                AddDepend(index, BindTag::Tex3D, reinterpret_cast<size_t>(v.first));
+                indices.tex3D = AddIndex(reinterpret_cast<size_t>(v.first));
                 bindGrp.tex3D = texIdx;
                 bindGrp.tex3DX = v.first->Width();
                 bindGrp.tex3DY = v.first->Height();
@@ -102,29 +112,29 @@ void BindlessArray::Bind(Property const &prop, uint index) {
 }
 
 void BindlessArray::UnBind(BindTag tag, uint index) {
-    std::lock_guard lck(globalMtx);
-    auto &&bindGrp = binded[index];
-    RemoveDepend(index, tag);
+
+    auto &bindGrp = binded[index].first;
+    auto &indices = binded[index].second;
     switch (tag) {
         case BindTag::Buffer:
-            TryReturnIndex(bindGrp.buffer);
+            TryReturnIndex(indices.buffer, bindGrp.buffer);
             break;
         case BindTag::Tex2D:
-            TryReturnIndex(bindGrp.tex2D);
+            TryReturnIndex(indices.tex2D, bindGrp.tex2D);
             break;
         case BindTag::Tex3D:
-            TryReturnIndex(bindGrp.tex3D);
+            TryReturnIndex(indices.tex3D, bindGrp.tex3D);
             break;
     }
 }
 bool BindlessArray::IsPtrInBindless(size_t ptr) const {
-    std::lock_guard lck(globalMtx);
+
     return ptrMap.Find(ptr);
 }
 void BindlessArray::PreProcessStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker) const {
-    std::lock_guard lck(globalMtx);
+
     if (updateMap.size() > 0) {
         tracker.RecordState(
             &buffer,
@@ -135,7 +145,7 @@ void BindlessArray::UpdateStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker) const {
     {
-        std::lock_guard lck(globalMtx);
+
         if (updateMap.size() > 0) {
             for (auto &&kv : updateMap) {
                 auto &&sb = kv.second;

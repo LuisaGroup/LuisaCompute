@@ -15,13 +15,18 @@ Stream Device::create_stream() noexcept {
 void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
-        reorder_visitor->reserve(size);
         auto commands = list.steal_commands();
         for (auto command : commands) {
             command->accept(*reorder_visitor);
         }
-        auto lists = reorder_visitor->getCommandLists();
+        auto lists = reorder_visitor->command_lists();
         device()->dispatch(handle(), lists);
+        reorder_visitor->clear();
+        for (auto command : commands) {
+            command->recycle();
+        }
+
+
     } else {
         device()->dispatch(handle(), list);
     }

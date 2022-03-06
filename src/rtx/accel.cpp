@@ -57,21 +57,31 @@ Var<float4x4> Accel::instance_to_world(Expr<int> instance_id) const noexcept {
 Var<float4x4> Accel::instance_to_world(Expr<uint> instance_id) const noexcept {
     return Expr<Accel>{*this}.instance_to_world(instance_id);
 }
-
-Accel &Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool vis) noexcept {
-    _rebuild_observer->notify();
-    device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform, vis);
-    _rebuild_observer->emplace_back(mesh.shared_subject());
-    return *this;
+void Accel::set_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
+    Expr<Accel>{*this}.set_transform(instance_id, mat);
 }
-
-Accel &Accel::set_transform(size_t index, float4x4 transform) noexcept {
-    if (index >= size()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid index {} in accel #{}.",
-            index, handle());
-    }
-    device()->set_instance_transform_in_accel(handle(), index, transform);
+void Accel::set_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
+    Expr<Accel>{*this}.set_transform(instance_id, mat);
+}
+void Accel::set_transform_vis(Expr<int> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_transform_vis(instance_id, mat, vis);
+}
+void Accel::set_transform_vis(Expr<uint> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_transform_vis(instance_id, mat, vis);
+}
+void Accel::set_vis(Expr<int> instance_id, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_vis(instance_id, vis);
+}
+void Accel::set_vis(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_vis(instance_id, vis);
+}
+Accel &Accel::emplace_back(
+    Mesh const &mesh,
+    float4x4 transform,
+    bool visible) noexcept {
+    _rebuild_observer->notify();
+    device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform, visible);
+    _rebuild_observer->emplace_back(mesh.shared_subject());
     return *this;
 }
 
@@ -87,7 +97,7 @@ Accel &Accel::pop_back() noexcept {
     return *this;
 }
 
-Accel &Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible) noexcept {
+Accel& Accel::set_mesh(size_t index, const Mesh& mesh) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -95,18 +105,7 @@ Accel &Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visib
     }
     _rebuild_observer->notify();
     _rebuild_observer->set(index, mesh.shared_subject());
-    device()->set_instance_in_accel(handle(), index, mesh.handle(), transform, visible);
+    device()->set_instance_mesh_in_accel(handle(), index, mesh.handle());
     return *this;
 }
-
-Accel &Accel::set_visibility(size_t index, bool visible) noexcept {
-    if (index >= size()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid index {} in accel #{}.",
-            index, handle());
-    }
-    device()->set_instance_visibility_in_accel(handle(), index, visible);
-    return *this;
-}
-
 }// namespace luisa::compute

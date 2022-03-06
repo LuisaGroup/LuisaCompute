@@ -24,7 +24,7 @@ CommandQueue::CommandQueue(
 CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
     if (maxAllocCount != std::numeric_limits<size_t>::max()) {
         std::unique_lock lck(mtx);
-        while (lastFrame - executedFrame >= maxAllocCount) {
+        while (lastFrame - executedFrame > maxAllocCount) {
             mainCv.wait(lck);
         }
     }
