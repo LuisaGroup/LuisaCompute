@@ -120,9 +120,11 @@ void DefinitionAnalysis::visit(const RefExpr *expr) {
         v.tag() == Variable::Tag::LOCAL &&
         _arguments.find(v.uid()) == _arguments.cend()) {
         _scope_stack.back().reference(v);
+        auto scope = _scope_stack.back().scope();
         for (auto it = _scope_stack.rbegin() + 1u;
              it != _scope_stack.rend(); it++) {
-            it->propagate(v, _scope_stack.back().scope());
+            it->propagate(v, scope);
+            scope = it->scope();
         }
     }
 }
