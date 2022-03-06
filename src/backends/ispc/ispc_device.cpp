@@ -165,19 +165,6 @@ void ISPCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
     reinterpret_cast<ISPCAccel *>(accel)->pop_mesh();
 }
 
-void ISPCDevice::set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->set_mesh(
-        index, reinterpret_cast<const ISPCMesh *>(mesh), transform, visible);
-}
-
-void ISPCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->set_transform(index, transform);
-}
-
-void ISPCDevice::set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->set_visibility(index, visible);
-}
-
 bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
     return reinterpret_cast<ISPCAccel *>(accel)->uses_resource(buffer);
 }

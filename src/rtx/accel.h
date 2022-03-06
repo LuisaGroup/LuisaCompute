@@ -41,12 +41,8 @@ public:
     Accel() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _rebuild_observer->size(); }
-    Accel &emplace_back(
-        Mesh const &mesh,
-        float4x4 transform,
-        bool visible = true) noexcept;
-    Accel &set_mesh(size_t index, const Mesh &mesh) noexcept;
     Accel &pop_back() noexcept;
+    Accel &emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(), bool visible = true) noexcept;
     [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] Command *build() noexcept;
 

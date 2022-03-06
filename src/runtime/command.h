@@ -36,7 +36,8 @@ namespace luisa::compute {
         AccelBuildCommand,          \
         MeshUpdateCommand,          \
         MeshBuildCommand,           \
-        BindlessArrayUpdateCommand
+        BindlessArrayUpdateCommand, \
+        CommandBundle
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
@@ -78,7 +79,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
         return command;                                                          \
     }
 
-#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)                                             \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
     void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
@@ -107,6 +108,23 @@ public:
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
     [[nodiscard]] virtual Command *clone() const noexcept = 0;
     void recycle();
+};
+
+class CommandBundle final : public Command {
+
+private:
+    luisa::vector<Command *> _commands;
+
+protected:
+    void _recycle() noexcept override;
+
+public:
+    LUISA_MAKE_COMMAND_COMMON_CREATE(CommandBundle)
+    void add(Command *cmd) noexcept { _commands.emplace_back(cmd); }
+    [[nodiscard]] auto commands() const noexcept { return luisa::span{_commands}; }
+    [[nodiscard]] Command *clone() const noexcept override;
+    void accept(CommandVisitor &visitor) const noexcept override;
+    void accept(MutableCommandVisitor &visitor) noexcept override;
 };
 
 class BufferUploadCommand final : public Command {

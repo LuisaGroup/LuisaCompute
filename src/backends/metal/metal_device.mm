@@ -329,38 +329,10 @@ void MetalDevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t
 #endif
 }
 
-void MetalDevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    accel->set_transform(index, transform);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
 void MetalDevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
     auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
     accel->pop_instance();
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::set_instance_in_accel(uint64_t accel_handle, size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    accel->set_instance(index, mesh, transform, visible);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::set_instance_visibility_in_accel(uint64_t accel_handle, size_t index, bool visible) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    accel->set_visibility(index, visible);
 #else
     LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
 #endif

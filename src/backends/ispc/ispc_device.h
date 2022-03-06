@@ -277,38 +277,11 @@ public:
      */
     void pop_back_instance_from_accel(uint64_t accel) noexcept override;
     /**
-     * @brief Set the instance in accel object
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param mesh new mesh
-     * @param transform new transform
-     * @param visible new visibility
-     */
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    /**
      * @brief Set the instance transform in accel object
      * 
      * @param accel handle of accel
      * @param index place to set
      * @param transform new transform
-     */
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
-    /**
-     * @brief Set the instance visibility in accel object
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param visible new visibility
-     */
-    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
-    /**
-     * @brief Return if buffer is in accel
-     * 
-     * @param accel handle of accel
-     * @param buffer handle of buffer
-     * @return true 
-     * @return false 
      */
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
     /**

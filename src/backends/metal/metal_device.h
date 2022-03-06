@@ -83,12 +83,9 @@ public:
     bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
     bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
     void pop_back_instance_from_accel(uint64_t accel) noexcept override;
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
     bool requires_command_reordering() const noexcept override;
 };
 
