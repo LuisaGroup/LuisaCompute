@@ -295,6 +295,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
+        case CallOp::ACCEL_SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
+        case CallOp::ACCEL_SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
     }
@@ -1223,14 +1225,17 @@ template<typename T>
 
 struct alignas(16) Instance {
   array<float, 12> transform;
-  uint pad[4];
+  uint options;
+  uint mask;
+  uint isect_func;
+  uint accel_index;
 };
 
 static_assert(sizeof(Instance) == 64u);
 
 struct Accel {
   instance_acceleration_structure handle;
-  device const Instance *__restrict__ instances;
+  device Instance *__restrict__ instances;
 };
 
 [[nodiscard, gnu::always_inline]] constexpr auto intersector_closest() {
@@ -1276,6 +1281,18 @@ struct Accel {
     m[3], m[4], m[5], 0.0f,
     m[6], m[7], m[8], 0.0f,
     m[9], m[10], m[11], 1.0f);
+}
+
+[[gnu::always_inline]] inline void accel_set_instance_transform(Accel accel, uint i, float4x4 m) {
+  accel.instances[i].transform = {
+    m[0][0], m[0][1], m[0][2],
+    m[1][0], m[1][1], m[1][2],
+    m[2][0], m[2][1], m[2][2],
+    m[3][0], m[3][1], m[3][2]};
+}
+
+[[gnu::always_inline]] inline void accel_set_instance_visibility(Accel accel, uint i, bool vis) {
+  accel.instances[i].mask = vis ? ~0u : 0u;
 }
 
 )";

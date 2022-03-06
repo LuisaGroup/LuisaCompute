@@ -57,24 +57,23 @@ Var<float4x4> Accel::instance_to_world(Expr<int> instance_id) const noexcept {
 Var<float4x4> Accel::instance_to_world(Expr<uint> instance_id) const noexcept {
     return Expr<Accel>{*this}.instance_to_world(instance_id);
 }
+
 void Accel::set_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
     Expr<Accel>{*this}.set_transform(instance_id, mat);
 }
+
 void Accel::set_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
     Expr<Accel>{*this}.set_transform(instance_id, mat);
 }
-void Accel::set_transform_vis(Expr<int> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept {
-    Expr<Accel>{*this}.set_transform_vis(instance_id, mat, vis);
+
+void Accel::set_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_visibility(instance_id, vis);
 }
-void Accel::set_transform_vis(Expr<uint> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept {
-    Expr<Accel>{*this}.set_transform_vis(instance_id, mat, vis);
+
+void Accel::set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_visibility(instance_id, vis);
 }
-void Accel::set_vis(Expr<int> instance_id, Expr<bool> vis) const noexcept {
-    Expr<Accel>{*this}.set_vis(instance_id, vis);
-}
-void Accel::set_vis(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
-    Expr<Accel>{*this}.set_vis(instance_id, vis);
-}
+
 Accel &Accel::emplace_back(
     Mesh const &mesh,
     float4x4 transform,
@@ -108,4 +107,5 @@ Accel& Accel::set_mesh(size_t index, const Mesh& mesh) noexcept {
     device()->set_instance_mesh_in_accel(handle(), index, mesh.handle());
     return *this;
 }
+
 }// namespace luisa::compute

@@ -57,10 +57,8 @@ public:
     [[nodiscard]] Var<float4x4> instance_to_world(Expr<uint> instance_id) const noexcept;
     void set_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
     void set_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
-    void set_transform_vis(Expr<int> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept;
-    void set_transform_vis(Expr<uint> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept;
-    void set_vis(Expr<int> instance_id, Expr<bool> vis) const noexcept;
-    void set_vis(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
+    void set_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept;
+    void set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
 };
 
 template<>
@@ -101,33 +99,23 @@ public:
     }
     void set_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_ACCEL_TRANFORM,
+            CallOp::ACCEL_SET_INSTANCE_TRANSFORM,
             {_expression, instance_id.expression(), mat.expression()});
-    }
-    void set_vis(Expr<int> instance_id, Expr<bool> vis) const noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::SET_ACCEL_VISIBILITY,
-            {_expression, instance_id.expression(), vis.expression()});
-    }
-    void set_transform_vis(Expr<int> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::SET_ACCEL_TRANSFORM_VISIBILITY,
-            {_expression, instance_id.expression(), mat.expression(), vis.expression()});
     }
     void set_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_ACCEL_TRANFORM,
+            CallOp::ACCEL_SET_INSTANCE_TRANSFORM,
             {_expression, instance_id.expression(), mat.expression()});
     }
-    void set_vis(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
+    void set_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_ACCEL_VISIBILITY,
+            CallOp::ACCEL_SET_INSTANCE_VISIBILITY,
             {_expression, instance_id.expression(), vis.expression()});
     }
-    void set_transform_vis(Expr<uint> instance_id, Expr<float4x4> mat, Expr<bool> vis) const noexcept {
+    void set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_ACCEL_TRANSFORM_VISIBILITY,
-            {_expression, instance_id.expression(), mat.expression(), vis.expression()});
+            CallOp::ACCEL_SET_INSTANCE_VISIBILITY,
+            {_expression, instance_id.expression(), vis.expression()});
     }
 };
 
