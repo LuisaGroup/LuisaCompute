@@ -721,7 +721,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
-        case CallOp::SET_ACCEL_TRANFORM: {
+        case CallOp::ACCEL_SET_INSTANCE_TRANSFORM: {
             str << "SetAccelTransform("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
@@ -734,20 +734,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
-        case CallOp::SET_ACCEL_TRANSFORM_VISIBILITY: {
-            str << "SetAccelTransformVis("sv;
-            args[0]->accept(vis);
-            str << "Inst,"sv;
-            for (auto i : vstd::range(1, args.size())) {
-                args[i]->accept(vis);
-                if (i != (args.size() - 1)) {
-                    str << ',';
-                }
-            }
-            str << ')';
-            return;
-        }
-        case CallOp::SET_ACCEL_VISIBILITY: {
+        case CallOp::ACCEL_SET_INSTANCE_VISIBILITY: {
             str << "SetAccelVis("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
