@@ -79,7 +79,7 @@ void log_level_error() noexcept;
             auto msg = luisa::format(            \
                 fmt __VA_OPT__(, ) __VA_ARGS__); \
             LUISA_ERROR_WITH_LOCATION(           \
-                "Assertion '{}' failed: {}.",    \
+                "Assertion '{}' failed: {}",     \
                 #x, msg);                        \
         }                                        \
     } while (false)
