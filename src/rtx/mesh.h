@@ -60,6 +60,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] Command *build() noexcept;
     [[nodiscard]] Command *update() noexcept;
+    [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
     [[nodiscard]] auto shared_subject() const noexcept { return _subject; }
 };
 
