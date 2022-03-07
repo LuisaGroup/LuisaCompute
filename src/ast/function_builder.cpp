@@ -61,7 +61,8 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
-    return _function_stack().empty() ? nullptr : _function_stack().back();
+    LUISA_ASSERT(!_function_stack().empty(), "Empty function stack.");
+    return _function_stack().back();
 }
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {
