@@ -14,10 +14,12 @@ class DefinitionAnalysis final : public StmtVisitor, public ExprVisitor {
 
 public:
     struct VariableHash {
-        [[nodiscard]] auto operator()(Variable v) const noexcept { return v.hash(); }
+        [[nodiscard]] auto operator()(Variable v) const noexcept { return v.uid(); }
     };
 
     using VariableSet = luisa::unordered_set<Variable, VariableHash>;
+    using ScopeSet = luisa::unordered_set<const ScopeStmt *>;
+    using VariableScopeMap = luisa::unordered_map<Variable, ScopeSet, VariableHash>;
     using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet>;
 
     class ScopeRecord {
@@ -25,16 +27,16 @@ public:
     private:
         const ScopeStmt *_scope;
         VariableSet _variables;
-        luisa::vector<const ScopeStmt *> _children;
+        VariableScopeMap _propagated;
 
     public:
         explicit ScopeRecord(const ScopeStmt *scope) noexcept : _scope{scope} {}
-        void def(Variable v) noexcept { _variables.emplace(v); }
-        void add(const ScopeStmt *s) noexcept { _children.emplace_back(s); }
+        void reference(Variable v) noexcept;
+        void propagate(Variable v, const ScopeStmt *scope);
+        void finalize() noexcept;
         [[nodiscard]] auto scope() const noexcept { return _scope; }
         [[nodiscard]] auto &variables() noexcept { return _variables; }
         [[nodiscard]] auto &variables() const noexcept { return _variables; }
-        [[nodiscard]] auto children() const noexcept { return luisa::span{_children}; }
     };
 
 private:

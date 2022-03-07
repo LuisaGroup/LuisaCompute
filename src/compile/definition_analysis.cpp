@@ -16,33 +16,12 @@ void DefinitionAnalysis::visit(const ReturnStmt *stmt) {
 }
 
 void DefinitionAnalysis::visit(const ScopeStmt *stmt) {
-    // add to parent record
-    if (!_scope_stack.empty()) {
-        _scope_stack.back().add(stmt);
-    }
-    // propagate basic usages
     _scope_stack.emplace_back(stmt);
     for (auto s : stmt->statements()) { s->accept(*this); }
-    auto record = std::move(_scope_stack.back());
+    _scope_stack.back().finalize();
+    auto variables = std::move(_scope_stack.back().variables());
+    _scoped_variables.emplace(stmt, variables);
     _scope_stack.pop_back();
-    // gather child scope usages
-    luisa::unordered_map<Variable, size_t, VariableHash> counters;
-    for (auto s : record.children()) {
-        for (auto &&v : _scoped_variables.at(s)) {
-            counters.try_emplace(v, 0u).first->second++;
-        }
-    }
-    for (auto &&[v, count] : counters) {
-        if (count > 1u) { record.def(v); }
-    }
-    for (auto child : record.children()) {
-        auto &&vs = _scoped_variables.at(child);
-        for (auto v : record.variables()) {
-            vs.erase(v);
-        }
-    }
-    _scoped_variables.emplace(
-        stmt, std::move(record.variables()));
 }
 
 void DefinitionAnalysis::visit(const IfStmt *stmt) {
@@ -61,9 +40,7 @@ void DefinitionAnalysis::visit(const ExprStmt *stmt) {
 
 void DefinitionAnalysis::visit(const SwitchStmt *stmt) {
     _require_definition(stmt->expression());
-    for (auto s : stmt->body()->statements()) {
-        s->accept(*this);
-    }
+    stmt->body()->accept(*this);
 }
 
 void DefinitionAnalysis::visit(const SwitchCaseStmt *stmt) {
@@ -133,6 +110,7 @@ void DefinitionAnalysis::visit(const MemberExpr *expr) {
 
 void DefinitionAnalysis::visit(const AccessExpr *expr) {
     expr->range()->accept(*this);
+    expr->index()->accept(*this);
 }
 
 void DefinitionAnalysis::visit(const LiteralExpr *expr) {}
@@ -141,7 +119,13 @@ void DefinitionAnalysis::visit(const RefExpr *expr) {
     if (auto v = expr->variable();
         v.tag() == Variable::Tag::LOCAL &&
         _arguments.find(v.uid()) == _arguments.cend()) {
-        _scope_stack.back().def(v);
+        _scope_stack.back().reference(v);
+        auto scope = _scope_stack.back().scope();
+        for (auto it = _scope_stack.rbegin() + 1u;
+             it != _scope_stack.rend(); it++) {
+            it->propagate(v, scope);
+            scope = it->scope();
+        }
     }
 }
 
@@ -155,6 +139,22 @@ void DefinitionAnalysis::visit(const CallExpr *expr) {
 
 void DefinitionAnalysis::visit(const CastExpr *expr) {
     expr->expression()->accept(*this);
+}
+
+void DefinitionAnalysis::ScopeRecord::reference(Variable v) noexcept {
+    _variables.emplace(v);
+}
+
+void DefinitionAnalysis::ScopeRecord::propagate(Variable v, const ScopeStmt *scope) {
+    _propagated.try_emplace(v, ScopeSet{}).first->second.emplace(scope);
+}
+
+void DefinitionAnalysis::ScopeRecord::finalize() noexcept {
+    for (auto &&[v, s] : _propagated) {
+        if (s.size() > 1u) {
+            _variables.emplace(v);
+        }
+    }
 }
 
 }// namespace luisa::compute
