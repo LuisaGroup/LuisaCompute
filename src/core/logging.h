@@ -75,7 +75,7 @@ void log_level_error() noexcept;
 
 #define LUISA_ASSERT(x, fmt, ...)                \
     do {                                         \
-        if (!(x)) {                              \
+        if (!(x)) [[unlikely]] {                 \
             auto msg = luisa::format(            \
                 fmt __VA_OPT__(, ) __VA_ARGS__); \
             LUISA_ERROR_WITH_LOCATION(           \
