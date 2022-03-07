@@ -6,7 +6,6 @@
 
 #import <ast/interface.h>
 #import <compile/codegen.h>
-#import <compile/definition_analysis.h>
 
 namespace luisa::compute::metal {
 
@@ -16,8 +15,6 @@ private:
     Function _function;
     luisa::vector<Function> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
-    DefinitionAnalysis _definition_analysis;
-    DefinitionAnalysis::VariableSet _defined_variables;
     uint32_t _indent{0u};
 
 private:
@@ -47,17 +44,16 @@ private:
     void visit(const MetaStmt *stmt) override;
 
 private:
-    void _emit_type_decl() noexcept;
-    void _emit_argument_decl(Variable v) noexcept;
-    void _emit_type_name(const Type *type) noexcept;
-    void _emit_function(Function f) noexcept;
-    void _emit_variable_name(Variable v) noexcept;
-    void _emit_indent() noexcept;
-    void _emit_statements(luisa::span<const Statement *const> stmts) noexcept;
-    void _emit_constant(Function::Constant c) noexcept;
-    void _emit_preamble(Function f) noexcept;
-    void _emit_declarations(const MetaStmt *meta) noexcept;
-    void _emit_scoped_variables(const ScopeStmt *scope) noexcept;
+    virtual void _emit_type_decl() noexcept;
+    virtual void _emit_argument_decl(Variable v) noexcept;
+    virtual void _emit_type_name(const Type *type) noexcept;
+    virtual void _emit_function(Function f) noexcept;
+    virtual void _emit_variable_name(Variable v) noexcept;
+    virtual void _emit_indent() noexcept;
+    virtual void _emit_statements(luisa::span<const Statement *const> stmts) noexcept;
+    virtual void _emit_constant(Function::Constant c) noexcept;
+    virtual void _emit_preamble(Function f) noexcept;
+    virtual void _emit_declarations(const MetaStmt *meta) noexcept;
 
 public:
     explicit MetalCodegen(Codegen::Scratch &scratch) noexcept : Codegen{scratch} {}

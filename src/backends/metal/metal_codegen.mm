@@ -380,7 +380,6 @@ void MetalCodegen::visit(const ReturnStmt *stmt) {
 
 void MetalCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
-    _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
     _scratch << "}";
 }
@@ -392,7 +391,12 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     stmt->true_branch()->accept(*this);
     if (auto fb = stmt->false_branch(); !fb->statements().empty()) {
         _scratch << " else ";
+        //        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
+        //            fb->statements().size() == 1u && elif != nullptr) {
+        //            elif->accept(*this);
+        //        } else {
         fb->accept(*this);
+        //        }
     }
 }
 
@@ -449,7 +453,6 @@ void MetalCodegen::_emit_function(Function f) noexcept {
 
     _function = f;
     _indent = 0u;
-    _definition_analysis.analyze(f);
 
     // constants
     if (!f.constants().empty()) {
@@ -535,13 +538,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
     // emit body
     _scratch << "\n";
     _emit_declarations(f.body());
-    _emit_scoped_variables(f.body()->scope());
     _scratch << "\n";
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
-
-    _definition_analysis.reset();
-    _defined_variables.clear();
 }
 
 void MetalCodegen::_emit_variable_name(Variable v) noexcept {
@@ -788,41 +787,24 @@ void MetalCodegen::visit(const MetaStmt *stmt) {
 
 void MetalCodegen::_emit_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        if (v.tag() != Variable::Tag::LOCAL) {
-            _scratch << "\n  ";
-            if (v.tag() == Variable::Tag::SHARED) {
-                if (_function.tag() != Function::Tag::KERNEL) [[unlikely]] {
-                    LUISA_ERROR_WITH_LOCATION(
-                        "Non-kernel functions are not allowed to have shared variables.");
-                }
-                _scratch << "threadgroup ";
+        _scratch << "\n  ";
+        if (v.tag() == Variable::Tag::SHARED) {
+            if (_function.tag() != Function::Tag::KERNEL) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Non-kernel functions are not allowed to have shared variables.");
             }
-            _emit_type_name(v.type());
-            _scratch << " ";
-            _emit_variable_name(v);
-            _scratch << ";";
+            _scratch << "threadgroup ";
         }
+        _emit_type_name(v.type());
+        _scratch << " ";
+        _emit_variable_name(v);
+        if (v.tag() == Variable::Tag::LOCAL) {
+            _scratch << "{}";
+        }
+        _scratch << ";";
     }
     for (auto child : meta->children()) {
         _emit_declarations(child);
-    }
-}
-
-void MetalCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
-    if (auto iter = _definition_analysis.scoped_variables().find(scope);
-        iter != _definition_analysis.scoped_variables().cend()) {
-        for (auto v : iter->second) {
-            if (_defined_variables.try_emplace(v).second) {
-                _scratch << "\n  ";
-                _emit_type_name(v.type());
-                _scratch << " ";
-                _emit_variable_name(v);
-                if (v.tag() == Variable::Tag::LOCAL) {
-                    _scratch << "{}";
-                }
-                _scratch << ";";
-            }
-        }
     }
 }
 
