@@ -72,3 +72,11 @@ void log_level_error() noexcept;
     LUISA_WARNING(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)
 #define LUISA_ERROR_WITH_LOCATION(fmt, ...) \
     LUISA_ERROR(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)
+
+#define LUISA_ASSERT(x)                         \
+    do {                                        \
+        if (!(x)) {                             \
+            LUISA_ERROR_WITH_LOCATION(          \
+                "Assertion failed: '{}'.", #x); \
+        }                                       \
+    } while (false)
