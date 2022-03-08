@@ -419,10 +419,11 @@ void ISPCCodegen::visit(const BreakStmt *) {
 }
 
 void ISPCCodegen::visit(const ContinueStmt *s) {
-    auto target = _continue_analysis.continue_scopes().at(s);
-    _scratch << luisa::format(
-        "goto CONT_{};",
-        _scope_label(target));
+    _scratch << "continue;";
+    //    auto target = _continue_analysis.continue_scopes().at(s);
+    //    _scratch << luisa::format(
+    //        "goto CONT_{};",
+    //        _scope_label(target));
 }
 
 void ISPCCodegen::visit(const ReturnStmt *stmt) {
