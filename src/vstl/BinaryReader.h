@@ -20,7 +20,7 @@ private:
 	uint64 currentPos;
 public:
 	BinaryReader(vstd::string const& path);
-	void Read(char* ptr, uint64 len);
+	void Read(void* ptr, uint64 len);
 	eastl::vector<uint8_t> Read(bool addNullEnd = false);
 	inline operator bool() const {
 		return isAvaliable;

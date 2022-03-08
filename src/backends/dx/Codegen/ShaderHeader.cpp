@@ -400,10 +400,6 @@ SetInstTransform(buffer[index], mat);
 void SetAccelVis(RWStructuredBuffer<MeshInst> buffer, uint index, bool vis) {
 buffer[index].InstanceMask = vis ? 255 : 0;
 }
-void SetAccelTransformVis(RWStructuredBuffer<MeshInst> buffer, uint index, float4x4 mat, bool vis) {
-SetInstTransform(buffer[index], mat);
-buffer[index].InstanceMask = vis ? 255 : 0;
-}
 template<typename T>
 T _atomic_exchange(inout T a, T b) {
 T r;
