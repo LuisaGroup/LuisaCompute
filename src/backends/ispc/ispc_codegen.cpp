@@ -418,8 +418,9 @@ void ISPCCodegen::visit(const BreakStmt *) {
     _scratch << "break;";
 }
 
-void ISPCCodegen::visit(const ContinueStmt *) {
-    _scratch << "continue;";
+void ISPCCodegen::visit(const ContinueStmt *s) {
+    auto target = _continue_analysis.continue_scopes().at(s);
+    _scratch << luisa::format("goto CONT_{:016X};", target->hash());
 }
 
 void ISPCCodegen::visit(const ReturnStmt *stmt) {
@@ -435,6 +436,7 @@ void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
+    _scratch << luisa::format("CONT_{:016X}:\n", stmt->hash());
     _scratch << "}";
 }
 
@@ -506,6 +508,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _emit_function(callable->function());
     }
 
+    _continue_analysis.analyze(f);
     _definition_analysis.analyze(f);
 
     _function = f;
@@ -629,6 +632,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << "  }\n"
                  << "}";
     }
+    _continue_analysis.reset();
     _definition_analysis.reset();
     _defined_variables.clear();
 }
