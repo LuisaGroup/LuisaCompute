@@ -124,7 +124,7 @@ size_t CommandReorderVisitor::SetRead(
         handle,
         type);
     auto layer = GetLastLayerRead(srcHandle);
-    srcHandle->readLayer = layer;
+    srcHandle->readLayer = std::max<int64_t>(layer, srcHandle->readLayer);
     return layer;
 }
 size_t CommandReorderVisitor::SetWrite(
@@ -150,7 +150,7 @@ size_t CommandReorderVisitor::SetRW(
         write_handle,
         write_type);
     layer = std::max<int64_t>(layer, GetLastLayerWrite(dstHandle));
-    srcHandle->readLayer = layer;
+    srcHandle->readLayer = std::max<int64_t>(layer, srcHandle->readLayer);
     dstHandle->writeLayer = layer;
     return layer;
 }
@@ -178,7 +178,7 @@ void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept
     dispatchLayer = 0;
     command->decode(*this);
     for (auto &&i : dispatchReadHandle) {
-        i->readLayer = dispatchLayer;
+        i->readLayer = std::max<int64_t>(dispatchLayer, i->readLayer);
     }
     for (auto &&i : dispatchWriteHandle) {
         i->writeLayer = dispatchLayer;
@@ -243,9 +243,9 @@ size_t CommandReorderVisitor::SetMesh(
             ib,
             ResourceType::Buffer);
         layer = std::max<int64_t>(layer, GetLastLayerRead(ibHandle));
-        ibHandle->readLayer = layer;
+        ibHandle->readLayer = std::max<int64_t>(layer, ibHandle->readLayer);
     }
-    vbHandle->readLayer = layer;
+    vbHandle->readLayer = std::max<int64_t>(layer, vbHandle->readLayer);
     meshHandle->writeLayer = layer;
     for (auto &&i : static_cast<ResourceMeshHandle *>(meshHandle)->belonedAccel) {
         i->writeLayer = layer;
