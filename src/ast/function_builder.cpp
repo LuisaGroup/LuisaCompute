@@ -73,13 +73,11 @@ void FunctionBuilder::_append(const Statement *statement) noexcept {
 }
 
 void FunctionBuilder::break_() noexcept {
-    static thread_local BreakStmt stmt;
-    _append(&stmt);
+    _create_and_append_statement<BreakStmt>();
 }
 
 void FunctionBuilder::continue_() noexcept {
-    static thread_local ContinueStmt stmt;
-    _append(&stmt);
+    _create_and_append_statement<ContinueStmt>();
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
