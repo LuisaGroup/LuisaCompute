@@ -2,6 +2,8 @@
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
 #include <Resource/Mesh.h>
+#include <runtime/command.h>
+
 namespace toolhub::directx {
 
 class TopAccel;
@@ -19,7 +21,8 @@ public:
     BottomAccel(
         Device *device,
         Buffer const *vHandle, size_t vOffset, size_t vStride, size_t vCount,
-        Buffer const *iHandle, size_t iOffset, size_t iCount);
+        Buffer const *iHandle, size_t iOffset, size_t iCount,
+        luisa::compute::AccelBuildHint hint);
     void PreProcessStates(
         CommandBufferBuilder &builder,
         ResourceStateTracker &tracker) const ;

@@ -14,7 +14,7 @@ namespace toolhub::directx {
 class LCPreProcessVisitor : public CommandVisitor {
 public:
     CommandBufferBuilder *bd;
-    ResourceStateTracker* stateTracker;
+    ResourceStateTracker *stateTracker;
     vstd::vector<Resource const *> backState;
     vstd::vector<std::pair<size_t, size_t>> argVecs;
     vstd::vector<vbyte> argBuffer;
@@ -94,7 +94,11 @@ public:
                 self->EmplaceData(value);
 
             } else {
-                self->EmplaceData(bf.data(), bf.size());
+                auto type = arg->type();
+                if (type->is_vector() && type->dimension() == 3)
+                    self->EmplaceData(bf.data(), 12);
+                else
+                    self->EmplaceData(bf.data(), bf.size());
             }
             ++arg;
         }
@@ -201,13 +205,13 @@ public:
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->PreProcessStates(
             *bd,
-           * stateTracker);
+            *stateTracker);
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->PreProcessStates(
             *bd,
-          *  stateTracker);
+            *stateTracker);
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());

@@ -185,7 +185,8 @@ uint64_t LCDevice::create_mesh(
                 v_count,
                 reinterpret_cast<Buffer *>(t_buffer),
                 t_offset * 3 * sizeof(uint),
-                t_count * 3)));
+                t_count * 3,
+                hint)));
 }
 void LCDevice::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<BottomAccel *>(handle);

@@ -12,7 +12,7 @@ BinaryReader::BinaryReader(vstd::string const &path) {
         length = 0;
     }
 }
-void BinaryReader::Read(char *ptr, uint64 len) {
+void BinaryReader::Read(void *ptr, uint64 len) {
     if (!isAvaliable) return;
     uint64 targetEnd = currentPos + len;
     if (targetEnd > length) {
