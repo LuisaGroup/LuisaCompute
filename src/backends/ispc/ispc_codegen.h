@@ -33,6 +33,7 @@ private:
     luisa::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
     ContinueAnalysis _continue_analysis;
+    luisa::unordered_map<const ScopeStmt *, uint> _scope_labels;
     DefinitionAnalysis _definition_analysis;
     DefinitionAnalysis::VariableSet _defined_variables;
 
@@ -73,6 +74,7 @@ private:
     void _emit_constant(Function::Constant c) noexcept;
     void _emit_variable_declarations(const MetaStmt *meta) noexcept;
     void _emit_scoped_variables(const ScopeStmt *scope) noexcept;
+    [[nodiscard]] uint _scope_label(const ScopeStmt *s) noexcept;
 
 public:
     /**

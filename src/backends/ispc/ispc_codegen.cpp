@@ -420,7 +420,9 @@ void ISPCCodegen::visit(const BreakStmt *) {
 
 void ISPCCodegen::visit(const ContinueStmt *s) {
     auto target = _continue_analysis.continue_scopes().at(s);
-    _scratch << luisa::format("goto CONT_{:016X};", target->hash());
+    _scratch << luisa::format(
+        "goto CONT_{};",
+        _scope_label(target));
 }
 
 void ISPCCodegen::visit(const ReturnStmt *stmt) {
@@ -436,7 +438,9 @@ void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
-    _scratch << luisa::format("CONT_{:016X}:;\n", stmt->hash());
+    _scratch << luisa::format(
+        "CONT_{}:;\n",
+        _scope_label(stmt));
     _scratch << "}";
 }
 
@@ -1019,6 +1023,12 @@ void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
             }
         }
     }
+}
+
+uint ISPCCodegen::_scope_label(const ScopeStmt *s) noexcept {
+    auto [iter, _] = _scope_labels.try_emplace(
+        s, static_cast<uint>(_scope_labels.size()));
+    return iter->second;
 }
 
 }// namespace luisa::compute::ispc
