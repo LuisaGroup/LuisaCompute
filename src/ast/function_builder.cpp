@@ -223,10 +223,20 @@ const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *se
 }
 
 const MemberExpr *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
+    if (self->tag() == Expression::Tag::LITERAL) {
+        auto v = local(self->type());
+        assign(v, self);
+        self = v;
+    }
     return _create_expression<MemberExpr>(type, self, swizzle_size, swizzle_code);
 }
 
 const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
+    if (range->tag() == Expression::Tag::LITERAL) {
+        auto v = local(range->type());
+        assign(v, range);
+        range = v;
+    }
     return _create_expression<AccessExpr>(type, range, index);
 }
 
