@@ -85,7 +85,7 @@ test_rtx.h
 )
     luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
+if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(luisa-compute-backend-dx PRIVATE
     /JMC
     /permissive-
@@ -99,7 +99,6 @@ test_rtx.h
     /FC
     /nologo /GF
     /Ot)
-if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_link_options(luisa-compute-backend-dx PRIVATE
     /MANIFEST
     $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/LTCG:incremental>
