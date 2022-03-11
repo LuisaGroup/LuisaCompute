@@ -527,7 +527,10 @@ LCCmdBuffer::LCCmdBuffer(
           type),
       device(device) {
 }
-void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c, size_t maxAlloc) {
+void LCCmdBuffer::Execute(
+    vstd::span<CommandList const> const &c,
+    size_t maxAlloc,
+    vstd::move_only_func<void()> *func) {
     auto allocator = queue.CreateAllocator(maxAlloc);
     {
         LCPreProcessVisitor ppVisitor;
@@ -575,6 +578,8 @@ void LCCmdBuffer::Execute(vstd::span<CommandList const> const &c, size_t maxAllo
         }
         tracker.RestoreState(cmdBuilder);
     }
+    if (func)
+        allocator->ExecuteAfterComplete(std::move(*func));
     lastFence = queue.Execute(std::move(allocator));
 }
 void LCCmdBuffer::Sync() {

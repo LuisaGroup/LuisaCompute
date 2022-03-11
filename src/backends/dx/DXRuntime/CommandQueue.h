@@ -11,9 +11,20 @@ public:
     using AllocatorPtr = vstd::unique_ptr<CommandAllocator>;
 
 private:
+    struct StreamCallback : public vstd::IOperatorNewBase {
+        LCEvent const *evt;
+        uint64 tarFrame;
+        luisa::move_only_function<void()> callback;
+        StreamCallback(
+            LCEvent const *evt,
+            uint64 tarFrame,
+            luisa::move_only_function<void()> &&callback)
+            : evt(evt), tarFrame(tarFrame), callback(std::move(callback)) {}
+    };
     using CallbackEvent = vstd::variant<
         AllocatorPtr,
-        std::pair<LCEvent const*, uint64>>;
+        std::pair<LCEvent const *, uint64>,
+        vstd::unique_ptr<StreamCallback>>;
     Device *device;
     IGpuAllocator *resourceAllocator;
     D3D12_COMMAND_LIST_TYPE type;
@@ -39,6 +50,7 @@ public:
     ~CommandQueue();
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
+    void AddEvent(LCEvent const *evt, luisa::move_only_function<void()> &&func);
     uint64 Execute(AllocatorPtr &&alloc);
     void Complete(uint64 fence);
     KILL_MOVE_CONSTRUCT(CommandQueue)

@@ -44,7 +44,9 @@ public:
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList const &) noexcept override;
+    void dispatch(uint64_t stream_handle, CommandList const &, luisa::move_only_function<void()> &&callback) noexcept override;
     void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept;
+    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists, luisa::move_only_function<void()> &&callback) noexcept;
     void *stream_native_handle(uint64_t handle) const noexcept override;
 
     // kernel

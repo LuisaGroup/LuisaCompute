@@ -46,6 +46,7 @@ public:
 private:
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
+    void _dispatch(CommandList command_buffer, luisa::move_only_function<void()>&& func) noexcept;
     explicit Stream(Device::Interface *device) noexcept;
     void _synchronize() noexcept;
     luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;

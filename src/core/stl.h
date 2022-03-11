@@ -120,7 +120,7 @@ using eastl::unordered_map;
 using eastl::unordered_multimap;
 using eastl::unordered_multiset;
 using eastl::unordered_set;
-
+using eastl::move_only_function;
 using eastl::monostate;
 using eastl::nullopt;
 using eastl::optional;
