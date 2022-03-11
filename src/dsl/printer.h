@@ -18,6 +18,7 @@ namespace luisa::compute {
 class Device;
 class Stream;
 
+/// Printer in kernel
 class Printer {
 
 public:
@@ -62,10 +63,14 @@ private:
     bool _reset_called{false};
 
 public:
+    /// Create printer object on device. Will create a buffer in it.
     explicit Printer(Device &device, size_t capacity = 16_mb) noexcept;
+    /// Reset stream
     void reset(Stream &stream) noexcept;
+    /// Retrieve stream
     [[nodiscard]] luisa::string_view retrieve(Stream &stream) noexcept;
 
+    /// Log in kernel
     template<typename... Args>
     void log(Args &&...args) noexcept;
 };

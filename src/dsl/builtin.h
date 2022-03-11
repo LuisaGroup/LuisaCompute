@@ -12,108 +12,133 @@ namespace luisa::compute {
 
 inline namespace dsl {
 
+/// Expression cast operation
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto cast(Src &&s) noexcept {
     Expr expr{std::forward<Src>(s)};
     return expr.template cast<Dest>();
 }
 
+/// Expression as operation
 template<typename Dest, typename Src>
 [[nodiscard]] inline auto as(Src &&s) noexcept {
     Expr expr{std::forward<Src>(s)};
     return expr.template as<Dest>();
 }
 
+/// Call assume on bool expression
 inline void assume(Expr<bool> pred) noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::ASSUME, {pred.expression()});
 }
 
+/// Call unreachable
 inline void unreachable() noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::UNREACHABLE, {});
 }
 
+/// Get thread_id(uint3)
 [[nodiscard]] inline auto thread_id() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->thread_id());
 }
 
+/// Get thread_id.x
 [[nodiscard]] inline auto thread_x() noexcept {
     return thread_id().x;
 }
 
+/// Get thread_id.y
 [[nodiscard]] inline auto thread_y() noexcept {
     return thread_id().y;
 }
 
+/// Get thread_id.z
 [[nodiscard]] inline auto thread_z() noexcept {
     return thread_id().z;
 }
 
+/// Get block_id(uint3)
 [[nodiscard]] inline auto block_id() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->block_id());
 }
 
+/// Get block_id.x
 [[nodiscard]] inline auto block_x() noexcept {
     return block_id().x;
 }
 
+/// Get block_id.y
 [[nodiscard]] inline auto block_y() noexcept {
     return block_id().y;
 }
 
+/// Get block_id.z
 [[nodiscard]] inline auto block_z() noexcept {
     return block_id().z;
 }
 
+/// Get dispatch_id(uint3)
 [[nodiscard]] inline auto dispatch_id() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->dispatch_id());
 }
 
+/// Get dispatch_id.x
 [[nodiscard]] inline auto dispatch_x() noexcept {
     return dispatch_id().x;
 }
 
+/// Get dispatch_id.y
 [[nodiscard]] inline auto dispatch_y() noexcept {
     return dispatch_id().y;
 }
 
+/// Get dispatch.z
 [[nodiscard]] inline auto dispatch_z() noexcept {
     return dispatch_id().z;
 }
 
+/// Get dispatch size(uint3)
 [[nodiscard]] inline auto dispatch_size() noexcept {
     return def<uint3>(detail::FunctionBuilder::current()->dispatch_size());
 }
 
+/// Get dispatch_size.x
 [[nodiscard]] inline auto dispatch_size_x() noexcept {
     return dispatch_size().x;
 }
 
+/// Get dispatch_size.y
 [[nodiscard]] inline auto dispatch_size_y() noexcept {
     return dispatch_size().y;
 }
 
+/// Get dispatch_size.z
 [[nodiscard]] inline auto dispatch_size_z() noexcept {
     return dispatch_size().z;
 }
 
+/// Get block size(uint3)
 [[nodiscard]] inline auto block_size() noexcept {
     return detail::FunctionBuilder::current()->block_size();
 }
 
+/// Get block_size.x
 [[nodiscard]] inline auto block_size_x() noexcept {
     return block_size().x;
 }
 
+/// Get block_size.y
 [[nodiscard]] inline auto block_size_y() noexcept {
     return block_size().y;
 }
 
+/// Get block_size.z
 [[nodiscard]] inline auto block_size_z() noexcept {
     return block_size().z;
 }
 
+/// Set current function block size as (x, y, z)
 inline void set_block_size(uint x, uint y = 1u, uint z = 1u) noexcept {
     detail::FunctionBuilder::current()->set_block_size(
         uint3{std::max(x, 1u), std::max(y, 1u), std::max(z, 1u)});
@@ -143,6 +168,7 @@ inline void soa_write_impl(I index, S s, B buffers) noexcept {
 
 inline namespace dsl {
 
+/// Define a var of type T and construct params args
 template<typename T, typename... Args>
     requires std::negation_v<std::disjunction<std::is_pointer<std::remove_cvref_t<Args>>...>>
 [[nodiscard]] inline auto def(Args &&...args) noexcept {
@@ -150,16 +176,19 @@ template<typename T, typename... Args>
     return Var<expr_value_t<T>>{std::forward<Args>(args)...};
 }
 
+/// Define a var using rvalue
 template<typename T>
 [[nodiscard]] inline auto def(T &&x) noexcept -> Var<expr_value_t<T>> {
     return Var{Expr{std::forward<T>(x)}};
 }
 
+/// Define a var using expression
 template<typename T>
 [[nodiscard]] inline auto def(const Expression *expr) noexcept -> Var<expr_value_t<T>> {
     return Var{Expr<expr_value_t<T>>{expr}};
 }
 
+/// TODO
 template<typename T, typename SExpr>
 [[nodiscard]] inline auto eval(SExpr &&s_expr) noexcept {
     static_assert(is_basic_v<T>, "only basic types are allowed in meta-values");
@@ -171,6 +200,7 @@ template<typename T, typename SExpr>
     return Var{Expr<T>{expr}};
 }
 
+/// TODO
 template<typename S, typename Index, typename... Buffers>
     requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
@@ -178,6 +208,7 @@ template<typename S, typename Index, typename... Buffers>
     return Var<S>{std::forward<Buffers>(buffers).read(i)...};
 }
 
+/// TODO
 template<typename Index, typename... Buffers>
     requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 [[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
@@ -185,6 +216,7 @@ template<typename Index, typename... Buffers>
     return compose(std::forward<Buffers>(buffers).read(i)...);
 }
 
+/// TODO
 template<typename S, typename Index, typename... Buffers>
     requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
 inline void soa_write(Index &&index, S &&s, Buffers &&...bs) noexcept {
@@ -198,6 +230,7 @@ inline void soa_write(Index &&index, S &&s, Buffers &&...bs) noexcept {
 
 namespace detail {
 
+/// Return make_vector CallOp according to given type
 template<typename T>
 [[nodiscard]] constexpr auto make_vector_tag() noexcept {
     if constexpr (std::is_same_v<T, bool2>) {
@@ -232,6 +265,7 @@ template<typename T>
 #define LUISA_EXPR(value) \
     detail::extract_expression(std::forward<decltype(value)>(value))
 
+/// Make vector2 (s, s)
 template<typename Ts>
     requires is_dsl_v<Ts> && is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector2(Ts &&s) noexcept {
@@ -241,6 +275,7 @@ template<typename Ts>
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(s)}));
 }
 
+/// Make vector2 (x, y)
 template<typename Tx, typename Ty>
     requires any_dsl_v<Tx, Ty> &&
         is_scalar_expr_v<Tx> &&
@@ -254,6 +289,8 @@ template<typename Tx, typename Ty>
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
 }
 
+/// Make vector2 from vector.
+/// Only first two values will be taken if vector's length is larger than 2.
 template<typename T, typename Tv>
     requires is_dsl_v<Tv> && is_vector_expr_v<Tv>
 [[nodiscard]] inline auto make_vector2(Tv &&v) noexcept {
@@ -264,6 +301,7 @@ template<typename T, typename Tv>
             {LUISA_EXPR(v)}));
 }
 
+/// Make vector3 (s, s, s)
 template<typename Ts>
     requires is_dsl_v<Ts> && is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector3(Ts &&s) noexcept {
@@ -274,6 +312,7 @@ template<typename Ts>
             {LUISA_EXPR(s)}));
 }
 
+/// Make vector3 (x, y, z)
 template<typename Tx, typename Ty, typename Tz>
     requires any_dsl_v<Tx, Ty, Tz> &&
         is_scalar_expr_v<Tx> &&
@@ -288,6 +327,8 @@ template<typename Tx, typename Ty, typename Tz>
             {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(z)}));
 }
 
+/// Make vector3 from vector
+/// Only first three values will be taken if vector's length is larger than 3.
 template<typename T, typename Tv>
     requires is_dsl_v<Tv> &&
         std::disjunction_v<
@@ -300,6 +341,7 @@ template<typename T, typename Tv>
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(v)}));
 }
 
+/// Make vector3 (x, y, z) from (x, y) and z
 template<typename Txy, typename Tz>
     requires any_dsl_v<Txy, Tz> &&
         is_vector2_expr_v<Txy> &&
@@ -315,6 +357,7 @@ template<typename Txy, typename Tz>
             {LUISA_EXPR(xy), LUISA_EXPR(z)}));
 }
 
+/// Make vector3 (x, y, z) from x and (y, z)
 template<typename Tx, typename Tyz>
     requires any_dsl_v<Tx, Tyz> &&
         is_scalar_expr_v<Tx> &&
@@ -330,6 +373,7 @@ template<typename Tx, typename Tyz>
             {LUISA_EXPR(x), LUISA_EXPR(yz)}));
 }
 
+/// Make vector4 (s, s, s, s)
 template<typename Ts>
     requires is_dsl_v<Ts> && is_scalar_expr_v<Ts>
 [[nodiscard]] inline auto make_vector4(Ts &&s) noexcept {
@@ -339,6 +383,7 @@ template<typename Ts>
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(s)}));
 }
 
+/// Make vector4 (x, y, z, w)
 template<typename Tx, typename Ty, typename Tz, typename Tw>
     requires any_dsl_v<Tx, Ty, Tz, Tw> &&
         is_scalar_expr_v<Tx> &&
@@ -354,6 +399,7 @@ template<typename Tx, typename Ty, typename Tz, typename Tw>
             {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(z), LUISA_EXPR(w)}));
 }
 
+/// Make vector4 from vector4
 template<typename T, typename Tv>
     requires is_dsl_v<Tv> && is_vector4_expr_v<Tv>
 [[nodiscard]] inline auto make_vector4(Tv &&v) noexcept {
@@ -363,6 +409,7 @@ template<typename T, typename Tv>
             Type::of<V>(), make_vector_tag<V>(), {LUISA_EXPR(v)}));
 }
 
+/// Make vector4 (x, y, z, w) from (x, y), z and w
 template<typename Txy, typename Tz, typename Tw>
     requires any_dsl_v<Txy, Tz, Tw> &&
         is_vector2_expr_v<Txy> &&
@@ -380,6 +427,7 @@ template<typename Txy, typename Tz, typename Tw>
             {LUISA_EXPR(xy), LUISA_EXPR(z), LUISA_EXPR(w)}));
 }
 
+/// Make vector4 (x, y, z, w) from x, (y, z) and w
 template<typename Tx, typename Tyz, typename Tw>
     requires any_dsl_v<Tx, Tyz, Tw> &&
         is_scalar_expr_v<Tx> &&
@@ -397,6 +445,7 @@ template<typename Tx, typename Tyz, typename Tw>
             {LUISA_EXPR(x), LUISA_EXPR(yz), LUISA_EXPR(w)}));
 }
 
+/// Make vector4 (x, y, z, w) from x, y and (z, w)
 template<typename Tx, typename Ty, typename Tzw>
     requires any_dsl_v<Tx, Ty, Tzw> &&
         is_scalar_expr_v<Tx> &&
@@ -414,6 +463,7 @@ template<typename Tx, typename Ty, typename Tzw>
             {LUISA_EXPR(x), LUISA_EXPR(y), LUISA_EXPR(zw)}));
 }
 
+/// Make vector4 (x, y, z, w) from (x, y) and (z, w)
 template<typename Txy, typename Tzw>
     requires any_dsl_v<Txy, Tzw> &&
         is_vector2_expr_v<Txy> &&
@@ -429,6 +479,7 @@ template<typename Txy, typename Tzw>
             {LUISA_EXPR(xy), LUISA_EXPR(zw)}));
 }
 
+/// Make vector4 (x, y, z, w) from (x, y, z) and w
 template<typename Txyz, typename Tw>
     requires any_dsl_v<Txyz, Tw> &&
         is_vector3_expr_v<Txyz> &&
@@ -444,6 +495,7 @@ template<typename Txyz, typename Tw>
             {LUISA_EXPR(xyz), LUISA_EXPR(w)}));
 }
 
+/// Make vector4 (x, y, z, w) from x and (y, z, w)
 template<typename Tx, typename Tyzw>
     requires any_dsl_v<Tx, Tyzw> &&
         is_scalar_expr_v<Tx> &&
@@ -472,6 +524,7 @@ struct vectorized<T, 1u> {
 template<typename T, size_t N>
 using vectorized_t = typename vectorized<T, N>::type;
 
+/// Make vectorN of scalar x
 template<size_t N, typename T>
     requires is_scalar_expr_v<T>
 [[nodiscard]] inline auto vectorize(T &&x) noexcept {
@@ -488,6 +541,7 @@ template<size_t N, typename T>
     }
 }
 
+/// Make vectorN of vectorN x
 template<size_t N, typename T>
     requires is_vector_expr_v<T>
 [[nodiscard]] inline auto vectorize(T &&x) noexcept {
@@ -525,7 +579,7 @@ concept vector_expr_compatible = std::conjunction<
     is_dimension_compatible<
         vectorized_dimension_v<T...>, T>...>::value;
 
-// vectorized call
+/// Vectorized call
 template<typename Scalar, typename... T>
     requires vector_expr_compatible<T...>
 [[nodiscard]] inline auto make_vector_call(CallOp op, T &&...x) noexcept {
@@ -546,18 +600,18 @@ using namespace luisa;
 using luisa::make_bool2;
 using luisa::make_bool3;
 using luisa::make_bool4;
+using luisa::make_float2;
+using luisa::make_float2x2;
+using luisa::make_float3;
+using luisa::make_float3x3;
+using luisa::make_float4;
+using luisa::make_float4x4;
 using luisa::make_int2;
 using luisa::make_int3;
 using luisa::make_int4;
 using luisa::make_uint2;
 using luisa::make_uint3;
 using luisa::make_uint4;
-using luisa::make_float2;
-using luisa::make_float3;
-using luisa::make_float4;
-using luisa::make_float2x2;
-using luisa::make_float3x3;
-using luisa::make_float4x4;
 
 #define LUISA_MAKE_VECTOR(type)                                  \
     template<typename S>                                         \
@@ -737,6 +791,7 @@ LUISA_MAKE_VECTOR(float)
 
 // make float2x2
 
+/// Make float2x2 from 2 column vector float2
 template<typename C0, typename C1>
     requires any_dsl_v<C0, C1> &&
         is_same_expr_v<C0, float2> &&
@@ -749,6 +804,7 @@ template<typename C0, typename C1>
             {LUISA_EXPR(c0), LUISA_EXPR(c1)}));
 }
 
+/// Make float2x2 sI
 template<typename S>
     requires is_dsl_v<S> && is_floating_point_expr_v<S>
 [[nodiscard]] inline auto make_float2x2(S &&s) noexcept {
@@ -757,6 +813,7 @@ template<typename S>
         make_float2(0.f, s));
 }
 
+/// Make float2x2 [ [M00, M10], [M01, M11] ]
 template<typename M00, typename M01, typename M10, typename M11>
     requires any_dsl_v<M00, M01, M10, M11> &&
         is_floating_point_expr_v<M00> &&
@@ -771,6 +828,8 @@ template<typename M00, typename M01, typename M10, typename M11>
         make_float2(m10, m11));
 }
 
+/// Make float2x2 from matrix.
+/// Submatrix will be taken if matrix is larger than 2x2.
 template<typename M>
     requires is_dsl_v<M> && is_matrix_expr_v<M>
 [[nodiscard]] inline auto make_float2x2(M &&m) noexcept {
@@ -779,7 +838,7 @@ template<typename M>
         make_float2(m[1]));
 }
 
-// make float3x3
+/// Make float3x3 from 3 column vector float3
 template<typename C0, typename C1, typename C2>
     requires any_dsl_v<C0, C1, C2> &&
         is_same_expr_v<C0, float3> &&
@@ -792,6 +851,7 @@ template<typename C0, typename C1, typename C2>
             {LUISA_EXPR(c0), LUISA_EXPR(c1), LUISA_EXPR(c2)}));
 }
 
+/// Make float3x3 sI
 template<typename S>
     requires is_dsl_v<S> && is_same_expr_v<S, float>
 [[nodiscard]] inline auto make_float3x3(S &&s) noexcept {
@@ -801,6 +861,7 @@ template<typename S>
         make_float3(0.f, 0.f, s));
 }
 
+/// Make float3x3 [ [M00, M10, M20], [M01, M11, M21], [M02, M12, M22] ]
 template<typename M00, typename M01, typename M02,
          typename M10, typename M11, typename M12,
          typename M20, typename M21, typename M22>
@@ -818,6 +879,7 @@ template<typename M00, typename M01, typename M02,
         make_float3(m20, m21, m22));
 }
 
+/// Make float3x3 from float2x2 [ [M, 0], [0, 1] ]
 template<typename M>
     requires is_dsl_v<M> && is_matrix2_expr_v<M>
 [[nodiscard]] inline auto make_float3x3(M &&m) noexcept {
@@ -827,6 +889,8 @@ template<typename M>
         luisa::make_float3(0.f, 0.f, 1.f));
 }
 
+/// Make float3x3 from float3x3/float4x4
+/// Submatrix will be taken if matrix is larger than 3x3.
 template<typename M>
     requires is_dsl_v<M> && std::disjunction_v<is_matrix3_expr<M>, is_matrix4_expr<M>>
 [[nodiscard]] inline auto make_float3x3(M &&m) noexcept {
@@ -836,7 +900,7 @@ template<typename M>
         make_float3(m[2]));
 }
 
-// make float4x4
+/// Make float4x4 from 4 column vector float4
 template<typename C0, typename C1, typename C2, typename C3>
     requires any_dsl_v<C0, C1, C2, C3> &&
         is_same_expr_v<C0, float4> &&
@@ -851,6 +915,7 @@ template<typename C0, typename C1, typename C2, typename C3>
             {LUISA_EXPR(c0), LUISA_EXPR(c1), LUISA_EXPR(c2), LUISA_EXPR(c3)}));
 }
 
+/// Make float4x4 sI
 template<typename S>
     requires is_dsl_v<S> && is_same_expr_v<S, float>
 [[nodiscard]] inline auto make_float4x4(S &&s) noexcept {
@@ -861,6 +926,7 @@ template<typename S>
         make_float4(0.0f, 0.f, 0.f, s));
 }
 
+/// Make float4x4 [ [M00, M10, M20, M30], [M01, M11, M21, M31], [M02, M12, M22, M32], [M03, M13, M23, M33] ]
 template<
     typename M00, typename M01, typename M02, typename M03,
     typename M10, typename M11, typename M12, typename M13,
@@ -887,6 +953,7 @@ template<
         make_float4(m30, m31, m32, m33));
 }
 
+/// Make float4x4 from float2x2 [ [M, 0], [0, I] ]
 template<typename M>
     requires is_dsl_v<M> && is_matrix2_expr_v<M>
 [[nodiscard]] inline auto make_float4x4(M &&m) noexcept {
@@ -897,6 +964,7 @@ template<typename M>
         luisa::make_float4(0.f, 0.f, 0.f, 1.f));
 }
 
+/// Make float4x4 from float3x3 [ [M, 0], [0, 1] ]
 template<typename M>
     requires is_dsl_v<M> && is_matrix3_expr_v<M>
 [[nodiscard]] inline auto make_float4x4(M &&m) noexcept {
@@ -907,12 +975,15 @@ template<typename M>
         luisa::make_float4(0.f, 0.f, 0.f, 1.f));
 }
 
+/// Make float4x4 from float4x4
 template<typename M>
     requires is_dsl_v<M> && is_matrix4_expr_v<M>
 [[nodiscard]] inline auto make_float4x4(M &&m) noexcept {
     return def(std::forward<M>(m));
 }
 
+/// Call function all on bool vector.
+/// Test if all bools are true.
 template<typename Tx>
     requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 [[nodiscard]] inline auto all(Tx &&x) noexcept {
@@ -922,6 +993,8 @@ template<typename Tx>
             {LUISA_EXPR(x)}));
 }
 
+/// Call function any on bool vector.
+/// Test if any bool is true
 template<typename Tx>
     requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 [[nodiscard]] inline auto any(Tx &&x) noexcept {
@@ -931,13 +1004,16 @@ template<typename Tx>
             {LUISA_EXPR(x)}));
 }
 
+/// Call function none on bool vector.
+/// Test if none bool is true
 template<typename Tx>
     requires is_dsl_v<Tx> && is_bool_vector_expr_v<Tx>
 [[nodiscard]] inline auto none(Tx &&x) noexcept {
     return !any(std::forward<Tx>(x));
 }
 
-// Tf: scalar or vector, Tt: scalar or vector, Tp: bool scalar or vector, vectorize
+/// Select function. p ? t : f.
+/// Tf: scalar or vector, Tt: scalar or vector, Tp: bool scalar or vector, vectorize
 template<typename Tf, typename Tt, typename Tp>
     requires any_dsl_v<Tf, Tt, Tp> &&
         is_bool_or_vector_expr_v<Tp> &&
@@ -955,7 +1031,8 @@ template<typename Tf, typename Tt, typename Tp>
         std::forward<Tp>(p));
 }
 
-// Tf == Tt: non-scalar and non-vector, Tp: bool scalar, no vectorization
+/// Select function. p ? t : f.
+/// Tf == Tt: non-scalar and non-vector, Tp: bool scalar, no vectorization
 template<typename Tf, typename Tt, typename Tp>
     requires any_dsl_v<Tf, Tt, Tp> &&
         is_boolean_expr_v<Tp> &&
@@ -972,6 +1049,7 @@ template<typename Tf, typename Tt, typename Tp>
             {LUISA_EXPR(f), LUISA_EXPR(t), LUISA_EXPR(p)}));
 }
 
+/// If-then-else. If p then t else f.
 template<typename Tp, typename Tt, typename Tf>
     requires any_dsl_v<Tp, Tt, Tf>
 [[nodiscard]] inline auto ite(Tp &&p, Tt &&t, Tf &&f) noexcept {
@@ -980,6 +1058,7 @@ template<typename Tp, typename Tt, typename Tf>
                   std::forward<Tp>(p));
 }
 
+/// Clamp v in lower bound l and upper bound u
 template<typename Tv, typename Tl, typename Tu>
     requires any_dsl_v<Tv, Tl, Tu> && is_vector_expr_same_element_v<Tv, Tl, Tu>
 [[nodiscard]] inline auto clamp(Tv &&v, Tl &&l, Tu &&u) noexcept {
@@ -990,6 +1069,7 @@ template<typename Tv, typename Tl, typename Tu>
         std::forward<Tu>(u));
 }
 
+/// Lerp in [a, b] with param t
 template<typename Ta, typename Tb, typename Tt>
     requires any_dsl_v<Ta, Tb, Tt> && is_float_or_vector_expr_v<Ta> && is_vector_expr_same_element_v<Ta, Tb, Tt>
 [[nodiscard]] inline auto lerp(Ta &&a, Tb &&b, Tt &&t) noexcept {
@@ -1000,6 +1080,7 @@ template<typename Ta, typename Tb, typename Tt>
         std::forward<Tt>(t));
 }
 
+/// Fma. Calcs x * y + z
 template<typename X, typename Y, typename Z>
     requires any_dsl_v<X, Y, Z> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y> && is_float_or_vector_expr_v<Z>
 [[nodiscard]] inline auto fma(X &&x, Y &&y, Z &&z) noexcept {
@@ -1010,12 +1091,14 @@ template<typename X, typename Y, typename Z>
         std::forward<Z>(z));
 }
 
+/// Saturate. Equals to clamp(v, 0, 1)
 template<typename Tv>
     requires is_dsl_v<Tv> && is_float_or_vector_expr_v<Tv>
 [[nodiscard]] inline auto saturate(Tv &&v) noexcept {
     return clamp(std::forward<Tv>(v), 0.0f, 1.0f);
 }
 
+/// Step. x < step ? 0 : 1
 template<typename E, typename X>
     requires any_dsl_v<E, X> && is_float_or_vector_expr_v<E> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto step(E &&edge, X &&x) noexcept {
@@ -1025,6 +1108,8 @@ template<typename E, typename X>
         std::forward<X>(x));
 }
 
+/// Smooth step.
+/// Reference https://en.wikipedia.org/wiki/Smoothstep
 template<typename L, typename R, typename T>
     requires any_dsl_v<L, R, T> && is_float_or_vector_expr_v<L> && is_float_or_vector_expr_v<R> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto smoothstep(L &&left, R &&right, T &&x) noexcept {
@@ -1034,6 +1119,7 @@ template<typename L, typename R, typename T>
     return t * t * fma(t, -2.0f, 3.0f);
 }
 
+/// Abs of float or vector.
 template<typename Tx>
     requires is_dsl_v<Tx> && is_float_or_vector_expr_v<Tx>
 [[nodiscard]] inline auto abs(Tx &&x) noexcept {
@@ -1041,6 +1127,7 @@ template<typename Tx>
         CallOp::ABS, std::forward<Tx>(x));
 }
 
+/// Abs of int or vector.
 template<typename Tx>
     requires is_dsl_v<Tx> && is_int_or_vector_expr_v<Tx>
 [[nodiscard]] inline auto abs(Tx &&x) noexcept {
@@ -1048,6 +1135,7 @@ template<typename Tx>
         CallOp::ABS, std::forward<Tx>(x));
 }
 
+/// Mod. x - y * floor(x/y)
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y>
 [[nodiscard]] inline auto mod(X &&x_in, Y &&y_in) noexcept {
@@ -1056,6 +1144,7 @@ template<typename X, typename Y>
     return x - y * floor(x / y);
 }
 
+/// Fmod. x - y * trunc(x/y)
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y>
 [[nodiscard]] inline auto fmod(X &&x_in, Y &&y_in) noexcept {
@@ -1064,6 +1153,7 @@ template<typename X, typename Y>
     return x - y * trunc(x / y);
 }
 
+/// Min.
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_vector_expr_same_element_v<X, Y>
 [[nodiscard]] inline auto min(X &&x, Y &&y) noexcept {
@@ -1073,6 +1163,7 @@ template<typename X, typename Y>
         std::forward<Y>(y));
 }
 
+/// Max.
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_vector_expr_same_element_v<X, Y>
 [[nodiscard]] inline auto max(X &&x, Y &&y) noexcept {
@@ -1082,6 +1173,7 @@ template<typename X, typename Y>
         std::forward<Y>(y));
 }
 
+/// Clz. Count leading zeros.
 template<typename X>
     requires is_dsl_v<X> && is_uint_or_vector_expr_v<X>
 [[nodiscard]] inline auto clz(X &&x) noexcept {
@@ -1089,6 +1181,7 @@ template<typename X>
         CallOp::CLZ, std::forward<X>(x));
 }
 
+/// Ctz. Coount trailing zeros
 template<typename X>
     requires is_dsl_v<X> && is_uint_or_vector_expr_v<X>
 [[nodiscard]] inline auto ctz(X &&x) noexcept {
@@ -1096,6 +1189,7 @@ template<typename X>
         CallOp::CTZ, std::forward<X>(x));
 }
 
+/// Popcount. Count number of 1 bits in x's binary representation
 template<typename X>
     requires is_dsl_v<X> && is_uint_or_vector_expr_v<X>
 [[nodiscard]] inline auto popcount(X &&x) noexcept {
@@ -1103,6 +1197,7 @@ template<typename X>
         CallOp::POPCOUNT, std::forward<X>(x));
 }
 
+/// Reverse. Reverse bits in x
 template<typename X>
     requires is_dsl_v<X> && is_uint_or_vector_expr_v<X>
 [[nodiscard]] inline auto reverse(X &&x) noexcept {
@@ -1110,6 +1205,7 @@ template<typename X>
         CallOp::REVERSE, std::forward<X>(x));
 }
 
+/// Is x infinity.
 template<typename X>
     requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto isinf(X &&x) noexcept {
@@ -1117,6 +1213,7 @@ template<typename X>
         CallOp::ISINF, std::forward<X>(x));
 }
 
+/// Is x nan.
 template<typename X>
     requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto isnan(X &&x) noexcept {
@@ -1124,6 +1221,7 @@ template<typename X>
         CallOp::ISNAN, std::forward<X>(x));
 }
 
+/// arccos
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto acos(T &&x) noexcept {
@@ -1131,6 +1229,7 @@ template<typename T>
         CallOp::ACOS, std::forward<T>(x));
 }
 
+/// arccosh
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto acosh(T &&x) noexcept {
@@ -1138,6 +1237,7 @@ template<typename T>
         CallOp::ACOSH, std::forward<T>(x));
 }
 
+/// arcsin
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto asin(T &&x) noexcept {
@@ -1145,6 +1245,7 @@ template<typename T>
         CallOp::ASIN, std::forward<T>(x));
 }
 
+/// arcsinh
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto asinh(T &&x) noexcept {
@@ -1152,6 +1253,7 @@ template<typename T>
         CallOp::ASINH, std::forward<T>(x));
 }
 
+/// arctan
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto atan(T &&x) noexcept {
@@ -1159,6 +1261,7 @@ template<typename T>
         CallOp::ATAN, std::forward<T>(x));
 }
 
+/// arctan2
 template<typename Y, typename X>
     requires any_dsl_v<Y, X> && is_float_or_vector_expr_v<Y> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto atan2(Y &&y, X &&x) noexcept {
@@ -1168,6 +1271,7 @@ template<typename Y, typename X>
         std::forward<X>(x));
 }
 
+/// arctanh
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto atanh(T &&x) noexcept {
@@ -1175,6 +1279,7 @@ template<typename T>
         CallOp::ATANH, std::forward<T>(x));
 }
 
+/// cos
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto cos(T &&x) noexcept {
@@ -1182,6 +1287,7 @@ template<typename T>
         CallOp::COS, std::forward<T>(x));
 }
 
+/// cosh
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto cosh(T &&x) noexcept {
@@ -1189,6 +1295,7 @@ template<typename T>
         CallOp::COSH, std::forward<T>(x));
 }
 
+/// sin
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto sin(T &&x) noexcept {
@@ -1196,6 +1303,7 @@ template<typename T>
         CallOp::SIN, std::forward<T>(x));
 }
 
+/// sinh
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto sinh(T &&x) noexcept {
@@ -1203,6 +1311,7 @@ template<typename T>
         CallOp::SINH, std::forward<T>(x));
 }
 
+/// tan
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto tan(T &&x) noexcept {
@@ -1210,6 +1319,7 @@ template<typename T>
         CallOp::TAN, std::forward<T>(x));
 }
 
+/// tanh
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto tanh(T &&x) noexcept {
@@ -1217,6 +1327,7 @@ template<typename T>
         CallOp::TANH, std::forward<T>(x));
 }
 
+/// exp. e^x
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto exp(T &&x) noexcept {
@@ -1224,6 +1335,7 @@ template<typename T>
         CallOp::EXP, std::forward<T>(x));
 }
 
+/// exp2. 2^x
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto exp2(T &&x) noexcept {
@@ -1231,6 +1343,7 @@ template<typename T>
         CallOp::EXP2, std::forward<T>(x));
 }
 
+/// exp10. 10^x
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto exp10(T &&x) noexcept {
@@ -1238,6 +1351,7 @@ template<typename T>
         CallOp::EXP10, std::forward<T>(x));
 }
 
+/// log. ln(x)
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto log(T &&x) noexcept {
@@ -1245,6 +1359,7 @@ template<typename T>
         CallOp::LOG, std::forward<T>(x));
 }
 
+/// log2. log_2(x)
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto log2(T &&x) noexcept {
@@ -1252,6 +1367,7 @@ template<typename T>
         CallOp::LOG2, std::forward<T>(x));
 }
 
+/// log10. log_10(x)
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto log10(T &&x) noexcept {
@@ -1259,6 +1375,7 @@ template<typename T>
         CallOp::LOG10, std::forward<T>(x));
 }
 
+/// pow. x^a
 template<typename X, typename A>
     requires any_dsl_v<X, A> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<A>
 [[nodiscard]] inline auto pow(X &&x, A &&a) noexcept {
@@ -1268,6 +1385,7 @@ template<typename X, typename A>
         std::forward<A>(a));
 }
 
+/// sqrt. Square root of x.
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto sqrt(T &&x) noexcept {
@@ -1275,6 +1393,7 @@ template<typename T>
         CallOp::SQRT, std::forward<T>(x));
 }
 
+/// rsqrt. 1/sqrt(x)
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto rsqrt(T &&x) noexcept {
@@ -1282,6 +1401,7 @@ template<typename T>
         CallOp::RSQRT, std::forward<T>(x));
 }
 
+/// ceil. Return the smallest integer bigger than x.
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto ceil(T &&x) noexcept {
@@ -1289,6 +1409,7 @@ template<typename T>
         CallOp::CEIL, std::forward<T>(x));
 }
 
+/// floor. Return the biggest integer smaller than x.
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto floor(T &&x) noexcept {
@@ -1296,6 +1417,7 @@ template<typename T>
         CallOp::FLOOR, std::forward<T>(x));
 }
 
+/// fract. Return x - floor(x)
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto fract(T &&x) noexcept {
@@ -1303,6 +1425,7 @@ template<typename T>
         CallOp::FRACT, std::forward<T>(x));
 }
 
+/// trunc. Round x to 0.
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto trunc(T &&x) noexcept {
@@ -1310,6 +1433,7 @@ template<typename T>
         CallOp::TRUNC, std::forward<T>(x));
 }
 
+/// round.
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto round(T &&x) noexcept {
@@ -1317,18 +1441,21 @@ template<typename T>
         CallOp::ROUND, std::forward<T>(x));
 }
 
+/// Radian to degree
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto degrees(T &&x) noexcept {
     return std::forward<T>(x) * (180.0f * constants::inv_pi);
 }
 
+/// Degree to radian
 template<typename T>
     requires is_dsl_v<T> && is_float_or_vector_expr_v<T>
 [[nodiscard]] inline auto radians(T &&x) noexcept {
     return std::forward<T>(x) * (constants::pi / 180.0f);
 }
 
+/// Copy y's sign to x
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_float_or_vector_expr_v<X> && is_float_or_vector_expr_v<Y>
 [[nodiscard]] inline auto copysign(X &&x, Y &&y) noexcept {
@@ -1338,12 +1465,14 @@ template<typename X, typename Y>
         std::forward<Y>(y));
 }
 
+/// Return sgn(x)
 template<typename X>
     requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto sign(X &&x) noexcept {
     return copysign(1.0f, std::forward<X>(x));
 }
 
+/// Cross product.
 template<typename X, typename Y>
     requires any_dsl_v<X, Y> && is_same_expr_v<X, Y, float3>
 [[nodiscard]] inline auto cross(X &&x, Y &&y) noexcept {
@@ -1353,8 +1482,10 @@ template<typename X, typename Y>
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
 }
 
+/// Dot product.
 template<typename X, typename Y>
-    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
+    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> &&
+        is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
 [[nodiscard]] inline auto dot(X &&x, Y &&y) noexcept {
     return def<float>(
         detail::FunctionBuilder::current()->call(
@@ -1362,6 +1493,7 @@ template<typename X, typename Y>
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
 }
 
+/// L2 norm of vector
 template<typename Tx>
     requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
 [[nodiscard]] inline auto length(Tx &&x) noexcept {
@@ -1371,6 +1503,7 @@ template<typename Tx>
             {LUISA_EXPR(x)}));
 }
 
+/// Squared L2 norm
 template<typename Tx>
     requires is_dsl_v<Tx> && is_float_vector_expr_v<Tx>
 [[nodiscard]] inline auto length_squared(Tx &&x) noexcept {
@@ -1380,24 +1513,32 @@ template<typename Tx>
             {LUISA_EXPR(x)}));
 }
 
+/// L2 norm of (x - y)
 template<typename X, typename Y>
-    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
+    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> &&
+        is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
 [[nodiscard]] inline auto distance(X &&x, Y &&y) noexcept {
     return length(std::forward<X>(x) - std::forward<Y>(y));
 }
 
+/// Squared L2 norm of (x - y)
 template<typename X, typename Y>
-    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> && is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
+    requires any_dsl_v<X, Y> && is_float_vector_expr_v<X> &&
+        is_float_vector_expr_v<Y> && is_vector_expr_same_dimension_v<X, Y>
 [[nodiscard]] inline auto distance_squared(X &&x, Y &&y) noexcept {
     return length_squared(std::forward<X>(x) - std::forward<Y>(y));
 }
 
+/// Normalize vector
 template<typename T>
     requires is_dsl_v<T> && is_float_vector_expr_v<T>
 [[nodiscard]] inline auto normalize(T &&x) noexcept {
     return detail::make_vector_call<float>(CallOp::NORMALIZE, std::forward<T>(x));
 }
 
+/// Return face forward vector.
+/// faceforward orients a vector to point away from a surface as defined by its normal.
+/// If dot(Nref, I) < 0 faceforward returns N, otherwise it returns -N. 
 template<typename N, typename I, typename NRef>
     requires any_dsl_v<N, I, NRef> && is_same_expr_v<N, I, NRef, float3>
 [[nodiscard]] inline auto faceforward(N &&n, I &&i, NRef &&n_ref) noexcept {
@@ -1407,6 +1548,7 @@ template<typename N, typename I, typename NRef>
             {LUISA_EXPR(n), LUISA_EXPR(i), LUISA_EXPR(n_ref)}));
 }
 
+/// Determinant of metrix
 template<typename Tm>
     requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
 [[nodiscard]] inline auto determinant(Tm &&m) noexcept {
@@ -1416,6 +1558,7 @@ template<typename Tm>
             {LUISA_EXPR(m)}));
 }
 
+/// Transpose of matrix
 template<typename Tm>
     requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
 [[nodiscard]] inline auto transpose(Tm &&m) noexcept {
@@ -1426,6 +1569,7 @@ template<typename Tm>
             {LUISA_EXPR(m)}));
 }
 
+/// Inverse of matrix
 template<typename Tm>
     requires is_dsl_v<Tm> && is_matrix_expr_v<Tm>
 [[nodiscard]] inline auto inverse(Tm &&m) noexcept {
@@ -1437,6 +1581,7 @@ template<typename Tm>
 }
 
 // barriers
+/// Synchronize thread block.
 inline void sync_block() noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::SYNCHRONIZE_BLOCK, {});
