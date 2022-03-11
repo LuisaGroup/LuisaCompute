@@ -12,6 +12,13 @@
 
 namespace luisa {
 
+/**
+ * @brief Find next 2^n of v
+ * 
+ * @tparam uint32 or uint64
+ * @param v input number
+ * @return same as v
+ */
 template<typename T, std::enable_if_t<std::is_unsigned_v<T> && (sizeof(T) == 4u || sizeof(T) == 8u), int> = 0>
 [[nodiscard]] constexpr auto next_pow2(T v) noexcept {
     v--;
@@ -50,9 +57,12 @@ using std::abs;
 using std::max;
 using std::min;
 
+/// Convert degree to radian
 [[nodiscard]] constexpr float radians(float deg) noexcept { return deg * constants::pi / 180.0f; }
+/// Convert radian to degree
 [[nodiscard]] constexpr float degrees(float rad) noexcept { return rad * constants::inv_pi * 180.0f; }
 
+/// Make function apply to floatN element-wise
 #define LUISA_MAKE_VECTOR_UNARY_FUNC(func)                                                                \
     [[nodiscard]] inline auto func(float2 v) noexcept { return float2{func(v.x), func(v.y)}; }            \
     [[nodiscard]] inline auto func(float3 v) noexcept { return float3{func(v.x), func(v.y), func(v.z)}; } \
@@ -85,6 +95,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] inline auto abs(Vector<T, 4> v) noexcept { return Vector<T, 4>{abs(v.x), abs(v.y), abs(v.z), abs(v.w)}; }
 
+/// Make function apply to floatN element-wise
 #define LUISA_MAKE_VECTOR_BINARY_FUNC(func)                                                  \
     template<typename T>                                                                     \
     [[nodiscard]] constexpr auto func(Vector<T, 2> v, Vector<T, 2> u) noexcept {             \

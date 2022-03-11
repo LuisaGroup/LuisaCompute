@@ -94,6 +94,7 @@ using prototype_to_creation_t = typename prototype_to_creation<T>::type;
 template<typename T>
 using prototype_to_callable_invocation_t = typename prototype_to_callable_invocation<T>::type;
 
+/// Kernel default block size
 template<size_t N>
 [[nodiscard]] constexpr auto kernel_default_block_size() {
     if constexpr (N == 1) {
@@ -111,6 +112,7 @@ template<typename NextVar, typename... OtherVars, typename NextTag, typename... 
 [[nodiscard]] std::tuple<T..., NextVar, OtherVars...> create_argument_definitions_impl(
     std::tuple<T...> tuple, std::tuple<NextVar, OtherVars...> *, std::tuple<NextTag, OtherTags...> *) noexcept;
 
+/// Create argument definitions
 template<typename VarTuple, typename TagTuple, typename T>
 [[nodiscard]] inline auto create_argument_definitions(T tuple) noexcept {
     if constexpr (std::tuple_size_v<VarTuple> == 0) {
@@ -123,6 +125,7 @@ template<typename VarTuple, typename TagTuple, typename T>
     }
 }
 
+/// Append an element in a tuple
 template<typename... T, typename A>
 [[nodiscard]] inline auto tuple_append(std::tuple<T...> tuple, A &&arg) noexcept {
     auto append = []<typename TT, typename AA, size_t... i>(TT tuple, AA && arg, std::index_sequence<i...>) noexcept {
@@ -170,6 +173,18 @@ struct is_kernel<Kernel2D<Args...>> : std::true_type {};
 template<typename... Args>
 struct is_kernel<Kernel3D<Args...>> : std::true_type {};
 
+/**
+ * @brief Class of kernel function.
+ * 
+ * To create a kernel, user needs to provide a function. 
+ * The function will be called during construction of Kernel object.
+ * All operations inside the provided function will be recorded by FunctionBuilder.
+ * After calling the function, the function is changed to AST represented by FunctionBuilder.
+ * When compiling the kernel, the AST will be sent to backend and translated to specific backend code.
+ * 
+ * @tparam N = 1, 2, 3. KernelND
+ * @tparam Args args of kernel function
+ */
 template<size_t N, typename... Args>
 class Kernel {
 
@@ -192,6 +207,14 @@ private:
     explicit Kernel(SharedFunctionBuilder builder) noexcept : _builder{std::move(builder)} {}
 
 public:
+    /**
+     * @brief Create Kernel object from function.
+     * 
+     * Def must be a callable function and not a kernel.
+     * This function will be called during construction.
+     * 
+     * @param def definition of kernel function 
+     */
     template<typename Def>
         requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
             std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
@@ -216,7 +239,7 @@ public:
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
 };
 
-#define LUISA_KERNE_BASE(N)                                      \
+#define LUISA_KERNEL_BASE(N)                                      \
 public                                                           \
     Kernel<N, Args...> {                                         \
         using Kernel<N, Args...>::Kernel;                        \
@@ -228,28 +251,35 @@ public                                                           \
         }                                                        \
     }
 
+/// 1D kernel. Kernel<1, Args...>
 template<typename... Args>
-struct Kernel1D : LUISA_KERNE_BASE(1);
+struct Kernel1D : LUISA_KERNEL_BASE(1);
 
+/// 2D kernel. Kernel<2, Args...>
 template<typename... Args>
-struct Kernel2D : LUISA_KERNE_BASE(2);
+struct Kernel2D : LUISA_KERNEL_BASE(2);
 
+/// 3D kernel. Kernel<3, Args...>
 template<typename... Args>
-struct Kernel3D : LUISA_KERNE_BASE(3);
+struct Kernel3D : LUISA_KERNEL_BASE(3);
 
+/// 1D kernel. Kernel<1, Args...>
 template<typename... Args>
-struct Kernel1D<void(Args...)> : LUISA_KERNE_BASE(1);
+struct Kernel1D<void(Args...)> : LUISA_KERNEL_BASE(1);
 
+/// 2D kernel. Kernel<2, Args...>
 template<typename... Args>
-struct Kernel2D<void(Args...)> : LUISA_KERNE_BASE(2);
+struct Kernel2D<void(Args...)> : LUISA_KERNEL_BASE(2);
 
+/// 3D kernel. Kernel<3, Args...>
 template<typename... Args>
-struct Kernel3D<void(Args...)> : LUISA_KERNE_BASE(3);
+struct Kernel3D<void(Args...)> : LUISA_KERNEL_BASE(3);
 
-#undef LUISA_KERNE_BASE
+#undef LUISA_KERNEL_BASE
 
 namespace detail {
 
+/// Callable invoke
 class CallableInvoke {
 
 public:
@@ -261,6 +291,7 @@ private:
 
 public:
     CallableInvoke() noexcept = default;
+    /// Add an argument
     template<typename T>
     requires std::negation_v<std::disjunction<is_image_or_view<T>, is_volume_or_view<T>>>
         CallableInvoke &operator<<(Expr<T> arg) noexcept {
@@ -270,10 +301,12 @@ public:
         _args[_arg_count++] = arg.expression();
         return *this;
     }
+    /// Add an argument
     template<typename T>
     decltype(auto) operator<<(Ref<T> arg) noexcept {
         return (*this << Expr{arg});
     }
+    /// Add an image or view argument. Will actually add two arguments.
     template<typename T>
     requires is_image_or_view_v<T>
         CallableInvoke &operator<<(Expr<T> arg) noexcept {
@@ -284,6 +317,7 @@ public:
         _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint2(0u)) : arg.offset();
         return *this;
     }
+    /// Add a volume or view argument. Will actually add two arguments.
     template<typename T>
     requires is_volume_or_view_v<T>
         CallableInvoke &operator<<(Expr<T> arg) noexcept {
@@ -299,6 +333,7 @@ public:
 
 }// namespace detail
 
+/// Callable class. Callable<T> is not allowed, unless T is a function type.
 template<typename T>
 class Callable {
     static_assert(always_false_v<T>);
@@ -307,6 +342,7 @@ class Callable {
 template<typename T>
 struct is_callable<Callable<T>> : std::true_type {};
 
+/// Callable class with a function type as template parameter.
 template<typename Ret, typename... Args>
 class Callable<Ret(Args...)> {
 
@@ -323,6 +359,13 @@ private:
     luisa::shared_ptr<const detail::FunctionBuilder> _builder;
 
 public:
+    /**
+     * @brief Construct a Callable object.
+     * 
+     * The function provided will be called and recorded during construction.
+     * 
+     * @param f the function of callable.
+     */
     template<typename Def>
         requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
             std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
@@ -348,6 +391,7 @@ public:
               }
           })} {}
 
+    /// Call the callable.
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         detail::CallableInvoke invoke;
         static_cast<void>((invoke << ... << args));

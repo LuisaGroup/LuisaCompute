@@ -10,14 +10,17 @@ namespace luisa {
 
 inline namespace size_literals {
 
+/// Calculate size of KB
 [[nodiscard]] constexpr auto operator""_kb(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u);
 }
 
+/// Calculate size of MB
 [[nodiscard]] constexpr auto operator""_mb(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u * 1024u);
 }
 
+/// Calculate size of GB
 [[nodiscard]] constexpr auto operator""_gb(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u * 1024u * 1024u);
 }
@@ -27,11 +30,13 @@ inline namespace size_literals {
 // vectors
 namespace detail {
 
+/// Vector storage only allows size of 2, 3, 4
 template<typename T, size_t N>
 struct VectorStorage {
     static_assert(always_false_v<T>, "Invalid vector storage");
 };
 
+/// Vector storage of size 2
 template<typename T>
 struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     T x, y;
@@ -40,6 +45,7 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
 #include <core/swizzle_2.inl.h>
 };
 
+/// Vector storage of size 3
 template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     T x, y, z;
@@ -48,6 +54,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
 #include <core/swizzle_3.inl.h>
 };
 
+/// Vector storage of size 4
 template<typename T>
 struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     T x, y, z, w;
@@ -58,6 +65,15 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
 
 }// namespace detail
 
+/**
+ * @brief Vector class
+ * 
+ * We only support vector of size 2, 3, 4 and type bool, float, int, uint.
+ * Any other kind of template parameters will fail on compilation.
+ * 
+ * @tparam T bool/float/int/uint
+ * @tparam N 2/3/4
+ */
 template<typename T, size_t N>
 struct Vector : public detail::VectorStorage<T, N> {
     static constexpr auto dimension = N;
@@ -75,6 +91,11 @@ struct Vector : public detail::VectorStorage<T, N> {
     [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
 };
 
+/**
+ * @brief Make vector types of size 2, 3, 4
+ *  
+ * Ex. LUISA_MAKE_VECTOR_TYPES(int) -> int2, int3, int4
+ */
 #define LUISA_MAKE_VECTOR_TYPES(T) \
     using T##2 = Vector<T, 2>;     \
     using T##3 = Vector<T, 3>;     \
@@ -87,11 +108,13 @@ LUISA_MAKE_VECTOR_TYPES(uint)
 
 #undef LUISA_MAKE_VECTOR_TYPES
 
+/// Matrix only allows size of 2, 3, 4
 template<size_t N>
 struct Matrix {
     static_assert(always_false_v<std::integral_constant<size_t, N>>, "Invalid matrix type");
 };
 
+/// 2x2 matrix
 template<>
 struct Matrix<2> {
 
@@ -107,6 +130,7 @@ struct Matrix<2> {
     [[nodiscard]] constexpr const float2 &operator[](size_t i) const noexcept { return cols[i]; }
 };
 
+/// 3x3 matrix
 template<>
 struct Matrix<3> {
 
@@ -122,6 +146,7 @@ struct Matrix<3> {
     [[nodiscard]] constexpr const float3 &operator[](size_t i) const noexcept { return cols[i]; }
 };
 
+/// 4x4 matrix
 template<>
 struct Matrix<4> {
 
@@ -151,23 +176,34 @@ using basic_types = std::tuple<
     bool4, float4, int4, uint4,
     float2x2, float3x3, float4x4>;
 
+/// any of bool2 is true
 [[nodiscard]] constexpr auto any(const bool2 v) noexcept { return v.x || v.y; }
+/// any of bool3 is true
 [[nodiscard]] constexpr auto any(const bool3 v) noexcept { return v.x || v.y || v.z; }
+/// any of bool4 is true
 [[nodiscard]] constexpr auto any(const bool4 v) noexcept { return v.x || v.y || v.z || v.w; }
 
+/// all of bool2 is true
 [[nodiscard]] constexpr auto all(const bool2 v) noexcept { return v.x && v.y; }
+/// all of bool3 is true
 [[nodiscard]] constexpr auto all(const bool3 v) noexcept { return v.x && v.y && v.z; }
+/// all of bool4 is true
 [[nodiscard]] constexpr auto all(const bool4 v) noexcept { return v.x && v.y && v.z && v.w; }
 
+/// none of bool2 is true
 [[nodiscard]] constexpr auto none(const bool2 v) noexcept { return !any(v); }
+/// none of bool3 is true
 [[nodiscard]] constexpr auto none(const bool3 v) noexcept { return !any(v); }
+/// none of bool4 is true
 [[nodiscard]] constexpr auto none(const bool4 v) noexcept { return !any(v); }
 
 }// namespace luisa
 
+/// Unary plus operator of vector. Bool vector is not allowed.
 template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolean<T>>, int> = 0>
 [[nodiscard]] constexpr auto operator+(const luisa::Vector<T, N> v) noexcept { return v; }
 
+/// Unary minus operator of vector. Bool vector is not allowed.
 template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolean<T>>, int> = 0>
 [[nodiscard]] constexpr auto operator-(const luisa::Vector<T, N> v) noexcept {
     using R = luisa::Vector<T, N>;
@@ -180,6 +216,7 @@ template<typename T, size_t N, std::enable_if_t<std::negation_v<luisa::is_boolea
     }
 }
 
+/// Unary not operator of vector
 template<typename T, size_t N>
 [[nodiscard]] constexpr auto operator!(const luisa::Vector<T, N> v) noexcept {
     if constexpr (N == 2u) {
@@ -191,6 +228,7 @@ template<typename T, size_t N>
     }
 }
 
+/// Unary xor operator of vector. Only int vector is allowed.
 template<typename T, size_t N,
          std::enable_if_t<luisa::is_integral_v<T>, int> = 0>
 [[nodiscard]] constexpr auto operator~(const luisa::Vector<T, N> v) noexcept {
@@ -204,7 +242,7 @@ template<typename T, size_t N,
     }
 }
 
-// binary & assignment operators
+/// Binary & Assignment operators
 #define LUISA_MAKE_VECTOR_BINARY_OPERATOR(op, ...)                                      \
     template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
     [[nodiscard]] constexpr auto operator op(                                           \
@@ -245,6 +283,7 @@ LUISA_MAKE_VECTOR_BINARY_OPERATOR(|, std::negation_v<luisa::is_floating_point<T>
 LUISA_MAKE_VECTOR_BINARY_OPERATOR(&, std::negation_v<luisa::is_floating_point<T>>)
 LUISA_MAKE_VECTOR_BINARY_OPERATOR(^, std::negation_v<luisa::is_floating_point<T>>)
 
+/// Binary logic operators
 #define LUISA_MAKE_VECTOR_LOGIC_OPERATOR(op, ...)                                       \
     template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0>              \
     [[nodiscard]] constexpr auto operator op(                                           \
@@ -283,6 +322,7 @@ LUISA_MAKE_VECTOR_LOGIC_OPERATOR(>, std::negation_v<luisa::is_boolean<T>>)
 LUISA_MAKE_VECTOR_LOGIC_OPERATOR(<=, std::negation_v<luisa::is_boolean<T>>)
 LUISA_MAKE_VECTOR_LOGIC_OPERATOR(>=, std::negation_v<luisa::is_boolean<T>>)
 
+/// Assign operators
 #define LUISA_MAKE_VECTOR_ASSIGN_OPERATOR(op, ...)                         \
     template<typename T, size_t N, std::enable_if_t<__VA_ARGS__, int> = 0> \
     constexpr decltype(auto) operator op(                                  \
@@ -313,96 +353,114 @@ LUISA_MAKE_VECTOR_ASSIGN_OPERATOR(^=, std::negation_v<luisa::is_floating_point<T
 #undef LUISA_MAKE_VECTOR_LOGIC_OPERATOR
 #undef LUISA_MAKE_VECTOR_ASSIGN_OPERATOR
 
-// float2x2
+/// float2x2 multiplied by float
 [[nodiscard]] constexpr auto operator*(const luisa::float2x2 m, float s) noexcept {
     return luisa::float2x2{m[0] * s, m[1] * s};
 }
 
+/// float2x2 multiplied by float
 [[nodiscard]] constexpr auto operator*(float s, const luisa::float2x2 m) noexcept {
     return m * s;
 }
 
+/// float2x2 divided by float
 [[nodiscard]] constexpr auto operator/(const luisa::float2x2 m, float s) noexcept {
     return m * (1.0f / s);
 }
 
+/// float2x2 dot float2
 [[nodiscard]] constexpr auto operator*(const luisa::float2x2 m, const luisa::float2 v) noexcept {
     return v.x * m[0] + v.y * m[1];
 }
 
+/// float2x2 multiply(matmul)
 [[nodiscard]] constexpr auto operator*(const luisa::float2x2 lhs, const luisa::float2x2 rhs) noexcept {
     return luisa::float2x2{lhs * rhs[0], lhs * rhs[1]};
 }
 
+/// float2x2 plus
 [[nodiscard]] constexpr auto operator+(const luisa::float2x2 lhs, const luisa::float2x2 rhs) noexcept {
     return luisa::float2x2{lhs[0] + rhs[0], lhs[1] + rhs[1]};
 }
 
+/// float2x2 minus
 [[nodiscard]] constexpr auto operator-(const luisa::float2x2 lhs, const luisa::float2x2 rhs) noexcept {
     return luisa::float2x2{lhs[0] - rhs[0], lhs[1] - rhs[1]};
 }
 
-// float3x3
+/// float3x3 multiplied by float
 [[nodiscard]] constexpr auto operator*(const luisa::float3x3 m, float s) noexcept {
     return luisa::float3x3{m[0] * s, m[1] * s, m[2] * s};
 }
 
+/// float3x3 multiplied by float
 [[nodiscard]] constexpr auto operator*(float s, const luisa::float3x3 m) noexcept {
     return m * s;
 }
 
+/// float 3x3 divided by float
 [[nodiscard]] constexpr auto operator/(const luisa::float3x3 m, float s) noexcept {
     return m * (1.0f / s);
 }
 
+/// float3x3 dot float3
 [[nodiscard]] constexpr auto operator*(const luisa::float3x3 m, const luisa::float3 v) noexcept {
     return v.x * m[0] + v.y * m[1] + v.z * m[2];
 }
 
+/// float3x3 multiply(matmul)
 [[nodiscard]] constexpr auto operator*(const luisa::float3x3 lhs, const luisa::float3x3 rhs) noexcept {
     return luisa::float3x3{lhs * rhs[0], lhs * rhs[1], lhs * rhs[2]};
 }
 
+/// float3x3 plus
 [[nodiscard]] constexpr auto operator+(const luisa::float3x3 lhs, const luisa::float3x3 rhs) noexcept {
     return luisa::float3x3{lhs[0] + rhs[0], lhs[1] + rhs[1], lhs[2] + rhs[2]};
 }
 
+/// float3x3 minus
 [[nodiscard]] constexpr auto operator-(const luisa::float3x3 lhs, const luisa::float3x3 rhs) noexcept {
     return luisa::float3x3{lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2]};
 }
 
-// float4x4
+/// float4x4 multiplied by float
 [[nodiscard]] constexpr auto operator*(const luisa::float4x4 m, float s) noexcept {
     return luisa::float4x4{m[0] * s, m[1] * s, m[2] * s, m[3] * s};
 }
 
+/// float4x4 multiplied by float
 [[nodiscard]] constexpr auto operator*(float s, const luisa::float4x4 m) noexcept {
     return m * s;
 }
 
+/// float4x4 divided by float
 [[nodiscard]] constexpr auto operator/(const luisa::float4x4 m, float s) noexcept {
     return m * (1.0f / s);
 }
 
+/// floa4x4 dot float4
 [[nodiscard]] constexpr auto operator*(const luisa::float4x4 m, const luisa::float4 v) noexcept {
     return v.x * m[0] + v.y * m[1] + v.z * m[2] + v.w * m[3];
 }
 
+/// float4x4 multiply(matmul)
 [[nodiscard]] constexpr auto operator*(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
     return luisa::float4x4{lhs * rhs[0], lhs * rhs[1], lhs * rhs[2], lhs * rhs[3]};
 }
 
+/// float4x4 plus
 [[nodiscard]] constexpr auto operator+(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
     return luisa::float4x4{lhs[0] + rhs[0], lhs[1] + rhs[1], lhs[2] + rhs[2], lhs[3] + rhs[3]};
 }
 
+/// float4x4 minus
 [[nodiscard]] constexpr auto operator-(const luisa::float4x4 lhs, const luisa::float4x4 rhs) noexcept {
     return luisa::float4x4{lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2], lhs[3] - rhs[3]};
 }
 
 namespace luisa {
 
-// make typeN
+/// make_typeN definitions
 #define LUISA_MAKE_TYPE_N(type)                                                                                              \
     [[nodiscard]] constexpr auto make_##type##2(type s = {}) noexcept { return type##2(s); }                                 \
     [[nodiscard]] constexpr auto make_##type##2(type x, type y) noexcept { return type##2(x, y); }                           \
@@ -451,12 +509,13 @@ LUISA_MAKE_TYPE_N(int)
 LUISA_MAKE_TYPE_N(uint)
 #undef LUISA_MAKE_TYPE_N
 
-// make float2x2
+/// make float2x2
 [[nodiscard]] constexpr auto make_float2x2(float s = 1.0f) noexcept {
     return float2x2{float2{s, 0.0f},
                     float2{0.0f, s}};
 }
 
+/// make float2x2
 [[nodiscard]] constexpr auto make_float2x2(
     float m00, float m01,
     float m10, float m11) noexcept {
@@ -464,35 +523,41 @@ LUISA_MAKE_TYPE_N(uint)
                     float2{m10, m11}};
 }
 
+/// make float2x2
 [[nodiscard]] constexpr auto make_float2x2(float2 c0, float2 c1) noexcept {
     return float2x2{c0, c1};
 }
 
+/// make float2x2
 [[nodiscard]] constexpr auto make_float2x2(float2x2 m) noexcept {
     return m;
 }
 
+/// make float2x2
 [[nodiscard]] constexpr auto make_float2x2(float3x3 m) noexcept {
     return float2x2{float2{m[0].x, m[0].y},
                     float2{m[1].x, m[1].y}};
 }
 
+/// make float2x2
 [[nodiscard]] constexpr auto make_float2x2(float4x4 m) noexcept {
     return float2x2{float2{m[0].x, m[0].y},
                     float2{m[1].x, m[1].y}};
 }
 
-// make float3x3
+/// make float3x3
 [[nodiscard]] constexpr auto make_float3x3(float s = 1.0f) noexcept {
     return float3x3{float3{s, 0.0f, 0.0f},
                     float3{0.0f, s, 0.0f},
                     float3{0.0f, 0.0f, s}};
 }
 
+/// make float3x3
 [[nodiscard]] constexpr auto make_float3x3(float3 c0, float3 c1, float3 c2) noexcept {
     return float3x3{c0, c1, c2};
 }
 
+/// make float3x3
 [[nodiscard]] constexpr auto make_float3x3(
     float m00, float m01, float m02,
     float m10, float m11, float m12,
@@ -502,23 +567,26 @@ LUISA_MAKE_TYPE_N(uint)
                     float3{m20, m21, m22}};
 }
 
+/// make float3x3
 [[nodiscard]] constexpr auto make_float3x3(float2x2 m) noexcept {
     return float3x3{make_float3(m[0], 0.0f),
                     make_float3(m[1], 0.0f),
                     make_float3(m[2], 1.0f)};
 }
 
+/// make float3x3
 [[nodiscard]] constexpr auto make_float3x3(float3x3 m) noexcept {
     return m;
 }
 
+/// make float3x3
 [[nodiscard]] constexpr auto make_float3x3(float4x4 m) noexcept {
     return float3x3{make_float3(m[0]),
                     make_float3(m[1]),
                     make_float3(m[2])};
 }
 
-// make float4x4
+/// make float4x4
 [[nodiscard]] constexpr auto make_float4x4(float s = 1.0f) noexcept {
     return float4x4{float4{s, 0.0f, 0.0f, 0.0f},
                     float4{0.0f, s, 0.0f, 0.0f},
@@ -526,10 +594,12 @@ LUISA_MAKE_TYPE_N(uint)
                     float4{0.0f, 0.0f, 0.0f, s}};
 }
 
+/// make float4x4
 [[nodiscard]] constexpr auto make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) noexcept {
     return float4x4{c0, c1, c2, c3};
 }
 
+/// make float4x4
 [[nodiscard]] constexpr auto make_float4x4(
     float m00, float m01, float m02, float m03,
     float m10, float m11, float m12, float m13,
@@ -541,6 +611,7 @@ LUISA_MAKE_TYPE_N(uint)
                     float4{m30, m31, m32, m33}};
 }
 
+/// make float4x4
 [[nodiscard]] constexpr auto make_float4x4(float2x2 m) noexcept {
     return float4x4{make_float4(m[0], 0.0f, 0.0f),
                     make_float4(m[1], 0.0f, 0.0f),
@@ -548,6 +619,7 @@ LUISA_MAKE_TYPE_N(uint)
                     float4{0.0f, 0.0f, 0.0f, 1.0f}};
 }
 
+/// make float4x4
 [[nodiscard]] constexpr auto make_float4x4(float3x3 m) noexcept {
     return float4x4{make_float4(m[0], 0.0f),
                     make_float4(m[1], 0.0f),
@@ -555,6 +627,7 @@ LUISA_MAKE_TYPE_N(uint)
                     float4{0.0f, 0.0f, 0.0f, 1.0f}};
 }
 
+/// make float4x4
 [[nodiscard]] constexpr auto make_float4x4(float4x4 m) noexcept {
     return m;
 }
