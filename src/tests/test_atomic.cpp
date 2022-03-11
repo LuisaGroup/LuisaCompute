@@ -3,41 +3,28 @@
 //
 
 #include <iostream>
-#include <variant>
 
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/event.h>
 #include <dsl/syntax.h>
-#include <tests/fake_device.h>
+#include <dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
-    luisa::variant<luisa::monostate> a;
-
     log_level_verbose();
 
     Context context{argv[0]};
-
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
-    auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     auto buffer = device.create_buffer<uint>(4u);
     Kernel1D count_kernel = [&]() noexcept {
         Constant<uint> constant{1u};
         Var x = buffer.atomic(3u).fetch_add(constant[0]);
-        if_(x == 0u, [&]{
+        if_(x == 0u, [&] {
             buffer.write(0u, 1u);
         });
     };
@@ -55,4 +42,25 @@ int main(int argc, char *argv[]) {
     auto time = clock.toc();
 
     LUISA_INFO("Count: {} {}, Time: {} ms", host_buffer.x, host_buffer.w, time);
+
+    auto atomic_float_buffer = device.create_buffer<uint>(1u);
+    Kernel1D add_kernel = [](BufferUInt buffer) noexcept {
+        auto gid = dispatch_x();
+        auto x = 0.1f * cast<float>(gid);
+        $loop {
+            auto old_value = buffer.read(0u);
+            auto new_value = as<uint>(x + as<float>(old_value));
+            $if (buffer.atomic(0u).compare_exchange(old_value, new_value) == old_value) {
+                $break;
+            };
+        };
+    };
+    auto add_shader = device.compile(add_kernel);
+
+    auto result = 0.f;
+    stream << atomic_float_buffer.copy_from(&result)
+           << add_shader(atomic_float_buffer).dispatch(1024u)
+           << atomic_float_buffer.copy_to(&result)
+           << synchronize();
+    LUISA_INFO("Result: {}.", result);
 }

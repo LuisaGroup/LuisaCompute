@@ -419,6 +419,7 @@ void ISPCCodegen::visit(const BreakStmt *) {
 }
 
 void ISPCCodegen::visit(const ContinueStmt *s) {
+    // FIXME: ISPC reports error, if continue found in switch-case inside loops
     _scratch << "continue;";
     //    auto target = _continue_analysis.continue_scopes().at(s);
     //    _scratch << luisa::format(

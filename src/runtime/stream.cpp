@@ -43,7 +43,7 @@ Stream &Stream::operator<<(Event::Wait wait) noexcept {
     return *this;
 }
 
-Stream &Stream::operator<<(Stream::Synchronize) noexcept {
+Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
     _synchronize();
     return *this;
 }
@@ -83,9 +83,9 @@ Stream::Delegate &&Stream::Delegate::operator<<(Event::Wait wait) &&noexcept {
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(Stream::Synchronize) &&noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Synchronize s) &&noexcept {
     _commit();
-    *_stream << Synchronize{};
+    *_stream << s;
     return std::move(*this);
 }
 

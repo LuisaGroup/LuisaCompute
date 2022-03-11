@@ -50,4 +50,14 @@ CommandBuffer &CommandBuffer::operator<<(CommandBuffer::Commit) &noexcept {
     return *this;
 }
 
+CommandBuffer &CommandBuffer::operator<<(CommandBuffer::Synchronize) &noexcept {
+    synchronize();
+    return *this;
+}
+
+void CommandBuffer::synchronize() &noexcept {
+    _commit();
+    _stream->synchronize();
+}
+
 }// namespace luisa::compute

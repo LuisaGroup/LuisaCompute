@@ -18,7 +18,6 @@ namespace luisa::compute {
 class Stream final : public Resource {
 
 public:
-    struct Synchronize {};
     friend class CommandBuffer;
 
     class Delegate {
@@ -26,6 +25,7 @@ public:
     private:
         Stream *_stream;
         CommandList _command_list;
+
     private:
         void _commit() noexcept;
 
@@ -40,7 +40,7 @@ public:
         Delegate &&operator<<(Event::Signal signal) &&noexcept;
         Delegate &&operator<<(Event::Wait wait) &&noexcept;
         Delegate &&operator<<(CommandBuffer::Commit) &&noexcept;
-        Delegate &&operator<<(Synchronize) &&noexcept;
+        Delegate &&operator<<(CommandBuffer::Synchronize) &&noexcept;
     };
 
 private:
@@ -55,14 +55,12 @@ public:
     using Resource::operator bool;
     Stream &operator<<(Event::Signal signal) noexcept;
     Stream &operator<<(Event::Wait wait) noexcept;
-    Stream &operator<<(Synchronize) noexcept;
+    Stream &operator<<(CommandBuffer::Synchronize) noexcept;
     Stream &operator<<(CommandBuffer::Commit) noexcept { return *this; }
     Delegate operator<<(Command *cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
     [[nodiscard]] auto native_handle() const noexcept { return device()->stream_native_handle(handle()); }
     void synchronize() noexcept { _synchronize(); }
 };
-
-[[nodiscard]] constexpr auto synchronize() noexcept { return Stream::Synchronize{}; }
 
 }// namespace luisa::compute
