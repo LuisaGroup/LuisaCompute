@@ -9,6 +9,7 @@
 #include <core/basic_types.h>
 #include <dsl/expr.h>
 
+/// Define global unary operation of dsl objects
 #define LUISA_MAKE_GLOBAL_DSL_UNARY_OP(op, op_tag)                                   \
     template<typename T>                                                             \
         requires luisa::compute::is_dsl_v<T>                                         \
@@ -27,6 +28,7 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(!, NOT)
 LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
 #undef LUISA_MAKE_GLOBAL_DSL_UNARY_OP
 
+/// Define global binary operation of dsl objects
 #define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_tag_name)                              \
     template<typename Lhs, typename Rhs>                                              \
         requires luisa::compute::any_dsl_v<Lhs, Rhs> &&                               \
@@ -86,6 +88,7 @@ LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>, GREATER)
 LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>=, GREATER_EQUAL)
 #undef LUISA_MAKE_GLOBAL_DSL_BINARY_OP
 
+/// Define global assign operation of dsl objects
 #define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                        \
     template<typename T, typename U>                                               \
         requires requires { std::declval<T &>() op## =                             \

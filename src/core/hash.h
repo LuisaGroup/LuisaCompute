@@ -18,15 +18,18 @@ namespace luisa {
 
 namespace detail {
 
+/// xxh3_hash64
 [[nodiscard]] inline auto xxh3_hash64(const void *data, size_t size, uint64_t seed) noexcept {
     return XXH3_64bits_withSeed(data, size, seed);
 }
 
+/// Type T has method hash()
 template<typename T>
 concept hashable_with_hash_method = requires(T x) {
     x.hash();
 };
 
+/// Type T has method hash_code()
 template<typename T>
 concept hashable_with_hash_code_method = requires(T x) {
     x.hash_code();
@@ -36,6 +39,7 @@ concept hashable_with_hash_code_method = requires(T x) {
 
 [[nodiscard]] std::string_view hash_to_string(uint64_t hash) noexcept;
 
+/// Hash 64 calculator
 class Hash64 {
 
 public:
@@ -46,9 +50,11 @@ private:
     uint64_t _seed;
 
 public:
+    /// Constructor, set seed
     explicit constexpr Hash64(uint64_t seed = default_seed) noexcept
         : _seed{seed} {}
 
+    /// Calculate hash, return uint64
     template<typename T>
     [[nodiscard]] auto operator()(T &&s) const noexcept -> uint64_t {
         if constexpr (detail::hashable_with_hash_method<T>) {
@@ -76,6 +82,7 @@ public:
     }
 };
 
+/// Calculate hash
 template<typename T>
 [[nodiscard]] inline auto hash64(T &&v, uint64_t seed = Hash64::default_seed) noexcept -> uint64_t {
     return Hash64{seed}(std::forward<T>(v));
