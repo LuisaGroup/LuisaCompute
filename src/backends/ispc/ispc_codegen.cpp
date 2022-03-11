@@ -418,8 +418,12 @@ void ISPCCodegen::visit(const BreakStmt *) {
     _scratch << "break;";
 }
 
-void ISPCCodegen::visit(const ContinueStmt *) {
+void ISPCCodegen::visit(const ContinueStmt *s) {
     _scratch << "continue;";
+    //    auto target = _continue_analysis.continue_scopes().at(s);
+    //    _scratch << luisa::format(
+    //        "goto CONT_{};",
+    //        _scope_label(target));
 }
 
 void ISPCCodegen::visit(const ReturnStmt *stmt) {
@@ -433,7 +437,11 @@ void ISPCCodegen::visit(const ReturnStmt *stmt) {
 
 void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
+    _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
+    _scratch << luisa::format(
+        "CONT_{}:;\n",
+        _scope_label(stmt));
     _scratch << "}";
 }
 
@@ -501,7 +509,12 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         iter != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f);
 
-    for (auto &&callable : f.custom_callables()) { _emit_function(callable->function()); }
+    for (auto &&callable : f.custom_callables()) {
+        _emit_function(callable->function());
+    }
+
+    _continue_analysis.analyze(f);
+    _definition_analysis.analyze(f);
 
     _function = f;
     _indent = 0u;
@@ -550,6 +563,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
     _indent = 1;
     _emit_variable_declarations(f.body());
     _indent = 0;
+    _emit_scoped_variables(f.body()->scope());
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 
@@ -623,6 +637,9 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << "  }\n"
                  << "}";
     }
+    _continue_analysis.reset();
+    _definition_analysis.reset();
+    _defined_variables.clear();
 }
 
 void ISPCCodegen::_emit_variable_name(Variable v) noexcept {
@@ -985,13 +1002,34 @@ void ISPCCodegen::visit(const MetaStmt *stmt) {
 
 void ISPCCodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        if (_function.variable_usage(v.uid()) != Usage::NONE) {
+        if (v.tag() != Variable::Tag::LOCAL &&
+            _function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(v, false);
             _scratch << ";";
         }
     }
+}
+
+void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
+    if (auto iter = _definition_analysis.scoped_variables().find(scope);
+        iter != _definition_analysis.scoped_variables().cend()) {
+        for (auto v : iter->second) {
+            if (_defined_variables.try_emplace(v).second) {
+                _scratch << "\n  ";
+                _emit_indent();
+                _emit_variable_decl(v, false);
+                _scratch << ";";
+            }
+        }
+    }
+}
+
+uint ISPCCodegen::_scope_label(const ScopeStmt *s) noexcept {
+    auto [iter, _] = _scope_labels.try_emplace(
+        s, static_cast<uint>(_scope_labels.size()));
+    return iter->second;
 }
 
 }// namespace luisa::compute::ispc

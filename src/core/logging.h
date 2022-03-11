@@ -101,3 +101,14 @@ void log_level_error() noexcept;
 /// LUISA_ERROR with file and line information
 #define LUISA_ERROR_WITH_LOCATION(fmt, ...) \
     LUISA_ERROR(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)
+
+#define LUISA_ASSERT(x, fmt, ...)                \
+    do {                                         \
+        if (!(x)) [[unlikely]] {                 \
+            auto msg = luisa::format(            \
+                fmt __VA_OPT__(, ) __VA_ARGS__); \
+            LUISA_ERROR_WITH_LOCATION(           \
+                "Assertion '{}' failed: {}",     \
+                #x, msg);                        \
+        }                                        \
+    } while (false)

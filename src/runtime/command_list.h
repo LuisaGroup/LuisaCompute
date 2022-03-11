@@ -22,8 +22,8 @@ public:
     ~CommandList() noexcept;
     CommandList(CommandList &&) noexcept;
     CommandList &operator=(CommandList &&rhs) noexcept;
-    luisa::vector<Command *> steal_commands() noexcept { return std::move(_commands); }
     void append(Command *cmd) noexcept;
+    [[nodiscard]] luisa::vector<Command *> steal_commands() noexcept;
     [[nodiscard]] auto begin() const noexcept { return _commands.begin(); }
     [[nodiscard]] auto end() const noexcept { return _commands.end(); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }

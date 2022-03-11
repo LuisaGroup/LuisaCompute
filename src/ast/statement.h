@@ -10,6 +10,7 @@
 #include <ast/expression.h>
 
 namespace luisa::compute {
+
 class AstSerializer;
 struct StmtVisitor;
 

@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
 
     Callable sdf_normal = [&sdf](Float3 p) noexcept {
         static constexpr auto d = 1e-3f;
-        auto n = def<float3>();
+        auto n = def(make_float3());
         auto sdf_center = sdf(p);
         for (auto i = 0; i < 3; i++) {
             auto inc = p;
@@ -138,13 +138,13 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy();
         auto global_id = coord.x + coord.y * dispatch_size_x();
 
-        $meta(meta::supports_custom_block_size, "hello") {
+//        $meta(meta::supports_custom_block_size, "hello") {
             $if(frame_index == 0u) {
                 $meta("nested") { $comment("good\nbad\n"); };
                 seed_image.write(global_id, tea(coord.x, coord.y));
                 accum_image.write(global_id, make_float4(make_float3(0.0f), 1.0f));
             };
-        };
+//        };
 
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
@@ -156,12 +156,12 @@ int main(int argc, char *argv[]) {
         auto d = make_float3(
             2.0f * fov * uv / resolution.y - fov * make_float2(aspect_ratio, 1.0f) - 1e-5f, -1.0f);
         d = normalize(d);
-        auto throughput = def<float3>(1.0f, 1.0f, 1.0f);
+        auto throughput = def(make_float3(1.0f, 1.0f, 1.0f));
         auto hit_light = def(0.0f);
         $for(depth, max_ray_depth) {
             auto closest = def(0.0f);
-            auto normal = def<float3>();
-            auto c = def<float3>();
+            auto normal = def(make_float3());
+            auto c = def(make_float3());
             next_hit(closest, normal, c, pos, d);
             auto dist_to_light = intersect_light(pos, d);
             $if(dist_to_light < closest) {

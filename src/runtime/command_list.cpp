@@ -15,9 +15,11 @@ void CommandList::_recycle() noexcept {
 }
 
 void CommandList::append(Command *cmd) noexcept {
-    for (; cmd != nullptr; cmd = cmd->next()) {
-        _commands.emplace_back(cmd);
-    }
+    _commands.emplace_back(cmd);
+}
+
+luisa::vector<Command *> CommandList::steal_commands() noexcept {
+    return std::move(_commands);
 }
 
 CommandList::CommandList(CommandList &&another) noexcept = default;
