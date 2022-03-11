@@ -47,7 +47,7 @@ public:
     D3D12_COMMAND_LIST_TYPE Type() const { return type; }
     void Reset(CommandQueue *queue);
     template<typename Func>
-        requires(std::is_constructible_v<vstd::function<void()>, Func &&>)
+        requires(std::is_constructible_v<vstd::move_only_func<void()>, Func &&>)
     void ExecuteAfterComplete(Func &&func) {
         executeAfterComplete.Push(std::forward<Func>(func));
     }

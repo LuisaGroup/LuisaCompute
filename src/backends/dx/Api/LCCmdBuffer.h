@@ -20,7 +20,7 @@ public:
         Device *device,
         IGpuAllocator *resourceAllocator,
         D3D12_COMMAND_LIST_TYPE type);
-    void Execute(vstd::span<CommandList const> const &c, size_t maxAlloc = std::numeric_limits<size_t>::max());
+    void Execute(vstd::span<CommandList const> const &c, size_t maxAlloc = std::numeric_limits<size_t>::max(), vstd::move_only_func<void()>* func = nullptr);
     void Sync();
 };
 

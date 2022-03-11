@@ -93,8 +93,12 @@ public:
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, const CommandList &list) noexcept = 0;
+        virtual void dispatch(uint64_t stream_handle, const CommandList &list, luisa::move_only_function<void()> &&func) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
             for (auto &&list : lists) { dispatch(stream_handle, list); }
+        }
+        virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists, luisa::move_only_function<void()> &&func) noexcept {
+            for (auto &&list : lists) { dispatch(stream_handle, list, std::move(func)); }
         }
         [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
 
@@ -154,7 +158,7 @@ public:
     [[nodiscard]] Mesh create_mesh(
         VBuffer &&vertices, TBuffer &&triangles,
         AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
-                 // see definition in rtx/mesh.h
+                                                                                                // see definition in rtx/mesh.h
     [[nodiscard]] Accel create_accel(AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
 

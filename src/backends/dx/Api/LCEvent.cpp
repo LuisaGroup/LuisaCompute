@@ -29,6 +29,12 @@ void LCEvent::Signal(CommandQueue *queue) const {
     queue->Queue()->Signal(fence.Get(), fenceIndex);
     queue->AddEvent(this);
 }
+void LCEvent::Signal(CommandQueue *queue, luisa::move_only_function<void()> &&func) const {
+    ++fenceIndex;
+    queue->Queue()->Signal(fence.Get(), fenceIndex);
+    queue->AddEvent(this, std::move(func));
+}
+
 void LCEvent::Wait(CommandQueue *queue) const {
     queue->Queue()->Wait(fence.Get(), fenceIndex);
 }

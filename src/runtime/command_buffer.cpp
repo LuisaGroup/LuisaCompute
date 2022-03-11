@@ -32,6 +32,11 @@ void CommandBuffer::_commit() &noexcept {
         _stream->_dispatch(std::move(_command_list));
     }
 }
+void CommandBuffer::commit(luisa::move_only_function<void()>&& func) & noexcept {
+    if (!_command_list.empty()) {
+        _stream->_dispatch(std::move(_command_list), std::move(func));
+    }
+}
 
 CommandBuffer &CommandBuffer::operator<<(Event::Signal signal) &noexcept {
     _commit();

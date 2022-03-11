@@ -120,9 +120,17 @@ void LCDevice::dispatch(uint64_t stream_handle, CommandList const &v) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute({&v, 1}, maxAllocatorCount);
 }
+void LCDevice::dispatch(uint64_t stream_handle, CommandList const &v, luisa::move_only_function<void()> &&callback) noexcept {
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)
+        ->Execute({&v, 1}, maxAllocatorCount, &callback);
+}
 void LCDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute(lists, maxAllocatorCount);
+}
+void LCDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists, luisa::move_only_function<void()> &&callback) noexcept {
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)
+        ->Execute(lists, maxAllocatorCount, &callback);
 }
 
 void *LCDevice::stream_native_handle(uint64_t handle) const noexcept {
@@ -159,6 +167,7 @@ void LCDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
     reinterpret_cast<LCEvent *>(handle)->Signal(
         &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);
 }
+
 void LCDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     reinterpret_cast<LCEvent *>(handle)->Wait(
         &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue);

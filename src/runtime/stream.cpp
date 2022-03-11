@@ -31,6 +31,25 @@ void Stream::_dispatch(CommandList list) noexcept {
         device()->dispatch(handle(), list);
     }
 }
+void Stream::_dispatch(CommandList list, luisa::move_only_function<void()> &&func) noexcept {
+    if (auto size = list.size();
+        size > 1u && device()->requires_command_reordering()) {
+        auto commands = list.steal_commands();
+        for (auto command : commands) {
+            command->accept(*reorder_visitor);
+        }
+        auto lists = reorder_visitor->command_lists();
+        device()->dispatch(handle(), lists, std::move(func));
+        reorder_visitor->clear();
+        for (auto command : commands) {
+            command->recycle();
+        }
+
+    } else {
+        device()->dispatch(handle(), list, std::move(func));
+    }
+}
+
 
 Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
     return Delegate{this} << cmd;
@@ -42,11 +61,11 @@ Stream &Stream::operator<<(Event::Signal signal) noexcept {
     device()->signal_event(signal.handle, handle());
     return *this;
 }
-
 Stream &Stream::operator<<(Event::Wait wait) noexcept {
     device()->wait_event(wait.handle, handle());
     return *this;
 }
+
 
 Stream &Stream::operator<<(Stream::Synchronize) noexcept {
     _synchronize();

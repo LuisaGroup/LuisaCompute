@@ -35,9 +35,10 @@ public:
     CommandBuffer &operator<<(Event::Wait) &noexcept;
     CommandBuffer &operator<<(Commit) &noexcept;
     void commit() &noexcept { _commit(); }
+    void commit(luisa::move_only_function<void()> &&func) &noexcept;
     [[nodiscard]] auto &stream() noexcept { return *_stream; }
 };
 
 [[nodiscard]] constexpr auto commit() noexcept { return CommandBuffer::Commit{}; }
 
-}
+}// namespace luisa::compute
