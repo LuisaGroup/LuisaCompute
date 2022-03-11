@@ -9,6 +9,7 @@
 
 namespace luisa::compute {
 
+/// Constant class
 template<typename T>
 class Constant {
 
@@ -19,16 +20,20 @@ private:
     ConstantData _data;
 
 public:
+    /// Construct constant from span
     Constant(luisa::span<const T> data) noexcept
         : _type{Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
           _data{ConstantData::create(data)} {}
 
+    /// Construct constant from array
     Constant(const T *data, size_t size) noexcept
         : Constant{luisa::span{data, size}} {}
 
+    /// Construct constant from array-like data
     template<typename U>
     Constant(U &&data) noexcept : Constant{luisa::span<const T>{std::forward<U>(data)}} {}
 
+    /// Construct constant from initializer list
     Constant(std::initializer_list<T> init) noexcept : Constant{luisa::vector<T>{init}} {}
 
     Constant(Constant &&) noexcept = default;
@@ -36,6 +41,7 @@ public:
     Constant &operator=(Constant &&) noexcept = delete;
     Constant &operator=(const Constant &) noexcept = delete;
 
+    /// Access member of constant
     template<typename U>
     requires is_integral_expr_v<U>
     [[nodiscard]] auto operator[](U &&index) const noexcept {
@@ -45,6 +51,7 @@ public:
             detail::extract_expression(std::forward<U>(index))));
     }
 
+    /// Read at index. Same as operator[]
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept {
         return (*this)[std::forward<I>(index)];

@@ -19,6 +19,7 @@ namespace luisa {
 
 class Barrier;
 
+/// Thread pool class
 class ThreadPool {
 
 private:
@@ -36,20 +37,27 @@ private:
     void _dispatch_all(luisa::function<void()> task, size_t max_threads = std::numeric_limits<size_t>::max()) noexcept;
 
 public:
+    /// Create a thread pool with num_threads threads
     explicit ThreadPool(size_t num_threads = 0u) noexcept;
     ~ThreadPool() noexcept;
     ThreadPool(ThreadPool &&) noexcept = delete;
     ThreadPool(const ThreadPool &) noexcept = delete;
     ThreadPool &operator=(ThreadPool &&) noexcept = delete;
     ThreadPool &operator=(const ThreadPool &) noexcept = delete;
+    /// Return global static ThreadPool instance
     [[nodiscard]] static ThreadPool &global() noexcept;
 
 public:
+    /// Barrier all threads
     void barrier() noexcept;
+    /// Synchronize all threads
     void synchronize() noexcept;
+    /// Return size of threads
     [[nodiscard]] auto size() const noexcept { return _threads.size(); }
+    /// Return count of tasks
     [[nodiscard]] uint task_count() const noexcept;
 
+    /// Run a function async and return future of return value
     template<typename F>
         requires std::is_invocable_v<F>
     auto async(F f) noexcept {
@@ -70,6 +78,7 @@ public:
         return future;
     }
 
+    /// Run a function parallel
     template<typename F>
         requires std::is_invocable_v<F, uint>
     void parallel(uint n, F f) noexcept {
@@ -86,6 +95,7 @@ public:
         }
     }
 
+    /// Run a function 2D parallel
     template<typename F>
         requires std::is_invocable_v<F, uint, uint>
     void parallel(uint nx, uint ny, F f) noexcept {
@@ -94,6 +104,7 @@ public:
         });
     }
 
+    /// Run a function 3D parallel
     template<typename F>
         requires std::is_invocable_v<F, uint, uint, uint>
     void parallel(uint nx, uint ny, uint nz, F f) noexcept {
@@ -103,6 +114,7 @@ public:
     }
 };
 
+/// Run a function async using global ThreadPool
 template<typename F>
     requires std::is_invocable_v<F>
 inline auto async(F &&f) noexcept {
