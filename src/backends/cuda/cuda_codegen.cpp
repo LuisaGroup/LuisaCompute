@@ -378,6 +378,7 @@ void CUDACodegen::visit(const ReturnStmt *stmt) {
 
 void CUDACodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
+    _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
     _scratch << "}";
 }
@@ -447,8 +448,9 @@ void CUDACodegen::_emit_function(Function f) noexcept {
 
     for (auto &&callable : f.custom_callables()) { _emit_function(callable->function()); }
 
-    _function = f;
     _indent = 0u;
+    _function = f;
+    _definition_analysis.analyze(f);
 
     // constants
     if (!f.constants().empty()) {
@@ -552,8 +554,26 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     _indent = 1;
     _emit_variable_declarations(f.body());
     _indent = 0;
+    _emit_scoped_variables(f.body()->scope());
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
+
+    _definition_analysis.reset();
+    _defined_variables.clear();
+}
+
+void CUDACodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
+    if (auto iter = _definition_analysis.scoped_variables().find(scope);
+        iter != _definition_analysis.scoped_variables().cend()) {
+        for (auto v : iter->second) {
+            if (_defined_variables.try_emplace(v).second) {
+                _scratch << "\n  ";
+                _emit_indent();
+                _emit_variable_decl(v, false);
+                _scratch << ";";
+            }
+        }
+    }
 }
 
 void CUDACodegen::_emit_variable_name(Variable v) noexcept {
@@ -666,7 +686,7 @@ void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::LOCAL:
-            if (readonly || force_const) { _scratch << "const "; }
+//            if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
@@ -759,7 +779,8 @@ void CUDACodegen::visit(const MetaStmt *stmt) {
 
 void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        if (_function.variable_usage(v.uid()) != Usage::NONE) {
+        if (v.tag() != Variable::Tag::LOCAL &&
+            _function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(v, false);

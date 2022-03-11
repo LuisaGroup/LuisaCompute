@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("ispc", {{"index", 1}});
+    auto device = context.create_device("cuda", {{"index", 1}});
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -195,7 +195,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        $for(depth, 10u) {
+        $for(depth, 5u) {
 
             // trace
             auto hit = accel.trace_closest(ray);

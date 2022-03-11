@@ -152,17 +152,17 @@ luisa::vector<CommandList> CommandReorderVisitor::getCommandLists() noexcept {
             commandList.append(j->command);
         }
         if (!commandList.empty()) {
-            ans.emplace_back(std::move(commandList));
+            ans.push_back(std::move(commandList));
         }
     }
-    clear();
     LUISA_VERBOSE_WITH_LOCATION("Reordered command list size = {}", ans.size());
+    clear();
     return ans;
 }
 
 void CommandReorderVisitor::visit(BufferUploadCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -173,7 +173,7 @@ void CommandReorderVisitor::visit(BufferUploadCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(BufferDownloadCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -184,7 +184,7 @@ void CommandReorderVisitor::visit(BufferDownloadCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(BufferCopyCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -197,7 +197,7 @@ void CommandReorderVisitor::visit(BufferCopyCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(BufferToTextureCopyCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -210,7 +210,7 @@ void CommandReorderVisitor::visit(BufferToTextureCopyCommand *command) noexcept 
 
 void CommandReorderVisitor::visit(ShaderDispatchCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     Function kernel = command->kernel();
@@ -222,7 +222,7 @@ void CommandReorderVisitor::visit(ShaderDispatchCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(TextureUploadCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -233,7 +233,7 @@ void CommandReorderVisitor::visit(TextureUploadCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(TextureDownloadCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -244,7 +244,7 @@ void CommandReorderVisitor::visit(TextureDownloadCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(TextureCopyCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -257,7 +257,7 @@ void CommandReorderVisitor::visit(TextureCopyCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(TextureToBufferCopyCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -270,7 +270,7 @@ void CommandReorderVisitor::visit(TextureToBufferCopyCommand *command) noexcept 
 
 void CommandReorderVisitor::visit(BindlessArrayUpdateCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -281,7 +281,7 @@ void CommandReorderVisitor::visit(BindlessArrayUpdateCommand *command) noexcept 
 
 void CommandReorderVisitor::visit(AccelUpdateCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -292,7 +292,7 @@ void CommandReorderVisitor::visit(AccelUpdateCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(AccelBuildCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -303,7 +303,7 @@ void CommandReorderVisitor::visit(AccelBuildCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(MeshUpdateCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -321,7 +321,7 @@ void CommandReorderVisitor::visit(MeshUpdateCommand *command) noexcept {
 
 void CommandReorderVisitor::visit(MeshBuildCommand *command) noexcept {
     // generate CommandRelation data
-    auto commandRelation = create_relation(command);
+    auto commandRelation = allocate_relation(command);
 
     // get source set
     commandRelation->sourceSet.insert(CommandSource{
@@ -341,19 +341,18 @@ void CommandReorderVisitor::reserve(size_t size) {
         _commandRelationData.reserve(next_pow2(size));
 }
 
-CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device) noexcept
+CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device)
     : device{device} {}
 
 void CommandReorderVisitor::clear() noexcept {
     for (auto &&i : _commandRelationData) {
         for (auto &&j : i) {
-            recycle_relation(j);
+            deallocate_relation(j);
         }
     }
     _commandRelationData.clear();
 }
-
-CommandReorderVisitor::CommandRelation *CommandReorderVisitor::create_relation(Command *cmd) {
+CommandReorderVisitor::CommandRelation *CommandReorderVisitor::allocate_relation(Command *cmd) {
     if (pooledRelations.empty()) {
         return relationPool.create(cmd);
     }
@@ -362,15 +361,13 @@ CommandReorderVisitor::CommandRelation *CommandReorderVisitor::create_relation(C
     v->command = cmd;
     return v;
 }
-
-void CommandReorderVisitor::recycle_relation(CommandRelation *v) {
+void CommandReorderVisitor::deallocate_relation(CommandRelation *v) {
     v->clear();
     pooledRelations.emplace_back(v);
 }
-
-CommandReorderVisitor::~CommandReorderVisitor() noexcept {
-    for (auto r : pooledRelations) {
-        relationPool.recycle(r);
+CommandReorderVisitor::~CommandReorderVisitor() {
+    for (auto &&i : pooledRelations) {
+        relationPool.recycle(i);
     }
 }
 

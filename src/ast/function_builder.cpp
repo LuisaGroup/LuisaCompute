@@ -61,7 +61,8 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
-    return _function_stack().empty() ? nullptr : _function_stack().back();
+    LUISA_ASSERT(!_function_stack().empty(), "Empty function stack.");
+    return _function_stack().back();
 }
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {
@@ -72,13 +73,11 @@ void FunctionBuilder::_append(const Statement *statement) noexcept {
 }
 
 void FunctionBuilder::break_() noexcept {
-    static thread_local BreakStmt stmt;
-    _append(&stmt);
+    _create_and_append_statement<BreakStmt>();
 }
 
 void FunctionBuilder::continue_() noexcept {
-    static thread_local ContinueStmt stmt;
-    _append(&stmt);
+    _create_and_append_statement<ContinueStmt>();
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
@@ -222,10 +221,20 @@ const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *se
 }
 
 const MemberExpr *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
+    if (self->tag() == Expression::Tag::LITERAL) {
+        auto v = local(self->type());
+        assign(v, self);
+        self = v;
+    }
     return _create_expression<MemberExpr>(type, self, swizzle_size, swizzle_code);
 }
 
 const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
+    if (range->tag() == Expression::Tag::LITERAL) {
+        auto v = local(range->type());
+        assign(v, range);
+        range = v;
+    }
     return _create_expression<AccessExpr>(type, range, index);
 }
 

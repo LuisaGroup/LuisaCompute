@@ -2,12 +2,10 @@
 // Created by ChenXin on 2021/12/3.
 //
 #pragma once
-#ifndef LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
-#define LUISACOMPUTE_COMMAND_REORDER_VISITOR_H
 
 #include <runtime/device.h>
+#include <vector>
 #include <core/hash.h>
-#include <core/stl.h>
 
 namespace luisa::compute {
 
@@ -32,7 +30,7 @@ class CommandReorderVisitor : public MutableCommandVisitor {
         }
 
         struct Hash {
-            [[nodiscard]] auto operator()(CommandSource const &cs) const {
+            [[nodiscard]] auto operator()(CommandSource const& cs) const {
                 return luisa::detail::xxh3_hash64(&cs, sizeof(cs), 19980810u);
             }
         };
@@ -42,7 +40,9 @@ class CommandReorderVisitor : public MutableCommandVisitor {
         Command *command;
         luisa::unordered_set<CommandSource, CommandSource::Hash> sourceSet;
         explicit CommandRelation(Command *command) noexcept : command{command} {}
-        void clear() { sourceSet.clear(); }
+        void clear() {
+            sourceSet.clear();
+        }
     };
 
     class ShaderDispatchCommandVisitor {
@@ -65,21 +65,21 @@ class CommandReorderVisitor : public MutableCommandVisitor {
 private:
     Device::Interface *device;
     static constexpr int windowSize = 16;
-    luisa::vector<luisa::vector<CommandRelation *>> _commandRelationData;
+    luisa::vector<luisa::vector<CommandRelation*>> _commandRelationData;
     Pool<CommandRelation> relationPool;
     luisa::vector<CommandRelation *> pooledRelations;
 
 private:
-    CommandRelation *create_relation(Command *cmd);
-    void recycle_relation(CommandRelation *v);
+    CommandRelation *allocate_relation(Command *cmd);
+    void deallocate_relation(CommandRelation * v);
 
     inline bool Overlap(CommandSource sourceA, CommandSource sourceB);
 
     void processNewCommandRelation(CommandRelation *commandRelation) noexcept;
 
 public:
-    explicit CommandReorderVisitor(Device::Interface *device) noexcept;
-    ~CommandReorderVisitor() noexcept;
+    explicit CommandReorderVisitor(Device::Interface *device);
+    ~CommandReorderVisitor();
     void reserve(size_t size);
     [[nodiscard]] luisa::vector<CommandList> getCommandLists() noexcept;
     void clear() noexcept;
@@ -111,5 +111,3 @@ public:
 };
 
 }// namespace luisa::compute
-
-#endif//LUISACOMPUTE_COMMAND_REORDER_VISITOR_H

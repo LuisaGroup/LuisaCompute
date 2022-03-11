@@ -24,6 +24,7 @@ class Mesh : public Resource {
 
 private:
     luisa::shared_ptr<Subject> _subject;
+    uint _triangle_count;
     bool _requires_rebuild{true};
 
 private:
@@ -37,6 +38,7 @@ private:
     explicit Mesh(Device::Interface *device, VBuffer &&vertex_buffer, TBuffer &&triangle_buffer,
                   AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept
         : Resource{device, Resource::Tag::MESH, 0u},
+          _triangle_count{static_cast<uint>(triangle_buffer.size())},
           _subject{luisa::make_unique<Subject>()} {
         BufferView vertices{std::forward<VBuffer>(vertex_buffer)};
         BufferView triangles{std::forward<TBuffer>(triangle_buffer)};
@@ -58,6 +60,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] Command *build() noexcept;
     [[nodiscard]] Command *update() noexcept;
+    [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
     [[nodiscard]] auto shared_subject() const noexcept { return _subject; }
 };
 

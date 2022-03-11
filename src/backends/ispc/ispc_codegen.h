@@ -10,6 +10,8 @@
 #include <compile/codegen.h>
 #include <backends/ispc/ispc_accel.h>
 #include <backends/ispc/ispc_bindless_array.h>
+#include <compile/definition_analysis.h>
+#include <compile/continue_analysis.h>
 
 namespace luisa::compute::ispc {
 
@@ -30,7 +32,10 @@ private:
     luisa::vector<Function> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
-    uint32_t _temp_counter{};
+    ContinueAnalysis _continue_analysis;
+    luisa::unordered_map<const ScopeStmt *, uint> _scope_labels;
+    DefinitionAnalysis _definition_analysis;
+    DefinitionAnalysis::VariableSet _defined_variables;
 
 private:
     void visit(const Type *type) noexcept override;
@@ -59,15 +64,17 @@ private:
     void visit(const MetaStmt *stmt) override;
 
 private:
-    virtual void _emit_type_decl() noexcept;
-    virtual void _emit_variable_decl(Variable v, bool force_const) noexcept;
-    virtual void _emit_type_name(const Type *type) noexcept;
-    virtual void _emit_function(Function f) noexcept;
-    virtual void _emit_variable_name(Variable v) noexcept;
-    virtual void _emit_indent() noexcept;
-    virtual void _emit_statements(luisa::span<const Statement *const> stmts) noexcept;
-    virtual void _emit_constant(Function::Constant c) noexcept;
-    virtual void _emit_variable_declarations(const MetaStmt *meta) noexcept;
+    void _emit_type_decl() noexcept;
+    void _emit_variable_decl(Variable v, bool force_const) noexcept;
+    void _emit_type_name(const Type *type) noexcept;
+    void _emit_function(Function f) noexcept;
+    void _emit_variable_name(Variable v) noexcept;
+    void _emit_indent() noexcept;
+    void _emit_statements(luisa::span<const Statement *const> stmts) noexcept;
+    void _emit_constant(Function::Constant c) noexcept;
+    void _emit_variable_declarations(const MetaStmt *meta) noexcept;
+    void _emit_scoped_variables(const ScopeStmt *scope) noexcept;
+    [[nodiscard]] uint _scope_label(const ScopeStmt *s) noexcept;
 
 public:
     /**

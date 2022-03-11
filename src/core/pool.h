@@ -54,11 +54,10 @@ public:
 
     /**
      * @brief Destroy the Pool object.
-     * detect for leaking
+     * detect leaking
      */
     ~Pool() noexcept {
         if (!_blocks.empty()) {
-            LUISA_INFO("{}", _available_objects.size());
             if (auto available = _available_objects.size(),
                 expected = _blocks.size() * block_size;
                 available != expected) {
