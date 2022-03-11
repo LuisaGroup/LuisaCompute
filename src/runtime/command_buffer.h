@@ -16,6 +16,7 @@ class CommandBuffer {
 
 public:
     struct Commit {};
+    struct Synchronize {};
 
 private:
     Stream *_stream;
@@ -34,10 +35,13 @@ public:
     CommandBuffer &operator<<(Event::Signal) &noexcept;
     CommandBuffer &operator<<(Event::Wait) &noexcept;
     CommandBuffer &operator<<(Commit) &noexcept;
+    CommandBuffer &operator<<(Synchronize) &noexcept;
     void commit() &noexcept { _commit(); }
+    void synchronize() &noexcept;
     [[nodiscard]] auto &stream() noexcept { return *_stream; }
 };
 
 [[nodiscard]] constexpr auto commit() noexcept { return CommandBuffer::Commit{}; }
+[[nodiscard]] constexpr auto synchronize() noexcept { return CommandBuffer::Synchronize{}; }
 
-}
+}// namespace luisa::compute

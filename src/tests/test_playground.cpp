@@ -19,6 +19,18 @@ struct M {
 
 LUISA_STRUCT(M, m) {};
 
+template<typename T, typename = void>
+struct test : std::false_type {};
+
+template<typename T>
+struct test<T, std::void_t<decltype(T::inputLayouts)>> : std::true_type {};
+
+struct WithLayouts { inline static int inputLayouts; };
+struct WithoutLayouts {};
+
+static_assert(test<WithLayouts>::value);
+static_assert(!test<WithoutLayouts>::value);
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
