@@ -1234,10 +1234,7 @@ template<typename T>
   return static_cast<device const T *>(heap[buffer_index].buffer)[i];
 }
 
-)";
-
-    if (f.raytracing()) {
-        _scratch << R"(using namespace metal::raytracing;
+using namespace metal::raytracing;
 
 struct alignas(16) Instance {
   array<float, 12> transform;
@@ -1297,7 +1294,7 @@ struct Accel {
 }
 
 )";
-    }
+
 }
 
 }
