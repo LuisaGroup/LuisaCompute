@@ -2,7 +2,6 @@ var dir_990309150e550912c51f491806985127 =
 [
     [ "compile_test", "dir_b810ece1f80ebbc6faa29f59eed93752.html", "dir_b810ece1f80ebbc6faa29f59eed93752" ],
     [ "ispc_support", "dir_4bcbceecc2efcafc1f221abbf819c043.html", "dir_4bcbceecc2efcafc1f221abbf819c043" ],
-    [ "generate_ispc_library.py", "d5/dca/generate__ispc__library_8py.html", "d5/dca/generate__ispc__library_8py" ],
     [ "ispc_accel.cpp", "dc/d06/ispc__accel_8cpp.html", null ],
     [ "ispc_accel.h", "db/d86/ispc__accel_8h.html", [
       [ "luisa::compute::ispc::ISPCAccel", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel" ],

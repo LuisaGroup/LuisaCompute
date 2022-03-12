@@ -2,8 +2,8 @@ var searchData=
 [
   ['uid_0',['uid',['../d6/d1f/classluisa_1_1compute_1_1_variable.html#a1cd18fe2a209dc574cca551a2c18f885',1,'luisa::compute::Variable']]],
   ['uint_1',['UINT',['../da/d87/structluisa_1_1compute_1_1_printer_1_1_descriptor.html#ae6b55e08967baf4ced973f22fcd21011a3351504090a741e69da641a42e00da80',1,'luisa::compute::Printer::Descriptor::UINT()'],['../da/dd7/classluisa_1_1compute_1_1_type.html#a6b1c5a2a69cd092400e40a2597c2baeba3351504090a741e69da641a42e00da80',1,'luisa::compute::Type::UINT()']]],
-  ['uint_2',['UInt',['../d8/d37/namespaceluisa_1_1compute.html#a27984098c2f13b7bd115748b3b88d2b1',1,'luisa::compute']]],
-  ['uint_3',['uint',['../d0/d38/namespaceluisa.html#a90ac072d2b2da3d3a56611cc4f34849f',1,'luisa::uint()'],['../d1/dc0/sugar_8h.html#ad46b2ebcd4c426b06cda147ddc1001e7',1,'uint():&#160;sugar.h']]],
+  ['uint_2',['uint',['../d0/d38/namespaceluisa.html#a90ac072d2b2da3d3a56611cc4f34849f',1,'luisa::uint()'],['../d1/dc0/sugar_8h.html#ad46b2ebcd4c426b06cda147ddc1001e7',1,'uint():&#160;sugar.h']]],
+  ['uint_3',['UInt',['../d8/d37/namespaceluisa_1_1compute.html#a27984098c2f13b7bd115748b3b88d2b1',1,'luisa::compute']]],
   ['uint2_4',['uint2',['../d0/d38/namespaceluisa.html#a30233dd56d5f022a82acde850c2b03ea',1,'luisa::uint2()'],['../d1/dc0/sugar_8h.html#a558ad5a0d5b02f1f24be1ae49b492a73',1,'uint2():&#160;sugar.h']]],
   ['uint2_5',['UInt2',['../d8/d37/namespaceluisa_1_1compute.html#a5f0c4c89db0628185cdbb74129193728',1,'luisa::compute']]],
   ['uint3_6',['uint3',['../d0/d38/namespaceluisa.html#aeb9d42c1f3b3a8e8b1c24bd97db160ec',1,'luisa::uint3()'],['../d1/dc0/sugar_8h.html#a1b12c3dbe09fa4f18058466f0d8a393e',1,'uint3():&#160;sugar.h']]],
