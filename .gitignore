@@ -337,7 +337,7 @@ llvm/
 BuildTools/
 llvm-c/
 opencv2/
-doc/
+doc/latex/**
 
 # Doxygen output
 doxygen_output
