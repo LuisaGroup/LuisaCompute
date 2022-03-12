@@ -327,7 +327,6 @@ CMakeSettings.json
 #white list
 !src/backends/dx/dx_support/dxcompiler.dll
 !src/backends/dx/dx_support/dxil.dll
-*.png
 **/imgui.ini
 *.vcxproj
 *.vcxprojbackup
