@@ -1,7 +1,10 @@
 var searchData=
 [
-  ['value_0',['value',['../d9/ddb/structluisa_1_1compute_1_1detail_1_1vectorized__dimension.html#a1d03d7c6e8445c73d461e475babdc510',1,'luisa::compute::detail::vectorized_dimension::value()'],['../d6/d1a/structluisa_1_1compute_1_1detail_1_1vectorized__dimension_3_01_t_01_4.html#ab15db531cc9fd5fd07cc610e4093e461',1,'luisa::compute::detail::vectorized_dimension&lt; T &gt;::value()'],['../de/df2/structluisa_1_1compute_1_1detail_1_1vectorized__dimension_3_01_first_00_01_other_8_8_8_01_4.html#a92eb428c54dfed4e1c16349477ccaee8',1,'luisa::compute::detail::vectorized_dimension&lt; First, Other... &gt;::value()']]],
-  ['value_5ftags_1',['value_tags',['../da/d87/structluisa_1_1compute_1_1_printer_1_1_descriptor.html#a5e37ac55fd52d9dc29bd6fe8c30d765d',1,'luisa::compute::Printer::Descriptor']]],
-  ['vector_5fexpr_5fdimension_5fv_2',['vector_expr_dimension_v',['../d8/d37/namespaceluisa_1_1compute.html#ab115308866700957e4f6f5bcbc243ad5',1,'luisa::compute']]],
-  ['vectorized_5fdimension_5fv_3',['vectorized_dimension_v',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#ae372151bad8b2c4c907d4839f8f285e3',1,'luisa::compute::detail']]]
+  ['data_0',['data',['../d9/de7/structluisa_1_1compute_1_1_function_1_1_constant.html#a7102474f7af0bb095afa42be46de832f',1,'luisa::compute::Function::Constant']]],
+  ['default_5fseed_1',['default_seed',['../dd/d5d/classluisa_1_1_hash64.html#a5806ac56797a419101ceac8c4587ea49',1,'luisa::Hash64']]],
+  ['default_5fsentinel_2',['default_sentinel',['../d0/d38/namespaceluisa.html#af20b3a2b3d123ea01495d7d36e78eba7',1,'luisa']]],
+  ['dim_3',['dim',['../d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a56f48e6a9032e6a5b9bc18ffa84ef742',1,'luisa::compute::ispc::ISPCTexture']]],
+  ['dimension_4',['dimension',['../d2/dc0/structluisa_1_1_vector.html#a1bc4ef7f77d1fea105df6578ec447f21',1,'luisa::Vector']]],
+  ['dimension_5fv_5',['dimension_v',['../d8/d37/namespaceluisa_1_1compute.html#aa86bf73bcf857669d867d7e8620f5422',1,'luisa::compute']]],
+  ['dummy_6',['dummy',['../d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#aaa45dbd7d232245aeb743e5bedf6ac4c',1,'luisa::compute::ispc::ISPCTexture::TextureView']]]
 ];

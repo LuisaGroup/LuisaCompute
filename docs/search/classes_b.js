@@ -1,23 +1,5 @@
 var searchData=
 [
-  ['ref_0',['Ref',['../d3/d0e/structluisa_1_1compute_1_1detail_1_1_ref.html',1,'luisa::compute::detail']]],
-  ['ref_3c_20matrix_3c_20n_20_3e_20_3e_1',['Ref&lt; Matrix&lt; N &gt; &gt;',['../dc/d3e/structluisa_1_1compute_1_1detail_1_1_ref_3_01_matrix_3_01_n_01_4_01_4.html',1,'luisa::compute::detail']]],
-  ['ref_3c_20std_3a_3aarray_3c_20t_2c_20n_20_3e_20_3e_2',['Ref&lt; std::array&lt; T, N &gt; &gt;',['../db/de8/structluisa_1_1compute_1_1detail_1_1_ref_3_01std_1_1array_3_01_t_00_01_n_01_4_01_4.html',1,'luisa::compute::detail']]],
-  ['ref_3c_20std_3a_3atuple_3c_20t_2e_2e_2e_20_3e_20_3e_3',['Ref&lt; std::tuple&lt; T... &gt; &gt;',['../d4/da0/structluisa_1_1compute_1_1detail_1_1_ref_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4.html',1,'luisa::compute::detail']]],
-  ['ref_3c_20vector_3c_20t_2c_202_20_3e_20_3e_4',['Ref&lt; Vector&lt; T, 2 &gt; &gt;',['../d7/d40/structluisa_1_1compute_1_1detail_1_1_ref_3_01_vector_3_01_t_00_012_01_4_01_4.html',1,'luisa::compute::detail']]],
-  ['ref_3c_20vector_3c_20t_2c_203_20_3e_20_3e_5',['Ref&lt; Vector&lt; T, 3 &gt; &gt;',['../df/d1d/structluisa_1_1compute_1_1detail_1_1_ref_3_01_vector_3_01_t_00_013_01_4_01_4.html',1,'luisa::compute::detail']]],
-  ['ref_3c_20vector_3c_20t_2c_204_20_3e_20_3e_6',['Ref&lt; Vector&lt; T, 4 &gt; &gt;',['../d9/d2a/structluisa_1_1compute_1_1detail_1_1_ref_3_01_vector_3_01_t_00_014_01_4_01_4.html',1,'luisa::compute::detail']]],
-  ['refenablegetmemberbyindex_7',['RefEnableGetMemberByIndex',['../d3/dbd/structluisa_1_1compute_1_1detail_1_1_ref_enable_get_member_by_index.html',1,'luisa::compute::detail']]],
-  ['refenablegetmemberbyindex_3c_20ref_3c_20matrix_3c_20n_20_3e_20_3e_20_3e_8',['RefEnableGetMemberByIndex&lt; Ref&lt; Matrix&lt; N &gt; &gt; &gt;',['../d3/dbd/structluisa_1_1compute_1_1detail_1_1_ref_enable_get_member_by_index.html',1,'luisa::compute::detail']]],
-  ['refenablegetmemberbyindex_3c_20ref_3c_20std_3a_3aarray_3c_20t_2c_20n_20_3e_20_3e_20_3e_9',['RefEnableGetMemberByIndex&lt; Ref&lt; std::array&lt; T, N &gt; &gt; &gt;',['../d3/dbd/structluisa_1_1compute_1_1detail_1_1_ref_enable_get_member_by_index.html',1,'luisa::compute::detail']]],
-  ['refenablegetmemberbyindex_3c_20ref_3c_20vector_3c_20t_2c_202_20_3e_20_3e_20_3e_10',['RefEnableGetMemberByIndex&lt; Ref&lt; Vector&lt; T, 2 &gt; &gt; &gt;',['../d3/dbd/structluisa_1_1compute_1_1detail_1_1_ref_enable_get_member_by_index.html',1,'luisa::compute::detail']]],
-  ['refenablegetmemberbyindex_3c_20ref_3c_20vector_3c_20t_2c_203_20_3e_20_3e_20_3e_11',['RefEnableGetMemberByIndex&lt; Ref&lt; Vector&lt; T, 3 &gt; &gt; &gt;',['../d3/dbd/structluisa_1_1compute_1_1detail_1_1_ref_enable_get_member_by_index.html',1,'luisa::compute::detail']]],
-  ['refenablegetmemberbyindex_3c_20ref_3c_20vector_3c_20t_2c_204_20_3e_20_3e_20_3e_12',['RefEnableGetMemberByIndex&lt; Ref&lt; Vector&lt; T, 4 &gt; &gt; &gt;',['../d3/dbd/structluisa_1_1compute_1_1detail_1_1_ref_enable_get_member_by_index.html',1,'luisa::compute::detail']]],
-  ['refenablesubscriptaccess_13',['RefEnableSubscriptAccess',['../dc/df6/structluisa_1_1compute_1_1detail_1_1_ref_enable_subscript_access.html',1,'luisa::compute::detail']]],
-  ['refenablesubscriptaccess_3c_20ref_3c_20matrix_3c_20n_20_3e_20_3e_20_3e_14',['RefEnableSubscriptAccess&lt; Ref&lt; Matrix&lt; N &gt; &gt; &gt;',['../dc/df6/structluisa_1_1compute_1_1detail_1_1_ref_enable_subscript_access.html',1,'luisa::compute::detail']]],
-  ['refenablesubscriptaccess_3c_20ref_3c_20std_3a_3aarray_3c_20t_2c_20n_20_3e_20_3e_20_3e_15',['RefEnableSubscriptAccess&lt; Ref&lt; std::array&lt; T, N &gt; &gt; &gt;',['../dc/df6/structluisa_1_1compute_1_1detail_1_1_ref_enable_subscript_access.html',1,'luisa::compute::detail']]],
-  ['refenablesubscriptaccess_3c_20ref_3c_20vector_3c_20t_2c_202_20_3e_20_3e_20_3e_16',['RefEnableSubscriptAccess&lt; Ref&lt; Vector&lt; T, 2 &gt; &gt; &gt;',['../dc/df6/structluisa_1_1compute_1_1detail_1_1_ref_enable_subscript_access.html',1,'luisa::compute::detail']]],
-  ['refenablesubscriptaccess_3c_20ref_3c_20vector_3c_20t_2c_203_20_3e_20_3e_20_3e_17',['RefEnableSubscriptAccess&lt; Ref&lt; Vector&lt; T, 3 &gt; &gt; &gt;',['../dc/df6/structluisa_1_1compute_1_1detail_1_1_ref_enable_subscript_access.html',1,'luisa::compute::detail']]],
-  ['refenablesubscriptaccess_3c_20ref_3c_20vector_3c_20t_2c_204_20_3e_20_3e_20_3e_18',['RefEnableSubscriptAccess&lt; Ref&lt; Vector&lt; T, 4 &gt; &gt; &gt;',['../dc/df6/structluisa_1_1compute_1_1detail_1_1_ref_enable_subscript_access.html',1,'luisa::compute::detail']]],
-  ['referenceargumentcreation_19',['ReferenceArgumentCreation',['../dd/d8f/structluisa_1_1compute_1_1detail_1_1_reference_argument_creation.html',1,'luisa::compute::detail']]]
+  ['node_0',['Node',['../d0/d07/classluisa_1_1_first_fit_1_1_node.html',1,'luisa::FirstFit']]],
+  ['noncopyable_1',['Noncopyable',['../d1/d82/structluisa_1_1concepts_1_1_noncopyable.html',1,'luisa::concepts']]]
 ];

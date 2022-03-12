@@ -1,13 +1,5 @@
 var expr__traits_8h =
 [
-    [ "luisa::compute::detail::expr_value_impl< T >", "d8/deb/structluisa_1_1compute_1_1detail_1_1expr__value__impl.html", "d8/deb/structluisa_1_1compute_1_1detail_1_1expr__value__impl" ],
-    [ "luisa::compute::detail::expr_value_impl< Expr< T > >", "dc/d57/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_expr_3_01_t_01_4_01_4.html", "dc/d57/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_expr_3_01_t_01_4_01_4" ],
-    [ "luisa::compute::detail::expr_value_impl< Ref< T > >", "dd/d05/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_ref_3_01_t_01_4_01_4.html", "dd/d05/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_ref_3_01_t_01_4_01_4" ],
-    [ "luisa::compute::detail::expr_value_impl< Var< T > >", "dd/df8/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_var_3_01_t_01_4_01_4.html", "dd/df8/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_var_3_01_t_01_4_01_4" ],
-    [ "luisa::compute::detail::is_dsl_impl< T >", "d7/d9e/structluisa_1_1compute_1_1detail_1_1is__dsl__impl.html", null ],
-    [ "luisa::compute::detail::is_dsl_impl< Expr< T > >", "da/d1e/structluisa_1_1compute_1_1detail_1_1is__dsl__impl_3_01_expr_3_01_t_01_4_01_4.html", null ],
-    [ "luisa::compute::detail::is_dsl_impl< Ref< T > >", "d9/df7/structluisa_1_1compute_1_1detail_1_1is__dsl__impl_3_01_ref_3_01_t_01_4_01_4.html", null ],
-    [ "luisa::compute::detail::is_dsl_impl< Var< T > >", "d6/d77/structluisa_1_1compute_1_1detail_1_1is__dsl__impl_3_01_var_3_01_t_01_4_01_4.html", null ],
     [ "any_dsl", "d3/d41/expr__traits_8h.html#acacde5ad635895c976939852660cd4cd", null ],
     [ "buffer_expr_element", "d3/d41/expr__traits_8h.html#a6b08e9f904cf5688a6e0c5cff1433cfc", null ],
     [ "buffer_expr_element_t", "d3/d41/expr__traits_8h.html#af4501cfac085d5f38f882e602f0bef03", null ],
