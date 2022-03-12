@@ -1,4 +1,0 @@
-var structluisa_1_1compute_1_1detail_1_1dsl__function_3_01function__signature_3_01std_1_1pair_3_01_ra1a2f52cdd85c27b15c57ce5c1cd2146 =
-[
-    [ "type", "d9/de3/structluisa_1_1compute_1_1detail_1_1dsl__function_3_01function__signature_3_01std_1_1pair_3_01_ra1a2f52cdd85c27b15c57ce5c1cd2146.html#a8b7bef73f411017faaf30d4aca23e1ac", null ]
-];
