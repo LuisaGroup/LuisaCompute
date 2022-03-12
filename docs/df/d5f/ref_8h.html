@@ -145,7 +145,7 @@ Functions</h2></td></tr>
 <div class="line">    [[nodiscard]] <span class="keyword">auto</span> expression() const noexcept { <span class="keywordflow">return</span> _expression; } \</div>
 <div class="line">    Ref(Ref &amp;&amp;) noexcept = <a class="code hl_define" href="../../d1/dc0/sugar_8h.html#a6face89e97cccad5464dd9bb9c7efd23">default</a>;                                        \</div>
 <div class="line">    Ref(const Ref &amp;) noexcept = <a class="code hl_define" href="../../d1/dc0/sugar_8h.html#a6face89e97cccad5464dd9bb9c7efd23">default</a>;                                   \</div>
-<div class="line">    <a class="code hl_variable" href="../../d5/df4/namespacegenerate__ispc__library.html#a8dfbab86d8abc3ced58b6fb4eb227972">template</a>&lt;typename Rhs&gt;                                                 \</div>
+<div class="line">    template&lt;typename Rhs&gt;                                                 \</div>
 <div class="line">    <span class="keywordtype">void</span> operator=(Rhs &amp;&amp;rhs) &amp;noexcept {                                  <a class="code hl_function" href="../../d3/dab/namespaceluisa_1_1compute_1_1dsl.html#a0d6347e4348db5c5ea091d99c9870d37">\</a></div>
 <div class="line"><a class="code hl_function" href="../../d3/dab/namespaceluisa_1_1compute_1_1dsl.html#a0d6347e4348db5c5ea091d99c9870d37">        dsl::assign</a>(*<span class="keyword">this</span>, std::forward&lt;Rhs&gt;(rhs));                        \</div>
 <div class="line">    }                                                                      \</div>
@@ -153,7 +153,6 @@ Functions</h2></td></tr>
 <div class="line">        return Expr&lt;__VA_ARGS__&gt;{this-&gt;expression()};                      \</div>
 <div class="line">    }                                                                      \</div>
 <div class="line">    void operator=(Ref rhs) &amp;<span class="keyword">noexcept</span> { (*this) = Expr&lt;__VA_ARGS__&gt;{rhs}; }</div>
-<div class="ttc" id="anamespacegenerate__ispc__library_html_a8dfbab86d8abc3ced58b6fb4eb227972"><div class="ttname"><a href="../../d5/df4/namespacegenerate__ispc__library.html#a8dfbab86d8abc3ced58b6fb4eb227972">generate_ispc_library.template</a></div><div class="ttdeci">string template</div><div class="ttdef"><b>Definition:</b> <a href="../../d5/dca/generate__ispc__library_8py_source.html#l00044">generate_ispc_library.py:44</a></div></div>
 <div class="ttc" id="anamespaceluisa_1_1compute_1_1dsl_html_a0d6347e4348db5c5ea091d99c9870d37"><div class="ttname"><a href="../../d3/dab/namespaceluisa_1_1compute_1_1dsl.html#a0d6347e4348db5c5ea091d99c9870d37">luisa::compute::dsl::assign</a></div><div class="ttdeci">void assign(Lhs &amp;&amp;lhs, Rhs &amp;&amp;rhs) noexcept</div><div class="ttdoc">Assign rhs to lhs.</div><div class="ttdef"><b>Definition:</b> <a href="../../d3/d79/stmt_8h_source.html#l00290">stmt.h:290</a></div></div>
 <div class="ttc" id="asugar_8h_html_a6face89e97cccad5464dd9bb9c7efd23"><div class="ttname"><a href="../../d1/dc0/sugar_8h.html#a6face89e97cccad5464dd9bb9c7efd23">default</a></div><div class="ttdeci">#define default</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/dc0/sugar_8h_source.html#l00080">sugar.h:80</a></div></div>
 </div><!-- fragment -->

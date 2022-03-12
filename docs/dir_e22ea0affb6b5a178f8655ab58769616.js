@@ -7,7 +7,6 @@ var dir_e22ea0affb6b5a178f8655ab58769616 =
     [ "expr.h", "d4/d78/expr_8h.html", "d4/d78/expr_8h" ],
     [ "expr_traits.h", "d3/d41/expr__traits_8h.html", "d3/d41/expr__traits_8h" ],
     [ "func.h", "d3/d04/func_8h.html", "d3/d04/func_8h" ],
-    [ "generate_swizzles.py", "db/d6f/dsl_2generate__swizzles_8py.html", "db/d6f/dsl_2generate__swizzles_8py" ],
     [ "operators.h", "d7/d79/operators_8h.html", "d7/d79/operators_8h" ],
     [ "printer.cpp", "da/de9/printer_8cpp.html", null ],
     [ "printer.h", "db/dab/printer_8h.html", [

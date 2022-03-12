@@ -1,30 +1,6 @@
 var searchData=
 [
-  ['image_2eh_0',['image.h',['../d5/db2/image_8h.html',1,'']]],
-  ['interface_2eh_1',['interface.h',['../d4/da9/interface_8h.html',1,'']]],
-  ['intrin_2eh_2',['intrin.h',['../d0/d12/intrin_8h.html',1,'']]],
-  ['ispc_5faccel_2ecpp_3',['ispc_accel.cpp',['../dc/d06/ispc__accel_8cpp.html',1,'']]],
-  ['ispc_5faccel_2eh_4',['ispc_accel.h',['../db/d86/ispc__accel_8h.html',1,'']]],
-  ['ispc_5fbindless_5farray_2ecpp_5',['ispc_bindless_array.cpp',['../df/d41/ispc__bindless__array_8cpp.html',1,'']]],
-  ['ispc_5fbindless_5farray_2eh_6',['ispc_bindless_array.h',['../dd/d06/ispc__bindless__array_8h.html',1,'']]],
-  ['ispc_5fcodegen_2ecpp_7',['ispc_codegen.cpp',['../d5/d49/ispc__codegen_8cpp.html',1,'']]],
-  ['ispc_5fcodegen_2eh_8',['ispc_codegen.h',['../d9/d35/ispc__codegen_8h.html',1,'']]],
-  ['ispc_5fdevice_2ecpp_9',['ispc_device.cpp',['../dd/d2c/ispc__device_8cpp.html',1,'']]],
-  ['ispc_5fdevice_2eh_10',['ispc_device.h',['../d6/d4d/ispc__device_8h.html',1,'']]],
-  ['ispc_5fdll_5fmodule_2ecpp_11',['ispc_dll_module.cpp',['../da/dc8/ispc__dll__module_8cpp.html',1,'']]],
-  ['ispc_5fdll_5fmodule_2eh_12',['ispc_dll_module.h',['../d3/d94/ispc__dll__module_8h.html',1,'']]],
-  ['ispc_5fevent_2ecpp_13',['ispc_event.cpp',['../d7/d20/ispc__event_8cpp.html',1,'']]],
-  ['ispc_5fevent_2eh_14',['ispc_event.h',['../dd/d94/ispc__event_8h.html',1,'']]],
-  ['ispc_5fjit_5fmodule_2ecpp_15',['ispc_jit_module.cpp',['../d1/da5/ispc__jit__module_8cpp.html',1,'']]],
-  ['ispc_5fjit_5fmodule_2eh_16',['ispc_jit_module.h',['../d0/db3/ispc__jit__module_8h.html',1,'']]],
-  ['ispc_5fmesh_2ecpp_17',['ispc_mesh.cpp',['../d1/d8e/ispc__mesh_8cpp.html',1,'']]],
-  ['ispc_5fmesh_2eh_18',['ispc_mesh.h',['../db/d56/ispc__mesh_8h.html',1,'']]],
-  ['ispc_5fmodule_2eh_19',['ispc_module.h',['../d5/d97/ispc__module_8h.html',1,'']]],
-  ['ispc_5fshader_2ecpp_20',['ispc_shader.cpp',['../db/dc5/ispc__shader_8cpp.html',1,'']]],
-  ['ispc_5fshader_2eh_21',['ispc_shader.h',['../db/d17/ispc__shader_8h.html',1,'']]],
-  ['ispc_5fstream_2ecpp_22',['ispc_stream.cpp',['../d5/dd2/ispc__stream_8cpp.html',1,'']]],
-  ['ispc_5fstream_2eh_23',['ispc_stream.h',['../df/d98/ispc__stream_8h.html',1,'']]],
-  ['ispc_5ftest_2ecpp_24',['ispc_test.cpp',['../db/d9c/ispc__test_8cpp.html',1,'']]],
-  ['ispc_5ftexture_2ecpp_25',['ispc_texture.cpp',['../d7/d7c/ispc__texture_8cpp.html',1,'']]],
-  ['ispc_5ftexture_2eh_26',['ispc_texture.h',['../da/d0e/ispc__texture_8h.html',1,'']]]
+  ['logging_2ecpp_0',['logging.cpp',['../dd/daf/logging_8cpp.html',1,'']]],
+  ['logging_2eh_1',['logging.h',['../d5/d77/logging_8h.html',1,'']]],
+  ['lru_5fcache_2eh_2',['lru_cache.h',['../dd/dc0/lru__cache_8h.html',1,'']]]
 ];

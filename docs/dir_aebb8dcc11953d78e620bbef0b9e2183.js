@@ -21,7 +21,6 @@ var dir_aebb8dcc11953d78e620bbef0b9e2183 =
       [ "luisa::FirstFit", "d9/d59/classluisa_1_1_first_fit.html", "d9/d59/classluisa_1_1_first_fit" ],
       [ "luisa::FirstFit::Node", "d0/d07/classluisa_1_1_first_fit_1_1_node.html", "d0/d07/classluisa_1_1_first_fit_1_1_node" ]
     ] ],
-    [ "generate_swizzles.py", "d3/df2/core_2generate__swizzles_8py.html", "d3/df2/core_2generate__swizzles_8py" ],
     [ "hash.cpp", "da/de5/hash_8cpp.html", "da/de5/hash_8cpp" ],
     [ "hash.h", "db/dfb/hash_8h.html", "db/dfb/hash_8h" ],
     [ "intrin.h", "d0/d12/intrin_8h.html", "d0/d12/intrin_8h" ],
