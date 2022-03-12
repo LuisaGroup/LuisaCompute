@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['tag_0',['Tag',['../da/d87/structluisa_1_1compute_1_1_printer_1_1_descriptor.html#ae6b55e08967baf4ced973f22fcd21011',1,'luisa::compute::Printer::Descriptor']]]
+  ['accelbuildhint_0',['AccelBuildHint',['../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7',1,'luisa::compute']]],
+  ['address_1',['Address',['../db/d34/classluisa_1_1compute_1_1_sampler.html#a23db653c21d98f80959570aa6066f1d2',1,'luisa::compute::Sampler']]]
 ];

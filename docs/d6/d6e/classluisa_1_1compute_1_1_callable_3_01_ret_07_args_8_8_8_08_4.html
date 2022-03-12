@@ -29,6 +29,7 @@
   <td id="projectalign">
    <div id="projectname">LuisaCompute
    </div>
+   <div id="projectbrief">Multiple-Backend Heterogeneous Computing Framework</div>
   </td>
  </tr>
  </tbody>
@@ -91,7 +92,7 @@ $(document).ready(function(){initNavTree('d6/d6e/classluisa_1_1compute_1_1_calla
 </div><!--header-->
 <div class="contents">
 
-<p><a class="el" href="../../d5/d8c/classluisa_1_1compute_1_1_callable.html" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> class with a function type as template parameter.  
+<p><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#d5/d8c/classluisa_1_1compute_1_1_callable" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> class with a function type as template parameter.  
  <a href="../../d6/d6e/classluisa_1_1compute_1_1_callable_3_01_ret_07_args_8_8_8_08_4.html#details">More...</a></p>
 
 <p><code>#include &lt;<a class="el" href="../../d3/d04/func_8h_source.html">func.h</a>&gt;</code></p>
@@ -101,15 +102,15 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ac846e5fb6149e1bd8b772747fedb6247"><td class="memTemplParams" colspan="2">template&lt;typename Def &gt; <br />
 requires std::negation_v&lt;<a class="el" href="../../d7/da7/structluisa_1_1compute_1_1is__callable.html">is_callable</a>&lt;std::remove_cvref_t&lt;Def&gt;&gt;&gt; &amp;&amp; std::negation_v&lt;<a class="el" href="../../d0/d9e/structluisa_1_1compute_1_1is__kernel.html">is_kernel</a>&lt;std::remove_cvref_t&lt;Def&gt;&gt;&gt;</td></tr>
 <tr class="memitem:ac846e5fb6149e1bd8b772747fedb6247"><td class="memTemplItemLeft" align="right" valign="top">&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d6/d6e/classluisa_1_1compute_1_1_callable_3_01_ret_07_args_8_8_8_08_4.html#ac846e5fb6149e1bd8b772747fedb6247">Callable</a> (Def &amp;&amp;f) noexcept</td></tr>
-<tr class="memdesc:ac846e5fb6149e1bd8b772747fedb6247"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a <a class="el" href="../../d5/d8c/classluisa_1_1compute_1_1_callable.html" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> object.  <a href="../../d6/d6e/classluisa_1_1compute_1_1_callable_3_01_ret_07_args_8_8_8_08_4.html#ac846e5fb6149e1bd8b772747fedb6247">More...</a><br /></td></tr>
+<tr class="memdesc:ac846e5fb6149e1bd8b772747fedb6247"><td class="mdescLeft">&#160;</td><td class="mdescRight">Construct a <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#d5/d8c/classluisa_1_1compute_1_1_callable" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> object.  <a href="../../d6/d6e/classluisa_1_1compute_1_1_callable_3_01_ret_07_args_8_8_8_08_4.html#ac846e5fb6149e1bd8b772747fedb6247">More...</a><br /></td></tr>
 <tr class="separator:ac846e5fb6149e1bd8b772747fedb6247"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a809f9ce6e9715e97ca9c6ba206153166"><td class="memItemLeft" align="right" valign="top">auto&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d6/d6e/classluisa_1_1compute_1_1_callable_3_01_ret_07_args_8_8_8_08_4.html#a809f9ce6e9715e97ca9c6ba206153166">operator()</a> (<a class="el" href="../../d3/df7/namespaceluisa_1_1compute_1_1detail.html#afbaddaf0a91b7083304f10cc50c5e3e6">detail::prototype_to_callable_invocation_t</a>&lt; Args &gt;... args) const noexcept</td></tr>
+<tr class="memitem:a809f9ce6e9715e97ca9c6ba206153166"><td class="memItemLeft" align="right" valign="top">auto&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d6/d6e/classluisa_1_1compute_1_1_callable_3_01_ret_07_args_8_8_8_08_4.html#a809f9ce6e9715e97ca9c6ba206153166">operator()</a> (detail::prototype_to_callable_invocation_t&lt; Args &gt;... args) const noexcept</td></tr>
 <tr class="memdesc:a809f9ce6e9715e97ca9c6ba206153166"><td class="mdescLeft">&#160;</td><td class="mdescRight">Call the callable.  <a href="../../d6/d6e/classluisa_1_1compute_1_1_callable_3_01_ret_07_args_8_8_8_08_4.html#a809f9ce6e9715e97ca9c6ba206153166">More...</a><br /></td></tr>
 <tr class="separator:a809f9ce6e9715e97ca9c6ba206153166"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><div class="compoundTemplParams">template&lt;typename Ret, typename... Args&gt;<br />
-class luisa::compute::Callable&lt; Ret(Args...)&gt;</div><p ><a class="el" href="../../d5/d8c/classluisa_1_1compute_1_1_callable.html" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> class with a function type as template parameter. </p>
+class luisa::compute::Callable&lt; Ret(Args...)&gt;</div><p ><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#d5/d8c/classluisa_1_1compute_1_1_callable" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> class with a function type as template parameter. </p>
 
 <p class="definition">Definition at line <a class="el" href="../../d3/d04/func_8h_source.html#l00347">347</a> of file <a class="el" href="../../d3/d04/func_8h_source.html">func.h</a>.</p>
 </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
@@ -128,7 +129,7 @@ requires std::negation_v&lt;<a class="el" href="../../d7/da7/structluisa_1_1comp
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname"><a class="el" href="../../d5/d8c/classluisa_1_1compute_1_1_callable.html">luisa::compute::Callable</a>&lt; Ret(Args...)&gt;::Callable </td>
+          <td class="memname"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#d5/d8c/classluisa_1_1compute_1_1_callable">luisa::compute::Callable</a>&lt; Ret(Args...)&gt;::Callable </td>
           <td>(</td>
           <td class="paramtype">Def &amp;&amp;&#160;</td>
           <td class="paramname"><em>f</em></td><td>)</td>
@@ -142,7 +143,7 @@ requires std::negation_v&lt;<a class="el" href="../../d7/da7/structluisa_1_1comp
 </table>
 </div><div class="memdoc">
 
-<p>Construct a <a class="el" href="../../d5/d8c/classluisa_1_1compute_1_1_callable.html" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> object. </p>
+<p>Construct a <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#d5/d8c/classluisa_1_1compute_1_1_callable" title="Callable class. Callable&lt;T&gt; is not allowed, unless T is a function type.">Callable</a> object. </p>
 <p >The function provided will be called and recorded during construction.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
@@ -168,9 +169,9 @@ template&lt;typename Ret , typename... Args&gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">auto <a class="el" href="../../d5/d8c/classluisa_1_1compute_1_1_callable.html">luisa::compute::Callable</a>&lt; Ret(Args...)&gt;::operator() </td>
+          <td class="memname">auto <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#d5/d8c/classluisa_1_1compute_1_1_callable">luisa::compute::Callable</a>&lt; Ret(Args...)&gt;::operator() </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="../../d3/df7/namespaceluisa_1_1compute_1_1detail.html#afbaddaf0a91b7083304f10cc50c5e3e6">detail::prototype_to_callable_invocation_t</a>&lt; Args &gt;...&#160;</td>
+          <td class="paramtype">detail::prototype_to_callable_invocation_t&lt; Args &gt;...&#160;</td>
           <td class="paramname"><em>args</em></td><td>)</td>
           <td> const</td>
         </tr>
