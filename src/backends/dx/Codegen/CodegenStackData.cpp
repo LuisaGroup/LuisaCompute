@@ -25,6 +25,7 @@ void CodegenStackData::Clear() {
     customStruct.Clear();
     customStructVector.clear();
     generatedConstants.Clear();
+    sharedVariable.clear();
     constCount = 0;
     count = 0;
     structCount = 0;

@@ -281,15 +281,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         auto is_make_matrix = expr->type()->is_matrix();
         auto n = luisa::format("{}", expr->type()->dimension());
         if (args.size() == 1 && args[0]->type()->is_scalar()) {
-            str << '(';
-            str << '(';
+            str << "(("sv;
             if (is_make_matrix) {
                 str << "make_float" << n << "x" << n;
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ);
             }
-            str << ')';
-            str << '(';
+            str << ")("sv;
             for (auto &&i : args) {
                 i->accept(vis);
                 str << ',';
@@ -712,7 +710,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
             str << "Tex3DSize"sv;
             break;
-        //case CallOp::SYNCHRONIZE_BLOCK:
+        case CallOp::SYNCHRONIZE_BLOCK:
+            str << "GroupMemoryBarrierWithGroupSync()"sv;
+            return;
         case CallOp::INSTANCE_TO_WORLD_MATRIX: {
             str << "InstMatrix("sv;
             args[0]->accept(vis);
@@ -895,6 +895,8 @@ void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::string &str) {
         typeIndex);
 }
 void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
+
+    
     if (func.tag() == Function::Tag::KERNEL) {
         result << "[numthreads("
                << vstd::to_string(func.block_size().x)
@@ -960,6 +962,7 @@ if(any(dspId >= a.dsp_c)) return;
         opt->isKernel = false;
     }
     StringStateVisitor vis(func, result);
+    vis.sharedVariables = (func.tag() == Function::Tag::KERNEL) ? &opt->sharedVariable : nullptr;
     func.body()->accept(vis);
     result << "}\n"sv;
 }
@@ -1175,6 +1178,15 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
         }
+    }
+    for (auto&& i : opt->sharedVariable) {
+        finalResult << "groupshared "sv;
+        GetTypeName(*i.type()->element(), finalResult, Usage::READ);
+        finalResult << ' ';
+        GetVariableName(i, finalResult);
+        finalResult << '[';
+        vstd::to_string(i.type()->dimension(), finalResult);
+        finalResult << "];\n"sv;
     }
     
     finalResult << codegenData;
