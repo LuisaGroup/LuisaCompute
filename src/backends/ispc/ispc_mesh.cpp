@@ -17,12 +17,12 @@ ISPCMesh::ISPCMesh(
 
     rtcSetSharedGeometryBuffer(
         _geometry, RTC_BUFFER_TYPE_VERTEX, 0u, RTC_FORMAT_FLOAT3,
-        reinterpret_cast<const void *>(v_buffer),
-        v_offset, v_stride, v_count);
+        reinterpret_cast<const void *>(v_buffer + v_offset),
+        0u, v_stride, v_count);
     rtcSetSharedGeometryBuffer(
         _geometry, RTC_BUFFER_TYPE_INDEX, 0u, RTC_FORMAT_UINT3,
-        reinterpret_cast<const void *>(t_buffer),
-        t_offset, sizeof(Triangle), t_count);
+        reinterpret_cast<const void *>(t_buffer + t_offset),
+        0u, sizeof(Triangle), t_count);
     switch (hint) {
         case AccelBuildHint::FAST_TRACE:
             rtcSetGeometryBuildQuality(_geometry, RTC_BUILD_QUALITY_HIGH);
