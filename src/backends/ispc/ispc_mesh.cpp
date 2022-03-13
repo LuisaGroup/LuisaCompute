@@ -13,29 +13,8 @@ ISPCMesh::ISPCMesh(
     uint64_t t_buffer, size_t t_offset, size_t t_count) noexcept
     : _handle{rtcNewScene(device)},
       _geometry{rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE)},
-      _v_buffer{v_buffer}, _t_buffer{t_buffer} {
-
-    rtcSetSharedGeometryBuffer(
-        _geometry, RTC_BUFFER_TYPE_VERTEX, 0u, RTC_FORMAT_FLOAT3,
-        reinterpret_cast<const void *>(v_buffer + v_offset),
-        0u, v_stride, v_count);
-    rtcSetSharedGeometryBuffer(
-        _geometry, RTC_BUFFER_TYPE_INDEX, 0u, RTC_FORMAT_UINT3,
-        reinterpret_cast<const void *>(t_buffer + t_offset),
-        0u, sizeof(Triangle), t_count);
-    switch (hint) {
-        case AccelBuildHint::FAST_TRACE:
-            rtcSetGeometryBuildQuality(_geometry, RTC_BUILD_QUALITY_HIGH);
-            break;
-        case AccelBuildHint::FAST_UPDATE:
-        case AccelBuildHint::FAST_REBUILD:
-            rtcSetGeometryBuildQuality(_geometry, RTC_BUILD_QUALITY_REFIT);
-            break;
-    }
-    rtcAttachGeometry(_handle, _geometry);
-    rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_HIGH);
-    rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT);
-}
+      _v_buffer{v_buffer}, _v_offset{v_offset}, _v_stride{v_stride}, _v_count{v_count},
+      _t_buffer{t_buffer}, _t_offset{t_offset}, _t_count{t_count}, _hint{hint} {}
 
 ISPCMesh::~ISPCMesh() noexcept {
     rtcReleaseScene(_handle);
@@ -43,6 +22,28 @@ ISPCMesh::~ISPCMesh() noexcept {
 }
 
 void ISPCMesh::commit() noexcept {
+    if (!_buffers_already_set.exchange(true)) [[unlikely]] {
+        rtcSetSharedGeometryBuffer(
+            _geometry, RTC_BUFFER_TYPE_VERTEX, 0u, RTC_FORMAT_FLOAT3,
+            reinterpret_cast<const void *>(_v_buffer),
+            _v_offset, _v_stride, _v_count);
+        rtcSetSharedGeometryBuffer(
+            _geometry, RTC_BUFFER_TYPE_INDEX, 0u, RTC_FORMAT_UINT3,
+            reinterpret_cast<const void *>(_t_buffer),
+            _t_offset, sizeof(Triangle), _t_count);
+        switch (_hint) {
+            case AccelBuildHint::FAST_TRACE:
+                rtcSetGeometryBuildQuality(_geometry, RTC_BUILD_QUALITY_HIGH);
+                break;
+            case AccelBuildHint::FAST_UPDATE:
+            case AccelBuildHint::FAST_REBUILD:
+                rtcSetGeometryBuildQuality(_geometry, RTC_BUILD_QUALITY_REFIT);
+                break;
+        }
+        rtcAttachGeometry(_handle, _geometry);
+        rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_HIGH);
+        rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT);
+    }
     rtcCommitGeometry(_geometry);
     rtcCommitScene(_handle);
 }
