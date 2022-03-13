@@ -25,7 +25,7 @@ private:
     uint64_t _t_offset;
     uint64_t _t_count;
     AccelBuildHint _hint;
-    std::atomic_bool _buffers_already_set;
+    std::atomic_bool _buffers_already_set{false};
 
 public:
     /**
