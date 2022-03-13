@@ -18,6 +18,7 @@ public:
     vstd::vector<Resource const *> backState;
     vstd::vector<std::pair<size_t, size_t>> argVecs;
     vstd::vector<vbyte> argBuffer;
+    vstd::vector<BottomAccelData> bottomAccelDatas;
     size_t buildAccelSize = 0;
     vstd::vector<size_t, VEngine_AllocType::VEngine, 4> accelOffset;
     void AddBuildAccel(size_t size) {
@@ -218,7 +219,8 @@ public:
                 *bd,
                 *stateTracker,
                 //TODO: driver's bug, do not support update mesh's accel
-                false));
+                false,
+                bottomAccelDatas.emplace_back()));
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
@@ -226,7 +228,8 @@ public:
             accel->PreProcessStates(
                 *bd,
                 *stateTracker,
-                false));
+                false,
+                bottomAccelDatas.emplace_back()));
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
@@ -245,6 +248,8 @@ public:
     size_t *accelScratchOffsets;
     std::pair<size_t, size_t> *bufferVec;
     vstd::vector<BindProperty> bindProps;
+    BottomAccelData *bottomAccelData;
+
     void visit(const BufferUploadCommand *cmd) noexcept override {
         BufferView bf(
             reinterpret_cast<Buffer const *>(cmd->handle()),
@@ -520,16 +525,20 @@ public:
         accel->UpdateStates(
             *bd,
             *stateTracker,
-            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
+            BufferView(accelScratchBuffer, *accelScratchOffsets, 1),
+            *bottomAccelData);
         accelScratchOffsets++;
+        bottomAccelData++;
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
             *stateTracker,
-            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
+            BufferView(accelScratchBuffer, *accelScratchOffsets, 1),
+            *bottomAccelData);
         accelScratchOffsets++;
+        bottomAccelData++;
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
@@ -573,10 +582,12 @@ void LCCmdBuffer::Execute(
             ppVisitor.argVecs.clear();
             ppVisitor.argBuffer.clear();
             ppVisitor.accelOffset.clear();
+            ppVisitor.bottomAccelDatas.clear();
             ppVisitor.buildAccelSize = 0;
             // Preprocess: record resources' states
             for (auto &&i : lst)
                 i->accept(ppVisitor);
+            visitor.bottomAccelData = ppVisitor.bottomAccelDatas.data();
             if (ppVisitor.buildAccelSize) {
                 auto accelScratchBuffer = allocator->AllocateScratchBuffer(ppVisitor.buildAccelSize);
                 ppVisitor.stateTracker->RecordState(
