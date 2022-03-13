@@ -9,8 +9,8 @@
 #include <EASTL/functional.h>
 namespace vstd {
 template<typename T>
-using function = eastl::function<T>;
+using function = luisa::function<T>;
 template<typename T>
-using move_only_func = eastl::move_only_function<T>;
+using move_only_func = luisa::move_only_function<T>;
 
 }// namespace vstd

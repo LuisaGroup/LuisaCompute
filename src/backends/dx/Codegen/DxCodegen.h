@@ -67,6 +67,7 @@ class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
 
 public:
+    vstd::vector<Variable> *sharedVariables = nullptr;
     void visit(const UnaryExpr *expr) override;
     void visit(const BinaryExpr *expr) override;
     void visit(const MemberExpr *expr) override;

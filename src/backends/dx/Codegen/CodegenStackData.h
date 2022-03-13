@@ -26,6 +26,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     StructGenerator *hitDesc = nullptr;
     vstd::HashMap<vstd::string, vstd::string> structReplaceName;
     vstd::HashMap<uint64_t> generatedConstants;
+    vstd::vector<Variable> sharedVariable;
     CodegenStackData();
     void Clear();
     uint AddBindlessType(Type const *type);
