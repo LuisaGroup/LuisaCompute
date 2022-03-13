@@ -112,9 +112,10 @@ void TopAccel::PopBack() {
 
 TopAccel::~TopAccel() {
 }
-void TopAccel::PreProcess(
+size_t TopAccel::PreProcess(
     ResourceStateTracker &tracker,
-    CommandBufferBuilder &builder) {
+    CommandBufferBuilder &builder,
+    bool update) {
     struct Buffers {
         vstd::unique_ptr<DefaultBuffer> v;
         Buffers(vstd::unique_ptr<DefaultBuffer> &&a)
@@ -171,25 +172,37 @@ void TopAccel::PreProcess(
     if (GenerateNewBuffer(accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
         topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
     }
+    if (update) {
+        topLevelBuildDesc.SourceAccelerationStructureData = topLevelBuildDesc.DestAccelerationStructureData;
+        topLevelBuildDesc.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+    } else {
+        topLevelBuildDesc.SourceAccelerationStructureData = 0;
+        topLevelBuildDesc.Inputs.Flags =
+            (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)topLevelBuildDesc.Inputs.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
+    }
+
     if (!newInstanceDesc.empty()) {
         tracker.RecordState(
             instBuffer.get(),
             D3D12_RESOURCE_STATE_COPY_DEST);
     }
+    return update ? topLevelPrebuildInfo.UpdateScratchDataSizeInBytes : topLevelPrebuildInfo.ScratchDataSizeInBytes;
 }
 void TopAccel::Build(
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
-    bool update) {
+    BufferView const &scratchBuffer) {
     if (Length() == 0) return;
     auto alloc = builder.GetCB()->GetAlloc();
     // Emplace new
+    bool needUpdate = false;
     if (!newInstanceDesc.empty()) {
         size_t lastSize = accelMesh.size() - newInstanceDesc.size();
         builder.Upload(
             BufferView(instBuffer.get(), lastSize * sizeof(D3D12_RAYTRACING_INSTANCE_DESC), newInstanceDesc.byte_size()),
             newInstanceDesc.data());
         newInstanceDesc.clear();
+        needUpdate = true;
     }
     // Update
     if (!setDesc.empty()) {
@@ -225,29 +238,17 @@ void TopAccel::Build(
             cs,
             uint3(setDesc.size(), 1, 1),
             properties);
+        needUpdate = true;
     }
-    tracker.RecordState(
-        instBuffer.get());
-    if (update) {
-        topLevelBuildDesc.SourceAccelerationStructureData = topLevelBuildDesc.DestAccelerationStructureData;
-        topLevelBuildDesc.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
-    } else {
-        topLevelBuildDesc.SourceAccelerationStructureData = 0;
-        topLevelBuildDesc.Inputs.Flags =
-            (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)topLevelBuildDesc.Inputs.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
+    if (needUpdate) {
+        tracker.RecordState(
+            instBuffer.get());
+        tracker.UpdateState(builder);
     }
-
-    auto scratchBuffer = alloc->AllocateScratchBuffer(
-        topLevelBuildDesc.SourceAccelerationStructureData == 0 ? topLevelPrebuildInfo.ScratchDataSizeInBytes : topLevelPrebuildInfo.UpdateScratchDataSizeInBytes);
-    topLevelBuildDesc.ScratchAccelerationStructureData = scratchBuffer->GetAddress();
-    tracker.UpdateState(builder);
+    topLevelBuildDesc.ScratchAccelerationStructureData = scratchBuffer.buffer->GetAddress() + scratchBuffer.offset;
     builder.CmdList()->BuildRaytracingAccelerationStructure(
         &topLevelBuildDesc,
         0,
         nullptr);
-    tracker.RecordState(
-        scratchBuffer,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    tracker.UpdateState(builder);
 }
 }// namespace toolhub::directx

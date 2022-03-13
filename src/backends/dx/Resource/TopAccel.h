@@ -49,13 +49,14 @@ public:
     DefaultBuffer const *GetInstBuffer() const {
         return instBuffer.get();
     }
-    void PreProcess(
-        ResourceStateTracker &tracker,
-        CommandBufferBuilder &builder);
-    void Build(
+    size_t PreProcess(
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
         bool update);
+    void Build(
+        ResourceStateTracker &tracker,
+        CommandBufferBuilder &builder,
+        BufferView const& scratchBuffer);
     ~TopAccel();
 };
 }// namespace toolhub::directx

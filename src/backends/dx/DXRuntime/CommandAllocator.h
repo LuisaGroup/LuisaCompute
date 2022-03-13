@@ -52,7 +52,7 @@ public:
         executeAfterComplete.Push(std::forward<Func>(func));
     }
     DefaultBuffer const *AllocateScratchBuffer(size_t targetSize);
-    CommandBuffer* GetBuffer() const;
+    CommandBuffer *GetBuffer() const;
     BufferView GetTempReadbackBuffer(uint64 size, size_t align = 0);
     BufferView GetTempUploadBuffer(uint64 size, size_t align = 0);
     BufferView GetTempDefaultBuffer(uint64 size, size_t align = 0);

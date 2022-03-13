@@ -39,8 +39,6 @@ BottomAccel::BottomAccel(
         }
     };
 
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomStruct;
-    D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &bottomInput = bottomStruct.Inputs;
     bottomInput.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
     bottomInput.Flags = GetPreset();
@@ -62,17 +60,12 @@ BottomAccel::BottomAccel(
 }
 BottomAccel::~BottomAccel() {
 }
-void BottomAccel::PreProcessStates(
-    CommandBufferBuilder &builder,
-    ResourceStateTracker &tracker) const {
-    mesh.Build(tracker);
-}
-void BottomAccel::UpdateStates(
+size_t BottomAccel::PreProcessStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker,
-    bool update) const {
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomStruct;
-    D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
+    bool update) {
+    mesh.Build(tracker);
+    
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &bottomInput = bottomStruct.Inputs;
     bottomInput.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
     bottomInput.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
@@ -87,9 +80,7 @@ void BottomAccel::UpdateStates(
         &bottomInput,
         &bottomLevelPrebuildInfo);
 
-    auto scratchBuffer = builder.GetCB()->GetAlloc()->AllocateScratchBuffer(update ? bottomLevelPrebuildInfo.UpdateScratchDataSizeInBytes : bottomLevelPrebuildInfo.ScratchDataSizeInBytes);
     bottomStruct.DestAccelerationStructureData = accelBuffer->GetAddress();
-    bottomStruct.ScratchAccelerationStructureData = scratchBuffer->GetAddress();
     if (update) {
         bottomStruct.SourceAccelerationStructureData = bottomStruct.DestAccelerationStructureData;
         bottomStruct.Inputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
@@ -98,13 +89,16 @@ void BottomAccel::UpdateStates(
         bottomStruct.Inputs.Flags =
             (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)bottomStruct.Inputs.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
     }
+    return update ? bottomLevelPrebuildInfo.UpdateScratchDataSizeInBytes : bottomLevelPrebuildInfo.ScratchDataSizeInBytes;
+}
+void BottomAccel::UpdateStates(
+    CommandBufferBuilder &builder,
+    ResourceStateTracker &tracker,
+    BufferView const & scratchBuffer) {
+    bottomStruct.ScratchAccelerationStructureData = scratchBuffer.buffer->GetAddress() + scratchBuffer.offset;
     builder.CmdList()->BuildRaytracingAccelerationStructure(
         &bottomStruct,
         0,
         nullptr);
-    tracker.RecordState(
-        scratchBuffer,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    tracker.UpdateState(builder);
 }
 }// namespace toolhub::directx

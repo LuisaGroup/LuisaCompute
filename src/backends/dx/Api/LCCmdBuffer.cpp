@@ -18,6 +18,13 @@ public:
     vstd::vector<Resource const *> backState;
     vstd::vector<std::pair<size_t, size_t>> argVecs;
     vstd::vector<vbyte> argBuffer;
+    size_t buildAccelSize = 0;
+    vstd::vector<size_t, VEngine_AllocType::VEngine, 4> accelOffset;
+    void AddBuildAccel(size_t size) {
+        accelOffset.emplace_back(buildAccelSize);
+        size = CalcAlign(size, 256);
+        buildAccelSize += size;
+    }
     void UniformAlign(size_t align) {
         argBuffer.resize(CalcAlign(argBuffer.size(), align));
     }
@@ -191,27 +198,35 @@ public:
     }
     void visit(const AccelUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
-        accel->PreProcess(
+        AddBuildAccel(accel->PreProcess(
             *stateTracker,
-            *bd);
+            *bd,
+            true));
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
-        accel->PreProcess(
-            *stateTracker,
-            *bd);
+        AddBuildAccel(
+            accel->PreProcess(
+                *stateTracker,
+                *bd,
+                false));
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->PreProcessStates(
-            *bd,
-            *stateTracker);
+        AddBuildAccel(
+            accel->PreProcessStates(
+                *bd,
+                *stateTracker,
+                //TODO: driver's bug, do not support update mesh's accel
+                false));
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->PreProcessStates(
-            *bd,
-            *stateTracker);
+        AddBuildAccel(
+            accel->PreProcessStates(
+                *bd,
+                *stateTracker,
+                false));
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
@@ -226,6 +241,8 @@ public:
     CommandBufferBuilder *bd;
     ResourceStateTracker *stateTracker;
     BufferView argBuffer;
+    Buffer const *accelScratchBuffer;
+    size_t *accelScratchOffsets;
     std::pair<size_t, size_t> *bufferVec;
     vstd::vector<BindProperty> bindProps;
     void visit(const BufferUploadCommand *cmd) noexcept override {
@@ -486,28 +503,33 @@ public:
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
             *stateTracker,
-            *bd, true);
+            *bd,
+            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
+        accelScratchOffsets++;
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
             *stateTracker,
-            *bd, false);
+            *bd,
+            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
+        accelScratchOffsets++;
     }
     void visit(const MeshUpdateCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
             *stateTracker,
-            //TODO: driver's bug, do not support update mesh's accel
-            false);
+            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
+        accelScratchOffsets++;
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
             *stateTracker,
-            false);
+            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
+        accelScratchOffsets++;
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
@@ -546,14 +568,23 @@ void LCCmdBuffer::Execute(
             device->globalHeap->GetHeap(),
             device->samplerHeap->GetHeap()};
         cmdBuilder.CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
-
         for (auto &&lst : c) {
             // Clear caches
             ppVisitor.argVecs.clear();
             ppVisitor.argBuffer.clear();
+            ppVisitor.accelOffset.clear();
+            ppVisitor.buildAccelSize = 0;
             // Preprocess: record resources' states
             for (auto &&i : lst)
                 i->accept(ppVisitor);
+            if (ppVisitor.buildAccelSize) {
+                auto accelScratchBuffer = allocator->AllocateScratchBuffer(ppVisitor.buildAccelSize);
+                ppVisitor.stateTracker->RecordState(
+                    accelScratchBuffer,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                visitor.accelScratchOffsets = ppVisitor.accelOffset.data();
+                visitor.accelScratchBuffer = accelScratchBuffer;
+            }
             // Upload CBuffers
             auto uploadBuffer = allocator->GetTempDefaultBuffer(ppVisitor.argBuffer.size(), 16);
             ppVisitor.stateTracker->RecordState(
