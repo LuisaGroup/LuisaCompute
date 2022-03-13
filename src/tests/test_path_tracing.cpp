@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda", {{"index", 1}});
+    auto device = context.create_device("ispc", {{"index", 1}});
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
