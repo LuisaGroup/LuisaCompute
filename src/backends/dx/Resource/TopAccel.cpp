@@ -239,6 +239,7 @@ void TopAccel::Build(
             uint3(setDesc.size(), 1, 1),
             properties);
         needUpdate = true;
+        setDesc.clear();
     }
     if (needUpdate) {
         tracker.RecordState(

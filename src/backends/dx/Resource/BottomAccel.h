@@ -7,13 +7,16 @@
 namespace toolhub::directx {
 
 class TopAccel;
+struct BottomAccelData {
+    D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomStruct;
+};
 class BottomAccel : public vstd::IOperatorNewBase {
     friend class TopAccel;
     vstd::optional<DefaultBuffer> accelBuffer;
     Device *device;
     Mesh mesh;
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC bottomStruct;
-    D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS hint;
 
 public:
     Mesh const *GetMesh() const { return &mesh; }
@@ -28,11 +31,13 @@ public:
     size_t PreProcessStates(
         CommandBufferBuilder &builder,
         ResourceStateTracker &tracker,
-        bool update);
+        bool update,
+        BottomAccelData &bottomData);
     void UpdateStates(
         CommandBufferBuilder &builder,
         ResourceStateTracker &tracker,
-        BufferView const& );
+        BufferView const &scratchBuffer,
+        BottomAccelData &accelData);
     ~BottomAccel();
 };
 }// namespace toolhub::directx

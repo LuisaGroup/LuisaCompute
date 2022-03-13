@@ -38,10 +38,11 @@ BottomAccel::BottomAccel(
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
         }
     };
-
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &bottomInput = bottomStruct.Inputs;
+    D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS bottomInput;
     bottomInput.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
     bottomInput.Flags = GetPreset();
+    this->hint = bottomInput.Flags;
     bottomInput.NumDescs = 1;
     bottomInput.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     bottomInput.pGeometryDescs = &geometryDesc;
@@ -54,7 +55,7 @@ BottomAccel::BottomAccel(
         &bottomLevelPrebuildInfo);
     accelBuffer.New(
         device,
-        CalcAlign(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, 65536),
+        bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes,
         device->defaultAllocator,
         D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 }
@@ -63,12 +64,14 @@ BottomAccel::~BottomAccel() {
 size_t BottomAccel::PreProcessStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker,
-    bool update) {
+    bool update,
+    BottomAccelData &bottomData) {
     mesh.Build(tracker);
-    
+    auto &&bottomStruct = bottomData.bottomStruct;
+    auto &&geometryDesc = bottomData.geometryDesc;
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &bottomInput = bottomStruct.Inputs;
     bottomInput.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-    bottomInput.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+    bottomInput.Flags = hint;
     bottomInput.NumDescs = 1;
     bottomInput.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     bottomInput.pGeometryDescs = &geometryDesc;
@@ -94,10 +97,12 @@ size_t BottomAccel::PreProcessStates(
 void BottomAccel::UpdateStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker,
-    BufferView const & scratchBuffer) {
-    bottomStruct.ScratchAccelerationStructureData = scratchBuffer.buffer->GetAddress() + scratchBuffer.offset;
+    BufferView const &scratchBuffer,
+    BottomAccelData &accelData) {
+    accelData.bottomStruct.ScratchAccelerationStructureData = scratchBuffer.buffer->GetAddress() + scratchBuffer.offset;
+    accelData.bottomStruct.Inputs.pGeometryDescs = &accelData.geometryDesc;
     builder.CmdList()->BuildRaytracingAccelerationStructure(
-        &bottomStruct,
+        &accelData.bottomStruct,
         0,
         nullptr);
 }
