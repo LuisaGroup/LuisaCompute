@@ -215,8 +215,8 @@ int main(int argc, char *argv[]) {
 
             $if(hit.inst == 3) {
                 auto bsdf_diff = make_float3(0.0f, 1.0f, 0.0f);
-                auto li = make_float3(1.0f, 1.0f, 1.0f);
-                radiance += beta * li * bsdf_diff;
+                auto Li = make_float3(1.0f, 1.0f, 1.0f);
+                radiance += beta * Li * bsdf_diff;
             };
 
             // sample BSDF

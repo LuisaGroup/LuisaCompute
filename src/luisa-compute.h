@@ -63,6 +63,7 @@
 #include <dsl/expr_traits.h>
 #include <dsl/func.h>
 #include <dsl/operators.h>
+#include <dsl/printer.h>
 #include <dsl/ref.h>
 #include <dsl/shared.h>
 #include <dsl/stmt.h>
