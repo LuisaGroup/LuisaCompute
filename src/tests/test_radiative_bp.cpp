@@ -296,7 +296,7 @@ int main(int argc, char *argv[]) {
         // calculate L2 loss
         auto rendered = rendered_image.read(coord);
         auto target = target_image.read(coord);
-        beta *= 2.0f * (rendered - target).xyz();
+        beta *= 2.0f * (rendered - target).xyz() / 255.f;
         printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, "), ");
         printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")\n");
 
