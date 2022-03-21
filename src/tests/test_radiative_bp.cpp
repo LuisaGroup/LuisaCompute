@@ -297,8 +297,8 @@ int main(int argc, char *argv[]) {
         auto rendered = rendered_image.read(coord);
         auto target = target_image.read(coord);
         beta *= 2.0f * (rendered - target).xyz() / 255.f;
-        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, "), ");
-        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")\n");
+        //        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, "), ");
+        //        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")\n");
 
         $for(depth, max_depth) {
             // trace
@@ -404,10 +404,10 @@ int main(int argc, char *argv[]) {
     auto rendered_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
-    std::vector<float> grad_vec(4u * resolution.x * resolution.y);
 
     auto target_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     auto grad_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    std::vector<float> grad_vec(4u * resolution.x * resolution.y);
 
     // load target image
     int x = resolution.x, y = resolution.y, c = 4;
@@ -441,23 +441,19 @@ int main(int argc, char *argv[]) {
         auto command_buffer = stream.command_buffer();
 
         // render
-        for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(rendered_image, seed_image,
-                                                accel, resolution)
-                                  .dispatch(resolution)
-                           << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution);
-        }
+        command_buffer << raytracing_shader(rendered_image, seed_image,
+                                            accel, resolution)
+                              .dispatch(resolution)
+                       << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution);
 
         // bp
-        for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << radiative_shader(ldr_image, target_image, grad_image,
-                                               seed_image, accel, resolution)
-                                  .dispatch(resolution);
-        }
+        command_buffer << radiative_shader(ldr_image, target_image, grad_image,
+                                           seed_image, accel, resolution)
+                              .dispatch(resolution);
         command_buffer << grad_image.copy_to(grad_vec.data());
 
         // display
-        command_buffer << ldr_image.copy_to(host_image.data())
+        command_buffer << target_image.copy_to(host_image.data())
                        << commit();
         stream << synchronize();
         window.set_background(host_image.data(), resolution);
