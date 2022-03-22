@@ -276,11 +276,11 @@ void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
 
 FunctionBuilder::~FunctionBuilder() noexcept
 {
-        LUISA_INFO("FunctionBuilder destructor called");
+        LUISA_VERBOSE("FunctionBuilder destructor called");
 }
 FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
     : _body{"__function_body"}, _hash{0ul}, _tag{tag} {
-        LUISA_INFO("FunctionBuilder constructor called");
+        LUISA_VERBOSE("FunctionBuilder constructor called");
     }
 
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
