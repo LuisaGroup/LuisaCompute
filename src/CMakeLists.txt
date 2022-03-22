@@ -69,6 +69,7 @@ target_link_libraries(luisa-compute INTERFACE
 #        luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)
 
+add_subdirectory(py)
 if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(tests)
 endif ()
