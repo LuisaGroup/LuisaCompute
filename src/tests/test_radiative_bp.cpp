@@ -296,9 +296,9 @@ int main(int argc, char *argv[]) {
         // calculate L2 loss
         auto rendered = rendered_image.read(coord);
         auto target = target_image.read(coord);
-        beta *= 2.0f * (rendered - target).xyz() / 255.f;
-        //        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, "), ");
-        //        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")\n");
+        beta *= 2.0f * (rendered - target).xyz();
+        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, "), ");
+        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")\n");
 
         $for(depth, max_depth) {
             // trace
@@ -453,7 +453,7 @@ int main(int argc, char *argv[]) {
         command_buffer << grad_image.copy_to(grad_vec.data());
 
         // display
-        command_buffer << target_image.copy_to(host_image.data())
+        command_buffer << ldr_image.copy_to(host_image.data())
                        << commit();
         stream << synchronize();
         window.set_background(host_image.data(), resolution);
@@ -474,13 +474,14 @@ int main(int argc, char *argv[]) {
                          grad_vec[index + 2u]};
             }
         grad /= float(resolution.x * resolution.y);
-        materials[differentiable_index].albedo -= learning_rate * grad;
+        auto &albedo = materials[differentiable_index].albedo;
+        albedo -= learning_rate * grad;
 
         std::cout << printer.retrieve(stream);
         LUISA_INFO("grad = ({}, {}, {}), "
                    "albedo = ({}, {}, {})",
                    grad.x, grad.y, grad.z,
-                   materials[differentiable_index].albedo.x, materials[differentiable_index].albedo.y, materials[differentiable_index].albedo.z);
+                   albedo.x, albedo.y, albedo.z);
     });
 
     stbi_write_png("test_radiative_bp.png", resolution.x, resolution.y, 4, host_image.data(), 0);
