@@ -297,8 +297,9 @@ int main(int argc, char *argv[]) {
         auto rendered = rendered_image.read(coord);
         auto target = target_image.read(coord);
         beta *= 2.0f * (rendered - target).xyz();
-        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, "), ");
-        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")\n");
+        //        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, "), ");
+        //        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")\n");
+        printer.log("beta = (", beta.x, ", ", beta.y, ", ", beta.z, ")\n");
 
         $for(depth, max_depth) {
             // trace
@@ -405,25 +406,15 @@ int main(int argc, char *argv[]) {
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
 
-    auto target_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
+    auto target_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     auto grad_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     std::vector<float> grad_vec(4u * resolution.x * resolution.y);
 
     // load target image
-    int x = resolution.x, y = resolution.y, c = 4;
-    auto target_uint8 = stbi_load("test_path_tracing.png", &x, &y, &c, 4);
-    //    Kernel2D load_target_kernel = [&]() {
-    //        auto coord = dispatch_id().xy();
-    //        auto index = (coord.x * resolution.x + coord.y) * 4u;
-    //        target_image.write(coord, make_float4(target_uint8[index + 0u],
-    //                                              target_uint8[index + 1u],
-    //                                              target_uint8[index + 2u],
-    //                                              1.0f));
-    //    };
-    //    auto load_target_shader = device.compile(load_target_kernel);
-    //    stream << load_target_shader().dispatch(resolution) << synchronize();
-    stream << target_image.copy_from(target_uint8) << synchronize();
-    delete target_uint8;
+    stream << raytracing_shader(target_image, seed_image,
+                                accel, resolution)
+                  .dispatch(resolution)
+           << synchronize();
 
     // pipeline
     Clock clock;
@@ -443,17 +434,17 @@ int main(int argc, char *argv[]) {
         // render
         command_buffer << raytracing_shader(rendered_image, seed_image,
                                             accel, resolution)
-                              .dispatch(resolution)
-                       << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution);
+                              .dispatch(resolution);
 
         // bp
-        command_buffer << radiative_shader(ldr_image, target_image, grad_image,
+        command_buffer << radiative_shader(rendered_image, target_image, grad_image,
                                            seed_image, accel, resolution)
                               .dispatch(resolution);
         command_buffer << grad_image.copy_to(grad_vec.data());
 
         // display
-        command_buffer << ldr_image.copy_to(host_image.data())
+        command_buffer << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution)
+                       << ldr_image.copy_to(host_image.data())
                        << commit();
         stream << synchronize();
         window.set_background(host_image.data(), resolution);

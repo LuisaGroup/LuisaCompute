@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     Kernel2D display_kernel = [&](ImageFloat image) {
         auto coord = dispatch_id().xy();
         auto num = image.read(coord);
-        printer.log("(", num.x, " ,", num.y, " ,", num.z, " ,", num.w, ")");
+        printer.log("(", num.x, ", ", num.y, ", ", num.z, ", ", num.w, ")");
     };
 
     auto display_shader = device.compile(display_kernel);
