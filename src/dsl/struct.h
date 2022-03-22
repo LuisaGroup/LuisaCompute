@@ -53,7 +53,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 #define LUISA_STRUCT(S, ...)                                                                  \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)                                                      \
     template<>                                                                                \
-    struct luisa_compute_struct_extension<S>;                                                 \
+    struct ::luisa_compute_struct_extension<S>;                                               \
     template<>                                                                                \
     struct luisa::compute::Expr<S> {                                                          \
     private:                                                                                  \
@@ -131,7 +131,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         }                                                                                     \
     };                                                                                        \
     template<>                                                                                \
-    struct luisa_compute_struct_extension<S> final : luisa::compute::detail::Ref<S>
+    struct ::luisa_compute_struct_extension<S> final : luisa::compute::detail::Ref<S>
 
 #define LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_DECL(m) \
     luisa::compute::Var<member_type_##m> m;
