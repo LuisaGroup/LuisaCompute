@@ -52,6 +52,19 @@ public:
         return *this;
     }
 
+    template<typename U>
+    Local &operator=(U &&rhs) noexcept {
+        constexpr auto n = array_expr_dimension_v<U>;
+        LUISA_ASSERT(
+            _size == n,
+            "Incompatible sizes ({} and {}).",
+            _size, n);
+        for (auto i = 0u; i < n; i++) {
+            (*this)[i] = rhs[i];
+        }
+        return *this;
+    }
+
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto size() const noexcept { return _size; }
 
