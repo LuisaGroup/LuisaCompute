@@ -274,8 +274,14 @@ void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
     _variable_usages[uid] = u;
 }
 
+FunctionBuilder::~FunctionBuilder() noexcept
+{
+        LUISA_INFO("FunctionBuilder destructor called");
+}
 FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
-    : _body{"__function_body"}, _hash{0ul}, _tag{tag} {}
+    : _body{"__function_body"}, _hash{0ul}, _tag{tag} {
+        LUISA_INFO("FunctionBuilder constructor called");
+    }
 
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
