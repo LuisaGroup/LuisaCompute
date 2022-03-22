@@ -19,15 +19,18 @@ int add(int i, int j) {
 
 PYBIND11_DECLARE_HOLDER_TYPE(T, eastl::shared_ptr<T>);
 
+
+// Note: declare pointer & base class;
+// use reference policy when python shouldn't destroy returned object
+
 PYBIND11_MODULE(lcapi, m) {
     m.doc() = "pybind11 example plugin"; // optional module docstring
     m.def("add", &add, "A function that adds two numbers");
-
+    // log
     m.def("log_level_verbose", luisa::log_level_verbose);
     m.def("log_level_info", luisa::log_level_info);
     m.def("log_level_warning", luisa::log_level_warning);
     m.def("log_level_error", luisa::log_level_error);
-
 
     py::class_<std::filesystem::path>(m, "FsPath")
         .def(py::init<std::string>());
@@ -44,7 +47,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("add", [](Stream& self, ShaderDispatchCommand* cmd){self<<cmd;});
 
 
-
+    // AST (FunctionBuilder)
     py::class_<Function>(m, "Function");
     py::class_<FunctionBuilder, eastl::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
         .def("define_kernel", &FunctionBuilder::define_kernel<const std::function<void()> &>)
@@ -52,7 +55,8 @@ PYBIND11_MODULE(lcapi, m) {
         .def("function", &FunctionBuilder::function);
     m.def("builder", &FunctionBuilder::current, py::return_value_policy::reference);
 
+    // commands
     py::class_<ShaderDispatchCommand>(m, "ShaderDispatchCommand")
-        .def(py::init<uint64_t, Function>())
+        .def("create", [](uint64_t handle, Function func){return ShaderDispatchCommand::create(handle, func);}, py::return_value_policy::reference)
         .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});});
 }
