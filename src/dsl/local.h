@@ -31,9 +31,8 @@ public:
     Local(Local &&) noexcept = default;
     Local(const Local &another) noexcept
         : _expression{another._expression}, _size{another._size} {
-        for (auto i = 0u; i < _size; i++) {
-            (*this)[i] = another[i];
-        }
+        detail::FunctionBuilder::current()->assign(
+            _expression, another._expression);
     }
     Local &operator=(const Local &rhs) noexcept {
         if (&rhs != this) [[likely]] {
@@ -41,9 +40,8 @@ public:
                 _size == rhs._size,
                 "Incompatible sizes ({} and {}).",
                 _size, rhs._size);
-            for (auto i = 0u; i < _size; i++) {
-                (*this)[i] = rhs[i];
-            }
+            detail::FunctionBuilder::current()->assign(
+                _expression, rhs._expression);
         }
         return *this;
     }
@@ -53,15 +51,11 @@ public:
     }
 
     template<typename U>
-    Local &operator=(U &&rhs) noexcept {
+    requires is_array_expr_v<U> Local &operator=(U &&rhs) noexcept {
         constexpr auto n = array_expr_dimension_v<U>;
-        LUISA_ASSERT(
-            _size == n,
-            "Incompatible sizes ({} and {}).",
-            _size, n);
-        for (auto i = 0u; i < n; i++) {
-            (*this)[i] = rhs[i];
-        }
+        LUISA_ASSERT(_size == n, "Incompatible sizes ({} and {}).", _size, n);
+        detail::FunctionBuilder::current()->assign(
+            _expression, rhs._expression);
         return *this;
     }
 
