@@ -51,10 +51,14 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device("cuda");
     Printer printer{device};
 
+    std::filesystem::path output_dir{"frames"};
+    std::filesystem::remove_all(output_dir);
+    std::filesystem::create_directories(output_dir);
+
     // settings
     static constexpr uint differentiable_index = 4u;
     static constexpr uint max_depth = 10u;
-    static constexpr float learning_rate = 0.01f;
+    static constexpr float learning_rate = pi;
     static constexpr uint spp_per_dispatch = 256u;
 
     // load the Cornell Box scene
@@ -132,10 +136,14 @@ int main(int argc, char *argv[]) {
     // right cbox
     stream << material_buffer[0].copy_from(materials.data())
            << synchronize();
+    LUISA_INFO("target albedo = ({}, {}, {})",
+               materials[4].albedo.x, materials[4].albedo.y, materials[4].albedo.z);
     // left wall green cbox
     materials[4] = materials[3];
     stream << material_buffer[1].copy_from(materials.data())
            << synchronize();
+    LUISA_INFO("start with albedo = ({}, {}, {})",
+               materials[4].albedo.x, materials[4].albedo.y, materials[4].albedo.z);
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -194,7 +202,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt material_index) noexcept {
+    auto raytracing_kernel_template = [&](size_t material_buffer_id, ImageFloat &image, ImageUInt &seed_image, AccelVar &accel, UInt2 resolution) noexcept {
         set_block_size(8u, 8u, 1u);
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
@@ -214,7 +222,6 @@ int main(int argc, char *argv[]) {
         auto light_normal = normalize(cross(light_u, light_v));
 
         $for(depth, max_depth) {
-
             // trace
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
@@ -227,14 +234,13 @@ int main(int argc, char *argv[]) {
             auto cos_wi = dot(-ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
 
-            uint64_t material_index_uint64;
-            $if(material_index == 1u) {
-                material_index_uint64 = 1u;
-            }
-            $else {
-                material_index_uint64 = 0u;
-            };
-            auto material = material_buffer[material_index_uint64].read(hit.inst);
+            auto material = material_buffer[material_buffer_id].read(hit.inst);
+            //            $if(material_buffer_id == 1u & hit.inst == differentiable_index) {
+            //                //                printer.log("material_index_uint64 = ", (int)material_index_uint64);
+            //                printer.log("material.albedo = (", material.albedo.x, ", ", material.albedo.y, ", ", material.albedo.z, ")");
+            //                auto material_diff = material_buffer[1u].read(hit.inst);
+            //                printer.log("material_diff.albedo = (", material_diff.albedo.x, ", ", material_diff.albedo.y, ", ", material_diff.albedo.z, ")");
+            //            };
 
             // hit light
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -290,7 +296,7 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D radiative_kernel = [&](ImageFloat rendered_image, ImageFloat target_image, ImageFloat grad_image,
-                                    ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt material_index) noexcept {
+                                    ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(8u, 8u, 1u);
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
@@ -332,14 +338,7 @@ int main(int argc, char *argv[]) {
             auto cos_wi = dot(-ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
 
-            uint64_t material_index_uint64;
-            $if(material_index == 1u) {
-                material_index_uint64 = 1u;
-            }
-            $else {
-                material_index_uint64 = 0u;
-            };
-            auto material = material_buffer[material_index_uint64].read(hit.inst);
+            auto material = material_buffer[1u].read(hit.inst);
 
             // hit light
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -427,7 +426,14 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
-    auto raytracing_shader = device.compile(raytracing_kernel);
+    auto raytracing_shader_0 = device.compile<2>(
+        [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+            raytracing_kernel_template(0, image, seed_image, accel, resolution);
+        });
+    auto raytracing_shader_1 = device.compile<2>(
+        [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+            raytracing_kernel_template(1, image, seed_image, accel, resolution);
+        });
     auto radiative_shader = device.compile(radiative_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
     auto copy_shader = device.compile(copy_kernel);
@@ -451,8 +457,7 @@ int main(int argc, char *argv[]) {
     // render target image
     stream << clear_shader(target_image).dispatch(resolution);
     for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
-        stream << raytracing_shader(buffer_image, seed_image,
-                                    accel, resolution, 0u)
+        stream << raytracing_shader_0(buffer_image, seed_image, accel, resolution)
                       .dispatch(resolution)
                << accumulate_shader(target_image, buffer_image).dispatch(resolution)
                << synchronize();
@@ -466,6 +471,7 @@ int main(int argc, char *argv[]) {
         }
     });
     auto frame_count = 0u;
+    auto output_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
 
@@ -475,8 +481,8 @@ int main(int argc, char *argv[]) {
 
         // render
         for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
-            command_buffer << raytracing_shader(buffer_image, seed_image,
-                                                accel, resolution, 1u)
+            command_buffer << raytracing_shader_1(buffer_image, seed_image,
+                                                  accel, resolution)
                                   .dispatch(resolution)
                            << accumulate_shader(rendered_image, buffer_image).dispatch(resolution)
                            << synchronize();
@@ -485,7 +491,7 @@ int main(int argc, char *argv[]) {
         // bp
         for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
             command_buffer << radiative_shader(rendered_image, target_image, buffer_image,
-                                               seed_bank_image, accel, resolution, 1u)
+                                               seed_bank_image, accel, resolution)
                                   .dispatch(resolution)
                            << accumulate_shader(grad_image, buffer_image).dispatch(resolution)
                            << synchronize();
@@ -516,6 +522,8 @@ int main(int argc, char *argv[]) {
                        << ldr_image.copy_to(host_image.data())
                        << commit();
         stream << synchronize();
+        auto file_name = output_dir / luisa::format("{:06}.png", output_count++);
+        stbi_write_png(file_name.string().c_str(), resolution.x, resolution.y, 4, host_image.data(), 0);
         window.set_background(host_image.data(), resolution);
         framerate.record(spp_per_dispatch);
         frame_count += spp_per_dispatch;
