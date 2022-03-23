@@ -18,7 +18,7 @@ namespace luisa::compute {
 class Device;
 class Stream;
 
-class Printer {
+class LC_DSL_API Printer {
 
 public:
     struct Descriptor {

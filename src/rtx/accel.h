@@ -14,7 +14,7 @@
 
 namespace luisa::compute {
 
-class Accel final : public Resource {
+class LC_RTX_API Accel final : public Resource {
 
 public:
     class RebuildObserver : public Observer {

@@ -16,7 +16,7 @@ namespace luisa::compute {
 
 class Device;
 
-class Context {
+class LC_RUNTIME_API Context {
 
 private:
     struct Impl;

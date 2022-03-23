@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class Resource {
+class LC_RUNTIME_API Resource {
 
 public:
     enum struct Tag : uint32_t {

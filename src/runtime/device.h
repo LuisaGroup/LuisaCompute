@@ -46,7 +46,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class Device {
+class LC_RUNTIME_API Device {
 
 public:
     class Interface : public luisa::enable_shared_from_this<Interface> {

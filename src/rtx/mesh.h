@@ -20,7 +20,7 @@ struct Triangle {
 
 class Accel;
 
-class Mesh : public Resource {
+class LC_RTX_API Mesh : public Resource {
 
 private:
     luisa::shared_ptr<Subject> _subject;

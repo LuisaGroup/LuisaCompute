@@ -4,7 +4,7 @@
 #include <EASTL/shared_ptr.h>
 #include <span>
 class ThreadPool;
-class VENGINE_DLL_COMMON ThreadTaskHandle {
+class LC_VSTL_API ThreadTaskHandle {
     friend class ThreadPool;
 
 public:
@@ -16,7 +16,7 @@ public:
     };
 
 private:
-    struct VENGINE_DLL_COMMON TaskData {
+    struct LC_VSTL_API TaskData {
         std::atomic_uint8_t state;
         vstd::function<void()> func;
         //ThreadPool Set

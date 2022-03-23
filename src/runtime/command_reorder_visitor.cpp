@@ -278,7 +278,7 @@ void CommandReorderVisitor::clear() {
     meshMap.Clear();
     accelMaxLayer = -1;
     bindlessMaxLayer = -1;
-    eastl::span<CommandList> sp(commandLists.data(), layerCount);
+    luisa::span<CommandList> sp(commandLists.data(), layerCount);
     for (auto &&i : sp) {
         i.clear();
     }

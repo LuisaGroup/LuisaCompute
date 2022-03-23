@@ -24,8 +24,8 @@ inline void vengine_free(void *ptr) {
 inline void *vengine_realloc(void *ptr, size_t size) {
     return luisa::detail::allocator_reallocate(ptr, size, 0);
 }
-VENGINE_DLL_COMMON void VEngine_Log(std::type_info const &t);
-VENGINE_DLL_COMMON void VEngine_Log(char const *chunk);
+LC_VSTL_API void VEngine_Log(std::type_info const &t);
+LC_VSTL_API void VEngine_Log(char const *chunk);
 #define VE_SUB_TEMPLATE template<typename...> \
 class
 namespace vstd {

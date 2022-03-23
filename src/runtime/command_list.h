@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class CommandList : concepts::Noncopyable {
+class LC_RUNTIME_API CommandList : concepts::Noncopyable {
 
 private:
     luisa::vector<Command *> _commands;

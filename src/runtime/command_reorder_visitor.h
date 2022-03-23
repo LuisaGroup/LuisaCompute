@@ -32,7 +32,7 @@ class CommandReorderVisitor : public CommandVisitor {
     vstd::HashMap<uint64_t, ResourceMeshHandle *> meshMap;
     int64_t accelMaxLayer = -1;
     int64_t bindlessMaxLayer = -1;
-    eastl::vector<CommandList> commandLists;
+    luisa::vector<CommandList> commandLists;
     size_t layerCount = 0;
     bool useAccelInPass;
     bool useBindlessInPass;
@@ -57,8 +57,8 @@ class CommandReorderVisitor : public CommandVisitor {
         uint64_t handle,
         uint64_t vb,
         uint64_t ib);
-    eastl::vector<ResourceHandle *> dispatchReadHandle;
-    eastl::vector<ResourceHandle *> dispatchWriteHandle;
+    luisa::vector<ResourceHandle *> dispatchReadHandle;
+    luisa::vector<ResourceHandle *> dispatchWriteHandle;
     Variable const *arg;
     Function f;
     size_t dispatchLayer;
@@ -69,7 +69,7 @@ class CommandReorderVisitor : public CommandVisitor {
     Device::Interface *device = nullptr;
 
 public:
-    eastl::span<CommandList const> command_lists() const {
+    luisa::span<CommandList const> command_lists() const {
         return {commandLists.data(), layerCount};
     }
     CommandReorderVisitor(Device::Interface *device);

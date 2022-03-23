@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class ResourceTracker {
+class LC_RUNTIME_API ResourceTracker {
 
 private:
     luisa::unordered_map<uint64_t, size_t> _buffer_ref_count;

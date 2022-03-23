@@ -12,7 +12,7 @@ namespace luisa::compute {
 class Command;
 class Stream;
 
-class CommandBuffer {
+class LC_RUNTIME_API CommandBuffer {
 
 public:
     struct Commit {};
