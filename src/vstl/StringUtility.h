@@ -7,7 +7,7 @@
 #include <span>
 namespace vstd {
 
-struct VENGINE_DLL_COMMON CharSplitIterator {
+struct LC_VSTL_API CharSplitIterator {
     char const *curPtr;
     char const *endPtr;
     char sign;
@@ -16,7 +16,7 @@ struct VENGINE_DLL_COMMON CharSplitIterator {
     void operator++();
     bool operator==(IteEndTag) const;
 };
-struct VENGINE_DLL_COMMON StrVSplitIterator {
+struct LC_VSTL_API StrVSplitIterator {
     char const *curPtr;
     char const *endPtr;
     std::string_view sign;
@@ -39,7 +39,7 @@ struct StrvIEnumerator {
         return {};
     }
 };
-class VENGINE_DLL_COMMON StringUtil {
+class LC_VSTL_API StringUtil {
 private:
     StringUtil() = delete;
     KILL_COPY_CONSTRUCT(StringUtil)

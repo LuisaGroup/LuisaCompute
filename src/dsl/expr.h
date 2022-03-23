@@ -525,7 +525,7 @@ public:
     }
 };
 
-class BindlessTexture2D {
+class LC_AST_API BindlessTexture2D {
 
 private:
     const RefExpr *_array{nullptr};
@@ -554,7 +554,7 @@ public:
     }
 };
 
-class BindlessTexture3D {
+class LC_AST_API BindlessTexture3D {
 
 private:
     const RefExpr *_array{nullptr};

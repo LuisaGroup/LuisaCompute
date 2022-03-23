@@ -15,7 +15,7 @@
 
 namespace luisa::compute {
 
-class Stream final : public Resource {
+class LC_RUNTIME_API Stream final : public Resource {
 
 public:
     struct Synchronize {};

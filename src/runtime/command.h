@@ -96,7 +96,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
     LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)
 
-class Command {
+class LC_RUNTIME_API Command {
 
 protected:
     virtual void _recycle() noexcept = 0;
@@ -334,7 +334,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class ShaderDispatchCommand final : public Command {
+class LC_RUNTIME_API ShaderDispatchCommand final : public Command {
 
 public:
     struct alignas(16) Argument {

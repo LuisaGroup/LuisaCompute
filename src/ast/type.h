@@ -256,7 +256,7 @@ struct TypeVisitor {
 class AstSerializer;
 
 /// Type class
-class Type {
+class LC_AST_API Type {
 
 public:
     friend class AstSerializer;

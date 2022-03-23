@@ -41,7 +41,7 @@ class Accel;
 namespace detail {
 
 /// Type registry class
-class TypeRegistry {
+class LC_AST_API TypeRegistry {
 
 private:
     /// Hash

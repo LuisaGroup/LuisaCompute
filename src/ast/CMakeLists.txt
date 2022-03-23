@@ -10,8 +10,8 @@ set(LUISA_COMPUTE_AST_SOURCES
         constant_data.cpp constant_data.h
         usage.h
         op.h op.cpp)
-
 add_library(luisa-compute-ast SHARED ${LUISA_COMPUTE_AST_SOURCES})
+target_compile_definitions(luisa-compute-ast PRIVATE LC_AST_EXPORT_DLL=1)
 target_link_libraries(luisa-compute-ast PUBLIC luisa-compute-core luisa-compute-ext luisa-compute-vstl luisa-compute-meta)
 set_target_properties(luisa-compute-ast PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON

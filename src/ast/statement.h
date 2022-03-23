@@ -17,7 +17,7 @@ struct StmtVisitor;
  * @brief Base statement class
  * 
  */
-class Statement : public concepts::Noncopyable {
+class LC_AST_API Statement : public concepts::Noncopyable {
     friend class AstSerializer;
 
 public:

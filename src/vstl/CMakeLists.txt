@@ -46,6 +46,7 @@ vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
 target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core)
+target_compile_definitions(luisa-compute-vstl PRIVATE LC_VSTL_EXPORT_DLL=1)
 set_target_properties(luisa-compute-vstl PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ON)

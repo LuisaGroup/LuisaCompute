@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/Common.h>
 #include <EASTL/vector.h>
-class VENGINE_DLL_COMMON BinaryReader
+class LC_VSTL_API BinaryReader
 {
 private:
 	struct FileSystemData

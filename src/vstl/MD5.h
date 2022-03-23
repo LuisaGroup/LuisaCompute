@@ -4,10 +4,10 @@
 namespace vstd {
 static constexpr size_t MD5_SIZE = 16;
 
-VENGINE_DLL_COMMON std::array<uint8_t, MD5_SIZE> GetMD5FromString(string const& str);
-VENGINE_DLL_COMMON std::array<uint8_t, MD5_SIZE> GetMD5FromArray(eastl::span<uint8_t> data);
+LC_VSTL_API std::array<uint8_t, MD5_SIZE> GetMD5FromString(string const& str);
+LC_VSTL_API std::array<uint8_t, MD5_SIZE> GetMD5FromArray(eastl::span<uint8_t> data);
 //Used for unity
-class VENGINE_DLL_COMMON MD5 {
+class LC_VSTL_API MD5 {
 public:
 	struct MD5Data {
 		uint64 data0;

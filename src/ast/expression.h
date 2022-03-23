@@ -32,7 +32,7 @@ class FunctionBuilder;
  * @brief Base expression class
  * 
  */
-class Expression : public concepts::Noncopyable {
+class LC_AST_API Expression : public concepts::Noncopyable {
     friend class AstSerializer;
 
 public:

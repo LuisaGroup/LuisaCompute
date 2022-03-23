@@ -6,7 +6,7 @@ public:
 	virtual uint64 Allocate(uint64 size) = 0;
 	virtual void DeAllocate(uint64 handle) = 0;
 };
-class VENGINE_DLL_COMMON StackAllocator {
+class LC_VSTL_API StackAllocator {
 	StackAllocatorVisitor* visitor;
 	uint64 capacity;
 	struct Buffer {
