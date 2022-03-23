@@ -100,9 +100,9 @@ class Command {
 
 protected:
     virtual void _recycle() noexcept = 0;
-    ~Command() noexcept = default;
 
 public:
+    virtual ~Command() noexcept = default;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
     [[nodiscard]] virtual Command *clone() const noexcept = 0;
