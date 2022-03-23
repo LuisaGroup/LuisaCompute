@@ -12,7 +12,7 @@ namespace luisa {
 
 class Subject;
 
-class Observer {
+class LC_CORE_API Observer {
 
 private:
     luisa::vector<luisa::shared_ptr<Subject>> _subjects;

@@ -13,7 +13,7 @@ namespace luisa::compute {
  * @brief A class to mark dirty range.
  * Dirty range = [offset, offset + size)
  */
-class DirtyRange {
+class LC_CORE_API DirtyRange {
 
 private:
     size_t _offset{};
