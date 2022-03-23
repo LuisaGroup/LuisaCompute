@@ -9,7 +9,7 @@
 
 namespace luisa {
 
-class FirstFit {
+class LC_CORE_API FirstFit {
 
 public:
     class Node {

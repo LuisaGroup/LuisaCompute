@@ -48,10 +48,10 @@ template<typename... Args>
     std::abort();
 }
 
-void log_level_verbose() noexcept;
-void log_level_info() noexcept;
-void log_level_warning() noexcept;
-void log_level_error() noexcept;
+LC_CORE_API void log_level_verbose() noexcept;
+LC_CORE_API void log_level_info() noexcept;
+LC_CORE_API void log_level_warning() noexcept;
+LC_CORE_API void log_level_error() noexcept;
 
 }// namespace luisa
 

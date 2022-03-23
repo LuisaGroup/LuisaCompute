@@ -8,7 +8,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
-
+#include <core/dll_export.h>
 #include <fmt/format.h>
 
 #include <EASTL/bit.h>
@@ -43,9 +43,9 @@
 namespace luisa {
 
 namespace detail {
-void *allocator_allocate(size_t size, size_t alignment) noexcept;
-void allocator_deallocate(void *p, size_t alignment) noexcept;
-void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept;
+LC_CORE_API void *allocator_allocate(size_t size, size_t alignment) noexcept;
+LC_CORE_API void allocator_deallocate(void *p, size_t alignment) noexcept;
+LC_CORE_API void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept;
 }// namespace detail
 
 template<typename T = std::byte>
