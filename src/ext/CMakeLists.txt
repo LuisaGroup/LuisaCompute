@@ -30,7 +30,6 @@ add_library(asio INTERFACE)
 target_include_directories(asio INTERFACE asio/asio/include)
 target_compile_definitions(asio INTERFACE
         ASIO_STANDALONE=1
-        ASIO_DYN_LINK=1
         ASIO_HAS_STD_INVOKE_RESULT=1
         ASIO_NO_EXCEPTIONS=1)
 if (WIN32)
