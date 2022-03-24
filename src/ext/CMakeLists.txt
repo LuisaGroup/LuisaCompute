@@ -31,7 +31,8 @@ target_include_directories(asio PUBLIC asio/asio/include)
 target_compile_definitions(asio PUBLIC
         ASIO_STANDALONE=1
         ASIO_DYN_LINK=1
-        ASIO_HAS_STD_INVOKE_RESULT=1)
+        ASIO_HAS_STD_INVOKE_RESULT=1
+        ASIO_NO_EXCEPTIONS=1)
 if (WIN32)
     target_compile_definitions(asio PUBLIC _WIN32_WINNT=0x0A00)
     target_link_libraries(asio PUBLIC ws2_32 wsock32 bcrypt)
