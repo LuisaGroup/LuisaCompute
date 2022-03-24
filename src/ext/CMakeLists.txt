@@ -26,16 +26,16 @@ target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 set_target_properties(xxhash PROPERTIES UNITY_BUILD ON)
 target_link_libraries(luisa-compute-ext INTERFACE xxhash)
 
-add_library(asio SHARED asio/asio/src/asio.cpp)
-target_include_directories(asio PUBLIC asio/asio/include)
-target_compile_definitions(asio PUBLIC
+add_library(asio INTERFACE)
+target_include_directories(asio INTERFACE asio/asio/include)
+target_compile_definitions(asio INTERFACE
         ASIO_STANDALONE=1
         ASIO_DYN_LINK=1
         ASIO_HAS_STD_INVOKE_RESULT=1
         ASIO_NO_EXCEPTIONS=1)
 if (WIN32)
-    target_compile_definitions(asio PUBLIC _WIN32_WINNT=0x0A00)
-    target_link_libraries(asio PUBLIC ws2_32 wsock32 bcrypt)
+    target_compile_definitions(asio INTERFACE _WIN32_WINNT=0x0A00)
+    target_link_libraries(asio INTERFACE ws2_32 wsock32 bcrypt)
 endif ()
 target_link_libraries(luisa-compute-ext INTERFACE asio)
 
