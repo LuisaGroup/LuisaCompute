@@ -25,6 +25,11 @@ int main(int argc, char *argv[]) {
 
     auto shader = device.impl()->create_shader(_builder->function(), {});
 
+    std::cout << Type::of<float3>()->description() << "\n";
+
+    LiteralExpr(Type::of<int>(), 3);
+    LiteralExpr(Type::of<bool>(), false);
+    LiteralExpr(Type::of<float3>(), make_float3(0.4f));
 
     // Kernel1D k1 = [] {
     //     auto a = def(2);
