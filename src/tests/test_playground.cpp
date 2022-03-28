@@ -31,6 +31,18 @@ struct WithoutLayouts {};
 static_assert(test<WithLayouts>::value);
 static_assert(!test<WithoutLayouts>::value);
 
+template<typename T, typename Serializer>
+concept has_member_function_serialize = requires(T t) {
+    { t.serialize(std::declval<Serializer>()) } -> std::same_as<void>;
+};
+
+struct WithSerialize {
+    template<typename T>
+    void serialize(T) const noexcept {}
+};
+
+static_assert(has_member_function_serialize<WithSerialize, WithSerialize>);
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();

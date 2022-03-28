@@ -307,33 +307,13 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
-    if (call_op == CallOp::CUSTOM) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Custom functions are not allowed to "
-            "be called with enum CallOp.");
-    }
-    if (call_op == CallOp::TRACE_ANY ||
-        call_op == CallOp::TRACE_CLOSEST) {
-        _raytracing = true;
-    }
-    _used_builtin_callables.mark(call_op);
-    return _create_expression<CallExpr>(type, call_op, args);
+    luisa::vector<const Expression *> arg_list{args};
+    return call(type, call_op, arg_list);
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::initializer_list<const Expression *> args) noexcept {
-    if (custom.tag() != Function::Tag::CALLABLE) {
-        LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
-    }
-    if (custom.raytracing()) { _raytracing = true; }
-    auto expr = _create_expression<CallExpr>(type, custom, args);
-    if (auto iter = std::find_if(
-            _used_custom_callables.cbegin(),
-            _used_custom_callables.cend(),
-            [c = custom.builder()](auto &&p) noexcept { return c == p.get(); });
-        iter == _used_custom_callables.cend()) {
-        _used_custom_callables.emplace_back(custom.shared_builder());
-    }
-    return expr;
+    luisa::vector<const Expression *> arg_list{args};
+    return call(type, custom, arg_list);
 }
 
 void FunctionBuilder::call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
