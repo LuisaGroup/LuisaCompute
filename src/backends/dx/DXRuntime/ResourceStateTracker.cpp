@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <Resource/Resource.h>

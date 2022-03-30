@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
@@ -12,6 +12,15 @@ void CommandAllocator::Execute(
         &cmdList);
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
 }
+void CommandAllocator::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain) {
+    ID3D12CommandList *cmdList = cbuffer->CmdList();
+    queue->Queue()->ExecuteCommandLists(
+        1,
+        &cmdList);
+    ThrowIfFailed(swapchain->Present(0, 0));
+    ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
+}
+
 void CommandAllocator::Complete(
     CommandQueue *queue,
     ID3D12Fence *fence,

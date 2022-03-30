@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/Mesh.h>
 #include <Resource/Buffer.h>
 #include <Resource/DescriptorHeap.h>

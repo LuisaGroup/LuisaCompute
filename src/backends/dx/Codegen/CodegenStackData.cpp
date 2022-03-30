@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Codegen/CodegenStackData.h>
 namespace toolhub::directx {
 CodegenStackData::CodegenStackData()

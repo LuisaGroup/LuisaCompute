@@ -23,6 +23,7 @@ class Context;
 
 class Event;
 class Stream;
+class DisplayStream;
 class Mesh;
 class Accel;
 class BindlessArray;
@@ -92,6 +93,13 @@ public:
         [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_display_stream(
+            uint64_t window_handle,
+            uint32_t width,
+            uint32_t height) noexcept = 0;
+        virtual void destroy_display_stream(uint64_t handle) noexcept = 0;
+        virtual void synchronize_display_stream(uint64_t stream_handle) noexcept = 0;
+        virtual void present_display_stream(uint64_t stream_handle, uint64_t texture) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, const CommandList &list) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, const CommandList &list, luisa::move_only_function<void()> &&func) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
@@ -111,6 +119,8 @@ public:
         virtual void destroy_event(uint64_t handle) noexcept = 0;
         virtual void signal_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
         virtual void wait_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
+        virtual void signal_display_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
+        virtual void wait_display_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
         // accel
@@ -152,7 +162,11 @@ public:
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
     [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;  // see definition in runtime/event.cpp
+    [[nodiscard]] DisplayStream create_display_stream(
+        uint64_t window_handle,
+        uint32_t width,
+        uint32_t height) noexcept;              // see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;// see definition in runtime/event.cpp
 
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(

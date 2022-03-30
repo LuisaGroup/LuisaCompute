@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/Device.h>

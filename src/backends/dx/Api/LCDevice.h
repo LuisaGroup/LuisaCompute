@@ -37,16 +37,23 @@ public:
     void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
+    void present_display_stream(uint64_t stream_handle, uint64_t texture) noexcept override;
 
     // stream
     uint64_t create_stream() noexcept override;
+    uint64_t create_display_stream(
+        uint64 window_handle,
+        uint width,
+        uint height) noexcept override;
 
     void destroy_stream(uint64_t handle) noexcept override;
+    void destroy_display_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
+    void synchronize_display_stream(uint64_t stream_handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList const &) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList const &, luisa::move_only_function<void()> &&callback) noexcept override;
-    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept;
-    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists, luisa::move_only_function<void()> &&callback) noexcept;
+    void dispatch(uint64_t stream_handle, vstd::span<const CommandList> lists) noexcept override;
+    void dispatch(uint64_t stream_handle, vstd::span<const CommandList> lists, luisa::move_only_function<void()> &&callback) noexcept override;
     void *stream_native_handle(uint64_t handle) const noexcept override;
 
     // kernel
@@ -59,7 +66,8 @@ public:
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
-
+    void signal_display_event(uint64_t handle, uint64_t stream_handle) noexcept override;
+    void wait_display_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     // accel
     uint64_t create_mesh(
         uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,

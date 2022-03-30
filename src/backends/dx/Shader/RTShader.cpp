@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Shader/RTShader.h>
 #include <DXRuntime/CommandBuffer.h>
 namespace toolhub::directx {

@@ -11,7 +11,8 @@ public:
 		RenderTexture,
 		DescriptorHeap,
 		BindlessArray,
-		Mesh
+		Mesh,
+		SwapChain,
 	};
 
 protected:

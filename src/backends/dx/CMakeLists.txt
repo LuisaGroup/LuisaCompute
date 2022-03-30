@@ -4,6 +4,7 @@ if (WIN32)
 Api/LCCmdBuffer.cpp
 Api/LCDevice.cpp
 Api/LCEvent.cpp
+Api/LCDisplayCmdBuffer.cpp
 Codegen/ArgumentPacker.cpp
 Codegen/CodegenStackData.cpp
 Codegen/DxCodegen.cpp
@@ -41,6 +42,7 @@ Shader/ShaderSerializer.cpp
 Api/LCCmdBuffer.h
 Api/LCDevice.h
 Api/LCEvent.h
+Api/LCDisplayCmdBuffer.h
 Codegen/ArgumentPacker.h
 Codegen/CodegenStackData.h
 Codegen/DxCodegen.h
